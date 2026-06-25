@@ -52,9 +52,13 @@ export interface AcpRunEntry {
    * Indexed in `byToolUseId`. Optional — older daemons omit it.
    */
   parentToolUseId?: string;
-  inputTokens: number;
-  outputTokens: number;
-  totalCost: number;
+  /** Tokens currently in the agent's context window. */
+  usedTokens: number;
+  /** Size of the agent's context window. */
+  contextSize: number;
+  /** Cumulative cost reported by the agent, when available. */
+  costAmount?: number;
+  costCurrency?: string;
   events: AcpRunRawEvent[];
 }
 
@@ -116,9 +120,10 @@ export interface AcpRunActions {
 
   updateUsage: (params: {
     acpSessionId: string;
-    inputTokens: number;
-    outputTokens: number;
-    totalCost: number;
+    usedTokens: number;
+    contextSize: number;
+    costAmount?: number;
+    costCurrency?: string;
   }) => void;
 
   /**
@@ -236,9 +241,10 @@ function mergeHistoryEntry(
     stopReason: incoming.stopReason ?? existing.stopReason,
     error: incoming.error ?? existing.error,
     completedAt: incoming.completedAt ?? existing.completedAt,
-    inputTokens: incoming.inputTokens || existing.inputTokens,
-    outputTokens: incoming.outputTokens || existing.outputTokens,
-    totalCost: incoming.totalCost || existing.totalCost,
+    usedTokens: incoming.usedTokens || existing.usedTokens,
+    contextSize: incoming.contextSize || existing.contextSize,
+    costAmount: incoming.costAmount ?? existing.costAmount,
+    costCurrency: incoming.costCurrency ?? existing.costCurrency,
     task: existing.task ?? incoming.task,
     parentToolUseId: existing.parentToolUseId ?? incoming.parentToolUseId,
   };
@@ -304,9 +310,8 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
       status: "running",
       startedAt: params.startedAt,
       parentToolUseId: params.parentToolUseId,
-      inputTokens: 0,
-      outputTokens: 0,
-      totalCost: 0,
+      usedTokens: 0,
+      contextSize: 0,
       events: [],
     };
 
@@ -404,9 +409,10 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
         ...byId,
         [params.acpSessionId]: {
           ...existing,
-          inputTokens: params.inputTokens,
-          outputTokens: params.outputTokens,
-          totalCost: params.totalCost,
+          usedTokens: params.usedTokens,
+          contextSize: params.contextSize,
+          costAmount: params.costAmount,
+          costCurrency: params.costCurrency,
         },
       },
     });

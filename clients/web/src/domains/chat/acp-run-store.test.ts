@@ -67,9 +67,10 @@ describe("spawnRun", () => {
     // Daemon emits `acp_session_spawned` only after the session is running.
     expect(entry.status).toBe("running");
     expect(entry.startedAt).toBe(NOW);
-    expect(entry.inputTokens).toBe(0);
-    expect(entry.outputTokens).toBe(0);
-    expect(entry.totalCost).toBe(0);
+    expect(entry.usedTokens).toBe(0);
+    expect(entry.contextSize).toBe(0);
+    expect(entry.costAmount).toBeUndefined();
+    expect(entry.costCurrency).toBeUndefined();
     expect(entry.events).toEqual([]);
   });
 
@@ -427,24 +428,25 @@ describe("updateUsage", () => {
     spawn();
     getState().updateUsage({
       acpSessionId: "acp-1",
-      inputTokens: 1500,
-      outputTokens: 500,
-      totalCost: 0.003,
+      usedTokens: 1500,
+      contextSize: 200000,
+      costAmount: 0.003,
+      costCurrency: "USD",
     });
 
     const entry = getState().byId["acp-1"]!;
-    expect(entry.inputTokens).toBe(1500);
-    expect(entry.outputTokens).toBe(500);
-    expect(entry.totalCost).toBe(0.003);
+    expect(entry.usedTokens).toBe(1500);
+    expect(entry.contextSize).toBe(200000);
+    expect(entry.costAmount).toBe(0.003);
+    expect(entry.costCurrency).toBe("USD");
   });
 
   it("ignores an unknown session", () => {
     const before = { ...getState().byId };
     getState().updateUsage({
       acpSessionId: "acp-missing",
-      inputTokens: 1,
-      outputTokens: 1,
-      totalCost: 1,
+      usedTokens: 1,
+      contextSize: 1,
     });
 
     expect(getState().byId).toEqual(before);
@@ -462,9 +464,8 @@ function historyEntry(overrides: Partial<AcpRunEntry> = {}): AcpRunEntry {
     parentConversationId: "conv-1",
     status: "completed",
     startedAt: NOW,
-    inputTokens: 0,
-    outputTokens: 0,
-    totalCost: 0,
+    usedTokens: 0,
+    contextSize: 0,
     events: [],
     ...overrides,
   };
@@ -581,9 +582,10 @@ describe("seedFromHistory", () => {
         status: "completed",
         completedAt: NOW + 5000,
         stopReason: "end_turn",
-        inputTokens: 1200,
-        outputTokens: 340,
-        totalCost: 0.012,
+        usedTokens: 1200,
+        contextSize: 200000,
+        costAmount: 0.012,
+        costCurrency: "USD",
         events: [event({ seq: 1, content: "stale" }), event({ seq: 2 })],
       }),
     ]);
@@ -596,9 +598,10 @@ describe("seedFromHistory", () => {
     expect(entry.status).toBe("completed");
     expect(entry.completedAt).toBe(NOW + 5000);
     expect(entry.stopReason).toBe("end_turn");
-    expect(entry.inputTokens).toBe(1200);
-    expect(entry.outputTokens).toBe(340);
-    expect(entry.totalCost).toBe(0.012);
+    expect(entry.usedTokens).toBe(1200);
+    expect(entry.contextSize).toBe(200000);
+    expect(entry.costAmount).toBe(0.012);
+    expect(entry.costCurrency).toBe("USD");
   });
 
   it("does not regress a live terminal entry with empty/non-terminal history metadata", () => {
@@ -611,18 +614,18 @@ describe("seedFromHistory", () => {
     });
     getState().updateUsage({
       acpSessionId: "acp-1",
-      inputTokens: 900,
-      outputTokens: 100,
-      totalCost: 0.005,
+      usedTokens: 900,
+      contextSize: 200000,
+      costAmount: 0.005,
+      costCurrency: "USD",
     });
 
     getState().seedFromHistory([
       historyEntry({
         acpSessionId: "acp-1",
         status: "running",
-        inputTokens: 0,
-        outputTokens: 0,
-        totalCost: 0,
+        usedTokens: 0,
+        contextSize: 0,
         events: [],
       }),
     ]);
@@ -630,9 +633,10 @@ describe("seedFromHistory", () => {
     const entry = getState().byId["acp-1"]!;
     expect(entry.status).toBe("completed");
     expect(entry.completedAt).toBe(NOW + 1000);
-    expect(entry.inputTokens).toBe(900);
-    expect(entry.outputTokens).toBe(100);
-    expect(entry.totalCost).toBe(0.005);
+    expect(entry.usedTokens).toBe(900);
+    expect(entry.contextSize).toBe(200000);
+    expect(entry.costAmount).toBe(0.005);
+    expect(entry.costCurrency).toBe("USD");
   });
 
   it("backfills a missing task from history", () => {

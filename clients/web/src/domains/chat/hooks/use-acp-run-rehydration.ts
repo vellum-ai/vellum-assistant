@@ -32,9 +32,10 @@ interface AcpSessionEventLogItem {
 }
 
 interface AcpSessionUsage {
-  inputTokens?: number;
-  outputTokens?: number;
-  totalCost?: number;
+  usedTokens?: number;
+  contextSize?: number;
+  costAmount?: number;
+  costCurrency?: string;
 }
 
 interface AcpSessionRow {
@@ -106,9 +107,10 @@ function toRunEntry(row: AcpSessionRow): AcpRunEntry {
     startedAt: row.startedAt ?? Date.now(),
     completedAt: isTerminal ? row.completedAt ?? undefined : undefined,
     parentToolUseId: row.parentToolUseId,
-    inputTokens: row.usage?.inputTokens ?? 0,
-    outputTokens: row.usage?.outputTokens ?? 0,
-    totalCost: row.usage?.totalCost ?? 0,
+    usedTokens: row.usage?.usedTokens ?? 0,
+    contextSize: row.usage?.contextSize ?? 0,
+    costAmount: row.usage?.costAmount,
+    costCurrency: row.usage?.costCurrency,
     events,
   };
 }

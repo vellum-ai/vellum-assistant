@@ -4,6 +4,7 @@ import { useAcpRunStore } from "@/domains/chat/acp-run-store";
 import {
   handleAcpSessionSpawned,
   handleAcpSessionUpdate,
+  handleAcpSessionUsage,
   handleAcpSessionCompleted,
   handleAcpSessionError,
 } from "@/domains/chat/utils/stream-handlers/acp-handlers";
@@ -70,6 +71,35 @@ describe("handleAcpSessionUpdate", () => {
     handleAcpSessionUpdate(update);
     expect(getState().byId["acp-1"]?.events).toHaveLength(1);
     expect(getState().highWaterMark.get("acp-1")).toBe(1);
+  });
+});
+
+describe("handleAcpSessionUsage", () => {
+  it("updates the run's used/size/cost usage", () => {
+    spawn();
+    handleAcpSessionUsage({
+      type: "acp_session_usage",
+      acpSessionId: "acp-1",
+      usedTokens: 1500,
+      contextSize: 200000,
+      costAmount: 0.003,
+      costCurrency: "USD",
+    });
+    const entry = getState().byId["acp-1"];
+    expect(entry?.usedTokens).toBe(1500);
+    expect(entry?.contextSize).toBe(200000);
+    expect(entry?.costAmount).toBe(0.003);
+    expect(entry?.costCurrency).toBe("USD");
+  });
+
+  it("ignores usage for an unknown session", () => {
+    handleAcpSessionUsage({
+      type: "acp_session_usage",
+      acpSessionId: "acp-missing",
+      usedTokens: 1,
+      contextSize: 1,
+    });
+    expect(getState().byId).toEqual({});
   });
 });
 

@@ -13,14 +13,14 @@
  */
 
 import {
-  ArrowDownToLine,
   ArrowLeft,
-  ArrowUpFromLine,
   Brain,
   Check,
   ChevronDown,
   ChevronRight,
   Code,
+  DollarSign,
+  Gauge,
   ListChecks,
   MessageSquare,
   RotateCw,
@@ -39,10 +39,7 @@ import {
 import { Button, Typography } from "@vellumai/design-library";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
-import {
-  AnimatedMetricCard,
-  formatNumber,
-} from "@/domains/chat/components/metric-card";
+import { MetricCard } from "@/domains/chat/components/metric-card";
 import { StatusBadgePill } from "@/domains/chat/components/status-badge-pill";
 import { ToolDetailBody } from "@/domains/chat/components/tool-detail-panel";
 import { AcpRunPhaseTimeline } from "@/domains/chat/components/acp-run-detail-panel/acp-run-phase-timeline";
@@ -420,32 +417,33 @@ export function AcpRunDetailPanel({
 
             {/* Metrics row — gated on real usage so a run with no token/cost
                 data doesn't show a misleading all-zero meter. */}
-            {(entry.inputTokens > 0 ||
-              entry.outputTokens > 0 ||
-              entry.totalCost > 0) && (
+            {(entry.usedTokens > 0 || entry.costAmount != null) && (
               <div className="mb-5 grid grid-cols-2 gap-3">
-                <AnimatedMetricCard
+                <MetricCard
                   icon={
-                    <ArrowDownToLine
+                    <Gauge
                       className="h-4 w-4 shrink-0"
                       style={{ color: "var(--content-secondary)" }}
                     />
                   }
-                  target={entry.inputTokens}
-                  format={(n) => formatNumber(Math.round(n))}
-                  label="Input"
+                  value={`${entry.usedTokens.toLocaleString()} / ${entry.contextSize.toLocaleString()}`}
+                  label="Context"
                 />
-                <AnimatedMetricCard
-                  icon={
-                    <ArrowUpFromLine
-                      className="h-4 w-4 shrink-0"
-                      style={{ color: "var(--content-secondary)" }}
-                    />
-                  }
-                  target={entry.outputTokens}
-                  format={(n) => formatNumber(Math.round(n))}
-                  label="Output"
-                />
+                {entry.costAmount != null && entry.costCurrency && (
+                  <MetricCard
+                    icon={
+                      <DollarSign
+                        className="h-4 w-4 shrink-0"
+                        style={{ color: "var(--content-secondary)" }}
+                      />
+                    }
+                    value={new Intl.NumberFormat(undefined, {
+                      style: "currency",
+                      currency: entry.costCurrency,
+                    }).format(entry.costAmount)}
+                    label="Cost"
+                  />
+                )}
               </div>
             )}
 

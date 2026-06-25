@@ -37,9 +37,8 @@ function makeEntry(overrides: Partial<AcpRunEntry> = {}): AcpRunEntry {
     task: "Research the thing",
     status: "running",
     startedAt: 0,
-    inputTokens: 0,
-    outputTokens: 0,
-    totalCost: 0,
+    usedTokens: 0,
+    contextSize: 0,
     events: [],
     ...overrides,
   };

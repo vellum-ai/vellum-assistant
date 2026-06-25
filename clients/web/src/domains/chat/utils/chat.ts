@@ -56,6 +56,7 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   // conversation-id gate would otherwise drop them.
   "acp_session_spawned",
   "acp_session_update",
+  "acp_session_usage",
   "acp_session_completed",
   "acp_session_error",
 ] as const;
