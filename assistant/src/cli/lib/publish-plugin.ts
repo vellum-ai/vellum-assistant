@@ -46,6 +46,8 @@ export interface GitContext {
   repo: string;
   dirty: boolean;
   pushed: boolean;
+  /** Repo-relative path to the plugin directory, or "" if at repo root. */
+  pluginPath: string;
 }
 
 export interface PublishPayload {
@@ -225,6 +227,12 @@ export async function resolveGitContext(dir: string): Promise<GitContext> {
   }
   const repo = remoteMatch[1];
 
+  // Compute the repo-relative path to the plugin directory.
+  const repoRoot = await runGit(dir, ["rev-parse", "--show-toplevel"]);
+  const pluginPath = resolve(dir)
+    .slice(resolve(repoRoot).length + 1)
+    .replace(/\\/g, "/");
+
   // Check if the commit is pushed
   let pushed = true;
   try {
@@ -235,7 +243,7 @@ export async function resolveGitContext(dir: string): Promise<GitContext> {
     pushed = true;
   }
 
-  return { sha, repo, dirty, pushed };
+  return { sha, repo, dirty, pushed, pluginPath };
 }
 
 // ---------------------------------------------------------------------------
@@ -261,6 +269,7 @@ export function buildPublishPayload(
       source: "github",
       repo: git.repo,
       ref: git.sha,
+      ...(git.pluginPath ? { path: git.pluginPath } : {}),
     },
     category,
   };
@@ -379,7 +388,228 @@ export function formatValidationResult(validation: PublishValidation): string {
   return lines.join("\n");
 }
 
+// ---------------------------------------------------------------------------
+// CLI entrypoint
+// ---------------------------------------------------------------------------
+
+export interface PublishCliOptions {
+  print?: boolean;
+  path?: string;
+  force?: boolean;
+  json?: boolean;
+  category?: string;
+}
+
+export interface PublishCliDeps {
+  confirmPrompt: (opts: {
+    question: string;
+    isTTY: boolean;
+    refuseNonInteractiveMessage: string;
+  }) => Promise<string>;
+}
+
 /**
+ * Run the full `plugins publish` flow. This is the single entrypoint that
+ * the CLI command calls. All validation, git resolution, confirmation,
+ * and submission logic lives here rather than in the command file.
+ *
+ * Returns `true` on success, `false` on failure (with an appropriate
+ * message already printed).
+ */
+export async function runPublish(
+  opts: PublishCliOptions,
+  deps: PublishCliDeps,
+): Promise<boolean> {
+  // 1. Find the plugin root
+  const searchDir = opts.path ?? process.cwd();
+  const pluginDir = findPluginRoot(searchDir);
+  if (!pluginDir) {
+    if (opts.json) {
+      process.stdout.write(
+        JSON.stringify({
+          ok: false,
+          error: "no_package_json",
+          message: `No package.json found in ${searchDir} or any parent directory.`,
+        }) + "\n",
+      );
+    } else {
+      console.error(
+        `No package.json found in ${searchDir} or any parent directory.`,
+      );
+    }
+    return false;
+  }
+
+  // 2. Validate the plugin
+  const validation = validatePluginForPublish(pluginDir);
+  if (!validation.valid) {
+    if (opts.json) {
+      process.stdout.write(
+        JSON.stringify({ ok: false, errors: validation.issues }) + "\n",
+      );
+    } else {
+      console.error(formatValidationResult(validation));
+    }
+    return false;
+  }
+
+  if (!opts.json && validation.warnings.length > 0) {
+    console.warn(formatValidationResult(validation));
+  }
+
+  // 3. Handle --print mode early (no git context needed)
+  if (opts.print) {
+    // For --print, resolve git context best-effort to fill source fields
+    let git: GitContext | null = null;
+    try {
+      git = await resolveGitContext(pluginDir);
+    } catch {
+      // Git not available — use placeholder values
+    }
+
+    const category = opts.category ?? "other";
+    const payload = git
+      ? buildPublishPayload(validation, git, category)
+      : {
+          name: validation.packageJson.name!,
+          source: {
+            source: "github" as const,
+            repo: "<unknown>",
+            ref: "<unknown>",
+          },
+          category,
+          ...(validation.packageJson.description
+            ? { description: validation.packageJson.description }
+            : {}),
+          ...(validation.packageJson.license
+            ? { license: validation.packageJson.license }
+            : {}),
+          ...(validation.packageJson.homepage
+            ? { homepage: validation.packageJson.homepage }
+            : {}),
+        };
+
+    if (opts.json) {
+      process.stdout.write(JSON.stringify({ ok: true, payload }) + "\n");
+    } else {
+      console.log(formatPayloadForPrint(payload));
+    }
+    return true;
+  }
+
+  // 4. Resolve git context (required for submission)
+  let git: GitContext;
+  try {
+    git = await resolveGitContext(pluginDir);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (opts.json) {
+      process.stdout.write(
+        JSON.stringify({
+          ok: false,
+          error: "git_resolution_failed",
+          message: `Git context resolution failed: ${message}`,
+        }) + "\n",
+      );
+    } else {
+      console.error(`Git context resolution failed: ${message}`);
+    }
+    return false;
+  }
+
+  if (git.dirty) {
+    console.warn(
+      "Warning: working tree is dirty. The pinned commit SHA should match a clean, pushed commit.",
+    );
+  }
+
+  if (!git.pushed) {
+    if (opts.json) {
+      process.stdout.write(
+        JSON.stringify({
+          ok: false,
+          error: "not_pushed",
+          message: `Commit ${git.sha.slice(0, 7)} has not been pushed to the remote. Push your changes first.`,
+        }) + "\n",
+      );
+    } else {
+      console.error(
+        `Commit ${git.sha.slice(0, 7)} has not been pushed to the remote. Push your changes first.`,
+      );
+    }
+    return false;
+  }
+
+  // 5. Determine category and build payload
+  const category = opts.category ?? "other";
+  const payload = buildPublishPayload(validation, git, category);
+
+  // 6. Confirm before submitting (unless --force or --json)
+  if (!opts.force && !opts.json) {
+    console.log("\nPlugin entry to submit:");
+    console.log(formatPayloadForPrint(payload));
+    console.log("");
+    const result = await deps.confirmPrompt({
+      question: "Submit this entry to the Vellum marketplace? [y/N] ",
+      isTTY: Boolean(process.stdin.isTTY),
+      refuseNonInteractiveMessage:
+        "Refusing to publish non-interactively. Pass --force to confirm.",
+    });
+    if (result === "non-interactive" || result === "denied") {
+      if (result === "non-interactive") {
+        console.error(
+          "Refusing to publish non-interactively. Pass --force to confirm.",
+        );
+      }
+      return false;
+    }
+  }
+
+  // 7. Submit to the platform API
+  const platformDeps = await resolvePlatformDeps();
+  if (!platformDeps) {
+    const msg =
+      "Not connected to Vellum platform. Run `assistant platform connect` to connect, or use --print to generate the entry without submitting.";
+    if (opts.json) {
+      process.stdout.write(
+        JSON.stringify({
+          ok: false,
+          error: "not_connected",
+          message: msg,
+        }) + "\n",
+      );
+    } else {
+      console.error(msg);
+    }
+    return false;
+  }
+
+  try {
+    const result = await postPublishRequest(payload, platformDeps);
+
+    if (opts.json) {
+      process.stdout.write(JSON.stringify(result) + "\n");
+    } else {
+      console.log(formatPublishResult(result));
+    }
+
+    return result.ok;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (opts.json) {
+      process.stdout.write(
+        JSON.stringify({
+          ok: false,
+          error: "request_failed",
+          message,
+        }) + "\n",
+      );
+    } else {
+      console.error(`Publish request failed: ${message}`);
+    }
+    return false;
+  }
+}/**
  * Format a publish result for terminal output.
  */
 export function formatPublishResult(result: PublishResult): string {
