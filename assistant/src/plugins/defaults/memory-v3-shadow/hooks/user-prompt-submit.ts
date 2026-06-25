@@ -10,10 +10,10 @@
  */
 
 import type {
-  PluginHookFn,
+  HookFunction,
   UserPromptSubmitContext,
 } from "@vellumai/plugin-api";
 
-const userPromptSubmit: PluginHookFn<UserPromptSubmitContext> = async () => {};
+const userPromptSubmit: HookFunction<UserPromptSubmitContext> = async () => {};
 
 export default userPromptSubmit;

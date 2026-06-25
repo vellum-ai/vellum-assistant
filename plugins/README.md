@@ -131,7 +131,7 @@ filename becomes the hook key. **One hook per file.**
 The hook signature is:
 
 ```ts
-type PluginHookFn<TCtx> = (ctx: TCtx) => Promise<Partial<TCtx> | void>;
+type HookFunction<TCtx> = (ctx: TCtx) => Promise<Partial<TCtx> | void>;
 ```
 
 The return shape means a hook can either **mutate `ctx` in place and

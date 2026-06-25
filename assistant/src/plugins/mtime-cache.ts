@@ -35,7 +35,7 @@ import {
   runShutdownHook,
   WORKSPACE_HOOKS_OWNER,
 } from "../hooks/hook-loader.js";
-import type { PluginHookFn, ShutdownContext } from "../plugin-api/types.js";
+import type { HookFunction, ShutdownContext } from "../plugin-api/types.js";
 import {
   registerPluginTools,
   unregisterPluginTools,
@@ -57,9 +57,9 @@ import {
   setSurfaceImportTimeout,
 } from "./surface-import.js";
 
-// Re-export for type compat — consumers that import PluginHookFn from
+// Re-export for type compat — consumers that import HookFunction from
 // the mtime cache module still resolve.
-export type { PluginHookFn } from "./types.js";
+export type { HookFunction } from "./types.js";
 
 const log = getLogger("plugin-mtime-cache");
 
@@ -181,7 +181,7 @@ const disabledPluginDirs = new Set<string>();
  */
 export async function getUserHooksFor<TCtx = unknown>(
   hookName: string,
-): Promise<PluginHookFn<TCtx>[]> {
+): Promise<HookFunction<TCtx>[]> {
   await scanPlugins();
   return collectUserHooks<TCtx>(hookName, discoveredPluginDirs);
 }

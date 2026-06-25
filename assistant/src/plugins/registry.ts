@@ -21,9 +21,9 @@
 
 import { getUserHooksFor } from "./mtime-cache.js";
 import {
+  type HookFunction,
   type Plugin,
   PluginExecutionError,
-  type PluginHookFn,
 } from "./types.js";
 
 // ─── Internal state ──────────────────────────────────────────────────────────
@@ -151,20 +151,20 @@ export function getRegisteredPlugins(): Plugin[] {
  * files. First-party default plugin hooks are read synchronously from the
  * registry and prepended.
  *
- * The `TCtx` generic mirrors {@link PluginHookFn}'s — callers parameterize
+ * The `TCtx` generic mirrors {@link HookFunction}'s — callers parameterize
  * over the concrete context type their hook receives. Hooks that mutate
  * the context in place return `void`; hooks that return a new context
  * replace the threaded value for the next hook in the chain.
  */
 export async function getHooksFor<TCtx = unknown>(
   name: string,
-): Promise<PluginHookFn<TCtx>[]> {
+): Promise<HookFunction<TCtx>[]> {
   // First-party defaults from the registry (synchronous).
-  const defaultHooks: PluginHookFn<TCtx>[] = [];
+  const defaultHooks: HookFunction<TCtx>[] = [];
   for (const plugin of registeredPlugins.values()) {
     const hook = plugin.hooks?.[name];
     if (hook) {
-      defaultHooks.push(hook as PluginHookFn<TCtx>);
+      defaultHooks.push(hook as HookFunction<TCtx>);
     }
   }
 

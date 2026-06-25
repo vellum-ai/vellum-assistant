@@ -10,13 +10,13 @@
  */
 
 import type {
-  PluginHookFn,
+  HookFunction,
   UserPromptSubmitContext,
 } from "@vellumai/plugin-api";
 
 import { repairHistory } from "../terminal.js";
 
-const userPromptSubmit: PluginHookFn<UserPromptSubmitContext> = async (ctx) => {
+const userPromptSubmit: HookFunction<UserPromptSubmitContext> = async (ctx) => {
   const { messages, stats } = repairHistory(ctx.latestMessages);
   ctx.latestMessages = messages;
   if (

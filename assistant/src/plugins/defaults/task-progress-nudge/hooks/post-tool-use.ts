@@ -45,7 +45,7 @@
  * below it (a new turn restarts counting low).
  */
 
-import type { PluginHookFn, PostToolUseContext } from "@vellumai/plugin-api";
+import type { HookFunction, PostToolUseContext } from "@vellumai/plugin-api";
 
 import type { ContentBlock, Message } from "../../../../providers/types.js";
 import { isWeakOpenModel } from "../../../../providers/weak-open-model.js";
@@ -134,7 +134,7 @@ function scanTurn(messages: ReadonlyArray<Message>): {
   return { rounds, taskProgressShown };
 }
 
-const postToolUse: PluginHookFn<PostToolUseContext> = async (ctx) => {
+const postToolUse: HookFunction<PostToolUseContext> = async (ctx) => {
   if (!isWeakOpenModel(ctx.model)) return;
 
   const { rounds, taskProgressShown } = scanTurn(ctx.messages);

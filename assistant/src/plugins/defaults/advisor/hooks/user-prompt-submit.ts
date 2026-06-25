@@ -6,13 +6,13 @@
  */
 
 import type {
-  PluginHookFn,
+  HookFunction,
   UserPromptSubmitContext,
 } from "@vellumai/plugin-api";
 
 import { seedCapture } from "../advisor-state-store.js";
 
-const userPromptSubmit: PluginHookFn<UserPromptSubmitContext> = async (ctx) => {
+const userPromptSubmit: HookFunction<UserPromptSubmitContext> = async (ctx) => {
   seedCapture(ctx.conversationId, ctx.latestMessages);
 };
 
