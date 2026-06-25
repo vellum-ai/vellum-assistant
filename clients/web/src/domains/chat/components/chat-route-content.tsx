@@ -848,8 +848,7 @@ export function ChatMainPanel({
       />
     ) : undefined;
 
-  // `onStopAcpRun` is wired in a later PR; omit it so the card's stop button
-  // stays hidden.
+  // No stop handler is passed, so the inline card's stop button stays hidden.
   const activeAcpRunsSlot =
     activeAcpRunIds.length > 0 ? (
       <ActiveAcpRunsOverlay
