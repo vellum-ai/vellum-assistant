@@ -386,9 +386,9 @@ export function useTranscriptScroll(
   //
   // The observer lifecycle is managed via refs so that we only
   // disconnect/reconnect when the underlying DOM node actually changes
-  // (e.g. Transcript remounts inside ResizablePanel), not on every items
-  // update. `items` is in the dep array so the check runs after
-  // Transcript's first render with content post-remount.
+  // (e.g. Transcript remounts inside ResizablePanel). `conversationId`
+  // is the dep-array signal for remounts — it corresponds directly to
+  // the `key={conversationId}` prop on the scroll container.
   // -----------------------------------------------------------------------
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const observedElRef = useRef<HTMLElement | null>(null);
@@ -414,7 +414,7 @@ export function useTranscriptScroll(
     });
     observer.observe(el);
     resizeObserverRef.current = observer;
-  }, [items, transcriptRef]);
+  }, [conversationId, transcriptRef]);
 
   // Disconnect observer on hook unmount.
   useEffect(() => () => {
@@ -458,7 +458,7 @@ export function useTranscriptScroll(
     });
     observer.observe(el);
     contentObserverRef.current = observer;
-  }, [items, transcriptRef]);
+  }, [conversationId, transcriptRef]);
 
   useEffect(() => () => {
     contentObserverRef.current?.disconnect();
@@ -482,7 +482,7 @@ export function useTranscriptScroll(
       el.removeEventListener("touchmove", disengageAutoPin);
       el.removeEventListener("keydown", disengageAutoPin);
     };
-  }, [items, transcriptRef, disengageAutoPin]);
+  }, [conversationId, transcriptRef, disengageAutoPin]);
 
   // -----------------------------------------------------------------------
   // Stable scroll handler. Reads latest props via the ref pattern.
@@ -552,9 +552,10 @@ export function useTranscriptScroll(
   // Attach the scroll-event listener. The hook owns its own listener
   // so the orchestrator does not have to wire one externally.
   //
-  // Re-runs on `items` so a transcript remount (inside ResizablePanel)
-  // re-binds to the newly mounted scroll element. `handleScroll` is
-  // stable across renders so it does not contribute to re-binding.
+  // Re-runs on `conversationId` so a transcript remount (inside
+  // ResizablePanel) re-binds to the newly mounted scroll element.
+  // `handleScroll` is stable across renders so it does not contribute
+  // to re-binding.
   // -----------------------------------------------------------------------
   useEffect(() => {
     const el = transcriptRef.current?.getScrollElement();
@@ -563,7 +564,7 @@ export function useTranscriptScroll(
     return () => {
       el.removeEventListener("scroll", handleScroll);
     };
-  }, [handleScroll, transcriptRef, items, conversationId]);
+  }, [handleScroll, transcriptRef, conversationId]);
 
   return {
     showScrollToLatest,
