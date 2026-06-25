@@ -147,7 +147,7 @@ function pickContentOrderOffset(
   return 0;
 }
 
-function canFoldAdjacentAssistant(
+export function canFoldAdjacentAssistant(
   survivor: DisplayMessage,
   donor: DisplayMessage,
 ): boolean {
@@ -166,7 +166,7 @@ function canFoldAdjacentAssistant(
   return true;
 }
 
-function foldAdjacentAssistant(
+export function foldAdjacentAssistant(
   survivor: DisplayMessage,
   donor: DisplayMessage,
 ): DisplayMessage {

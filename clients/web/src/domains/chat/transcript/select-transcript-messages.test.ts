@@ -5,6 +5,7 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 import {
   messageText,
   textBody,
+  thinkingBodyWithBlocks,
 } from "@/domains/chat/utils/message-test-helpers";
 
 function makeRow(
@@ -163,6 +164,102 @@ describe("selectTranscriptMessages", () => {
     expect(result).toHaveLength(1);
     expect(result[0]!.id).toBe("a2");
     expect(messageText(result[0])).toBe("live copy");
+  });
+
+  test("folds the persisted prefix into a prefix-less re-attach bubble instead of letting it shadow the answer", () => {
+    // Regression: messages disappearing on refresh. A tab reconnects mid-turn
+    // and the daemon replays the in-flight LLM call's thinking deltas under
+    // that call's own id (`call-2`). The persisted turn row is anchored on an
+    // EARLIER call's id (`call-1`) with `call-2` folded in as a merged alias,
+    // and it already holds the full answer. The first replayed delta beat the
+    // history fetch, so the live bubble opened prefix-less — it holds only the
+    // post-reconnect thinking and carries NO knowledge of `call-1`.
+    const history = [
+      makeRow({ id: "u1", role: "user", ...textBody("hi"), timestamp: 1000 }),
+      makeRow({
+        id: "call-1",
+        mergedMessageIds: ["call-2"],
+        role: "assistant",
+        ...textBody("the full dashboard answer"),
+        timestamp: 1001,
+      }),
+    ];
+    const live = [
+      makeRow({
+        id: "call-2",
+        role: "assistant",
+        ...thinkingBodyWithBlocks("reconsidering the design"),
+        timestamp: 2000,
+      }),
+    ];
+
+    const result = selectTranscriptMessages(history, live);
+
+    // The user row plus ONE merged assistant row — the answer is not shadowed.
+    expect(result.map((m) => m.id)).toEqual(["u1", "call-1"]);
+    // Persisted answer survives, and the replayed thinking suffix extends it.
+    expect(messageText(result[1])).toBe("the full dashboard answer");
+    expect(result[1]!.thinkingSegments).toEqual(["reconsidering the design"]);
+    // The replayed id stays resolvable on the folded row.
+    expect(result[1]!.mergedMessageIds).toContain("call-2");
+  });
+
+  test("does not fold when the live row carries history's id as its own alias (it legitimately supersedes)", () => {
+    // Mirror of the prefix-less case but with the alias on the LIVE side: the
+    // live row folded `a1` in during streaming, so it already contains that
+    // content and must win outright — no double-counting via a fold.
+    const history = [
+      makeRow({
+        id: "a1",
+        role: "assistant",
+        ...textBody("history copy"),
+        timestamp: 1000,
+      }),
+    ];
+    const live = [
+      makeRow({
+        id: "a2",
+        mergedMessageIds: ["a1"],
+        role: "assistant",
+        ...textBody("live copy"),
+        timestamp: 1000,
+      }),
+    ];
+
+    const result = selectTranscriptMessages(history, live);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.id).toBe("a2");
+    expect(messageText(result[0])).toBe("live copy");
+  });
+
+  test("does not fold a prefix-less match across roles", () => {
+    // A user history row aliased to a live assistant row must never fold — the
+    // guard is assistant-only. (Defensive: this shape shouldn't occur, but the
+    // fold must not fire if it does.)
+    const history = [
+      makeRow({
+        id: "u-srv",
+        mergedMessageIds: ["live-x"],
+        role: "user",
+        ...textBody("a question"),
+        timestamp: 1000,
+      }),
+    ];
+    const live = [
+      makeRow({
+        id: "live-x",
+        role: "assistant",
+        ...textBody("an answer"),
+        timestamp: 2000,
+      }),
+    ];
+
+    const result = selectTranscriptMessages(history, live);
+
+    // Matched in place, live wins — no cross-role fold.
+    expect(result.map((m) => m.id)).toEqual(["live-x"]);
+    expect(messageText(result[0])).toBe("an answer");
   });
 
   test("a live row that matches more than one history row still renders once", () => {
