@@ -117,8 +117,12 @@ export async function up(): Promise<MigrationResult> {
     // channel key and COLLATE NOCASE lookups treat address case-insensitively.
     // Match existing gateway rows on lower(address) and UPDATE their ACL in
     // place; INSERT only genuinely-new channels so a case-variant address never
-    // forks a second row for the same actor. Skip any channel whose parent
-    // contact is not among the assistant contacts we just upserted (FK safety).
+    // forks a second row for the same actor. The update also converges
+    // contact_id onto the assistant contact that carries the imported
+    // role/principal_id, so a split channel (parented to a different gateway
+    // contact) joins back to the contact whose ACL we just backfilled. Skip any
+    // channel whose parent contact is not among the assistant contacts we just
+    // upserted (FK safety).
     const contactIds = new Set(assistantContacts.map((c) => c.id));
 
     const channelKey = (type: string, address: string): string =>
@@ -133,6 +137,7 @@ export async function up(): Promise<MigrationResult> {
 
     const updateChannelAcl = gwDb.prepare(
       `UPDATE contact_channels SET
+         contact_id = ?,
          status = ?, policy = ?, verified_at = ?, verified_via = ?,
          revoked_reason = ?, blocked_reason = ?
        WHERE id = ?`,
@@ -158,6 +163,7 @@ export async function up(): Promise<MigrationResult> {
         const existingId = existingChannelIdByKey.get(key);
         if (existingId) {
           updateChannelAcl.run(
+            ch.contact_id,
             ch.status,
             ch.policy,
             ch.verified_at,

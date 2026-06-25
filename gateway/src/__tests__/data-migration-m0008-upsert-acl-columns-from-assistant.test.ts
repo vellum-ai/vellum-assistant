@@ -385,6 +385,49 @@ describe("m0008-upsert-acl-columns-from-assistant", () => {
     expect(gwChannelByAddress("telegram", "u123") ?? undefined).toBeUndefined();
   });
 
+  test("reparents a split channel onto the assistant contact that carries the role", async () => {
+    // Gateway has the channel under a regular contact (a prior split mint); the
+    // assistant owns it under the real guardian contact. The backfill must move
+    // the channel to the guardian contact so guardian/trust joins through
+    // contact_id resolve the imported role, not the stale gateway contact.
+    seedGatewayContact({ id: "regular", role: "contact" });
+    seedGatewayChannel({
+      id: "gw-ch",
+      contactId: "regular",
+      type: "telegram",
+      address: "U999",
+      status: "unverified",
+    });
+
+    seedAssistantContact({
+      id: "guardian",
+      role: "guardian",
+      principal_id: "p-g",
+    });
+    seedAssistantChannel({
+      id: "as-ch",
+      contact_id: "guardian",
+      type: "telegram",
+      address: "U999",
+      status: "verified",
+    });
+
+    const result = await m0008Up();
+    expect(result).toBe("done");
+
+    // One channel row, now parented to the guardian contact, ACL updated.
+    expect(gwChannelCount()).toBe(1);
+    const ch = gwChannelByAddress("telegram", "U999")!;
+    expect(ch.id).toBe("gw-ch");
+    expect(ch.contact_id).toBe("guardian");
+    expect(ch.status).toBe("verified");
+
+    // The imported guardian role joins through the reparented channel.
+    const guardian = gwContact("guardian")!;
+    expect(guardian.role).toBe("guardian");
+    expect(guardian.principal_id).toBe("p-g");
+  });
+
   test("orphan channel (contact absent) is skipped without throwing", async () => {
     seedAssistantChannel({
       id: "orphan",
