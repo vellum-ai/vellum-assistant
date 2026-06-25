@@ -270,6 +270,7 @@ function harness(opts: HarnessOpts) {
     distill: async () => ({ ok: false }),
     skillExists: () => false,
     deleteNote: async () => {},
+    enqueueVectorCleanup: () => {},
   };
   return { rows, deps, judgeCalls };
 }
@@ -305,6 +306,7 @@ describe("procDistillTriggerJob — gating", () => {
       distill: async () => ({ ok: false }),
       skillExists: () => false,
       deleteNote: async () => {},
+      enqueueVectorCleanup: () => {},
     };
     return { deps, matched: () => matched, rows };
   }

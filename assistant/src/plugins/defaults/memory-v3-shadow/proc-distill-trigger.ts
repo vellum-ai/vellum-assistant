@@ -58,10 +58,13 @@
  * Qdrant, an LLM provider, or a SQLite database.
  */
 
+import { createHash } from "node:crypto";
+
 import { isProcToSkillsActive } from "../../../config/memory-v3-gate.js";
 import { loadSkillCatalog } from "../../../config/skills.js";
 import type { AssistantConfig } from "../../../config/types.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../../daemon/trust-context.js";
+import { enqueueEmbedConceptPageJob } from "../../../memory/jobs/embed-concept-page.js";
 import type { MemoryJob } from "../../../memory/jobs-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../../memory/v2/constants.js";
 import { getPageIndex } from "../../../memory/v2/page-index.js";
@@ -242,6 +245,14 @@ export interface ProcDistillTriggerDeps {
   skillExists: (skillId: string) => boolean;
   /** Delete a candidate note once its cluster has been distilled into a skill. */
   deleteNote: (slug: string) => Promise<void>;
+  /**
+   * Enqueue vector cleanup for a slug whose concept page was just deleted, so
+   * its stale Qdrant points are pruned promptly rather than waiting on the 6h
+   * maintain pass. The production default enqueues `embed_concept_page`, whose
+   * handler removes the embedding when the page is gone from disk. Injected so
+   * tests assert the enqueue without standing up the job store.
+   */
+  enqueueVectorCleanup: (slug: string) => void;
 }
 
 /** Everything the distillation agent run needs for one ready cluster. */
@@ -439,15 +450,29 @@ export async function procDistillTriggerJob(
  * Distill one `ready` cluster into a managed skill.
  *
  * Reads the cluster's member candidate notes (the observed traces), launches
- * the distillation agent run, and — only once the skill is CONFIRMED to exist —
- * deletes the member notes (the procedure now lives only in the skill) and
- * marks the cluster `distilled`. Confirmation is by `skillExists`, not by the
- * run's `ok` flag: a skipped run, or a turn that finished without scaffolding
- * (or a scaffold-tool error), also reports `ok: true`, and retiring the notes
- * on that signal would destroy the captured procedure while pointing a phantom
- * `distilled` cluster at a skill that does not exist. The order is deliberate:
- * notes are deleted AFTER the skill is verified, so a failed/skipped/empty run
- * leaves both the cluster `ready` and its notes on disk for a safe retry.
+ * the distillation agent run, and — only once the skill is CONFIRMED to have
+ * been created BY THIS RUN — deletes the member notes (the procedure now lives
+ * only in the skill) and marks the cluster `distilled`. Confirmation is by
+ * `skillExists` AND `!existedBefore`, not by the run's `ok` flag: a skipped run,
+ * or a turn that finished without scaffolding (or a scaffold-tool error), also
+ * reports `ok: true`, and retiring the notes on that signal would destroy the
+ * captured procedure while pointing a phantom `distilled` cluster at a skill
+ * that does not exist.
+ *
+ * **The `existedBefore` guard.** `existedBefore` is sampled BEFORE the run. A
+ * skill id that is already taken before this cluster runs is a collision (a
+ * distinct cluster — or a pre-existing skill — already owns the id): the run's
+ * `scaffold_managed_skill` will fail on the duplicate id, yet `skillExists`
+ * would still pass because the OTHER skill exists. Retiring this cluster's notes
+ * on that spurious pass is the data-loss bug. So a cluster whose id existed
+ * BEFORE the run is never treated as distilled — its notes are preserved and it
+ * stays `ready`. (Re-running the SAME cluster is not a collision: ids are now
+ * keyed on the cluster, so its own already-scaffolded skill is caught by the
+ * idempotency skip set / `distilled` status, not by re-entering this path.)
+ *
+ * The order is deliberate: notes are deleted AFTER the skill is verified, so a
+ * failed/skipped/empty/colliding run leaves both the cluster `ready` and its
+ * notes on disk for a safe retry.
  *
  * A cluster with no readable member notes is left `ready` untouched — there is
  * nothing to synthesize, and dropping it would lose the recurrence evidence.
@@ -457,7 +482,7 @@ async function distillCluster(
   deps: ProcDistillTriggerDeps,
   outcome: ProcDistillOutcome,
 ): Promise<void> {
-  const skillId = skillIdForGoal(cluster.goal);
+  const skillId = skillIdForGoal(cluster.goal, cluster.clusterId);
   if (!skillId) {
     outcome.distillFailures += 1;
     log.warn(
@@ -473,6 +498,22 @@ async function distillCluster(
     log.warn(
       { clusterId: cluster.clusterId },
       "proc-distill: ready cluster has no readable member notes; left ready",
+    );
+    return;
+  }
+
+  // Sample whether the id is ALREADY taken before launching. If it is, the run
+  // cannot have created it — a collision (a distinct cluster or a pre-existing
+  // skill already owns it). `skillExists` after the run would still pass because
+  // that OTHER skill exists, so without this guard the cluster's notes would be
+  // retired against a skill it never produced. A colliding cluster is left
+  // `ready` with its notes intact.
+  const existedBefore = deps.skillExists(skillId);
+  if (existedBefore) {
+    outcome.distillFailures += 1;
+    log.warn(
+      { clusterId: cluster.clusterId, skillId },
+      "proc-distill: skill id already exists before distillation (collision); left ready, notes preserved",
     );
     return;
   }
@@ -509,9 +550,11 @@ async function distillCluster(
   // agent scaffolded the skill (the turn may have completed without ever
   // calling `scaffold_managed_skill`, or the tool may have errored). Retiring
   // the notes now would destroy the captured procedure AND leave a phantom
-  // `distilled` cluster pointing at a skill that does not exist. So verify the
-  // skill genuinely exists before touching anything; otherwise leave the
-  // cluster `ready` with its notes intact for a safe retry.
+  // `distilled` cluster pointing at a skill that does not exist. The id did NOT
+  // exist before this run (collisions were rejected above), so the skill
+  // existing now is proof THIS run created it — verify that before touching
+  // anything; otherwise leave the cluster `ready` with its notes intact for a
+  // safe retry.
   if (!deps.skillExists(skillId)) {
     outcome.distillFailures += 1;
     log.warn(
@@ -525,6 +568,14 @@ async function distillCluster(
   // cluster `distilled`. Member-note deletion is best-effort: a stray note left
   // on disk is harmless (its slug is already a cluster member, so the trigger
   // skips it), whereas re-distilling would re-scaffold the same skill.
+  //
+  // After each successful delete, enqueue the established concept-page vector
+  // cleanup for that slug. `deletePage` only touches disk + the edge/page
+  // indexes; the slug's Qdrant points are pruned out-of-band by the 6h maintain
+  // pass, so until then retrieval could still surface the procedural prose that
+  // just moved into the skill. `embed_concept_page` over a now-missing page
+  // deletes its prior embedding (see `embedConceptPageJob`), so enqueuing it
+  // here makes the vector cleanup prompt instead of waiting on maintain.
   for (const slug of cluster.memberNoteSlugs) {
     try {
       await deps.deleteNote(slug);
@@ -533,7 +584,9 @@ async function distillCluster(
         { err, clusterId: cluster.clusterId, slug },
         "proc-distill: failed to delete distilled candidate note; continuing",
       );
+      continue;
     }
+    deps.enqueueVectorCleanup(slug);
   }
 
   deps.markCandidateStatus(cluster.clusterId, "distilled");
@@ -545,13 +598,26 @@ async function distillCluster(
 }
 
 /**
- * Derive a stable, immutable skill id from the cluster goal. The id is the
- * `skill:` link target future facts reference (PR 2), so it must be
- * deterministic for a given goal and valid per the managed-skill id rules
+ * Derive a stable, immutable skill id from a cluster.
+ *
+ * The id is the `skill:` link target future facts reference (PR 2), so it must
+ * be deterministic for a given cluster and valid per the managed-skill id rules
  * (`^[a-z0-9][a-z0-9._-]*$`, no path traversal). Returns `null` when the goal
  * has no usable alphanumeric content to slugify.
+ *
+ * **Collision resistance.** The human-readable part is the goal slug truncated
+ * to the first 64 chars, so two *distinct* clusters whose goals share that
+ * prefix — or two unrelated goals that both slugify to the same head — would
+ * otherwise produce identical ids. A colliding id is a data-loss hazard: the
+ * second cluster's `scaffold_managed_skill` fails on the already-taken id, yet
+ * `skillExists` still passes (the OTHER cluster's skill exists), so the second
+ * cluster's notes would be retired as if distilled. To make the id injective in
+ * the cluster, a short deterministic disambiguator derived from the cluster
+ * `seed` (its stable cluster id) is appended. Same cluster → same id on every
+ * pass (idempotent re-distill); two distinct clusters → distinct ids even when
+ * their goal slugs are identical.
  */
-export function skillIdForGoal(goal: string): string | null {
+export function skillIdForGoal(goal: string, seed?: string): string | null {
   const slug = goal
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
@@ -559,10 +625,26 @@ export function skillIdForGoal(goal: string): string | null {
     .slice(0, 64)
     .replace(/-+$/g, "");
   if (slug.length === 0) return null;
+  // Append a short, deterministic disambiguator keyed on the cluster's stable
+  // id (or, when no seed is given, the full goal) so two distinct clusters
+  // whose goal slugs collide on the truncated head still get distinct ids.
+  // Hyphen + lowercase hex is within the managed-skill id charset.
+  const id = `${slug}-${shortHash(seed ?? goal)}`;
   // Defense in depth: the slug shape already satisfies the managed-skill id
   // rules, but validate so a future change to either side can't silently
   // produce an id `scaffold_managed_skill` would reject.
-  return validateManagedSkillId(slug) === null ? slug : null;
+  return validateManagedSkillId(id) === null ? id : null;
+}
+
+/**
+ * A short, deterministic, collision-resistant hex tag for `input`. Used as the
+ * skill-id disambiguator: deterministic (same input → same tag) and confined to
+ * `[0-9a-f]`, which is inside the managed-skill id charset. Eight hex chars of
+ * SHA-256 give ample separation between the small number of clusters that ever
+ * share a truncated goal slug.
+ */
+function shortHash(input: string): string {
+  return createHash("sha256").update(input).digest("hex").slice(0, 8);
 }
 
 /**
@@ -660,6 +742,9 @@ function defaultDeps(config: AssistantConfig): ProcDistillTriggerDeps {
     distill: launchDistillation,
     skillExists: skillExistsInCatalog,
     deleteNote: (slug) => deletePage(workspaceDir, slug),
+    enqueueVectorCleanup: (slug) => {
+      enqueueEmbedConceptPageJob({ slug });
+    },
   };
 }
 

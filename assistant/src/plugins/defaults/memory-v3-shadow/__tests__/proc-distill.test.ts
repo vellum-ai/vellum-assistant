@@ -132,12 +132,20 @@ interface HarnessOpts {
   noteBodies?: Record<string, string>;
   distillResult?: DistillRunResult;
   /**
-   * Skill ids the (fake) catalog reports as existing AFTER the distill run. The
-   * production check is `loadSkillCatalog().some(...)`; here it is a fixed set.
-   * Defaults to "every requested skill id exists" so a plain successful run
-   * verifies — tests exercising the no-skill path pass an explicit `[]`.
+   * Skill ids the (fake) catalog reports as already existing BEFORE any run —
+   * the pre-existing / colliding-skill scenario. Defaults to empty (a fresh
+   * catalog).
    */
-  existingSkillIds?: string[];
+  preExistingSkillIds?: string[];
+  /**
+   * Whether a successful, non-skipped `distill` run scaffolds its skill into the
+   * catalog (the realistic default). The fake catalog starts from
+   * `preExistingSkillIds` and the run ADDS its id — so `skillExists` returns
+   * `false` before the run and `true` after, exactly as production does. Set
+   * `false` to model a turn that finished without scaffolding (the skill is
+   * absent afterward).
+   */
+  scaffoldOnDistill?: boolean;
 }
 
 function harness(opts: HarnessOpts) {
@@ -145,10 +153,14 @@ function harness(opts: HarnessOpts) {
   const bodies = opts.noteBodies ?? {};
   const distillCalls: DistillRunInput[] = [];
   const deletedSlugs: string[] = [];
-  // `undefined` → the skill always verifies (default happy path). An explicit
-  // array → only those ids verify (used to simulate a run that scaffolded
-  // nothing, where the target skill is absent afterward).
-  const existingSkillIds = opts.existingSkillIds;
+  const cleanedSlugs: string[] = [];
+  // A MUTABLE fake catalog: seeded with any pre-existing ids, then grown by a
+  // successful scaffolding run. This models the real catalog so `skillExists`
+  // distinguishes "existed before the run" (collision) from "created by this
+  // run" (genuine distillation) — the distinction Fix ③ turns on.
+  const catalog = new Set(opts.preExistingSkillIds ?? []);
+  const scaffoldOnDistill = opts.scaffoldOnDistill ?? true;
+  const distillResult = opts.distillResult ?? { ok: true };
 
   const deps: ProcDistillTriggerDeps = {
     config: config(),
@@ -171,31 +183,56 @@ function harness(opts: HarnessOpts) {
         .map((s) => ({ slug: s, body: bodies[s] })),
     distill: async (input) => {
       distillCalls.push(input);
-      return opts.distillResult ?? { ok: true };
+      // A successful, non-skipped run scaffolds its skill into the catalog —
+      // mirroring `scaffold_managed_skill` so the post-run `skillExists` passes.
+      if (scaffoldOnDistill && distillResult.ok && !distillResult.skipReason) {
+        catalog.add(input.skillId);
+      }
+      return distillResult;
     },
-    skillExists: (skillId) =>
-      existingSkillIds === undefined
-        ? true
-        : existingSkillIds.includes(skillId),
+    skillExists: (skillId) => catalog.has(skillId),
     deleteNote: async (slug) => {
       deletedSlugs.push(slug);
     },
+    enqueueVectorCleanup: (slug) => {
+      cleanedSlugs.push(slug);
+    },
   };
-  return { reg, deps, distillCalls, deletedSlugs };
+  return { reg, deps, distillCalls, deletedSlugs, cleanedSlugs };
 }
 
 describe("skillIdForGoal", () => {
-  test("derives a stable, valid slug from the goal", () => {
-    expect(skillIdForGoal("Deploy the Web App")).toBe("deploy-the-web-app");
+  test("derives a stable, valid slug from the goal with a disambiguator", () => {
+    const id = skillIdForGoal("Deploy the Web App");
+    // The human-readable head is the goal slug; a short hex disambiguator is
+    // appended so distinct clusters with the same goal slug can't collide.
+    expect(id).toMatch(/^deploy-the-web-app-[0-9a-f]{8}$/);
     // Deterministic for a given goal (immutable link target).
     expect(skillIdForGoal("Deploy the Web App")).toBe(
       skillIdForGoal("Deploy the Web App"),
     );
   });
 
-  test("strips punctuation and collapses separators", () => {
-    expect(skillIdForGoal("  rotate: the *signing* secrets!  ")).toBe(
-      "rotate-the-signing-secrets",
+  test("is deterministic for a given (goal, seed)", () => {
+    expect(skillIdForGoal("deploy the web app", "cluster/proc/a")).toBe(
+      skillIdForGoal("deploy the web app", "cluster/proc/a"),
+    );
+  });
+
+  test("distinct seeds yield distinct ids even for the same goal slug", () => {
+    // Two distinct clusters whose goals slugify identically must NOT collide on
+    // the skill id — the data-loss hazard Fix ③ closes.
+    const a = skillIdForGoal("deploy the web app", "cluster/proc/a");
+    const b = skillIdForGoal("deploy the web app", "cluster/proc/b");
+    expect(a).not.toBe(b);
+    // Both still share the readable head.
+    expect(a).toMatch(/^deploy-the-web-app-[0-9a-f]{8}$/);
+    expect(b).toMatch(/^deploy-the-web-app-[0-9a-f]{8}$/);
+  });
+
+  test("strips punctuation and collapses separators in the head", () => {
+    expect(skillIdForGoal("  rotate: the *signing* secrets!  ")).toMatch(
+      /^rotate-the-signing-secrets-[0-9a-f]{8}$/,
     );
   });
 
@@ -207,7 +244,13 @@ describe("skillIdForGoal", () => {
 
 describe("procDistillTriggerJob — distillation", () => {
   test("a verified skill creation → notes deleted and cluster marked distilled", async () => {
-    const { reg, deps, distillCalls, deletedSlugs } = harness({
+    // The id is keyed on (goal, clusterId), so compute the expected value the
+    // same way production does rather than hardcoding the disambiguator.
+    const expectedId = skillIdForGoal(
+      "deploy the web app",
+      "cluster/proc/deploy-1",
+    )!;
+    const { reg, deps, distillCalls, deletedSlugs, cleanedSlugs } = harness({
       seed: [
         cluster({
           clusterId: "cluster/proc/deploy-1",
@@ -219,15 +262,16 @@ describe("procDistillTriggerJob — distillation", () => {
         "proc/deploy-1": "ran build, then pushed to prod via the CLI",
         "proc/deploy-2": "rebuilt, retried once, pushed to prod via the CLI",
       },
-      // The run actually scaffolded the skill — it now appears in the catalog.
-      existingSkillIds: ["deploy-the-web-app"],
+      // Default: the run scaffolds its skill into the (initially empty) catalog,
+      // so `skillExists` is false before the run and true after — a genuine
+      // this-run creation, not a pre-existing collision.
     });
 
     const outcome = await procDistillTriggerJob(JOB, deps.config, deps);
 
     // Exactly one scaffold launch, with the stable id + both trace bodies.
     expect(distillCalls).toHaveLength(1);
-    expect(distillCalls[0].skillId).toBe("deploy-the-web-app");
+    expect(distillCalls[0].skillId).toBe(expectedId);
     expect(distillCalls[0].goal).toBe("deploy the web app");
     expect(distillCalls[0].notes.map((n) => n.slug)).toEqual([
       "proc/deploy-1",
@@ -237,6 +281,8 @@ describe("procDistillTriggerJob — distillation", () => {
 
     // Notes retired, cluster marked distilled.
     expect(deletedSlugs).toEqual(["proc/deploy-1", "proc/deploy-2"]);
+    // Fix ②: each deleted slug gets vector cleanup enqueued promptly.
+    expect(cleanedSlugs).toEqual(["proc/deploy-1", "proc/deploy-2"]);
     expect(reg.rows.get("cluster/proc/deploy-1")!.status).toBe("distilled");
     expect(outcome.distilled).toEqual(["cluster/proc/deploy-1"]);
     expect(outcome.distillFailures).toBe(0);
@@ -302,10 +348,10 @@ describe("procDistillTriggerJob — distillation", () => {
         "proc/deploy-2": "trace two",
       },
       // The pre-first-message gate tripped: the runner returns ok:true but ran
-      // no conversation. Even if the skill somehow "exists", a skip never
-      // distills — the notes must be preserved.
+      // no conversation, so it scaffolds nothing. A skip never distills — the
+      // notes must be preserved. No pre-existing collision, so the pass reaches
+      // the distill call and the skip path is what preserves the notes.
       distillResult: { ok: true, skipReason: "pre_first_user_message" },
-      existingSkillIds: ["deploy-the-web-app"],
     });
 
     const outcome = await procDistillTriggerJob(JOB, deps.config, deps);
@@ -334,7 +380,7 @@ describe("procDistillTriggerJob — distillation", () => {
       // The turn completed (ok:true, no skip) but never scaffolded the skill —
       // the catalog has nothing for this id afterward.
       distillResult: { ok: true },
-      existingSkillIds: [],
+      scaffoldOnDistill: false,
     });
 
     const outcome = await procDistillTriggerJob(JOB, deps.config, deps);
@@ -345,6 +391,83 @@ describe("procDistillTriggerJob — distillation", () => {
     expect(reg.rows.get("cluster/proc/deploy-1")!.status).toBe("ready");
     expect(outcome.distilled).toEqual([]);
     expect(outcome.distillFailures).toBe(1);
+  });
+
+  test("Fix ③: a skill id that already exists BEFORE the run is a collision → notes NOT deleted, stays ready", async () => {
+    // The data-loss path: a DISTINCT skill already owns this cluster's id (a
+    // colliding cluster, or a pre-existing skill). The distill run's scaffold
+    // would fail on the duplicate id, yet a naive `skillExists` check afterward
+    // would still pass (the OTHER skill exists) and retire THIS cluster's notes.
+    // The `existedBefore` guard rejects the cluster before it ever runs.
+    const expectedId = skillIdForGoal(
+      "deploy the web app",
+      "cluster/proc/deploy-1",
+    )!;
+    const { reg, deps, distillCalls, deletedSlugs, cleanedSlugs } = harness({
+      seed: [
+        cluster({
+          clusterId: "cluster/proc/deploy-1",
+          goal: "deploy the web app",
+          memberNoteSlugs: ["proc/deploy-1", "proc/deploy-2"],
+        }),
+      ],
+      noteBodies: {
+        "proc/deploy-1": "trace one",
+        "proc/deploy-2": "trace two",
+      },
+      // The id is ALREADY taken before this cluster runs (collision).
+      preExistingSkillIds: [expectedId],
+    });
+
+    const outcome = await procDistillTriggerJob(JOB, deps.config, deps);
+
+    // A collision is rejected before launching: no distill run, no deletes, no
+    // vector cleanup, and the cluster stays `ready` so its notes survive.
+    expect(distillCalls).toHaveLength(0);
+    expect(deletedSlugs).toEqual([]);
+    expect(cleanedSlugs).toEqual([]);
+    expect(reg.rows.get("cluster/proc/deploy-1")!.status).toBe("ready");
+    expect(outcome.distilled).toEqual([]);
+    expect(outcome.distillFailures).toBe(1);
+  });
+
+  test("two distinct clusters with the same goal get distinct skill ids (no collision)", async () => {
+    // Same goal, two distinct cluster ids → two distinct skill ids, so both
+    // distill independently with neither's id pre-existing for the other.
+    const idA = skillIdForGoal("deploy the web app", "cluster/proc/a")!;
+    const idB = skillIdForGoal("deploy the web app", "cluster/proc/b")!;
+    expect(idA).not.toBe(idB);
+
+    const { reg, deps, distillCalls, deletedSlugs } = harness({
+      seed: [
+        cluster({
+          clusterId: "cluster/proc/a",
+          goal: "deploy the web app",
+          memberNoteSlugs: ["proc/a"],
+        }),
+        cluster({
+          clusterId: "cluster/proc/b",
+          goal: "deploy the web app",
+          memberNoteSlugs: ["proc/b"],
+        }),
+      ],
+      noteBodies: { "proc/a": "trace a", "proc/b": "trace b" },
+      // Each run scaffolds its own distinct id into the catalog; because the ids
+      // differ, neither pre-exists when the other runs (no spurious collision).
+    });
+
+    const outcome = await procDistillTriggerJob(JOB, deps.config, deps);
+
+    // Both clusters distill — distinct ids mean no spurious collision rejection.
+    expect(distillCalls.map((c) => c.skillId).sort()).toEqual(
+      [idA, idB].sort(),
+    );
+    expect(deletedSlugs.sort()).toEqual(["proc/a", "proc/b"]);
+    expect(reg.rows.get("cluster/proc/a")!.status).toBe("distilled");
+    expect(reg.rows.get("cluster/proc/b")!.status).toBe("distilled");
+    expect(outcome.distilled.sort()).toEqual(
+      ["cluster/proc/a", "cluster/proc/b"].sort(),
+    );
   });
 
   test("a ready cluster with no readable notes is left ready (nothing to distill)", async () => {
