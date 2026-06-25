@@ -109,11 +109,11 @@ export interface AcpRunActions {
   }) => void;
 
   /**
-   * Idempotent merge of history entries keyed by acpSessionId. Keeps the
-   * longer `events` buffer (live vs incoming) so a live stream is never
-   * clobbered, while always merging terminal/status/usage metadata from the
-   * history entry. Sets `highWaterMark` to the max seq over the kept buffer
-   * and indexes `byToolUseId`.
+   * Idempotent merge of history entries keyed by acpSessionId. Unions live and
+   * incoming `events` by `seq` so a live stream is never clobbered by a
+   * stale-but-longer snapshot, while always merging terminal/status/usage
+   * metadata from the history entry. Sets `highWaterMark` to the max seq over
+   * the merged buffer and indexes `byToolUseId`.
    */
   seedFromHistory: (entries: AcpRunEntry[]) => void;
 
@@ -171,19 +171,45 @@ function appendEvent(
 }
 
 /**
- * Merge a history entry into an existing live entry. Keeps the longer `events`
- * buffer but always folds in the history entry's terminal/status/usage
- * metadata. A terminal history status wins over a live non-terminal one; a live
- * terminal status is not regressed by a non-terminal history status.
+ * Seq-keyed union of live + history events. Buffer length is not recency: a
+ * stale-but-longer history snapshot can have a lower max seq than the few live
+ * events already received, so keeping the longer buffer would drop them. Dedup
+ * by `seq` instead, preferring the existing (live) event on collision — it may
+ * be a coalesced/newer-shaped representation — and sort ascending by seq.
+ * Events lacking `seq` (older/fallback data) are appended without deduping so a
+ * missing seq never collapses distinct events.
+ */
+function mergeEvents(
+  existing: AcpRunRawEvent[],
+  incoming: AcpRunRawEvent[],
+): AcpRunRawEvent[] {
+  const bySeq = new Map<number, AcpRunRawEvent>();
+  const seqless: AcpRunRawEvent[] = [];
+
+  for (const event of [...existing, ...incoming]) {
+    if (typeof event.seq !== "number") {
+      seqless.push(event);
+      continue;
+    }
+    if (!bySeq.has(event.seq)) bySeq.set(event.seq, event);
+  }
+
+  const merged = Array.from(bySeq.values()).sort((a, b) => a.seq - b.seq);
+  return seqless.length ? [...merged, ...seqless] : merged;
+}
+
+/**
+ * Merge a history entry into an existing live entry. Unions both event buffers
+ * by `seq` (never dropping the newest live events) and always folds in the
+ * history entry's terminal/status/usage metadata. A terminal history status
+ * wins over a live non-terminal one; a live terminal status is not regressed by
+ * a non-terminal history status.
  */
 function mergeHistoryEntry(
   existing: AcpRunEntry,
   incoming: AcpRunEntry,
 ): AcpRunEntry {
-  const events =
-    existing.events.length >= incoming.events.length
-      ? existing.events
-      : incoming.events;
+  const events = mergeEvents(existing.events, incoming.events);
 
   const status =
     isActiveAcpStatus(existing.status) || !isActiveAcpStatus(incoming.status)
@@ -352,8 +378,8 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
 
     for (const entry of entries) {
       const existing = nextById[entry.acpSessionId];
-      // Keep the longer event buffer but always merge terminal/status/usage
-      // metadata from history so a live entry can't stay stale.
+      // Union live + history events by seq and always merge terminal/status/
+      // usage metadata from history so a live entry can't stay stale.
       const merged = existing ? mergeHistoryEntry(existing, entry) : entry;
       nextById[entry.acpSessionId] = merged;
 
@@ -369,6 +395,7 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
       }
 
       for (const event of merged.events) {
+        if (typeof event.seq !== "number") continue;
         nextHighWaterMark = bumpHighWaterMark(
           nextHighWaterMark,
           entry.acpSessionId,

@@ -230,4 +230,56 @@ describe("rehydration — active session + live stream dedup", () => {
     expect(events[1]!.toolCallId).toBe("t-new");
     expect(getState().highWaterMark.get("acp-1")).toBe(6);
   });
+
+  test("a live event that arrived before seeding survives a stale-but-longer snapshot", async () => {
+    // Live spawn + an event with seq above the history snapshot's max arrives
+    // BEFORE the /acp/sessions response resolves.
+    getState().spawnRun({
+      acpSessionId: "acp-1",
+      agent: "claude",
+      parentConversationId: "conv-1",
+      startedAt: 1000,
+    });
+    handleAcpSessionUpdate({
+      type: "acp_session_update",
+      acpSessionId: "acp-1",
+      updateType: "tool_call",
+      toolCallId: "t-live",
+      seq: 9,
+    });
+    expect(getState().highWaterMark.get("acp-1")).toBe(9);
+
+    // Stale-but-longer history snapshot: more events, but max seq 3 < 9.
+    await seed([
+      {
+        acpSessionId: "acp-1",
+        agentId: "claude",
+        parentConversationId: "conv-1",
+        status: "running",
+        startedAt: 1000,
+        eventLog: [
+          { type: "acp_session_update", updateType: "tool_call", toolCallId: "h-1", seq: 1 },
+          { type: "acp_session_update", updateType: "tool_call", toolCallId: "h-2", seq: 2 },
+          { type: "acp_session_update", updateType: "tool_call", toolCallId: "h-3", seq: 3 },
+        ],
+      },
+    ]);
+
+    const events = getState().byId["acp-1"]!.events;
+    // The live seq=9 event is not dropped; older history events fill in.
+    expect(events.find((e) => e.toolCallId === "t-live")).toBeDefined();
+    expect(events.map((e) => e.seq)).toEqual([1, 2, 3, 9]);
+    // highWaterMark reflects the true newest seq, keeping live dedup correct.
+    expect(getState().highWaterMark.get("acp-1")).toBe(9);
+
+    // A later live event at or below the mark is still deduped.
+    handleAcpSessionUpdate({
+      type: "acp_session_update",
+      acpSessionId: "acp-1",
+      updateType: "tool_call",
+      toolCallId: "t-dup",
+      seq: 9,
+    });
+    expect(getState().byId["acp-1"]!.events).toHaveLength(4);
+  });
 });
