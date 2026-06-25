@@ -204,7 +204,9 @@ export function applyAcpChatEvent(
         toolCallId,
         title: event.toolTitle ?? "",
         toolKind: event.toolKind,
-        status: "running",
+        // Honor a terminal status on the initial tool_call (hydrated snapshots
+        // may carry one with no follow-up update); default to "running".
+        status: mapToolStatus(event.toolStatus, "running"),
         content: event.content,
         locations: parseLocations(event),
       });
@@ -219,6 +221,10 @@ export function applyAcpChatEvent(
       );
       if (index === -1) return;
       const target = blocks[index] as Extract<AcpChatBlock, { kind: "tool" }>;
+      // A valid `locations` array (including `[]`) REPLACES the snapshot; an
+      // empty array clears stale locations. `undefined` means the field is
+      // absent/malformed — preserve the previous value.
+      const parsedLocations = parseLocations(event);
       blocks[index] = {
         ...target,
         title: event.toolTitle ?? target.title,
@@ -226,7 +232,7 @@ export function applyAcpChatEvent(
         status: mapToolStatus(event.toolStatus, target.status),
         // ACP `ToolCallUpdate.content` REPLACES the snapshot, not a delta.
         content: event.content ?? target.content,
-        locations: parseLocations(event) ?? target.locations,
+        locations: parsedLocations ?? target.locations,
       };
       return;
     }
@@ -250,8 +256,12 @@ export function applyAcpChatEvent(
 /**
  * Best-effort extraction of `locations` from a tool event. The store's raw
  * event carries no typed `locations` field today; this reads an optional
- * passthrough off the event without widening the store type. Returns
- * `undefined` (no change) when absent or malformed.
+ * passthrough off the event without widening the store type.
+ *
+ * Returns `undefined` only when the field is ABSENT or not an array (the caller
+ * treats this as "no change"). A VALID array — including an empty one — returns
+ * a parsed array (possibly `[]`), so an ACP `locations: []` update can clear
+ * stale locations rather than preserving the previous value.
  */
 function parseLocations(
   event: AcpRunRawEvent,
@@ -268,7 +278,7 @@ function parseLocations(
         : { path: obj.path },
     );
   }
-  return out.length ? out : undefined;
+  return out;
 }
 
 /**

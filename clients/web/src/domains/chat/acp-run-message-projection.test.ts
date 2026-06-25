@@ -211,6 +211,81 @@ describe("tool blocks", () => {
     const tool = blocks[0] as Extract<AcpChatBlock, { kind: "tool" }>;
     expect(tool.locations).toEqual([{ path: "a.ts", line: 12 }, { path: "b.ts" }]);
   });
+
+  it("honors a terminal status on the initial tool_call (no follow-up update)", () => {
+    const blocks = computeAcpRunChatBlocks([
+      event({
+        updateType: "tool_call",
+        toolCallId: "tc1",
+        toolTitle: "Read",
+        toolStatus: "completed",
+      }),
+      event({
+        updateType: "tool_call",
+        toolCallId: "tc2",
+        toolTitle: "Bash",
+        toolStatus: "failed",
+      }),
+    ]);
+
+    expect((blocks[0] as Extract<AcpChatBlock, { kind: "tool" }>).status).toBe(
+      "completed",
+    );
+    expect((blocks[1] as Extract<AcpChatBlock, { kind: "tool" }>).status).toBe(
+      "error",
+    );
+  });
+
+  it("defaults the initial tool_call status to running when absent", () => {
+    const blocks = computeAcpRunChatBlocks([
+      event({ updateType: "tool_call", toolCallId: "tc1", toolTitle: "Read" }),
+    ]);
+    expect((blocks[0] as Extract<AcpChatBlock, { kind: "tool" }>).status).toBe(
+      "running",
+    );
+  });
+
+  it("clears stale locations when an update carries an empty array", () => {
+    const blocks = computeAcpRunChatBlocks([
+      {
+        seq: 0,
+        updateType: "tool_call",
+        toolCallId: "tc1",
+        toolTitle: "Edit",
+        locations: [{ path: "a.ts", line: 12 }],
+      } as AcpRunRawEvent,
+      {
+        seq: 1,
+        updateType: "tool_call_update",
+        toolCallId: "tc1",
+        // ACP `locations: []` means "replace with empty".
+        locations: [],
+      } as AcpRunRawEvent,
+    ]);
+
+    const tool = blocks[0] as Extract<AcpChatBlock, { kind: "tool" }>;
+    expect(tool.locations).toEqual([]);
+  });
+
+  it("preserves locations when an update omits the locations field", () => {
+    const blocks = computeAcpRunChatBlocks([
+      {
+        seq: 0,
+        updateType: "tool_call",
+        toolCallId: "tc1",
+        toolTitle: "Edit",
+        locations: [{ path: "a.ts", line: 12 }],
+      } as AcpRunRawEvent,
+      event({
+        updateType: "tool_call_update",
+        toolCallId: "tc1",
+        toolStatus: "completed",
+      }),
+    ]);
+
+    const tool = blocks[0] as Extract<AcpChatBlock, { kind: "tool" }>;
+    expect(tool.locations).toEqual([{ path: "a.ts", line: 12 }]);
+  });
 });
 
 // ---------------------------------------------------------------------------
