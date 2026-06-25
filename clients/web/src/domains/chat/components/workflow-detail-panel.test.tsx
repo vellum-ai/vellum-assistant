@@ -148,7 +148,7 @@ describe("WorkflowDetailPanel", () => {
     expect(screen.getByText("No subagents yet")).toBeDefined();
   });
 
-  test("clicking a subagent row opens its detail with separate Prompt and Result sections", () => {
+  test("clicking a subagent row opens its detail with separate Prompt and Result sections", async () => {
     render(
       <WorkflowDetailPanel
         entry={makeEntry({
@@ -176,7 +176,9 @@ describe("WorkflowDetailPanel", () => {
     );
 
     // Detail view: prompt and result render as two separate, labeled sections.
-    expect(screen.getByText("Prompt")).toBeDefined();
+    // The body crossfades (AnimatePresence mode="wait"), so the leaf detail
+    // mounts only after the list exits — await the swapped-in content.
+    expect(await screen.findByText("Prompt")).toBeDefined();
     expect(screen.getByText("Search the web for X")).toBeDefined();
     expect(screen.getByText("Result")).toBeDefined();
     expect(screen.getByText("Found three sources")).toBeDefined();
@@ -216,7 +218,7 @@ describe("WorkflowDetailPanel", () => {
     expect(screen.queryByTestId("status-badge")).toBeNull();
   });
 
-  test("Back returns from a leaf detail to the subagents list", () => {
+  test("Back returns from a leaf detail to the subagents list", async () => {
     render(
       <WorkflowDetailPanel
         entry={makeEntry({
@@ -236,14 +238,14 @@ describe("WorkflowDetailPanel", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Open Research leaf details" }),
     );
-    expect(screen.getByText("Prompt")).toBeDefined();
+    expect(await screen.findByText("Prompt")).toBeDefined();
 
     fireEvent.click(screen.getByLabelText("Back to subagents"));
-    expect(screen.getByText("Subagents")).toBeDefined();
+    expect(await screen.findByText("Subagents")).toBeDefined();
     expect(screen.queryByText("Prompt")).toBeNull();
   });
 
-  test("a running leaf with no result shows a running state in the Result section", () => {
+  test("a running leaf with no result shows a running state in the Result section", async () => {
     render(
       <WorkflowDetailPanel
         entry={makeEntry({
@@ -263,7 +265,7 @@ describe("WorkflowDetailPanel", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Open Busy leaf details" }),
     );
-    expect(screen.getByText("Working on it")).toBeDefined();
+    expect(await screen.findByText("Working on it")).toBeDefined();
     expect(screen.getByText("Running…")).toBeDefined();
   });
 
