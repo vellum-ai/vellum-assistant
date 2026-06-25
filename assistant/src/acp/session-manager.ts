@@ -877,6 +877,15 @@ export class AcpSessionManager {
     // Serialize only the wire-shaped updates — drop the byte-size accounting
     // metadata so persisted rows match the protocol shape clients receive.
     const eventLogJson = JSON.stringify(buffer.map((b) => b.update));
+    const usage = entry.state.latestUsage;
+    const usageColumns = {
+      task: entry.state.task ?? null,
+      parentToolUseId: entry.state.parentToolUseId ?? null,
+      usedTokens: usage?.usedTokens ?? null,
+      contextSize: usage?.contextSize ?? null,
+      costAmount: usage?.costAmount ?? null,
+      costCurrency: usage?.costCurrency ?? null,
+    };
     try {
       getDb()
         .insert(acpSessionHistory)
@@ -892,6 +901,7 @@ export class AcpSessionManager {
           error: entry.state.error ?? null,
           eventLogJson,
           cwd: entry.cwd,
+          ...usageColumns,
         })
         .onConflictDoUpdate({
           target: acpSessionHistory.id,
@@ -902,6 +912,7 @@ export class AcpSessionManager {
             error: entry.state.error ?? null,
             eventLogJson,
             cwd: entry.cwd,
+            ...usageColumns,
           },
         })
         .run();

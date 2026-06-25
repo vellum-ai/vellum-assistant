@@ -52,7 +52,7 @@ function getListHandler() {
 function makeInMemoryState(
   id: string,
   parentConversationId: string,
-  extra?: Pick<AcpSessionState, "task" | "parentToolUseId">,
+  extra?: Pick<AcpSessionState, "task" | "parentToolUseId" | "latestUsage">,
 ): AcpSessionState {
   return {
     id,
@@ -153,8 +153,80 @@ describe("GET /v1/acp/sessions — eventLog", () => {
     expect(eventLog).toHaveLength(1);
     expect(eventLog[0]?.seq).toBe(7);
     expect(eventLog[0]?.content).toBe("persisted");
-    // No acp_session_history columns for these, so terminal rows omit them.
+  });
+
+  test("active in-memory session surfaces latestUsage as the usage fields", async () => {
+    inMemoryStates.set(
+      "active",
+      makeInMemoryState("active", "conv-1", {
+        latestUsage: {
+          usedTokens: 1234,
+          contextSize: 200_000,
+          costAmount: 0.5,
+          costCurrency: "USD",
+        },
+      }),
+    );
+
+    const handler = getListHandler();
+    const result = (await handler({
+      queryParams: { conversationId: "conv-1" },
+    })) as { sessions: Array<Record<string, unknown>> };
+
+    const session = result.sessions.find((s) => s.id === "active");
+    expect(session).toBeDefined();
+    expect(session?.usedTokens).toBe(1234);
+    expect(session?.contextSize).toBe(200_000);
+    expect(session?.costAmount).toBe(0.5);
+    expect(session?.costCurrency).toBe("USD");
+  });
+
+  test("terminal DB row returns persisted task, parentToolUseId, and usage", async () => {
+    insertHistoryRow({
+      id: "terminal-usage",
+      parentConversationId: "conv-1",
+      task: "Refactor the parser",
+      parentToolUseId: "tool-use-xyz",
+      usedTokens: 8000,
+      contextSize: 200_000,
+      costAmount: 0.0456,
+      costCurrency: "USD",
+    });
+
+    const handler = getListHandler();
+    const result = (await handler({
+      queryParams: { conversationId: "conv-1" },
+    })) as { sessions: Array<Record<string, unknown>> };
+
+    const session = result.sessions.find((s) => s.id === "terminal-usage");
+    expect(session).toBeDefined();
+    expect(session?.task).toBe("Refactor the parser");
+    expect(session?.parentToolUseId).toBe("tool-use-xyz");
+    expect(session?.usedTokens).toBe(8000);
+    expect(session?.contextSize).toBe(200_000);
+    expect(session?.costAmount).toBe(0.0456);
+    expect(session?.costCurrency).toBe("USD");
+  });
+
+  test("pre-migration terminal row (NULL usage columns) degrades to undefined", async () => {
+    insertHistoryRow({
+      id: "terminal-legacy",
+      parentConversationId: "conv-1",
+      // task/parentToolUseId/usage columns default to NULL.
+    });
+
+    const handler = getListHandler();
+    const result = (await handler({
+      queryParams: { conversationId: "conv-1" },
+    })) as { sessions: Array<Record<string, unknown>> };
+
+    const session = result.sessions.find((s) => s.id === "terminal-legacy");
+    expect(session).toBeDefined();
     expect(session?.task).toBeUndefined();
     expect(session?.parentToolUseId).toBeUndefined();
+    expect(session?.usedTokens).toBeUndefined();
+    expect(session?.contextSize).toBeUndefined();
+    expect(session?.costAmount).toBeUndefined();
+    expect(session?.costCurrency).toBeUndefined();
   });
 });
