@@ -52,6 +52,10 @@ const sessionEntrySchema = z.object({
   stopReason: z.string().nullable().optional(),
   task: z.string().optional(),
   parentToolUseId: z.string().optional(),
+  usedTokens: z.number().optional(),
+  contextSize: z.number().optional(),
+  costAmount: z.number().optional(),
+  costCurrency: z.string().optional(),
   eventLog: z.array(z.unknown()).optional(),
 });
 
@@ -693,6 +697,10 @@ function listMergedSessions(opts: {
       stopReason: s.stopReason ?? null,
       task: s.task,
       parentToolUseId: s.parentToolUseId,
+      usedTokens: s.latestUsage?.usedTokens,
+      contextSize: s.latestUsage?.contextSize,
+      costAmount: s.latestUsage?.costAmount,
+      costCurrency: s.latestUsage?.costCurrency,
       eventLog: manager.getBufferedUpdates(s.id),
     });
   }
@@ -727,8 +735,8 @@ function listMergedSessions(opts: {
         "Failed to parse event_log_json for ACP session history row",
       );
     }
-    // Terminal rows omit task and parentToolUseId — acp_session_history has no
-    // columns for them, so they degrade to undefined here.
+    // Rows predating the usage migration carry NULLs for these columns and
+    // degrade to undefined.
     merged.set(row.id, {
       id: row.id,
       agentId: row.agentId,
@@ -739,6 +747,12 @@ function listMergedSessions(opts: {
       completedAt: row.completedAt,
       error: row.error,
       stopReason: row.stopReason,
+      task: row.task ?? undefined,
+      parentToolUseId: row.parentToolUseId ?? undefined,
+      usedTokens: row.usedTokens ?? undefined,
+      contextSize: row.contextSize ?? undefined,
+      costAmount: row.costAmount ?? undefined,
+      costCurrency: row.costCurrency ?? undefined,
       eventLog,
     });
   }

@@ -19,6 +19,7 @@ mock.module("../../util/logger.js", () => ({
 
 import { VellumAcpClientHandler } from "../../acp/client-handler.js";
 import { AcpSessionManager } from "../../acp/session-manager.js";
+import type { AcpUsageSnapshot } from "../../acp/types.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import type { AcpSessionUpdate } from "../../daemon/message-types/acp.js";
 import { getSqlite } from "../../memory/db-connection.js";
@@ -40,6 +41,9 @@ function buildSessionWithFakeProcess(opts: {
   protocolSessionId: string;
   parentConversationId: string;
   cwd?: string;
+  task?: string;
+  parentToolUseId?: string;
+  latestUsage?: AcpUsageSnapshot;
 }): {
   manager: AcpSessionManager;
   resolvePrompt: (v: { stopReason: string }) => void;
@@ -100,6 +104,9 @@ function buildSessionWithFakeProcess(opts: {
       acpSessionId: opts.protocolSessionId,
       status: "running",
       startedAt: Date.now(),
+      task: opts.task,
+      parentToolUseId: opts.parentToolUseId,
+      latestUsage: opts.latestUsage,
     },
     clientHandler,
     sendToVellum: wrappedSend,
@@ -341,6 +348,61 @@ describe("AcpSessionManager — terminal persistence", () => {
     const row = readHistoryRow(id);
     expect(row).not.toBeNull();
     expect(row!.cwd).toBe("/Users/me/projects/widget");
+  });
+
+  test("persists task, parentToolUseId, and the latest usage snapshot on terminal transition", async () => {
+    const id = "session-usage-1";
+    const handles = buildSessionWithFakeProcess({
+      id,
+      agentId: "agent-usage",
+      protocolSessionId: "proto-usage",
+      parentConversationId: "conv-usage",
+      task: "Summarize the report",
+      parentToolUseId: "tool-use-123",
+      latestUsage: {
+        usedTokens: 4200,
+        contextSize: 200_000,
+        costAmount: 0.0123,
+        costCurrency: "USD",
+      },
+    });
+
+    handles.resolvePrompt({ stopReason: "end_turn" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const row = readHistoryRow(id);
+    expect(row).not.toBeNull();
+    expect(row!.task).toBe("Summarize the report");
+    expect(row!.parent_tool_use_id).toBe("tool-use-123");
+    expect(row!.used_tokens).toBe(4200);
+    expect(row!.context_size).toBe(200_000);
+    expect(row!.cost_amount).toBe(0.0123);
+    expect(row!.cost_currency).toBe("USD");
+  });
+
+  test("persists NULL usage columns when latestUsage is undefined", async () => {
+    const id = "session-no-usage-1";
+    const handles = buildSessionWithFakeProcess({
+      id,
+      agentId: "agent-no-usage",
+      protocolSessionId: "proto-no-usage",
+      parentConversationId: "conv-no-usage",
+      task: "Do work without usage",
+    });
+
+    handles.resolvePrompt({ stopReason: "end_turn" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const row = readHistoryRow(id);
+    expect(row).not.toBeNull();
+    expect(row!.task).toBe("Do work without usage");
+    expect(row!.parent_tool_use_id).toBeNull();
+    expect(row!.used_tokens).toBeNull();
+    expect(row!.context_size).toBeNull();
+    expect(row!.cost_amount).toBeNull();
+    expect(row!.cost_currency).toBeNull();
   });
 
   test("legacy rows without a cwd read back as null", () => {
