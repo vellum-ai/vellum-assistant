@@ -1,4 +1,13 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
+import { cleanup } from "@testing-library/react";
+
 
 type MockSessionUser = {
   id?: string;
@@ -22,12 +31,12 @@ let getSessionGates: Array<() => void> | null = null;
 let mockIsGatewayAuth = false;
 let mockIsLocalMode = false;
 let mockIsRemoteGatewayMode = false;
-let mockPlatformAssistants: unknown[] = [];
+// The assistant `getSelectedAssistant()` resolves; `undefined` means none selected.
 let mockSelectedAssistant: { assistantId: string; cloud: string } | undefined;
+let mockPlatformAssistants: unknown[] = [];
 let mockPrimeError: Error | null = null;
 let mockGatewayToken: string | null = null;
 const setSelectedAssistantMock = mock(async (_id: string | null) => {});
-const setFromApiMock = mock((_assistants: unknown) => {});
 const primeLocalGatewayConnectionMock = mock(async () => {
   if (mockPrimeError) throw mockPrimeError;
 });
@@ -247,13 +256,9 @@ mock.module("@/lib/auth/session-cleanup", () => ({
   clearUserScopedStorage: clearUserScopedStorageMock,
 }));
 
-mock.module("@/stores/resolved-assistants-store", () => ({
-  useResolvedAssistantsStore: {
-    getState: () => ({
-      setFromApi: setFromApiMock,
-    }),
-  },
-}));
+// Use the REAL resolved-assistants store: the auth-store init path calls its
+// `.getState().setFromApi(...)`, which a plain stub can't provide. It's
+// dependency-light, so loading it for real is cheap.
 
 // Auth-store writes the selection through the public wrapper, not the store
 // action — mock the wrapper module so the real one (and its local-mode deps)
@@ -297,6 +302,12 @@ mock.module("@/assistant/api", () => ({
 }));
 
 const { useAuthStore } = await import("@/stores/auth-store");
+const { useAssistantLifecycleStore } = await import(
+  "@/assistant/lifecycle-store"
+);
+const { useResolvedAssistantsStore } = await import(
+  "@/stores/resolved-assistants-store"
+);
 
 function resetAuthStore(): void {
   useAuthStore.setState({
@@ -310,6 +321,7 @@ function authenticatedLocalUserForTest() {
   return {
     sessionStatus: "authenticated" as const,
     user: {
+      kind: "local" as const,
       id: "gateway-local",
       username: "local",
       email: null,
@@ -333,15 +345,14 @@ beforeEach(() => {
   mockIsGatewayAuth = false;
   mockIsLocalMode = false;
   mockIsRemoteGatewayMode = false;
-  mockPlatformAssistants = [];
   mockSelectedAssistant = undefined;
+  mockPlatformAssistants = [];
   mockIsNativePlatform = false;
   mockIsBiometricEnabled = false;
   mockBiometricToken = null;
   mockGatewayToken = null;
   mockPrimeError = null;
   setSelectedAssistantMock.mockClear();
-  setFromApiMock.mockClear();
   primeLocalGatewayConnectionMock.mockClear();
   primeLocalGatewayConnectionWithRepairMock.mockClear();
   ensureGatewayTokenMock.mockClear();
@@ -373,6 +384,14 @@ beforeEach(() => {
   syncPlatformAssistantsToLockfileMock.mockClear();
   bootstrapLocalAssistantPlatformIdentityMock.mockClear();
   resetAuthStore();
+  // Reset the lifecycle and resolved-assistants stores so each test starts from
+  // a known connection/selection state.
+  useAssistantLifecycleStore.setState({ assistantState: { kind: "loading" } });
+  useResolvedAssistantsStore.setState({ activeAssistantId: null });
+});
+
+afterEach(() => {
+  cleanup();
 });
 
 describe("auth store onboarding flag reconciliation", () => {
@@ -1112,6 +1131,10 @@ describe("offline session restore (LUM-2412)", () => {
 
     expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
     expect(useAuthStore.getState().user?.id).toBe("user-cached");
+    // The legacy snapshot `seedSnapshot()` writes carries no `kind` field;
+    // the restore must default it to a platform identity (only platform users
+    // are ever snapshotted), so old snapshots keep restoring correctly.
+    expect(useAuthStore.getState().user?.kind).toBe("platform");
     // The snapshot only exists for a confirmed platform session, and no
     // probe runs offline to settle an "unknown" — so the restore settles
     // "present" (believed state); reconnect revalidation corrects it.
@@ -1262,5 +1285,44 @@ describe("offline session restore (LUM-2412)", () => {
     await useAuthStore.getState().initSession();
 
     expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+  });
+});
+
+// `kind` separates a real platform account from synthetic local gateway access.
+describe("identity kind (platform vs local gateway access)", () => {
+  test("a local gateway session is kind 'local' and not a platform identity, but keeps its stable id", async () => {
+    mockIsLocalMode = true;
+    mockPlatformAssistants = [];
+
+    await useAuthStore.getState().initSession();
+
+    const user = useAuthStore.getState().user;
+    expect(user?.kind).toBe("local");
+    expect(user?.id).toBe("gateway-local");
+    // A local session stays authenticated — the discriminator does not change
+    // session semantics.
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+  });
+
+  test("a platform session is kind 'platform' and is a platform identity", async () => {
+    sessionUser = { id: "user-1", email: "user@example.com" };
+
+    await useAuthStore.getState().initSession();
+
+    const user = useAuthStore.getState().user;
+    expect(user?.kind).toBe("platform");
+    expect(user?.id).toBe("user-1");
+  });
+
+  test("an offline-restored user is a platform identity (legacy snapshot defaults to platform)", async () => {
+    // `seedSnapshot()` writes a legacy snapshot with no `kind` field.
+    getSessionThrows = true;
+    mockElectronSessionToken = "tok-1";
+    seedSnapshot();
+
+    await useAuthStore.getState().initSession();
+
+    const user = useAuthStore.getState().user;
+    expect(user?.kind).toBe("platform");
   });
 });

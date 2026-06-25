@@ -1,5 +1,13 @@
 /** Platform-agnostic types for the messaging provider abstraction. */
 
+/**
+ * Extra, channel-specific fields a channel contributes to a serialized
+ * conversation channel binding (e.g. deep links back to the source message).
+ * Additive by design: each channel returns its own fields, so this is an open
+ * record rather than a committed cross-channel schema.
+ */
+export type ChannelBindingMetadata = Record<string, unknown>;
+
 export interface Conversation {
   id: string;
   name: string;

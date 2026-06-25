@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import type { ContentBlock, Message } from "../../../../providers/types.js";
-import { toAdvisorMessages } from "../transcript.js";
+import type { ContentBlock, Message } from "../../providers/types.js";
+import { sanitizeConsultTranscript } from "../consult-transcript.js";
 
 const text = (t: string): ContentBlock => ({ type: "text", text: t });
 
-describe("toAdvisorMessages", () => {
+describe("sanitizeConsultTranscript", () => {
   test("drops thinking and redacted-thinking blocks", () => {
     const messages: Message[] = [
       { role: "user", content: [text("do the task")] },
@@ -18,12 +18,34 @@ describe("toAdvisorMessages", () => {
         ],
       },
     ];
-    const out = toAdvisorMessages(messages);
+    const out = sanitizeConsultTranscript(messages);
     expect(out).toHaveLength(2);
     expect(out[1].content).toEqual([text("here is my answer")]);
   });
 
-  test("strips the pending advisor tool_use from the final assistant turn", () => {
+  test("drops a file block", () => {
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          text("read this"),
+          {
+            type: "file",
+            source: {
+              type: "base64",
+              media_type: "application/pdf",
+              data: "z",
+              filename: "f.pdf",
+            },
+          },
+        ],
+      },
+    ];
+    const out = sanitizeConsultTranscript(messages);
+    expect(out[0].content).toEqual([text("read this")]);
+  });
+
+  test("strips the pending tool_use from the final assistant turn", () => {
     const messages: Message[] = [
       { role: "user", content: [text("task")] },
       {
@@ -34,7 +56,7 @@ describe("toAdvisorMessages", () => {
         ],
       },
     ];
-    const out = toAdvisorMessages(messages);
+    const out = sanitizeConsultTranscript(messages);
     expect(out[1].content).toEqual([text("let me consult the advisor")]);
   });
 
@@ -51,7 +73,7 @@ describe("toAdvisorMessages", () => {
       },
       { role: "assistant", content: [text("done")] },
     ];
-    const out = toAdvisorMessages(messages);
+    const out = sanitizeConsultTranscript(messages);
     expect(out[1].content[0]).toEqual({
       type: "tool_use",
       id: "a",
@@ -87,7 +109,7 @@ describe("toAdvisorMessages", () => {
       },
       { role: "assistant", content: [text("found it; here is the answer")] },
     ];
-    const out = toAdvisorMessages(messages);
+    const out = sanitizeConsultTranscript(messages);
     const flat = out.flatMap((m) => m.content);
     expect(flat.some((b) => b.type === "server_tool_use")).toBe(false);
     expect(flat.some((b) => b.type === "web_search_tool_result")).toBe(false);
@@ -103,7 +125,7 @@ describe("toAdvisorMessages", () => {
     const messages: Message[] = [
       { role: "user", content: [text("look at this"), img] },
     ];
-    const out = toAdvisorMessages(messages);
+    const out = sanitizeConsultTranscript(messages);
     expect(out[0].content).toEqual([text("look at this"), img]);
   });
 
@@ -136,12 +158,27 @@ describe("toAdvisorMessages", () => {
         ],
       },
     ];
-    const out = toAdvisorMessages(messages);
+    const out = sanitizeConsultTranscript(messages);
     expect(out[0].content[0]).toEqual({
       type: "tool_result",
       tool_use_id: "a",
       content: "screenshot",
       contentBlocks: [img],
     });
+  });
+
+  test("drops messages that are empty after sanitization", () => {
+    const messages: Message[] = [
+      { role: "user", content: [text("task")] },
+      {
+        role: "assistant",
+        content: [{ type: "thinking", thinking: "secret", signature: "sig" }],
+      },
+      { role: "assistant", content: [text("answer")] },
+    ];
+    const out = sanitizeConsultTranscript(messages);
+    expect(out).toHaveLength(2);
+    expect(out[0].content).toEqual([text("task")]);
+    expect(out[1].content).toEqual([text("answer")]);
   });
 });

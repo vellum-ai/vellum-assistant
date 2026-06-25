@@ -117,9 +117,6 @@ function enableProfile(
     // Preserve user-owned overrides across reconciles.
     if ("label" in previous) next.label = previous.label;
     if ("status" in previous) next.status = previous.status;
-    if ("advisorEnabled" in previous) {
-      next.advisorEnabled = previous.advisorEnabled;
-    }
     if ("topP" in previous) next.topP = previous.topP;
   }
 

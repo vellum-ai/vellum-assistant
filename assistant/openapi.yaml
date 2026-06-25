@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.10.2
+  version: 0.10.3
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -29683,12 +29683,6 @@ components:
                 - $ref: "#/components/schemas/ProfileStatus"
                 - type: "null"
             - type: "null"
-        advisorEnabled:
-          anyOf:
-            - anyOf:
-                - type: boolean
-                - type: "null"
-            - type: "null"
         mix:
           anyOf:
             - minItems: 2
@@ -30415,10 +30409,6 @@ components:
         status:
           anyOf:
             - $ref: "#/components/schemas/ProfileStatus"
-            - type: "null"
-        advisorEnabled:
-          anyOf:
-            - type: boolean
             - type: "null"
         mix:
           minItems: 2
