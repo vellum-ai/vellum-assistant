@@ -441,6 +441,16 @@ conversations (Slack, email, Telegram) have keys like
    for external channel adapters; web-originated traffic uses
    `conversationId`.
 
+### Don't duplicate logic — one source of truth
+
+When the same logic (a derivation, formatter, guard, fetch sequence, or
+handler) appears in more than one place, extract it into a single named
+function/hook/util that every caller imports. Copy-pasted logic drifts —
+a bug fixed in one copy survives in the others — so extract on the
+**second** occurrence, share behavior rather than just types, and delete
+the originals in the same PR. Where the extracted code lives follows the
+decision rule below.
+
 ### Top-level shared directories
 
 Code used across multiple domains lives in top-level shared
