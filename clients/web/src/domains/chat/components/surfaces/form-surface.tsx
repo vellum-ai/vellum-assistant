@@ -42,6 +42,7 @@ interface FormSurfaceData {
     back?: string;
     submit?: string;
   };
+  progressStyle?: "bar" | "tabs";
 }
 
 interface FormSurfaceProps {
@@ -177,6 +178,45 @@ function PageProgress({ current, total }: { current: number; total: number }) {
   );
 }
 
+function PageTabs({
+  current,
+  pages,
+  onNavigate,
+}: {
+  current: number;
+  pages: FormPage[];
+  onNavigate: (index: number) => void;
+}) {
+  return (
+    <div className="mb-4 flex items-center gap-4 overflow-x-auto border-b border-[var(--border-subtle)]">
+      {pages.map((page, i) => {
+        const isActive = i === current;
+        const isCompleted = i < current;
+        const isClickable = isCompleted;
+        const textClass = isActive
+          ? "text-[var(--content-strong)]"
+          : isCompleted
+            ? "text-[var(--content-default)]"
+            : "text-[var(--content-faint)]";
+        return (
+          <button
+            key={page.id}
+            type="button"
+            onClick={isClickable ? () => onNavigate(i) : undefined}
+            disabled={!isClickable}
+            aria-current={isActive ? "step" : undefined}
+            className={`-mb-px whitespace-nowrap border-b-2 pb-2 text-body-medium-default transition-colors ${
+              isActive ? "border-[var(--primary-base)]" : "border-transparent"
+            } ${textClass} ${isClickable ? "cursor-pointer" : "cursor-default"}`}
+          >
+            {i + 1}. {page.title}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
@@ -255,6 +295,15 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
     setCurrentPage((prev) => Math.max(prev - 1, 0));
   }, []);
 
+  const handleNavigate = useCallback(
+    (pageIndex: number) => {
+      if (pageIndex >= currentPage) return;
+      setValidationErrors({});
+      setCurrentPage(pageIndex);
+    },
+    [currentPage],
+  );
+
   const handleSubmit = useCallback(
     async (e: FormEvent) => {
       e.preventDefault();
@@ -292,11 +341,14 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
         </div>
       )}
 
-      {isMultiPage && totalPages > 1 && (
-        <PageProgress current={currentPage} total={totalPages} />
-      )}
+      {isMultiPage && totalPages > 1 &&
+        (formData.progressStyle === "tabs" ? (
+          <PageTabs current={currentPage} pages={allPages} onNavigate={handleNavigate} />
+        ) : (
+          <PageProgress current={currentPage} total={totalPages} />
+        ))}
 
-      {currentPageData.title && isMultiPage && (
+      {currentPageData.title && isMultiPage && formData.progressStyle !== "tabs" && (
         <h3 className="mb-1 text-title-small text-[var(--content-strong)]">
           {currentPageData.title}
         </h3>

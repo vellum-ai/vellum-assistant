@@ -116,6 +116,8 @@ export interface FormSurfaceData {
   submitLabel?: string;
   pages?: FormPage[];
   pageLabels?: { next?: string; back?: string; submit?: string };
+  /** Progress indicator style for multi-page forms: segment bar or labeled tabs. */
+  progressStyle?: "bar" | "tabs";
 }
 
 export interface ListItem {
