@@ -395,6 +395,26 @@ describe("extractVellumLinks", () => {
     expect(result.directiveRequests[0].path).toBe("/Users/me/my file.pdf");
   });
 
+  test("warns on malformed percent-encoding instead of throwing", () => {
+    const text =
+      "[100% complete.txt](vellum://workspace/scratch/100%25complete.txt)";
+    const result = extractVellumLinks(text);
+
+    // %25 decodes to %, so this should succeed
+    expect(result.directiveRequests).toHaveLength(1);
+    expect(result.directiveRequests[0].path).toBe("scratch/100%complete.txt");
+  });
+
+  test("warns on malformed percent-encoding and skips the link", () => {
+    const text =
+      "[bad file](vellum://workspace/scratch/100%complete.txt)";
+    const result = extractVellumLinks(text);
+
+    expect(result.directiveRequests).toHaveLength(0);
+    expect(result.parseWarnings).toHaveLength(1);
+    expect(result.parseWarnings[0]).toContain("malformed percent-encoding");
+  });
+
   test("warns on empty workspace path", () => {
     const text = "[file](vellum://workspace/)";
     const result = extractVellumLinks(text);
