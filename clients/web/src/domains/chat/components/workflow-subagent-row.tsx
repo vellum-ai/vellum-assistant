@@ -49,6 +49,8 @@ export interface WorkflowSubagentRowProps {
   leaf: WorkflowLeaf;
   /** Bundled avatar SVG components, or `null` until the lazy chunk resolves. */
   components: CharacterComponents | null;
+  /** Opens this leaf's nested detail view in the panel. */
+  onSelect: () => void;
 }
 
 /**
@@ -68,6 +70,7 @@ export function WorkflowSubagentRow({
   runId,
   leaf,
   components,
+  onSelect,
 }: WorkflowSubagentRowProps) {
   const title = leaf.label ?? `Subagent ${leaf.seq}`;
   const activity = leaf.promptSummary;
@@ -76,7 +79,12 @@ export function WorkflowSubagentRow({
   const traits = subagentTraits(`${runId}:${leaf.seq}`);
 
   return (
-    <div className="flex items-center justify-between gap-2 rounded-[6px] px-2 py-1.5 transition-colors hover:bg-[var(--surface-overlay)]">
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-label={`Open ${title} details`}
+      className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-[6px] px-2 py-1.5 text-left transition-colors hover:bg-[var(--surface-overlay)]"
+    >
       <div className="flex min-w-0 items-center gap-1.5">
         <LeadIndicator status={leaf.status} />
         {components ? (
@@ -115,6 +123,6 @@ export function WorkflowSubagentRow({
           </>
         )}
       </div>
-    </div>
+    </button>
   );
 }

@@ -9,7 +9,7 @@
  */
 
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 mock.module("@/domains/chat/components/workflow-status-badge", () => ({
   WorkflowStatusBadge: ({ status }: { status: string }) => (
@@ -143,6 +143,94 @@ describe("WorkflowDetailPanel", () => {
   test("shows an empty state when there are no subagents yet", () => {
     render(<WorkflowDetailPanel entry={makeEntry({ leaves: new Map() })} onClose={noop} />);
     expect(screen.getByText("No subagents yet")).toBeDefined();
+  });
+
+  test("clicking a subagent row opens its detail with separate Prompt and Result sections", () => {
+    render(
+      <WorkflowDetailPanel
+        entry={makeEntry({
+          leaves: leafMap([
+            makeLeaf({
+              seq: 0,
+              label: "Research leaf",
+              status: "completed",
+              promptSummary: "Search the web for X",
+              resultSummary: "Found three sources",
+            }),
+          ]),
+        })}
+        onClose={noop}
+      />,
+    );
+
+    // List view first — no Prompt/Result sections, no breadcrumb back.
+    expect(screen.getByText("Subagents")).toBeDefined();
+    expect(screen.queryByText("Prompt")).toBeNull();
+    expect(screen.queryByLabelText("Back to subagents")).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Research leaf details" }),
+    );
+
+    // Detail view: prompt and result render as two separate, labeled sections.
+    expect(screen.getByText("Prompt")).toBeDefined();
+    expect(screen.getByText("Search the web for X")).toBeDefined();
+    expect(screen.getByText("Result")).toBeDefined();
+    expect(screen.getByText("Found three sources")).toBeDefined();
+    // The breadcrumb back affordance appears; the list is gone.
+    expect(screen.getByLabelText("Back to subagents")).toBeDefined();
+    expect(screen.queryByText("Subagents")).toBeNull();
+  });
+
+  test("Back returns from a leaf detail to the subagents list", () => {
+    render(
+      <WorkflowDetailPanel
+        entry={makeEntry({
+          leaves: leafMap([
+            makeLeaf({
+              seq: 0,
+              label: "Research leaf",
+              status: "completed",
+              resultSummary: "done",
+            }),
+          ]),
+        })}
+        onClose={noop}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Research leaf details" }),
+    );
+    expect(screen.getByText("Prompt")).toBeDefined();
+
+    fireEvent.click(screen.getByLabelText("Back to subagents"));
+    expect(screen.getByText("Subagents")).toBeDefined();
+    expect(screen.queryByText("Prompt")).toBeNull();
+  });
+
+  test("a running leaf with no result shows a running state in the Result section", () => {
+    render(
+      <WorkflowDetailPanel
+        entry={makeEntry({
+          leaves: leafMap([
+            makeLeaf({
+              seq: 0,
+              label: "Busy leaf",
+              status: "running",
+              promptSummary: "Working on it",
+            }),
+          ]),
+        })}
+        onClose={noop}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Busy leaf details" }),
+    );
+    expect(screen.getByText("Working on it")).toBeDefined();
+    expect(screen.getByText("Running…")).toBeDefined();
   });
 
   test("requests the journal on open even when leaves are already present", () => {
