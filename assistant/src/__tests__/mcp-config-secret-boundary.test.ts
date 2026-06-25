@@ -53,7 +53,7 @@ function setNestedValue(
 }
 
 mock.module("../config/loader.js", () => ({
-  loadRawConfig: () => structuredClone(rawConfig),
+  loadRawConfig: () => structuredClone(savedRawConfig ?? rawConfig),
   saveRawConfig: (raw: Record<string, unknown>) => {
     savedRawConfig = structuredClone(raw);
   },
@@ -164,6 +164,25 @@ describe("MCP config secret boundary", () => {
     });
   });
 
+  test("config_get preserves an MCP server named headers", () => {
+    rawConfig = {
+      mcp: {
+        servers: {
+          headers: {
+            transport: {
+              type: "streamable-http",
+              url: "https://mcp.example.com",
+            },
+          },
+        },
+      },
+    };
+
+    const result = configGetRoute.handler({}) as Record<string, unknown>;
+
+    expect(result).toEqual(rawConfig);
+  });
+
   test("config_patch rejects MCP transport headers so generic writes cannot reintroduce plaintext credentials", async () => {
     await expect(
       configPatchRoute.handler({
@@ -183,6 +202,36 @@ describe("MCP config secret boundary", () => {
       }),
     ).rejects.toThrow(BadRequestError);
     expect(savedRawConfig).toBeNull();
+  });
+
+  test("config_patch allows an MCP server named headers when its value has no header credentials", async () => {
+    const result = await configPatchRoute.handler({
+      body: {
+        mcp: {
+          servers: {
+            headers: {
+              transport: {
+                type: "streamable-http",
+                url: "https://mcp.example.com",
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(result).toEqual({
+      mcp: {
+        servers: {
+          headers: {
+            transport: {
+              type: "streamable-http",
+              url: "https://mcp.example.com",
+            },
+          },
+        },
+      },
+    });
   });
 
   test("config_set rejects malformed MCP server trees containing headers", async () => {

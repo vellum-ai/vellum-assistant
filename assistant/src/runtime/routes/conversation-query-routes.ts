@@ -520,14 +520,29 @@ function sanitizeMcpTransportHeadersForSettingsRead(config: unknown): void {
   if (!root) return;
   const mcp = readPlainObject(root.mcp);
   if (!mcp || !Object.hasOwn(mcp, "servers")) return;
-  stripHeadersRecursively(mcp.servers);
+  if (Array.isArray(mcp.servers)) {
+    stripHeadersRecursively(mcp.servers);
+    return;
+  }
+  const servers = readPlainObject(mcp.servers);
+  if (!servers) return;
+  for (const server of Object.values(servers)) {
+    stripHeadersRecursively(server);
+  }
 }
 
 function patchContainsMcpTransportHeaders(patch: unknown): boolean {
   const root = readPlainObject(patch);
   const mcp = readPlainObject(root?.mcp);
   if (!mcp || !Object.hasOwn(mcp, "servers")) return false;
-  return containsHeadersRecursively(mcp.servers);
+  if (Array.isArray(mcp.servers)) {
+    return containsHeadersRecursively(mcp.servers);
+  }
+  const servers = readPlainObject(mcp.servers);
+  if (!servers) return false;
+  return Object.values(servers).some((server) =>
+    containsHeadersRecursively(server),
+  );
 }
 
 function rejectMcpTransportHeaderWrite(patch: unknown): void {
