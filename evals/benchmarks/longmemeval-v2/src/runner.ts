@@ -348,16 +348,20 @@ export async function runLongMemEvalV2Unit(
     let judgeUsage: Record<string, unknown> | undefined;
     if (!ingestAskResult.questionAnswered) {
       // The agent produced no answer within the question turn's time budget
-      // (it ran to the `questionMaxMs` wall-clock cap, or went quiet, mid-
-      // work). Grade it as a completed miss — score 0 — rather than erroring
-      // the run. "Too slow to answer" is a real outcome that belongs in the
-      // score and the denominator, not an excluded `failed` run. No judge
-      // call is made: there's nothing to grade.
+      // (it ran to the `questionMaxMs` wall-clock cap, or completed its turn
+      // without composing text). Grade it as a completed miss — score 0 —
+      // rather than erroring the run. "Too slow to answer" or "answered
+      // nothing" are real outcomes that belong in the score and the
+      // denominator, not an excluded `failed` run. No judge call is made:
+      // there's nothing to grade.
       const budgetSeconds = Math.round(questionMaxMs / 1000);
+      const reason = ingestAskResult.questionCompleted
+        ? "Agent completed its turn but produced no answer text."
+        : `No answer produced within the question turn's ${budgetSeconds}s time budget.`;
       metric = {
         name: "longmemeval-v2-judge",
         score: 0,
-        reason: `No answer produced within the question turn's ${budgetSeconds}s time budget.`,
+        reason,
         metadata: {
           function: "no-answer",
           ability: input.item.ability,
