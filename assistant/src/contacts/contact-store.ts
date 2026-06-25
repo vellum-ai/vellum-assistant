@@ -306,9 +306,6 @@ export function upsertContact(params: {
 
   // Create new contact
   contactId = contactId ?? uuid();
-  // principalId is gateway-owned and no longer a local key; sibling persona
-  // sharing is resolved upstream, so a new contact takes its explicit userFile
-  // or a freshly slugified one.
   const resolvedUserFile =
     params.userFile !== undefined
       ? params.userFile
@@ -756,15 +753,7 @@ export interface LocalMemberAcl {
   role: ContactRole;
 }
 
-/**
- * Read a channel's local ACL columns (status/policy/role) by row id.
- *
- * DRAIN-MISS (PR 6 member ACL): the member status/policy/role is still read
- * locally here — only the GUARDIAN read was drained to the gateway. The voice
- * trust resolver is sync, so it cannot await the gateway ACL read; this keeps
- * the pre-existing local-fallback behavior off the dropped interface fields
- * until the member-ACL drain lands. Returns null when the channel is missing.
- */
+/** Read a channel's local ACL columns (status/policy/role) by row id; null if missing. */
 export function getLocalMemberAcl(channelId: string): LocalMemberAcl | null {
   const row = getDb()
     .select({

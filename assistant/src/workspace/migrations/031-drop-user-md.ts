@@ -316,9 +316,8 @@ export const dropUserMdMigration: WorkspaceMigration = {
       }
     }
 
-    // Finally, delete the legacy USER.md if it still exists. Template
-    // or customized, it has no remaining consumer now that PR 11
-    // dropped the seed/fallback read path.
+    // Finally, delete the legacy USER.md if it still exists — template or
+    // customized, it has no remaining consumer.
     if (existsSync(userMdPath)) {
       try {
         unlinkSync(userMdPath);
