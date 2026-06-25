@@ -621,6 +621,12 @@ multi-prop wiring, conditional rendering beyond a one-liner) should be
 extracted into a named component. Trivial inline JSX (a single element,
 a static label) stays inline.
 
+An extracted component is a named component, and a named component lives
+in its own file — see [STYLE_GUIDE — One component per file](./STYLE_GUIDE.md#one-component-per-file).
+Don't append a second component as an extra export on its parent;
+co-locating is a deliberate, rare exception for a trivial helper private
+to its sibling.
+
 Reference: [React — Thinking in React: break the UI into a component hierarchy](https://react.dev/learn/thinking-in-react#step-1-break-the-ui-into-a-component-hierarchy)
 
 ### Stabilize external callbacks with refs
