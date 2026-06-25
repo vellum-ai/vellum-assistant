@@ -69,7 +69,8 @@ export function ActiveSubagentsOverlay({
             variant="title-small"
             className="text-[var(--content-emphasised)]"
           >
-            {subagentIds.length} Active Subagents
+            {subagentIds.length} Active Subagent
+            {subagentIds.length === 1 ? "" : "s"}
           </Typography>
           <div className="flex max-h-[320px] flex-col gap-2 overflow-y-auto">
             {subagentIds.map((id) => (

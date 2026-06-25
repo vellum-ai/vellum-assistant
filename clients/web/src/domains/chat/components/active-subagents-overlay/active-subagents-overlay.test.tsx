@@ -85,6 +85,16 @@ describe("ActiveSubagentsOverlay — expanded", () => {
     expect(getAllByTestId("subagent-inline-progress-card").length).toBe(3);
   });
 
+  test("uses the singular noun when exactly one subagent is active", () => {
+    const ids = seedMany(1);
+    render(<ActiveSubagentsOverlay subagentIds={ids} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /active subagents/i }));
+
+    expect(screen.getByText("1 Active Subagent")).toBeTruthy();
+    expect(screen.queryByText("1 Active Subagents")).toBeNull();
+  });
+
   test("per-row stop invokes onStopSubagent and per-row open invokes onSubagentClick", () => {
     const ids = seedMany(2);
     const stopped: string[] = [];
