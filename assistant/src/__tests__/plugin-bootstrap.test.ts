@@ -2,7 +2,7 @@
  * Tests for plugin bootstrap (PR 14).
  *
  * Covers:
- * - A noop `init()` fires with a valid `PluginInitContext` that exposes every
+ * - A noop `init()` fires with a valid `InitContext` that exposes every
  *   documented field.
  * - Version-mismatch registration fails with an error that names the plugin
  *   (the registry enforces this at `registerPlugin` time, so bootstrap never
@@ -29,7 +29,7 @@ import {
   registerPlugin,
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
-import { type Plugin, type PluginInitContext } from "../plugins/types.js";
+import { type InitContext, type Plugin } from "../plugins/types.js";
 import { APP_VERSION } from "../version.js";
 import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
@@ -51,7 +51,7 @@ function buildPlugin(
   name: string,
   extras: Partial<Omit<Plugin, "manifest" | "hooks">> & {
     hooks?: Plugin["hooks"];
-    init?: (ctx: PluginInitContext) => Promise<void>;
+    init?: (ctx: InitContext) => Promise<void>;
     onShutdown?: () => Promise<void>;
   } = {},
   options: {
@@ -98,8 +98,8 @@ describe("plugin bootstrap", () => {
     await rm(TEST_WORKSPACE_DIR, { recursive: true, force: true });
   });
 
-  test("noop plugin: init fires with a fully-populated PluginInitContext", async () => {
-    let received: PluginInitContext | undefined;
+  test("noop plugin: init fires with a fully-populated InitContext", async () => {
+    let received: InitContext | undefined;
     const plugin: Plugin = buildPlugin("alpha", {
       async init(ctx) {
         received = ctx;
@@ -475,11 +475,13 @@ describe("plugin bootstrap", () => {
   //
   // A plugin is disabled when a `.disabled` file exists at
   // <workspace>/plugins/<manifest-name>/.disabled. The bootstrap must
-  // skip the plugin entirely — no init, no tools, no routes, no shutdown
-  // hook — and remove it from the registry, mirroring the requiresFlag
-  // gate.
+  // skip the plugin's init, tools, routes, and shutdown hook. Unlike the
+  // requiresFlag gate, the plugin is NOT removed from the registry — its
+  // hooks stay registered and are filtered at read time by
+  // `isPluginDisabled` in `getHooksFor`, so `assistant plugins enable`
+  // takes effect on the next turn without a restart.
 
-  test(".disabled sentinel: init does not fire and plugin is unregistered", async () => {
+  test(".disabled sentinel: init does not fire and hooks are filtered at read time", async () => {
     let initFired = false;
     const plugin = buildPlugin("sentinel-off", {
       async init() {
@@ -497,8 +499,14 @@ describe("plugin bootstrap", () => {
     await bootstrapPlugins();
 
     expect(initFired).toBe(false);
+    // The plugin stays in the registry (not unregistered) so its hooks can
+    // be re-enabled at runtime by removing the sentinel.
     const names = getRegisteredPlugins().map((p) => p.manifest.name);
-    expect(names).not.toContain("sentinel-off");
+    expect(names).toContain("sentinel-off");
+    // But its hooks are filtered out at read time by `isPluginDisabled`.
+    const { getHooksFor } = await import("../plugins/registry.js");
+    const hooks = await getHooksFor("init");
+    expect(hooks).toHaveLength(0);
 
     await rm(sentinelDir, { recursive: true, force: true });
   });

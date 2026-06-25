@@ -14,6 +14,12 @@ const gatewayIpc = {
     mirrored: boolean;
   },
   claimThrows: false,
+  // When set, contacts_get_rich throws (gateway read unreachable) so the
+  // gate-status fallback must fail open.
+  richThrows: false,
+  // When set, overrides the contacts_get_rich response (e.g. a gateway row
+  // under a divergent UUID for the same (type,address)).
+  richOverride: null as ((contactId: string | undefined) => unknown) | null,
   // Drives the upsert_verified_channel relay verdict; false refuses the actor.
   activationVerified: true,
   calls: [] as { method: string; params?: Record<string, unknown> }[],
@@ -25,6 +31,13 @@ mock.module("../ipc/gateway-client.js", () => ({
     params?: Record<string, unknown>,
   ) => {
     gatewayIpc.calls.push({ method, params });
+    if (method === "contacts_get_rich") {
+      if (gatewayIpc.richThrows) throw new Error("gateway read unreachable");
+      if (gatewayIpc.richOverride) {
+        return gatewayIpc.richOverride(params?.contactId as string);
+      }
+      return richContactForId(params?.contactId as string);
+    }
     if (method === "record_invite_redemption") {
       if (gatewayIpc.claimThrows) throw new Error("gateway unreachable");
       return gatewayIpc.claim;
@@ -39,9 +52,90 @@ mock.module("../ipc/gateway-client.js", () => ({
   },
 }));
 
+// Serves contacts_get_rich (the gateway ACL read backing the gate-status
+// fallback) from the seeded local contact, so gate resolution sources status
+// from the gateway path rather than the local channel column.
+function richContactForId(contactId: string | undefined) {
+  if (!contactId) return undefined;
+  const contact = getContact(contactId);
+  if (!contact) return undefined;
+  // ACL columns live on the still-present DB rows, not the slimmed interfaces;
+  // read them raw to build the gateway-rich response the production read parses.
+  const contactRole = (
+    getSqlite()
+      .query("SELECT role FROM contacts WHERE id = ?")
+      .get(contact.id) as { role: string } | undefined
+  )?.role;
+  return {
+    ok: true,
+    contact: {
+      id: contact.id,
+      displayName: contact.displayName,
+      role: contactRole ?? "contact",
+      interactionCount: contact.interactionCount,
+      createdAt: contact.createdAt,
+      updatedAt: contact.updatedAt,
+      channels: contact.channels.map((c) => {
+        const acl = rawChannelAcl(c.id);
+        return {
+          id: c.id,
+          contactId: c.contactId,
+          type: c.type,
+          address: c.address,
+          isPrimary: c.isPrimary,
+          externalUserId: c.externalChatId,
+          status: acl.status,
+          policy: acl.policy,
+          verifiedAt: acl.verifiedAt,
+          verifiedVia: acl.verifiedVia,
+          lastSeenAt: acl.lastSeenAt,
+          interactionCount: acl.interactionCount,
+          lastInteraction: acl.lastInteraction,
+          revokedReason: acl.revokedReason,
+          blockedReason: acl.blockedReason,
+        };
+      }),
+    },
+  };
+}
+
+/** Read a channel's ACL columns straight off the still-present DB row. */
+function rawChannelAcl(channelId: string) {
+  return getSqlite()
+    .query(
+      `SELECT status, policy, verified_at AS verifiedAt, verified_via AS verifiedVia,
+              last_seen_at AS lastSeenAt, interaction_count AS interactionCount,
+              last_interaction AS lastInteraction, revoked_reason AS revokedReason,
+              blocked_reason AS blockedReason
+         FROM contact_channels WHERE id = ?`,
+    )
+    .get(channelId) as {
+    status: string;
+    policy: string;
+    verifiedAt: number | null;
+    verifiedVia: string | null;
+    lastSeenAt: number | null;
+    interactionCount: number;
+    lastInteraction: number | null;
+    revokedReason: string | null;
+    blockedReason: string | null;
+  };
+}
+
+/** Read a contact's local role column (dropped from the Contact interface). */
+function localContactRole(contactId: string): string | undefined {
+  return (
+    getSqlite()
+      .query("SELECT role FROM contacts WHERE id = ?")
+      .get(contactId) as { role: string } | undefined
+  )?.role;
+}
+
 function resetGatewayIpc() {
   gatewayIpc.claim = { ok: true, updated: true, mirrored: true };
   gatewayIpc.claimThrows = false;
+  gatewayIpc.richThrows = false;
+  gatewayIpc.richOverride = null;
   gatewayIpc.activationVerified = true;
   gatewayIpc.calls = [];
 }
@@ -51,12 +145,12 @@ import {
   getContact,
   upsertContact,
 } from "../contacts/contact-store.js";
-import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { createInvite, revokeInvite } from "../memory/invite-store.js";
 import { redeemVoiceInviteCode } from "../runtime/invite-redemption-service.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
+import { seedContactChannel } from "./helpers/seed-contact-channel.js";
 
 await initializeDb();
 
@@ -292,6 +386,83 @@ describe("redeemVoiceInviteCode", () => {
     ).not.toBeNull();
   });
 
+  test("matches an active member by (type,address) when the gateway row has a divergent uuid", async () => {
+    const phone = "+15551234567";
+    const member = seedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: phone,
+      status: "active",
+    });
+    const { code } = createVoiceInvite({
+      callerPhone: phone,
+      contactId: member.contactId,
+    });
+
+    // Gateway row for the same (type,address) under a DIFFERENT id.
+    gatewayIpc.richOverride = () => ({
+      ok: true,
+      contact: {
+        id: member.contactId,
+        displayName: phone,
+        role: "contact",
+        interactionCount: 0,
+        createdAt: 1,
+        updatedAt: 1,
+        channels: [
+          {
+            id: "gateway-divergent-uuid",
+            contactId: member.contactId,
+            type: "phone",
+            address: phone,
+            isPrimary: false,
+            externalUserId: null,
+            status: "active",
+            policy: "allow",
+            verifiedAt: 1,
+            verifiedVia: "invite",
+            lastSeenAt: null,
+            interactionCount: 0,
+            lastInteraction: null,
+            revokedReason: null,
+            blockedReason: null,
+          },
+        ],
+      },
+    });
+
+    const result = await redeemVoiceInviteCode({
+      callerExternalUserId: phone,
+      sourceChannel: "phone",
+      code,
+    });
+
+    expect(result.ok).toBe(true);
+    expect((result as { type: string }).type).toBe("already_member");
+  });
+
+  test("fails open (no throw) when the gateway gate-status read is unreachable", async () => {
+    const phone = "+15551234567";
+    const member = seedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: phone,
+      status: "revoked",
+    });
+    const { code } = createVoiceInvite({
+      callerPhone: phone,
+      contactId: member.contactId,
+    });
+
+    gatewayIpc.richThrows = true;
+
+    const result = await redeemVoiceInviteCode({
+      callerExternalUserId: phone,
+      sourceChannel: "phone",
+      code,
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
   test("marks channel as verified via invite on voice redemption", async () => {
     const phone = "+15551234567";
     const { code } = createVoiceInvite({ callerPhone: phone });
@@ -304,15 +475,12 @@ describe("redeemVoiceInviteCode", () => {
 
     expect(result.ok).toBe(true);
 
+    // The gateway owns the verified ACL verdict; the local mirror is identity-only.
     const channelResult = findContactChannel({
       channelType: "phone",
       address: phone,
     });
-
     expect(channelResult).not.toBeNull();
-    expect(channelResult!.channel.verifiedAt).toBeGreaterThan(0);
-    expect(channelResult!.channel.verifiedVia).toBe("invite");
-    expect(channelResult!.channel.status).toBe("active");
   });
 
   test("wrong caller identity fails with generic error", async () => {
@@ -420,7 +588,7 @@ describe("redeemVoiceInviteCode", () => {
     const phone = "+15551234567";
 
     // Pre-create an active member for this phone on voice channel
-    const member = upsertContactChannel({
+    const member = seedContactChannel({
       sourceChannel: "phone",
       externalUserId: phone,
       status: "active",
@@ -430,7 +598,7 @@ describe("redeemVoiceInviteCode", () => {
     // Create a voice invite targeting the same contact that owns the channel
     const { code } = createVoiceInvite({
       callerPhone: phone,
-      contactId: member!.contact.id,
+      contactId: member.contactId,
     });
 
     const result = await redeemVoiceInviteCode({
@@ -456,7 +624,7 @@ describe("redeemVoiceInviteCode", () => {
     const phone = "+15551234567";
 
     // Pre-create a blocked member and find their contact
-    const member = upsertContactChannel({
+    const member = seedContactChannel({
       sourceChannel: "phone",
       externalUserId: phone,
       status: "blocked",
@@ -466,7 +634,7 @@ describe("redeemVoiceInviteCode", () => {
     // Create a voice invite targeting the same contact that owns the channel
     const { code } = createVoiceInvite({
       callerPhone: phone,
-      contactId: member!.contact.id,
+      contactId: member.contactId,
     });
 
     const result = await redeemVoiceInviteCode({
@@ -492,16 +660,12 @@ describe("redeemVoiceInviteCode", () => {
     const phone = "+15559998888";
 
     // Pre-create a guardian contact with a revoked phone channel
-    const guardianContact = upsertContact({
+    const guardianSeed = seedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: phone,
       displayName: "Guardian",
       role: "guardian",
-      channels: [
-        {
-          type: "phone",
-          address: phone,
-          status: "revoked",
-        },
-      ],
+      status: "revoked",
     });
 
     // Create a separate target contact "Mom"
@@ -533,11 +697,10 @@ describe("redeemVoiceInviteCode", () => {
     });
     expect(contactResult).not.toBeNull();
     expect(contactResult!.contact.id).toBe(momContact.id);
-    expect(contactResult!.channel.status).toBe("active");
 
     // Verify the original guardian contact was NOT modified
-    const guardian = getContact(guardianContact.id);
+    const guardian = getContact(guardianSeed.contactId);
     expect(guardian).not.toBeNull();
-    expect(guardian!.role).toBe("guardian");
+    expect(localContactRole(guardianSeed.contactId)).toBe("guardian");
   });
 });

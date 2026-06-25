@@ -40,14 +40,13 @@ mock.module("../../ipc/gateway-client.js", () => ({
 }));
 
 
-// Local-mirror primitive.
+// Local resolver primitive — resolves the native contact/channel by id; the
+// gateway owns the ACL downgrade, so it takes no reason and mutates nothing.
 const revokeMemberResult: ContactWriteResult = {
   contact: { id: "c1" } as ContactWriteResult["contact"],
-  channel: { id: "ch1", status: "revoked" } as ContactWriteResult["channel"],
+  channel: { id: "ch1" } as ContactWriteResult["channel"],
 };
-const revokeMemberMock = mock((_memberId: string, _reason?: string) =>
-  revokeMemberResult,
-);
+const revokeMemberMock = mock((_memberId: string) => revokeMemberResult);
 const actualContactsWrite = await import("../contacts-write.js");
 mock.module("../contacts-write.js", () => ({
   ...actualContactsWrite,
@@ -75,7 +74,7 @@ describe("revokeMemberChannel gateway-first relay", () => {
       },
     ]);
     expect(revokeMemberMock).toHaveBeenCalledTimes(1);
-    expect(revokeMemberMock).toHaveBeenCalledWith("ch1", "removed");
+    expect(revokeMemberMock).toHaveBeenCalledWith("ch1");
     expect(result).toBe(revokeMemberResult);
   });
 
@@ -83,8 +82,8 @@ describe("revokeMemberChannel gateway-first relay", () => {
     await revokeMemberChannel("c1:ch1");
 
     expect(ipcCalls[0]?.params?.contactChannelId).toBe("ch1");
-    // The local mirror still receives the original composite id it accepts.
-    expect(revokeMemberMock).toHaveBeenCalledWith("c1:ch1", undefined);
+    // The local resolver still receives the original composite id it accepts.
+    expect(revokeMemberMock).toHaveBeenCalledWith("c1:ch1");
   });
 
   test("always relays — never skips based on local mirror status", async () => {

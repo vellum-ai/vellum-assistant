@@ -17,15 +17,23 @@
  */
 
 import type { ChannelId } from "../channels/types.js";
+import { findContactByAddress } from "../contacts/contact-store.js";
 import {
-  findContactByAddress,
-  findGuardianForChannel,
-} from "../contacts/contact-store.js";
+  guardianForChannel,
+  peekCachedGuardianDelivery,
+} from "../contacts/guardian-delivery-reader.js";
 import { channelStatusToMemberStatus } from "../contacts/member-status.js";
-import type { ContactChannel, ContactWithChannels } from "../contacts/types.js";
+import type {
+  ChannelPolicy,
+  ChannelStatus,
+  ContactChannel,
+  ContactRole,
+  ContactWithChannels,
+} from "../contacts/types.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
+import { getCachedMemberAcl } from "./member-verdict-cache.js";
 
 const log = getLogger("actor-trust-resolver");
 
@@ -78,10 +86,18 @@ export interface ActorTrustContext {
   } | null;
   /** Canonical principal ID from the guardian binding. */
   guardianPrincipalId?: string;
-  /** Resolved contact + channel for this sender, if any. */
+  /**
+   * Resolved contact + channel for this sender, if any. The ACL view
+   * (status/policy/role) is carried here rather than on the contact/channel
+   * objects, sourced from the gateway verdict — the verdict path reads it
+   * inline, the sync fallback from the in-memory member-verdict cache.
+   */
   memberRecord: {
     contact: ContactWithChannels;
     channel: ContactChannel;
+    status: ChannelStatus;
+    policy: ChannelPolicy;
+    role: ContactRole;
   } | null;
   /** Trust classification. */
   trustClass: TrustClass;
@@ -175,21 +191,27 @@ export function resolveActorTrust(
   }
 
   // --- Guardian lookup ---
-  const guardianResult = findGuardianForChannel(input.sourceChannel);
+  // Sync read of the gateway guardian delivery from the IO-free cache snapshot
+  // (kept warm by the async hot paths + daemon-startup warm). A cold cache
+  // yields no guardian match, the same outcome as no binding.
+  const cachedGuardians = peekCachedGuardianDelivery({
+    channelTypes: [input.sourceChannel],
+  });
+  const guardianDelivery = cachedGuardians
+    ? guardianForChannel(cachedGuardians, input.sourceChannel)
+    : undefined;
   let guardianBindingMatch: ActorTrustContext["guardianBindingMatch"] = null;
   let guardianPrincipalId: string | undefined;
   let isGuardian = false;
 
-  if (guardianResult) {
-    const { contact: guardianContact, channel: guardianChannel } =
-      guardianResult;
+  if (guardianDelivery) {
     guardianBindingMatch = {
-      guardianExternalUserId: guardianChannel.address,
-      guardianDeliveryChatId: guardianChannel.externalChatId,
+      guardianExternalUserId: guardianDelivery.address,
+      guardianDeliveryChatId: guardianDelivery.externalChatId ?? null,
     };
-    guardianPrincipalId = guardianContact.principalId ?? undefined;
+    guardianPrincipalId = guardianDelivery.principalId ?? undefined;
     isGuardian =
-      guardianChannel.address.toLowerCase() === canonicalSenderId.toLowerCase();
+      guardianDelivery.address.toLowerCase() === canonicalSenderId.toLowerCase();
   }
 
   log.debug(
@@ -213,7 +235,12 @@ export function resolveActorTrust(
       ch.address.toLowerCase() === canonicalSenderId.toLowerCase(),
   );
   if (byAddress && byAddressChannel) {
-    memberRecord = { contact: byAddress, channel: byAddressChannel };
+    const acl = getCachedMemberAcl(input.sourceChannel, canonicalSenderId);
+    if (acl) {
+      memberRecord = { contact: byAddress, channel: byAddressChannel, ...acl };
+    }
+    // Fail-closed: already in the sync fallback (no live verdict) and no cached
+    // verdict → leave memberRecord null so trustClass resolves to unknown.
   }
 
   log.debug(
@@ -252,7 +279,7 @@ export function resolveActorTrust(
   if (isGuardian) {
     trustClass = "guardian";
   } else if (memberMatchesSender && memberRecord) {
-    const status = memberRecord.channel.status;
+    const status = memberRecord.status;
     if (status === "active") {
       trustClass = "trusted_contact";
     } else if (status === "unverified" || status === "pending") {
@@ -327,8 +354,8 @@ export function toTrustContext(
     // both populate it).
     requesterContactId: ctx.memberRecord?.contact.id,
     memberStatus: ctx.memberRecord
-      ? channelStatusToMemberStatus(ctx.memberRecord.channel.status)
+      ? channelStatusToMemberStatus(ctx.memberRecord.status)
       : undefined,
-    memberPolicy: ctx.memberRecord?.channel.policy,
+    memberPolicy: ctx.memberRecord?.policy,
   };
 }

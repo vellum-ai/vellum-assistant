@@ -24,7 +24,7 @@
  *    (Zod schemas with `.parse()` are supported; anything else is passed
  *    through untouched).
  * 5. Creates `<workspaceDir>/plugins-data/<plugin>/` on demand for per-plugin
- *    writable state and exposes it via {@link PluginInitContext.pluginStorageDir}.
+ *    writable state and exposes it via {@link InitContext.pluginStorageDir}.
  * 6. For each surviving plugin, registers its contributed tools and routes
  *    into their global registries via {@link registerPluginTools} and
  *    {@link registerSkillRoute}. Contributions land BEFORE `init()` so
@@ -64,7 +64,7 @@ import { getRegisteredPlugins, unregisterPlugin } from "../plugins/registry.js";
 import {
   type Plugin,
   PluginExecutionError,
-  type PluginShutdownContext,
+  type ShutdownContext,
 } from "../plugins/types.js";
 import { loadUserPlugins } from "../plugins/user-loader.js";
 import {
@@ -222,8 +222,8 @@ export async function bootstrapPlugins(): Promise<void> {
   // Shutdown context is identical for every plugin in this boot — construct
   // once and reuse across the per-plugin teardown and the normal shutdown
   // hook below. Only `assistantVersion` is exposed today; future additions
-  // live on {@link PluginShutdownContext}.
-  const shutdownContext: PluginShutdownContext = {
+  // live on {@link ShutdownContext}.
+  const shutdownContext: ShutdownContext = {
     assistantVersion: APP_VERSION,
   };
 
@@ -247,7 +247,14 @@ export async function bootstrapPlugins(): Promise<void> {
     // out-of-band kill switch — the operator creates a directory named
     // after the plugin's manifest name (e.g. `plugins/default-advisor/`)
     // and drops a `.disabled` file inside it. Runs before init so no
-    // hooks, tools, or routes from the disabled plugin are ever wired.
+    // tools or routes from the disabled plugin are ever wired.
+    //
+    // Unlike the feature-flag path above, we do NOT call
+    // `unregisterPlugin(name)` here. The plugin's hooks stay in the hook
+    // registry and are filtered at read time by `isPluginDisabled` in
+    // `getHooksFor`. This means `assistant plugins enable <name>` takes
+    // effect on the next turn without a restart — the hooks are already
+    // registered, they just need the sentinel removed to be included.
     const disabledSentinelPath = join(
       getWorkspacePluginsDir(),
       name,
@@ -258,7 +265,6 @@ export async function bootstrapPlugins(): Promise<void> {
         { plugin: name, sentinel: disabledSentinelPath },
         `skipping plugin ${name}: disabled via .disabled sentinel`,
       );
-      unregisterPlugin(name);
       continue;
     }
 
@@ -407,7 +413,7 @@ async function initializePlugin(
 async function teardownPlugin(
   active: ActivePlugin,
   reason: string,
-  shutdownContext: PluginShutdownContext,
+  shutdownContext: ShutdownContext,
 ): Promise<void> {
   const { plugin, routeHandles } = active;
   const name = plugin.manifest.name;

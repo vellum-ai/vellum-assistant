@@ -26,6 +26,8 @@ import {
   test,
 } from "bun:test";
 
+import { and, desc, eq } from "drizzle-orm";
+
 // ── Platform + logger mocks (must come before any source imports) ────
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -50,11 +52,31 @@ let inviteClaimCalls = 0;
 let inviteClaimGate: Promise<void> | null = null;
 mock.module("../ipc/gateway-client.js", () => ({
   ipcCall: async () => undefined,
-  ipcCallPersistent: async (method: string) => {
+  ipcCallPersistent: async (
+    method: string,
+    params?: Record<string, unknown>,
+  ) => {
     if (method === "record_invite_redemption") {
       inviteClaimCalls += 1;
       if (inviteClaimGate) await inviteClaimGate;
       return { ok: true, updated: true, mirrored: true };
+    }
+    // The gateway owns the ACL verdict; activation fails closed when the relay
+    // does not land, so model a verified upsert for the redemption paths.
+    if (method === "upsert_verified_channel") {
+      return {
+        ok: true,
+        verified: true,
+        channel: {
+          id: "gw-channel-id",
+          contactId: (params?.contactId as string) ?? "gw-contact",
+          type: (params?.type as string) ?? "phone",
+          address: (params?.address as string) ?? "gw-addr",
+          status: "active",
+          verifiedAt: 1,
+          verifiedVia: (params?.verifiedVia as string) ?? "invite",
+        },
+      };
     }
     return undefined;
   },
@@ -97,7 +119,12 @@ mock.module("../prompts/user-reference.js", () => ({
 // the DB-seeded createGuardianBinding setup. Single mock registration lives
 // below since `mock.module` is process-global and last-write-wins in Bun.
 let mockGuardianDeliveryList:
-  | Array<{ channelType: string; status: string; displayName: string | null }>
+  | Array<{
+      channelType: string;
+      status: string;
+      displayName?: string | null;
+      address?: string;
+    }>
   | null = null;
 
 // ── Config mock ─────────────────────────────────────────────────────
@@ -224,28 +251,54 @@ mock.module("../calls/inbound-trust-reader.js", () => ({
 //
 // Guardian identity now resolves via the gateway delivery reader. Derive the
 // list from the DB-seeded guardian bindings so the existing createGuardianBinding
-// setup keeps driving guardian resolution without per-test changes.
-const realContactStoreModule = {
-  ...(await import("../contacts/contact-store.js")),
-};
-mock.module("../contacts/guardian-delivery-reader.js", () => ({
-  getGuardianDelivery: async () => {
-    // Tests that set mockGuardianDeliveryList drive the binding directly;
-    // otherwise derive from the DB-seeded createGuardianBinding bindings.
-    if (mockGuardianDeliveryList) return mockGuardianDeliveryList;
-    const guardians = realContactStoreModule.listGuardianChannels();
-    if (!guardians) return [];
-    return guardians.channels.map((ch) => ({
-      channelType: ch.type,
-      contactId: guardians.contact.id,
-      principalId: guardians.contact.principalId ?? null,
-      displayName: guardians.contact.displayName ?? null,
-      address: ch.address,
-      externalChatId: ch.externalChatId ?? null,
-      status: ch.status,
-      verifiedAt: ch.verifiedAt ?? null,
+// setup keeps driving guardian resolution without per-test changes. Both the
+// async read and the sync cache peek (read by resolveActorTrust) share the same
+// DB-derived snapshot mirroring the gateway's active-guardian-channel query.
+function deriveGuardianDeliveries(
+  channelTypes?: string[],
+): Array<Record<string, unknown>> {
+  if (mockGuardianDeliveryList) {
+    return channelTypes
+      ? mockGuardianDeliveryList.filter((g) =>
+          channelTypes.includes(g.channelType as string),
+        )
+      : mockGuardianDeliveryList;
+  }
+  const rows = getDb()
+    .select({ contact: contacts, channel: contactChannels })
+    .from(contacts)
+    .innerJoin(contactChannels, eq(contacts.id, contactChannels.contactId))
+    .where(
+      and(eq(contacts.role, "guardian"), eq(contactChannels.status, "active")),
+    )
+    .orderBy(desc(contactChannels.verifiedAt))
+    .all();
+  if (rows.length === 0) return [];
+  const guardianId = rows[0].contact.id;
+  const list = rows
+    .filter((r) => r.contact.id === guardianId)
+    .map((r) => ({
+      channelType: r.channel.type,
+      contactId: r.contact.id,
+      principalId: r.contact.principalId ?? null,
+      displayName: r.contact.displayName ?? null,
+      address: r.channel.address,
+      externalChatId: r.channel.externalChatId ?? null,
+      status: r.channel.status,
+      verifiedAt: r.channel.verifiedAt ?? null,
     }));
-  },
+  return channelTypes
+    ? list.filter((g) =>
+        channelTypes.includes(g.channelType),
+      )
+    : list;
+}
+
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async (input?: { channelTypes?: string[] }) =>
+    deriveGuardianDeliveries(input?.channelTypes),
+  peekCachedGuardianDelivery: (input?: { channelTypes?: string[] }) =>
+    deriveGuardianDeliveries(input?.channelTypes),
   guardianForChannel: (
     list: Array<{ channelType: string; status: string }>,
     channelType: string,
@@ -388,7 +441,6 @@ import {
 } from "../calls/relay-server.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
 import { upsertContact } from "../contacts/contact-store.js";
-import { upsertContactChannel } from "../contacts/contacts-write.js";
 import {
   listCanonicalGuardianRequests,
   resolveCanonicalGuardianRequest,
@@ -402,7 +454,11 @@ import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { createInvite } from "../memory/invite-store.js";
 import { resetTestTables } from "../memory/raw-query.js";
-import { conversations } from "../memory/schema.js";
+import {
+  contactChannels,
+  contacts,
+  conversations,
+} from "../memory/schema.js";
 import {
   createOutboundSession,
   getGuardianBinding,
@@ -410,6 +466,7 @@ import {
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import { seedContactChannel } from "./helpers/seed-contact-channel.js";
 
 await initializeDb();
 
@@ -500,7 +557,7 @@ function createTargetContact(displayName = "Test Contact"): string {
 }
 
 function addTrustedVoiceContact(phoneNumber: string): void {
-  upsertContactChannel({
+  seedContactChannel({
     sourceChannel: "phone",
     externalUserId: phoneNumber,
     externalChatId: phoneNumber,
@@ -2811,7 +2868,7 @@ describe("relay-server", () => {
       toNumber: "+15551111111",
     });
 
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "phone",
       externalUserId: "+15558886666",
       externalChatId: "+15558886666",
@@ -2874,7 +2931,7 @@ describe("relay-server", () => {
       toNumber: "+15551111111",
     });
 
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "phone",
       externalUserId: "+15558887777",
       externalChatId: "+15558887777",
@@ -3173,7 +3230,7 @@ describe("relay-server", () => {
     });
 
     // Create a blocked member
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "phone",
       externalUserId: "+15558881111",
       externalChatId: "+15558881111",
@@ -5071,7 +5128,7 @@ describe("relay-server", () => {
 
     // Gateway binding carries a different displayName
     mockGuardianDeliveryList = [
-      { channelType: "phone", status: "active", displayName: "Bob" },
+      { channelType: "phone", status: "active", address: "+15550000001", displayName: "Bob" },
     ];
 
     ensureConversation("conv-label-user-md");
@@ -5111,7 +5168,7 @@ describe("relay-server", () => {
 
     // Gateway binding carries the guardian displayName
     mockGuardianDeliveryList = [
-      { channelType: "phone", status: "active", displayName: "Charlie" },
+      { channelType: "phone", status: "active", address: "+15550000002", displayName: "Charlie" },
     ];
 
     ensureConversation("conv-label-contact");

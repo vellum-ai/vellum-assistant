@@ -62,11 +62,11 @@ mock.module("../../daemon/approval-generators.js", () => ({
 }));
 
 import type { TrustClass, TrustVerdict } from "@vellumai/gateway-client";
+import { and, desc, eq } from "drizzle-orm";
 
-import {
-  findContactChannel,
-  findGuardianForChannel,
-} from "../../contacts/contact-store.js";
+import { findContactChannel } from "../../contacts/contact-store.js";
+import { getDb } from "../../memory/db-connection.js";
+import { contactChannels, contacts } from "../../memory/schema.js";
 import type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
@@ -147,6 +147,27 @@ function stampTrustVerdict(body: Record<string, unknown>): void {
   body.sourceMetadata = { ...(meta ?? {}), trustVerdict: verdict };
 }
 
+/**
+ * Local mirror of the gateway's active-guardian-channel resolution, querying
+ * the contact store directly (the production query now lives in the gateway).
+ */
+function localGuardianForChannel(channelType: string) {
+  const row = getDb()
+    .select({ contact: contacts, channel: contactChannels })
+    .from(contacts)
+    .innerJoin(contactChannels, eq(contacts.id, contactChannels.contactId))
+    .where(
+      and(
+        eq(contacts.role, "guardian"),
+        eq(contactChannels.type, channelType),
+        eq(contactChannels.status, "active"),
+      ),
+    )
+    .orderBy(desc(contactChannels.verifiedAt))
+    .get();
+  return row ? { contact: row.contact, channel: row.channel } : null;
+}
+
 /** Local mirror of the gateway resolver, reading the daemon contact store. */
 export function resolveLocalTrustVerdict(input: {
   channelType: string;
@@ -161,18 +182,28 @@ export function resolveLocalTrustVerdict(input: {
         address: input.actorExternalId,
       })
     : null;
-  const guardian = findGuardianForChannel(input.channelType);
+  const guardian = localGuardianForChannel(input.channelType);
 
   const isGuardian =
     !!guardian &&
     !!canonicalSenderId &&
     guardian.channel.address.toLowerCase() === canonicalSenderId.toLowerCase();
 
+  // ACL columns are no longer on the slimmed ContactChannel type; read the raw
+  // row (columns still exist) so this local mirror sees status/policy/verified.
+  const memberRow = member
+    ? (getDb()
+        .select()
+        .from(contactChannels)
+        .where(eq(contactChannels.id, member.channel.id))
+        .get() ?? null)
+    : null;
+
   let trustClass: TrustClass;
   if (isGuardian) {
     trustClass = "guardian";
-  } else if (member) {
-    const status = member.channel.status;
+  } else if (memberRow) {
+    const status = memberRow.status;
     if (status === "active") trustClass = "trusted_contact";
     else if (status === "unverified" || status === "pending")
       trustClass = "unverified_contact";
@@ -191,21 +222,23 @@ export function resolveLocalTrustVerdict(input: {
     verdict.guardianDisplayName = guardian.contact.displayName;
   }
 
-  if (member) {
+  if (member && memberRow) {
     verdict.contactId = member.channel.contactId;
     verdict.channelId = member.channel.id;
     verdict.type = member.channel.type;
     verdict.address = member.channel.address;
     verdict.externalChatId = member.channel.externalChatId;
-    verdict.status = member.channel.status;
-    verdict.policy = member.channel.policy;
-    verdict.verifiedAt = member.channel.verifiedAt;
-    verdict.verifiedVia = member.channel.verifiedVia;
+    verdict.status = memberRow.status;
+    verdict.policy = memberRow.policy;
+    verdict.verifiedAt = memberRow.verifiedAt;
+    verdict.verifiedVia = memberRow.verifiedVia;
     verdict.memberDisplayName = member.contact.displayName;
   }
 
   return verdict;
 }
+
+export { seedContactChannel } from "./seed-contact-channel.js";
 
 // ---------------------------------------------------------------------------
 // handleDeleteConversation adapter

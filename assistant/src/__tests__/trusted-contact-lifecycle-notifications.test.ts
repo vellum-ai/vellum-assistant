@@ -65,11 +65,13 @@ mock.module("../runtime/approval-message-composer.js", () => ({
 }));
 
 import { getResolver } from "../approvals/guardian-request-resolvers.js";
-import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { createCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
+import {
+  handleChannelInbound,
+  seedContactChannel,
+} from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 await initializeDb();
@@ -140,7 +142,7 @@ describe("trusted contact lifecycle notification signals", () => {
       guardianPrincipalId: "guardian-user-789",
       verifiedVia: "test",
     });
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "guardian-user-789",
       externalChatId: "guardian-chat-789",
@@ -150,7 +152,7 @@ describe("trusted contact lifecycle notification signals", () => {
     });
 
     // Set up requester contact with a display name so payloads are enriched
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "requester-user-456",
       externalChatId: "requester-chat-456",
@@ -234,7 +236,7 @@ describe("trusted contact lifecycle notification signals", () => {
       guardianPrincipalId: "guardian-user-789",
       verifiedVia: "test",
     });
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "guardian-user-789",
       externalChatId: "guardian-chat-789",
@@ -244,7 +246,7 @@ describe("trusted contact lifecycle notification signals", () => {
     });
 
     // Set up requester contact with a display name
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "requester-user-456",
       externalChatId: "requester-chat-456",
@@ -322,7 +324,7 @@ describe("trusted contact lifecycle notification signals", () => {
       guardianPrincipalId: "guardian-user-789",
       verifiedVia: "test",
     });
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "guardian-user-789",
       externalChatId: "guardian-chat-789",

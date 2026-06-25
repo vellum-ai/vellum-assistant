@@ -14,6 +14,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { IpcCallError } from "@vellumai/gateway-client/ipc-client";
+import { z } from "zod";
 
 let ipcCalls: { method: string; params?: Record<string, unknown> }[] = [];
 let ipcResult: unknown = {};
@@ -44,16 +45,52 @@ const contactStoreReadGuard = mock(() => {
   );
 });
 
+// Filtered/native reads (search) legitimately go to the assistant DB. Drive
+// them deterministically so the daemon-native response shape can be asserted.
+let searchContactsResult: unknown[] = [];
+const searchContactsMock = mock(() => searchContactsResult);
+
 mock.module("../../../contacts/contact-store.js", () => ({
   ...actualContactStore,
   getContact: contactStoreReadGuard,
   listContacts: contactStoreReadGuard,
   getAssistantContactMetadata: contactStoreReadGuard,
+  searchContacts: searchContactsMock,
 }));
 
 const { handleListContacts, handleGetContact, ROUTES } = await import(
   "../contact-routes.js"
 );
+
+// Daemon-native contact: INFO is hydrated locally; ACL fields (role/status/
+// policy/verification) are gateway-owned and legitimately absent.
+const nativeContact = {
+  id: "ct_2",
+  displayName: "Bob",
+  notes: null,
+  contactType: "human",
+  lastInteraction: 4200,
+  interactionCount: 4,
+  createdAt: 1000,
+  updatedAt: 1500,
+  userFile: "bob.md",
+  channels: [
+    {
+      id: "ch_2",
+      contactId: "ct_2",
+      type: "phone",
+      address: "+15550200",
+      isPrimary: true,
+      externalChatId: null,
+      inviteId: null,
+      lastSeenAt: 4100,
+      interactionCount: 4,
+      lastInteraction: 4200,
+      updatedAt: 1500,
+      createdAt: 1000,
+    },
+  ],
+};
 
 const gatewayChannel = {
   id: "ch_1",
@@ -93,6 +130,8 @@ describe("contacts read API relays from the gateway", () => {
     ipcError = undefined;
     ipcCallPersistentMock.mockClear();
     contactStoreReadGuard.mockClear();
+    searchContactsResult = [];
+    searchContactsMock.mockClear();
   });
 
   test("list relays to contacts_list_rich and serializes the gateway ACL fields", async () => {
@@ -107,8 +146,9 @@ describe("contacts read API relays from the gateway", () => {
     expect(result.contacts).toHaveLength(1);
 
     const [contact] = result.contacts;
-    // ACL fields are gateway-sourced and reach the web client unchanged.
-    expect(contact.role).toBe("member");
+    // ACL fields are gateway-sourced and reach the web client unchanged. `role`
+    // is optional on the transform (gateway reads carry it, daemon-native omit).
+    expect((contact as { role?: string }).role).toBe("member");
     expect(contact.interactionCount).toBe(7);
     expect(contact.lastInteraction).toBe(1900);
     const channel = contact.channels[0] as Record<string, unknown>;
@@ -208,5 +248,58 @@ describe("contacts read API relays from the gateway", () => {
     expect(contacts[0].interactionCount).toBe(7);
     expect(contacts[0].channels[0].status).toBe("active");
     expect(contactStoreReadGuard).not.toHaveBeenCalled();
+  });
+});
+
+describe("filtered/native contact reads stay daemon-native", () => {
+  const listRoute = ROUTES.find((r) => r.operationId === "listContacts")!;
+  const listResponseSchema = listRoute.responseBody as z.ZodTypeAny;
+  const searchRoute = ROUTES.find((r) => r.operationId === "search_contacts")!;
+  const searchResponseSchema = searchRoute.responseBody as z.ZodTypeAny;
+
+  beforeEach(() => {
+    ipcCalls = [];
+    ipcResult = {};
+    ipcError = undefined;
+    ipcCallPersistentMock.mockClear();
+    contactStoreReadGuard.mockClear();
+    searchContactsResult = [];
+    searchContactsMock.mockClear();
+  });
+
+  test("query-filtered list serves daemon-native INFO and validates against the response schema", async () => {
+    searchContactsResult = [nativeContact];
+
+    const result = await handleListContacts({ query: "Bob", limit: "10" });
+
+    // No gateway relay for a true search.
+    expect(ipcCalls).toEqual([]);
+    expect(searchContactsMock).toHaveBeenCalled();
+
+    const [contact] = result.contacts;
+    // INFO telemetry is present (re-hydrated locally, not dropped).
+    expect(contact.interactionCount).toBe(4);
+    expect(contact.lastInteraction).toBe(4200);
+    const channel = contact.channels[0] as Record<string, unknown>;
+    expect(channel.interactionCount).toBe(4);
+    expect(channel.lastSeenAt).toBe(4100);
+    expect(channel.externalUserId).toBe("+15550200");
+    // Gateway-owned ACL fields are absent — and that validates because they're
+    // optional in the response schema.
+    expect("role" in contact).toBe(false);
+    expect("status" in channel).toBe(false);
+    expect(() => listResponseSchema.parse(result)).not.toThrow();
+  });
+
+  test("POST search with a filter validates against the response schema", async () => {
+    searchContactsResult = [nativeContact];
+
+    const contacts = (await searchRoute.handler({
+      body: { query: "Bob" },
+    })) as unknown[];
+
+    expect(ipcCalls).toEqual([]);
+    expect(searchContactsMock).toHaveBeenCalled();
+    expect(() => searchResponseSchema.parse(contacts)).not.toThrow();
   });
 });

@@ -48,7 +48,7 @@ mock.module("../../ipc/gateway-client.js", () => ({
 // Local-mirror primitive.
 const localResult: ContactWriteResult = {
   contact: { id: "c1" } as ContactWriteResult["contact"],
-  channel: { id: "ch1", status: "active" } as ContactWriteResult["channel"],
+  channel: { id: "ch1" } as ContactWriteResult["channel"],
 };
 let mirrorCallOrder = -1;
 const upsertContactChannelMock = mock(
@@ -108,6 +108,32 @@ describe("activateMemberChannel gateway-first relay", () => {
     // The local mirror ran AFTER the gateway relay.
     expect(mirrorCallOrder).toBe(1);
     expect(upsertContactChannelMock).toHaveBeenCalledTimes(1);
+
+    // The local mirror persists identity/INFO only — no ACL columns. The
+    // gateway owns status/policy/verification.
+    const mirrorArgs = upsertContactChannelMock.mock.calls[0]![0] as Record<
+      string,
+      unknown
+    >;
+    expect(mirrorArgs).toEqual({
+      sourceChannel: "telegram",
+      externalUserId: "user-1",
+      externalChatId: "chat-1",
+      displayName: "Mom",
+      username: undefined,
+      inviteId: "inv-1",
+      contactId: "target-mom",
+    });
+    for (const aclKey of [
+      "status",
+      "policy",
+      "role",
+      "verifiedAt",
+      "verifiedVia",
+    ]) {
+      expect(aclKey in mirrorArgs).toBe(false);
+    }
+
     expect(result).toEqual({
       status: "activated",
       memberId: "ch1",
@@ -115,7 +141,7 @@ describe("activateMemberChannel gateway-first relay", () => {
     });
   });
 
-  test("fails open and still mirrors locally when the gateway relay throws", async () => {
+  test("fails closed and skips the local mirror when the gateway relay throws", async () => {
     ipcThrows = true;
 
     const result = await activateMemberChannel({
@@ -126,12 +152,10 @@ describe("activateMemberChannel gateway-first relay", () => {
     });
 
     expect(ipcCalls).toHaveLength(1);
-    expect(upsertContactChannelMock).toHaveBeenCalledTimes(1);
-    expect(result).toEqual({
-      status: "activated",
-      memberId: "ch1",
-      member: localResult,
-    });
+    // Identity-only mirror would land at the schema-default unverified status, so
+    // a failed gateway write must not report success off it.
+    expect(upsertContactChannelMock).not.toHaveBeenCalled();
+    expect(result).toEqual({ status: "refused" });
   });
 
   test("returns the gateway channel id when the gateway verifies but the local mirror throws", async () => {
@@ -155,7 +179,7 @@ describe("activateMemberChannel gateway-first relay", () => {
     });
   });
 
-  test("refuses when the gateway throws AND the local mirror yields no row", async () => {
+  test("refuses when the gateway throws even if the local mirror would have thrown", async () => {
     ipcThrows = true;
     upsertContactChannelMock.mockImplementation(() => {
       throw new Error("local mirror exploded");
@@ -167,8 +191,8 @@ describe("activateMemberChannel gateway-first relay", () => {
       externalChatId: "chat-1",
     });
 
-    // No gateway channel (relay threw) and no local mirror: no stable id, so the
-    // caller maps this to a non-redeemed outcome rather than crashing.
+    // Fail-closed: a thrown gateway write refuses before the mirror is touched.
+    expect(upsertContactChannelMock).not.toHaveBeenCalled();
     expect(result).toEqual({ status: "refused" });
   });
 

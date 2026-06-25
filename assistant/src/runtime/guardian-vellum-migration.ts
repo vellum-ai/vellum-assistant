@@ -9,7 +9,7 @@
 
 import type { ChannelId } from "../channels/types.js";
 import {
-  findGuardianForChannel,
+  findContactByAddress,
   updateContactPrincipalAndChannel,
 } from "../contacts/contact-store.js";
 import {
@@ -44,8 +44,7 @@ const log = getLogger("guardian-vellum-migration");
  * Returns true if healing occurred, false otherwise.
  *
  * The gateway binding supplies the authoritative principal; the local
- * assistant-mirror row is repaired whenever it diverges from the JWT
- * principal — even when the gateway binding already matches — because the
+ * assistant-mirror row is repaired to match the JWT principal because the
  * /v1/messages trust path still resolves against the local mirror in this
  * plan. A stale mirror must be repaired or valid guardians stay `unknown`.
  */
@@ -62,28 +61,31 @@ export async function healGuardianBindingDrift(
   if (!guardian) return false;
 
   const currentPrincipalId = guardian.principalId;
+  // Only repair auto-generated principals — never overwrite a real one.
   if (!currentPrincipalId?.startsWith("vellum-principal-")) return false;
+  // No-op when the principal already matches the JWT principal.
+  if (currentPrincipalId === incomingPrincipalId) return false;
 
-  // Resolve the assistant-mirror row whose principal drives local trust.
-  const guardianResult = findGuardianForChannel("vellum");
-  if (!guardianResult) return false;
-
-  const localPrincipalId = guardianResult.contact.principalId;
-  // Only repair auto-generated local principals — never overwrite a real one.
-  if (!localPrincipalId?.startsWith("vellum-principal-")) return false;
-  // No-op when the local mirror already matches the JWT principal.
-  if (localPrincipalId === incomingPrincipalId) return false;
+  // Resolve the assistant-mirror row to repair so local trust resolution
+  // converges on the JWT principal. The gateway delivery supplies the guardian
+  // identity (channel + address) but not the local channel UUID write target,
+  // so resolve that locally by the guardian's vellum-channel address.
+  const localContact = findContactByAddress("vellum", guardian.address);
+  const localChannel = localContact?.channels.find(
+    (c) => c.type === "vellum",
+  );
+  if (!localContact || !localChannel) return false;
 
   const updated = updateContactPrincipalAndChannel(
-    guardianResult.contact.id,
-    guardianResult.channel.id,
+    localContact.id,
+    localChannel.id,
     incomingPrincipalId,
   );
 
   if (!updated) {
     log.warn(
       {
-        oldPrincipalId: localPrincipalId,
+        oldPrincipalId: currentPrincipalId,
         newPrincipalId: incomingPrincipalId,
       },
       "Skipped guardian binding drift heal — address collision on contact_channels",
@@ -93,7 +95,7 @@ export async function healGuardianBindingDrift(
 
   log.info(
     {
-      oldPrincipalId: localPrincipalId,
+      oldPrincipalId: currentPrincipalId,
       newPrincipalId: incomingPrincipalId,
     },
     "Healed vellum guardian binding drift — updated local mirror principalId to match JWT actor",

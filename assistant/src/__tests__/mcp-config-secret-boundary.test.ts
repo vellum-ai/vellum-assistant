@@ -8,6 +8,7 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
   initLogger: () => {},
   pruneOldLogFiles: () => 0,
+  getCurrentLogFilePath: () => "/tmp/test-assistant.log",
   truncateForLog: (value: string, maxLen = 500) => value.slice(0, maxLen),
 }));
 

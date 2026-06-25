@@ -243,10 +243,13 @@ export async function runMigrationSteps(
   const skipped: string[] = [];
   const ran: string[] = [];
 
-  for (const step of steps) {
+  const totalSteps = steps.length;
+  for (const [index, step] of steps.entries()) {
     const obj = normalizeStep(step);
     const name = obj.name;
     const checkpointable = name !== "";
+    // 1-based position of this step in the ordered migration sequence.
+    const stepNumber = index + 1;
 
     if (checkpointable && applied.has(name)) {
       skipped.push(name);
@@ -258,12 +261,18 @@ export async function runMigrationSteps(
       if (checkpointable) {
         markStarted.run(`${STEP_CHECKPOINT_PREFIX}${name}`, Date.now());
       }
-      log.info({ migration: name }, `Starting migration: ${name}`);
+      log.info(
+        { migration: name, step: stepNumber, totalSteps },
+        "Migration started",
+      );
       const result = obj.run(database);
       if (result instanceof Promise) {
         await result;
       }
-      log.info({ migration: name }, `Migration succeeded: ${name}`);
+      log.info(
+        { migration: name, step: stepNumber, totalSteps },
+        "Migration succeeded",
+      );
       if (checkpointable) {
         markApplied.run(`${STEP_CHECKPOINT_PREFIX}${name}`, Date.now());
         ran.push(name);
@@ -273,7 +282,10 @@ export async function runMigrationSteps(
       // recoverCrashedMigrations will detect it on the next boot, log
       // a warning, and clear it so the step re-runs.
       failed.push(name);
-      log.error({ err, migration: name }, `Migration failed: ${name}`);
+      log.error(
+        { err, migration: name, step: stepNumber, totalSteps },
+        "Migration failed",
+      );
     }
   }
 

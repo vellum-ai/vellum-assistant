@@ -65,45 +65,77 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
 
 // Gateway relay mock — the revoke path relays the ACL downgrade over IPC and
 // validates the response; return a well-formed mark_channel_revoked result.
+// The gateway owns the revoke and dual-writes the local assistant row to
+// "revoked"; mirror that dual-write here so guardian-resolution reads under
+// test observe the downgrade (the assistant-side teardown is now a no-op shim).
 mock.module("../ipc/gateway-client.js", () => ({
   ipcCallPersistent: async (
-    _method: string,
+    method: string,
     params?: Record<string, unknown>,
-  ) => ({
-    ok: true,
-    didWrite: true,
-    channel: {
-      id: (params?.contactChannelId as string) ?? "ch1",
-      contactId: "c1",
-      type: "phone",
-      address: "addr",
-      status: "revoked",
-      revokedReason: (params?.reason as string) ?? null,
-    },
-  }),
+  ) => {
+    if (method === "mark_channel_revoked") {
+      const { getDb } = await import("../memory/db-connection.js");
+      const { contactChannels } = await import("../memory/schema.js");
+      const { eq } = await import("drizzle-orm");
+      const channelId = params?.contactChannelId as string | undefined;
+      if (channelId) {
+        getDb()
+          .update(contactChannels)
+          .set({ status: "revoked" })
+          .where(eq(contactChannels.id, channelId))
+          .run();
+      }
+    }
+    return {
+      ok: true,
+      didWrite: true,
+      channel: {
+        id: (params?.contactChannelId as string) ?? "ch1",
+        contactId: "c1",
+        type: "phone",
+        address: "addr",
+        status: "revoked",
+        revokedReason: (params?.reason as string) ?? null,
+      },
+    };
+  },
 }));
 
 // Guardian-delivery reader mock — the inbound challenge guard reads guardian
 // existence from the gateway. Derive the list from the local binding state so
 // the gateway-backed presence guard mirrors the DB the rest of the test sets up.
 const resolveGuardianList = async (input?: { channelTypes?: string[] }) => {
-  const { findGuardianForChannel } = await import(
-    "../contacts/contact-store.js"
-  );
+  const { getDb } = await import("../memory/db-connection.js");
+  const { contacts, contactChannels } = await import("../memory/schema.js");
+  const { and, eq } = await import("drizzle-orm");
   const channels = input?.channelTypes ?? [];
   return channels
     .map((channelType) => {
-      const found = findGuardianForChannel(channelType);
-      if (!found) return null;
+      const row = getDb()
+        .select({ contact: contacts, channel: contactChannels })
+        .from(contacts)
+        .innerJoin(
+          contactChannels,
+          eq(contacts.id, contactChannels.contactId),
+        )
+        .where(
+          and(
+            eq(contacts.role, "guardian"),
+            eq(contactChannels.type, channelType),
+            eq(contactChannels.status, "active"),
+          ),
+        )
+        .get();
+      if (!row) return null;
       return {
         channelType,
-        contactId: found.contact.id,
-        principalId: found.contact.principalId ?? null,
-        displayName: found.contact.displayName ?? null,
-        address: found.channel.address,
-        externalChatId: found.channel.externalChatId ?? null,
+        contactId: row.contact.id,
+        principalId: row.contact.principalId ?? null,
+        displayName: row.contact.displayName ?? null,
+        address: row.channel.address,
+        externalChatId: row.channel.externalChatId ?? null,
         status: "active",
-        verifiedAt: found.channel.verifiedAt ?? null,
+        verifiedAt: row.channel.verifiedAt ?? null,
       };
     })
     .filter((g) => g !== null);
@@ -147,6 +179,7 @@ import {
 } from "../memory/guardian-rate-limits.js";
 import {
   channelVerificationSessions,
+  contactChannels,
   conversations,
 } from "../memory/schema.js";
 import {
@@ -190,6 +223,19 @@ function resetTables(): void {
   telegramDeliverCalls.length = 0;
   voiceCallInitCalls.length = 0;
   mockBotUsername = "test_bot";
+}
+
+/**
+ * Revoke a guardian channel's local ACL state directly. The production revoke
+ * is gateway-owned (relayed via mark_channel_revoked); this stamps the local
+ * mirror so the guardian-resolution reads still under test see the downgrade.
+ */
+function revokeGuardianChannelLocally(channelType: string): void {
+  getDb()
+    .update(contactChannels)
+    .set({ status: "revoked" })
+    .where(eq(contactChannels.type, channelType))
+    .run();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -558,7 +604,7 @@ describe("guardian identity check", () => {
       guardianDeliveryChatId: "chat-42",
     });
 
-    serviceRevokeBinding("asst-1", "telegram");
+    revokeGuardianChannelLocally("telegram");
 
     expect(await isGuardian("asst-1", "telegram", "user-42")).toBe(false);
   });
@@ -595,7 +641,7 @@ describe("guardian identity check", () => {
     expect(await isGuardian("asst-1", "telegram", "phone-user-1")).toBe(false);
   });
 
-  test("serviceRevokeBinding revokes the active binding", async () => {
+  test("guardian binding read reflects a gateway-owned revoke", async () => {
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "user-42",
@@ -603,8 +649,10 @@ describe("guardian identity check", () => {
       guardianDeliveryChatId: "chat-42",
     });
 
-    const result = serviceRevokeBinding("asst-1", "telegram");
-    expect(result).toBe(true);
+    // The revoke is gateway-owned; serviceRevokeBinding's local teardown is a
+    // no-op shim. Stamp the local downgrade and assert the read reflects it.
+    serviceRevokeBinding("asst-1", "telegram");
+    revokeGuardianChannelLocally("telegram");
     expect(await getGuardianBinding("asst-1", "telegram")).toBeNull();
   });
 });
@@ -958,7 +1006,7 @@ describe("channel-scoped guardian resolution", () => {
       guardianDeliveryChatId: "chat-beta",
     });
 
-    serviceRevokeBinding("self", "telegram");
+    revokeGuardianChannelLocally("telegram");
 
     expect(await getGuardianBinding("self", "telegram")).toBeNull();
     expect(await getGuardianBinding("self", "phone")).not.toBeNull();
@@ -1472,8 +1520,10 @@ describe("voice guardian identity and revocation", () => {
       guardianDeliveryChatId: "voice-chat-1",
     });
 
-    const result = serviceRevokeBinding("asst-1", "phone");
-    expect(result).toBe(true);
+    // The revoke is gateway-owned; serviceRevokeBinding's local teardown is a
+    // no-op shim. Stamp the local downgrade and assert the read reflects it.
+    serviceRevokeBinding("asst-1", "phone");
+    revokeGuardianChannelLocally("phone");
     expect(await getGuardianBinding("asst-1", "phone")).toBeNull();
   });
 
@@ -1491,7 +1541,7 @@ describe("voice guardian identity and revocation", () => {
       guardianDeliveryChatId: "tg-chat-1",
     });
 
-    serviceRevokeBinding("asst-1", "phone");
+    revokeGuardianChannelLocally("phone");
 
     expect(await getGuardianBinding("asst-1", "phone")).toBeNull();
     expect(await getGuardianBinding("asst-1", "telegram")).not.toBeNull();

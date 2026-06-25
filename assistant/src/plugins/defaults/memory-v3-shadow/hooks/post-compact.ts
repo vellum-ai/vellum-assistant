@@ -7,8 +7,8 @@
  * `../injector.js` and re-apply it here. Until then this hook does nothing.
  */
 
-import type { PluginHookFn } from "@vellumai/plugin-api";
+import type { HookFunction } from "@vellumai/plugin-api";
 
-const postCompact: PluginHookFn = async () => {};
+const postCompact: HookFunction = async () => {};
 
 export default postCompact;

@@ -752,10 +752,13 @@ describe("report html", () => {
     expect(empty).not.toContain("Delete all non-running");
   });
 
-  test("pages ship no client-side JS — every delete is a plain HTML form", () => {
+  test("pages ship no hacky JS — deletes are plain HTML forms, no fetch IIFE", () => {
     // The old implementation injected an IIFE that did fetch+delete. The
     // current implementation is hydration-free: <details> + <form method="post">
-    // with the server returning 303s. If a <script> tag ever sneaks back in,
+    // with the server returning 303s. The report may ship a small <script>
+    // for tab/conversation URL-param sync (an explicit UX requirement), but
+    // that script must never use fetch/XHR for mutations — deletes stay
+    // plain HTML forms. If a fetch-based IIFE ever sneaks back in,
     // someone's reintroduced the hacky-html pattern.
     const index = renderReportPage({
       kind: "index",
@@ -766,9 +769,10 @@ describe("report html", () => {
       run: { ...executionDetail, status: "failed" },
     });
     for (const html of [index, execution]) {
-      expect(html).not.toMatch(/<script\b/i);
-      // And no React-synthetic onClick attribute leaked through (renderToStaticMarkup
-      // strips them today; this guards against a future switch to renderToString).
+      // No fetch/XHR-based mutation scripts (the old hacky pattern).
+      expect(html).not.toMatch(/fetch\s*\(/i);
+      expect(html).not.toMatch(/XMLHttpRequest/i);
+      // Delete actions must be plain HTML forms, not JS-driven.
       expect(html).not.toMatch(/\sonClick=/i);
       expect(html).not.toMatch(/\sonSubmit=/i);
     }
@@ -814,9 +818,21 @@ describe("report html", () => {
     expect(html).toContain('sandbox="allow-scripts"');
     expect(html).not.toContain("allow-same-origin");
     // AND the page html rides in the (HTML-escaped) srcDoc attribute, so no
-    // live <script> leaks into the report document itself
+    // live <script> from the *page content* leaks into the report document
+    // itself. The report's own infrastructure <script> for URL-param sync
+    // is a separate, intentional tag that does NOT contain "localStorage".
+    // The page's script content ("localStorage") should only appear inside
+    // the escaped srcdoc attribute or the Surface-data JSON dump, never as
+    // a live <script> tag in the report's DOM.
     expect(html).toMatch(/srcdoc=/i);
-    expect(html).not.toMatch(/<script\b/i);
+    // Extract all <script>...</script> blocks and verify none contain the
+    // page's localStorage code — the report's own param-sync script is fine
+    // but the page's untrusted script must stay inside the sandboxed iframe.
+    const scriptBlocks =
+      html.match(/<script\b[^>]*>[\s\S]*?<\/script>/gi) ?? [];
+    for (const block of scriptBlocks) {
+      expect(block).not.toMatch(/localStorage/i);
+    }
     // AND a storage polyfill is injected so sandboxed pages that touch
     // localStorage during init still render (sessionStorage appears only here)
     expect(html).toContain("sessionStorage");

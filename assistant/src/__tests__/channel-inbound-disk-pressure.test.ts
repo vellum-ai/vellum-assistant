@@ -59,7 +59,6 @@ mock.module("../daemon/disk-pressure-guard.js", () => ({
     diskPressureStatusSequence?.shift() ?? diskPressureStatus,
 }));
 
-import { upsertContact } from "../contacts/contact-store.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import * as deliveryCrud from "../memory/delivery-crud.js";
@@ -71,6 +70,7 @@ import {
 import { sweepFailedEvents } from "../runtime/channel-retry-sweep.js";
 import {
   handleChannelInbound,
+  seedContactChannel,
   setAdapterProcessMessage,
 } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
@@ -90,16 +90,12 @@ function resetTables(): void {
 }
 
 function seedTrustedContact(policy: "allow" | "escalate" = "allow"): void {
-  upsertContact({
+  seedContactChannel({
+    sourceChannel: "telegram",
+    externalUserId: "telegram-user-1",
     displayName: "Example User",
-    channels: [
-      {
-        type: "telegram",
-        address: "telegram-user-1",
-        status: "active",
-        policy,
-      },
-    ],
+    status: "active",
+    policy,
   });
 }
 
@@ -236,16 +232,12 @@ describe("channel inbound disk pressure gate", () => {
   });
 
   test("blocks non-guardian Slack reactions silently (no reply) before persistence while locked", async () => {
-    upsertContact({
+    seedContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "slack-user-1",
       displayName: "Example Slack User",
-      channels: [
-        {
-          type: "slack",
-          address: "slack-user-1",
-          status: "active",
-          policy: "allow",
-        },
-      ],
+      status: "active",
+      policy: "allow",
     });
     const processMessage = mock(async () => {
       throw new Error("processMessage should not run");

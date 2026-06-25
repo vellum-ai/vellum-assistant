@@ -19,15 +19,78 @@ mock.module("../security/secure-keys.js", () => ({
 // mutating. Default the claim to consumed (updated:true) so these assistant-side
 // handler tests exercise the happy redemption path.
 mock.module("../ipc/gateway-client.js", () => ({
-  ipcCallPersistent: async (method: string) => {
+  ipcCallPersistent: async (
+    method: string,
+    params?: Record<string, unknown>,
+  ) => {
+    if (method === "contacts_get_rich") {
+      return richContactForId(params?.contactId as string);
+    }
     if (method === "record_invite_redemption") {
       return { ok: true, updated: true, mirrored: true };
+    }
+    if (method === "upsert_verified_channel") {
+      // Gateway-as-SoT activation: return a verified channel so the gateway-first
+      // relay lands its write before mirroring identity locally.
+      return {
+        ok: true,
+        verified: true,
+        channel: {
+          id: "gw-channel-1",
+          contactId: (params?.contactId as string) ?? "gw-contact-1",
+          type: (params?.type as string) ?? "telegram",
+          address: (params?.address as string) ?? "",
+          status: "active",
+          verifiedAt: Date.now(),
+          verifiedVia: (params?.verifiedVia as string) ?? "invite",
+        },
+      };
     }
     return undefined;
   },
 }));
 
-import { upsertContact } from "../contacts/contact-store.js";
+// Serves contacts_get_rich (the gateway ACL read backing the gate-status
+// fallback) from the seeded local contact identity. Channel ACL state is
+// gateway-owned, so a contact with a mirrored channel reports "active" here —
+// the local status column is drained and never consulted.
+function richContactForId(contactId: string | undefined) {
+  if (!contactId) return undefined;
+  const contact = getContact(contactId);
+  if (!contact) return undefined;
+  // ACL columns are gateway-owned; the projection reports "active" and no longer
+  // mirrors the drained local ACL fields off the typed contact/channel.
+  return {
+    ok: true,
+    contact: {
+      id: contact.id,
+      displayName: contact.displayName,
+      role: "contact",
+      interactionCount: contact.interactionCount,
+      createdAt: contact.createdAt,
+      updatedAt: contact.updatedAt,
+      channels: contact.channels.map((c) => ({
+        id: c.id,
+        contactId: c.contactId,
+        type: c.type,
+        address: c.address,
+        isPrimary: c.isPrimary,
+        externalUserId: c.externalChatId,
+        status: "active",
+        policy: "allow",
+        verifiedAt: null,
+        verifiedVia: null,
+        lastSeenAt: null,
+        interactionCount: 0,
+        lastInteraction: null,
+        revokedReason: null,
+        blockedReason: null,
+      })),
+    },
+  };
+}
+
+import { getContact, upsertContact } from "../contacts/contact-store.js";
 import { handleMintInvite } from "../ipc/routes/invite-ipc-routes.js";
 import { getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";

@@ -5,14 +5,14 @@
  * tool. Idempotent via the steering marker.
  */
 
-import type { PluginHookFn, PreModelCallContext } from "@vellumai/plugin-api";
+import type { HookFunction, PreModelCallContext } from "@vellumai/plugin-api";
 
 import { advisorEnabledForProfile } from "../advisor-gate.js";
 import { recordSystemPrompt } from "../advisor-state-store.js";
 import { ADVISOR_CONFIG } from "../config.js";
 import { appendSteering, stripSteering } from "../steering.js";
 
-const preModelCall: PluginHookFn<PreModelCallContext> = async (ctx) => {
+const preModelCall: HookFunction<PreModelCallContext> = async (ctx) => {
   if (ctx.callSite !== "mainAgent") return;
 
   recordSystemPrompt(ctx.conversationId, stripSteering(ctx.systemPrompt));

@@ -55,7 +55,7 @@
  * per-tool-result hot path.
  */
 
-import type { PluginHookFn, PostToolUseContext } from "@vellumai/plugin-api";
+import type { HookFunction, PostToolUseContext } from "@vellumai/plugin-api";
 
 import type { Message } from "../../../../providers/types.js";
 
@@ -233,7 +233,7 @@ function currentCallRepeatCount(
   return count;
 }
 
-const postToolUse: PluginHookFn<PostToolUseContext> = async (ctx) => {
+const postToolUse: HookFunction<PostToolUseContext> = async (ctx) => {
   const usesById = toolUsesById(ctx.messages);
   const currentUse = usesById.get(ctx.toolResponse.tool_use_id);
   if (currentUse === undefined || !EXPLORATION_TOOL_NAMES.has(currentUse.name))
