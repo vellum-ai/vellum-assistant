@@ -52,6 +52,7 @@ function getListHandler() {
 function makeInMemoryState(
   id: string,
   parentConversationId: string,
+  extra?: Pick<AcpSessionState, "task" | "parentToolUseId">,
 ): AcpSessionState {
   return {
     id,
@@ -60,6 +61,7 @@ function makeInMemoryState(
     parentConversationId,
     status: "running",
     startedAt: 1_700_000_000_000,
+    ...extra,
   };
 }
 
@@ -106,6 +108,26 @@ describe("GET /v1/acp/sessions — eventLog", () => {
     expect(eventLog[0]?.content).toBe("hello");
   });
 
+  test("active in-memory session carries task and parentToolUseId from the SessionEntry", async () => {
+    inMemoryStates.set(
+      "active",
+      makeInMemoryState("active", "conv-1", {
+        task: "Refactor the auth module",
+        parentToolUseId: "tool-use-abc",
+      }),
+    );
+
+    const handler = getListHandler();
+    const result = (await handler({
+      queryParams: { conversationId: "conv-1" },
+    })) as { sessions: Array<Record<string, unknown>> };
+
+    const session = result.sessions.find((s) => s.id === "active");
+    expect(session).toBeDefined();
+    expect(session?.task).toBe("Refactor the auth module");
+    expect(session?.parentToolUseId).toBe("tool-use-abc");
+  });
+
   test("terminal DB row returns its persisted eventLog", async () => {
     insertHistoryRow({
       id: "terminal",
@@ -131,5 +153,8 @@ describe("GET /v1/acp/sessions — eventLog", () => {
     expect(eventLog).toHaveLength(1);
     expect(eventLog[0]?.seq).toBe(7);
     expect(eventLog[0]?.content).toBe("persisted");
+    // No acp_session_history columns for these, so terminal rows omit them.
+    expect(session?.task).toBeUndefined();
+    expect(session?.parentToolUseId).toBeUndefined();
   });
 });
