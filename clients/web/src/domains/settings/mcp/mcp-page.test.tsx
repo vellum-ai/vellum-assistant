@@ -12,6 +12,7 @@ import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 
 let assistantFlags: Record<string, boolean> = {};
+let flagsHydrated = true;
 
 const navigateToNewConversation = mock((..._args: unknown[]) => {});
 mock.module("@/utils/conversation-navigation", () => ({
@@ -26,6 +27,7 @@ mock.module("@/stores/assistant-feature-flag-store", () => {
   const store = () => null;
   store.use = {
     mcpAddServer: () => assistantFlags.mcpAddServer ?? false,
+    hasHydrated: () => flagsHydrated,
   };
   return { useAssistantFeatureFlagStore: store };
 });
@@ -98,6 +100,7 @@ function Wrapper({ children }: { children: ReactNode }) {
 afterEach(() => {
   cleanup();
   assistantFlags = {};
+  flagsHydrated = true;
   navigateToNewConversation.mockClear();
 });
 
@@ -147,6 +150,21 @@ describe("McpPage", () => {
     const cta = await screen.findByRole("button", {
       name: /Add an MCP server to extend your assistant with external tools/,
     });
+    fireEvent.click(cta);
+
+    expect(navigateToNewConversation).not.toHaveBeenCalled();
+  });
+
+  test("empty state CTA stays inert until feature flags hydrate", async () => {
+    assistantFlags = { mcpAddServer: false };
+    flagsHydrated = false;
+
+    render(<McpPage />, { wrapper: Wrapper });
+
+    const cta = await screen.findByRole("button", {
+      name: /Chat with your assistant to set up an MCP server/,
+    });
+    expect((cta as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(cta);
 
     expect(navigateToNewConversation).not.toHaveBeenCalled();

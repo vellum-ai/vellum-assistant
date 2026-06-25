@@ -41,6 +41,7 @@ function McpPageInner() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const mcpAddServerEnabled = useAssistantFeatureFlagStore.use.mcpAddServer();
+  const flagsHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
 
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [configureServerId, setConfigureServerId] = useState<string | null>(null);
@@ -353,7 +354,8 @@ function McpPageInner() {
         <button
           type="button"
           onClick={handleEmptyStateAction}
-          className="flex w-full flex-col items-center gap-2 rounded-lg border border-dashed border-[var(--border-element)] px-4 py-12 text-center transition-colors hover:border-[var(--border-active)] hover:bg-[var(--surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+          disabled={!flagsHydrated}
+          className="flex w-full flex-col items-center gap-2 rounded-lg border border-dashed border-[var(--border-element)] px-4 py-12 text-center transition-colors hover:border-[var(--border-active)] hover:bg-[var(--surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] disabled:pointer-events-none"
         >
           <Cable className="h-6 w-6 text-[var(--content-disabled)]" />
           <p className="text-body-medium-default text-[var(--content-default)]">No MCP Servers</p>
