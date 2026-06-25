@@ -79,4 +79,15 @@ describe("SubagentAvatarRow", () => {
     fireEvent.click(getByTestId("subagent-avatar-row-details"));
     expect(expanded).toBe(1);
   });
+
+  test("clicking an avatar badge invokes onExpand", () => {
+    const ids = spawnIds(2);
+    let expanded = 0;
+    const { getAllByTestId } = render(
+      <SubagentAvatarRow subagentIds={ids} onExpand={() => (expanded += 1)} />,
+    );
+
+    fireEvent.click(getAllByTestId("subagent-avatar-badge")[0]);
+    expect(expanded).toBe(1);
+  });
 });
