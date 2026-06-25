@@ -8,10 +8,14 @@ export const contacts = sqliteTable("contacts", {
   notes: text("notes"),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
-  role: text("role").notNull().default("contact"), // 'guardian' | 'contact'
+  role: text("role", { enum: ["guardian", "contact"] })
+    .notNull()
+    .default("contact"),
   principalId: text("principal_id"), // internal auth principal (nullable)
   userFile: text("user_file"), // workspace-relative path to per-user persona file
-  contactType: text("contact_type").notNull().default("human"), // 'human' | 'assistant'
+  contactType: text("contact_type", { enum: ["human", "assistant"] })
+    .notNull()
+    .default("human"),
 });
 
 export const contactChannels = sqliteTable(
