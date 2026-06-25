@@ -2,6 +2,7 @@ import MarkdownIt from "markdown-it";
 import katex from "katex";
 import katexCssText from "katex/dist/katex.min.css?text";
 import { renderToStaticMarkup } from "react-dom/server";
+import React from "react";
 
 import type {
   CostDiagnostic,
@@ -1578,20 +1579,23 @@ function Transcript({
       <div className="conversation-switcher">
         <div className="transcript-header">
           <h2>{headerText}</h2>
-          <select
-            className="conversation-select"
-            data-conv-count={groups.length}
-            {...({
+          {/* renderToStaticMarkup passes string onChange through to the
+              HTML attribute, but React's TS types expect a function.
+              Cast to Record to bridge the static-HTML rendering model. */}
+          {React.createElement(
+            "select",
+            {
+              className: "conversation-select",
+              "data-conv-count": groups.length,
               onChange:
                 "document.querySelectorAll('.conversation-panel').forEach((p,i)=>{p.style.display=i===this.selectedIndex?'flex':'none'});const u=new URL(location.href);u.searchParams.set('conv',this.selectedIndex);history.replaceState(null,'',u)",
-            } as { onChange: string })}
-          >
-            {groups.map((group, index) => (
+            } as Record<string, unknown>,
+            groups.map((group, index) => (
               <option key={group.key} value={index}>
                 {group.label}
               </option>
-            ))}
-          </select>
+            )),
+          )}
         </div>
         <p className="section-subtle">{subText}</p>
         <div className="transcript-wrap">
