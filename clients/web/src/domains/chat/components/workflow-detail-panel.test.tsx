@@ -187,7 +187,7 @@ describe("WorkflowDetailPanel", () => {
     expect(screen.queryByText("Subagents")).toBeNull();
   });
 
-  test("the drilled-in leaf header shows the leaf's status, not the parent workflow's", () => {
+  test("the drilled-in leaf header shows the leaf's status, not the parent workflow's", async () => {
     render(
       <WorkflowDetailPanel
         entry={makeEntry({
@@ -211,9 +211,12 @@ describe("WorkflowDetailPanel", () => {
     );
 
     // Leaf view: the badge reflects the selected leaf (failed), and the parent
-    // workflow badge is gone.
+    // workflow badge is gone. The body crossfades (AnimatePresence mode="wait"),
+    // so the leaf detail mounts only after the list exits — await it.
     expect(
-      screen.getByTestId("leaf-status-badge").getAttribute("data-status"),
+      (await screen.findByTestId("leaf-status-badge")).getAttribute(
+        "data-status",
+      ),
     ).toBe("failed");
     expect(screen.queryByTestId("status-badge")).toBeNull();
   });
@@ -266,7 +269,9 @@ describe("WorkflowDetailPanel", () => {
       screen.getByRole("button", { name: "Open Busy leaf details" }),
     );
     expect(await screen.findByText("Working on it")).toBeDefined();
-    expect(screen.getByText("Running…")).toBeDefined();
+    // The Result section's running placeholder crossfades in with the leaf
+    // detail; await it directly rather than asserting synchronously.
+    expect(await screen.findByText("Running…")).toBeDefined();
   });
 
   test("requests the journal on open even when leaves are already present", () => {

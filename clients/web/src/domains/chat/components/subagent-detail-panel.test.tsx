@@ -565,7 +565,9 @@ describe("SubagentDetailPanel — nested tool detail", () => {
 
     fireEvent.click(screen.getByTestId("timeline-pill"));
     expect(await screen.findByText("Output")).toBeDefined();
-    expect(screen.getByText("Running…")).toBeDefined();
+    // The running placeholder enters with the crossfaded detail body; await it
+    // directly rather than assuming it is present synchronously after "Output".
+    expect(await screen.findByText("Running…")).toBeDefined();
     // A still-running step leads the header with the running indicator in place
     // of both the avatar and the static step icon.
     expect(screen.getByTestId("nested-detail-running")).toBeDefined();
