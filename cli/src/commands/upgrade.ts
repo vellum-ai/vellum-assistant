@@ -511,6 +511,7 @@ async function upgradeDocker(
         gatewayDigest: newDigests?.gateway,
         cesDigest: newDigests?.["credential-executor"],
         networkName: res.network,
+        assistantPort,
       },
       previousContainerInfo: entry.containerInfo,
       previousDbMigrationVersion: preMigrationState.dbVersion,
@@ -660,6 +661,7 @@ async function upgradeDocker(
                 rollbackDigests?.["credential-executor"] ??
                 previousImageRefs["credential-executor"],
               networkName: res.network,
+              assistantPort,
             },
             previousContainerInfo: undefined,
             previousDbMigrationVersion: undefined,

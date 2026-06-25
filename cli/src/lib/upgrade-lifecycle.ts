@@ -790,6 +790,7 @@ export async function performDockerRollback(
         gatewayDigest: newDigests?.gateway,
         cesDigest: newDigests?.["credential-executor"],
         networkName: res.network,
+        assistantPort,
       },
       previousContainerInfo: entry.containerInfo,
       previousDbMigrationVersion: preMigrationState.dbVersion,
@@ -925,6 +926,7 @@ export async function performDockerRollback(
                 revertDigests?.["credential-executor"] ??
                 currentImageRefs["credential-executor"],
               networkName: res.network,
+              assistantPort,
             },
             previousContainerInfo: undefined,
             previousDbMigrationVersion: undefined,

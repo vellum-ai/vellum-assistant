@@ -404,6 +404,7 @@ export async function rollback(): Promise<void> {
           gatewayDigest: newDigests?.gateway,
           cesDigest: newDigests?.["credential-executor"],
           networkName: res.network,
+          assistantPort,
         },
         previousContainerInfo: entry.containerInfo,
         // Clear the backup path — it belonged to the upgrade we just rolled back

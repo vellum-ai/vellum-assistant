@@ -1153,7 +1153,9 @@ export async function hatchDocker(params: HatchDockerParams): Promise<void> {
       const preferredAssistantPort = getDefaultPorts(
         getCurrentEnvironment(),
       ).daemon;
-      assistantPort = await findOpenPort(preferredAssistantPort);
+      assistantPort = await findOpenPort(preferredAssistantPort, {
+        exclude: [gatewayPort],
+      });
       if (assistantPort !== preferredAssistantPort) {
         log(
           `Preferred assistant port ${preferredAssistantPort} is in use; allocated ${assistantPort} for this instance.`,
