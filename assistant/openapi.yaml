@@ -4915,20 +4915,13 @@ paths:
                             - address
                             - isPrimary
                             - externalUserId
-                            - status
-                            - policy
-                            - verifiedAt
-                            - verifiedVia
                             - lastSeenAt
                             - interactionCount
                             - lastInteraction
-                            - revokedReason
-                            - blockedReason
                           additionalProperties: false
                     required:
                       - id
                       - displayName
-                      - role
                       - interactionCount
                       - createdAt
                       - updatedAt
@@ -5076,20 +5069,13 @@ paths:
                               - address
                               - isPrimary
                               - externalUserId
-                              - status
-                              - policy
-                              - verifiedAt
-                              - verifiedVia
                               - lastSeenAt
                               - interactionCount
                               - lastInteraction
-                              - revokedReason
-                              - blockedReason
                             additionalProperties: false
                       required:
                         - id
                         - displayName
-                        - role
                         - interactionCount
                         - createdAt
                         - updatedAt
@@ -5206,20 +5192,13 @@ paths:
                             - address
                             - isPrimary
                             - externalUserId
-                            - status
-                            - policy
-                            - verifiedAt
-                            - verifiedVia
                             - lastSeenAt
                             - interactionCount
                             - lastInteraction
-                            - revokedReason
-                            - blockedReason
                           additionalProperties: false
                     required:
                       - id
                       - displayName
-                      - role
                       - interactionCount
                       - createdAt
                       - updatedAt
@@ -5581,20 +5560,13 @@ paths:
                             - address
                             - isPrimary
                             - externalUserId
-                            - status
-                            - policy
-                            - verifiedAt
-                            - verifiedVia
                             - lastSeenAt
                             - interactionCount
                             - lastInteraction
-                            - revokedReason
-                            - blockedReason
                           additionalProperties: false
                     required:
                       - id
                       - displayName
-                      - role
                       - interactionCount
                       - createdAt
                       - updatedAt
@@ -5776,20 +5748,13 @@ paths:
                           - address
                           - isPrimary
                           - externalUserId
-                          - status
-                          - policy
-                          - verifiedAt
-                          - verifiedVia
                           - lastSeenAt
                           - interactionCount
                           - lastInteraction
-                          - revokedReason
-                          - blockedReason
                         additionalProperties: false
                   required:
                     - id
                     - displayName
-                    - role
                     - interactionCount
                     - createdAt
                     - updatedAt
