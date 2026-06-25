@@ -11,6 +11,7 @@ import { Typography } from "@vellumai/design-library/components/typography";
 import { DetailCard } from "@/components/detail-card";
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
 import { ShareConnectionLinkButton } from "@/domains/contacts/components/share-connection-link-button";
+import { SlackSetupWizard } from "@/domains/contacts/components/slack-setup-wizard";
 import type { AssistantChannelState } from "@/domains/contacts/types";
 import {
   ADMISSION_POLICY_DEFAULT,
@@ -192,10 +193,23 @@ export function AssistantChannelsDetail({
               ) : null}
               <ChannelRow
                 channel={channel}
+                assistantName={assistantName}
                 pending={pendingChannelKey === channel.key}
                 expanded={expandedChannels.has(channel.key)}
                 onToggleExpand={() => toggleExpanded(channel.key)}
-                onSetup={onSetup ? () => onSetup(channel.key) : undefined}
+                onSetup={
+                  channel.key === "slack"
+                    ? () => {
+                        setExpandedChannels((prev) => {
+                          const next = new Set(prev);
+                          next.add(channel.key);
+                          return next;
+                        });
+                      }
+                    : onSetup
+                      ? () => onSetup(channel.key)
+                      : undefined
+                }
                 onDisconnect={
                   onDisconnect ? () => setPendingDisconnect(channel.key) : undefined
                 }
@@ -262,6 +276,7 @@ export function AssistantChannelsDetail({
 
 interface ChannelRowProps {
   channel: AssistantChannelState;
+  assistantName: string;
   pending: boolean;
   expanded: boolean;
   onToggleExpand: () => void;
@@ -282,6 +297,7 @@ interface ChannelRowProps {
 
 function ChannelRow({
   channel,
+  assistantName,
   pending,
   expanded,
   onToggleExpand,
@@ -370,7 +386,7 @@ function ChannelRow({
       ) : null}
 
       {!connected && channel.key === "slack" && expanded ? (
-        <SlackCredentialEntry onSave={onSaveSlackConfig} />
+        <SlackSetupWizard assistantName={assistantName} onSave={onSaveSlackConfig} />
       ) : null}
 
       {!connected && channel.key === "phone" && expanded ? (
@@ -522,73 +538,6 @@ function TelegramCredentialEntry({ onSave }: TelegramCredentialEntryProps) {
         value={botToken}
         onChange={(e) => setBotToken(e.target.value)}
         placeholder="Paste your Telegram bot token"
-        disabled={saving}
-        fullWidth
-      />
-      {error ? (
-        <p className="text-label-small" style={{ color: "var(--content-negative)" }}>
-          {error}
-        </p>
-      ) : null}
-      <div>
-        <Button
-          type="button"
-          onClick={handleSave}
-          disabled={!canSave}
-        >
-          {saving ? "Saving…" : "Save"}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-interface SlackCredentialEntryProps {
-  onSave?: (botToken: string, appToken: string) => Promise<void>;
-}
-
-function SlackCredentialEntry({ onSave }: SlackCredentialEntryProps) {
-  const [botToken, setBotToken] = useState("");
-  const [appToken, setAppToken] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const canSave = botToken.trim().length > 0 && appToken.trim().length > 0 && !saving;
-
-  const handleSave = async () => {
-    if (!onSave || !canSave) {
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    try {
-      await onSave(botToken.trim(), appToken.trim());
-      setBotToken("");
-      setAppToken("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="flex flex-col gap-3 pl-7">
-      <Input
-        label="Bot Token"
-        type="password"
-        value={botToken}
-        onChange={(e) => setBotToken(e.target.value)}
-        placeholder="xoxb-..."
-        disabled={saving}
-        fullWidth
-      />
-      <Input
-        label="App Token"
-        type="password"
-        value={appToken}
-        onChange={(e) => setAppToken(e.target.value)}
-        placeholder="xapp-..."
         disabled={saving}
         fullWidth
       />
