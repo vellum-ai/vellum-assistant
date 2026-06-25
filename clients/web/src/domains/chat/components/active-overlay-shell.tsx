@@ -79,11 +79,15 @@ export function ActiveOverlayShell({
           // Absolute dropdown anchored under the pill so its 589px width no longer
           // dictates the row's width (Figma 6063:149685).
           <motion.div
-            className="pointer-events-auto absolute left-1/2 top-full z-20 mt-2 flex w-[min(589px,calc(100vw-2rem))] -translate-x-1/2 flex-col gap-4 rounded-xl bg-[var(--surface-lift)] px-3 py-4 shadow-lg"
+            // Horizontal centering lives in motion's `x: "-50%"` (not a
+            // `-translate-x-1/2` class) so it composes with the animated
+            // `scale`/`y` in the same inline `transform` — version-independent
+            // of Tailwind's translate-property model.
+            className="pointer-events-auto absolute left-1/2 top-full z-20 mt-2 flex w-[min(589px,calc(100vw-2rem))] flex-col gap-4 rounded-xl bg-[var(--surface-lift)] px-3 py-4 shadow-lg"
             style={{ transformOrigin: "top center" }}
-            initial={{ opacity: 0, scale: 0.96, y: -4 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: -4 }}
+            initial={{ opacity: 0, scale: 0.96, y: -4, x: "-50%" }}
+            animate={{ opacity: 1, scale: 1, y: 0, x: "-50%" }}
+            exit={{ opacity: 0, scale: 0.96, y: -4, x: "-50%" }}
             transition={
               reduce ? { duration: 0 } : { duration: 0.16, ease: [0.16, 1, 0.3, 1] }
             }
