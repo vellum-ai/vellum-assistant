@@ -45,16 +45,16 @@ export interface ChannelPolicyView {
 }
 
 export const POLICY_LABELS: Record<AdmissionPolicy, string> = {
-  no_one: "No one (kill switch)",
-  guardian_only: "Guardian only",
-  trusted_contacts: "Trusted contacts",
+  no_one: "No one",
+  guardian_only: "Only you",
+  trusted_contacts: "Verified contacts",
   any_contact: "Any contact",
   strangers: "Strangers",
 };
 
 export const POLICY_DESCRIPTIONS: Record<AdmissionPolicy, string> = {
   no_one: "Hard-deny every inbound message on this channel.",
-  guardian_only: "Only messages from the guardian are admitted.",
+  guardian_only: "Only messages sent by you are admitted.",
   trusted_contacts:
     "Admit verified contacts and the guardian; deny everyone else.",
   any_contact:

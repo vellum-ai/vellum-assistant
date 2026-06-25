@@ -26,6 +26,7 @@
  * The provider is stubbed so no network calls fire; mirrors selector.test.ts.
  */
 
+import { createRequire } from "node:module";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type {
@@ -35,6 +36,7 @@ import type {
   SendMessageOptions,
   ToolUseContent,
 } from "../../../../providers/types.js";
+import { ProviderError } from "../../../../util/errors.js";
 import type { MemoryRoutingTurn } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -43,6 +45,11 @@ import type { MemoryRoutingTurn } from "../types.js";
 // ---------------------------------------------------------------------------
 
 let providerStub: Provider | null = null;
+const registryReal = {
+  ...(createRequire(import.meta.url)(
+    "../../../../providers/registry.js",
+  ) as Record<string, unknown>),
+};
 
 interface ProviderCall {
   messages: Message[];
@@ -55,6 +62,12 @@ mock.module("../../../../providers/provider-send-message.js", () => ({
   getConfiguredProvider: async () => providerStub,
   extractToolUse: (response: ProviderResponse) =>
     response.content.find((b): b is ToolUseContent => b.type === "tool_use"),
+}));
+
+mock.module("../../../../providers/registry.js", () => ({
+  ...registryReal,
+  getProviderRoutingSource: (providerName: string) =>
+    providerName === "managed" ? "managed-proxy" : "user-key",
 }));
 
 mock.module("../../../../util/logger.js", () => ({
@@ -253,10 +266,9 @@ describe("selectPool — id mapping", () => {
 });
 
 // ---------------------------------------------------------------------------
-// selectPool — infrastructure failures THROW (no silent degradation). A
-// deliberate empty selection and an empty pool (covered above) still return
-// normally; only a genuine infra failure throws so the LIVE injector can
-// hard-fail the turn instead of shipping it with no memory.
+// selectPool — infrastructure failures THROW. A deliberate empty selection and
+// an empty pool (covered above) still return normally; only a genuine infra
+// failure throws so callers can log it distinctly from an empty selection.
 // ---------------------------------------------------------------------------
 
 describe("selectPool — infrastructure failures throw", () => {
@@ -369,6 +381,38 @@ describe("selectPool — infrastructure failures throw", () => {
       expect.objectContaining({ attempt: 2 }),
       expect.objectContaining({ attempt: 3 }),
     ]);
+  });
+
+  test("managed provider 402 attaches a non-terminal credits notice", async () => {
+    providerStub = {
+      name: "managed",
+      sendMessage: async (messages, options) => {
+        providerCalls.push({ messages, options });
+        throw new ProviderError(
+          "Together AI API error (402): 402 status code (no body)",
+          "managed",
+          402,
+        );
+      },
+    };
+    let caught: unknown;
+    try {
+      await selectPool(makePool(), makeTurn("x"));
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(MemoryV3RetrievalUnavailableError);
+    const notice = (
+      caught as InstanceType<typeof MemoryV3RetrievalUnavailableError>
+    ).conversationNotice;
+    expect(notice).toEqual({
+      source: "memory_v3",
+      code: "PROVIDER_BILLING",
+      userMessage:
+        "You've run out of credits. Add funds to continue using the assistant.",
+      errorCategory: "credits_exhausted",
+    });
   });
 
   test("provider throw redacts sensitive message details in diagnostics", async () => {

@@ -14,6 +14,7 @@ import {
   CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE,
   type LLMRequestLogEntry,
 } from "@vellumai/assistant-api";
+import { Tooltip } from "@vellumai/design-library";
 
 interface CallRailProps {
   logs: LLMRequestLogEntry[];
@@ -194,16 +195,18 @@ function CallRow({
           </span>
         ) : null}
       </div>
-      <div
-        className="line-clamp-2 text-label-default"
-        style={{
-          color: isSynthetic
-            ? "var(--system-negative-strong)"
-            : "var(--content-secondary)",
-        }}
-      >
-        {subtitle}
-      </div>
+      <Tooltip content={subtitle}>
+        <div
+          className="line-clamp-2 text-label-default"
+          style={{
+            color: isSynthetic
+              ? "var(--system-negative-strong)"
+              : "var(--content-secondary)",
+          }}
+        >
+          {subtitle}
+        </div>
+      </Tooltip>
       <div
         className="flex flex-wrap items-center gap-x-2 gap-y-1 text-label-default"
         style={{ color: "var(--content-tertiary)" }}

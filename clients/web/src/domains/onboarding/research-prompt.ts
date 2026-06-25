@@ -54,12 +54,10 @@ function renderCapabilitiesBlock(capabilities: AvailableCapability[]): string {
     .join("\n");
   if (!lines) return "";
   return `
-Capabilities you can offer me. Each is a specialized skillset you can invoke on my behalf via your skills — not generic chat:
+Capabilities you can offer me — specialized skillsets you can invoke on my behalf, not generic chat:
 ${lines}
 
-Optionally tag a suggestion with a "plugin" (its exact name from the list above) — but ONLY when that capability is genuinely the skillset that would do THAT specific card's concrete work. The tag has to match what the card actually does, not my general persona: don't put a marketing skill on a monitoring brief, an engineering task, or a life-admin chore. Ground the match in what you researched (my real product, stack, and day-to-day work) so clicking it puts the right skillset on my actual situation, not a generic version.
-This is quality-gated, NOT a quota. It is completely fine — often correct — for ZERO suggestions to carry a plugin; never add one just to use it. Tag AT MOST ONE suggestion unless a second, different capability clearly fits a second card on its own merits. Match what the evidence shows I actually do: if I'm an engineer, don't push a marketing capability on me — pick the capability that fits my real work, or none. A suggestion with no genuinely-fitting capability simply omits "plugin".
-A capability-backed suggestion is shaped like the others plus a "plugin" key: { "suggestion": "<offer in your voice>", "prompt": "<the request in my voice>", "plugin": "<exact name from the list above>" }. The angle-bracketed parts are PLACEHOLDERS — replace them with specifics about me. Do NOT copy this example wording into a real suggestion.
+Add a "plugins" array as the FIRST key in your JSON object, before "claims" and "suggestions": the 1-2 capabilities from the list above (exact names) that best fit who I am — judged by what you researched about my real role, stack, and day-to-day work. (Emit it first so setup can start while you finish the rest.) These get set up for me automatically as part of getting started, so pick by overall fit to ME, not to any single suggestion. Prefer fewer over forcing a match; use [] if nothing clearly fits. Example: "plugins": ["<exact name from the list above>"]. Don't reference the setup in the claims or suggestions text.
 `;
 }
 
@@ -73,6 +71,12 @@ export function buildResearchPrompt(
   const role = occupation.trim();
   const hobbyText = hobby?.trim() ?? "";
   const capabilitiesBlock = renderCapabilitiesBlock(availableCapabilities);
+  // When capabilities are advertised, the canonical shape MUST show `plugins`
+  // first — otherwise "respond with exactly this shape" (which the example
+  // defines) would tell the model to omit it, and nothing gets installed.
+  const pluginsExample = capabilitiesBlock
+    ? `"plugins": ["<exact name from the list above>"], `
+    : "";
 
   const identity =
     [
@@ -90,7 +94,7 @@ Get to know me. Search the web for what's publicly known about the person matchi
 
 CRITICAL: your final reply must be ONLY a JSON object. No preamble, no explanation, no prose, nothing before or after it. Do your thinking and searching, then respond with exactly this shape and nothing else:
 
-{ "claims": [ { "claim": "Senior engineer at an AI infra startup", "confidence": "confident", "sources": ["https://linkedin.com/in/example-user"] }, { "claim": "Based in Boulder, CO", "confidence": "confident", "sources": ["https://linkedin.com/in/example-user"] }, { "claim": "Active climber on Mountain Project", "confidence": "maybe", "sources": [] }, { "claim": "Focused on evals or model serving infrastructure", "confidence": "guessing", "sources": ["https://github.com/example-user"] } ], "suggestions": [ { "suggestion": "I'll build a training plan for your next climb", "prompt": "Build me a training plan for my next climbing trip." }, { "suggestion": "I'll send you a weekly brief on AI infra", "prompt": "Send me a weekly brief on what's happening in AI infra." }, { "suggestion": "Connect GitHub and I'll tee up a first task", "prompt": "Connect to GitHub and tee up a first task for me." }, { "suggestion": "I'll set up your weekly grocery and errands list", "prompt": "Set up my weekly grocery and errands list." } ] }
+{ ${pluginsExample}"claims": [ { "claim": "Senior engineer at an AI infra startup", "confidence": "confident", "sources": ["https://linkedin.com/in/example-user"] }, { "claim": "Based in Boulder, CO", "confidence": "confident", "sources": ["https://linkedin.com/in/example-user"] }, { "claim": "Active climber on Mountain Project", "confidence": "maybe", "sources": [] }, { "claim": "Focused on evals or model serving infrastructure", "confidence": "guessing", "sources": ["https://github.com/example-user"] } ], "suggestions": [ { "suggestion": "I'll build you a dashboard for your eval runs", "prompt": "Build me a dashboard to track my eval runs." }, { "suggestion": "I'll watch arXiv for new eval papers and brief you weekly", "prompt": "Send me a weekly brief on new eval papers from arXiv." }, { "suggestion": "Connect GitHub and I'll triage your stalest issues", "prompt": "Connect to GitHub and triage my oldest open issues." }, { "suggestion": "I'll plan a weekend climbing trip near Boulder", "prompt": "Plan me a weekend climbing trip near Boulder." } ] }
 
 Rules for "claims":
 
@@ -105,15 +109,11 @@ Each suggestion is an object with two fields:
 "suggestion": the offer spoken in YOUR voice (the assistant), exactly as it appears on the clickable card. First-person "I" here refers to you. This is what the user reads.
 "prompt": the message that is sent on the user's behalf when they click that card, written from the USER's perspective in their first person — what they'd say to take you up on the offer. First-person "I"/"my" here refers to the user. Same intent as the suggestion, re-voiced as a request TO you (e.g. suggestion "I'll build you a training plan" → prompt "Build me a training plan for my next climbing trip"). Never echo the assistant-voiced wording in the prompt. Don't ask the user a question back in the prompt — it's their opening message, so state the request. Keep it natural and concise.
 
-Generate EXACTLY 4 suggestions. One per slot, in this order. The per-slot guidance below describes the "suggestion" (assistant-voiced) text.
+Generate EXACTLY 4 suggestions, each teaching me something you can do — aim to make me think "wait, you can do that?" Cover four DIFFERENT capabilities; don't repeat the same kind of task. Draw on your range: build a small app or dashboard, set up a recurring brief or monitor, draft a doc in a live editor, connect an integration (GitHub, Gmail, Calendar, Slack, Linear) and take a first action, or lean on a hobby/personal hook if research surfaced one. Pick whatever genuinely fits — don't force a fixed set of themes.
+Ground every suggestion in what you actually learned about me during research — my real role, stack, industry, and (if given) hobby. Specific to me, not generic LLM-assistant stuff. Avoid "summarize" or "draft a post" as standalone suggestions; favor the surprising, specific capabilities (apps, monitors, doc editor, integrations).
 Keep each suggestion SHORT and skimmable: aim for under 10 words, ONE clause, ONE artifact. No lists of three ("X, Y, and Z"), no intake question stacked in front of the offer. The reader scans four cards in a couple of seconds — a long line loses them.
 Favor easy, fast-to-first-output tasks over big builds, so my first reply lands quickly. Prefer "I'll set up a morning brief for today's sales calls" over "I'll build a CRM to manage your deals"; prefer one weekly digest, a short plan, or a single connected action over a multi-part system. The ambitious build can come later in the conversation, not on the first card.
-Lifestyle (hobby-driven). Use the hobby if one was given, otherwise fall back to broad lifestyle hooks (fitness, learning, travel, projects). Anchor on the app builder or dashboard capability. Offer one specific, quick artifact ("training plan", "sent tracker", "practice schedule") as a single short offer ("I'll build a training plan for your next climb").
-Industry (vertical-driven). Anchor on what they build or sell, not their day-to-day function (LLM infra, fintech, healthcare, GTM, devtools). Anchor on the heartbeat or scheduled monitor capability. One short declarative offer of a single digest ("I'll send you a weekly brief on AI infra").
-Role (occupation-driven). Anchor on their day-to-day function (SWE, PM, designer, founder, marketer). Pick the integration OR live document editor capability, whichever fits the function best. Integrations for builders and analysts (SWE: GitHub; designer: Figma; analyst: data source). Doc editor for strategists and writers (PMM: launch brief; founder: positioning doc). One short offer anchored on a single artifact ("merged PR", "positioning doc"), and lead with the cheap first step ("Connect GitHub and I'll tee up a first task").
-Life admin (always present). Target the home and personal side. Anchor on the app builder or scheduled monitor capability. Pick ONE concrete item tuned to occupation when relevant (medical: rotations; founder: tax deadlines; family-heavy: meal planning; default: recurring bills) and offer to handle just that ("I'll set up your weekly grocery and errands list") — don't list several.
 Each suggestion should be spoken in your voice, offering a service. First-person "I" in the suggestion refers to you, regardless of your name. Core sentence pattern: "I'll [verb] [specific artifact]" or "Connect me to [integration] and I'll [verb] [artifact]." Lead with the offer itself — no intake question in front of it; you gather the details in the follow-up conversation after the click. Suggestions render as clickable; clicking indicates the user wants to proceed. Refinement happens in follow-up conversation, not through the click itself.
-Use what you learned about me during research to make each suggestion feel specific to my stack, role, and industry, not generic LLM-assistant stuff. Avoid "summarize" or "draft a post" as standalone suggestions. Favor the surprising, specific capabilities (apps, monitors, doc editor, integrations).
 ${capabilitiesBlock}
 Don't include anything sensitive or private. If you found very little, lean on "guessing" claims and broadly useful suggestions for my role.
 Keep every string value simple so the JSON always parses: one line, no line breaks inside a value, and NO double-quote characters inside a value — use single quotes (or none) for emphasis, quoted names, or tool names. Output ONLY the JSON object. No code fence, no extra text.`;

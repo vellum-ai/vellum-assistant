@@ -58,6 +58,12 @@ export class CallSiteConfiguredProvider implements Provider {
     this.supportsNativeWebSearch = inner.supportsNativeWebSearch;
   }
 
+  supportsNativeWebSearchFor(options?: SendMessageOptions): boolean {
+    return this.inner.supportsNativeWebSearchFor
+      ? this.inner.supportsNativeWebSearchFor(options)
+      : this.inner.supportsNativeWebSearch === true;
+  }
+
   sendMessage(
     messages: Message[],
     options?: SendMessageOptions,

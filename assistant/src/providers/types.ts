@@ -274,6 +274,19 @@ export interface Provider {
    * unexecutable client tool call. Absent/false on providers without it.
    */
   supportsNativeWebSearch?: boolean;
+  /**
+   * Per-call native web-search capability for the provider/model this specific
+   * request will route to. Unlike the static {@link supportsNativeWebSearch}
+   * flag — fixed to the DEFAULT provider/model at construction — this consults
+   * the resolved call-site (`options.config.callSite` + `overrideProfile`) so a
+   * routing wrapper reports the ROUTED target's capability. Callers that gate a
+   * `web_search` server tool on a possibly-routed call (e.g. the advisor
+   * consult, whose `advisorProfile` may point at a different provider/model)
+   * must use this rather than the construction-time snapshot. Optional: wrappers
+   * forward it to their inner provider; leaf providers may omit it, in which
+   * case callers fall back to {@link supportsNativeWebSearch}.
+   */
+  supportsNativeWebSearchFor?(options?: SendMessageOptions): boolean;
   sendMessage(
     messages: Message[],
     options?: SendMessageOptions,

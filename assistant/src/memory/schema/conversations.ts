@@ -179,6 +179,34 @@ export const conversationGraphMemoryState = sqliteTable(
   },
 );
 
+/**
+ * Append-only ledger of every compaction event for a conversation. The
+ * `conversations` row keeps only the latest compaction (`context_summary` /
+ * `context_compacted_message_count` / `context_compacted_at`) as the hot-path
+ * cache the load path reads; this table preserves the full history so a fork
+ * can inherit the most recent compaction whose event time (`compacted_at`)
+ * is at-or-before the boundary message it forks from.
+ */
+export const conversationCompactionEvents = sqliteTable(
+  "conversation_compaction_events",
+  {
+    id: text("id").primaryKey(),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    compactedAt: integer("compacted_at").notNull(),
+    summary: text("summary").notNull(),
+    compactedMessageCount: integer("compacted_message_count").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("idx_compaction_events_conv_at").on(
+      table.conversationId,
+      table.compactedAt,
+    ),
+  ],
+);
+
 export const channelInboundEvents = sqliteTable("channel_inbound_events", {
   id: text("id").primaryKey(),
   sourceChannel: text("source_channel").notNull(),

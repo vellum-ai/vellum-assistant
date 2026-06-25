@@ -137,6 +137,50 @@ export type MarkChannelVerifiedIpcResponse = z.infer<
   typeof MarkChannelVerifiedIpcResponseSchema
 >;
 
+export const UpsertVerifiedChannelIpcParamsSchema = z.object({
+  type: z.string().min(1),
+  address: z.string().min(1),
+  externalChatId: z.string().min(1),
+  displayName: z.string().optional(),
+  username: z.string().optional(),
+  // Audit source for the verification. Free text (DB column is text) so the
+  // invite-activation path can pass "invite"; do not narrow to an enum.
+  verifiedVia: z.string().optional(),
+  // Target contact to bind the channel to (invite redemption). When set, an
+  // existing channel for the same (type,address) under a different contact is
+  // reassigned to this contact, mirroring the assistant's
+  // reassignConflictingChannels.
+  contactId: z.string().min(1).optional(),
+  // Relax the revoked refusal guard so a valid invite can reactivate a revoked
+  // member. Blocked actors are refused regardless.
+  allowRevokedReactivation: z.boolean().optional(),
+});
+
+export type UpsertVerifiedChannelIpcParams = z.infer<
+  typeof UpsertVerifiedChannelIpcParamsSchema
+>;
+
+export const UpsertVerifiedChannelIpcResponseSchema = z.object({
+  ok: z.boolean(),
+  verified: z.boolean(),
+  // Present only when verified — a blocked/revoked skip omits the channel.
+  channel: z
+    .object({
+      id: z.string(),
+      contactId: z.string(),
+      type: z.string(),
+      address: z.string(),
+      status: z.string(),
+      verifiedAt: z.number().nullable(),
+      verifiedVia: z.string().nullable(),
+    })
+    .optional(),
+});
+
+export type UpsertVerifiedChannelIpcResponse = z.infer<
+  typeof UpsertVerifiedChannelIpcResponseSchema
+>;
+
 export const MarkChannelRevokedIpcParamsSchema = z.object({
   contactChannelId: z.string().min(1),
   // Audit reason for the downgrade. The verification-revoke flow passes

@@ -23,7 +23,7 @@ import { buildHatchConfigValues, writeInitialConfig } from "./config-utils";
 import { buildServiceRunArgs } from "./statefulset.js";
 import type { Species } from "./constants";
 import { getOrCreateHostDeviceId } from "./device-id.js";
-import { getDefaultPorts } from "./environments/paths.js";
+import { ASSISTANT_INTERNAL_PORT, getDefaultPorts } from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
 import { leaseGuardianToken } from "./guardian-token";
 import { logHatchNextSteps } from "./hatch-next-steps.js";
@@ -711,6 +711,7 @@ export async function startContainers(
     extraAssistantEnv?: Record<string, string>;
     extraGatewayEnv?: Record<string, string>;
     gatewayPort: number;
+    assistantPort: number;
     imageTags: Record<ServiceName, string>;
     instanceName: string;
     res: ReturnType<typeof dockerResourceNames>;
@@ -934,6 +935,7 @@ function startFileWatcher(opts: {
   extraAssistantEnv?: Record<string, string>;
   extraGatewayEnv?: Record<string, string>;
   gatewayPort: number;
+  assistantPort: number;
   imageTags: Record<ServiceName, string>;
   instanceName: string;
   repoRoot: string;
@@ -941,7 +943,7 @@ function startFileWatcher(opts: {
   netnsContainer?: string;
   assistantCaCertPath?: string;
 }): () => void {
-  const { gatewayPort, imageTags, instanceName, repoRoot, res } = opts;
+  const { gatewayPort, assistantPort, imageTags, instanceName, repoRoot, res } = opts;
 
   const { dirs: watchDirs, files: watchFiles } = collectWatchTargets(repoRoot);
 
@@ -957,6 +959,7 @@ function startFileWatcher(opts: {
     extraAssistantEnv: opts.extraAssistantEnv,
     extraGatewayEnv: opts.extraGatewayEnv,
     gatewayPort,
+    assistantPort,
     imageTags,
     instanceName,
     res,
@@ -1132,6 +1135,30 @@ export async function hatchDocker(params: HatchDockerParams): Promise<void> {
       if (gatewayPort !== preferredGatewayPort) {
         log(
           `Preferred gateway port ${preferredGatewayPort} is in use; allocated ${gatewayPort} for this instance.`,
+        );
+      }
+    }
+
+    // Allocate the assistant HTTP API host port. Same dynamic-allocation
+    // strategy as the gateway port: the env-default (production 7821 /
+    // non-prod overrides) is the *preferred* starting point, and we walk
+    // upward until we find a free port. Without this, two concurrent
+    // `vellum hatch --remote docker` on the same host collide on a fixed
+    // 7821 bind ("port is already allocated"). Unused when netnsContainer
+    // is set — no host ports are published in that mode.
+    let assistantPort: number;
+    if (params.netnsContainer) {
+      assistantPort = ASSISTANT_INTERNAL_PORT;
+    } else {
+      const preferredAssistantPort = getDefaultPorts(
+        getCurrentEnvironment(),
+      ).daemon;
+      assistantPort = await findOpenPort(preferredAssistantPort, {
+        exclude: [gatewayPort],
+      });
+      if (assistantPort !== preferredAssistantPort) {
+        log(
+          `Preferred assistant port ${preferredAssistantPort} is in use; allocated ${assistantPort} for this instance.`,
         );
       }
     }
@@ -1404,6 +1431,7 @@ export async function hatchDocker(params: HatchDockerParams): Promise<void> {
         extraAssistantEnv,
         extraGatewayEnv,
         gatewayPort,
+        assistantPort,
         imageTags,
         instanceName,
         res,
@@ -1432,6 +1460,7 @@ export async function hatchDocker(params: HatchDockerParams): Promise<void> {
         gatewayDigest: imageDigests?.gateway,
         cesDigest: imageDigests?.["credential-executor"],
         networkName: res.network,
+        assistantPort,
       },
     };
     emitProgress(5, 6, "Saving configuration...");
@@ -1502,6 +1531,7 @@ export async function hatchDocker(params: HatchDockerParams): Promise<void> {
         extraAssistantEnv,
         extraGatewayEnv,
         gatewayPort,
+        assistantPort,
         imageTags,
         instanceName,
         repoRoot,

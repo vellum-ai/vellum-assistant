@@ -27,7 +27,6 @@ function CoinFace({ idSuffix }: { idSuffix: string }) {
   const face = `cf-${idSuffix}`;
   const rim = `cr-${idSuffix}`;
   const gloss = `cg-${idSuffix}`;
-  const vignette = `cv-${idSuffix}`;
   const spec = `cs-${idSuffix}`;
   return (
     <svg
@@ -46,10 +45,6 @@ function CoinFace({ idSuffix }: { idSuffix: string }) {
           <stop offset="0%" stopColor="#FFF6CE" />
           <stop offset="55%" stopColor="#F8CB3E" />
           <stop offset="100%" stopColor="#EEB52C" />
-        </radialGradient>
-        <radialGradient id={vignette} cx="50%" cy="50%" r="50%">
-          <stop offset="82%" stopColor="#000000" stopOpacity="0" />
-          <stop offset="100%" stopColor="#9A6E0E" stopOpacity="0.22" />
         </radialGradient>
         <radialGradient id={gloss} cx="36%" cy="24%" r="44%">
           <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.85" />
@@ -78,7 +73,6 @@ function CoinFace({ idSuffix }: { idSuffix: string }) {
       />
       {/* Center face */}
       <circle cx="50" cy="50" r="40" fill={`url(#${face})`} />
-      <circle cx="50" cy="50" r="40" fill={`url(#${vignette})`} />
       {/* Subtle groove between rim and face */}
       <circle
         cx="50"
@@ -90,17 +84,19 @@ function CoinFace({ idSuffix }: { idSuffix: string }) {
         strokeWidth="1.4"
       />
 
-      {/* Embossed dollar sign — soft emboss, bright gold. */}
+      {/* Embossed dollar sign — soft emboss, bright gold. `textAnchor=middle`
+          centers horizontally and `dy=0.355em` (~half the cap height) centers
+          vertically across browsers; `dominantBaseline` is avoided because iOS
+          WebKit renders it unreliably. */}
       <g
         fontFamily="var(--font-sans), system-ui, sans-serif"
         fontWeight={900}
         fontSize="58"
         textAnchor="middle"
-        dominantBaseline="central"
       >
-        <text x="50" y="52" fill="#C88E16" transform="translate(1.3 1.6)">$</text>
-        <text x="50" y="52" fill="#FFF6CF" opacity="0.7" transform="translate(-1.3 -1.5)">$</text>
-        <text x="50" y="52" fill="#F4C12A">$</text>
+        <text x="50" y="50" dy="0.355em" fill="#C88E16" transform="translate(1.3 1.6)">$</text>
+        <text x="50" y="50" dy="0.355em" fill="#FFF6CF" opacity="0.7" transform="translate(-1.3 -1.5)">$</text>
+        <text x="50" y="50" dy="0.355em" fill="#F4C12A">$</text>
       </g>
 
       {/* Gloss + hot-spot */}

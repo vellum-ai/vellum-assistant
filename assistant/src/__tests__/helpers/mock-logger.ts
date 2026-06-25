@@ -56,6 +56,7 @@ export function createMockLoggerModule(
     initLogger: () => {},
     truncateForLog: (value: string) => value,
     pruneOldLogFiles: () => 0,
+    getCurrentLogFilePath: () => "/tmp/assistant-test-mock.log",
     LOG_FILE_PATTERN: /^assistant-(\d{4}-\d{2}-\d{2})\.log$/,
     ...overrides,
   };

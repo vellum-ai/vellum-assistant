@@ -243,6 +243,14 @@ export interface ConversationConstructorOptions {
   speedOverride?: Speed;
   cacheTtl?: "5m" | "1h";
   modelOverride?: string;
+  /**
+   * Give this conversation's LLM calls provider-native (server-side) web
+   * search when the resolved provider supports it (see
+   * {@link AgentLoopConfig.enableNativeWebSearch}). Set by the subagent manager
+   * for the tool-less advisor consult so it can ground guidance with live web
+   * access; non-native providers get nothing. Defaults to false.
+   */
+  enableNativeWebSearch?: boolean;
 }
 
 export class Conversation {
@@ -592,6 +600,7 @@ export class Conversation {
     options?: ConversationConstructorOptions,
   ) {
     const { maxTokens, speedOverride, cacheTtl, modelOverride } = options ?? {};
+    const enableNativeWebSearch = options?.enableNativeWebSearch ?? false;
     this.conversationId = conversationId;
     this.systemPrompt = systemPrompt;
     this.provider = provider;
@@ -690,6 +699,7 @@ export class Conversation {
         ? { speed: resolvedSpeed }
         : {}),
       ...(cacheTtl ? { cacheTtl } : {}),
+      ...(enableNativeWebSearch ? { enableNativeWebSearch: true } : {}),
     };
     if (configuredMaxTokens !== undefined) {
       agentLoopConfig.maxTokens = configuredMaxTokens;

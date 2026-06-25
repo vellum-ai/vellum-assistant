@@ -12,6 +12,8 @@ import {
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
+import { motion, useReducedMotion } from "motion/react";
+
 import { AvatarRenderer } from "@/components/avatar-renderer";
 import {
     AnimatedMetricCard,
@@ -35,10 +37,8 @@ import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/
 import { ToolDetailBody } from "@/domains/chat/components/tool-detail-panel";
 import { WebFetchDetailView } from "@/domains/chat/components/web-fetch/web-fetch-detail-view";
 import { WebSearchDetailView } from "@/domains/chat/components/web-search/web-search-detail-view";
-import {
-    buildSubagentStepDetails,
-    computeSubagentCardData,
-} from "@/domains/chat/hooks/use-subagent-card-data";
+import { useSubagentSteps } from "@/domains/chat/subagent-step-projection";
+import { useSubagentStepDetails } from "@/domains/chat/subagent-detail-projection";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 /**
@@ -98,13 +98,20 @@ export function SubagentDetailPanel({
   onRequestDetail,
 }: SubagentDetailPanelProps) {
   const isRunning = isActiveStatus(entry.status);
+  const reduce = useReducedMotion();
   const components = useBundledAvatarComponents();
   // Compute the avatar traits once per subagent instead of hashing the id
   // three separate times in the JSX below.
   const traits = useMemo(() => subagentTraits(entry.subagentId), [entry.subagentId]);
   // The panel re-renders when `entry` changes via the store subscription in
-  // chat-content-layout.tsx, so memoizing on `entry` keeps the steps fresh.
-  const cardData = useMemo(() => computeSubagentCardData(entry), [entry]);
+  // chat-content-layout.tsx. The store bumps `entry` identity on every
+  // token/status/usage update but keeps `entry.events` reference-stable. Rather
+  // than rebuild the whole timeline on each tick, `useSubagentSteps` replays
+  // only the events that changed since the last render (append / text-coalesce),
+  // and preserves the `steps` array identity when nothing visible changed so the
+  // timeline below can bail. The panel renders its own header from `entry`
+  // directly, so it needs only the projected `steps`.
+  const { steps } = useSubagentSteps(entry.events);
 
   // `toolCallId`-keyed map of nested tool-detail payloads, used to swap the
   // panel body to a tool's input/output when its timeline pill is clicked —
@@ -117,7 +124,13 @@ export function SubagentDetailPanel({
   // `mapDetailEvents` carries through); thinking/text steps key on the source
   // event id and carry the full, un-truncated reasoning. Steps with no entry
   // here render as non-clickable pills — a graceful fallback, not an error.
-  const stepDetails = useMemo(() => buildSubagentStepDetails(entry), [entry]);
+  //
+  // Built incrementally (mirrors `useSubagentSteps`): the projector replays only
+  // the events that changed since the last render through the shared
+  // `applyDetailEvent` reducer, with an O(n) full-rebuild fallback. This map is
+  // read lazily (only on pill click), so the win is avoiding the O(n) re-walk
+  // per streamed event, not re-render avoidance.
+  const stepDetails = useSubagentStepDetails(entry.events);
 
   // Which step's detail (if any) is shown nested inside this panel — the key
   // into `stepDetails` (a tool call or a thinking segment), or `null` to show
@@ -126,6 +139,20 @@ export function SubagentDetailPanel({
   const [selectedDetailKey, setSelectedDetailKey] = useState<string | null>(
     null,
   );
+
+  // Read `stepDetails` through a ref so the click handler below can stay
+  // identity-stable across `entry.events` changes. `stepDetails` is rebuilt
+  // (new Map identity) on most streamed events, so closing over it directly
+  // would change the handler identity every tick — which, passed down to the
+  // now-memoized `SubagentPhaseRow`s, would re-render every row on each event.
+  // The ref is assigned during render (not in an effect) so the handler always
+  // sees the latest map without listing it as a dependency.
+  const stepDetailsRef = useRef(stepDetails);
+  // eslint-disable-next-line react-hooks/refs -- render-phase sync so the stable handler below reads the latest map
+  stepDetailsRef.current = stepDetails;
+  const handleStepDetailClick = useCallback((key: string) => {
+    if (stepDetailsRef.current.has(key)) setSelectedDetailKey(key);
+  }, []);
 
   // Which timeline groups are expanded. Lifted out of `SubagentPhaseTimeline`
   // so the expansion survives the timeline unmounting while a nested tool
@@ -273,7 +300,8 @@ export function SubagentDetailPanel({
         <Typography
           variant="title-medium"
           title={headerTitle}
-          className="min-w-0 shrink truncate text-[var(--content-default)]"
+          // leading-snug: title-medium is line-height:1, so truncate clips the descenders.
+          className="min-w-0 shrink truncate leading-snug text-[var(--content-default)]"
         >
           {headerTitle}
         </Typography>
@@ -303,145 +331,164 @@ export function SubagentDetailPanel({
       {/* Scrollable body — swaps to a step's nested detail when one is selected,
           keeping the header above mounted in both views. */}
       <div className="flex-1 overflow-y-auto px-5 py-5">
-        {activeDetail ? (
-          <>
-            {/* Navigation back to the timeline lives in the header (Back button)
-                and the breadcrumb; this body only renders the step's detail.
-                Thinking steps render their full reasoning markdown statically
-                (subagent detail isn't a live chat-session source); web_search
-                steps render their query + source links; web_fetch gets a
-                result-shaped view; other tools fall back to the shared
-                technical-details/output body. */}
-            {activeDetail.kind === "thinking" ? (
-              <ChatMarkdownMessage
-                content={activeDetail.thinkingText ?? ""}
-                hardLineBreaks
-              />
-            ) : activeDetail.kind === "web_search" &&
-              activeDetail.status !== "error" ? (
-              // A successful search shows query + sources; a FAILED one falls
-              // through to `ToolDetailBody`, which renders its full, untruncated
-              // error in the Output section — parity with a failed tool.
-              <WebSearchDetailView detail={activeDetail} />
-            ) : activeDetail.toolName === "web_fetch" ? (
-              <WebFetchDetailView detail={activeDetail} />
-            ) : (
-              <ToolDetailBody
-                detail={activeDetail}
-                showTechnicalDetailsLabel={false}
-              />
-            )}
-          </>
-        ) : (
-          <>
-            {/* Metrics row */}
-            <div className="mb-5 grid grid-cols-2 gap-3">
-              <AnimatedMetricCard
-                icon={<ArrowDownToLine className="h-4 w-4 shrink-0" style={{ color: "var(--content-secondary)" }} />}
-                target={entry.inputTokens}
-                format={(n) => formatNumber(Math.round(n))}
-                label="Input"
-              />
-              <AnimatedMetricCard
-                icon={<ArrowUpFromLine className="h-4 w-4 shrink-0" style={{ color: "var(--content-secondary)" }} />}
-                target={entry.outputTokens}
-                format={(n) => formatNumber(Math.round(n))}
-                label="Output"
-              />
-            </div>
-
-            {/* Objective section */}
-            {entry.objective && (
-              <div className="mb-5">
-                <Typography
-                  variant="body-medium-default"
-                  as="h3"
-                  className="mb-2 text-[var(--content-emphasised)]"
-                >
-                  Objective
-                </Typography>
-                <Typography
-                  ref={objectiveBodyRef}
-                  variant="body-medium-lighter"
-                  as="p"
-                  className={`whitespace-pre-wrap break-words leading-relaxed text-[var(--content-default)] ${
-                    objectiveExpanded ? "" : "line-clamp-5"
-                  }`}
-                >
-                  {entry.objective}
-                </Typography>
-                {objectiveOverflows && (
-                  <button
-                    type="button"
-                    onClick={() => setObjectiveExpanded((prev) => !prev)}
-                    className="mt-1.5 flex cursor-pointer items-center gap-1 text-[var(--content-secondary)] transition-colors hover:text-[var(--content-default)]"
-                  >
-                    <Typography variant="label-small-default">
-                      {objectiveExpanded ? "Show less" : "Show more"}
-                    </Typography>
-                    <ChevronDown
-                      className={`h-3.5 w-3.5 transition-transform ${
-                        objectiveExpanded ? "rotate-180" : ""
-                      }`}
-                      aria-hidden
-                    />
-                  </button>
-                )}
-                <div className="mt-5 h-px w-full bg-[var(--border-hover)]" />
-              </div>
-            )}
-
-            {/* Timeline section */}
-            <div>
-              <Typography
-                variant="title-medium"
-                as="h3"
-                className="mb-4 text-[var(--content-emphasised)]"
-              >
-                Timeline
-              </Typography>
-              {/*
-               * Key by subagent id so the timeline remounts on subagent switch,
-               * resetting the expand/collapse state it holds. The drawer keeps this
-               * component mounted across switches, so without a per-subagent reset
-               * an expanded phase would leak its expanded state onto the next
-               * subagent's same-positioned phase.
-               */}
-              {/*
-               * Gate the empty state on the RAW `entry.events`, not on
-               * `cardData.steps`. `computeSubagentCardData` can intentionally
-               * DROP events (e.g. a `tool_result` with no preceding in-flight
-               * `tool_call`), so `entry.events` can be non-empty while
-               * `cardData.steps` is empty. Gating on steps would show a false
-               * "No events yet" AND — because `entry.events.length !== 0` — the
-               * detail-refetch effect above wouldn't fire to recover. When the
-               * store has events we render the timeline (which returns null for
-               * zero steps, an acceptable no-op).
-               */}
-              {entry.events.length > 0 ? (
-                <SubagentPhaseTimeline
-                  key={entry.subagentId}
-                  steps={cardData.steps}
-                  expandedKeys={expandedSectionKeys}
-                  onExpandedKeysChange={setExpandedSectionKeys}
-                  onStepDetailClick={(key) => {
-                    if (stepDetails.has(key)) setSelectedDetailKey(key);
-                  }}
-                  // Keeps the last phase's node pulsing while the subagent is
-                  // still active but its last phase has settled.
-                  isRunning={isRunning}
+        <motion.div
+          key={activeDetail ? "detail" : "list"}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={
+            reduce
+              ? { duration: 0 }
+              : { duration: 0.18, ease: [0.16, 1, 0.3, 1] }
+          }
+        >
+          {activeDetail ? (
+            <>
+              {/* Navigation back to the timeline lives in the header (Back button)
+              and the breadcrumb; this body only renders the step's detail.
+              Thinking steps render their full reasoning markdown statically
+              (subagent detail isn't a live chat-session source); web_search
+              steps render their query + source links; web_fetch gets a
+              result-shaped view; other tools fall back to the shared
+              technical-details/output body. */}
+              {activeDetail.kind === "thinking" ? (
+                <ChatMarkdownMessage
+                  content={activeDetail.thinkingText ?? ""}
+                  hardLineBreaks
                 />
+              ) : activeDetail.kind === "web_search" &&
+                activeDetail.status !== "error" ? (
+                // A successful search shows query + sources; a FAILED one falls
+                // through to `ToolDetailBody`, which renders its full, untruncated
+                // error in the Output section — parity with a failed tool.
+                <WebSearchDetailView detail={activeDetail} />
+              ) : activeDetail.toolName === "web_fetch" ? (
+                <WebFetchDetailView detail={activeDetail} />
               ) : (
-                <Typography
-                  variant="body-small-default"
-                  className="py-4 text-center text-[var(--content-tertiary)]"
-                >
-                  No events yet
-                </Typography>
+                <ToolDetailBody
+                  detail={activeDetail}
+                  showTechnicalDetailsLabel={false}
+                />
               )}
-            </div>
-          </>
-        )}
+            </>
+          ) : (
+            <>
+              {/* Metrics row */}
+              <div className="mb-5 grid grid-cols-2 gap-3">
+                <AnimatedMetricCard
+                  icon={
+                    <ArrowDownToLine
+                      className="h-4 w-4 shrink-0"
+                      style={{ color: "var(--content-secondary)" }}
+                    />
+                  }
+                  target={entry.inputTokens}
+                  format={(n) => formatNumber(Math.round(n))}
+                  label="Input"
+                />
+                <AnimatedMetricCard
+                  icon={
+                    <ArrowUpFromLine
+                      className="h-4 w-4 shrink-0"
+                      style={{ color: "var(--content-secondary)" }}
+                    />
+                  }
+                  target={entry.outputTokens}
+                  format={(n) => formatNumber(Math.round(n))}
+                  label="Output"
+                />
+              </div>
+
+              {/* Objective section */}
+              {entry.objective && (
+                <div className="mb-5">
+                  <Typography
+                    variant="body-medium-default"
+                    as="h3"
+                    className="mb-2 text-[var(--content-emphasised)]"
+                  >
+                    Objective
+                  </Typography>
+                  <Typography
+                    ref={objectiveBodyRef}
+                    variant="body-medium-lighter"
+                    as="p"
+                    className={`whitespace-pre-wrap break-words leading-relaxed text-[var(--content-default)] ${
+                      objectiveExpanded ? "" : "line-clamp-5"
+                    }`}
+                  >
+                    {entry.objective}
+                  </Typography>
+                  {objectiveOverflows && (
+                    <button
+                      type="button"
+                      onClick={() => setObjectiveExpanded((prev) => !prev)}
+                      className="mt-1.5 flex cursor-pointer items-center gap-1 text-[var(--content-secondary)] transition-colors hover:text-[var(--content-default)]"
+                    >
+                      <Typography variant="label-small-default">
+                        {objectiveExpanded ? "Show less" : "Show more"}
+                      </Typography>
+                      <ChevronDown
+                        className={`h-3.5 w-3.5 transition-transform ${
+                          objectiveExpanded ? "rotate-180" : ""
+                        }`}
+                        aria-hidden
+                      />
+                    </button>
+                  )}
+                  <div className="mt-5 h-px w-full bg-[var(--border-hover)]" />
+                </div>
+              )}
+
+              {/* Timeline section */}
+              <div>
+                <Typography
+                  variant="title-medium"
+                  as="h3"
+                  className="mb-4 text-[var(--content-emphasised)]"
+                >
+                  Timeline
+                </Typography>
+                {/*
+                 * Key by subagent id so the timeline remounts on subagent switch,
+                 * resetting the expand/collapse state it holds. The drawer keeps this
+                 * component mounted across switches, so without a per-subagent reset
+                 * an expanded phase would leak its expanded state onto the next
+                 * subagent's same-positioned phase.
+                 */}
+                {/*
+                 * Gate the empty state on the RAW `entry.events`, not on the
+                 * projected `steps`. `computeSubagentSteps` can intentionally
+                 * DROP events (e.g. a `tool_result` with no preceding in-flight
+                 * `tool_call`), so `entry.events` can be non-empty while `steps`
+                 * is empty. Gating on steps would show a false "No events yet"
+                 * AND — because `entry.events.length !== 0` — the detail-refetch
+                 * effect above wouldn't fire to recover. When the store has events
+                 * we render the timeline (which returns null for zero steps, an
+                 * acceptable no-op).
+                 */}
+                {entry.events.length > 0 ? (
+                  <SubagentPhaseTimeline
+                    key={entry.subagentId}
+                    steps={steps}
+                    expandedKeys={expandedSectionKeys}
+                    onExpandedKeysChange={setExpandedSectionKeys}
+                    onStepDetailClick={handleStepDetailClick}
+                    // Keeps the last phase's node pulsing while the subagent is
+                    // still active but its last phase has settled.
+                    isRunning={isRunning}
+                  />
+                ) : (
+                  <Typography
+                    variant="body-small-default"
+                    className="py-4 text-center text-[var(--content-tertiary)]"
+                  >
+                    No events yet
+                  </Typography>
+                )}
+              </div>
+            </>
+          )}
+        </motion.div>
       </div>
     </div>
   );

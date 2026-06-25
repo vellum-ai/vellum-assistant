@@ -14,6 +14,7 @@ import {
   getConfigQuarantineNoticePath,
   getWorkspaceConfigPath,
 } from "../util/platform.js";
+import { pruneSeededCallsiteDefaultsFromConfig } from "./prune-seeded-callsite-defaults.js";
 import { AssistantConfigSchema } from "./schema.js";
 import type { AssistantConfig } from "./types.js";
 
@@ -629,6 +630,7 @@ export function mergeDefaultWorkspaceConfig(): DefaultWorkspaceConfigMergeResult
   }
 
   deepMergeOverwrite(existing, defaults as Record<string, unknown>);
+  pruneSeededCallsiteDefaultsFromConfig(existing);
 
   const dir = dirname(configPath);
   if (!existsSync(dir)) {

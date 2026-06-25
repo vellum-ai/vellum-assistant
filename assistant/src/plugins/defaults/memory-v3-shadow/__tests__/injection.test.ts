@@ -67,13 +67,17 @@ let pruneConfig: {
   maxResidentBytes: number;
   targetResidentBytes: number;
 } | null = null;
-/** Canned orchestrate result per turnIndex; `null` simulates a failed turn. */
-let turnResults = new Map<number, OrchestrateResult | null>();
+/** Canned orchestrate result per turnIndex; `null` simulates an ordinary miss. */
+let turnResults = new Map<number, OrchestrateResult | null | Error>();
 const observeTurnSpy = mock(
   async (
     _conversationId: string,
     turnIndex: number,
-  ): Promise<OrchestrateResult | null> => turnResults.get(turnIndex) ?? null,
+  ): Promise<OrchestrateResult | null> => {
+    const value = turnResults.get(turnIndex) ?? null;
+    if (value instanceof Error) throw value;
+    return value;
+  },
 );
 
 const logCalls: Array<{ data: unknown; msg: string }> = [];
@@ -199,6 +203,9 @@ const {
 } = await import("../ever-injected-store.js");
 const { V3_CARDS_INJECTION_HEADER } = await import("../render-injection.js");
 const { flushPruneValveForTests } = await import("../prune.js");
+const { drainConversationNotices, resetConversationNoticesForTests } =
+  await import("../../../../daemon/conversation-notices.js");
+const { MemoryV3RetrievalUnavailableError } = await import("../pool-select.js");
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -313,6 +320,7 @@ beforeEach(async () => {
   logCalls.length = 0;
   testDb = makeDb();
   resetMemoryV3InjectorStateForTests();
+  resetConversationNoticesForTests();
 });
 
 afterAll(async () => {
@@ -333,6 +341,28 @@ describe("memoryV3Injector — frozen net-new cards", () => {
     expect(await produceSpotlight("conv-1", 0)).toBeNull();
     expect(observeTurnSpy).not.toHaveBeenCalled();
     expect(getActiveSlugs("conv-1")).toEqual(new Set());
+  });
+
+  test("live retrieval failure queues a degraded-memory notice", async () => {
+    liveEnabled = true;
+    turnResults.set(
+      0,
+      new MemoryV3RetrievalUnavailableError("selector unavailable"),
+    );
+
+    await expect(produceCardsWithoutCommit("conv-1", 0)).resolves.toBeNull();
+
+    expect(drainConversationNotices("conv-1")).toEqual([
+      {
+        type: "conversation_notice",
+        conversationId: "conv-1",
+        source: "memory_v3",
+        code: "UNKNOWN",
+        userMessage:
+          "Memory is temporarily unavailable, so this response may not use your saved memories. You can retry in a moment.",
+        errorCategory: "memory_v3_degraded",
+      },
+    ]);
   });
 
   test("turn 1 renders cards; turn 2 re-selecting the same pages renders ZERO new cards", async () => {

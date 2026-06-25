@@ -152,14 +152,17 @@ export function useAppNudges(
     nudgeMinTurns,
   ]);
 
-  const bannerEligible = assistantTurnsSeen >= nudgeMinTurns;
-
   // -------------------------------------------------------------------------
   // Platform nudge (iOS xor macOS)
   // -------------------------------------------------------------------------
   const iosNudge = useIOSNudgeState();
   const macNudge = useMacOsNudgeState();
   const nudge = isOnIOS ? iosNudge : macNudge;
+
+  // macOS is time-based (shows ~24h after first seen); iOS stays turn-based.
+  const bannerEligible = isOnIOS
+    ? assistantTurnsSeen >= IOS_APP_BANNER_MIN_TURNS
+    : macNudge.ageEligible;
 
   const showBanner = isOnNudgePlatform && bannerEligible && nudge.bannerShouldShow;
 

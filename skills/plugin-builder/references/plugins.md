@@ -24,7 +24,7 @@ my-plugin/
 
 Loader rules:
 
-- **Compiled files win.** When both a `.js` and a `.ts` exist for the same basename, the `.js` is used, matching compiled-binary semantics.
+- **Compiled files win.** When both a `.js` and a `.ts` exist for the same basename, the `.js` is used, matching compiled-binary semantics. Clean stale `.js` files when iterating on `.ts` source, or the loader will silently pick up old code.
 - **Missing directories are skipped.** A plugin contributes only the surfaces it ships. Absent surface directories are silently omitted.
 - **A broken surface file fails only itself.** A surface file present but missing a usable default export is logged with attribution and skipped. Sibling plugins keep loading.
 - **`src/` is yours.** Only the named surface directories are walked. Put shared helpers in `src/` (or any other directory) and import from them normally.
@@ -47,45 +47,18 @@ Every plugin has a `package.json`. The loader reads three fields and passes ever
 }
 ```
 
-- **`name`** (required). Any npm-style name. The loader strips the scope (`@you/`) for the in-runtime plugin name, and duplicate names fail registration.
+- **`name`** (required). Any npm-style name. The loader strips the scope (`@you/`) for the in-runtime plugin name, and duplicate names fail registration. The unscoped portion must be kebab-case (e.g. `my-plugin`, not `myPlugin` or `my_plugin`), matching the convention used for catalog entries and directory names.
 - **`version`**. Informational, and defaults to `0.0.0` when absent.
 - **`peerDependencies["@vellumai/plugin-api"]`**. A semver range checked against the running assistant. While plugins are in beta a mismatch is logged but does not block load. Once the install path stabilizes the mismatch will harden into a hard reject, so pin a real range.
 - **`vellum`**. Reserved for future use.
+
+The marketplace catalog entry can point at a subdirectory of a repo using `source.path` in the catalog manifest. See `references/distribution.md` for the full `source.path` field and the catalog manifest schema.
 
 ## The @vellumai/plugin-api surface
 
 Plugins import everything they need from a single package, [`@vellumai/plugin-api`](https://github.com/vellum-ai/vellum-assistant/tree/main/assistant/src/plugin-api). It is the only supported contract: anything not exported from there is assistant-internal and can change without notice. Most of the surface is types (the contexts the host hands your code), with a small set of runtime handles that resolve to the assistant's live singletons.
 
-### Hook contexts and constants
-
-The context shape the host hands to each lifecycle hook, the hook signature itself, and the wired hook-name constant. Each context's full field contract is documented in `references/hooks.md`.
-
-| Export                    | Kind  | Purpose                                                                                                                           |
-| ------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `HOOKS`                   | const | Wired hook names keyed by constant (INIT, PRE_MODEL_CALL, and so on). Reference hooks by this instead of free-form strings.       |
-| `HookName`                | type  | Union of every wired hook name declared in HOOKS.                                                                                 |
-| `PluginHookFn`            | type  | Signature every hook implements: `(ctx) => Promise<Partial<ctx> \| void>`.                                                        |
-| `PluginInitContext`       | type  | Passed to the init hook at bootstrap.                                                                                             |
-| `PluginShutdownContext`   | type  | Passed to the shutdown hook at teardown.                                                                                          |
-| `UserPromptSubmitContext` | type  | Passed to user-prompt-submit, before a turn's messages reach the agent loop.                                                      |
-| `PreModelCallContext`     | type  | Passed to pre-model-call, before each provider call.                                                                              |
-| `PostToolUseContext`      | type  | Passed to post-tool-use, once per tool result.                                                                                    |
-| `PostModelCallContext`    | type  | Passed to post-model-call at every model-call outcome (a finalized reply or a provider rejection); carries the continue decision. |
-| `PostCompactContext`      | type  | Passed to post-compact, after the loop compacts a conversation mid-turn.                                                          |
-| `StopContext`             | type  | Passed to stop, the terminal hook, once the turn has committed to ending.                                                         |
-| `PostModelCallDecision`   | type  | The post-model-call decision shape: whether to end the turn or continue.                                                          |
-| `AgentLoopExitReason`     | type  | Which terminal state a turn reached, carried on StopContext.                                                                      |
-
-### Tool types
-
-The author-facing tool spec and the shapes passed to and returned from a tool's `execute` method. Each is documented in full in `references/tools.md`.
-
-| Export                | Kind | Purpose                                                                         |
-| --------------------- | ---- | ------------------------------------------------------------------------------- |
-| `ToolDefinition`      | type | Author-facing tool spec, the default-export shape for a `tools/<name>.ts` file. |
-| `ToolContext`         | type | Runtime context passed as the second argument to a tool's execute.              |
-| `ToolExecutionResult` | type | Return shape of a tool's execute: `{ content, isError }`.                       |
-| `RiskLevel`           | enum | Risk bands (low, medium, high) that drive default permission gating for a tool. |
+The hook-related exports (context types, `HOOKS` constant, `HookFunction` signature) are documented in `references/hooks.md`. The tool-related exports (`ToolDefinition`, `ToolContext`, `ToolExecutionResult`, `RiskLevel`) are documented in `references/tools.md`. The remaining exports are covered below.
 
 ### Logging
 
@@ -111,3 +84,20 @@ Values, not just types, that a plugin consumes at module-load or init time. A bo
 | `AssistantEventCallback`     | type  | Subscriber callback invoked for each matching event.                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `AssistantEventFilter`       | type  | Filter narrowing which events a subscription receives.                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `AssistantEventSubscription` | type  | Handle returned by subscribing, used to unsubscribe.                                                                                                                                                                                                                                                                                                                                                                                                                      |
+
+## Surfaces not yet available in plugins
+
+The assistant supports these surfaces today, but they are not yet contributed through the plugin system. They may be added in the future.
+
+| Surface        | What it does                                                                                                  |
+| -------------- | ------------------------------------------------------------------------------------------------------------- |
+| Schedules      | Cron-style triggers that fire on a recurring schedule.                                                        |
+| Apps           | Persistent interactive apps (dashboards, games, tools) served in the workspace panel.                         |
+| Routes         | HTTP routes the assistant exposes, used for webhooks and integrations.                                        |
+| Artifacts      | Versioned outputs the assistant produces and tracks (documents, diagrams, generated files).                   |
+| Webhooks       | Inbound HTTP endpoints that deliver external events into the assistant.                                       |
+| Prompts        | Reusable system prompt fragments and templates.                                                               |
+| UIs            | Custom UI surfaces rendered in the conversation or workspace.                                                 |
+| Bin            | CLI commands the assistant exposes as tools.                                                                  |
+| Integrations   | OAuth-connected and MCP-connected external services (Google, Linear, Slack, etc.) with credential management. |
+| Slash commands | Shortcuts triggered by typing `/` in the conversation, expanding into prompts or actions.                     |

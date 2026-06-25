@@ -52,11 +52,12 @@ export function OnboardingEdgeCharacters() {
   const size = edgeSize(w, h);
   const positions = useMemo(() => edgeSlots(w, h, size / 2), [w, h, size]);
 
-  // On mobile the form is full-width with left-aligned labels, so a left-edge
-  // avatar sits right behind them. Drop the mid-left slot there and keep the
-  // cast to the top, right, and bottom. (Slot 7 is the left-mid sprout.)
+  // On mobile the form fills the width, so the side avatars sit right behind it
+  // and feel crowded. Keep only the top edge (slots 0–3) and bottom corners
+  // (5, 6), dropping the side slots 4 (right-lower), 7 (left-mid), 8 (right-
+  // upper) and the desktop-only bottom-center slots 9/10.
   const isMobile = w < 640;
-  const HIDDEN_ON_MOBILE = new Set([7]);
+  const HIDDEN_ON_MOBILE = new Set([4, 7, 8, 9, 10]);
 
   if (!components || characters.length === 0) return null;
 

@@ -4,6 +4,7 @@ import type { CompactionCircuitClosedEvent } from "../../api/events/compaction-c
 import type { CompactionCircuitOpenEvent } from "../../api/events/compaction-circuit-open.js";
 import type { ConversationErrorEvent } from "../../api/events/conversation-error.js";
 import type { ConversationListInvalidatedEvent } from "../../api/events/conversation-list-invalidated.js";
+import type { ConversationNoticeEvent } from "../../api/events/conversation-notice.js";
 import type { ConversationTitleUpdatedEvent } from "../../api/events/conversation-title-updated.js";
 import type { GenerationCancelledEvent } from "../../api/events/generation-cancelled.js";
 import type { GenerationHandoffEvent } from "../../api/events/generation-handoff.js";
@@ -543,6 +544,7 @@ export type _ConversationsServerMessages =
   | CompactionCircuitOpenEvent
   | CompactionCircuitClosedEvent
   | ConversationErrorEvent
+  | ConversationNoticeEvent
   | ConversationInfo
   | ConversationTitleUpdatedEvent
   | ConversationListResponse

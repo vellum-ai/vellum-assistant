@@ -16,37 +16,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion, useAnimationControls, useReducedMotion } from "motion/react";
 
+import { pathBBox, unionBBox } from "@/domains/onboarding/components/eye-bbox";
+import { useOnboardingStageSize } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
-
-type BBox = { x: number; y: number; w: number; h: number };
-
-/** Tight bounding box of a single path's absolute coords. */
-function pathBBox(d: string): BBox {
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  const re = /-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?/gi;
-  const nums = d.match(re)?.map(Number) ?? [];
-  for (let i = 0; i + 1 < nums.length; i += 2) {
-    const x = nums[i]!;
-    const y = nums[i + 1]!;
-    if (x < minX) minX = x;
-    if (y < minY) minY = y;
-    if (x > maxX) maxX = x;
-    if (y > maxY) maxY = y;
-  }
-  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
-}
-
-function unionBBox(boxes: BBox[]): BBox {
-  const minX = Math.min(...boxes.map((b) => b.x));
-  const minY = Math.min(...boxes.map((b) => b.y));
-  const maxX = Math.max(...boxes.map((b) => b.x + b.w));
-  const maxY = Math.max(...boxes.map((b) => b.y + b.h));
-  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
-}
 
 /** How much of the eyes sits below the bottom edge — at rest, and at the dip. */
 const EYE_REST_CUTOFF = 0.25;
@@ -61,20 +34,6 @@ const PICKER_CENTER_VH = 40;
 const CURSOR_MAX_X = 14;
 const CURSOR_MAX_Y = 8;
 
-function useViewport() {
-  const [size, setSize] = useState(() => ({
-    w: typeof window === "undefined" ? 1280 : window.innerWidth,
-    h: typeof window === "undefined" ? 800 : window.innerHeight,
-  }));
-  useEffect(() => {
-    const onResize = () =>
-      setSize({ w: window.innerWidth, h: window.innerHeight });
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-  return size;
-}
-
 interface OnboardingPeekingEyesProps {
   /** Play the grow-in entrance (Introduction). Otherwise the eyes are at rest. */
   entrance?: boolean;
@@ -85,18 +44,24 @@ interface OnboardingPeekingEyesProps {
    * knock the integration-step coin up).
    */
   bumpNonce?: number;
+  /**
+   * Play the two settle blinks when the eyes settle. Off for resting eyes that
+   * are simply carried over from a previous step (they just idle-blink).
+   */
+  settleBlink?: boolean;
 }
 
 export function OnboardingPeekingEyes({
   entrance = false,
   entranceDelay = 0,
   bumpNonce = 0,
+  settleBlink = true,
 }: OnboardingPeekingEyesProps) {
   const components = useBundledAvatarComponents();
   const characters = useOnboardingAvatarPoolStore.use.characters();
   const selectedIndex = useOnboardingAvatarPoolStore.use.selectedIndex();
   const reduce = useReducedMotion();
-  const { w, h } = useViewport();
+  const { w, h } = useOnboardingStageSize();
 
   const [pointer, setPointer] = useState({ x: 0, y: 0 });
   useEffect(() => {
@@ -124,7 +89,7 @@ export function OnboardingPeekingEyes({
     }
   }, [bumpNonce, reduce, bumpControls]);
 
-  // Two blinks once settled, then a slow random idle blink.
+  // Two blinks once settled (when `settleBlink`), then a slow random idle blink.
   const [blinking, setBlinking] = useState(false);
   const [entranceDone, setEntranceDone] = useState(!entrance);
   useEffect(() => {
@@ -143,12 +108,14 @@ export function OnboardingPeekingEyes({
     const idle = () => {
       t = setTimeout(() => blink(idle), 2500 + Math.random() * 4000);
     };
-    blink(() => blink(idle));
+    // Resting eyes (carried over) skip the settle blinks and just idle.
+    if (settleBlink) blink(() => blink(idle));
+    else idle();
     return () => {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [reduce, entranceDone]);
+  }, [reduce, entranceDone, settleBlink]);
 
   const chosen = characters.length > 0 ? characters[selectedIndex] : undefined;
 

@@ -58,6 +58,23 @@ async function main(): Promise<void> {
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
 
+  // Catch stray exceptions that escape the worker loop so they produce a
+  // clean pino-formatted log entry (and PID-file cleanup) instead of a raw
+  // stack trace on stderr. The stderr fd is already piped to the log file
+  // by the spawner, so even without these handlers the trace would be
+  // captured — but this gives us structured logging and graceful shutdown.
+  process.on("uncaughtException", (err) => {
+    log.error({ err }, "Uncaught exception in memory worker process");
+    cleanupPidFile();
+    process.exit(1);
+  });
+
+  process.on("unhandledRejection", (reason) => {
+    log.error({ reason }, "Unhandled rejection in memory worker process");
+    cleanupPidFile();
+    process.exit(1);
+  });
+
   // Clean up if the process exits unexpectedly through any other path.
   process.on("exit", () => {
     worker.stop();

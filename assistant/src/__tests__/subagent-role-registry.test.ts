@@ -13,6 +13,7 @@ const ALL_ROLES: SubagentRole[] = [
   "coder",
   "planner",
   "investigator",
+  "advisor",
 ];
 
 describe("SUBAGENT_ROLE_REGISTRY", () => {
@@ -32,18 +33,30 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
     expect(SUBAGENT_ROLE_REGISTRY.general.allowedTools).toBeUndefined();
   });
 
-  test("all non-general roles have allowedTools as a non-empty array", () => {
+  test("all scoped tool-using roles have allowedTools as a non-empty array", () => {
     for (const role of ALL_ROLES) {
-      if (role === "general") continue;
+      // 'general' has no filter (undefined); 'advisor' is tool-less (empty).
+      if (role === "general" || role === "advisor") continue;
       const config = SUBAGENT_ROLE_REGISTRY[role];
       expect(Array.isArray(config.allowedTools)).toBe(true);
       expect(config.allowedTools!.length).toBeGreaterThan(0);
     }
   });
 
-  test('every role with allowedTools includes "notify_parent"', () => {
+  test("advisor is tool-less with an empty allowedTools array", () => {
+    const config = SUBAGENT_ROLE_REGISTRY.advisor;
+    expect(config.allowedTools).toEqual([]);
+  });
+
+  test("SubagentRole type includes advisor", () => {
+    const advisor: SubagentRole = "advisor";
+    expect(SUBAGENT_ROLE_REGISTRY[advisor]).toBeDefined();
+  });
+
+  test('every role with a non-empty allowlist includes "notify_parent"', () => {
     for (const [_role, config] of Object.entries(SUBAGENT_ROLE_REGISTRY)) {
-      if (config.allowedTools !== undefined) {
+      // 'advisor' is tool-less (empty allowlist) and intentionally has none.
+      if (config.allowedTools !== undefined && config.allowedTools.length > 0) {
         expect(config.allowedTools).toContain("notify_parent");
       }
     }
@@ -70,8 +83,11 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
     expect(SUBAGENT_ROLE_REGISTRY.planner.allowedTools!).toContain("recall");
   });
 
-  test('investigator includes "bash" for grep/find-based code and log investigation', () => {
-    expect(SUBAGENT_ROLE_REGISTRY.investigator.allowedTools!).toContain("bash");
+  test("investigator is shell-free and uses code_search for code/log investigation", () => {
+    const tools = SUBAGENT_ROLE_REGISTRY.investigator.allowedTools!;
+    expect(tools).not.toContain("bash");
+    expect(tools).not.toContain("host_bash");
+    expect(tools).toContain("code_search");
   });
 
   test("investigator excludes file write tools (read-only investigation)", () => {
@@ -85,6 +101,8 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
     expect(preamble).toContain("Root cause");
     expect(preamble).toContain("Evidence");
     expect(preamble).toContain("notify_parent");
+    expect(preamble).not.toContain("shell access");
+    expect(preamble).toContain("code_search");
   });
 
   test("no role references the old memory_recall tool name", () => {

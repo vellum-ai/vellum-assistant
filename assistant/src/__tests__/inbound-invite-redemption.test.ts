@@ -64,15 +64,113 @@ mock.module("../runtime/approval-message-composer.js", () => ({
   composeApprovalMessageGenerative: async () => "mock generative message",
 }));
 
+// Stub the gateway IPC so redemption claims + activation relays resolve
+// deterministically without a running gateway socket.
+const gatewayIpcCalls: Array<{
+  method: string;
+  params?: Record<string, unknown>;
+}> = [];
+mock.module("../ipc/gateway-client.js", () => ({
+  ipcCallPersistent: async (
+    method: string,
+    params?: Record<string, unknown>,
+  ) => {
+    gatewayIpcCalls.push({ method, params });
+    if (method === "contacts_get_rich") {
+      return richContactForId(params?.contactId as string);
+    }
+    if (method === "record_invite_redemption") {
+      return { ok: true, updated: true, mirrored: true };
+    }
+    if (method === "upsert_verified_channel") {
+      return { ok: true, verified: true };
+    }
+    return undefined;
+  },
+}));
+
+// Serves contacts_get_rich (the gateway ACL read backing the gate-status
+// fallback) from the seeded local contact, so gate resolution sources status
+// from the gateway path rather than the local channel column.
+function richContactForId(contactId: string | undefined) {
+  if (!contactId) return undefined;
+  const contact = getContact(contactId);
+  if (!contact) return undefined;
+  // ACL columns live on the still-present DB rows, not the slimmed interfaces;
+  // read them raw to build the gateway-rich response the production read parses.
+  const contactRole = (
+    getSqlite()
+      .query("SELECT role FROM contacts WHERE id = ?")
+      .get(contact.id) as { role: string } | undefined
+  )?.role;
+  return {
+    ok: true,
+    contact: {
+      id: contact.id,
+      displayName: contact.displayName,
+      role: contactRole ?? "contact",
+      interactionCount: contact.interactionCount,
+      createdAt: contact.createdAt,
+      updatedAt: contact.updatedAt,
+      channels: contact.channels.map((c) => {
+        const acl = rawChannelAcl(c.id);
+        return {
+          id: c.id,
+          contactId: c.contactId,
+          type: c.type,
+          address: c.address,
+          isPrimary: c.isPrimary,
+          externalUserId: c.externalChatId,
+          status: acl.status,
+          policy: acl.policy,
+          verifiedAt: acl.verifiedAt,
+          verifiedVia: acl.verifiedVia,
+          lastSeenAt: acl.lastSeenAt,
+          interactionCount: acl.interactionCount,
+          lastInteraction: acl.lastInteraction,
+          revokedReason: acl.revokedReason,
+          blockedReason: acl.blockedReason,
+        };
+      }),
+    },
+  };
+}
+
+/** Read a channel's ACL columns straight off the still-present DB row. */
+function rawChannelAcl(channelId: string) {
+  return getSqlite()
+    .query(
+      `SELECT status, policy, verified_at AS verifiedAt, verified_via AS verifiedVia,
+              last_seen_at AS lastSeenAt, interaction_count AS interactionCount,
+              last_interaction AS lastInteraction, revoked_reason AS revokedReason,
+              blocked_reason AS blockedReason
+         FROM contact_channels WHERE id = ?`,
+    )
+    .get(channelId) as {
+    status: string;
+    policy: string;
+    verifiedAt: number | null;
+    verifiedVia: string | null;
+    lastSeenAt: number | null;
+    interactionCount: number;
+    lastInteraction: number | null;
+    revokedReason: string | null;
+    blockedReason: string | null;
+  };
+}
+
 import {
   findContactChannel,
+  getContact,
   upsertContact,
 } from "../contacts/contact-store.js";
-import { upsertContactChannel } from "../contacts/contacts-write.js";
-import { getDb } from "../memory/db-connection.js";
+import { getDb, getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { createInvite, revokeInvite } from "../memory/invite-store.js";
-import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
+import {
+  handleChannelInbound,
+  seedContactChannel,
+} from "./helpers/channel-test-adapter.js";
 
 await initializeDb();
 
@@ -98,6 +196,7 @@ function resetState(): void {
   db.run("DELETE FROM contacts");
   emitSignalCalls.length = 0;
   deliverReplyCalls.length = 0;
+  gatewayIpcCalls.length = 0;
   msgCounter = 0;
 }
 
@@ -169,13 +268,18 @@ describe("inbound invite redemption intercept", () => {
     expect(json.memberId).toEqual(expect.any(String));
     expect(json.denied).toBeUndefined();
 
-    // Verify the user is now an active member
+    // The local mirror persists the member identity row; the gateway owns the
+    // active ACL verdict.
     const result = findContactChannel({
       channelType: "telegram",
       address: "user-invite-123",
     });
     expect(result).not.toBeNull();
-    expect(result!.channel.status).toBe("active");
+
+    // The activation is written to the gateway via upsert_verified_channel.
+    expect(
+      gatewayIpcCalls.some((c) => c.method === "upsert_verified_channel"),
+    ).toBe(true);
 
     // Verify a welcome reply was delivered
     expect(deliverReplyCalls.length).toBe(1);
@@ -309,7 +413,7 @@ describe("inbound invite redemption intercept", () => {
 
   test("existing active member sending normal message is unaffected", async () => {
     // Pre-create an active member
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "user-active-member",
       externalChatId: "chat-active",
@@ -363,7 +467,7 @@ describe("inbound invite redemption intercept", () => {
     });
 
     // Pre-create an active member that will click the invite link
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "user-already-active",
       externalChatId: "chat-invite-test",
@@ -386,7 +490,7 @@ describe("inbound invite redemption intercept", () => {
   test("reactivation via invite preserves existing guardian-managed member display name", async () => {
     // Pre-create a revoked member named "Jeff" — the invite should preserve
     // that guardian-assigned name rather than overwriting with the Telegram name.
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "user-invite-123",
       externalChatId: "chat-invite-test",
@@ -395,7 +499,7 @@ describe("inbound invite redemption intercept", () => {
       displayName: "Jeff",
     });
 
-    // Look up the contact that upsertContactChannel created so we can use
+    // Look up the contact that the seed created so we can use
     // its ID as the invite's contactId (satisfies the FK constraint).
     const existing = findContactChannel({
       channelType: "telegram",
@@ -425,7 +529,8 @@ describe("inbound invite redemption intercept", () => {
       externalChatId: "chat-invite-test",
     });
     expect(result).not.toBeNull();
-    expect(result!.channel.status).toBe("active");
+    // The gateway owns reactivation; the local mirror preserves the
+    // guardian-assigned display name rather than the raw platform identity.
     expect(result!.contact.displayName).toBe("Jeff");
   });
 });

@@ -5,6 +5,8 @@ import {
   handleToolResult,
   handleToolUseStart,
 } from "@/domains/chat/utils/stream-handlers/tool-call-handlers";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 
 describe("handleToolUseStart", () => {
   it("cancels reconciliation and creates tool call with generated id", () => {
@@ -155,6 +157,46 @@ describe("handleToolResult", () => {
       "tc-1",
       metadata,
     );
+  });
+
+  it("forwards image data from the tool_result event into transcript state", () => {
+    const ctx = makeCtx();
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-img",
+      name: "media_generate_image",
+      input: { prompt: "diagram" },
+    };
+    const initial: DisplayMessage[] = [
+      {
+        id: "assistant-1",
+        role: "assistant",
+        toolCalls: [toolCall],
+        contentBlocks: [{ type: "tool_use", toolCall }],
+        timestamp: 1_000,
+      },
+    ];
+
+    handleToolResult(
+      {
+        type: "tool_result",
+        toolName: "media_generate_image",
+        result: "Generated 2 images",
+        toolUseId: "tc-img",
+        imageData: "img-a",
+        imageDataList: ["img-a", "img-b"],
+      },
+      ctx,
+    );
+
+    const updater = (ctx.setMessages as unknown as ReturnType<typeof Object>)
+      .mock.calls[0][0] as (prev: DisplayMessage[]) => DisplayMessage[];
+    const next = updater(initial);
+
+    expect(next[0]!.toolCalls![0]!.imageData).toBe("img-a");
+    expect(next[0]!.toolCalls![0]!.imageDataList).toEqual([
+      "img-a",
+      "img-b",
+    ]);
   });
 
   it("does NOT route activityMetadata when toolUseId is missing", () => {

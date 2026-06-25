@@ -18,11 +18,30 @@ const WATERMARK_KEY = "migration_209_strip_thinking_watermark";
 
 /**
  * Number of `rowid` values swept per `runAsyncSqlite` dispatch. Each window is
- * one off-thread subprocess transaction, so the size bounds both the WAL growth
- * per statement and how long a single write lock is held, while keeping the
- * number of subprocess spawns low on a large table.
+ * one off-thread subprocess transaction. The size stays well below the row
+ * count of a typical `messages` table so the whole table is never swept in a
+ * single subprocess: a window must finish inside {@link WINDOW_TIMEOUT_MS} for
+ * the per-window watermark to advance, and only an advancing watermark lets an
+ * interrupted run resume from the last completed window instead of re-running
+ * the same window forever. A smaller window also bounds WAL growth per statement
+ * and how long a single write lock is held, at the cost of more (cheap)
+ * subprocess spawns.
+ *
+ * Exported for the regression test that asserts the table is swept across
+ * multiple bounded windows rather than one table-sized sweep.
  */
-const ROWID_WINDOW = 100_000;
+export const ROWID_WINDOW = 2_000;
+
+/**
+ * Per-window wall-clock cap for the sweep subprocess. Set well above the time a
+ * {@link ROWID_WINDOW}-sized window needs even on a multi-GB table with large
+ * content blobs, so it trips only on a genuinely stuck subprocess (e.g. one
+ * blocked on a stale write lock) rather than on legitimately slow progress.
+ * Far below `runAsyncSqlite`'s one-hour whole-process default so a stuck window
+ * surfaces in minutes and the runner retries from the last completed window on
+ * the next boot.
+ */
+export const WINDOW_TIMEOUT_MS = 15 * 60 * 1000;
 
 /** SQL predicate: this `json_each` element is an internal reasoning block. */
 const IS_THINKING = `json_extract(value, '$.type') IN ('thinking', 'redacted_thinking')`;
@@ -127,7 +146,10 @@ export async function migrateStripThinkingFromConsolidated(
   while (lo < maxRow) {
     const hi = Math.min(lo + ROWID_WINDOW, maxRow);
 
-    const res = await runAsyncSqlite(windowSql(lo, hi), { dbPath });
+    const res = await runAsyncSqlite(windowSql(lo, hi), {
+      dbPath,
+      timeoutMs: WINDOW_TIMEOUT_MS,
+    });
     if (!res.ok) {
       // Leave the watermark at the last completed window; throwing reports the
       // step failed so the runner retries it (from the watermark) next boot

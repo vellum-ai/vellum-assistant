@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "subagent_spawn",
-      "description": "Spawn an independent subagent to work on a task in parallel. The subagent runs autonomously and its results are reported back when complete.\n\nTwo modes:\n- **Regular sub-agent** (fork: false or omitted): Gets only the objective + context fields. Use for self-contained tasks with clear objectives. Can use scoped roles (researcher, coder, planner).\n- **Fork** (fork: true): Inherits full parent context (messages, system prompt, memory). Shares KV cache for near-free context inheritance. Use when the task benefits from knowing what you've been discussing. Always runs as general role. Results are internal by default (send_result_to_user: false). Read with last_n: 1 to get only the final synthesis.\n\nDecision heuristic: Does the task need to know what we've been talking about? Fork. Is it self-contained? Regular sub-agent.",
+      "description": "Spawn an independent subagent to work on a task in parallel. The subagent runs autonomously and its results are reported back when complete.\n\nTwo modes:\n- **Regular sub-agent** (fork: false or omitted): Gets only the objective + context fields. Use for self-contained tasks with clear objectives. Can use scoped roles (researcher, coder, planner).\n- **Fork** (fork: true): Inherits full parent context (messages, system prompt, memory). Shares KV cache for near-free context inheritance. Use when the task benefits from knowing what you've been discussing. Defaults to general role (the 'advisor' role is the exception — it is honored as a fork). Results are internal by default (send_result_to_user: false). Read with last_n: 1 to get only the final synthesis.\n\nDecision heuristic: Does the task need to know what we've been talking about? Fork. Is it self-contained? Regular sub-agent.\n\nThe 'advisor' role is a synchronous, read-only \"consult a stronger advisor\" mode: it inherits your full context, has no tools, and BLOCKS until it returns focused strategic guidance in a single response.",
       "category": "orchestration",
       "risk": "low",
       "input_schema": {
@@ -23,7 +23,7 @@
           },
           "fork": {
             "type": "boolean",
-            "description": "When true, the subagent inherits the parent's full context (messages, system prompt, memory) instead of receiving only the objective + context fields. Fork mode always runs as 'general' role (the role parameter is ignored) and defaults send_result_to_user to false. Use for tasks that benefit from the full conversational context."
+            "description": "When true, the subagent inherits the parent's full context (messages, system prompt, memory) instead of receiving only the objective + context fields. Fork mode defaults to 'general' role (the role parameter is ignored for forks), except the special 'advisor' role which is honored even as a fork, and defaults send_result_to_user to false. Use for tasks that benefit from the full conversational context."
           },
           "send_result_to_user": {
             "type": "boolean",
@@ -36,9 +36,10 @@
               "researcher",
               "coder",
               "planner",
-              "investigator"
+              "investigator",
+              "advisor"
             ],
-            "description": "Agent specialization that controls tool access. 'researcher': read-only (web, files, memory). 'coder': file and bash access. 'planner': read-only analysis. 'investigator': root-cause analysis — debugging, log forensics, tracing behavior across many files; has bash for read-only investigation (grep/find/log inspection) and returns a compact root-cause report. 'general': full access (default). Ignored when fork: true (forks always use general)."
+            "description": "Agent specialization that controls tool access. 'researcher': read-only (web, files, memory). 'coder': file and bash access. 'planner': read-only analysis. 'investigator': root-cause analysis — debugging, log forensics, tracing behavior across many files; uses read-only search/read tools (code_search, file_read, file_list) with no shell access and returns a compact root-cause report. 'advisor': synchronous, read-only \"consult a stronger advisor\" — inherits full context, has no tools, and blocks until it returns focused strategic guidance. 'general': full access (default). Non-advisor roles are ignored when fork: true (forks default to general); the advisor role is honored even as a fork."
           },
           "inference_profile": {
             "type": "string",

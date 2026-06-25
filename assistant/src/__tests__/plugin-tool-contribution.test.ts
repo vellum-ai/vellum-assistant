@@ -33,7 +33,7 @@ import {
   registerPlugin,
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
-import type { Plugin, PluginInitContext } from "../plugins/types.js";
+import type { InitContext, Plugin } from "../plugins/types.js";
 import {
   __clearRegistryForTesting,
   __resetRegistryForTesting,
@@ -82,7 +82,7 @@ function buildPlugin(
   name: string,
   extras: Partial<Omit<Plugin, "manifest" | "hooks">> & {
     hooks?: Plugin["hooks"];
-    init?: (ctx: PluginInitContext) => Promise<void>;
+    init?: (ctx: InitContext) => Promise<void>;
     onShutdown?: () => Promise<void>;
   } = {},
 ): Plugin {

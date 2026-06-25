@@ -13,7 +13,7 @@
 
 import { answerCall } from "../calls/call-domain.js";
 import { findContactChannel } from "../contacts/contact-store.js";
-import { upsertContactChannel } from "../contacts/contacts-write.js";
+import { activateMemberChannel } from "../contacts/member-write-relay.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import {
   type CanonicalGuardianRequest,
@@ -36,6 +36,7 @@ import { deliverChannelReply } from "../runtime/gateway-client.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { TC_GRANT_WAIT_MAX_MS } from "../tools/tool-approval-handler.js";
 import { getLogger } from "../util/logger.js";
+import { resolveDeliverCallbackUrlForChannel } from "./guardian-channel-delivery.js";
 
 const log = getLogger("guardian-request-resolvers");
 
@@ -241,17 +242,6 @@ export type ResolverResult =
       };
     }
   | { ok: false; reason: string };
-
-function resolveDeliverCallbackUrlForChannel(channel: string): string | null {
-  switch (channel) {
-    case "telegram":
-    case "whatsapp":
-    case "slack":
-      return `/deliver/${channel}`;
-    default:
-      return null;
-  }
-}
 
 /** Interface that kind-specific resolvers implement. */
 export interface GuardianRequestResolver {
@@ -602,19 +592,31 @@ const accessRequestResolver: GuardianRequestResolver = {
     // a verification session. The caller is already on the line and the
     // relay server's in-call wait loop will detect the approved status.
     if (channel === "phone") {
+      let activation: Awaited<ReturnType<typeof activateMemberChannel>>;
       try {
-        upsertContactChannel({
+        // Gateway-first activation: the gateway owns the ACL verdict, the local
+        // mirror persists the caller's contact/channel identity.
+        activation = await activateMemberChannel({
           sourceChannel: "phone",
           externalUserId: requesterExternalUserId,
           externalChatId: requesterChatId,
-          status: "active",
-          policy: "allow",
         });
       } catch (err) {
         log.error(
           { err, requesterExternalUserId },
           "Access request resolver: failed to activate voice caller as trusted contact",
         );
+        return { ok: false, reason: "voice_activation_failed" };
+      }
+
+      // Fail-closed: a refused activation did not land on the gateway source of
+      // truth, so the caller is not actually trusted — do not report success.
+      if (activation.status === "refused") {
+        log.error(
+          { requesterExternalUserId },
+          "Access request resolver: gateway refused voice caller activation",
+        );
+        return { ok: false, reason: "voice_activation_refused" };
       }
 
       log.info(

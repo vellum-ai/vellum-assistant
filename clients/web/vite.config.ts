@@ -99,6 +99,20 @@ export default defineConfig(({ mode }) => {
         org: env.SENTRY_ORG || "vellum",
         project: env.SENTRY_PROJECT || "vellum-assistant-web",
         authToken: env.SENTRY_AUTH_TOKEN,
+        // The plugin fails the build by default when a source-map upload errors.
+        // Builds that set SENTRY_ALLOW_UPLOAD_FAILURE (the Electron release /
+        // dev-release packaging) downgrade that to a warning, so a Sentry outage
+        // or auth-token scope miss ships an unsymbolicated build rather than
+        // breaking the release. Builds without the flag (the web SPA deploy) keep
+        // failing fast so a missing upload is caught before shipping.
+        ...(env.SENTRY_ALLOW_UPLOAD_FAILURE === "true"
+          ? {
+              errorHandler: (err: Error) =>
+                console.warn(
+                  `[sentry-vite-plugin] source map upload failed: ${err.message}`,
+                ),
+            }
+          : {}),
         release: {
           name: env.VITE_APP_VERSION,
           inject: false,

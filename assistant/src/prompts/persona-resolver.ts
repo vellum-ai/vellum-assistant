@@ -1,11 +1,14 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
+import type { GuardianDelivery } from "@vellumai/gateway-client";
+
+import { findContactByAddress } from "../contacts/contact-store.js";
 import {
-  findContactByAddress,
-  findGuardianForChannel,
-  listGuardianChannels,
-} from "../contacts/contact-store.js";
+  anyGuardian,
+  guardianForChannel,
+  peekCachedGuardianDelivery,
+} from "../contacts/guardian-delivery-reader.js";
 import type { ChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { getLogger } from "../util/logger.js";
@@ -87,8 +90,38 @@ function resolveGuardianUserFile(trustContext: TrustContext): string | null {
       return guardianContact.userFile ?? "guardian.md";
     }
   }
-  const guardian = findGuardianForChannel(trustContext.sourceChannel);
-  return guardian ? (guardian.contact.userFile ?? "guardian.md") : null;
+  const guardian = peekGuardianForChannel(trustContext.sourceChannel);
+  return guardian ? (guardianDeliveryUserFile(guardian) ?? "guardian.md") : null;
+}
+
+/**
+ * Resolve the local INFO `userFile` for a gateway guardian delivery. The
+ * gateway carries identity (channel + address) but not local INFO, so we join
+ * the local contact by the guardian's channel address. Returns `undefined` when
+ * no local contact matches.
+ */
+function guardianDeliveryUserFile(
+  guardian: GuardianDelivery,
+): string | undefined {
+  const contact = findContactByAddress(
+    guardian.channelType,
+    guardian.address,
+  );
+  return contact?.userFile ?? undefined;
+}
+
+/** Active guardian for a channel from the IO-free delivery cache. */
+function peekGuardianForChannel(
+  channelType: string,
+): GuardianDelivery | undefined {
+  const cached = peekCachedGuardianDelivery({ channelTypes: [channelType] });
+  return cached ? guardianForChannel(cached, channelType) : undefined;
+}
+
+/** First guardian across all channels from the IO-free delivery cache. */
+function peekAnyGuardian(): GuardianDelivery | undefined {
+  const cached = peekCachedGuardianDelivery();
+  return cached ? anyGuardian(cached) : undefined;
 }
 
 /**
@@ -102,12 +135,11 @@ function resolveUserFilename(
 
   try {
     if (trustContext === undefined) {
-      // Desktop / native (no gateway) — resolve via guardian contact,
-      // preferring the vellum-channel guardian when multiple exist.
-      const vellumGuardian = findGuardianForChannel("vellum");
-      const guardian = vellumGuardian ?? listGuardianChannels();
+      // Desktop / native — resolve via the gateway guardian delivery cache,
+      // preferring the vellum-channel guardian, then any guardian.
+      const guardian = peekGuardianForChannel("vellum") ?? peekAnyGuardian();
       if (guardian) {
-        filename = guardian.contact.userFile ?? "guardian.md";
+        filename = guardianDeliveryUserFile(guardian) ?? "guardian.md";
       }
     } else if (trustContext.requesterExternalUserId) {
       // Channel-routed request — look up contact by channel identity

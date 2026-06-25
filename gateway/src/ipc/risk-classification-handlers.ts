@@ -558,13 +558,15 @@ export async function handleClassifyRisk(
       };
     }
 
-    // ── Unknown tool — use registry default risk level if provided ──────
+    // ── Fallback — registered tools use their registry default, truly
+    //    unknown tools get the "Unknown tool" warning. ──────────────────
     default: {
+      const hasRegistryDefault = params.registryDefaultRisk != null;
       return {
         risk: params.registryDefaultRisk ?? "medium",
-        reason: `Unknown tool: ${tool}`,
+        reason: hasRegistryDefault ? "" : `Unknown tool: ${tool}`,
         scopeOptions: [],
-        matchType: "unknown",
+        matchType: hasRegistryDefault ? "registry" : "unknown",
       };
     }
   }

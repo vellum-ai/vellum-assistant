@@ -4,6 +4,56 @@ Plugins ship through a curated marketplace and install by name from the CLI. Thi
 
 A plugin does not have to live in your workspace to be installed. Vellum keeps a curated catalog of external plugins, and the CLI installs any of them by name. The catalog is a single manifest the Vellum team reviews and approves, so installing a plugin only ever pulls code that has been vetted into that list.
 
+## Publishing your plugin
+
+Once your plugin works locally, you can list it in the marketplace catalog so anyone can install it by name. The catalog is a curated allowlist: you open a PR adding an entry, the Vellum team reviews it, and once merged the plugin is discoverable via `assistant plugins search` and installable via `assistant plugins install`.
+
+### 1. Push your plugin to a public GitHub repo
+
+The marketplace resolves plugins from GitHub repositories. Push your plugin to a public repo, then note the full commit SHA you want to pin:
+
+```
+# Get the full 40-char commit SHA of the revision to publish
+$ git rev-parse HEAD
+e83c5163316f89bfbde7d9ab23ca2e25604af290
+```
+
+The SHA must be a full commit hash (40 or 64 hex chars). Tags and branches are rejected because they are mutable. If you want to pin a release tag, resolve it to the underlying commit first (see "Why entries pin a commit" below).
+
+Your plugin can live at the root of its own repo or in a subdirectory. If it is not at the root, use `source.path` to point at the subdirectory.
+
+### 2. Add your entry to `marketplace.json`
+
+Open a PR against [`vellum-ai/vellum-assistant`](https://github.com/vellum-ai/vellum-assistant) adding your plugin to `plugins/marketplace.json`. Copy this template and fill in your details:
+
+```json
+{
+  "name": "my-plugin",
+  "source": {
+    "source": "github",
+    "repo": "you/my-plugin",
+    "ref": "e83c5163316f89bfbde7d9ab23ca2e25604af290"
+  },
+  "description": "One-line summary shown in the catalog.",
+  "category": "productivity",
+  "homepage": "https://github.com/you/my-plugin",
+  "license": "MIT"
+}
+```
+
+The `name` must be a single kebab-case segment (e.g. `my-plugin`, not `myPlugin` or `my_plugin`). Only `name`, `source.source`, `source.repo`, and `source.ref` are required; the rest are optional but recommended for discoverability. See "The marketplace manifest" below for the full schema.
+
+### 3. Wait for review
+
+The Vellum team reviews each entry before it lands in the catalog. The review checks that:
+
+- The pinned commit matches a public, reachable revision of the repo.
+- The plugin has a valid `package.json` with a `@vellumai/plugin-api` peer dependency.
+- The plugin loads cleanly (hooks register, tools validate, no import errors at boot).
+- The surfaces the plugin claims (hooks, tools, skills) contribute something on boot rather than silently failing.
+
+Once the review approves and the PR merges, the plugin appears in `assistant plugins search` and is installable by name.
+
 ## The marketplace catalog
 
 The catalog is computed live from [`plugins/marketplace.json`](https://github.com/vellum-ai/vellum-assistant/blob/main/plugins/marketplace.json) in the assistant repo. It lets Vellum surface plugins that live in other repositories without copying their code, and its shape is a subset of the [Claude Code marketplace schema](https://code.claude.com/docs/en/plugin-marketplaces), so the format is familiar if you have published there.
@@ -25,7 +75,7 @@ simple-memory  vellum-ai/simple-memory
 # Install it by name (clones the pinned commit)
 $ assistant plugins install simple-memory
 Installed plugin "simple-memory" (12 files) at ed09a4c -> ~/.vellum/workspace/plugins/simple-memory
-Restart the assistant to pick up the new plugin.
+The new plugin is picked up automatically.
 
 # Confirm what is installed
 $ assistant plugins list
@@ -56,7 +106,7 @@ Resolve `<name>` in the catalog, shallow-clone its repo at the pinned commit, an
 - `--force`: Overwrite an existing install of the same name.
 - `--ref <ref>`: Advanced. Read the catalog (and any adapter stub) from a different ref of the vellum-assistant repo; defaults to main. The external plugin itself is still fetched at the commit pinned in the manifest, never this ref.
 
-Note: Installs are not hot-loaded. Restart the assistant to pick up the new plugin.
+Note: Installs are hot-loaded, and all surfaces should be picked up automatically.
 
 #### `plugins list`
 
@@ -83,7 +133,7 @@ Move an installed plugin to the marketplace's current pinned commit. It is a no-
 - `--dry-run`: Report the commit move without touching the install.
 - `--json`: Emit machine-readable JSON instead of a summary.
 
-Note: Upgrading re-installs at the new commit and overwrites any local edits to the plugin's files. Restart the assistant to load the upgraded code.
+Note: Upgrading re-installs at the new commit and overwrites any local edits to the plugin's files. The upgraded code is picked up immediately for each surface.
 
 #### `plugins uninstall`
 
@@ -93,7 +143,7 @@ Remove `<workspaceDir>/plugins/<name>/`. Prompts for confirmation unless stdin i
 
 - `--force`: Skip the confirmation prompt.
 
-Note: Restart the assistant to drop the plugin.
+Note: The plugin is dropped immediately.
 
 ## Updating a plugin
 
@@ -139,14 +189,13 @@ $ assistant plugins upgrade simple-memory
 Upgraded "simple-memory" 2026-06-01T12:34:56 (ed09a4c) -> 2026-06-05T08:12:24 (3eae182)
 
 (12 files) -> /workspace/plugins/simple-memory
-Restart the assistant to pick up the upgrade.
 ```
 
 ### Upgrading from the Plugins tab
 
 The same drift check backs the in-product Plugins tab, so you do not have to drop to the CLI to stay current. When an installed plugin is behind the pin, its row shows an **Update available** badge and its detail page surfaces an **Upgrade** button that moves the install to the current pin and reloads the list.
 
-If inspect reports local edits, the Upgrade button first asks you to confirm, since the upgrade will overwrite those changes. The button stays hidden whenever there is nothing to upgrade: an up-to-date install, a plugin not in the catalog, or a daemon too old to expose the drift check.
+If inspect reports local edits, the Upgrade button first asks you to confirm, since the upgrade will overwrite those changes. The button stays hidden whenever there is nothing to upgrade: an up-to-date install, a plugin not in the catalog, or an assistant too old to expose the drift check.
 
 ## The marketplace manifest
 

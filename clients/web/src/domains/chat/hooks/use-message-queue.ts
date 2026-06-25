@@ -14,7 +14,6 @@ import {
   useMemo,
 } from "react";
 
-import type { DisplayMessage } from "@/domains/chat/types/types";
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { clearQueueStatus } from "@/domains/chat/utils/stream-updaters/shared";
@@ -29,7 +28,6 @@ import { useComposerStore } from "@/domains/chat/composer-store";
 interface UseMessageQueueParams {
   assistantId: string | null;
   activeConversationId: string | null;
-  messages: DisplayMessage[];
 }
 
 // ---------------------------------------------------------------------------
@@ -39,13 +37,13 @@ interface UseMessageQueueParams {
 export function useMessageQueue({
   assistantId,
   activeConversationId,
-  messages,
 }: UseMessageQueueParams) {
-  const setMessages = useChatSessionStore.use.setMessages();
+  const liveTurn = useChatSessionStore.use.liveTurn();
+  const setLiveTurn = useChatSessionStore.use.setLiveTurn();
   /** Remove an optimistically-added queued message and its tracking state. */
   const revertQueuedMessage = useCallback(
     (messageId: string) => {
-      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+      setLiveTurn((prev) => prev.filter((m) => m.id !== messageId));
       const queueIds = useChatSessionStore.getState().pendingQueuedMessageIds;
       const idx = queueIds.indexOf(messageId);
       if (idx !== -1) queueIds.splice(idx, 1);
@@ -55,10 +53,10 @@ export function useMessageQueue({
 
   const queuedMessages = useMemo(
     () =>
-      messages
+      liveTurn
         .filter((m) => m.role === "user" && m.queueStatus === "queued")
         .sort((a, b) => (a.queuePosition ?? 0) - (b.queuePosition ?? 0)),
-    [messages],
+    [liveTurn],
   );
 
   const handleCancelQueuedMessage = useCallback(
@@ -73,7 +71,7 @@ export function useMessageQueue({
           break;
         }
       }
-      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+      setLiveTurn((prev) => prev.filter((m) => m.id !== messageId));
       if (targetRequestId) {
         void deleteQueuedMessage(assistantId, activeConversationId, targetRequestId);
       } else {
@@ -103,11 +101,11 @@ export function useMessageQueue({
         }
       }
       if (targetRequestId) {
-        setMessages((prev) => clearQueueStatus(prev, messageId));
+        setLiveTurn((prev) => clearQueueStatus(prev, messageId));
         steerToMessage(assistantId, activeConversationId, targetRequestId).then(
           (ok) => {
             if (!ok) {
-              setMessages((prev) =>
+              setLiveTurn((prev) =>
                 prev.map((m) =>
                   m.id === messageId
                     ? { ...m, queueStatus: "queued" as const }

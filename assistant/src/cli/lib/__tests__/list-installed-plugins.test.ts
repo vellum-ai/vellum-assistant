@@ -157,8 +157,8 @@ describe("listAllPlugins", () => {
   test("includes default plugins with source=default", () => {
     const result = listAllPlugins({ workspacePluginsDir: pluginsDir });
     const defaults = result.filter((p) => p.source === "default");
-    // All 15 default plugins should be present.
-    expect(defaults.length).toBe(15);
+    // All 14 default plugins should be present.
+    expect(defaults.length).toBe(14);
     // Names should all start with "default-".
     expect(defaults.every((p) => p.name.startsWith("default-"))).toBe(true);
     // None should be disabled by default in a fresh temp dir.
@@ -212,24 +212,24 @@ describe("listAllPlugins", () => {
   });
 
   test("detects disabled state for default plugins via stub directory", () => {
-    mkdirSync(join(pluginsDir, "default-advisor"), { recursive: true });
-    writeFileSync(join(pluginsDir, "default-advisor", ".disabled"), "");
+    mkdirSync(join(pluginsDir, "default-compaction"), { recursive: true });
+    writeFileSync(join(pluginsDir, "default-compaction", ".disabled"), "");
 
     const result = listAllPlugins({ workspacePluginsDir: pluginsDir });
-    const advisor = result.find((p) => p.name === "default-advisor");
-    expect(advisor).toBeDefined();
-    expect(advisor!.disabled).toBe(true);
+    const compaction = result.find((p) => p.name === "default-compaction");
+    expect(compaction).toBeDefined();
+    expect(compaction!.disabled).toBe(true);
   });
 
   test("default stub directory is excluded from user listing", () => {
-    mkdirSync(join(pluginsDir, "default-advisor"), { recursive: true });
-    writeFileSync(join(pluginsDir, "default-advisor", ".disabled"), "");
+    mkdirSync(join(pluginsDir, "default-compaction"), { recursive: true });
+    writeFileSync(join(pluginsDir, "default-compaction", ".disabled"), "");
 
     const result = listAllPlugins({ workspacePluginsDir: pluginsDir });
     // Should appear exactly once, as a default entry (not a user entry).
-    const advisorEntries = result.filter((p) => p.name === "default-advisor");
-    expect(advisorEntries).toHaveLength(1);
-    expect(advisorEntries[0]!.source).toBe("default");
+    const compactionEntries = result.filter((p) => p.name === "default-compaction");
+    expect(compactionEntries).toHaveLength(1);
+    expect(compactionEntries[0]!.source).toBe("default");
   });
 
   test("sort order: enabled user, disabled user, enabled default, disabled default", () => {
@@ -247,8 +247,8 @@ describe("listAllPlugins", () => {
     writeFileSync(join(pluginsDir, "bbb-disabled", ".disabled"), "");
 
     // Disable one default plugin
-    mkdirSync(join(pluginsDir, "default-advisor"), { recursive: true });
-    writeFileSync(join(pluginsDir, "default-advisor", ".disabled"), "");
+    mkdirSync(join(pluginsDir, "default-compaction"), { recursive: true });
+    writeFileSync(join(pluginsDir, "default-compaction", ".disabled"), "");
 
     const result = listAllPlugins({ workspacePluginsDir: pluginsDir });
 
@@ -306,8 +306,8 @@ describe("listAllPlugins", () => {
 
   test("default plugins have version from their manifest", () => {
     const result = listAllPlugins({ workspacePluginsDir: pluginsDir });
-    const advisor = result.find((p) => p.name === "default-advisor");
-    expect(advisor).toBeDefined();
-    expect(advisor!.packageJson?.version).toBeTruthy();
+    const compaction = result.find((p) => p.name === "default-compaction");
+    expect(compaction).toBeDefined();
+    expect(compaction!.packageJson?.version).toBeTruthy();
   });
 });
