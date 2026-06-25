@@ -76,7 +76,8 @@ function deriveCurrentStepInfo(steps: AcpTimelineStep[]): string {
   if (!latest) return "";
   switch (latest.kind) {
     case "tool":
-      return latest.title;
+      // The title already drives `currentStepTitle`; repeating it duplicates.
+      return "";
     case "message":
     case "thought":
       return latest.content;
