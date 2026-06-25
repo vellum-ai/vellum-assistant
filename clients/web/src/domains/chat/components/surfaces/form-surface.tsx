@@ -275,6 +275,9 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
     ? (formData.pageLabels?.submit ?? "Submit")
     : (formData.submitLabel ?? "Submit");
 
+  const showStepProgress = isMultiPage && totalPages > 1;
+  const showTabs = showStepProgress && formData.progressStyle === "tabs";
+
   return (
     <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-lift)] p-4">
       {surface.title && (
@@ -285,14 +288,14 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
         </div>
       )}
 
-      {isMultiPage && totalPages > 1 &&
-        (formData.progressStyle === "tabs" ? (
+      {showStepProgress &&
+        (showTabs ? (
           <PageTabs current={currentPage} pages={allPages} onNavigate={handleNavigate} />
         ) : (
           <PageProgress current={currentPage} total={totalPages} />
         ))}
 
-      {currentPageData.title && isMultiPage && formData.progressStyle !== "tabs" && (
+      {currentPageData.title && isMultiPage && !showTabs && (
         <h3 className="mb-1 text-title-small text-[var(--content-strong)]">
           {currentPageData.title}
         </h3>
