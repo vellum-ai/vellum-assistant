@@ -59,6 +59,36 @@ describe("handleAcpSessionUpdate", () => {
     expect(getState().highWaterMark.get("acp-1")).toBe(1);
   });
 
+  it("plumbs locations into the store when present on the event", () => {
+    spawn();
+    handleAcpSessionUpdate({
+      type: "acp_session_update",
+      acpSessionId: "acp-1",
+      updateType: "tool_call",
+      toolCallId: "tc-1",
+      seq: 1,
+      // `locations` rides the wire (daemon forwards it) but isn't on the web
+      // event type yet — cast to attach it like the daemon does.
+      locations: [{ path: "a.ts", line: 12 }, { path: "b.ts" }],
+    } as Parameters<typeof handleAcpSessionUpdate>[0]);
+    expect(getState().byId["acp-1"]?.events[0]?.locations).toEqual([
+      { path: "a.ts", line: 12 },
+      { path: "b.ts" },
+    ]);
+  });
+
+  it("omits locations when absent on the event", () => {
+    spawn();
+    handleAcpSessionUpdate({
+      type: "acp_session_update",
+      acpSessionId: "acp-1",
+      updateType: "tool_call",
+      toolCallId: "tc-1",
+      seq: 1,
+    });
+    expect(getState().byId["acp-1"]?.events[0]?.locations).toBeUndefined();
+  });
+
   it("drops a replayed event at or below the high-water mark", () => {
     spawn();
     const update = {
