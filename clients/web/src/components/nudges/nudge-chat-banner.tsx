@@ -49,7 +49,7 @@ export function NudgeChatBanner({
     <div
       className="mx-auto flex overflow-hidden rounded-xl border"
       style={{
-        background: "var(--surface-overlay)",
+        background: "var(--surface-base)",
         borderColor: "var(--border-element)",
         animation: "fadeInUp 0.25s ease-out both",
         maxWidth: "var(--chat-max-width)",

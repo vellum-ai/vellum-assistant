@@ -12,6 +12,8 @@ import {
 } from "@/domains/chat/refresh-feedback-pill";
 import { Button, Notice, type NoticeTone } from "@vellumai/design-library";
 
+const BOTTOM_BANNER_OVERLAY_RESERVE_PX = 88;
+
 /**
  * Single composition of a chat panel: a scrollable messages/empty-state
  * area on top, and a composer stack underneath.
@@ -236,6 +238,8 @@ export function ChatBody({
   // at the call site), so this only affects `bannerSlot`.
   const hasOverlay =
     !isEmptyState && (showScrollToLatest || Boolean(bannerSlot));
+  const bottomOverlayReservePx =
+    !isEmptyState && bannerSlot ? BOTTOM_BANNER_OVERLAY_RESERVE_PX : undefined;
 
   return (
     <div
@@ -245,7 +249,10 @@ export function ChatBody({
       onDragLeave={dragHandlers.onDragLeave}
       onDrop={dragHandlers.onDrop}
     >
-      <ChatScrollArea {...scrollAreaProps} />
+      <ChatScrollArea
+        {...scrollAreaProps}
+        bottomOverlayReservePx={bottomOverlayReservePx}
+      />
 
       {!isEmptyState && showScrollToLatest && activeSubagentsSlot && (
         <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center px-3 pt-2">

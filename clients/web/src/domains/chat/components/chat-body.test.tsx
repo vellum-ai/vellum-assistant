@@ -56,10 +56,16 @@ mock.module("@vellumai/design-library", () => ({
   Button: ({
     children,
     iconOnly,
+    leftIcon: _leftIcon,
+    variant: _variant,
+    size: _size,
     ...props
   }: {
     children?: ReactNode;
     iconOnly?: ReactNode;
+    leftIcon?: ReactNode;
+    variant?: string;
+    size?: string;
   } & ButtonHTMLAttributes<HTMLButtonElement>) => (
     <button {...props}>{iconOnly ?? children}</button>
   ),
@@ -228,6 +234,17 @@ describe("ChatBody — banner overlay suppression (LUM-1566)", () => {
       />,
     );
     expect(html).toContain("BANNER_CONTENT");
+  });
+
+  test("reserves transcript space when a bottom banner overlay is present", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          bannerSlot: <div data-testid="banner">BANNER_CONTENT</div>,
+        })}
+      />,
+    );
+    expect(html).toContain("padding-bottom:88px");
   });
 });
 
