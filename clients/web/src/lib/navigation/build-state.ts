@@ -2,7 +2,11 @@ import { useAuthStore } from "@/stores/auth-store";
 import { isSessionSettled, isAuthenticated } from "@/stores/session-status";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import { remoteGatewayPublicPathPrefix } from "@/lib/auth/remote-gateway-session";
-import { isLocalMode, isPlatformDisabled, isRemoteGatewayMode } from "@/lib/local-mode";
+import {
+  isLocalMode,
+  isPlatformDisabled,
+  isRemoteGatewayMode,
+} from "@/lib/local-mode";
 import {
   readTosAccepted,
   readPrivacyConsent,
@@ -27,6 +31,11 @@ export function buildNavigationState(
     isGatewayAuth: isGatewayAuthMode(),
     hasAssistants: useResolvedAssistantsStore.getState().assistants.length > 0,
     sessionSettled: isSessionSettled(sessionStatus),
+    // `isAuthenticated` mirrors `sessionStatus`. The local gateway is the sole
+    // session authority (#35152), so a reachable local user is already
+    // `"authenticated"` — a platform `getSession()` 401 drops only
+    // `platformSession`, never `sessionStatus` (see `probePlatformSession`).
+    // Reading the one source keeps this from drifting from `useIsAuthenticated()`.
     isAuthenticated: isAuthenticated(sessionStatus),
     platformSession,
     tosAccepted: readTosAccepted(),

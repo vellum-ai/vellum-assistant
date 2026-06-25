@@ -92,6 +92,13 @@ import {
 } from "@/runtime/native-biometric";
 
 export interface AuthUser {
+  /**
+   * Discriminates a real platform account (`"platform"`) from synthetic local
+   * gateway access (`"local"`). Both carry a stable `id` — local's is the
+   * synthetic `"gateway-local"`, kept for storage namespacing — so a non-null
+   * user does not by itself imply a platform account.
+   */
+  kind: "platform" | "local";
   id: string | null;
   username: string | null;
   email: string | null;
@@ -116,6 +123,7 @@ function resolveUserId(user: RawSessionUser | null): string | null {
 function toAuthUser(raw: RawSessionUser | null): AuthUser | null {
   if (!raw) return null;
   return {
+    kind: "platform",
     id: resolveUserId(raw),
     username: raw.username ?? null,
     email: raw.email ?? null,
@@ -159,6 +167,7 @@ let broadcastChannel: BroadcastChannel | null = null;
 let suppressPlatformProbe = false;
 
 const GATEWAY_LOCAL_USER: AuthUser = {
+  kind: "local",
   id: "gateway-local",
   username: "local",
   email: null,
@@ -836,6 +845,11 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     // (The successful probe above still adopts the platform user, so provider
     // sign-in keeps working.) An unauthenticated session — e.g. mid cold-start
     // hatch — is left for the gateway to settle once its token mints.
+    //
+    // Holding `sessionStatus` "authenticated" is load-bearing: in-app consumers
+    // read `useIsAuthenticated()` directly to scope the QueryClient cache and
+    // gate signed-in UI, so ending the session would drop them into the
+    // anonymous cache scope and hide that UI.
     if (isGatewayAuthEnabled()) {
       const wasAuthenticated = isAuthenticated(get().sessionStatus);
       if (wasAuthenticated) {
