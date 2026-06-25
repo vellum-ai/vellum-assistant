@@ -81,4 +81,21 @@ describe("NudgeChatBanner", () => {
     expect(html).toContain("background:var(--surface-base)");
     expect(html).not.toContain("background:var(--surface-overlay)");
   });
+
+  test("keeps the leading icon square visually distinct", () => {
+    const html = renderToStaticMarkup(
+      <NudgeChatBanner
+        icon={<span>icon</span>}
+        title="Vellum is open source"
+        subtitle="Star us on GitHub or contribute"
+        ctaLabel="Star us"
+        ctaAriaLabel="Star Vellum on GitHub"
+        ariaLabel="Vellum is open source on GitHub"
+        onAction={() => {}}
+        onDismiss={() => {}}
+      />,
+    );
+
+    expect(html).toContain("background:var(--surface-lift)");
+  });
 });
