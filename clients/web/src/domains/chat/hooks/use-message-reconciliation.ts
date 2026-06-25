@@ -15,9 +15,11 @@ import { selectTranscriptMessages } from "@/domains/chat/transcript/select-trans
 import { mergeAdjacentAssistantMessages } from "@/domains/chat/utils/message-merge";
 import { conversationHistoryQueryKey } from "@/domains/chat/transcript/use-history-pagination";
 import {
+  liveRowsSupersededByServer,
   serverHasAssistantProgress,
   serverSnapshotHasNewContent,
 } from "@/domains/chat/utils/reconcile-detection";
+import { messageMatchKeys } from "@/domains/chat/utils/message-identity";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { fetchConversationMessages } from "@/domains/chat/api/messages";
 import type { ConversationMessage } from "@vellumai/assistant-api";
@@ -128,12 +130,13 @@ export function useMessageReconciliation({
       // Advance the local seq frontier — we've observed this server snapshot.
       recordLocalSeq(conversationId, serverSeq);
 
+      const sending = isSending(useTurnStore.getState().phase);
       const localView = currentLocalView(conversationId);
       const serverView = serverMessages.map(mapRuntimeToDisplayMessage);
       const assistantProgress = serverHasAssistantProgress(
         localView,
         serverView,
-        isSending(useTurnStore.getState().phase),
+        sending,
       );
       const changed = serverSnapshotHasNewContent(serverView, localView);
       const messagesAdded = serverView.length - localView.length;
@@ -151,11 +154,42 @@ export function useMessageReconciliation({
         }
       }
 
+      // Self-healing live-turn→history handoff. The handoff in
+      // `use-conversation-history` only prunes on the sending→idle edge; when
+      // that edge is missed (a mid-turn SSE abort whose replayed terminal
+      // events land on an already-idle turn — the "didn't respond" report),
+      // the graduated row is orphaned in the live turn and shadows the
+      // complete server copy on every render. Reconcile is the recurring
+      // authoritative refresh, so re-run the prune here against the snapshot we
+      // just fetched: once terminal, drop any live row the server already
+      // carries so its copy renders.
+      const supersededLiveRows = liveRowsSupersededByServer(
+        useChatSessionStore.getState().liveTurn,
+        serverView,
+        !sending,
+      );
+      if (supersededLiveRows.length > 0) {
+        const dropKeys = new Set(
+          supersededLiveRows.flatMap((row) => messageMatchKeys(row)),
+        );
+        useChatSessionStore
+          .getState()
+          .setLiveTurn((prev) =>
+            prev.filter(
+              (row) => !messageMatchKeys(row).some((k) => dropKeys.has(k)),
+            ),
+          );
+        recordDiagnostic("reconcile_pruned_orphaned_live_rows", {
+          count: supersededLiveRows.length,
+        });
+      }
+
       recordDiagnostic("reconciliation_applied", {
         changed,
         assistantProgress,
         messagesAdded,
         authoritative,
+        prunedOrphanedLiveRows: supersededLiveRows.length,
         oldestPageTimestamp: initialPageOldestTsRef.current,
         server: summarizeRuntimeMessages(serverMessages),
       });

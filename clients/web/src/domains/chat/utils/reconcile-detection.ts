@@ -13,7 +13,10 @@
  * missed terminal event.
  */
 
-import { messageIdentityKeys } from "@/domains/chat/utils/message-identity";
+import {
+  messageIdentityKeys,
+  messageMatchKeys,
+} from "@/domains/chat/utils/message-identity";
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
 import { liveAssistantRowId } from "@/domains/chat/utils/stream-updaters/shared";
 import type { DisplayMessage } from "@/domains/chat/types/types";
@@ -112,4 +115,60 @@ export function serverHasAssistantProgress(
   }
 
   return false;
+}
+
+/**
+ * Live-turn rows the authoritative server snapshot has already superseded.
+ *
+ * The live-turn→history handoff (`use-conversation-history`) drops graduated
+ * rows on the single sending→idle edge. If that edge is missed or races the
+ * server persisting the turn — the failure mode behind "I said yo and it
+ * didn't respond": the stream is aborted mid-turn by a visibility change, and
+ * the replayed terminal events land on an already-idle turn, so the handoff
+ * never re-runs — the graduated row is orphaned in the live turn. There it
+ * shadows the complete server copy forever, because `selectTranscriptMessages`
+ * lets the live copy win on content: the user keeps seeing a truncated
+ * thinking-only bubble while the server holds the finished reply.
+ *
+ * Reconcile is the recurring authoritative refresh, so it re-runs the same
+ * prune the handoff does: once the turn is terminal, any live row the server
+ * snapshot already carries is stale and must be dropped so the server copy
+ * renders. Returns the live rows to drop; the caller filters them out.
+ *
+ * Gated on `terminal`: while the turn is still streaming the live copy is
+ * legitimately ahead of the server, and dropping it would flash the partial
+ * server copy backward. The text-length guard is the matching safety net for a
+ * terminal turn whose server persistence briefly lags the live row — only drop
+ * when the server copy is no shorter than what we'd be removing.
+ */
+export function liveRowsSupersededByServer(
+  live: DisplayMessage[],
+  serverMessages: DisplayMessage[],
+  terminal: boolean,
+): DisplayMessage[] {
+  if (!terminal || live.length === 0) return [];
+
+  const serverByKey = new Map<string, DisplayMessage>();
+  for (const sm of serverMessages) {
+    for (const key of messageMatchKeys(sm)) {
+      if (!serverByKey.has(key)) serverByKey.set(key, sm);
+    }
+  }
+
+  const superseded: DisplayMessage[] = [];
+  for (const row of live) {
+    let serverTwin: DisplayMessage | undefined;
+    for (const key of messageMatchKeys(row)) {
+      const found = serverByKey.get(key);
+      if (found) {
+        serverTwin = found;
+        break;
+      }
+    }
+    if (!serverTwin) continue;
+    if (messagePlainText(serverTwin).length >= messagePlainText(row).length) {
+      superseded.push(row);
+    }
+  }
+  return superseded;
 }
