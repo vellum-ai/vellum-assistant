@@ -101,6 +101,12 @@ function isContactType(value: string): value is ContactType {
 // Response schemas (drive OpenAPI spec → codegen → typed SDK)
 // ---------------------------------------------------------------------------
 
+// ACL fields (status/policy/verifiedAt/verifiedVia/revokedReason/blockedReason
+// + contact `role`) are gateway-owned and present ONLY on gateway-relayed reads
+// (`contacts_list_rich`/`contacts_get_rich`). Daemon-native filtered reads
+// (search / contactType) omit them, so they are `.optional()`. INFO telemetry
+// (lastSeenAt/interactionCount/lastInteraction) is locally hydrated on every
+// read path and stays required.
 const contactChannelSchema = z.object({
   id: z.string(),
   contactId: z.string(),
@@ -109,21 +115,21 @@ const contactChannelSchema = z.object({
   isPrimary: z.boolean(),
   /** @deprecated Echoes `address` for backwards compatibility with older macOS clients. */
   externalUserId: z.string().nullable(),
-  status: z.string(),
-  policy: z.string(),
-  verifiedAt: z.number().nullable(),
-  verifiedVia: z.string().nullable(),
+  status: z.string().optional(),
+  policy: z.string().optional(),
+  verifiedAt: z.number().nullable().optional(),
+  verifiedVia: z.string().nullable().optional(),
   lastSeenAt: z.number().nullable(),
   interactionCount: z.number(),
   lastInteraction: z.number().nullable(),
-  revokedReason: z.string().nullable(),
-  blockedReason: z.string().nullable(),
+  revokedReason: z.string().nullable().optional(),
+  blockedReason: z.string().nullable().optional(),
 });
 
 const contactSchema = z.object({
   id: z.string(),
   displayName: z.string(),
-  role: z.string(),
+  role: z.string().optional(),
   notes: z.string().nullable().optional(),
   contactType: z.string().nullable().optional(),
   lastInteraction: z.number().nullable().optional(),

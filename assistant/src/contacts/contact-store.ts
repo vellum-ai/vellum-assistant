@@ -116,6 +116,9 @@ function parseChannel(
     isPrimary: row.isPrimary,
     externalChatId: row.externalChatId,
     inviteId: row.inviteId,
+    lastSeenAt: row.lastSeenAt,
+    interactionCount: row.interactionCount,
+    lastInteraction: row.lastInteraction,
     updatedAt: row.updatedAt,
     createdAt: row.createdAt,
   };
@@ -134,7 +137,16 @@ function getChannelsForContact(contactId: string): ContactChannel[] {
 
 function withChannels(contact: Contact): ContactWithChannels {
   const channels = getChannelsForContact(contact.id);
-  return { ...contact, channels };
+  // INFO telemetry aggregated from channel rows (not ACL): sum interaction
+  // counts, take the most recent interaction across channels.
+  const interactionCount = channels.reduce(
+    (sum, ch) => sum + ch.interactionCount,
+    0,
+  );
+  const lastInteraction =
+    channels.reduce((max, ch) => Math.max(max, ch.lastInteraction ?? 0), 0) ||
+    null;
+  return { ...contact, interactionCount, lastInteraction, channels };
 }
 
 // ── Channel data type for syncChannels ───────────────────────────────

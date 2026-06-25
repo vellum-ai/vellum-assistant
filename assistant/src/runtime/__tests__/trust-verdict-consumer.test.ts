@@ -437,6 +437,9 @@ describe("toTrustContext member grounding", () => {
       isPrimary: true,
       externalChatId: null,
       inviteId: null,
+      lastSeenAt: null,
+      interactionCount: 0,
+      lastInteraction: null,
       updatedAt: null,
       createdAt: 0,
     };
