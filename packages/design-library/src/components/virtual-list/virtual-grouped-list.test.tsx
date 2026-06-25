@@ -18,6 +18,7 @@ import {
   VirtualGroupedList,
   DefaultGroupHeader,
   NonStickyGroup,
+  StickyGroup,
   buildGroupModel,
   isGroupCollapsed,
   type VirtualGroupedListProps,
@@ -104,6 +105,27 @@ describe("buildGroupModel", () => {
     expect(model.flatItems).toEqual(["a", "b", "c", "d", "e"]);
     expect(model.flatGroupKeys).toEqual(["g1", "g1", "g2", "g2", "g2"]);
   });
+
+  test("combined arrays index by virtuoso's header-inclusive row index", () => {
+    // g2 collapsed → combined rows [H(g1), a, b, H(g2)]; every group keeps a
+    // header row, collapsed or not.
+    const collapsed = buildGroupModel(GROUPS, {});
+    expect(collapsed.combinedItems).toEqual([undefined, "a", "b", undefined]);
+    expect(collapsed.combinedItemOnlyIndex).toEqual([-1, 0, 1, -1]);
+
+    // g2 expanded → combined rows [H(g1), a, b, H(g2), c, d, e].
+    const expanded = buildGroupModel(GROUPS, { g2: false });
+    expect(expanded.combinedItems).toEqual([
+      undefined,
+      "a",
+      "b",
+      undefined,
+      "c",
+      "d",
+      "e",
+    ]);
+    expect(expanded.combinedItemOnlyIndex).toEqual([-1, 0, 1, -1, 2, 3, 4]);
+  });
 });
 
 describe("DefaultGroupHeader", () => {
@@ -152,18 +174,19 @@ describe("DefaultGroupHeader", () => {
   });
 });
 
-describe("NonStickyGroup", () => {
-  test("forwards virtuoso's group attributes, strips context, forces static positioning", () => {
-    const html = renderToStaticMarkup(
-      createElement(NonStickyGroup, {
-        "data-index": 3,
-        "data-known-size": 42,
-        role: "presentation",
-        style: { position: "sticky", top: 0, zIndex: 2 },
-        context: { internal: true },
-        children: createElement("span", null, "Header"),
-      }),
-    );
+describe("group wrappers", () => {
+  const groupProps = {
+    "data-index": 3,
+    "data-known-size": 42,
+    role: "presentation",
+    style: { position: "sticky", top: 0, zIndex: 2 },
+    context: { internal: true },
+    children: createElement("span", null, "Header"),
+  };
+
+  test("NonStickyGroup carries data-slot, forwards attributes, strips context, forces static positioning", () => {
+    const html = renderToStaticMarkup(createElement(NonStickyGroup, groupProps));
+    expect(html).toContain('data-slot="virtual-grouped-list-group"');
     // Sticky positioning is neutralized so the header scrolls with its items.
     expect(html).toContain("position:static");
     // Virtuoso's measurement/index attributes (and any role/aria) survive.
@@ -172,6 +195,16 @@ describe("NonStickyGroup", () => {
     expect(html).toContain('role="presentation"');
     expect(html).toContain("Header");
     // `context` must never reach the DOM node.
+    expect(html).not.toContain("context");
+  });
+
+  test("StickyGroup carries data-slot and preserves virtuoso's sticky positioning", () => {
+    const html = renderToStaticMarkup(createElement(StickyGroup, groupProps));
+    expect(html).toContain('data-slot="virtual-grouped-list-group"');
+    expect(html).toContain('data-index="3"');
+    // Virtuoso's sticky style is left intact.
+    expect(html).toContain("position:sticky");
+    expect(html).not.toContain("position:static");
     expect(html).not.toContain("context");
   });
 });

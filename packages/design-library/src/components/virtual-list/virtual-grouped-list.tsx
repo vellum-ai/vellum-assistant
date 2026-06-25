@@ -88,17 +88,28 @@ export function isGroupCollapsed<T>(
 }
 
 /**
- * The flattened representation `GroupedVirtuoso` consumes: a `groupCounts`
- * array (one entry per group, 0 for a collapsed group) plus parallel
- * `flatItems`/`flatGroupKeys` arrays indexed by the flat item index virtuoso
- * passes to `itemContent`/`computeItemKey`. Collapsed groups contribute a 0
- * count and none of their items, keeping the flat index space in lock-step
- * with what virtuoso renders.
+ * The flattened representation `GroupedVirtuoso` consumes.
+ *
+ * Virtuoso uses two different index spaces and the wrapper has to honour both:
+ * `itemContent` receives an **item-only** index (group headers excluded), while
+ * `computeItemKey` receives the **combined** index (group-header rows counted,
+ * because `GroupedVirtuoso` passes the key callback straight through to the
+ * underlying flat list). So this builds:
+ *
+ * - `groupCounts` / `flatItems` / `flatGroupKeys` — item-only, parallel to
+ *   `itemContent`'s index. A collapsed group contributes a 0 count and none of
+ *   its items.
+ * - `combinedItems` / `combinedItemOnlyIndex` — indexed by the combined row
+ *   index, so the key callback can map virtuoso's header-inclusive index back
+ *   to the right item. Every group (collapsed or not) contributes one header
+ *   row, which holds `undefined` / `-1`.
  */
 export interface GroupModel<T> {
   flatItems: T[];
   flatGroupKeys: string[];
   groupCounts: number[];
+  combinedItems: (T | undefined)[];
+  combinedItemOnlyIndex: number[];
 }
 
 export function buildGroupModel<T>(
@@ -108,18 +119,33 @@ export function buildGroupModel<T>(
   const flatItems: T[] = [];
   const flatGroupKeys: string[] = [];
   const groupCounts: number[] = [];
+  const combinedItems: (T | undefined)[] = [];
+  const combinedItemOnlyIndex: number[] = [];
   for (const group of groups) {
+    // Every group occupies one combined header row, even when collapsed — it is
+    // the group's items that get withheld, not its header.
+    combinedItems.push(undefined);
+    combinedItemOnlyIndex.push(-1);
     if (isGroupCollapsed(group, overrides)) {
       groupCounts.push(0);
       continue;
     }
     groupCounts.push(group.items.length);
     for (const item of group.items) {
+      const itemOnlyIndex = flatItems.length;
       flatItems.push(item);
       flatGroupKeys.push(group.key);
+      combinedItems.push(item);
+      combinedItemOnlyIndex.push(itemOnlyIndex);
     }
   }
-  return { flatItems, flatGroupKeys, groupCounts };
+  return {
+    flatItems,
+    flatGroupKeys,
+    groupCounts,
+    combinedItems,
+    combinedItemOnlyIndex,
+  };
 }
 
 /**
@@ -187,19 +213,33 @@ export function DefaultGroupHeader<T>({
 }
 
 /**
- * Non-sticky replacement for virtuoso's default group wrapper, swapped in
- * when `stickyHeaders` is false. Forwards every attribute virtuoso applies to
- * the group element (`data-index`, `data-item-index`, `data-known-size`, and
- * any role/aria/styling props) so measurement and index tracking keep
- * working, overriding only `position` to `static` so headers scroll away with
- * their items. `context` is stripped so it never lands on the DOM node.
+ * Group wrapper for the list. Replaces virtuoso's default group element so it
+ * can carry a `data-slot` (per the design-library convention) while forwarding
+ * every attribute virtuoso applies (`data-index`, `data-item-index`,
+ * `data-known-size`, and any role/aria/styling) so measurement and index
+ * tracking keep working. `context` is stripped so it never lands on the DOM.
+ * The non-sticky variant overrides `position` to `static` so headers scroll
+ * away with their items instead of sticking.
  */
-export function NonStickyGroup({
-  context: _context,
-  style,
-  ...rest
-}: GroupProps & ContextProp<unknown>) {
-  return <div {...rest} style={{ ...style, position: "static" }} />;
+function renderGroupWrapper(
+  { context: _context, style, ...rest }: GroupProps & ContextProp<unknown>,
+  sticky: boolean,
+) {
+  return (
+    <div
+      {...rest}
+      data-slot="virtual-grouped-list-group"
+      style={sticky ? style : { ...style, position: "static" }}
+    />
+  );
+}
+
+export function StickyGroup(props: GroupProps & ContextProp<unknown>) {
+  return renderGroupWrapper(props, true);
+}
+
+export function NonStickyGroup(props: GroupProps & ContextProp<unknown>) {
+  return renderGroupWrapper(props, false);
 }
 
 export function VirtualGroupedList<T>({
@@ -281,15 +321,23 @@ export function VirtualGroupedList<T>({
 
   const resolvedComputeItemKey = useMemo(() => {
     if (!computeItemKey) return undefined;
-    return (index: number) => {
-      if (index < 0 || index >= model.flatItems.length) return index;
-      return computeItemKey(index, model.flatItems[index]);
+    // `GroupedVirtuoso` calls computeItemKey with the combined row index (group
+    // headers counted) and also calls it for header rows, unlike itemContent's
+    // item-only index. Map back through the combined model so the right item —
+    // and an item-only index consistent with itemContent — reach the consumer;
+    // header rows (no item) get a stable fallback key.
+    return (combinedIndex: number) => {
+      const item = model.combinedItems[combinedIndex];
+      if (item === undefined) return combinedIndex;
+      return computeItemKey(model.combinedItemOnlyIndex[combinedIndex], item);
     };
   }, [computeItemKey, model]);
 
-  // When a selected key is known, open the list scrolled to that item.
-  // Virtuoso only reads this on mount, so later selection changes are the
-  // caller's job (via the handle) and never cause a surprise scroll.
+  // When a selected key is known, open the list scrolled to that item. The
+  // index is item-only: virtuoso translates it to the combined location (adding
+  // preceding headers) internally, so it must NOT be pre-offset here. Virtuoso
+  // only reads this on mount, so later selection changes are the caller's job
+  // (via the handle) and never cause a surprise scroll.
   const initialTopMostItemIndex = useMemo(() => {
     if (selectedItemKey === undefined || !computeItemKey) return undefined;
     const index = model.flatItems.findIndex(
@@ -300,7 +348,7 @@ export function VirtualGroupedList<T>({
   }, [selectedItemKey, computeItemKey, model]);
 
   const components = useMemo<Components<T>>(
-    () => (stickyHeaders ? {} : { Group: NonStickyGroup }),
+    () => ({ Group: stickyHeaders ? StickyGroup : NonStickyGroup }),
     [stickyHeaders],
   );
 
