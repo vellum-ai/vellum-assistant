@@ -1426,7 +1426,154 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
 
     expect(config.llm.profiles.balanced?.status).toBe("disabled");
     expect(config.llm.profiles["quality-optimized"]?.status).toBe("disabled");
+    expect(config.llm.profiles.frontier?.status).toBe("disabled");
     expect(config.llm.profiles["cost-optimized"]?.status).toBe("disabled");
+  });
+
+  test("off-platform BYOK hatch defaults advisor to the personal quality profile", () => {
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify({ llm: { default: { provider: "anthropic" } } }, null, 2) +
+        "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const config = loadConfig();
+
+    expect(config.llm.activeProfile).toBe("custom-balanced");
+    expect(config.llm.advisorProfile).toBe("custom-quality-optimized");
+    expect(config.llm.profiles["custom-quality-optimized"]?.provider).toBe(
+      "anthropic",
+    );
+    expect(
+      config.llm.profiles["custom-quality-optimized"]?.provider_connection,
+    ).toBe("anthropic-personal");
+    expect(config.llm.profiles.frontier?.status).toBe("disabled");
+  });
+
+  test("off-platform boot repairs a disabled managed advisor to a personal profile when no active managed replacement exists", () => {
+    writeConfig({
+      llm: {
+        advisorProfile: "frontier",
+        profiles: {
+          frontier: {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            model: "claude-opus-4-8",
+            status: "disabled",
+          },
+          balanced: {
+            source: "managed",
+            provider: "together",
+            provider_connection: "together-managed",
+            model: "open-model",
+            status: "disabled",
+          },
+          "quality-optimized": {
+            source: "managed",
+            provider: "fireworks",
+            provider_connection: "fireworks-managed",
+            model: "accounts/fireworks/models/glm-5p2",
+            status: "disabled",
+          },
+          "cost-optimized": {
+            source: "managed",
+            provider: "fireworks",
+            provider_connection: "fireworks-managed",
+            model: "accounts/fireworks/models/deepseek-v4-flash",
+            status: "disabled",
+          },
+          "custom-quality-optimized": {
+            source: "user",
+            provider: "anthropic",
+            provider_connection: "anthropic-personal",
+            model: "claude-opus-4-8",
+            label: "Quality",
+          },
+        },
+      },
+    });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const config = loadConfig();
+
+    expect(config.llm.advisorProfile).toBe("custom-quality-optimized");
+  });
+
+  test("platform boot repairs a disabled managed advisor to an active managed profile", () => {
+    process.env.IS_PLATFORM = "true";
+    writeConfig({
+      llm: {
+        advisorProfile: "frontier",
+        profiles: {
+          frontier: {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            model: "claude-opus-4-8",
+            status: "disabled",
+          },
+          "custom-quality-optimized": {
+            source: "user",
+            provider: "anthropic",
+            provider_connection: "anthropic-personal",
+            model: "claude-opus-4-8",
+            label: "Quality",
+          },
+        },
+      },
+    });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const config = loadConfig();
+
+    expect(config.llm.advisorProfile).toBe("quality-optimized");
+  });
+
+  test("off-platform boot clears a disabled managed advisor when no active replacement exists", () => {
+    writeConfig({
+      llm: {
+        advisorProfile: "frontier",
+        profiles: {
+          frontier: {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            model: "claude-opus-4-8",
+            status: "disabled",
+          },
+          balanced: {
+            source: "managed",
+            provider: "together",
+            provider_connection: "together-managed",
+            model: "open-model",
+            status: "disabled",
+          },
+          "quality-optimized": {
+            source: "managed",
+            provider: "fireworks",
+            provider_connection: "fireworks-managed",
+            model: "accounts/fireworks/models/glm-5p2",
+            status: "disabled",
+          },
+          "cost-optimized": {
+            source: "managed",
+            provider: "fireworks",
+            provider_connection: "fireworks-managed",
+            model: "accounts/fireworks/models/deepseek-v4-flash",
+            status: "disabled",
+          },
+        },
+      },
+    });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const config = loadConfig();
+
+    expect(config.llm.advisorProfile).toBeUndefined();
   });
 
   test("off-platform managed-inference hatch keeps selected managed connection active", () => {
@@ -1451,6 +1598,7 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
     expect(raw.llm.activeProfile).toBe("balanced");
+    expect(raw.llm.advisorProfile).toBe("balanced");
     expect(raw.llm.profiles.balanced.provider_connection).toBe(
       "together-managed",
     );
