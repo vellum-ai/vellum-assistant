@@ -17,6 +17,7 @@ import { readFileSync } from "node:fs";
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
+import type { SlackChannelConfigResult } from "../../../runtime/routes/integrations/slack/channel.js";
 import { registerCommand } from "../../lib/register-command.js";
 import { log } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
@@ -46,23 +47,6 @@ interface ChannelSnapshot {
 interface ReadinessResponse {
   success: boolean;
   snapshots: ChannelSnapshot[];
-}
-
-/**
- * Result of storing Slack channel credentials. Mirrors the relevant subset
- * of `SlackChannelConfigResult` from
- * `runtime/routes/integrations/slack/channel.ts` so the CLI does not import
- * daemon internals.
- */
-interface SlackChannelConfigResult {
-  success: boolean;
-  connected: boolean;
-  hasBotToken: boolean;
-  hasAppToken: boolean;
-  teamName?: string;
-  botUsername?: string;
-  warning?: string;
-  error?: string;
 }
 
 /**

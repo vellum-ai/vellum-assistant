@@ -21,6 +21,11 @@ import { ACTOR_PRINCIPALS } from "../../../auth/route-policy.js";
 import { BadRequestError } from "../../errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../../types.js";
 
+// Re-exported at the route boundary so transport clients (e.g. the
+// `assistant channels configure-slack` CLI) can type this route's response
+// without importing daemon-internal handler modules directly.
+export type { SlackChannelConfigResult } from "../../../../daemon/handlers/config-slack-channel.js";
+
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
