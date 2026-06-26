@@ -413,6 +413,7 @@ import { migrateCreateCompactionEvents } from "./migrations/302-create-compactio
 import { migrateAddConversationCreationSeq } from "./migrations/303-add-conversation-creation-seq.js";
 import { migrateAddLlmUsageCronRunId } from "./migrations/304-add-llm-usage-cron-run-id.js";
 import { migrateDropContactAclColumns } from "./migrations/305-drop-contact-acl-columns.js";
+import { migrateRewriteFrontierProfilePins } from "./migrations/306-rewrite-frontier-profile-pins.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1297,4 +1298,5 @@ export const migrationSteps: MigrationStep[] = [
   migrateAddConversationCreationSeq,
   migrateAddLlmUsageCronRunId,
   migrateDropContactAclColumns,
+  migrateRewriteFrontierProfilePins,
 ];
