@@ -51,7 +51,7 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     label: "Balanced",
     description: "Good balance of quality, cost, and speed",
     maxTokens: 32000,
-    effort: "medium",
+    effort: "high",
     thinking: { enabled: true, streamThinking: true },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
   },

@@ -852,7 +852,7 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles.balanced.model).toBe(
       "accounts/fireworks/models/glm-5p2",
     );
-    expect(raw.llm.profiles.balanced.effort).toBe("medium");
+    expect(raw.llm.profiles.balanced.effort).toBe("high");
     expect(raw.llm.profiles["quality-optimized"].provider).toBe("anthropic");
     expect(raw.llm.profiles["quality-optimized"].model).toBe("claude-opus-4-8");
     expect(raw.llm.profiles["quality-optimized"].effort).toBe("high");
