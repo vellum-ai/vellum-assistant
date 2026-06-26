@@ -169,6 +169,10 @@ export class VellumAcpClientHandler implements Client {
           toolTitle: update.title,
           toolKind: update.kind,
           toolStatus: update.status,
+          // An agent may put output/diff on the initial tool_call and never
+          // follow up with an update; forward it like the update branch so the
+          // chat/file-diff UI has content to render.
+          content: update.content ? JSON.stringify(update.content) : undefined,
           locations: mapLocations(update.locations),
         });
         break;

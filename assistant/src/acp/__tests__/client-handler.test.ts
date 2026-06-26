@@ -381,6 +381,33 @@ describe("VellumAcpClientHandler seq + enriched fields", () => {
     });
   });
 
+  test("tool_call forwards initial content[] (no follow-up update)", async () => {
+    const { handler, sent } = makeHandler();
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tc-content",
+        title: "Run tests",
+        kind: "execute",
+        status: "completed",
+        content: [
+          { type: "content", content: { type: "text", text: "stdout line" } },
+        ],
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      updateType: "tool_call",
+      toolCallId: "tc-content",
+      content: JSON.stringify([
+        { type: "content", content: { type: "text", text: "stdout line" } },
+      ]),
+    });
+  });
+
   test("tool_call_update forwards locations: [] when null (explicit clear)", async () => {
     const { handler, sent } = makeHandler();
 
