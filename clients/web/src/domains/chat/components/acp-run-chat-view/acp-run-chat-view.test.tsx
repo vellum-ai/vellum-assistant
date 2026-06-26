@@ -169,15 +169,18 @@ describe("AcpRunChatView", () => {
 
     fireEvent.click(screen.getByTestId("acp-chat-tool-file-chip"));
 
-    // Diff replaces the conversation.
+    // Diff replaces the conversation, and the steer composer is hidden beneath
+    // it (gated on the open-diff selection, not the derived diff data).
     expect(screen.getByTestId("acp-chat-diff-back")).toBeDefined();
     expect(screen.queryByTestId("acp-chat-conversation")).toBeNull();
     expect(screen.getByText("src/parser.ts")).toBeDefined();
+    expect(screen.queryByTestId("acp-chat-steer-form")).toBeNull();
 
-    // Back restores the conversation.
+    // Back restores the conversation and the composer.
     fireEvent.click(screen.getByTestId("acp-chat-diff-back"));
     expect(screen.getByTestId("acp-chat-conversation")).toBeDefined();
     expect(screen.queryByTestId("acp-chat-diff-back")).toBeNull();
+    expect(screen.getByTestId("acp-chat-steer-form")).toBeDefined();
   });
 
   test("keeps the open file diff synced as tool_call_update content streams in", () => {

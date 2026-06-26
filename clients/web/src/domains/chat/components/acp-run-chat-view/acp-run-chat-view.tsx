@@ -1,8 +1,8 @@
 /**
  * Devin-style chat view for an ACP run. Assembles the projected chat blocks
- * (PR 3) into a streaming conversation, with the usage meter (PR 11) in the
- * header, a nested file diff (PR 5) opened from tool-card file chips, and a
- * steer composer that posts follow-up instructions while the run is live.
+ * into a streaming conversation, with the usage meter in the header, a nested
+ * file diff opened from tool-card file chips, and a steer composer that posts
+ * follow-up instructions while the run is live.
  *
  * Self-contained for reversibility: it copies the detail panel's header /
  * objective / steer markup + tokens rather than importing them, and owns the
@@ -242,7 +242,7 @@ export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
         </div>
       )}
 
-      {isRunning && !activeDiff && (
+      {isRunning && !activeDiffRef && (
         <SteerComposer
           key={`steer-${entry.acpSessionId}`}
           acpSessionId={entry.acpSessionId}
