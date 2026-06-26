@@ -483,6 +483,82 @@ describe("VellumAcpClientHandler seq + enriched fields", () => {
     });
   });
 
+  test("tool_call forwards a small rawOutput unchanged (under the cap)", async () => {
+    const { handler, sent } = makeHandler();
+
+    const rawOutput = { ok: true };
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tc-small-raw",
+        title: "Run check",
+        kind: "execute",
+        status: "completed",
+        rawOutput,
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    const msg = sent[0] as { rawOutput?: unknown };
+    // Under the 16 KiB cap — forwarded structurally, unchanged.
+    expect(msg.rawOutput).toEqual({ ok: true });
+  });
+
+  test("tool_call caps an oversize rawOutput to a marker string", async () => {
+    const { handler, sent } = makeHandler();
+
+    const huge = "x".repeat(20000);
+    const rawOutput = { stdout: huge };
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tc-oversize-raw",
+        title: "Run noisy command",
+        kind: "execute",
+        status: "completed",
+        rawOutput,
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    const msg = sent[0] as { rawOutput?: unknown };
+    // Oversize payloads are replaced with a short marker so a single large
+    // rawOutput can't evict real transcript events from the session buffer.
+    expect(typeof msg.rawOutput).toBe("string");
+    expect(msg.rawOutput as string).toStartWith("[raw payload omitted:");
+    // The original large value must not survive into the forwarded event.
+    expect(JSON.stringify(sent[0])).not.toContain(huge);
+  });
+
+  test("tool_call caps an oversize rawInput to a marker string", async () => {
+    const { handler, sent } = makeHandler();
+
+    const huge = "y".repeat(20000);
+    const rawInput = { prompt: huge };
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tc-oversize-input",
+        title: "Run big prompt",
+        kind: "execute",
+        status: "pending",
+        rawInput,
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    const msg = sent[0] as { rawInput?: unknown };
+    expect(typeof msg.rawInput).toBe("string");
+    expect(msg.rawInput as string).toStartWith("[raw payload omitted:");
+    expect(JSON.stringify(sent[0])).not.toContain(huge);
+  });
+
   test("tool_call_update leaves rawInput/rawOutput undefined when source omits them", async () => {
     const { handler, sent } = makeHandler();
 
