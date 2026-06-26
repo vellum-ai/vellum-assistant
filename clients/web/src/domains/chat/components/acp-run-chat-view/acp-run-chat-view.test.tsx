@@ -192,4 +192,59 @@ describe("AcpRunChatView", () => {
     fireEvent.click(screen.getByLabelText("Stop run"));
     expect(stopAcpRun).toHaveBeenCalledWith("acp-1");
   });
+
+  test("resets run-specific local state when the session switches", () => {
+    const first = entry({ acpSessionId: "acp-1", status: "running" });
+    seed(first, []);
+
+    const { container, rerender } = render(
+      <AcpRunChatView entry={first} onClose={() => {}} />,
+    );
+    const view = within(container);
+
+    // Dirty the run-specific subcomponent state: type a steer instruction.
+    const input = within(view.getByTestId("acp-chat-steer-form")).getByLabelText(
+      "Steering instruction",
+    ) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "leftover instruction" } });
+    expect(input.value).toBe("leftover instruction");
+
+    // Switch the drawer to a different ACP run.
+    const second = entry({ acpSessionId: "acp-2", status: "running" });
+    seed(second, []);
+    rerender(<AcpRunChatView entry={second} onClose={() => {}} />);
+
+    // Composer remounts fresh (keyed on acpSessionId): no stale input.
+    const nextInput = within(
+      view.getByTestId("acp-chat-steer-form"),
+    ).getByLabelText("Steering instruction") as HTMLInputElement;
+    expect(nextInput.value).toBe("");
+
+    // Header remounts fresh: the Stop button is not stuck disabled from the
+    // previous run's `stopping` state.
+    expect((view.getByLabelText("Stop run") as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+  });
+
+  test("hides the streaming indicator on a trailing live block when terminal", () => {
+    // A run that ends right after an agent_message_chunk: the projection leaves
+    // the trailing agent block isComplete=false, but the view treats it as
+    // complete because the run status is terminal.
+    const e = entry({ status: "completed", stopReason: "end_turn" });
+    seed(e, [
+      {
+        seq: 1,
+        updateType: "agent_message_chunk",
+        messageId: "a1",
+        content: "all done",
+      },
+    ]);
+
+    render(<AcpRunChatView entry={e} onClose={() => {}} />);
+
+    expect(screen.getByTestId("acp-chat-agent-message")).toBeDefined();
+    // No live caret / ThreeDotIndicator because the run is terminal.
+    expect(screen.queryByTestId("acp-chat-agent-streaming")).toBeNull();
+  });
 });

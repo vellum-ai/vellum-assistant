@@ -90,8 +90,10 @@ export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
   // conversation is replaced by the diff with a Back affordance.
   const [activeDiff, setActiveDiff] = useState<AcpFileChange | null>(null);
 
-  // Reset nested diff on run switch — render-phase guard tracking the prev id,
-  // mirroring `AcpRunDetailPanel`.
+  // Reset nested diff (parent-owned state) on run switch — render-phase guard
+  // tracking the prev id, mirroring `AcpRunDetailPanel`. Run-specific state that
+  // lives inside subcomponents (header `stopping`, composer `input`/`pending`)
+  // is reset by keying them on `entry.acpSessionId` below so they remount fresh.
   const [prevSessionId, setPrevSessionId] = useState(entry.acpSessionId);
   if (prevSessionId !== entry.acpSessionId) {
     setPrevSessionId(entry.acpSessionId);
@@ -110,9 +112,16 @@ export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
   const { scrollRef, showScrollToLatest, scrollToLatest } =
     useStickToBottom(blocks);
 
+  // Whether the run is terminal — used to force any trailing live agent/thinking
+  // block to render as complete (the projection leaves the last block
+  // `isComplete: false` until a later block arrives, which never happens once
+  // the run ends). Terminal = NOT active.
+  const isTerminal = !isRunning;
+
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
       <ChatViewHeader
+        key={`header-${entry.acpSessionId}`}
         entry={entry}
         isRunning={isRunning}
         onClose={onClose}
@@ -140,6 +149,7 @@ export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
               <ChatBlock
                 key={blockKey(block, index)}
                 block={block}
+                isTerminal={isTerminal}
                 onOpenDiff={handleOpenDiff}
               />
             ))}
@@ -169,7 +179,10 @@ export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
       )}
 
       {isRunning && !activeDiff && (
-        <SteerComposer acpSessionId={entry.acpSessionId} />
+        <SteerComposer
+          key={`steer-${entry.acpSessionId}`}
+          acpSessionId={entry.acpSessionId}
+        />
       )}
     </div>
   );
@@ -274,9 +287,12 @@ function ObjectiveSection({ task }: { task: string | undefined }) {
 
 function ChatBlock({
   block,
+  isTerminal,
   onOpenDiff,
 }: {
   block: AcpChatBlock;
+  /** When the run is terminal, force trailing live agent/thinking blocks complete. */
+  isTerminal: boolean;
   onOpenDiff: (fileChange: AcpFileChange) => void;
 }) {
   switch (block.kind) {
@@ -286,14 +302,14 @@ function ChatBlock({
       return (
         <AcpChatAgentMessage
           content={block.content}
-          isComplete={block.isComplete}
+          isComplete={block.isComplete || isTerminal}
         />
       );
     case "thinking":
       return (
         <AcpChatThinkingBlock
           content={block.content}
-          isComplete={block.isComplete}
+          isComplete={block.isComplete || isTerminal}
         />
       );
     case "tool":
