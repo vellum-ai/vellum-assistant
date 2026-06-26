@@ -136,16 +136,26 @@ import { useChatEmptyState } from "@/domains/chat/hooks/use-chat-empty-state";
 function Harness({
   onSubmit,
   isMobile = false,
+  conversationId = "c1",
+  isEmptyConversation = true,
 }: {
   onSubmit: (prompt: string) => void;
   isMobile?: boolean;
+  conversationId?: string;
+  isEmptyConversation?: boolean;
 }) {
   const [selected, setSelected] = useState<ThreadSuggestion | null>(null);
 
+  // Mirror ChatMainPanel's reset effect: clear any open detail when the active
+  // conversation changes or the thread leaves the empty state.
+  useEffect(() => {
+    setSelected(null);
+  }, [conversationId, isEmptyConversation]);
+
   const { startersSlot } = useChatEmptyState({
     assistantId: "a1",
-    conversationId: "c1",
-    isEmptyConversation: true,
+    conversationId,
+    isEmptyConversation,
     avatar: { components: null, traits: null, customImageUrl: null } as never,
     mainView: "chat",
     openedAppState: null,
@@ -282,6 +292,30 @@ describe("ChatMainPanel suggestion drawer wiring", () => {
     expect(
       container.querySelector('[data-slot="suggestion-detail-panel"]'),
     ).toBeNull();
+  });
+
+  test("switching to another empty thread clears the open detail", () => {
+    const submitted: string[] = [];
+    const { getByText, container, rerender } = render(
+      <Harness conversationId="c1" onSubmit={(p) => submitted.push(p)} />,
+    );
+
+    fireEvent.click(getByText(FEATURED.title));
+    expect(
+      container.querySelector('[data-slot="suggestion-detail-panel"]'),
+    ).not.toBeNull();
+
+    // New empty thread: id changes while `isEmptyConversation` stays true. The
+    // reset effect must still close the stale drawer so nothing leaks into the
+    // newly active thread.
+    rerender(
+      <Harness conversationId="c2" onSubmit={(p) => submitted.push(p)} />,
+    );
+
+    expect(
+      container.querySelector('[data-slot="suggestion-detail-panel"]'),
+    ).toBeNull();
+    expect(submitted).toHaveLength(0);
   });
 
   test("mobile: card click opens the detail in a bottom sheet and confirms", () => {

@@ -671,15 +671,16 @@ export function ChatMainPanel({
   const [selectedSuggestion, setSelectedSuggestion] =
     useState<ThreadSuggestion | null>(null);
 
-  // Suggestion cards only render in the empty state, so a picked suggestion is
-  // never meaningful once a conversation goes active. Clearing it here is
-  // defensive: the desktop drawer stays mounted across the empty→active
-  // transition (see below), and this guarantees it's closed there regardless.
+  // Clear any open suggestion detail when the active conversation changes or the
+  // thread leaves the empty state. Keying on `activeConversationId` covers the
+  // empty→empty switch (id changes while `isEmptyConversation` stays true), which
+  // the non-empty transition alone would miss — otherwise the stale drawer/sheet
+  // could submit the previous selection into the newly active thread, since
+  // ChatMainPanel is not keyed by conversation. Setting null on a fresh empty
+  // conversation is harmless because no card is selected yet.
   useEffect(() => {
-    if (!isEmptyConversation && selectedSuggestion) {
-      setSelectedSuggestion(null);
-    }
-  }, [isEmptyConversation, selectedSuggestion]);
+    setSelectedSuggestion(null);
+  }, [activeConversationId, isEmptyConversation]);
 
   // Close, and Save-for-later, both just dismiss the drawer: persisting saved
   // suggestions is not implemented yet.
