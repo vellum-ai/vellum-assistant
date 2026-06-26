@@ -23,7 +23,16 @@ import { QdrantClient as QdrantRestClient } from "@qdrant/js-client-rest";
 import { v5 as uuidv5 } from "uuid";
 
 import type { AssistantConfig } from "../../../config/types.js";
-import { embedWithBackend } from "../../../memory/embedding-backend.js";
+import { getDb } from "../../../memory/db-connection.js";
+import {
+  embedWithBackend,
+  getMemoryBackendStatus,
+} from "../../../memory/embedding-backend.js";
+import {
+  readEmbeddingCache,
+  writeEmbeddingCache,
+} from "../../../memory/embedding-cache.js";
+import { embeddingInputContentHash } from "../../../memory/embedding-types.js";
 import { resolveQdrantUrl } from "../../../memory/qdrant-client.js";
 import { getLogger } from "../../../util/logger.js";
 import type { Section } from "./types.js";
@@ -167,11 +176,27 @@ export async function ensureSectionCollection(
 }
 
 /**
+ * `target_type` marker on `memory_embeddings` rows that cache section vectors.
+ * Distinct from the v2 `concept_page` rows so the two caches never collide on a
+ * shared `(targetType, targetId, provider, model)` key.
+ */
+const V3_SECTION_TARGET_TYPE = "v3_section";
+
+/** Human-readable cache id for a section: `<article>#<ordinal>`. */
+function sectionCacheId(article: string, ordinal: number): string {
+  return `${article}#${ordinal}`;
+}
+
+/**
  * Embed each section's `text` and upsert one point per section, keyed by a
  * deterministic `(article, ordinal)`-derived ID. Stable IDs mean re-upserting
  * the same sections overwrites in place rather than accumulating duplicates,
  * so the operation is idempotent. Payload carries `{ article, ordinal, title }`
  * for downstream filtering and rendering.
+ *
+ * Unchanged sections are served from the `memory_embeddings` cache rather than
+ * re-embedded — see {@link embedSectionsCached} — so a maintain pass that
+ * re-selects an already-embedded page makes no backend round-trip for it.
  *
  * An empty `sections` array is a no-op (no embedding round-trip).
  */
@@ -183,25 +208,131 @@ export async function upsertSections(
 
   await ensureSectionCollection(config);
 
-  const { vectors } = await embedWithBackend(
-    config,
-    sections.map((s) => s.text),
-  );
+  const vectors = await embedSectionsCached(config, sections);
 
-  const points = sections.map((section, i) => ({
-    id: pointIdForSection(section.article, section.ordinal),
-    vector: vectors[i]!,
-    payload: {
-      article: section.article,
-      ordinal: section.ordinal,
-      title: section.title,
-    },
-  }));
+  const points = sections.flatMap((section, i) => {
+    const vector = vectors[i];
+    if (!vector) return [];
+    return [
+      {
+        id: pointIdForSection(section.article, section.ordinal),
+        vector,
+        payload: {
+          article: section.article,
+          ordinal: section.ordinal,
+          title: section.title,
+        },
+      },
+    ];
+  });
+
+  if (points.length === 0) return;
 
   await getSectionDenseClient(config).upsert(SECTION_COLLECTION, {
     wait: true,
     points,
   });
+}
+
+/**
+ * Resolve a dense vector per section, reusing cached vectors for sections whose
+ * `text` is unchanged and embedding only the misses in a single batched backend
+ * call. Returns one entry per input section, index-aligned; a position is left
+ * `undefined` only when a fresh embed produced no vector for it.
+ *
+ * The cache lives in the shared `memory_embeddings` table keyed on
+ * `(targetType="v3_section", targetId="<article>#<ordinal>", provider, model)`.
+ * It survives the `deleteSectionsForArticle` callers run before upserting (that
+ * delete clears only Qdrant points), so an unchanged section rebuilds its point
+ * from the cache without a backend round-trip. Vectors are stored and upserted
+ * raw — the section dense lane applies no anisotropy correction, so the cached
+ * vector equals the upserted one.
+ */
+async function embedSectionsCached(
+  config: AssistantConfig,
+  sections: Section[],
+): Promise<Array<number[] | undefined>> {
+  const expectedDim = config.memory.qdrant.vectorSize;
+  const hashes = sections.map((s) =>
+    embeddingInputContentHash({ type: "text", text: s.text }),
+  );
+
+  // Cache identity: read rows under the currently-selected provider/model. When
+  // no provider resolves (backend down/disabled) skip the cache and let the
+  // batched embed below surface the failure exactly as the uncached path did.
+  const status = await getMemoryBackendStatus(config);
+  const db = getDb();
+
+  const result: Array<number[] | undefined> = new Array(sections.length);
+  const missIndices: number[] = [];
+  if (status.provider && status.model) {
+    for (let i = 0; i < sections.length; i++) {
+      const section = sections[i]!;
+      const cached = readEmbeddingCache(db, {
+        targetType: V3_SECTION_TARGET_TYPE,
+        targetId: sectionCacheId(section.article, section.ordinal),
+        provider: status.provider,
+        model: status.model,
+        expectedDim,
+      });
+      if (cached && cached.contentHash === hashes[i]) {
+        result[i] = cached.dense;
+      } else {
+        missIndices.push(i);
+      }
+    }
+  } else {
+    for (let i = 0; i < sections.length; i++) missIndices.push(i);
+  }
+
+  if (missIndices.length === 0) return result;
+
+  // Embed the misses in one batched call (the dominant cost).
+  let embedded = await embedWithBackend(
+    config,
+    missIndices.map((i) => sections[i]!.text),
+  );
+  let writeProvider = embedded.provider;
+  let writeModel = embedded.model;
+  let effectiveIndices = missIndices;
+
+  // A provider/model rotation between the cache read and the embed would mix two
+  // embedding spaces in one collection: cached hits carry the old identity, the
+  // fresh misses the new. Re-embed every section under the new identity so the
+  // whole batch (and the cache rows it writes) shares one space.
+  const hadHits = missIndices.length < sections.length;
+  const rotated =
+    hadHits &&
+    (embedded.provider !== status.provider || embedded.model !== status.model);
+  if (rotated) {
+    effectiveIndices = sections.map((_, i) => i);
+    embedded = await embedWithBackend(
+      config,
+      sections.map((s) => s.text),
+    );
+    writeProvider = embedded.provider;
+    writeModel = embedded.model;
+  }
+
+  const now = Date.now();
+  for (let j = 0; j < effectiveIndices.length; j++) {
+    const i = effectiveIndices[j]!;
+    const vector = embedded.vectors[j];
+    if (!vector) continue;
+    result[i] = vector;
+    const section = sections[i]!;
+    writeEmbeddingCache(db, {
+      targetType: V3_SECTION_TARGET_TYPE,
+      targetId: sectionCacheId(section.article, section.ordinal),
+      dense: vector,
+      contentHash: hashes[i]!,
+      provider: writeProvider,
+      model: writeModel,
+      now,
+    });
+  }
+
+  return result;
 }
 
 /**
