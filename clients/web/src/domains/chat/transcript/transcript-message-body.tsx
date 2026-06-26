@@ -588,7 +588,10 @@ export function TranscriptMessageBody({
   };
 
   const wrapperClass = `group/msg flex ${isUser ? "justify-end" : "justify-start"}`;
-  const columnClass = `flex w-full flex-col gap-2 ${isUser ? "items-end" : "items-start"}`;
+  // `min-w-0` lets the column shrink below its content's intrinsic width in the
+  // flex row, so long unbreakable content (e.g. an ACP run card's command path)
+  // truncates inside the card instead of overflowing the message column.
+  const columnClass = `flex w-full min-w-0 flex-col gap-2 ${isUser ? "items-end" : "items-start"}`;
 
   const trailer = (
     <>
