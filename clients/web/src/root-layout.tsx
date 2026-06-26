@@ -22,6 +22,7 @@ import { useVellumCommands } from "@/runtime/vellum-commands";
 
 import { routes } from "@/utils/routes";
 import { shouldSuppressRootStatusBanner } from "@/utils/status-banner-visibility";
+import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import { useDocumentEditorSync } from "@/hooks/use-document-editor-sync";
 import { useBookmarksSync } from "@/hooks/use-bookmarks-sync";
@@ -119,6 +120,12 @@ export function RootLayout() {
     (s) => s.assistantState.kind,
   );
   const isAssistantActive = assistantStateKind === "active";
+  // Hydrate the assistant identity store (name + version) at the app root so
+  // the name is ready on every authenticated route — chat, settings, logs —
+  // and the Electron window title / tray / About panel (published below by
+  // useElectronIdentitySync) track it everywhere, not only on chat routes.
+  // No-ops until an assistant id resolves in a fetchable lifecycle state.
+  useAssistantIdentityInit({ assistantId, assistantStateKind });
   useAssistantFeatureFlagSync(assistantId);
   useAssistantResourceSync(assistantId, isAssistantActive);
   useConversationSync(assistantId, isAssistantActive);

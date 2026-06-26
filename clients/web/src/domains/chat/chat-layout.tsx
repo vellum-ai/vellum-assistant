@@ -11,7 +11,6 @@ import { Outlet, useLocation, useNavigate, useNavigationType } from "react-route
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile";
 import { getLocalBool, getLocalNumber, setLocalBool, setLocalNumber } from "@/utils/local-settings";
 import { routes } from "@/utils/routes";
@@ -171,16 +170,6 @@ export function ChatLayout() {
       assistantId,
       conversationGroups,
     });
-
-  // Hydrate the sidebar assistant name at the layout level so the
-  // sidebar header shows the correct name on every chat-layout child
-  // route — not only inside a conversation where ChatPage owns the
-  // fetch.
-  useAssistantIdentityInit({
-    assistantId,
-    assistantStateKind,
-  });
-
 
   // Home page unread indicator — drives the red dot on the Home button in
   // the layout header.
