@@ -30,7 +30,16 @@ describe("channelForCallback", () => {
     expect(channelForCallback("not-a-url")).toBeUndefined();
   });
 
-  test("treats base-less callback paths as not directly delivered", () => {
-    expect(channelForCallback("/deliver/slack?threadTs=1")).toBeUndefined();
+  test("resolves base-less callback paths", () => {
+    expect(channelForCallback("/deliver/slack?threadTs=1")).toBe("slack");
+  });
+
+  test("resolves relative guardian-style /deliver/<channel> callbacks", () => {
+    // resolveDeliverCallbackUrlForChannel() emits these relative URLs for
+    // off-channel guardian approvals/denials and timer-driven expiry notices;
+    // they must route as direct delivery, not fall through to the HTTP proxy.
+    expect(channelForCallback("/deliver/slack")).toBe("slack");
+    expect(channelForCallback("/deliver/telegram")).toBe("telegram");
+    expect(channelForCallback("/deliver/whatsapp")).toBe("whatsapp");
   });
 });

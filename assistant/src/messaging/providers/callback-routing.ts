@@ -23,9 +23,13 @@ const CALLBACK_PREFIX = "/deliver/";
 
 /**
  * Resolve a gateway callback URL to the direct-delivery channel that owns it, or
- * `undefined` when no channel delivers it directly. Gateway callbacks are always
- * absolute URLs; an unparseable (e.g. base-less) callback is treated as not
- * directly delivered and falls through to the gateway HTTP proxy.
+ * `undefined` when no channel delivers it directly.
+ *
+ * Handles both absolute callbacks (gateway webhook replies) and base-less
+ * relative ones like `/deliver/slack`, which off-channel guardian flows emit
+ * (`resolveDeliverCallbackUrlForChannel`, the guardian expiry sweep). The
+ * query-stripped fallback is required, not defensive: without it those relative
+ * notices fall through to the HTTP proxy, which cannot `fetch()` a base-less URL.
  */
 export function channelForCallback(
   callbackUrl: string,
@@ -34,7 +38,7 @@ export function channelForCallback(
   try {
     pathname = new URL(callbackUrl).pathname;
   } catch {
-    return undefined;
+    pathname = callbackUrl.split("?", 1)[0];
   }
   if (!pathname.startsWith(CALLBACK_PREFIX)) return undefined;
   const channel = pathname.slice(CALLBACK_PREFIX.length);

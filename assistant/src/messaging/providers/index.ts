@@ -46,7 +46,12 @@ export function getTransportForCallback(
 function callbackContext(callbackUrl: string): CallbackContext {
   const params: Record<string, string> = {};
   try {
-    for (const [key, value] of new URL(callbackUrl).searchParams) {
+    // Resolve against a dummy base so base-less callbacks (e.g.
+    // `/deliver/slack?threadTs=…`) still expose their params. `channelForCallback`
+    // already routes those as direct delivery, so dispatch must not drop
+    // threadTs/taskId for them.
+    const url = new URL(callbackUrl, "http://callback.invalid");
+    for (const [key, value] of url.searchParams) {
       params[key] = value;
     }
   } catch {
