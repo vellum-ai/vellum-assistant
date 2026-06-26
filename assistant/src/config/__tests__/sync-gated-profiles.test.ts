@@ -187,7 +187,7 @@ describe("reconcileFlagGatedProfiles", () => {
     expect(after.llm.profiles["os-beta"]).toBeUndefined();
     expect(after.llm.profileOrder.includes("os-beta")).toBe(false);
     expect(after.llm.activeProfile).toBe("balanced");
-    expect(after.llm.advisorProfile).toBe("frontier");
+    expect(after.llm.advisorProfile).toBe("quality-optimized");
   });
 
   test("flag off with no os-beta present is a no-op", () => {
@@ -268,7 +268,7 @@ describe("reconcileFlagGatedProfiles", () => {
     expect(after.llm.profileOrder.includes("os-beta")).toBe(false);
     expect(after.llm.profileOrder.includes("experiment")).toBe(false);
     expect(after.llm.activeProfile).toBe("balanced");
-    expect(after.llm.advisorProfile).toBe("frontier");
+    expect(after.llm.advisorProfile).toBe("quality-optimized");
     expect(
       (
         after.llm as unknown as Record<

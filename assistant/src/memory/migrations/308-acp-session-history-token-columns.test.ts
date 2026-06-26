@@ -4,20 +4,13 @@ import { describe, expect, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import * as schema from "../schema.js";
-import { migrateAcpSessionHistoryUsageColumns } from "./306-acp-session-history-usage-columns.js";
+import { migrateAcpSessionHistoryTokenColumns } from "./308-acp-session-history-token-columns.js";
 
-const NEW_COLUMNS = [
-  "task",
-  "parent_tool_use_id",
-  "used_tokens",
-  "context_size",
-  "cost_amount",
-  "cost_currency",
-];
+const NEW_COLUMNS = ["input_tokens", "output_tokens"];
 
 function createTestDb() {
   const sqlite = new Database(":memory:");
-  // Pre-302 shape: cwd exists (272), usage columns do not.
+  // Post-304 shape: usage columns exist, token columns do not.
   sqlite.exec(/*sql*/ `
     CREATE TABLE acp_session_history (
       id TEXT PRIMARY KEY,
@@ -30,7 +23,13 @@ function createTestDb() {
       stop_reason TEXT,
       error TEXT,
       event_log_json TEXT NOT NULL DEFAULT '[]',
-      cwd TEXT
+      cwd TEXT,
+      task TEXT,
+      parent_tool_use_id TEXT,
+      used_tokens INTEGER,
+      context_size INTEGER,
+      cost_amount REAL,
+      cost_currency TEXT
     )
   `);
   return { sqlite, db: drizzle(sqlite, { schema }) };
@@ -43,15 +42,15 @@ function tableInfo(sqlite: Database) {
   }>;
 }
 
-describe("migration 302: acp_session_history usage columns", () => {
-  test("adds the nullable usage columns", () => {
+describe("migration 305: acp_session_history token columns", () => {
+  test("adds the nullable token columns", () => {
     const { sqlite, db } = createTestDb();
     const before = tableInfo(sqlite).map((c) => c.name);
     for (const name of NEW_COLUMNS) {
       expect(before).not.toContain(name);
     }
 
-    migrateAcpSessionHistoryUsageColumns(db);
+    migrateAcpSessionHistoryTokenColumns(db);
 
     const after = tableInfo(sqlite);
     for (const name of NEW_COLUMNS) {
@@ -61,7 +60,7 @@ describe("migration 302: acp_session_history usage columns", () => {
     }
   });
 
-  test("existing rows read back with null usage columns", () => {
+  test("existing rows read back with null token columns", () => {
     const { sqlite, db } = createTestDb();
     sqlite.exec(/*sql*/ `
       INSERT INTO acp_session_history
@@ -70,7 +69,7 @@ describe("migration 302: acp_session_history usage columns", () => {
         ('acp-1', 'agent-1', 'sid-1', 'conv-1', 1000, 'completed')
     `);
 
-    migrateAcpSessionHistoryUsageColumns(db);
+    migrateAcpSessionHistoryTokenColumns(db);
 
     const row = sqlite
       .query(
@@ -82,17 +81,17 @@ describe("migration 302: acp_session_history usage columns", () => {
     }
   });
 
-  test("round-trips an insert that sets the new usage columns", () => {
+  test("round-trips an insert that sets the new token columns", () => {
     const { sqlite, db } = createTestDb();
-    migrateAcpSessionHistoryUsageColumns(db);
+    migrateAcpSessionHistoryTokenColumns(db);
 
     sqlite.exec(/*sql*/ `
       INSERT INTO acp_session_history
         (id, agent_id, acp_session_id, parent_conversation_id, started_at, status,
-         task, parent_tool_use_id, used_tokens, context_size, cost_amount, cost_currency)
+         input_tokens, output_tokens)
       VALUES
         ('acp-2', 'agent-1', 'sid-2', 'conv-1', 2000, 'completed',
-         'do the thing', 'tool-7', 1234, 8000, 0.42, 'USD')
+         1500, 750)
     `);
 
     const row = sqlite
@@ -101,20 +100,16 @@ describe("migration 302: acp_session_history usage columns", () => {
       )
       .get() as Record<string, unknown>;
     expect(row).toEqual({
-      task: "do the thing",
-      parent_tool_use_id: "tool-7",
-      used_tokens: 1234,
-      context_size: 8000,
-      cost_amount: 0.42,
-      cost_currency: "USD",
+      input_tokens: 1500,
+      output_tokens: 750,
     });
   });
 
   test("is idempotent — re-run is a no-op", () => {
     const { sqlite, db } = createTestDb();
 
-    migrateAcpSessionHistoryUsageColumns(db);
-    expect(() => migrateAcpSessionHistoryUsageColumns(db)).not.toThrow();
+    migrateAcpSessionHistoryTokenColumns(db);
+    expect(() => migrateAcpSessionHistoryTokenColumns(db)).not.toThrow();
 
     const names = tableInfo(sqlite).map((c) => c.name);
     for (const name of NEW_COLUMNS) {
