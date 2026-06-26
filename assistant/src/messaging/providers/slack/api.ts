@@ -6,6 +6,9 @@
  * classification, and payload shapes follow Slack Web API conventions.
  */
 
+import type { SlackErrorCategory } from "@vellumai/slack-text/errors";
+import { classifySlackError } from "@vellumai/slack-text/errors";
+
 import { credentialKey } from "../../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../../security/secure-keys.js";
 import { getLogger } from "../../../util/logger.js";
@@ -19,44 +22,6 @@ const SLACK_DEFAULT_RETRY_AFTER_S = 1;
 // ---------------------------------------------------------------------------
 // Error types
 // ---------------------------------------------------------------------------
-
-export type SlackErrorCategory =
-  | "auth"
-  | "rate_limit"
-  | "not_found"
-  | "permission"
-  | "channel_not_found"
-  | "client_error"
-  | "transient"
-  | "unknown";
-
-const SLACK_ERROR_CODE_MAP: Record<string, SlackErrorCategory> = {
-  invalid_auth: "auth",
-  token_expired: "auth",
-  token_revoked: "auth",
-  not_authed: "auth",
-  account_inactive: "auth",
-  org_login_required: "auth",
-  rate_limited: "rate_limit",
-  ratelimited: "rate_limit",
-  channel_not_found: "channel_not_found",
-  is_archived: "channel_not_found",
-  not_in_channel: "permission",
-  missing_scope: "permission",
-  ekm_access_denied: "permission",
-  not_allowed_token_type: "permission",
-  restricted_action: "permission",
-  cannot_dm_bot: "permission",
-  user_not_found: "not_found",
-  message_not_found: "not_found",
-  thread_not_found: "not_found",
-  invalid_blocks: "client_error",
-};
-
-function classifySlackError(errorCode: string | undefined): SlackErrorCategory {
-  if (!errorCode) return "unknown";
-  return SLACK_ERROR_CODE_MAP[errorCode] ?? "unknown";
-}
 
 export class SlackApiError extends Error {
   readonly slackError: string | undefined;

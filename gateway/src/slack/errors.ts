@@ -1,65 +1,16 @@
 /**
- * Slack error classification for smarter retry and error handling decisions.
- *
- * Maps Slack API error codes to semantic categories so callers can decide
- * whether to retry, surface a user-facing message, or escalate.
+ * Slack error handling for the gateway: retry decisions and user-facing
+ * messages. The Slack error-code → category classification is shared with the
+ * assistant via `@vellumai/slack-text/errors` (single source of truth — see the
+ * root AGENTS.md); this module layers the gateway's retry and messaging policy
+ * on top and re-exports the shared classifier so existing importers stay
+ * unaffected.
  */
 
-export type SlackErrorCategory =
-  | "auth"
-  | "rate_limit"
-  | "not_found"
-  | "permission"
-  | "channel_not_found"
-  | "client_error"
-  | "transient"
-  | "unknown";
+import { classifySlackError } from "@vellumai/slack-text/errors";
+import type { SlackErrorCategory } from "@vellumai/slack-text/errors";
 
-const ERROR_CODE_MAP: Record<string, SlackErrorCategory> = {
-  // Auth errors — token is invalid or revoked, do not retry
-  invalid_auth: "auth",
-  token_expired: "auth",
-  token_revoked: "auth",
-  not_authed: "auth",
-  account_inactive: "auth",
-  org_login_required: "auth",
-
-  // Rate limit — retry after backoff
-  rate_limited: "rate_limit",
-  ratelimited: "rate_limit",
-
-  // Channel-specific not-found errors
-  channel_not_found: "channel_not_found",
-  is_archived: "channel_not_found",
-
-  // Permission errors — bot lacks required scopes or access
-  not_in_channel: "permission",
-  missing_scope: "permission",
-  ekm_access_denied: "permission",
-  not_allowed_token_type: "permission",
-  restricted_action: "permission",
-  cannot_dm_bot: "permission",
-
-  // General not-found errors
-  user_not_found: "not_found",
-  message_not_found: "not_found",
-  thread_not_found: "not_found",
-
-  // Client-side errors — the payload itself is invalid, retrying the same
-  // request will fail identically. Callers that inspect the category should
-  // treat these as permanent failures and not re-send the same payload.
-  invalid_blocks: "client_error",
-};
-
-/**
- * Classify a Slack error code into a semantic category.
- */
-export function classifySlackError(
-  errorCode: string | undefined,
-): SlackErrorCategory {
-  if (!errorCode) return "unknown";
-  return ERROR_CODE_MAP[errorCode] ?? "unknown";
-}
+export { classifySlackError };
 
 /**
  * Whether the error category indicates the request could succeed on retry.
@@ -86,8 +37,7 @@ const CATEGORY_USER_MESSAGES: Record<SlackErrorCategory, string | undefined> = {
     "I don't have the required permissions for this channel. Please check my access.",
   not_found: "The requested resource could not be found in Slack.",
   rate_limit: "Slack rate limit reached. Please try again in a moment.",
-  client_error:
-    "I couldn't format that message for Slack. Please try again.",
+  client_error: "I couldn't format that message for Slack. Please try again.",
   transient: undefined,
   unknown: undefined,
 };

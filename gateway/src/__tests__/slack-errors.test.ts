@@ -40,8 +40,9 @@ describe("classifySlackError", () => {
     expect(classifySlackError("thread_not_found")).toBe("not_found");
   });
 
-  test("classifies invalid_blocks as client_error", () => {
+  test("classifies oversized Block Kit payload errors as client_error", () => {
     expect(classifySlackError("invalid_blocks")).toBe("client_error");
+    expect(classifySlackError("msg_blocks_too_long")).toBe("client_error");
   });
 
   test("returns unknown for unrecognized error codes", () => {
