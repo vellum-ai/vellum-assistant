@@ -43,3 +43,11 @@ export const Step4AddBotToken: Story = {
     },
   },
 };
+
+export const ConnectedThreadBehavior: Story = {
+  args: {
+    connected: true,
+    threadMode: "mention_then_thread",
+    onThreadModeChange: () => {},
+  },
+};

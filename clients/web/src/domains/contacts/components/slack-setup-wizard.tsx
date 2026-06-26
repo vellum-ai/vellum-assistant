@@ -1,9 +1,11 @@
 import { ExternalLink, Plus } from "lucide-react";
 import { useCallback, useState } from "react";
 
-import { Button, Card, Input, Stepper, type StepperStep } from "@vellumai/design-library";
+import { Button, Card, Input, Radio, RadioGroup, Stepper, type StepperStep, Typography } from "@vellumai/design-library";
 
 import { publicAsset } from "@/utils/public-asset";
+
+export type SlackThreadMode = "mention_only" | "mention_then_thread";
 
 const WIZARD_STEP_IDS = ["create-app", "app-token", "install-app", "bot-token"] as const;
 type WizardStepId = (typeof WIZARD_STEP_IDS)[number];
@@ -18,6 +20,10 @@ const WIZARD_STEPS: StepperStep[] = [
 export interface SlackSetupWizardProps {
   assistantName: string;
   initialStepId?: WizardStepId;
+  connected?: boolean;
+  threadMode?: SlackThreadMode;
+  threadModePending?: boolean;
+  onThreadModeChange?: (mode: SlackThreadMode) => void;
   onSave?: (botToken: string, appToken: string) => Promise<void>;
 }
 
@@ -103,6 +109,10 @@ function buildSlackManifestUrl(name: string): string {
 export function SlackSetupWizard({
   assistantName,
   initialStepId = "create-app",
+  connected = false,
+  threadMode,
+  threadModePending = false,
+  onThreadModeChange,
   onSave,
 }: SlackSetupWizardProps) {
   const [stepId, setStepId] = useState<WizardStepId>(initialStepId);
@@ -146,6 +156,53 @@ export function SlackSetupWizard({
       setStepId(WIZARD_STEP_IDS[next]);
     }
   }, [stepIndex]);
+
+  if (connected) {
+    return (
+      <div className="pl-7" data-slot="slack-setup-wizard">
+        <Card.Root>
+          <Card.Header>
+            <div className="flex items-center gap-3">
+              <img
+                src={publicAsset("/images/integrations/slack.svg")}
+                alt=""
+                className="size-8 rounded-lg bg-[var(--surface-sunken)] p-1"
+              />
+              <span>Slack settings</span>
+            </div>
+          </Card.Header>
+          <Card.Body>
+            <div className="flex flex-col gap-3">
+              <Typography
+                as="span"
+                variant="body-small-emphasised"
+                className="text-[color:var(--content-secondary)]"
+              >
+                Thread Behavior
+              </Typography>
+              <RadioGroup<SlackThreadMode>
+                value={threadMode ?? "mention_then_thread"}
+                onValueChange={(next) => onThreadModeChange?.(next)}
+                disabled={threadModePending || !onThreadModeChange}
+                aria-label="Slack thread behavior"
+              >
+                <Radio<SlackThreadMode>
+                  value="mention_only"
+                  label="Mentions only"
+                  helperText="Bot only responds when @mentioned."
+                />
+                <Radio<SlackThreadMode>
+                  value="mention_then_thread"
+                  label="Follow threads after first mention"
+                  helperText="After an @mention in a thread, bot listens to all subsequent replies."
+                />
+              </RadioGroup>
+            </div>
+          </Card.Body>
+        </Card.Root>
+      </div>
+    );
+  }
 
   return (
     <div className="pl-7" data-slot="slack-setup-wizard">
