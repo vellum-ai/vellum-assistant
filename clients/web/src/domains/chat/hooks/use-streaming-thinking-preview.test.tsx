@@ -99,6 +99,22 @@ describe("firstSentenceOfLatestThinkingParagraph", () => {
     ).toBe("Why? Because this is enough.");
   });
 
+  test("does not stop at periods inside dotted identifiers", () => {
+    expect(
+      firstSentenceOfLatestThinkingParagraph(
+        "I need to check v2.0 of config.json before acting. Then continue.",
+      ),
+    ).toBe("I need to check v2.0 of config.json before acting.");
+  });
+
+  test("returns null for question-only paragraphs without a period", () => {
+    expect(
+      firstSentenceOfLatestThinkingParagraph(
+        "What should I check? Where is the bug?",
+      ),
+    ).toBeNull();
+  });
+
   test("returns null for blank thinking text", () => {
     expect(firstSentenceOfLatestThinkingParagraph("\n\n  ")).toBeNull();
   });
@@ -157,5 +173,40 @@ describe("useStreamingThinkingPreview", () => {
     firePendingTimers();
 
     expect(result.current).toBe("Newest paragraph should win.");
+  });
+
+  test("keeps the current preview while the latest paragraph has no period", () => {
+    const { result, rerender } = renderHook(
+      ({ content }) => useStreamingThinkingPreview(content, true),
+      {
+        initialProps: {
+          content: "First visible thought.",
+        },
+      },
+    );
+
+    expect(result.current).toBe("First visible thought.");
+
+    setSystemTime(new Date(START + 1_000));
+    rerender({ content: "First visible thought.\n\nI" });
+
+    expect(result.current).toBe("First visible thought.");
+    expect(pendingTimeouts()).toHaveLength(0);
+
+    setSystemTime(new Date(START + 2_000));
+    rerender({
+      content: "First visible thought.\n\nNext paragraph is ready. More detail.",
+    });
+
+    expect(result.current).toBe("First visible thought.");
+    expect(pendingTimeouts()).toHaveLength(1);
+    expect(pendingTimeouts()[0]!.ms).toBe(
+      STREAMING_THINKING_PREVIEW_UPDATE_INTERVAL_MS - 2_000,
+    );
+
+    setSystemTime(new Date(START + STREAMING_THINKING_PREVIEW_UPDATE_INTERVAL_MS));
+    firePendingTimers();
+
+    expect(result.current).toBe("Next paragraph is ready.");
   });
 });
