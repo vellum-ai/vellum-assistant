@@ -81,6 +81,45 @@ describe("stopAcpRun", () => {
     expect(useAcpRunStore.getState().byId["acp-1"]!.status).toBe("cancelled");
     useAcpRunStore.getState().reset();
   });
+
+  test("rolls back the optimistic cancel when the POST fails", async () => {
+    useAcpRunStore.getState().reset();
+    useAcpRunStore.getState().spawnRun({
+      acpSessionId: "acp-1",
+      agent: "claude",
+      parentConversationId: "conv-1",
+      startedAt: 1,
+    });
+    nextOk = false;
+    nextStatus = 500;
+
+    await expect(stopAcpRun("acp-1")).rejects.toThrow();
+
+    // Restored to running (the Stop control reappears), not stuck cancelled.
+    const entry = useAcpRunStore.getState().byId["acp-1"]!;
+    expect(entry.status).toBe("running");
+    expect(entry.completedAt).toBeUndefined();
+    useAcpRunStore.getState().reset();
+  });
+
+  test("does not optimistically cancel when there is no active assistant", async () => {
+    useAcpRunStore.getState().reset();
+    useAcpRunStore.getState().spawnRun({
+      acpSessionId: "acp-1",
+      agent: "claude",
+      parentConversationId: "conv-1",
+      startedAt: 1,
+    });
+    useResolvedAssistantsStore.setState({ activeAssistantId: null });
+
+    await expect(stopAcpRun("acp-1")).rejects.toThrow("No active assistant");
+
+    // The precondition is resolved before the optimistic write, so the run is
+    // never flipped to cancelled.
+    expect(useAcpRunStore.getState().byId["acp-1"]!.status).toBe("running");
+    expect(calls).toHaveLength(0);
+    useAcpRunStore.getState().reset();
+  });
 });
 
 describe("steerAcpRun", () => {

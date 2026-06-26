@@ -37,14 +37,31 @@ function activeAssistantId(): string {
  * `failed` before history rehydrates it as `cancelled`.
  */
 export async function stopAcpRun(acpSessionId: string): Promise<void> {
-  useAcpRunStore.getState().cancelRun({ acpSessionId, completedAt: Date.now() });
-  const { response } = await client.post({
-    url: "/v1/assistants/{assistant_id}/acp/{id}/cancel" as KnownDaemonUrl,
-    path: { assistant_id: activeAssistantId(), id: acpSessionId },
-    body: {} as Record<string, unknown>,
-  });
-  if (!response?.ok) {
-    throw new Error(`Failed to stop ACP run: ${response?.status}`);
+  // Resolve preconditions BEFORE the optimistic write so a missing active
+  // assistant (e.g. after a lifecycle change) can't leave the run stuck
+  // `cancelled` with no way back.
+  const assistantId = activeAssistantId();
+  const store = useAcpRunStore.getState();
+  const prevStatus = store.byId[acpSessionId]?.status;
+  store.cancelRun({ acpSessionId, completedAt: Date.now() });
+  try {
+    const { response } = await client.post({
+      url: "/v1/assistants/{assistant_id}/acp/{id}/cancel" as KnownDaemonUrl,
+      path: { assistant_id: assistantId, id: acpSessionId },
+      body: {} as Record<string, unknown>,
+    });
+    if (!response?.ok) {
+      throw new Error(`Failed to stop ACP run: ${response?.status}`);
+    }
+  } catch (err) {
+    // The cancel didn't land — roll back the optimistic `cancelled` so the run
+    // and its Stop control reappear (the subprocess may still be streaming).
+    if (prevStatus !== undefined) {
+      useAcpRunStore
+        .getState()
+        .restoreRunStatus({ acpSessionId, status: prevStatus });
+    }
+    throw err;
   }
 }
 
