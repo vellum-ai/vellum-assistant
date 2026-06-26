@@ -7,7 +7,7 @@
  * oversize-section splitting.
  */
 
-import type { KnownBlock } from "@slack/types";
+import type { KnownBlock, RawTextElement, TableBlock } from "@slack/types";
 
 /** Slack rejects messages with more than 50 Block Kit blocks. */
 const SLACK_BLOCK_LIMIT = 50;
@@ -56,20 +56,28 @@ export function textToSlackBlocks(text: string): KnownBlock[] | undefined {
         text: { type: "plain_text", text: segment.content },
       });
     } else if (segment.type === "table") {
-      const structured = convertTableToStructuredText(
-        segment.headers,
-        segment.rows,
-      );
-      const mrkdwn = markdownToMrkdwn(structured);
-      const chunks = splitLongTextSegment(mrkdwn);
-      for (let c = 0; c < chunks.length; c++) {
-        if (c > 0) {
-          blocks.push({ type: "divider" });
+      const tableBlock = tryBuildTableBlock(segment.headers, segment.rows);
+      if (tableBlock) {
+        blocks.push(tableBlock);
+      } else {
+        // Table exceeds Slack's table-block limits (≤100 rows / ≤20 columns);
+        // fall back to structured bullet text split across section blocks so an
+        // oversize table degrades on its own rather than failing the payload.
+        const structured = convertTableToStructuredText(
+          segment.headers,
+          segment.rows,
+        );
+        const mrkdwn = markdownToMrkdwn(structured);
+        const chunks = splitLongTextSegment(mrkdwn);
+        for (let c = 0; c < chunks.length; c++) {
+          if (c > 0) {
+            blocks.push({ type: "divider" });
+          }
+          blocks.push({
+            type: "section",
+            text: { type: "mrkdwn", text: chunks[c] },
+          });
         }
-        blocks.push({
-          type: "section",
-          text: { type: "mrkdwn", text: chunks[c] },
-        });
       }
     } else {
       // Transform to Slack mrkdwn FIRST, then split. Splitting raw markdown
@@ -276,6 +284,41 @@ function tryParseTable(
   return {
     segment: { type: "table", headers, rows },
     nextIndex: i,
+  };
+}
+
+/** Slack `table` blocks allow at most 100 rows (incl. the header) and 20 columns. */
+const SLACK_TABLE_MAX_ROWS = 100;
+const SLACK_TABLE_MAX_COLUMNS = 20;
+
+/**
+ * Build a Slack `table` block from a parsed markdown table, or `null` when the
+ * table exceeds Slack's table-block limits so the caller can fall back to a text
+ * rendering. The header row is emitted first. Cells are `raw_text`; markdown
+ * inside a cell is not re-rendered (rich-text cells would be a future
+ * enhancement). Short rows are padded so every row has the same cell count.
+ */
+function tryBuildTableBlock(
+  headers: string[],
+  rows: string[][],
+): TableBlock | null {
+  const columnCount = Math.max(
+    headers.length,
+    ...rows.map((row) => row.length),
+  );
+  if (columnCount === 0 || columnCount > SLACK_TABLE_MAX_COLUMNS) return null;
+  if (rows.length + 1 > SLACK_TABLE_MAX_ROWS) return null;
+
+  const toCells = (cells: string[]): RawTextElement[] =>
+    Array.from({ length: columnCount }, (_, c) => {
+      const text = cells[c] ?? "";
+      // `raw_text` requires at least one character.
+      return { type: "raw_text", text: text.length > 0 ? text : " " };
+    });
+
+  return {
+    type: "table",
+    rows: [toCells(headers), ...rows.map(toCells)],
   };
 }
 
