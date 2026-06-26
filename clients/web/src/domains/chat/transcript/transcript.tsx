@@ -275,8 +275,27 @@ export function Transcript({
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const hasItems = items.length > 0;
+  // Virtuoso exposes its scroller asynchronously (after the initial commit, via
+  // its internal scrollerRef), so a single synchronous read here can miss it —
+  // leaving `useViewportMinHeight` sized to 0, which collapses the latest-edge
+  // pin-to-top reserve. Read synchronously for the fast path, then poll on
+  // rAF until the scroller exists. Re-runs on first mount + conversation switch
+  // (the list remounts on `key={conversationId}`, yielding a new scroller).
   useLayoutEffect(() => {
-    setScrollEl(virtualListRef.current?.getScrollElement() ?? null);
+    let raf = 0;
+    let tries = 0;
+    const capture = () => {
+      const el = virtualListRef.current?.getScrollElement() ?? null;
+      if (el) {
+        setScrollEl(el);
+      } else if (tries++ < 30) {
+        raf = requestAnimationFrame(capture);
+      }
+    };
+    capture();
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, [conversationId, hasItems]);
 
   useLayoutEffect(() => {
@@ -361,7 +380,15 @@ export function Transcript({
       if (row.type === "history") {
         if (row.item.kind === "message") register(row.item, index);
       } else {
+        // The composite renders the anchor user message AND the latest turn's
+        // response messages (inside LatestTurnRow), so a deep link to the
+        // latest assistant reply must resolve to this row too — not just the
+        // anchor. All of them map to the single latest-edge row index; the
+        // post-scroll `#msg-<id>` highlight then targets the exact node.
         register(row.anchorMessage, index);
+        for (const resp of row.responseItems) {
+          if (resp.kind === "message") register(resp, index);
+        }
       }
     });
     return map;
@@ -383,9 +410,12 @@ export function Transcript({
           behavior: "smooth",
           align: "center",
         });
-        // The row may not be painted yet (virtuoso scrolls, then mounts it),
-        // so poll briefly for the DOM node before applying the highlight.
-        let frames = 0;
+        // Virtuoso scrolls (smoothly), then mounts the target row only once the
+        // scroll reaches it — for a far target that can take several hundred ms.
+        // Poll on a time budget (not a fixed frame count) so the highlight still
+        // lands: the render-everything predecessor highlighted reliably because
+        // every row was always in the DOM, and we preserve that.
+        const highlightStart = performance.now();
         const tryHighlight = () => {
           const target = document.getElementById(`msg-${messageId}`);
           if (target) {
@@ -399,7 +429,9 @@ export function Transcript({
             }, 2000);
             return;
           }
-          if (frames++ < 10) requestAnimationFrame(tryHighlight);
+          if (performance.now() - highlightStart < 2500) {
+            requestAnimationFrame(tryHighlight);
+          }
         };
         requestAnimationFrame(tryHighlight);
         return true;

@@ -398,4 +398,29 @@ describe("Transcript (virtualized)", () => {
     // the older page loads).
     expect(ref.current?.scrollToMessage("not-loaded")).toBe(false);
   });
+
+  test("scrollToMessage resolves a latest-turn response message (deep link to latest reply)", () => {
+    // Regression: the composite latest-edge row renders the anchor user message
+    // AND the streaming response inside LatestTurnRow. A deep link to the
+    // latest assistant reply (a response item, not yet folded into history)
+    // must resolve to the composite row rather than returning false and having
+    // the caller give up + clear the URL.
+    const ref = createRef<TranscriptHandle>();
+    const items: MessageItem[] = [
+      userMessage("u1", "latest question"),
+      assistantMessage("a1", "latest reply"),
+    ];
+    // partition: history [], anchor u1, response [a1] (rendered in the composite).
+    render(
+      <Transcript
+        ref={ref}
+        items={items}
+        conversationId="c1"
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(ref.current?.scrollToMessage("u1")).toBe(true);
+    expect(ref.current?.scrollToMessage("a1")).toBe(true);
+  });
 });
