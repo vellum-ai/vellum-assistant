@@ -17,6 +17,7 @@ import { getLogger } from "../util/logger.js";
 import { runWatchersOnce, type WatcherNotifier } from "../watcher/engine.js";
 import { normalizeCapabilityManifest } from "../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
+import { firingTokenRegistry } from "./firing-token-registry.js";
 import { hasSetConstructs } from "./recurrence-engine.js";
 import { applyRetryDecision, decideRetry } from "./retry-policy.js";
 import { runScript, type ScriptResult } from "./run-script.js";
@@ -296,6 +297,7 @@ export async function runScheduleDueWorkOnce(
         continue;
       }
       const runId = createScheduleRun(job.id, `script:${job.id}`);
+      const token = firingTokenRegistry.mint(runId, job.id);
       let failed = false;
       try {
         log.info(
@@ -305,6 +307,8 @@ export async function runScheduleDueWorkOnce(
         const result: ScriptResult = await runScript(job.script, {
           timeoutMs: job.timeoutMs ?? undefined,
           scheduleRunId: runId,
+          runToken: token,
+          onSpawn: (proc) => firingTokenRegistry.attachProc(runId, proc),
         });
         completeScheduleRun(runId, {
           status: result.exitCode === 0 ? "ok" : "error",
@@ -328,6 +332,8 @@ export async function runScheduleDueWorkOnce(
         completeScheduleRun(runId, { status: "error", error: errorMsg });
         handleExecutionFailure({ job, errorMsg, isOneShot });
         failed = true;
+      } finally {
+        firingTokenRegistry.revoke(token);
       }
       mark(failed ? "failed" : "completed");
       continue;
