@@ -110,9 +110,9 @@ function extractTerminalText(obj: Record<string, unknown>): string | undefined {
 
 /**
  * Read the agent's command from a tool's `rawInput`, when present. ACP rawInput
- * shapes are tool-specific, so this is defensive: only a non-null object with a
- * string `command` yields a value; anything else (including older daemons that
- * send no rawInput) returns `undefined`.
+ * is optional and its shape is tool-specific, so this is defensive: only a
+ * non-null object with a string `command` yields a value; anything else
+ * returns `undefined`.
  */
 export function getAcpToolCommand(rawInput: unknown): string | undefined {
   if (typeof rawInput !== "object" || rawInput === null) return undefined;

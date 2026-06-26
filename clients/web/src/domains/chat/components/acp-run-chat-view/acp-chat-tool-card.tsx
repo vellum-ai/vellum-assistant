@@ -188,7 +188,7 @@ export function AcpChatToolCard({
   const kindLabel =
     (block.toolKind && KIND_LABEL[block.toolKind]) || DEFAULT_KIND_LABEL;
   // Prefer a structured command from rawInput; fall back to the agent's title
-  // when absent (older daemons send no rawInput — must degrade gracefully).
+  // when rawInput is absent (it is optional).
   const command = getAcpToolCommand(block.rawInput);
   const detailText = command ?? block.title;
   // Surface the command/title when the header label alone hides what the tool
