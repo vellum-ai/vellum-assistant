@@ -1,12 +1,27 @@
 /**
  * A tool call rendered as a distinct card in the ACP chat transcript: a kind
- * glyph, the tool title, a status pill, and a streaming indicator while
- * running. Inline output (parsed from the tool content) renders in a monospace
+ * glyph, a standardized kind label, a status pill, and a streaming indicator
+ * while running. For non-file-op kinds the raw agent title/command surfaces as
+ * a wrapping body line. Inline output (parsed from the tool content) renders in a monospace
  * block, collapsed behind a toggle when long. Any file changes the call touched
  * surface as clickable chips that invoke `onOpenDiff`.
  */
 
-import { ChevronDown, ChevronRight, Code, FileText } from "lucide-react";
+import {
+  Brain,
+  ChevronDown,
+  ChevronRight,
+  Code,
+  FilePen,
+  FileText,
+  FolderInput,
+  Globe,
+  Repeat,
+  Search,
+  Terminal,
+  Trash2,
+  type LucideIcon,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Tag, Typography, type TagTone } from "@vellumai/design-library";
@@ -67,9 +82,40 @@ const STATUS_LABEL: Record<ToolDisplayStatus, string> = {
   ended: "Ended",
 };
 
-/** Leading kind glyph — file glyph for read/edit, code brackets otherwise. */
+/** Standardized, human-readable header label per ACP tool kind. */
+const KIND_LABEL: Record<string, string> = {
+  read: "Read file",
+  edit: "Edit file",
+  delete: "Delete file",
+  move: "Move file",
+  search: "Search",
+  execute: "Run command",
+  think: "Thinking",
+  fetch: "Fetch",
+  switch_mode: "Switch mode",
+};
+
+const DEFAULT_KIND_LABEL = "Tool call";
+
+/** Leading kind glyph per ACP tool kind. */
+const KIND_ICON: Record<string, LucideIcon> = {
+  read: FileText,
+  edit: FilePen,
+  delete: Trash2,
+  move: FolderInput,
+  search: Search,
+  execute: Terminal,
+  think: Brain,
+  fetch: Globe,
+  switch_mode: Repeat,
+};
+
+/** Kinds whose specifics already surface via file chips, so the raw title
+ *  would be redundant as a body detail line. */
+const FILE_OP_KINDS = new Set(["read", "edit", "delete", "move"]);
+
 function KindIcon({ toolKind }: { toolKind?: string }) {
-  const Icon = toolKind === "read" || toolKind === "edit" ? FileText : Code;
+  const Icon = (toolKind && KIND_ICON[toolKind]) || Code;
   return (
     <Icon
       aria-hidden
@@ -111,6 +157,17 @@ export function AcpChatToolCard({
   const isLong = outputText.length > COLLAPSE_THRESHOLD;
   const showOutput = outputText.length > 0 && (!isLong || expanded);
 
+  const kindLabel =
+    (block.toolKind && KIND_LABEL[block.toolKind]) || DEFAULT_KIND_LABEL;
+  // Surface the raw agent title only for kinds without file chips, where the
+  // header label alone hides what the tool actually did (e.g. the command).
+  const detailLine =
+    !FILE_OP_KINDS.has(block.toolKind ?? "") &&
+    block.title &&
+    block.title !== kindLabel
+      ? block.title
+      : null;
+
   return (
     <div
       data-testid="acp-chat-tool-card"
@@ -124,7 +181,7 @@ export function AcpChatToolCard({
           className="min-w-0 flex-1 truncate text-[var(--content-default)]"
           title={block.title}
         >
-          {block.title || "Tool call"}
+          {kindLabel}
         </Typography>
         <Tag
           tone={STATUS_TONE[displayStatus]}
@@ -139,6 +196,15 @@ export function AcpChatToolCard({
           />
         )}
       </div>
+
+      {detailLine && (
+        <div
+          data-testid="acp-chat-tool-detail"
+          className="mt-1.5 font-mono text-body-small-default whitespace-pre-wrap break-words text-[var(--content-secondary)]"
+        >
+          {detailLine}
+        </div>
+      )}
 
       {fileChanges.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">

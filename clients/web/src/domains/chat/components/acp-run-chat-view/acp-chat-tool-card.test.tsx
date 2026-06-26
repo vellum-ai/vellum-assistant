@@ -20,9 +20,60 @@ function toolBlock(overrides: Partial<ToolBlock> = {}): ToolBlock {
 }
 
 describe("AcpChatToolCard", () => {
-  test("renders the tool title", () => {
-    render(<AcpChatToolCard block={toolBlock()} onOpenDiff={() => {}} />);
+  test("renders the kind label in the header", () => {
+    render(
+      <AcpChatToolCard
+        block={toolBlock({ toolKind: "read", title: "cat ./README.md" })}
+        onOpenDiff={() => {}}
+      />,
+    );
     expect(screen.getByText("Read file")).toBeDefined();
+  });
+
+  test("renders an execute command as a full, wrapping body line", () => {
+    const command = "git log --oneline | grep something && echo ".repeat(10);
+    render(
+      <AcpChatToolCard
+        block={toolBlock({ toolKind: "execute", title: command })}
+        onOpenDiff={() => {}}
+      />,
+    );
+    expect(screen.getByText("Run command")).toBeDefined();
+    const detail = screen.getByTestId("acp-chat-tool-detail");
+    // Full command present in the DOM (not truncated) and set to wrap.
+    expect(detail.textContent).toBe(command);
+    expect(detail.className).toContain("whitespace-pre-wrap");
+    expect(detail.className).toContain("break-words");
+    expect(detail.className).not.toContain("truncate");
+  });
+
+  test("a read block shows the kind label + path chip with no duplicate title line", () => {
+    render(
+      <AcpChatToolCard
+        block={toolBlock({
+          toolKind: "read",
+          title: "src/touched.ts",
+          locations: [{ path: "src/touched.ts" }],
+        })}
+        onOpenDiff={() => {}}
+      />,
+    );
+    expect(screen.getByText("Read file")).toBeDefined();
+    expect(screen.getByTestId("acp-chat-tool-file-ref").textContent).toContain(
+      "src/touched.ts",
+    );
+    expect(screen.queryByTestId("acp-chat-tool-detail")).toBeNull();
+  });
+
+  test("an unknown kind falls back to the Tool call label and Code icon", () => {
+    const { container } = render(
+      <AcpChatToolCard
+        block={toolBlock({ toolKind: "other", title: "mystery" })}
+        onOpenDiff={() => {}}
+      />,
+    );
+    expect(screen.getByText("Tool call")).toBeDefined();
+    expect(container.querySelector(".lucide-code")).not.toBeNull();
   });
 
   test("renders the status pill per status", () => {
