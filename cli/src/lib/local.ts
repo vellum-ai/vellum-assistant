@@ -539,6 +539,12 @@ function logDaemonReadiness(ready: boolean): void {
   }
 }
 
+function logAssistantAlreadyRunning(pid: number, unready: boolean): void {
+  console.log(
+    `   Assistant already running (pid ${pid})${unready ? " but not ready yet" : ""}\n`,
+  );
+}
+
 async function startDaemonFromSource(
   assistantIndex: string,
   resources: LocalInstanceResources,
@@ -563,10 +569,9 @@ async function startDaemonFromSource(
     "readyz",
   );
   if (daemonState.status !== "needs_start") {
-    const readinessNote =
-      daemonState.status === "unready" ? " but not ready yet" : "";
-    console.log(
-      `   Assistant already running (pid ${daemonState.pid})${readinessNote}\n`,
+    logAssistantAlreadyRunning(
+      daemonState.pid,
+      daemonState.status === "unready",
     );
     return;
   }
@@ -642,10 +647,9 @@ async function startDaemonWatchFromSource(
     "readyz",
   );
   if (daemonState.status !== "needs_start") {
-    const readinessNote =
-      daemonState.status === "unready" ? " but not ready yet" : "";
-    console.log(
-      `   Assistant already running (pid ${daemonState.pid})${readinessNote}\n`,
+    logAssistantAlreadyRunning(
+      daemonState.pid,
+      daemonState.status === "unready",
     );
     return;
   }
@@ -1101,10 +1105,9 @@ export async function startLocalDaemon(
     );
     const daemonAlive = daemonState.status !== "needs_start";
     if (daemonAlive) {
-      const readinessNote =
-        daemonState.status === "unready" ? " but not ready yet" : "";
-      console.log(
-        `   Assistant already running (pid ${daemonState.pid})${readinessNote}\n`,
+      logAssistantAlreadyRunning(
+        daemonState.pid,
+        daemonState.status === "unready",
       );
     }
 

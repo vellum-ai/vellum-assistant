@@ -56,15 +56,11 @@ function canPollOperationalStatus({
   targetIsKnownPlatformHostedAssistant: boolean;
   targetIsLifecycleOperationAssistant: boolean;
 }): boolean {
-  if (targetIsLifecycleOperationAssistant) return true;
-  if (targetIsKnownPlatformHostedAssistant) return true;
-
-  switch (assistantState.kind) {
-    case "active":
-      return activeAssistantIsPlatformHosted;
-    default:
-      return false;
-  }
+  return (
+    targetIsLifecycleOperationAssistant ||
+    targetIsKnownPlatformHostedAssistant ||
+    (assistantState.kind === "active" && activeAssistantIsPlatformHosted)
+  );
 }
 
 /**

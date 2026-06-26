@@ -364,33 +364,35 @@ export function handleDetailedHealth(): Response {
   return Response.json(getDetailedHealth());
 }
 
+type UnreadyDbMigrationReadiness = Extract<
+  ReturnType<typeof getDbMigrationReadiness>,
+  { ready: false }
+>;
+
+function dbMigrationUnavailableBody(dbMigrations: UnreadyDbMigrationReadiness) {
+  return {
+    status: dbMigrations.state === "failed" ? "error" : "starting",
+    ready: false,
+    reason: dbMigrations.reason,
+    dbMigrations,
+  };
+}
+
 export function dbMigrationUnavailableResponse(): Response | null {
   const dbMigrations = getDbMigrationReadiness();
   if (dbMigrations.ready) return null;
 
-  return Response.json(
-    {
-      status: dbMigrations.state === "failed" ? "error" : "starting",
-      ready: false,
-      reason: dbMigrations.reason,
-      dbMigrations,
-    },
-    { status: 503 },
-  );
+  return Response.json(dbMigrationUnavailableBody(dbMigrations), {
+    status: 503,
+  });
 }
 
 export function handleReadyz(): Response {
   const dbMigrations = getDbMigrationReadiness();
   if (dbMigrations.state === "failed") {
-    return Response.json(
-      {
-        status: "error",
-        ready: false,
-        reason: dbMigrations.reason,
-        dbMigrations,
-      },
-      { status: 503 },
-    );
+    return Response.json(dbMigrationUnavailableBody(dbMigrations), {
+      status: 503,
+    });
   }
 
   const cesClient = getCesClient();

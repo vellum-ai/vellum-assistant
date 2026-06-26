@@ -499,13 +499,12 @@ function useAssistantBannerConfig(): BannerConfig | null {
       (assistant) =>
         assistant.isPlatformHosted === true && assistant.isLocal === false,
     );
-    if (
-      selectedAssistantId &&
-      platformAssistants.some((assistant) => assistant.id === selectedAssistantId)
-    ) {
-      return selectedAssistantId;
-    }
-    return platformAssistants[0]?.id ?? null;
+    return (
+      platformAssistants.find((assistant) => assistant.id === selectedAssistantId)
+        ?.id ??
+      platformAssistants[0]?.id ??
+      null
+    );
   }, [assistants, currentOrganizationId, selectedAssistantId]);
   const assistantId =
     operationalStatusAssistantId ??
