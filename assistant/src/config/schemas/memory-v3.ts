@@ -249,7 +249,7 @@ export const MemoryV3ConfigSchema = z
       .nonnegative("memory.v3.denseK must be a non-negative integer")
       .default(100)
       .describe(
-        "Number of dense-lane articles folded into the candidate pool each turn after embedding the turn query. 0 disables the dense lane.",
+        "Number of dense-lane articles folded into the candidate pool each turn after embedding the turn query. 0 disables dense retrieval for both current-message and reply-query passes.",
       ),
     replyQueryK: z
       .number({ error: "memory.v3.replyQueryK must be a number" })

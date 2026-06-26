@@ -198,22 +198,28 @@ export async function orchestrate(
   );
   const stablePrefix = new Set<Slug>([...coreHotFresh, ...always]);
 
-  // Step 1: needle (sync BM25) and dense (async embed + Qdrant) lanes run in
-  // parallel. Both return distinct articles each tagged with their best-scoring
-  // section index/ordinal. The reply-query pass re-runs both lanes over the
-  // assistant's previous message as SEPARATE queries (concatenating the two
-  // speakers would average their retrieval intents into a vector that matches
-  // neither) at its own, smaller budget; it runs in the same parallel batch.
+  // Step 1: needle (sync BM25) and the enabled dense lane (async embed +
+  // Qdrant) run in parallel. Both return distinct articles each tagged with
+  // their best-scoring section index/ordinal. The reply-query pass re-runs the
+  // enabled lanes over the assistant's previous message as SEPARATE queries
+  // (concatenating the two speakers would average their retrieval intents into
+  // a vector that matches neither) at its own, smaller budget; it runs in the
+  // same parallel batch.
+  // `denseK = 0` disables dense retrieval for the whole turn, including the
+  // reply-query dense pass.
   const replyK = deps.replyQueryK ?? 0;
   const replyQuery =
     replyK > 0 ? (turn.previousAssistantMessage ?? "").trim() : "";
+  const denseEnabled = denseK > 0;
   const [needled, densed, replyNeedled, replyDensed] = await Promise.all([
     Promise.resolve(deps.needle.query(turn.currentMessage, needleK)),
-    denseLane(deps.denseConfig, turn.currentMessage, denseK),
+    denseEnabled
+      ? denseLane(deps.denseConfig, turn.currentMessage, denseK)
+      : Promise.resolve([]),
     Promise.resolve(
       replyQuery.length > 0 ? deps.needle.query(replyQuery, replyK) : [],
     ),
-    replyQuery.length > 0
+    replyQuery.length > 0 && denseEnabled
       ? denseLane(deps.denseConfig, replyQuery, replyK)
       : Promise.resolve([]),
   ]);

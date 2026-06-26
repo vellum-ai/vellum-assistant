@@ -375,6 +375,18 @@ describe("orchestrate — candidate pool composition", () => {
     expect(denseCalls.map((call) => call.k)).toEqual([7]);
   });
 
+  test("denseK = 0 disables dense retrieval for both current and reply queries", async () => {
+    const lanes = await buildLanes();
+    providerStub = selectProvider([]);
+
+    await orchestrate(
+      makeTurn(1, "apple", "previous reply mentioned cherry"),
+      depsOf(lanes, { denseK: 0, replyQueryK: 12 }),
+    );
+
+    expect(denseCalls).toEqual([]);
+  });
+
   test("selectorEnabled=false keeps all pooled candidates without calling the selector provider", async () => {
     const lanes = await buildLanes();
     // "apple" hits topic-a (needle), dense returns topic-b, and topic-a links
