@@ -54,7 +54,7 @@ export function FileDiffView({ path, oldText, newText, onBack }: FileDiffViewPro
     <div className="flex flex-col overflow-hidden rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)]">
       <div className="flex items-center gap-2 border-b border-[var(--border-base)] px-2 py-1.5">
         <Button
-          variant="ghost"
+          variant="outlined"
           size="compact"
           iconOnly={<ArrowLeft />}
           onClick={onBack}
