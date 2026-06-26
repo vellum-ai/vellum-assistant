@@ -11,8 +11,7 @@
  * replay skips them — leaving a stale transcript/status until the user
  * navigates away. Re-fetching routes the catch-up through the seed path, and an
  * authoritative snapshot that no longer reports a previously-active run retires
- * it (the daemon restarted and lost an unpersisted subprocess). Mirrors the
- * conversation-history hook's reconnect refetch.
+ * it (the daemon restarted and lost an unpersisted subprocess).
  *
  * Seeding sets each run's `highWaterMark` to the max `seq` over its events.
  * The live SSE handler drops updates whose `seq <= highWaterMark`, so events

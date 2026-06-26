@@ -1,9 +1,5 @@
 /**
- * A tool call rendered as a distinct card in the ACP chat transcript: a kind
- * glyph, the tool title, a status pill, and a streaming indicator while
- * running. Inline output (parsed from the tool content) renders in a monospace
- * block, collapsed behind a toggle when long. Any file changes the call touched
- * surface as clickable chips that invoke `onOpenDiff`.
+ * A tool call rendered as a card in the ACP chat transcript.
  */
 
 import { ChevronDown, ChevronRight, Code, FileText } from "lucide-react";

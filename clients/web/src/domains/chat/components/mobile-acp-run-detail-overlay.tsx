@@ -10,9 +10,7 @@ const AcpRunDetailPanel = lazy(() =>
 );
 
 interface MobileAcpRunDetailOverlayProps {
-  /** When `null`, the overlay renders nothing. */
   entry: AcpRunEntry | null;
-  /** Closes the overlay. */
   onClose: () => void;
 }
 

@@ -4,9 +4,8 @@
  * Server → client notification that an ACP session has finished its
  * turn. `stopReason` mirrors the ACP `StopReason` set.
  *
- * Canonical wire-contract source. Daemon code imports the type
- * directly from this file; external consumers import via
- * `@vellumai/assistant-api`.
+ * Canonical wire-contract source. Re-exported to external consumers via
+ * `@vellumai/assistant-api` (the `api/index.ts` barrel).
  */
 
 import { z } from "zod";

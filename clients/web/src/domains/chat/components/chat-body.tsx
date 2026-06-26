@@ -302,7 +302,7 @@ export function ChatBody({
         showScrollToLatest &&
         (activeSubagentsSlot || activeAcpRunsSlot || activeWorkflowsSlot) && (
           <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center gap-2 px-3 pt-2">
-            {/* subagents on the left, workflows on the right (do not reorder) */}
+            {/* subagents, then active acp runs, then workflows (do not reorder) */}
             {activeSubagentsSlot}
             {activeAcpRunsSlot}
             {activeWorkflowsSlot}

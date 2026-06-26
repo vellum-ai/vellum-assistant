@@ -41,7 +41,7 @@ function rowMarker(type: DiffRow["type"]): string {
  * `computeLineDiff` and renders monospace add/del/ctx lines with design tokens.
  *
  * Body-only: navigation (Back + breadcrumb) lives in the chat view's shared
- * header, mirroring the subagent/workflow detail panels.
+ * header.
  */
 export function FileDiffView({ path, oldText, newText }: FileDiffViewProps) {
   const rows = computeLineDiff(oldText ?? "", newText ?? "");

@@ -2,9 +2,9 @@
  * Zustand store for ACP run lifecycle state.
  *
  * Maintains a map of AcpRunEntry records keyed by acpSessionId, with an
- * ordered list of IDs for stable rendering. Event buffers are append-only;
- * consecutive message/thought chunks of the same `messageId` are coalesced
- * into the last event so high-frequency streaming stays O(1) for projections.
+ * ordered list of IDs for stable rendering. Event buffers are append-only —
+ * message/thought chunks are stored as individual events and coalesced by the
+ * projections for display, so the buffer stays a cheap append.
  *
  * @see https://zustand.docs.pmnd.rs/guides/flux-inspired-practice
  * @see https://zustand.docs.pmnd.rs/guides/updating-state
@@ -178,8 +178,7 @@ export interface AcpRunActions {
    * reports — the daemon restarted and lost the in-memory subprocess before it
    * persisted a terminal history row, so no event will ever settle the run.
    * Marks each still-active run `cancelled` with a `daemon_restarted` stop
-   * reason, mirroring the daemon's own boot-time `cleanupStaleRunningRows`.
-   * No-op for runs already terminal.
+   * reason. No-op for runs already terminal.
    */
   retireMissingRuns: (params: {
     acpSessionIds: string[];

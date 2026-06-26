@@ -30,7 +30,7 @@ export const acpSessionHistory = sqliteTable(
     // resume a persisted session; null for rows written before migration
     // 272 (those sessions are not resumable).
     cwd: text("cwd"),
-    // Usage metadata. Null for rows written before migration 302.
+    // Usage metadata. Null for rows written before these columns existed.
     task: text("task"),
     parentToolUseId: text("parent_tool_use_id"),
     usedTokens: integer("used_tokens"),
@@ -38,7 +38,7 @@ export const acpSessionHistory = sqliteTable(
     costAmount: real("cost_amount"),
     costCurrency: text("cost_currency"),
     // Cumulative input/output tokens across all turns. Null for rows written
-    // before migration 305.
+    // before these columns existed.
     inputTokens: integer("input_tokens"),
     outputTokens: integer("output_tokens"),
   },
