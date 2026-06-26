@@ -190,7 +190,6 @@ const INITIAL_PAGINATION: Omit<TranscriptPaginationState, "items"> = {
   hasMore: false,
   oldestTimestamp: null,
   isLoadingOlder: false,
-  isPinnedToLatest: true,
 };
 
 function initialState(): ChatSessionState {

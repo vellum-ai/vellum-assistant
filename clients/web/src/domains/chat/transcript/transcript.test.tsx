@@ -1,15 +1,14 @@
 /**
  * Tests for the `Transcript` component.
  *
- * Since LUM-2605 the transcript renders through the `VirtualList`
- * (`react-virtuoso`) primitive, which paints nothing under
- * `renderToStaticMarkup` (its item rendering is driven by layout effects).
- * So the suite is split:
+ * The transcript renders through the `VirtualList` (`react-virtuoso`)
+ * primitive, which paints nothing under `renderToStaticMarkup` (its item
+ * rendering is driven by layout effects). So the suite is split:
  *
  *  - The composite trailing row's layout invariants (markers, min-height,
- *    child ordering, avatar DOM identity) are unit-tested against the
- *    extracted {@link LatestEdgeRow} via `renderToStaticMarkup` / jsdom —
- *    those assertions don't need virtuoso at all.
+ *    child ordering, avatar DOM identity) are unit-tested against
+ *    {@link LatestEdgeRow} via `renderToStaticMarkup` / jsdom — those
+ *    assertions don't need virtuoso at all.
  *  - The wiring Transcript owns — that it mounts the list scroller and that
  *    its row-index map resolves message ids (`scrollToMessage`) — is checked
  *    with a jsdom render. NOTE: `react-virtuoso` only paints items when the

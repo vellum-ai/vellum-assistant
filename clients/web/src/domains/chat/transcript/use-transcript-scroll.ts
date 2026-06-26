@@ -1,8 +1,7 @@
-// Thin scroll coordinator for the virtualized chat transcript. Since
-// LUM-2605 the transcript renders through the `VirtualList` primitive,
-// which owns windowing, prepend anchoring (`firstItemIndex`), and the
-// initial bottom-pin. This hook is what remains of the old hand-rolled
-// coordinator — two responsibilities that live above the primitive:
+// Thin scroll coordinator for the virtualized chat transcript. The transcript
+// renders through the `VirtualList` primitive, which owns windowing, prepend
+// anchoring (`firstItemIndex`), and the initial bottom-pin. This hook owns the
+// two responsibilities that live above the primitive:
 //
 //   1. "Go to Newest" pill visibility — surfaced once the user drifts
 //      more than `SHOW_SCROLL_BUTTON_THRESHOLD_PX` from the bottom.
@@ -10,13 +9,11 @@
 //      within `LOAD_OLDER_THRESHOLD_PX` of the top, de-duplicated by a
 //      synchronous in-flight lock.
 //
-// Everything the previous implementation did with manual scrollTop math —
-// the auto-pin window, anchor-preserving prepend correction, container /
-// content ResizeObservers, wheel/touch/keydown disengage — is now handled
-// inside `VirtualList` (and the composite "latest-edge" row's min-height
-// spacer in `transcript.tsx`). The coordinator only reads scroll geometry
-// off the virtuoso scroller and classifies it; it never moves the viewport
-// except through the `TranscriptHandle.scrollToLatest` command.
+// `VirtualList` (and the composite "latest-edge" row's min-height spacer in
+// `transcript.tsx`) own everything else — the auto-pin on open, prepend
+// position preservation, and resize re-pin. The coordinator only reads scroll
+// geometry off the virtuoso scroller and classifies it; it never moves the
+// viewport except through the `TranscriptHandle.scrollToLatest` command.
 //
 // The transcript is plain `flex-col` (oldest first, latest at the bottom):
 //   - distanceFromTop    = scrollTop

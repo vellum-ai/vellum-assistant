@@ -216,10 +216,10 @@ export interface LatestEdgeRowProps {
  * user-send → response gap; the composite's constant row key preserves its
  * `ChatAvatar` entrance-spring state across the no-anchor → anchor flip.
  *
- * Extracted from `Transcript` so its layout invariants (markers, min-height,
- * child ordering) stay unit-testable with `renderToStaticMarkup` —
- * `Transcript` itself renders through virtuoso, which paints nothing
- * server-side.
+ * A standalone component (rather than inline JSX) so its layout invariants
+ * (markers, min-height, child ordering) are unit-testable with
+ * `renderToStaticMarkup` — `Transcript` renders through virtuoso, which paints
+ * nothing server-side.
  */
 export function LatestEdgeRow({
   anchorMessage,
@@ -320,7 +320,7 @@ export function Transcript({
   const partition = useMemo(() => partitionLatestTurn(items), [items]);
 
   // History rows + a single trailing composite when there's an anchor or an
-  // avatar to mount (mirrors the old latest-edge guard).
+  // avatar to mount.
   const rows = useMemo<VirtualRow[]>(() => {
     const out: VirtualRow[] = partition.historyItems.map((item) => ({
       type: "history",
