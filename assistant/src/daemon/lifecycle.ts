@@ -117,6 +117,7 @@ import {
   cleanupPidFileIfOwner,
   writePid,
 } from "./daemon-control.js";
+import { setDbReady, setStartupComplete } from "./daemon-readiness.js";
 import {
   evaluateDiskPressureNow,
   startDiskPressureGuard,
@@ -417,6 +418,7 @@ export async function runDaemon(): Promise<void> {
     try {
       await initializeDb();
       dbReady = true;
+      setDbReady(true);
       log.info("Daemon startup: DB initialized");
     } catch (err) {
       log.error(
@@ -1448,6 +1450,11 @@ export async function runDaemon(): Promise<void> {
         cleanupPidFile();
       },
     });
+
+    // The critical startup await-chain has completed and the daemon can serve
+    // requests, so latch readiness before logging "Daemon started". A failure
+    // in the startup catch below never reaches here.
+    setStartupComplete();
 
     log.info(
       {
