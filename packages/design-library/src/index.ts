@@ -89,8 +89,10 @@ export {
 } from "./components/segment-control";
 export {
   Stepper,
+  stepVariants,
   type StepperStep,
   type StepperProps,
+  type StepStatus,
 } from "./components/stepper";
 export {
   Slider,

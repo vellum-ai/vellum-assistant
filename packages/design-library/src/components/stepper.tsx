@@ -1,3 +1,4 @@
+import { cva, type VariantProps } from "class-variance-authority";
 import { type ComponentProps } from "react";
 
 import { cn } from "../utils/cn";
@@ -22,6 +23,31 @@ export type StepperProps = ComponentProps<"nav"> & {
    */
   disabled?: boolean;
 };
+
+// Color is keyed on the step's position (`status`); interactivity is keyed on
+// the native `:enabled` / `:disabled` state, so a completed step keeps its
+// visited color even when navigation is locked (e.g. while submitting).
+export const stepVariants = cva(
+  [
+    "-mb-px inline-flex items-center whitespace-nowrap border-b-2 border-transparent pb-2",
+    "text-body-medium-default outline-none transition-colors",
+    "keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)] keyboard-focus:ring-offset-0",
+    "enabled:cursor-pointer enabled:hover:text-[var(--content-strong)]",
+    "disabled:cursor-default",
+  ].join(" "),
+  {
+    variants: {
+      status: {
+        active: "border-[var(--primary-base)] text-[var(--content-strong)]",
+        completed: "text-[var(--content-default)]",
+        upcoming: "text-[var(--content-disabled)]",
+      },
+    },
+    defaultVariants: { status: "upcoming" },
+  },
+);
+
+export type StepStatus = NonNullable<VariantProps<typeof stepVariants>["status"]>;
 
 /**
  * Labeled step navigation for a sequential, gated flow such as a multi-page
@@ -51,28 +77,23 @@ export function Stepper({
       {...rest}
     >
       {steps.map((step, index) => {
-        const isActive = index === current;
-        const isCompleted = index < current;
-        const navigable = isCompleted && !disabled && !!onStepSelect;
+        const status: StepStatus =
+          index === current
+            ? "active"
+            : index < current
+              ? "completed"
+              : "upcoming";
+        const navigable =
+          status === "completed" && !disabled && !!onStepSelect;
         return (
           <button
             key={step.id}
             type="button"
             data-slot="stepper-step"
             disabled={!navigable}
-            aria-current={isActive ? "step" : undefined}
+            aria-current={status === "active" ? "step" : undefined}
             onClick={navigable ? () => onStepSelect?.(index) : undefined}
-            className={cn(
-              "-mb-px inline-flex items-center whitespace-nowrap border-b-2 border-transparent pb-2 text-body-medium-default outline-none transition-colors",
-              "keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)] keyboard-focus:ring-offset-0",
-              isActive &&
-                "border-[var(--primary-base)] text-[var(--content-strong)]",
-              isCompleted && "text-[var(--content-default)]",
-              !isActive && !isCompleted && "text-[var(--content-disabled)]",
-              navigable
-                ? "cursor-pointer hover:text-[var(--content-strong)]"
-                : "cursor-default",
-            )}
+            className={stepVariants({ status })}
           >
             {step.label}
           </button>
