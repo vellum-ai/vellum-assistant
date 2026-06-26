@@ -146,6 +146,9 @@ export interface VellumBridge {
   status: {
     setConnection(status: AssistantStatus): void;
   };
+  identity: {
+    setName(name: string): void;
+  };
   icon: {
     setAvatar(png: Uint8Array | null): void;
   };

@@ -58,16 +58,17 @@ mock.module("../../../contacts/contact-store.js", () => ({
   searchContacts: searchContactsMock,
 }));
 
-const { handleListContacts, handleGetContact, ROUTES } = await import(
-  "../contact-routes.js"
-);
+const { handleListContacts, handleGetContact, ROUTES } =
+  await import("../contact-routes.js");
 
-// Daemon-native contact: INFO is hydrated locally; ACL fields (role/status/
-// policy/verification) are gateway-owned and legitimately absent.
+// Daemon-native contact: INFO is hydrated locally; channel-level ACL fields
+// (status/policy/verification) are gateway-owned and absent on native reads.
+// Contact-level `role` is stored locally (NOT NULL) and always returned.
 const nativeContact = {
   id: "ct_2",
   displayName: "Bob",
   notes: null,
+  role: "contact",
   contactType: "human",
   lastInteraction: 4200,
   interactionCount: 4,
@@ -113,7 +114,7 @@ const gatewayChannel = {
 const gatewayContact = {
   id: "ct_1",
   displayName: "Alice",
-  role: "member",
+  role: "guardian",
   notes: "a note",
   contactType: "human",
   lastInteraction: 1900,
@@ -146,9 +147,8 @@ describe("contacts read API relays from the gateway", () => {
     expect(result.contacts).toHaveLength(1);
 
     const [contact] = result.contacts;
-    // ACL fields are gateway-sourced and reach the web client unchanged. `role`
-    // is optional on the transform (gateway reads carry it, daemon-native omit).
-    expect((contact as { role?: string }).role).toBe("member");
+    // ACL fields are gateway-sourced and reach the web client unchanged.
+    expect((contact as { role?: string }).role).toBe("guardian");
     expect(contact.interactionCount).toBe(7);
     expect(contact.lastInteraction).toBe(1900);
     const channel = contact.channels[0] as Record<string, unknown>;
@@ -199,7 +199,7 @@ describe("contacts read API relays from the gateway", () => {
       { method: "contacts_get_rich", params: { contactId: "ct_1" } },
     ]);
     expect(result.ok).toBe(true);
-    expect(result.contact.role).toBe("member");
+    expect(result.contact.role).toBe("guardian");
     expect(result.contact.interactionCount).toBe(7);
     const channel = result.contact.channels[0] as Record<string, unknown>;
     expect(channel.status).toBe("active");
@@ -244,7 +244,7 @@ describe("contacts read API relays from the gateway", () => {
     expect(ipcCalls).toEqual([
       { method: "contacts_list_rich", params: { limit: 50 } },
     ]);
-    expect(contacts[0].role).toBe("member");
+    expect(contacts[0].role).toBe("guardian");
     expect(contacts[0].interactionCount).toBe(7);
     expect(contacts[0].channels[0].status).toBe("active");
     expect(contactStoreReadGuard).not.toHaveBeenCalled();
@@ -284,9 +284,9 @@ describe("filtered/native contact reads stay daemon-native", () => {
     expect(channel.interactionCount).toBe(4);
     expect(channel.lastSeenAt).toBe(4100);
     expect(channel.externalUserId).toBe("+15550200");
-    // Gateway-owned ACL fields are absent — and that validates because they're
-    // optional in the response schema.
-    expect("role" in contact).toBe(false);
+    // Contact-level `role` is locally stored (NOT NULL) and always present.
+    expect((contact as { role: string }).role).toBe("contact");
+    // Channel-level ACL fields (status/policy) are gateway-owned and absent.
     expect("status" in channel).toBe(false);
     expect(() => listResponseSchema.parse(result)).not.toThrow();
   });

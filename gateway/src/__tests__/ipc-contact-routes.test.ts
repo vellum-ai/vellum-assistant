@@ -737,6 +737,40 @@ describe("IPC contact routes", () => {
     ).toBe(false);
   });
 
+  test("upsertContact read-back sources ACL from the gateway DB, not assistant defaults", async () => {
+    // The assistant mirror defaults a fresh channel to unverified/allow and a
+    // contact to role=contact. The read-back must reflect the gateway DB (the
+    // just-written source of truth): an active channel and a guardian role.
+    const db = getGatewayDb();
+    const now = Date.now();
+    db.insert(contacts)
+      .values({
+        id: "guard-1",
+        displayName: "Guardian",
+        role: "guardian",
+        principalId: "prin-guard",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    // Assistant DB info-join degrades to null (default mock returns []); ACL
+    // fields still come from the real gateway DB.
+    const store = new ContactStore(db);
+    const { contact } = await store.upsertContact({
+      id: "guard-1",
+      channels: [
+        { type: "email", address: "g@example.com", status: "active" },
+      ],
+    });
+
+    expect(contact.role).toBe("guardian");
+    expect(contact.principalId).toBe("prin-guard");
+    expect(contact.channels).toHaveLength(1);
+    expect(contact.channels[0].status).toBe("active");
+    expect(contact.channels[0].policy).toBe("allow");
+  });
+
   test("create_contact defaults a brand-new contact's displayName to the canonical address", async () => {
     await startServerAndConnect();
     const res = await sendRequest(client, "create_contact", {

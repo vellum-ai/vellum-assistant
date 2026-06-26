@@ -216,10 +216,14 @@ function memberRecordFromVerdict(
     createdAt: 0,
   };
 
+  const role: ContactRole =
+    verdict.trustClass === "guardian" ? "guardian" : "contact";
+
   const contact: ContactWithChannels = {
     id: member.contactId,
     displayName: member.displayName ?? "",
     notes: null,
+    role,
     lastInteraction: null,
     interactionCount: 0,
     createdAt: 0,
@@ -229,7 +233,11 @@ function memberRecordFromVerdict(
     channels: [channel],
   };
 
-  const role: ContactRole =
-    verdict.trustClass === "guardian" ? "guardian" : "contact";
-  return { contact, channel, status: member.status, policy: member.policy, role };
+  return {
+    contact,
+    channel,
+    status: member.status,
+    policy: member.policy,
+    role,
+  };
 }

@@ -329,6 +329,20 @@ interface ChatBodyProps {
 export function ChatBody({ messages, onSubmit }: ChatBodyProps) { /* ... */ }
 ```
 
+### One component per file
+
+Default to **one component per file**, in a kebab-case file named after
+its export (see [Component filenames match the export](#component-filenames-match-the-export)).
+A new component goes in its own new file rather than as a second export
+appended to an existing one.
+
+Co-locating more than one component in a single file is a deliberate
+exception, not the default — reserve it for a trivial presentational
+helper that is private to its sibling and meaningless on its own. The
+moment a sub-component grows its own responsibility (its own props,
+conditional rendering beyond a one-liner, or independent reuse), give it
+its own file. When in doubt, split.
+
 ---
 
 ## Hooks

@@ -233,26 +233,23 @@ describe("mark_channel_verified IPC handler", () => {
     ).rejects.toThrow(/not found/);
   });
 
-  test("inherits assistant-mirror behavior: a gateway-absent channel is mirrored then verified", async () => {
+  test("does not verify a channel absent from the gateway DB", async () => {
     seedAssistantContact("c1");
     seedAssistantChannel({ id: "ch1", contactId: "c1", status: "unverified" });
 
-    const res = (await markChannelVerifiedHandler({
-      contactChannelId: "ch1",
-    })) as { ok: boolean; didWrite: boolean; channel: { status: string } };
+    // The channel lives only in the assistant DB. The gateway DB is the source
+    // of truth and does not heal from the assistant, so verification reports
+    // not found and nothing lands in the gateway DB.
+    await expect(
+      markChannelVerifiedHandler({ contactChannelId: "ch1" }),
+    ).rejects.toThrow(/not found/);
 
-    expect(res.ok).toBe(true);
-    expect(res.didWrite).toBe(true);
-    expect(res.channel.status).toBe("active");
-
-    // Channel + parent contact were materialized into the gateway DB.
     const channelInGateway = getGatewayDb()
       .select()
       .from(contactChannels)
       .where(eq(contactChannels.id, "ch1"))
       .get();
-    expect(channelInGateway).toBeTruthy();
-    expect(channelInGateway!.contactId).toBe("c1");
+    expect(channelInGateway).toBeUndefined();
   });
 });
 

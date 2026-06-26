@@ -219,6 +219,7 @@ export function StatusBannerNotice({
 
 const OPERATIONAL_STATUS_TITLES: Record<AssistantOperationalState, string> = {
   initializing: "Assistant is initializing",
+  migrating: "Assistant is migrating",
   provisioning: "Assistant is provisioning",
   active: "Assistant is healthy",
   sleeping: "Assistant is sleeping",
@@ -243,6 +244,7 @@ const OPERATIONAL_STATUS_FAILED_TITLES: Partial<
   Record<AssistantOperationalState, string>
 > = {
   initializing: "Assistant failed to initialize",
+  migrating: "Assistant migration failed",
   provisioning: "Assistant failed to provision",
   waking: "Assistant failed to wake",
   restarting: "Assistant restart failed",
@@ -344,6 +346,7 @@ function operationalStatusBannerConfig(
     case "resizing_machine":
     case "resizing_storage":
     case "initializing":
+    case "migrating":
     case "provisioning":
       return {
         tone: "info",

@@ -30,6 +30,7 @@ export interface Contact {
   displayName: string;
   /** Free-text notes about this contact (e.g. relationship, communication preferences). */
   notes: string | null;
+  role: ContactRole;
   lastInteraction: number | null;
   interactionCount: number;
   createdAt: number;

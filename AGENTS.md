@@ -105,6 +105,14 @@ When a Vellum [Linear](https://linear.app/) ticket exists for the work, link it 
 
 Never commit worktree directories or worktree artifacts. Git worktrees are local working copies and must remain local. The `.gitignore` already excludes common patterns (`worktrees/`, `.worktrees/`, `.codex-worktrees/`, `*-worktrees/`); if a tool creates worktree directories under a new prefix, add the pattern to `.gitignore` before committing.
 
+## Single Source of Truth
+
+Don't copy-paste logic. Duplicated logic drifts: a bug gets fixed in one copy and left in the others, and the copies diverge silently over time. When the same behavior (a derivation, formatter, guard, validation, fetch/retry sequence, handler) appears in more than one place, extract it into one named function/hook/module that every caller imports — fix it once, it's fixed everywhere.
+
+- Extract on the **second** occurrence, not the fifth — two copies is the signal, not a milestone to pass.
+- Share **behavior**, not just shapes: reusing a type while re-implementing the logic around it still drifts.
+- Put the extracted code at the right layer (see the package's own docs — e.g. `clients/web/docs/CONVENTIONS.md` "Top-level shared directories"): used by one area → inside it; used by two or more → a shared module. Then delete the originals in the same change.
+
 ## Dead Code Removal
 
 Proactively remove unused code during every change. Remove code your change makes unused, clean up adjacent dead code, delete rather than comment out, check for orphaned files. Ask: "After my change, is there any code that nothing calls, imports, or references?" If yes, delete it.

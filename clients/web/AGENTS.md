@@ -13,6 +13,7 @@ Read these before making changes:
 - **[`docs/CONVENTIONS.md` — Platform gating](./docs/CONVENTIONS.md#platform-gating)** — The `usePlatformGate()` hook, the five user states (platform-hosted vs self-hosted × logged-in vs not), and when to gate/disable/hide platform-dependent UI surfaces.
 - **[`docs/CAPACITOR.md`](./docs/CAPACITOR.md)** — Capacitor / iOS patterns: lazy plugin imports, native auth, deep links, autogrowing textareas, streaming watchdogs, OS permission UI, capability detection, keyboard-only affordances. Mandatory reading if any code path you're touching might run inside the iOS WKWebView shell.
 - **[`docs/ELECTRON.md`](./docs/ELECTRON.md)** — Electron renderer patterns: `runtime/` wrapper modules for `window.vellum.*`, domain-owned bridge hooks, the three-file dance for new bridge surfaces. Read this if your change touches anything under `src/runtime/` that uses `window.vellum`.
+- **[`docs/BACKWARDS_COMPAT.md`](./docs/BACKWARDS_COMPAT.md)** — How the web app version-gates features against the locally-installed assistant/daemon. The `src/lib/backwards-compat/` registry, `useAssistantSupports()` / `assistantSupports()`, read-vs-write fallback rules, and how to add or test a gate. Read this before adding a feature that depends on a new daemon endpoint, wire field, or event shape.
 
 ## Common pitfalls
 

@@ -262,7 +262,14 @@ function getCached(
   return backendCache.get(cacheKey(provider, model, extras));
 }
 
-function geminiCacheExtras(config: AssistantConfig): string[] {
+/**
+ * The Gemini embedding options that change the output vector for identical
+ * input — task type and output dimensionality — rendered as stable cache-key
+ * fragments. Empty for a default Gemini config and for every non-Gemini
+ * provider. Part of the in-memory vector-cache identity here, and reused by the
+ * v3 section dense store so its persistent cache shares the same identity.
+ */
+export function geminiCacheExtras(config: AssistantConfig): string[] {
   const extras: string[] = [];
   if (config.memory.embeddings.geminiTaskType) {
     extras.push(`task=${config.memory.embeddings.geminiTaskType}`);

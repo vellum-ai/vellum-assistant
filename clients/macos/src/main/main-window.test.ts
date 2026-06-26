@@ -12,6 +12,7 @@ type StubWindow = {
   focus: ReturnType<typeof mock>;
   restore: ReturnType<typeof mock>;
   loadURL: ReturnType<typeof mock>;
+  setTitle: ReturnType<typeof mock>;
   isDestroyed: () => boolean;
   isMinimized: () => boolean;
   isVisible: () => boolean;
@@ -105,6 +106,7 @@ const makeWindow = (opts: Record<string, unknown> = {}): StubWindow => {
       state.minimized = false;
     }),
     loadURL: mock(() => Promise.resolve()),
+    setTitle: mock(() => undefined),
     isDestroyed: () => state.destroyed,
     isMinimized: () => state.minimized,
     isVisible: () => state.visible,

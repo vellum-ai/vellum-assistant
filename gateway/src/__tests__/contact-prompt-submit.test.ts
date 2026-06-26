@@ -704,65 +704,7 @@ describe("handleContactPromptSubmit", () => {
     expect(ipcCall.body.error).toBeUndefined();
   });
 
-  test("guardian bootstrap-create — assistant mirror keeps role='guardian' even if create-mirror INSERT fails", async () => {
-    // No guardian seeded: handler mints one gateway-first. Make the
-    // bootstrap-create assistant mirror INSERT (role='guardian') fail, so the
-    // assistant DB has no guardian row when Phase-2 upsertContact runs. Without
-    // the role re-assert, that upsert would INSERT the id with role='contact',
-    // downgrading the guardian in the mirror.
-    const realDb = testAssistantDb!;
-    let failNextGuardianInsert = true;
-    testAssistantDb = {
-      prepare(sql: string) {
-        if (
-          failNextGuardianInsert &&
-          /INSERT INTO contacts/i.test(sql) &&
-          /'guardian'/.test(sql)
-        ) {
-          failNextGuardianInsert = false;
-          throw new Error("assistant DB guardian INSERT unavailable");
-        }
-        return realDb.prepare(sql);
-      },
-    } as unknown as Database;
-
-    let res: Response;
-    try {
-      res = await handleContactPromptSubmit(
-        makeRequest({
-          requestId: "req-boot-downgrade",
-          address: "+15552223333",
-          channelType: "phone",
-          role: "guardian",
-          displayName: "Mirror Guardian",
-        }),
-      );
-    } finally {
-      testAssistantDb = realDb;
-    }
-
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as Record<string, unknown>;
-    expect(body.accepted).toBe(true);
-
-    // Gateway DB: guardian minted with role=guardian (authoritative).
-    const gwGuardians = getGatewayDb()
-      .select()
-      .from(gwContacts)
-      .where(eq(gwContacts.role, "guardian"))
-      .all();
-    expect(gwGuardians).toHaveLength(1);
-
-    // Assistant mirror: the role re-assert healed any Phase-2 downgrade — the
-    // row exists and is role='guardian', NOT 'contact'.
-    const asContacts = testAssistantDb!
-      .prepare(`SELECT role FROM contacts WHERE id = ?`)
-      .all(gwGuardians[0].id) as { role: string }[];
-    expect(asContacts).toHaveLength(1);
-    expect(asContacts[0].role).toBe("guardian");
-  });
-
-  test("guardian bootstrap-create — assistant mirror row is role='guardian'", async () => {
+  test("guardian bootstrap-create — gateway is authoritative; assistant mirror row exists without ACL role", async () => {
     const res = await handleContactPromptSubmit(
       makeRequest({
         requestId: "req-boot-role",
@@ -776,6 +718,7 @@ describe("handleContactPromptSubmit", () => {
     expect(res.status).toBe(200);
     expect(((await res.json()) as Record<string, unknown>).accepted).toBe(true);
 
+    // Gateway DB is the source of truth for the guardian ACL role.
     const gwGuardians = getGatewayDb()
       .select()
       .from(gwContacts)
@@ -783,11 +726,13 @@ describe("handleContactPromptSubmit", () => {
       .all();
     expect(gwGuardians).toHaveLength(1);
 
+    // Assistant mirror is an identity mirror only — the row exists but no ACL
+    // role is written through, so it falls back to the schema default 'contact'.
     const asContacts = testAssistantDb!
       .prepare(`SELECT role FROM contacts WHERE id = ?`)
       .all(gwGuardians[0].id) as { role: string }[];
     expect(asContacts).toHaveLength(1);
-    expect(asContacts[0].role).toBe("guardian");
+    expect(asContacts[0].role).toBe("contact");
   });
 
   test("non-guardian prompt — 500 + daemon error when channel can't be resolved (no empty channelId)", async () => {

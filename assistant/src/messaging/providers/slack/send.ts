@@ -11,7 +11,6 @@ import type { ApprovalUIMetadata } from "@vellumai/gateway-client";
 
 import { getAttachmentContent } from "../../../memory/attachments-store.js";
 import type { RuntimeAttachmentMetadata } from "../../../runtime/http-types.js";
-import { textToSlackBlocks } from "../../../runtime/slack-block-formatting.js";
 import { getLogger } from "../../../util/logger.js";
 import {
   callSlackApi,
@@ -20,6 +19,7 @@ import {
   SlackApiError,
   uploadToSlackUrl,
 } from "./api.js";
+import { renderSlackBlocks } from "./render.js";
 
 const log = getLogger("slack-send");
 
@@ -73,7 +73,7 @@ function resolveBlocks(
     return buildApprovalBlocks(text || approval.plainTextFallback, approval);
   }
   if (useBlocks && text) {
-    return textToSlackBlocks(text) ?? [];
+    return renderSlackBlocks(text) ?? [];
   }
   return [];
 }

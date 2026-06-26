@@ -14,21 +14,109 @@ mock.module("../../../../memory/qdrant-client.js", () => ({
 
 // Stub the shared embedding backend. Records inputs and returns one
 // deterministic vector per input so `upsertSections` can map vectors → points.
+// `statusProvider/Model` is what `getMemoryBackendStatus` reports (the cache-read
+// identity); `embedProvider/Model` is what `embedWithBackend` returns — kept
+// separate so a test can simulate a provider rotation between the two.
 const embedState = {
   calls: [] as string[][],
   dim: 4,
+  statusProvider: "local" as string | null,
+  statusModel: "test-model" as string | null,
+  embedProvider: "local",
+  embedModel: "test-model",
+  // Gemini embedding options that change the vector for identical text. The
+  // mocked `geminiCacheExtras` renders these into cache-key fragments exactly
+  // as the production helper does, so a test can flip the task type and assert
+  // the section cache treats it as a miss.
+  geminiTaskType: undefined as string | undefined,
+  geminiDimensions: undefined as number | undefined,
 };
 mock.module("../../../../memory/embedding-backend.js", () => ({
+  getMemoryBackendStatus: async () => ({
+    enabled: true,
+    degraded: false,
+    provider: embedState.statusProvider,
+    model: embedState.statusModel,
+    reason: null,
+  }),
   embedWithBackend: async (_config: unknown, inputs: string[]) => {
     embedState.calls.push(inputs);
     return {
-      provider: "local",
-      model: "test-model",
+      provider: embedState.embedProvider,
+      model: embedState.embedModel,
       vectors: inputs.map((_input, i) =>
         Array.from({ length: embedState.dim }, (_v, j) => (i + 1) * (j + 1)),
       ),
     };
   },
+  geminiCacheExtras: () => {
+    const extras: string[] = [];
+    if (embedState.geminiTaskType) {
+      extras.push(`task=${embedState.geminiTaskType}`);
+    }
+    if (embedState.geminiDimensions != null) {
+      extras.push(`dim=${embedState.geminiDimensions}`);
+    }
+    return extras;
+  },
+}));
+
+// In-memory stand-in for the `memory_embeddings` dense cache. Lets each test
+// program hits/misses without a real DB; keyed exactly as the production helper
+// (`targetType|targetId|provider|model`) with a stored dimension for the
+// dim-match gate. `getDb` is stubbed to a sentinel since the mock ignores it.
+const cacheState = {
+  store: new Map<
+    string,
+    { dense: number[]; contentHash: string; dimensions: number }
+  >(),
+  reads: [] as string[],
+};
+function cacheKey(k: {
+  targetType: string;
+  targetId: string;
+  provider: string;
+  model: string;
+}): string {
+  return `${k.targetType}|${k.targetId}|${k.provider}|${k.model}`;
+}
+mock.module("../../../../memory/embedding-cache.js", () => ({
+  readEmbeddingCache: (
+    _db: unknown,
+    key: {
+      targetType: string;
+      targetId: string;
+      provider: string;
+      model: string;
+      expectedDim: number;
+    },
+  ) => {
+    cacheState.reads.push(cacheKey(key));
+    const row = cacheState.store.get(cacheKey(key));
+    if (!row || row.dimensions !== key.expectedDim) return null;
+    return { dense: row.dense, contentHash: row.contentHash };
+  },
+  writeEmbeddingCache: (
+    _db: unknown,
+    params: {
+      targetType: string;
+      targetId: string;
+      provider: string;
+      model: string;
+      dense: number[];
+      contentHash: string;
+    },
+  ) => {
+    cacheState.store.set(cacheKey(params), {
+      dense: params.dense,
+      contentHash: params.contentHash,
+      dimensions: params.dense.length,
+    });
+  },
+}));
+
+mock.module("../../../../memory/db-connection.js", () => ({
+  getDb: () => ({}),
 }));
 
 // Mock the underlying @qdrant/js-client-rest package. The mock client records
@@ -159,6 +247,14 @@ function resetState(): void {
   state.scrollCalls.length = 0;
   embedState.calls.length = 0;
   embedState.dim = 4;
+  embedState.statusProvider = "local";
+  embedState.statusModel = "test-model";
+  embedState.embedProvider = "local";
+  embedState.embedModel = "test-model";
+  embedState.geminiTaskType = undefined;
+  embedState.geminiDimensions = undefined;
+  cacheState.store.clear();
+  cacheState.reads.length = 0;
   _resetSectionDenseStoreForTests();
 }
 
@@ -373,6 +469,151 @@ describe("memory v3 section-dense-store — upsert", () => {
 
     expect(state.createCollectionCalls).toBe(1);
     expect(state.upsertCalls).toHaveLength(1);
+  });
+});
+
+describe("memory v3 section-dense-store — embedding cache", () => {
+  beforeEach(resetState);
+  afterEach(resetState);
+
+  test("re-upserting unchanged sections serves from cache (no second embed)", async () => {
+    state.collectionExists = true;
+    const sections = [
+      section("people/alice", 0, "alice lead text"),
+      section("people/alice", 1, "alice section one"),
+    ];
+
+    await upsertSections(CONFIG, sections);
+    expect(embedState.calls).toHaveLength(1); // cold cache → embedded once
+
+    await upsertSections(CONFIG, sections);
+    // No new backend call — the second pass reused both cached vectors.
+    expect(embedState.calls).toHaveLength(1);
+    // But the points were still upserted (rebuilt from cache), with identical
+    // vectors to the first pass.
+    expect(state.upsertCalls).toHaveLength(2);
+    expect(state.upsertCalls[1]!.points.map((p) => p.vector)).toEqual(
+      state.upsertCalls[0]!.points.map((p) => p.vector),
+    );
+  });
+
+  test("a changed section text re-embeds (content hash differs)", async () => {
+    state.collectionExists = true;
+
+    await upsertSections(CONFIG, [section("people/alice", 0, "text A")]);
+    await upsertSections(CONFIG, [section("people/alice", 0, "text B")]);
+
+    expect(embedState.calls).toEqual([["text A"], ["text B"]]);
+  });
+
+  test("partial hit embeds only the changed section, upserts both", async () => {
+    state.collectionExists = true;
+    await upsertSections(CONFIG, [
+      section("people/alice", 0, "lead"),
+      section("people/alice", 1, "one"),
+    ]);
+    embedState.calls.length = 0;
+
+    await upsertSections(CONFIG, [
+      section("people/alice", 0, "lead"), // unchanged → cache hit
+      section("people/alice", 1, "one changed"), // changed → miss
+    ]);
+
+    // Only the changed section's text reached the backend.
+    expect(embedState.calls).toEqual([["one changed"]]);
+    // Both points (cached + freshly embedded) were upserted.
+    expect(state.upsertCalls.at(-1)!.points).toHaveLength(2);
+  });
+
+  test("no resolved provider skips the cache and embeds every section", async () => {
+    state.collectionExists = true;
+    embedState.statusProvider = null;
+    embedState.statusModel = null;
+
+    await upsertSections(CONFIG, [
+      section("people/alice", 0, "x"),
+      section("people/alice", 1, "y"),
+    ]);
+
+    // Without an embedding identity the cache cannot be keyed, so it is never
+    // read and every section is embedded — matching the pre-cache behavior.
+    expect(cacheState.reads).toEqual([]);
+    expect(embedState.calls).toEqual([["x", "y"]]);
+  });
+
+  test("a provider rotation re-embeds the whole batch under the new identity", async () => {
+    state.collectionExists = true;
+    await upsertSections(CONFIG, [
+      section("people/alice", 0, "lead"),
+      section("people/alice", 1, "one"),
+    ]);
+    embedState.calls.length = 0;
+
+    // The cache-read identity still resolves to local/test-model (so section 0
+    // is a hit), but the backend now answers as a different provider.
+    embedState.embedProvider = "openai";
+    embedState.embedModel = "text-embedding-3";
+
+    await upsertSections(CONFIG, [
+      section("people/alice", 0, "lead"), // hit under the old identity
+      section("people/alice", 1, "one changed"), // miss
+    ]);
+
+    // First the misses are embedded; the rotated provider on that response
+    // forces a full re-embed of every section so the collection stays in one
+    // embedding space.
+    expect(embedState.calls).toEqual([
+      ["one changed"],
+      ["lead", "one changed"],
+    ]);
+  });
+
+  test("a Gemini task-type change re-embeds unchanged text (cache miss)", async () => {
+    state.collectionExists = true;
+    embedState.statusProvider = "gemini";
+    embedState.statusModel = "gemini-embedding-2";
+    embedState.embedProvider = "gemini";
+    embedState.embedModel = "gemini-embedding-2";
+    embedState.geminiTaskType = "RETRIEVAL_DOCUMENT";
+
+    await upsertSections(CONFIG, [
+      section("people/alice", 0, "alice lead text"),
+    ]);
+    expect(embedState.calls).toHaveLength(1); // cold cache → embedded once
+
+    // Same text, same provider/model — but a different Gemini task type yields a
+    // different vector, so the row cached under the old task type must not be
+    // served. The extras are folded into the content hash, so the comparison
+    // misses and the section re-embeds under the new task type.
+    embedState.geminiTaskType = "SEMANTIC_SIMILARITY";
+
+    await upsertSections(CONFIG, [
+      section("people/alice", 0, "alice lead text"),
+    ]);
+
+    expect(embedState.calls).toEqual([
+      ["alice lead text"],
+      ["alice lead text"],
+    ]);
+  });
+
+  test("an unchanged Gemini task type still serves from cache (no spurious miss)", async () => {
+    state.collectionExists = true;
+    embedState.statusProvider = "gemini";
+    embedState.statusModel = "gemini-embedding-2";
+    embedState.embedProvider = "gemini";
+    embedState.embedModel = "gemini-embedding-2";
+    embedState.geminiTaskType = "RETRIEVAL_DOCUMENT";
+
+    const sections = [section("people/alice", 0, "alice lead text")];
+
+    await upsertSections(CONFIG, sections);
+    await upsertSections(CONFIG, sections);
+
+    // Folding the extras into the hash must not break ordinary hits: with the
+    // task type unchanged the second pass reuses the cached vector.
+    expect(embedState.calls).toHaveLength(1);
+    expect(state.upsertCalls).toHaveLength(2);
   });
 });
 

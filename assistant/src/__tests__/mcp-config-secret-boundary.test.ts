@@ -123,6 +123,7 @@ mock.module("../memory/embedding-backend.js", () => ({
     model: "test",
     vectors: [],
   }),
+  geminiCacheExtras: () => [],
   generateSparseEmbedding: () => ({ indices: [], values: [] }),
   getMemoryBackendStatus: async () => ({
     enabled: false,

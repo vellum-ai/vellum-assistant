@@ -61,6 +61,17 @@ export const conversations = sqliteTable(
      * callers read this column directly.
      */
     processingStartedAt: integer("processing_started_at"),
+    /**
+     * Highest stream `seq` whose content is durably persisted to this
+     * conversation's message rows. Seeded with the global high-water seq when
+     * the row is inserted and advanced on each persistence flush
+     * (`recordConversationPersistedSeq`). Returned by `/messages` as the
+     * snapshot↔stream alignment baseline so a client applies only stream
+     * events with a higher `seq`. NULL means the conversation was created
+     * before any stream activity (global seq 0) or predates this column — the
+     * client cold-starts in that case.
+     */
+    seq: integer("seq"),
   },
   (table) => [
     index("idx_conversations_updated_at").on(table.updatedAt),

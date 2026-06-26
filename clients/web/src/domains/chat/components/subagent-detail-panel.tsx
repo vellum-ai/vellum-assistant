@@ -412,8 +412,16 @@ export function SubagentDetailPanel({
                     ref={objectiveBodyRef}
                     variant="body-medium-lighter"
                     as="p"
+                    // When expanded the text becomes its own scroll container, so
+                    // make it a focusable, labelled region — otherwise keyboard
+                    // users can't reach the overflowed objective content.
+                    tabIndex={objectiveExpanded ? 0 : undefined}
+                    role={objectiveExpanded ? "region" : undefined}
+                    aria-label={objectiveExpanded ? "Objective" : undefined}
                     className={`whitespace-pre-wrap break-words leading-relaxed text-[var(--content-default)] ${
-                      objectiveExpanded ? "" : "line-clamp-5"
+                      objectiveExpanded
+                        ? "max-h-[280px] overflow-y-auto"
+                        : "line-clamp-5"
                     }`}
                   >
                     {entry.objective}

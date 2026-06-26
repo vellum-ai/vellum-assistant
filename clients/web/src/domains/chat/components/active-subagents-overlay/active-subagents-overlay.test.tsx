@@ -7,7 +7,7 @@
  * callbacks, and Escape / outside-click dismissal.
  */
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   cleanup,
   fireEvent,
@@ -15,6 +15,52 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { createElement, type ReactElement, type ReactNode } from "react";
+
+// Mock `motion/react` so the dropdown mounts/unmounts synchronously. The real
+// AnimatePresence exit runs ~1.8s in happy-dom; under full-suite load that
+// overran the per-test timeout and flaked the drill-in/dismissal assertions
+// (which wait for the panel to leave the DOM). This strips motion-only props
+// and forwards className/style/children so the layout assertions still hold.
+mock.module("motion/react", () => {
+  const MOTION_ONLY_PROPS = new Set([
+    "initial",
+    "animate",
+    "exit",
+    "transition",
+    "variants",
+    "whileHover",
+    "whileTap",
+    "whileFocus",
+    "whileInView",
+    "whileDrag",
+    "layout",
+    "layoutId",
+    "drag",
+    "custom",
+    "onAnimationStart",
+    "onAnimationComplete",
+  ]);
+  return {
+    motion: new Proxy(
+      {} as Record<string, (props: Record<string, unknown>) => ReactElement>,
+      {
+        get: (_target, tag) => (props: Record<string, unknown>) => {
+          const domProps: Record<string, unknown> = {};
+          for (const key in props) {
+            if (!MOTION_ONLY_PROPS.has(key)) domProps[key] = props[key];
+          }
+          return createElement(String(tag), domProps);
+        },
+      },
+    ),
+    // Render children immediately and drop them synchronously on unmount (no
+    // exit hold) so close-on-drill-in / Escape / outside-click assertions don't
+    // depend on real animation timing.
+    AnimatePresence: ({ children }: { children?: ReactNode }) => children,
+    useReducedMotion: () => true,
+  };
+});
 
 import { ActiveSubagentsOverlay } from "@/domains/chat/components/active-subagents-overlay/active-subagents-overlay";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
@@ -96,6 +142,12 @@ describe("ActiveSubagentsOverlay — expanded", () => {
     const panel = title.parentElement;
     expect(panel?.className).toContain("absolute");
     expect(panel?.className).toContain("pointer-events-auto");
+
+    // Width is driven by the measured-column fallback (happy-dom has no layout),
+    // so it must resolve to a finite, positive px value — not 0 or NaN.
+    const fittedWidth = Number.parseFloat(panel?.style.width ?? "");
+    expect(Number.isFinite(fittedWidth)).toBe(true);
+    expect(fittedWidth).toBeGreaterThan(0);
   });
 
   test("clicking a collapsed avatar expands the panel", () => {
@@ -140,6 +192,53 @@ describe("ActiveSubagentsOverlay — expanded", () => {
 
     fireEvent.click(getAllByRole("button", { name: /open subagent/i })[1]);
     expect(opened).toEqual(["sa-1"]);
+  });
+});
+
+describe("ActiveSubagentsOverlay — drill-in", () => {
+  test("opening a row fires onSubagentClick and closes the dropdown", async () => {
+    const ids = seedMany(2);
+    const opened: string[] = [];
+    const { queryByText } = render(
+      <ActiveSubagentsOverlay
+        subagentIds={ids}
+        onSubagentClick={(id) => opened.push(id)}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /active subagents/i }));
+    expect(queryByText("2 Active Subagents")).toBeTruthy();
+
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /open subagent/i })[0],
+    );
+
+    // The detail panel still opens (existing behavior).
+    expect(opened).toEqual(["sa-0"]);
+    // ...and the dropdown then closes so the two layers stop competing. It
+    // animates out via AnimatePresence (~1.8s in happy-dom), so wait it out.
+    await waitFor(
+      () => expect(queryByText("2 Active Subagents")).toBeNull(),
+      { timeout: 4000 },
+    );
+  });
+
+  test("stopping a row does NOT close the dropdown", () => {
+    const ids = seedMany(2);
+    const stopped: string[] = [];
+    const { queryByText } = render(
+      <ActiveSubagentsOverlay
+        subagentIds={ids}
+        onStopSubagent={(id) => stopped.push(id)}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /active subagents/i }));
+    fireEvent.click(screen.getAllByTestId("subagent-inline-card-stop")[0]);
+
+    expect(stopped).toEqual(["sa-0"]);
+    // Stopping keeps the list open so you can stop another / keep watching.
+    expect(queryByText("2 Active Subagents")).toBeTruthy();
   });
 });
 
