@@ -50,6 +50,7 @@ import {
   resolveSpawnedSubagentIds,
   resolveWorkflowRunIds,
   SlackMessageAttribution,
+  SlackReactionLine,
   type TranscriptMessageBodyProps,
   workflowRunIdForCall,
 } from "@/domains/chat/transcript/transcript-message-body-shared";
@@ -105,6 +106,7 @@ export function TranscriptMessageBody({
   isStreaming = false,
 }: TranscriptMessageBodyProps) {
   const isSlackMessage = Boolean(message.slackMessage);
+  const isSlackReaction = message.slackMessage?.eventKind === "reaction";
   const isUser = message.role === "user";
   const hasAttachments = Boolean(message.attachments?.length);
 
@@ -605,6 +607,14 @@ export function TranscriptMessageBody({
       </div>
     </>
   );
+
+  if (isSlackReaction) {
+    return (
+      <div className="flex justify-start">
+        <SlackReactionLine message={message} />
+      </div>
+    );
+  }
 
   if (isUser) {
     const userItems = groups.map((group, gi) => ({

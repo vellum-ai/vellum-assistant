@@ -29,14 +29,25 @@ export function ActiveWorkflowsOverlay({
         />
       )}
     >
-      {workflowRunIds.map((runId) => (
-        <WorkflowInlineProgressCard
-          key={runId}
-          runId={runId}
-          onWorkflowClick={onWorkflowClick}
-          onStopWorkflow={onStopWorkflow}
-        />
-      ))}
+      {({ close }) =>
+        workflowRunIds.map((runId) => (
+          <WorkflowInlineProgressCard
+            key={runId}
+            runId={runId}
+            // Opening drills into the detail panel and dismisses the dropdown
+            // so the two layers stop competing for width; stopping keeps it open.
+            onWorkflowClick={
+              onWorkflowClick
+                ? (id) => {
+                    onWorkflowClick(id);
+                    close();
+                  }
+                : undefined
+            }
+            onStopWorkflow={onStopWorkflow}
+          />
+        ))
+      }
     </ActiveOverlayShell>
   );
 }

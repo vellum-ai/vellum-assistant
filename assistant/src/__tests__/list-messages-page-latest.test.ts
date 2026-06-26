@@ -109,6 +109,13 @@ interface MessagePayload {
     sender?: { displayName?: string; externalUserId?: string };
     messageLink?: { appUrl?: string; webUrl?: string };
     threadLink?: { appUrl?: string; webUrl?: string };
+    eventKind?: "message" | "reaction";
+    reaction?: {
+      emoji: string;
+      op: "added" | "removed";
+      actorDisplayName?: string;
+      targetChannelTs: string;
+    };
   };
 }
 
@@ -482,6 +489,7 @@ describe("handleListMessages page=latest", () => {
         webUrl:
           "https://example.slack.com/archives/C123ABCDEF/p1710000000000100",
       },
+      eventKind: "message",
     });
   });
 
@@ -527,6 +535,7 @@ describe("handleListMessages page=latest", () => {
         webUrl:
           "https://example.slack.com/archives/C123ABCDEF/p1710000000000200",
       },
+      eventKind: "message",
     });
   });
 

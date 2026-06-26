@@ -315,20 +315,17 @@ function classifyCore(
     }
     if (error.statusCode === 401 || error.statusCode === 403) {
       // Both managed-proxy and user-key 401/403s reach this branch.
-      // Managed-proxy routes through the assistant API key (stale → re-
-      // provision) and emits `MANAGED_KEY_INVALID`; everything else is a
-      // user-set credential that the upstream provider rejected → emit
-      // `PROVIDER_INVALID_KEY` so the macOS chat banner renders an
-      // "Invalid API key" surface (distinct from "API key required"
-      // which only fires when the key is genuinely missing — see
-      // `providerNotConfiguredClassification`).
+      // Managed-proxy routes through the assistant API key; if that
+      // credential is stale, the user cannot fix it from model settings.
+      // Everything else is a user-set credential that the upstream provider
+      // rejected, so emit `PROVIDER_INVALID_KEY` and let the chat banner point
+      // at Settings.
       const providerName = error.provider;
       if (getProviderRoutingSource(providerName) === "managed-proxy") {
         return {
           code: "MANAGED_KEY_INVALID",
-          userMessage:
-            "The assistant API key is invalid. Attempting to re-provision…",
-          retryable: true,
+          userMessage: "Couldn't refresh assistant credentials.",
+          retryable: false,
           errorCategory: "managed_key_invalid",
         };
       }

@@ -57,6 +57,13 @@ export interface UsageEventInput {
   actor: UsageActor;
   conversationId: string | null;
   runId: string | null;
+  /**
+   * The `cron_runs.id` of the schedule firing this LLM call belongs to.
+   * Per-firing, so a reused conversation attributes each turn to its own run.
+   * `null` for non-scheduled usage and for rows persisted before the
+   * `304-add-llm-usage-cron-run-id` migration.
+   */
+  cronRunId?: string | null;
   requestId: string | null;
   callSite?: LLMCallSite | null;
   inferenceProfile?: string | null;

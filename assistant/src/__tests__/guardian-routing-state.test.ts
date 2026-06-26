@@ -30,6 +30,7 @@ import {
   setAdapterProcessMessage,
 } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import { resetGatewayAclStore } from "./helpers/gateway-acl-store.js";
 
 await initializeDb();
 
@@ -43,6 +44,7 @@ function resetTables(): void {
   db.run("DELETE FROM external_conversation_bindings");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
+  resetGatewayAclStore();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

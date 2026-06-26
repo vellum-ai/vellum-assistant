@@ -42,6 +42,7 @@ export function recordUsageEvent(
     id: uuid(),
     createdAt: Date.now(),
     ...input,
+    cronRunId: input.cronRunId ?? null,
     callSite: input.callSite ?? null,
     llmCallCount: input.llmCallCount ?? 1,
     inferenceProfile: input.inferenceProfile ?? null,
@@ -56,6 +57,7 @@ export function recordUsageEvent(
       createdAt: event.createdAt,
       conversationId: event.conversationId,
       runId: event.runId,
+      cronRunId: event.cronRunId,
       requestId: event.requestId,
       actor: event.actor,
       callSite: event.callSite,
@@ -92,6 +94,7 @@ function rowToUsageEvent(row: {
   createdAt: number;
   conversationId: string | null;
   runId: string | null;
+  cronRunId: string | null;
   requestId: string | null;
   actor: string;
   callSite: string | null;
@@ -114,6 +117,7 @@ function rowToUsageEvent(row: {
     createdAt: row.createdAt,
     conversationId: row.conversationId,
     runId: row.runId,
+    cronRunId: row.cronRunId,
     requestId: row.requestId,
     actor: row.actor as UsageEvent["actor"],
     callSite: row.callSite as UsageEvent["callSite"],
@@ -218,6 +222,7 @@ export function queryUnreportedUsageEvents(
       createdAt: llmUsageEvents.createdAt,
       conversationId: llmUsageEvents.conversationId,
       runId: llmUsageEvents.runId,
+      cronRunId: llmUsageEvents.cronRunId,
       requestId: llmUsageEvents.requestId,
       actor: llmUsageEvents.actor,
       callSite: llmUsageEvents.callSite,
@@ -486,6 +491,62 @@ export function getUsageCostForConversationWindow({
     to,
   );
   return rows[0]?.total_cost ?? 0;
+}
+
+/**
+ * Cost a single schedule run, attributing usage by EITHER its exact
+ * `cron_run_id` stamp OR the legacy conversation + time-window fallback (for
+ * un-stamped rows). Script-mode runs carry a sentinel `conversationId` that
+ * matches no real rows, so they are costed purely by `cronRunId`; the window
+ * branch is included only when a real `conversationId` is supplied.
+ */
+export function getUsageCostForRun({
+  cronRunId,
+  conversationId,
+  from,
+  to,
+}: {
+  cronRunId: string;
+  conversationId?: string;
+  from: number;
+  to: number;
+}): number {
+  let predicate = "cron_run_id = ?1";
+  const params: UsageQueryParam[] = [cronRunId];
+  if (conversationId) {
+    // Fallback for unstamped legacy rows only; the stamp takes precedence.
+    predicate +=
+      " OR (cron_run_id IS NULL AND conversation_id = ?2 AND created_at >= ?3 AND created_at <= ?4)";
+    params.push(conversationId, from, to);
+  }
+  const rows = rawAll<{ total_cost: number | null }>(
+    /*sql*/ `
+    SELECT COALESCE(SUM(estimated_cost_usd), 0) AS total_cost
+    FROM llm_usage_events
+    WHERE ${predicate}
+    `,
+    ...params,
+  );
+  return rows[0]?.total_cost ?? 0;
+}
+
+/**
+ * Return the distinct conversation ids touched by a single cron firing,
+ * identified by its `cron_run_id` stamp on the usage ledger. Rows with a null
+ * `conversation_id` are excluded, and the result is deduped. Returns an empty
+ * array for an unknown or un-stamped run.
+ */
+export function listRunConversationIds(cronRunId: string): string[] {
+  const rows = rawAll<{ conversation_id: string }>(
+    /*sql*/ `
+    SELECT DISTINCT conversation_id
+    FROM llm_usage_events
+    WHERE cron_run_id = ?1
+      AND conversation_id IS NOT NULL
+    `,
+    cronRunId,
+  );
+  return rows.map((row) => row.conversation_id);
 }
 
 /**

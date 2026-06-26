@@ -12,7 +12,7 @@ const COLUMNS: Array<{ name: string; type: string }> = [
  * migration stay NULL.
  *
  * Idempotent pure DDL with a PRAGMA guard, no registry entry needed (matches
- * the 304 usage-columns pattern).
+ * the 305 usage-columns pattern).
  */
 export function migrateAcpSessionHistoryTokenColumns(
   database: DrizzleDb,

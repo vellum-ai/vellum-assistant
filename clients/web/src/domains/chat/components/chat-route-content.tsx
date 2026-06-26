@@ -61,7 +61,11 @@ import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-sc
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { Button } from "@vellumai/design-library";
 import { Link, useLocation, useNavigate } from "react-router";
-import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
+import {
+  getChatBillingBannerDecision,
+  isManagedCredentialChatError,
+  shouldShowGenericChatErrorNotice,
+} from "@/domains/chat/utils/error-classification";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/types/types";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -487,18 +491,19 @@ export function ChatMainPanel({
 
   const showDoctorAction =
     assistantState.kind === "active" && !assistantState.isLocal;
+  const doctorAction = showDoctorAction ? (
+    <Button asChild variant="outlined" size="compact">
+      <Link to={`${routes.settings.debug}?tab=doctor`}>
+        Go to Doctor
+      </Link>
+    </Button>
+  ) : undefined;
 
   const genericChatError = shouldShowGenericChatErrorNotice(error) && error
     ? {
         message: error.message,
         tone: "error" as const,
-        actions: showDoctorAction ? (
-          <Button asChild variant="outlined" size="compact">
-            <Link to={`${routes.settings.debug}?tab=doctor`}>
-              Go to Doctor
-            </Link>
-          </Button>
-        ) : undefined,
+        actions: doctorAction,
       }
     : null;
   const hasGenericChatError = genericChatError !== null;
@@ -507,6 +512,9 @@ export function ChatMainPanel({
       ? {
           message: notice.message,
           tone: "warning" as const,
+          actions: isManagedCredentialChatError(notice)
+            ? doctorAction
+            : undefined,
         }
       : null;
   const genericChatBanner = genericChatError ?? genericChatNotice;
@@ -819,8 +827,7 @@ export function ChatMainPanel({
           }
           diskPressureBanner={diskPressureBannerSlot}
           showMissingApiKeyBanner={
-            error?.code === "PROVIDER_NOT_CONFIGURED" ||
-            error?.code === "MANAGED_KEY_INVALID"
+            error?.code === "PROVIDER_NOT_CONFIGURED"
           }
           onOpenAiSettings={pushToAiSettings}
           onDismissApiKeyError={handleDismissApiKeyError}

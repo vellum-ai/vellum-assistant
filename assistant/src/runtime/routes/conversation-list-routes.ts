@@ -31,6 +31,7 @@ import {
 import type { ConversationType } from "../../memory/conversation-types.js";
 import { getBindingsForConversations } from "../../memory/external-conversation-store.js";
 import { listGroups } from "../../memory/group-crud.js";
+import { channelBindingSchema } from "../../messaging/channel-binding-schema.js";
 import { UserError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -84,35 +85,6 @@ const assistantAttentionSchema = z.object({
       "slack_callback",
     ])
     .optional(),
-});
-
-const slackThreadSchema = z.object({
-  channelId: z.string(),
-  threadTs: z.string(),
-  link: z
-    .object({
-      appUrl: z.string().optional(),
-      webUrl: z.string().optional(),
-    })
-    .optional(),
-});
-
-const slackChannelSchema = z.object({
-  channelId: z.string(),
-  name: z.string().optional(),
-  link: z.object({ webUrl: z.string() }).optional(),
-});
-
-const channelBindingSchema = z.object({
-  sourceChannel: z.string(),
-  externalChatId: z.string(),
-  externalChatName: z.string().optional(),
-  externalThreadId: z.string().optional(),
-  externalUserId: z.string().nullable(),
-  displayName: z.string().nullable(),
-  username: z.string().nullable(),
-  slackThread: slackThreadSchema.optional(),
-  slackChannel: slackChannelSchema.optional(),
 });
 
 const forkParentSchema = z.object({

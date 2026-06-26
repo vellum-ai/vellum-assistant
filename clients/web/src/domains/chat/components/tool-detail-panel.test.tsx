@@ -6,7 +6,13 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render as rtlRender } from "@testing-library/react";
+import {
+  QueryClient,
+  QueryClientProvider,
+  type InfiniteData,
+} from "@tanstack/react-query";
+import type { ReactNode } from "react";
 
 // `ToolDetailPanel`'s thinking variant subscribes to the chat-session store,
 // which transitively pulls in the generated daemon SDK. Stub every endpoint it
@@ -30,10 +36,41 @@ const { ToolDetailPanel } = await import(
 const { useChatSessionStore } = await import(
   "@/domains/chat/chat-session-store"
 );
+const { conversationHistoryQueryKey } = await import(
+  "@/domains/chat/transcript/use-history-pagination"
+);
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
 
 const noop = () => {};
+
+let queryClient: QueryClient;
+
+function wrapper({ children }: { children: ReactNode }) {
+  return (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  );
+}
+
+const render = (ui: Parameters<typeof rtlRender>[0]) =>
+  rtlRender(ui, { wrapper });
+
+/**
+ * Seed persisted server history into the query cache under the active
+ * conversation key (read as the `("","")` key with nothing selected), so the
+ * drawer's transcript union resolves a committed message that has left the live
+ * turn.
+ */
+function seedHistory(messages: DisplayMessage[]) {
+  const data: InfiniteData<PaginatedHistoryResult> = {
+    pages: [
+      { messages, hasMore: false, oldestTimestamp: null, oldestMessageId: null },
+    ],
+    pageParams: [null],
+  };
+  queryClient.setQueryData(conversationHistoryQueryKey(null, null), data);
+}
 
 function makeDetail(overrides: Partial<ToolDetailPayload> = {}): ToolDetailPayload {
   return {
@@ -52,6 +89,9 @@ function makeDetail(overrides: Partial<ToolDetailPayload> = {}): ToolDetailPaylo
 let writeText: ReturnType<typeof mock>;
 
 beforeEach(() => {
+  queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   writeText = mock(() => Promise.resolve());
   Object.defineProperty(navigator, "clipboard", {
     value: { writeText },
@@ -64,6 +104,7 @@ afterEach(() => {
   act(() => {
     useChatSessionStore.setState({ liveTurn: [] });
   });
+  queryClient.clear();
 });
 
 describe("ToolDetailPanel", () => {
@@ -231,6 +272,33 @@ describe("ToolDetailPanel", () => {
       <ToolDetailPanel detail={detail} onClose={noop} />,
     );
     expect(getByText("snapshot fallback")).toBeDefined();
+  });
+
+  test("thinking variant keeps the full reasoning after the live→history handoff", () => {
+    // When a turn finishes, the committed row leaves the live turn for history.
+    // The drawer must keep rendering the full reasoning resolved from history,
+    // not snap back to the truncated open-time snapshot.
+    seedHistory([
+      {
+        id: "m1",
+        role: "assistant",
+        contentBlocks: [
+          { type: "thinking", thinking: "the full committed reasoning" },
+        ],
+      } as DisplayMessage,
+    ]);
+    const detail = makeDetail({
+      kind: "thinking",
+      title: "Thought process",
+      messageId: "m1",
+      thinkingGroupIndex: 0,
+      thinkingText: "stale partial snapshot",
+    });
+    const { getByText, queryByText } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+    expect(getByText("the full committed reasoning")).toBeDefined();
+    expect(queryByText("stale partial snapshot")).toBeNull();
   });
 
   test("thinking variant selects a single reasoning segment by item index", () => {

@@ -7,6 +7,7 @@ import {
   isLocalAssistant,
   isLocalMode,
 } from "@/lib/local-mode";
+import { setAssistantName } from "@/runtime/identity";
 import { setMenuPlatformSession } from "@/runtime/menu";
 import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
@@ -25,6 +26,11 @@ export async function handleLogout(navigate: NavigateFunction): Promise<void> {
     navigate(getOnboardingEntrypoint());
   } else {
     await useAuthStore.getState().logout();
+    // Clear the published assistant name before the hard navigation. The hard
+    // nav replaces the page synchronously, so no React unmount cleanup runs;
+    // without this, Electron main keeps titling the signed-out window, tray,
+    // and About panel with the previous assistant's name. No-op off Electron.
+    setAssistantName("");
     hardNavigate(routes.account.login);
   }
 }

@@ -62,6 +62,11 @@ const ALLOWED_PREFIXES = {
     // shared PID-file control helpers. Depth-2 for commands/memory/ nesting.
     "../../memory/worker-control",
     "../../../memory/worker-control",
+    // Standalone tool execution — `tools run` executes a single tool
+    // in-process from the filesystem (no daemon, no IPC), so it imports the
+    // standalone runner directly. Depth-2 for commands/ nesting.
+    "../../tools/run-standalone",
+    "../../../tools/run-standalone",
     "../logger",
     "../output",
     "../../logger",

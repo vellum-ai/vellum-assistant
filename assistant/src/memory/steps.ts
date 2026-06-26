@@ -411,8 +411,9 @@ import { migrateAddProcessingStartedAt } from "./migrations/300-add-processing-s
 import { createWatchdogEventsTable } from "./migrations/301-create-watchdog-events.js";
 import { migrateCreateCompactionEvents } from "./migrations/302-create-compaction-events.js";
 import { migrateAddConversationCreationSeq } from "./migrations/303-add-conversation-creation-seq.js";
-import { migrateAcpSessionHistoryUsageColumns } from "./migrations/304-acp-session-history-usage-columns.js";
-import { migrateAcpSessionHistoryTokenColumns } from "./migrations/305-acp-session-history-token-columns.js";
+import { migrateAddLlmUsageCronRunId } from "./migrations/304-add-llm-usage-cron-run-id.js";
+import { migrateAcpSessionHistoryUsageColumns } from "./migrations/305-acp-session-history-usage-columns.js";
+import { migrateAcpSessionHistoryTokenColumns } from "./migrations/306-acp-session-history-token-columns.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1295,6 +1296,7 @@ export const migrationSteps: MigrationStep[] = [
   createWatchdogEventsTable,
   migrateCreateCompactionEvents,
   migrateAddConversationCreationSeq,
+  migrateAddLlmUsageCronRunId,
   migrateAcpSessionHistoryUsageColumns,
   migrateAcpSessionHistoryTokenColumns,
 ];

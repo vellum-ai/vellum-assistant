@@ -304,6 +304,7 @@ export async function runScheduleDueWorkOnce(
         );
         const result: ScriptResult = await runScript(job.script, {
           timeoutMs: job.timeoutMs ?? undefined,
+          scheduleRunId: runId,
         });
         completeScheduleRun(runId, {
           status: result.exitCode === 0 ? "ok" : "error",
@@ -551,6 +552,7 @@ export async function runScheduleDueWorkOnce(
             await processMessage(conversationId, message, {
               trustClass: "guardian",
               taskRunId,
+              cronRunId: runId,
               ...(job.inferenceProfile
                 ? { overrideProfile: job.inferenceProfile }
                 : {}),
@@ -686,6 +688,7 @@ export async function runScheduleDueWorkOnce(
       try {
         await processMessage(conversationId, job.message, {
           trustClass: "guardian",
+          cronRunId: runId,
           ...(job.inferenceProfile
             ? { overrideProfile: job.inferenceProfile }
             : {}),
@@ -709,6 +712,7 @@ export async function runScheduleDueWorkOnce(
         systemHint: `Schedule: ${job.name}`,
         trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
         callSite: "mainAgent",
+        cronRunId: runId,
         ...(job.inferenceProfile
           ? { overrideProfile: job.inferenceProfile }
           : {}),

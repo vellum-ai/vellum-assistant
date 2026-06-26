@@ -13,6 +13,7 @@
  */
 
 import { describe, expect, mock, test } from "bun:test";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { type ButtonHTMLAttributes, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -56,10 +57,16 @@ mock.module("@vellumai/design-library", () => ({
   Button: ({
     children,
     iconOnly,
+    leftIcon: _leftIcon,
+    variant: _variant,
+    size: _size,
     ...props
   }: {
     children?: ReactNode;
     iconOnly?: ReactNode;
+    leftIcon?: ReactNode;
+    variant?: string;
+    size?: string;
   } & ButtonHTMLAttributes<HTMLButtonElement>) => (
     <button {...props}>{iconOnly ?? children}</button>
   ),
@@ -228,6 +235,63 @@ describe("ChatBody — banner overlay suppression (LUM-1566)", () => {
       />,
     );
     expect(html).toContain("BANNER_CONTENT");
+  });
+
+  test("reserves the measured bottom banner height", async () => {
+    const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
+    const originalResizeObserver = globalThis.ResizeObserver;
+    let measuredHeight = 137;
+    let resizeCallback: ResizeObserverCallback | null = null;
+
+    HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
+      if (this.querySelector('[data-testid="banner"]')) {
+        return {
+          bottom: measuredHeight,
+          height: measuredHeight,
+          left: 0,
+          right: 0,
+          top: 0,
+          width: 0,
+          x: 0,
+          y: 0,
+          toJSON: () => ({}),
+        };
+      }
+      return originalGetBoundingClientRect.call(this);
+    };
+    globalThis.ResizeObserver = class {
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallback = callback;
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as typeof ResizeObserver;
+
+    try {
+      const { container } = render(
+        <ChatBody
+          {...baseProps({
+            bannerSlot: <div data-testid="banner">BANNER_CONTENT</div>,
+          })}
+        />,
+      );
+      await waitFor(() => {
+        expect(container.innerHTML).toContain("padding-bottom: 137px");
+      });
+
+      measuredHeight = 164;
+      act(() => {
+        resizeCallback?.([], {} as ResizeObserver);
+      });
+      await waitFor(() => {
+        expect(container.innerHTML).toContain("padding-bottom: 164px");
+      });
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect;
+      globalThis.ResizeObserver = originalResizeObserver;
+      cleanup();
+    }
   });
 });
 

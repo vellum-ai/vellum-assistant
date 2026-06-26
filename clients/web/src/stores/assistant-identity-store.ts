@@ -1,10 +1,10 @@
 /**
  * Zustand store for the active assistant's identity (name, version).
  *
- * `ChatLayout` writes via `useAssistantIdentityInit` (first load and
- * assistant-context changes) and reads name/version for the sidebar
- * header and `PreferencesMenu`. `ChatPage` also writes from its own
- * local state when the assistant pushes a fresher identity (SSE
+ * `RootLayout` writes via `useAssistantIdentityInit` (first load and
+ * assistant-context changes); `ChatLayout` reads name/version for the
+ * sidebar header and `PreferencesMenu`. `ChatPage` also writes from its
+ * own local state when the assistant pushes a fresher identity (SSE
  * `identity_changed`) — idempotent with the layout write.
  *
  * A Zustand store avoids prop drilling through the React Router

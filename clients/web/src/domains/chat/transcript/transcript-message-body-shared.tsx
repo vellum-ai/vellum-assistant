@@ -8,6 +8,7 @@ import {
   type SubagentEntry,
 } from "@/domains/chat/subagent-store";
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import { useEmojiLookup } from "@/domains/chat/components/chat-composer/emoji-catalog";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type {
   AllowlistOption,
@@ -429,6 +430,38 @@ export function SlackMessageAttribution({
       className={className}
     >
       <span>{label}</span>
+    </div>
+  );
+}
+
+/**
+ * Compact inline rendering of a Slack reaction event. Shows the emoji
+ * character (or `:shortcode:` fallback) plus the actor name and verb.
+ */
+export function SlackReactionLine({
+  message,
+}: {
+  message: DisplayMessage;
+}) {
+  const lookupEmoji = useEmojiLookup();
+  const reaction = message.slackMessage?.reaction;
+  if (!reaction) return null;
+
+  const emojiChar = lookupEmoji(reaction.emoji);
+  const emojiDisplay = emojiChar ?? `:${reaction.emoji}:`;
+  const actor = reaction.actorDisplayName
+    ?? message.slackMessage?.sender?.displayName
+    ?? message.slackMessage?.sender?.name;
+  const verb = reaction.op === "added" ? "reacted" : "removed reaction";
+
+  return (
+    <div
+      data-testid="slack-reaction-line"
+      className="flex items-center gap-1.5 text-body-small-default text-[var(--content-tertiary)]"
+    >
+      <span className="text-base">{emojiDisplay}</span>
+      {actor && <span>{actor}</span>}
+      <span>{verb}</span>
     </div>
   );
 }

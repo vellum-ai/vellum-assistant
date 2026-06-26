@@ -11,7 +11,7 @@ import { Button } from "@vellumai/design-library";
  *
  * Width is constrained to `--chat-max-width` so the banner aligns with
  * the composer below it. Surface tokens follow the design-system
- * conventions (overlay surface, base border, subtle shadow).
+ * conventions (base surface, element border, subtle shadow).
  */
 export interface NudgeChatBannerProps {
   /** Decorative leading icon — rendered inside a 32px rounded square. */
@@ -49,7 +49,7 @@ export function NudgeChatBanner({
     <div
       className="mx-auto flex overflow-hidden rounded-xl border"
       style={{
-        background: "var(--surface-overlay)",
+        background: "var(--surface-base)",
         borderColor: "var(--border-element)",
         animation: "fadeInUp 0.25s ease-out both",
         maxWidth: "var(--chat-max-width)",
@@ -62,7 +62,7 @@ export function NudgeChatBanner({
       <div className="flex flex-1 items-center gap-2 px-4 py-3 md:gap-3">
         <span
           className="flex size-8 shrink-0 items-center justify-center rounded-lg"
-          style={{ background: "var(--surface-base)" }}
+          style={{ background: "var(--surface-lift)" }}
         >
           {icon}
         </span>

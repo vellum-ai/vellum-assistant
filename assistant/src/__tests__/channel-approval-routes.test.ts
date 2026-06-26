@@ -90,6 +90,7 @@ import {
   seedContactChannel,
 } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import { resetGatewayAclStore } from "./helpers/gateway-acl-store.js";
 
 await initializeDb();
 initAuthSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long"));
@@ -131,6 +132,7 @@ function resetTables(): void {
     "contact_channels",
     "contacts",
   );
+  resetGatewayAclStore();
   deliveryChannels.resetAllRunDeliveryClaims();
   pendingInteractions.clear();
 }

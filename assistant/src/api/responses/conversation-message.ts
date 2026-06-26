@@ -283,6 +283,13 @@ const SlackMessageLinkSchema = z.object({
   webUrl: z.string().optional(),
 });
 
+const SlackReactionSchema = z.object({
+  emoji: z.string(),
+  op: z.enum(["added", "removed"]),
+  actorDisplayName: z.string().optional(),
+  targetChannelTs: z.string(),
+});
+
 /** Slack provenance for a history row that originated from a Slack channel. */
 export const ConversationSlackMessageSchema = z.object({
   channelId: z.string(),
@@ -297,6 +304,8 @@ export const ConversationSlackMessageSchema = z.object({
     .optional(),
   messageLink: SlackMessageLinkSchema.optional(),
   threadLink: SlackMessageLinkSchema.optional(),
+  eventKind: z.enum(["message", "reaction"]).optional(),
+  reaction: SlackReactionSchema.optional(),
 });
 export type ConversationSlackMessage = z.infer<
   typeof ConversationSlackMessageSchema

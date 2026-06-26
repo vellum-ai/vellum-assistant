@@ -216,6 +216,26 @@ export function getAllTools(): Tool[] {
 }
 
 /**
+ * Return every registered tool except those contributed by a currently
+ * disabled plugin. The `.disabled` sentinel is checked at read time so
+ * `assistant plugins disable <name>` drops the plugin's tools from the
+ * listing on the next call without a daemon restart — mirroring the
+ * filtering in {@link getPluginToolDefinitions} and `getHooksFor`.
+ *
+ * Plugin tools stay in the underlying `tools` map while disabled (they are
+ * only torn out when the plugin's refcount drops to zero), so callers that
+ * report the *available* tool surface — e.g. the `tools_get` route behind
+ * `assistant tools list` — must filter here rather than read `getAllTools()`
+ * directly, which would keep showing a disabled plugin's tools.
+ */
+export function getEnabledTools(): Tool[] {
+  return getAllTools().filter((t) => {
+    const owner = ownersByName.get(t.name);
+    return !(owner?.kind === "plugin" && isPluginDisabled(owner.id));
+  });
+}
+
+/**
  * Return the recorded owner for a tool, or `undefined` if the tool is
  * core-origin (no owner) or unknown. Consumers that need to gate behavior on
  * which extension contributed a tool (permissions checker, approval-handler

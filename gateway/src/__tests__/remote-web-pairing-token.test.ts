@@ -522,22 +522,71 @@ describe("remote web pairing token exchange", () => {
     expect(refreshTokens[0].browserRefreshCookiePath).toBeNull();
   });
 
-  test("failed credential mint leaves the approved device code retryable", async () => {
+  test("assistant mirror failure does not fail the gateway-committed binding", async () => {
     const challenge = createRemoteWebPairingChallenge(PUBLIC_BASE_URL);
     expect(approveRemoteWebPairingChallenge(challenge.userCode).status).toBe(
       "approved",
     );
 
     // No gateway guardian: resolveOrCreateVellumGuardian mints fresh via
-    // createGuardianBinding, whose assistant-DB mirror write fails this once
-    // (before the gateway write and token mint), so nothing is consumed.
+    // createGuardianBinding, which writes the authoritative gateway binding
+    // first, then mirrors identity to the assistant DB. The mirror write fails
+    // this once; the gateway binding is now authoritative so the mint succeeds.
     clearGatewayGuardian();
     mockRun.mockRejectedValueOnce(new Error("temporary guardian mirror write"));
-    await expect(
-      handleRemoteWebPairingToken(
-        makeTokenRequest({ deviceCode: challenge.deviceCode }),
-      ),
-    ).rejects.toThrow("temporary guardian mirror write");
+    const res = await handleRemoteWebPairingToken(
+      makeTokenRequest({ deviceCode: challenge.deviceCode }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(setCookies(res)).toHaveLength(1);
+    expect(activeTokens()).toHaveLength(1);
+    expect(activeRefreshTokens()).toHaveLength(1);
+
+    // Gateway carries the authoritative guardian binding despite the mirror
+    // failure.
+    const gwGuardian = getGatewayDb()
+      .select()
+      .from(contacts)
+      .where(eq(contacts.role, "guardian"))
+      .all();
+    expect(gwGuardian).toHaveLength(1);
+    expect(gwGuardian[0].principalId).toMatch(/^vellum-principal-/);
+  });
+
+  test("gateway binding write failure fails the mint and leaves the code retryable", async () => {
+    const challenge = createRemoteWebPairingChallenge(PUBLIC_BASE_URL);
+    expect(approveRemoteWebPairingChallenge(challenge.userCode).status).toBe(
+      "approved",
+    );
+
+    // No gateway guardian: createGuardianBinding must write the authoritative
+    // gateway binding. Force that write to throw and confirm it propagates so
+    // nothing is consumed.
+    clearGatewayGuardian();
+    const gwDb = getGatewayDb();
+    const realTransaction = gwDb.transaction.bind(gwDb);
+    let failedOnce = false;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (gwDb as any).transaction = (...args: unknown[]) => {
+      if (!failedOnce) {
+        failedOnce = true;
+        throw new Error("gateway binding write failed");
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (realTransaction as any)(...args);
+    };
+
+    try {
+      await expect(
+        handleRemoteWebPairingToken(
+          makeTokenRequest({ deviceCode: challenge.deviceCode }),
+        ),
+      ).rejects.toThrow("gateway binding write failed");
+    } finally {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (gwDb as any).transaction = realTransaction;
+    }
 
     expect(
       getRemoteWebPairingChallengeForTests(challenge.userCode)?.status,

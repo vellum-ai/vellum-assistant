@@ -1,10 +1,12 @@
 import { Check, Copy } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { SelectionIndicator } from "@/domains/chat/components/surfaces/selection-indicator";
 import { sfSymbolToLucideIcon } from "@/domains/chat/components/surfaces/sf-symbol-map";
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
 import { useSelectionState } from "@/domains/chat/components/surfaces/use-selection-state";
 import type { Surface } from "@/domains/chat/types/types";
+import { cn } from "@/utils/misc";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -174,28 +176,23 @@ export function TableSurface({ surface, onAction }: TableSurfaceProps) {
                 <tr
                   key={row.id}
                   onClick={() => rowSelectable && handleToggle(row.id)}
-                  className={`transition-colors ${
+                  className={cn(
+                    "transition-colors",
                     rowSelectable
                       ? "cursor-pointer hover:bg-[var(--surface-hover)]"
-                      : ""
-                  } ${
+                      : "",
                     isSelected
                       ? "bg-[var(--system-positive-weak)]"
-                      : ""
-                  }`}
+                      : "",
+                  )}
                 >
                   {isSelectable && (
                     <td className="px-3 py-2">
                       {rowSelectable && (
-                        <span
-                          className={`flex h-5 w-5 items-center justify-center rounded border transition-colors ${
-                            isSelected
-                              ? "border-[var(--primary-base)] bg-[var(--primary-base)] text-[var(--content-inset)]"
-                              : "border-[var(--border-element)]"
-                          } ${selectionMode === "single" ? "rounded-full" : "rounded"}`}
-                        >
-                          {isSelected && <Check className="h-3 w-3" />}
-                        </span>
+                        <SelectionIndicator
+                          selected={isSelected}
+                          single={selectionMode === "single"}
+                        />
                       )}
                     </td>
                   )}
@@ -212,7 +209,7 @@ export function TableSurface({ surface, onAction }: TableSurfaceProps) {
                             {cell.icon && (() => {
                               const LucideIcon = sfSymbolToLucideIcon(cell.icon);
                               return LucideIcon ? (
-                                <LucideIcon className={`h-4 w-4 ${iconColorClass(cell.iconColor)}`} aria-hidden />
+                                <LucideIcon className={cn("h-4 w-4", iconColorClass(cell.iconColor))} aria-hidden />
                               ) : (
                                 <span className={iconColorClass(cell.iconColor)} aria-hidden>
                                   {cell.icon}
