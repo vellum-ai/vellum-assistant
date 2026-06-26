@@ -25,6 +25,15 @@ import { parseMarkdown } from "../../content/parse.js";
 const SLACK_BLOCK_LIMIT = 50;
 /** A `markdown` block's text is capped at 12,000 characters. */
 const SLACK_MARKDOWN_MAX_CHARS = 12_000;
+/**
+ * Slack also caps the *cumulative* `markdown`-block text across a single message
+ * payload, not just per block — an over-limit payload is rejected as
+ * `invalid_blocks`. The exact ceiling isn't documented in `@slack/types`; 12,000
+ * is conservative (it matches the documented per-block limit and stays under the
+ * observed cumulative threshold). Past it, the reply is delivered as plain text
+ * rather than risking rejection.
+ */
+const SLACK_MARKDOWN_PAYLOAD_MAX_CHARS = 12_000;
 /** A `header` block's plain_text is capped at 150 characters. */
 const SLACK_HEADER_MAX_CHARS = 150;
 /**
@@ -90,6 +99,17 @@ export function renderSlack(tree: Root, source: string): KnownBlock[] {
     }
   }
   flushRun();
+
+  // Slack caps cumulative `markdown`-block text per payload (see
+  // SLACK_MARKDOWN_PAYLOAD_MAX_CHARS). If the rendered markdown would exceed it,
+  // deliver the whole reply as plain text instead of a reject-prone payload —
+  // the same outcome as the `invalid_blocks` retry, but without the failed
+  // round trip. Returning an empty array makes the caller fall back to `text`.
+  const markdownChars = blocks.reduce(
+    (sum, block) => (block.type === "markdown" ? sum + block.text.length : sum),
+    0,
+  );
+  if (markdownChars > SLACK_MARKDOWN_PAYLOAD_MAX_CHARS) return [];
 
   return capBlocks(blocks);
 }

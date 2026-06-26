@@ -133,4 +133,14 @@ describe("renderSlackBlocks", () => {
     expect(blocks![49].type).toBe("context");
     expect(JSON.stringify(blocks![49])).toContain("omitted");
   });
+
+  test("falls back to plain text when cumulative markdown exceeds the payload budget", () => {
+    // Two ~7k prose runs split by a heading produce two markdown blocks summing
+    // to ~14k — over Slack's cumulative markdown-block budget — so the whole
+    // reply is delivered as plain text (no blocks) rather than a reject-prone
+    // payload.
+    const para = "word ".repeat(1400).trim();
+    const blocks = renderSlackBlocks(`${para}\n\n# Heading\n\n${para}`);
+    expect(blocks).toBeUndefined();
+  });
 });

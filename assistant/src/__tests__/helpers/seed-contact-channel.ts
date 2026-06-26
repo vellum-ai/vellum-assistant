@@ -7,10 +7,8 @@
  * `gwContacts`/`gwContactChannels`) and warm the member-verdict cache so verdict
  * synthesis and the sync trust fallback resolve the intended trust. The assistant
  * row carries only identity/info columns (id, displayName, channel address/chat
- * id, principalId) — never the ACL columns, which are gateway-owned.
+ * id) — never the ACL columns (incl. principalId), which are gateway-owned.
  */
-
-import { eq } from "drizzle-orm";
 
 import { isChannelId } from "../../channels/types.js";
 import { upsertContact } from "../../contacts/contact-store.js";
@@ -19,8 +17,6 @@ import type {
   ChannelStatus,
   ContactRole,
 } from "../../contacts/types.js";
-import { getDb } from "../../memory/db-connection.js";
-import { contacts } from "../../memory/schema.js";
 import { setMemberVerdict } from "../../runtime/member-verdict-cache.js";
 import {
   gatewayAclByChannelId,
@@ -62,16 +58,6 @@ export function seedContactChannel(params: {
     ],
     reassignConflictingChannels: !!params.contactId,
   });
-
-  // principalId is an identity column (assistant-owned) — keep stamping it on
-  // the assistant row so identity-keyed reads resolve it.
-  const db = getDb();
-  if (params.principalId !== undefined) {
-    db.update(contacts)
-      .set({ principalId: params.principalId })
-      .where(eq(contacts.id, contact.id))
-      .run();
-  }
 
   const channel = contact.channels.find(
     (ch) => ch.type === params.sourceChannel,

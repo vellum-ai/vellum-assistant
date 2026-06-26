@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import * as schema from "../schema.js";
-import { migrateAcpSessionHistoryTokenColumns } from "./306-acp-session-history-token-columns.js";
+import { migrateAcpSessionHistoryTokenColumns } from "./307-acp-session-history-token-columns.js";
 
 const NEW_COLUMNS = ["input_tokens", "output_tokens"];
 
