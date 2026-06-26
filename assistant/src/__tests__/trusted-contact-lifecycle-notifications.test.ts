@@ -73,6 +73,7 @@ import {
   seedContactChannel,
 } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import { resetGatewayAclStore } from "./helpers/gateway-acl-store.js";
 
 await initializeDb();
 
@@ -94,6 +95,7 @@ function resetState(): void {
   db.run("DELETE FROM notification_events");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
+  resetGatewayAclStore();
   emitSignalCalls.length = 0;
   deliverReplyCalls.length = 0;
 }
@@ -394,9 +396,13 @@ describe("trusted contact lifecycle notification signals", () => {
     // Clear the guardian contact's displayName to empty string so the
     // display name resolution returns a falsy value. createGuardianBinding
     // defaults displayName to the externalUserId, which would be a non-empty
-    // string and defeat the purpose of this test.
+    // string and defeat the purpose of this test. The role column is
+    // gateway-owned now, so target the guardian contact by its seeded
+    // (externalUserId-derived) display name instead.
     const db = getDb();
-    db.run("UPDATE contacts SET display_name = '' WHERE role = 'guardian'");
+    db.run(
+      "UPDATE contacts SET display_name = '' WHERE display_name = 'guardian-noname-111'",
+    );
 
     // Do NOT create a requester contact — display name should resolve to null
 

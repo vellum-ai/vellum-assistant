@@ -101,24 +101,20 @@ function richContactForId(contactId: string | undefined) {
   if (!contactId) return undefined;
   const contact = getContact(contactId);
   if (!contact) return undefined;
-  // ACL columns live on the still-present DB rows, not the slimmed interfaces;
-  // read them raw to build the gateway-rich response the production read parses.
-  const contactRole = (
-    getSqlite()
-      .query("SELECT role FROM contacts WHERE id = ?")
-      .get(contact.id) as { role: string } | undefined
-  )?.role;
+  // The gateway owns the ACL; tests seed it into the gateway ACL store. Source
+  // role/status/policy from there to build the gateway-rich response the
+  // production read parses (never the Phase-B-dropped assistant ACL columns).
   return {
     ok: true,
     contact: {
       id: contact.id,
       displayName: contact.displayName,
-      role: contactRole ?? "contact",
+      role: gatewayContactRole(contact.id) ?? "contact",
       interactionCount: contact.interactionCount,
       createdAt: contact.createdAt,
       updatedAt: contact.updatedAt,
       channels: contact.channels.map((c) => {
-        const acl = rawChannelAcl(c.id);
+        const acl = gatewayChannelAcl(c.id);
         return {
           id: c.id,
           contactId: c.contactId,
@@ -129,39 +125,35 @@ function richContactForId(contactId: string | undefined) {
           status: acl.status,
           policy: acl.policy,
           verifiedAt: acl.verifiedAt,
-          verifiedVia: acl.verifiedVia,
-          lastSeenAt: acl.lastSeenAt,
-          interactionCount: acl.interactionCount,
-          lastInteraction: acl.lastInteraction,
-          revokedReason: acl.revokedReason,
-          blockedReason: acl.blockedReason,
+          verifiedVia: null,
+          lastSeenAt: null,
+          interactionCount: 0,
+          lastInteraction: null,
+          revokedReason: null,
+          blockedReason: null,
         };
       }),
     },
   };
 }
 
-/** Read a channel's ACL columns straight off the still-present DB row. */
-function rawChannelAcl(channelId: string) {
-  return getSqlite()
-    .query(
-      `SELECT status, policy, verified_at AS verifiedAt, verified_via AS verifiedVia,
-              last_seen_at AS lastSeenAt, interaction_count AS interactionCount,
-              last_interaction AS lastInteraction, revoked_reason AS revokedReason,
-              blocked_reason AS blockedReason
-         FROM contact_channels WHERE id = ?`,
-    )
-    .get(channelId) as {
-    status: string;
-    policy: string;
-    verifiedAt: number | null;
-    verifiedVia: string | null;
-    lastSeenAt: number | null;
-    interactionCount: number;
-    lastInteraction: number | null;
-    revokedReason: string | null;
-    blockedReason: string | null;
+/** Read a channel's seeded ACL view from the gateway ACL store. */
+function gatewayChannelAcl(channelId: string): {
+  status: string;
+  policy: string;
+  verifiedAt: number | null;
+} {
+  const row = gatewayAclByChannelId(channelId);
+  return {
+    status: row?.status ?? "unverified",
+    policy: row?.policy ?? "allow",
+    verifiedAt: row?.verifiedAt ?? null,
   };
+}
+
+/** The seeded gateway role for any of a contact's channels. */
+function gatewayContactRole(contactId: string): string | undefined {
+  return gatewayAclRows().find((r) => r.contactId === contactId)?.role;
 }
 
 // Lets a test inject a side-effect into the gateway claim — runs after the
@@ -200,6 +192,11 @@ import {
   resolveMemberGateStatus,
 } from "../runtime/invite-redemption-service.js";
 import { hashVoiceCode } from "../util/voice-code.js";
+import {
+  gatewayAclByChannelId,
+  gatewayAclRows,
+  resetGatewayAclStore,
+} from "./helpers/gateway-acl-store.js";
 import { seedContactChannel } from "./helpers/seed-contact-channel.js";
 
 await initializeDb();
@@ -208,6 +205,7 @@ function resetTables() {
   getSqlite().run("DELETE FROM assistant_ingress_invites");
   getSqlite().run("DELETE FROM contact_channels");
   getSqlite().run("DELETE FROM contacts");
+  resetGatewayAclStore();
 }
 
 /** Create a throwaway contact and return its ID, for use as the invite's contactId. */
@@ -215,13 +213,9 @@ function createTargetContact(displayName = "Target Contact"): string {
   return upsertContact({ displayName, role: "contact" }).id;
 }
 
-/** Read a contact's local role column (dropped from the Contact interface). */
+/** Read a contact's seeded gateway role (gateway-owned, not a local column). */
 function localContactRole(contactId: string): string | undefined {
-  return (
-    getSqlite()
-      .query("SELECT role FROM contacts WHERE id = ?")
-      .get(contactId) as { role: string } | undefined
-  )?.role;
+  return gatewayContactRole(contactId);
 }
 
 describe("invite-redemption-service", () => {
