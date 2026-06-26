@@ -148,6 +148,36 @@ describe("rehydration — terminal session", () => {
     expect(getState().byToolUseId.get("tool-1")).toBe("acp-1");
   });
 
+  test("carries tool-call locations onto the rehydrated event", async () => {
+    await seed([
+      {
+        id: "acp-1",
+        acpSessionId: "proto-1",
+        agentId: "claude",
+        parentConversationId: "conv-1",
+        status: "completed",
+        startedAt: 1000,
+        completedAt: 5000,
+        eventLog: [
+          {
+            type: "acp_session_update",
+            updateType: "tool_call",
+            toolCallId: "t-1",
+            toolTitle: "Edit",
+            locations: [{ path: "/src/a.ts", line: 12 }, { path: "/src/b.ts" }],
+            seq: 4,
+          },
+        ],
+      },
+    ]);
+
+    const event = getState().byId["acp-1"]!.events[0]!;
+    expect(event.locations).toEqual([
+      { path: "/src/a.ts", line: 12 },
+      { path: "/src/b.ts" },
+    ]);
+  });
+
   test("carries cumulative input/output tokens from the session row", async () => {
     await seed([
       {
@@ -204,8 +234,16 @@ describe("rehydration — terminal session", () => {
         status: "completed",
         startedAt: 1000,
         eventLog: [
-          { type: "acp_session_update", updateType: "tool_call", toolCallId: "t-0" },
-          { type: "acp_session_update", updateType: "tool_call", toolCallId: "t-1" },
+          {
+            type: "acp_session_update",
+            updateType: "tool_call",
+            toolCallId: "t-0",
+          },
+          {
+            type: "acp_session_update",
+            updateType: "tool_call",
+            toolCallId: "t-1",
+          },
         ],
       },
     ]);
@@ -322,9 +360,24 @@ describe("rehydration — active session + live stream dedup", () => {
         status: "running",
         startedAt: 1000,
         eventLog: [
-          { type: "acp_session_update", updateType: "tool_call", toolCallId: "h-1", seq: 1 },
-          { type: "acp_session_update", updateType: "tool_call", toolCallId: "h-2", seq: 2 },
-          { type: "acp_session_update", updateType: "tool_call", toolCallId: "h-3", seq: 3 },
+          {
+            type: "acp_session_update",
+            updateType: "tool_call",
+            toolCallId: "h-1",
+            seq: 1,
+          },
+          {
+            type: "acp_session_update",
+            updateType: "tool_call",
+            toolCallId: "h-2",
+            seq: 2,
+          },
+          {
+            type: "acp_session_update",
+            updateType: "tool_call",
+            toolCallId: "h-3",
+            seq: 3,
+          },
         ],
       },
     ]);
@@ -384,8 +437,20 @@ describe("rehydration — active session + live stream dedup", () => {
         status: "running",
         startedAt: 1000,
         eventLog: [
-          { type: "acp_session_update", updateType: "agent_message_chunk", content: "a", messageId: "m-1", seq: 1 },
-          { type: "acp_session_update", updateType: "agent_message_chunk", content: "b", messageId: "m-1", seq: 2 },
+          {
+            type: "acp_session_update",
+            updateType: "agent_message_chunk",
+            content: "a",
+            messageId: "m-1",
+            seq: 1,
+          },
+          {
+            type: "acp_session_update",
+            updateType: "agent_message_chunk",
+            content: "b",
+            messageId: "m-1",
+            seq: 2,
+          },
         ],
       },
     ]);
