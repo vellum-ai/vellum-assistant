@@ -27,6 +27,7 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 
+import { SQL } from "bun";
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
@@ -186,6 +187,52 @@ describe("bun:sqlite async-mode truth", () => {
 
     // Same verdict: zero event-loop turns during the query. Drizzle's "async"
     // wrapper does not move bun:sqlite off the main thread.
+    expect(ticks).toBeLessThanOrEqual(1);
+  });
+
+  test("Bun.sql's async sql`UPDATE ...` (the tagged-template client) still blocks the loop", async () => {
+    // This is the `await sql`UPDATE ...`` syntax a colleague got from Gemini.
+    // It is real and distinct from `bun:sqlite`: it's `Bun.sql` — Bun's
+    // built-in tagged-template SQL client (`import { SQL } from "bun"`), opened
+    // against a `sqlite://` URL. Its API is genuinely promise-based: every
+    // ``await sql`...` `` returns a thenable, unlike `bun:sqlite`'s `.run()`.
+    //
+    // But promise-based is not the same as off-thread. For the SQLite adapter
+    // Bun runs the statement synchronously on the main thread and resolves the
+    // promise with the finished result — so a `await sql`UPDATE ...`` that does
+    // real work freezes the event loop for its full duration, exactly like raw
+    // `bun:sqlite` and drizzle. The `await` is a typing/composition convenience,
+    // not concurrency.
+    const db = new SQL("sqlite://:memory:");
+    await db`CREATE TABLE t (id INTEGER PRIMARY KEY, v INTEGER)`;
+    await db`INSERT INTO t (id, v) VALUES (${1}, ${0})`;
+
+    let updatedValue = 0;
+    const { ticks, ms } = await measureEventLoopTicks(async () => {
+      // The exact shape from Gemini: an awaited, parameterized tagged-template
+      // UPDATE. The recursive-CTE subquery is what makes this one UPDATE do
+      // COUNT_TO iterations of synchronous work inside SQLite.
+      await db`UPDATE t SET v = (
+        WITH RECURSIVE c(x) AS (
+          SELECT 1 UNION ALL SELECT x + 1 FROM c WHERE x < ${COUNT_TO}
+        ) SELECT count(*) FROM c
+      ) WHERE id = ${1}`;
+      const rows = (await db`SELECT v FROM t WHERE id = ${1}`) as Array<{
+        v: number;
+      }>;
+      updatedValue = rows[0].v;
+    });
+
+    console.log(
+      `[Bun.sql awaited sql\`UPDATE\`]            ticks=${ticks}  ms=${ms}  (updated v=${updatedValue})`,
+    );
+
+    // The UPDATE really ran the heavy subquery.
+    expect(updatedValue).toBe(COUNT_TO);
+    expect(ms).toBeGreaterThan(50);
+
+    // Same verdict once more: a promise-based SQLite API is still synchronous
+    // under the hood — zero event-loop turns while the statement executed.
     expect(ticks).toBeLessThanOrEqual(1);
   });
 });
