@@ -13,6 +13,7 @@ import {
 } from "./assets/menu-icons";
 import { onAvatarChange } from "./avatar";
 import { acceleratorOption } from "./commands";
+import { getName, onNameChange } from "./identity";
 import { getWatchedLockfile } from "./lockfile-watcher";
 import { dispatchToMain } from "./main-window";
 import { menuIcon } from "./menu-icon";
@@ -120,7 +121,7 @@ const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu =>
     {
       // Status line, matching the Swift status menu's header. Disabled so
       // it reads as a label, not an action.
-      label: statusMenuTitle(status),
+      label: statusMenuTitle(status, getName() ?? undefined),
       enabled: false,
     },
   ];
@@ -357,7 +358,7 @@ const applyStatus = (status: AssistantStatus): void => {
   if (!tray) return;
 
   stopPulse();
-  tray.setToolTip(statusMenuTitle(status));
+  tray.setToolTip(statusMenuTitle(status, getName() ?? undefined));
 
   const frames = statusFrames(status);
   tray.setImage(frames[0]!);
@@ -419,6 +420,11 @@ export const installTray = (handlers: TrayHandlers): void => {
   applyStatus(initialStatus);
   const unsubscribeStatus = onStatusChange(applyStatus);
   const unsubscribeAvatar = onAvatarChange(refreshIcon);
+  // Refresh the tooltip when the assistant name changes so a name arriving
+  // after the last status change (e.g. on first identity load) updates the
+  // menu-bar hover text. The right-click menu reads the name lazily at pop
+  // time (see below), so it needs no subscription.
+  const unsubscribeName = onNameChange(() => applyStatus(getStatus()));
   nativeTheme.on("updated", refreshIcon);
 
   // Explicit destroy on quit. In production the OS releases the
@@ -430,6 +436,7 @@ export const installTray = (handlers: TrayHandlers): void => {
     stopPulse();
     unsubscribeStatus();
     unsubscribeAvatar();
+    unsubscribeName();
     nativeTheme.removeListener("updated", refreshIcon);
     trayInstance?.destroy();
     trayInstance = null;
