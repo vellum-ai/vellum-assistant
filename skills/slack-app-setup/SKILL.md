@@ -31,10 +31,10 @@ The entire setup happens in **one form card**: the user clicks a pre-configured 
 
 ## Value Classification
 
-| Value     | Type       | Storage method                              | Secret? |
-| --------- | ---------- | ------------------------------------------- | ------- |
-| App Token | Credential | Form `password` field → credential store    | **Yes** |
-| Bot Token | Credential | Form `password` field → credential store    | **Yes** |
+| Value     | Type       | Storage method                           | Secret? |
+| --------- | ---------- | ---------------------------------------- | ------- |
+| App Token | Credential | Form `password` field → credential store | **Yes** |
+| Bot Token | Credential | Form `password` field → credential store | **Yes** |
 
 Tokens are entered into `password` fields in the form and travel straight to the credential store — they never pass through the chat conversation, the model, or this skill's stdout. A **User OAuth Token** (`xoxp-...`) is _not_ collected here. It's an optional power-user knob — see [Optional: add a User OAuth Token later](#optional-add-a-user-oauth-token-later).
 
@@ -74,13 +74,13 @@ The heredoc delimiter `'SLACK_INPUT_END'` is single-quoted on purpose — the sh
 
 The script prints a single JSON object on stdout (never the tokens). Branch on `status`:
 
-| `status`        | Meaning                                            | What to do |
-| --------------- | -------------------------------------------------- | ---------- |
-| `configured`    | Tokens validated and stored; Socket Mode active    | Continue to Step 3. Use `teamName` / `botUsername` from the JSON in the success message. |
-| `cancelled`     | User dismissed the form                            | Let them know setup didn't finish and offer to re-run. Stop. |
-| `timed_out`     | The form expired                                   | Tell them it timed out and offer to re-run. Stop. |
-| `config_failed` | A token was rejected or storage failed (`error`)   | Relay the `error`, then offer to re-run. Common cause: bot token must start `xoxb-`, app token `xapp-`. |
-| `error`         | Setup couldn't start (`error`)                     | Relay the `error` and re-run. |
+| `status`        | Meaning                                          | What to do                                                                                              |
+| --------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `configured`    | Tokens validated and stored; Socket Mode active  | Continue to Step 3. Use `teamName` / `botUsername` from the JSON in the success message.                |
+| `cancelled`     | User dismissed the form                          | Let them know setup didn't finish and offer to re-run. Stop.                                            |
+| `timed_out`     | The form expired                                 | Tell them it timed out and offer to re-run. Stop.                                                       |
+| `config_failed` | A token was rejected or storage failed (`error`) | Relay the `error`, then offer to re-run. Common cause: bot token must start `xoxb-`, app token `xapp-`. |
+| `error`         | Setup couldn't start (`error`)                   | Relay the `error` and re-run.                                                                           |
 
 If `configured` includes a `warning`, surface it to the user.
 

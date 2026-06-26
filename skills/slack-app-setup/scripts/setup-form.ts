@@ -188,8 +188,7 @@ try {
   emit({
     ok: false,
     status: "error",
-    error:
-      `Could not parse the form response: ${uiStderr.trim() || uiStdout.trim() || "no output"}`,
+    error: `Could not parse the form response: ${uiStderr.trim() || uiStdout.trim() || "no output"}`,
   });
 }
 
