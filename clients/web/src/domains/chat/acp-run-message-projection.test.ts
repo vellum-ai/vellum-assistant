@@ -119,6 +119,50 @@ describe("messageId coalescing", () => {
 });
 
 // ---------------------------------------------------------------------------
+// empty thought signals
+// ---------------------------------------------------------------------------
+
+describe("empty thought signals", () => {
+  it("does not open a thinking block for all-empty thought chunks", () => {
+    const blocks = computeAcpRunChatBlocks([
+      thoughtChunk("t1", ""),
+      thoughtChunk("t1", ""),
+      agentChunk("a1", "hello"),
+    ]);
+
+    expect(blocks.map((b) => b.kind)).toEqual(["agent"]);
+  });
+
+  it("starts the thinking block at the first non-empty chunk", () => {
+    const blocks = computeAcpRunChatBlocks([
+      thoughtChunk("t1", ""),
+      thoughtChunk("t1", "real"),
+    ]);
+
+    expect(blocks).toEqual([
+      { kind: "thinking", messageId: "t1", content: "real", isComplete: false },
+    ]);
+  });
+
+  it("preserves whitespace chunks once a thinking block is open", () => {
+    const blocks = computeAcpRunChatBlocks([
+      thoughtChunk("t1", "Hello"),
+      thoughtChunk("t1", " "),
+      thoughtChunk("t1", "world"),
+    ]);
+
+    expect(blocks).toEqual([
+      {
+        kind: "thinking",
+        messageId: "t1",
+        content: "Hello world",
+        isComplete: false,
+      },
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // steer markers / user turns
 // ---------------------------------------------------------------------------
 

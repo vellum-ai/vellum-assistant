@@ -183,6 +183,9 @@ export function applyAcpChatEvent(
         };
         return;
       }
+      // Some agents (e.g. claude-agent-acp) emit empty thought "signals" with
+      // no reasoning text; don't open a hollow thinking block for those.
+      if (!(event.content ?? "").trim()) return;
       closeTrailingMessage(blocks);
       blocks.push({
         kind: "thinking",
