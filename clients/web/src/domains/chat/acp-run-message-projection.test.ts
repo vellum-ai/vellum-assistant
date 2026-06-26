@@ -119,6 +119,72 @@ describe("messageId coalescing", () => {
 });
 
 // ---------------------------------------------------------------------------
+// id-less stream then final-snapshot reconciliation
+// ---------------------------------------------------------------------------
+
+describe("id-less stream then snapshot reconciliation", () => {
+  it("folds a final id-bearing snapshot into the streamed anonymous block", () => {
+    // Some agents stream a message as id-less deltas, then re-send the whole
+    // message as one chunk that finally carries a messageId.
+    const blocks = computeAcpRunChatBlocks([
+      thoughtChunk("m1", ""),
+      event({ updateType: "agent_message_chunk", content: "## Plan\n" }),
+      event({ updateType: "agent_message_chunk", content: "step one" }),
+      agentChunk("m1", "## Plan\nstep one"),
+    ]);
+
+    expect(blocks).toEqual([
+      { kind: "thinking", messageId: "m1", content: "", isComplete: true },
+      {
+        kind: "agent",
+        messageId: "m1",
+        content: "## Plan\nstep one",
+        isComplete: false,
+      },
+    ]);
+  });
+
+  it("does not fold an id-bearing chunk that differs from the streamed text", () => {
+    const blocks = computeAcpRunChatBlocks([
+      event({ updateType: "agent_message_chunk", content: "first message" }),
+      agentChunk("m2", "a different message"),
+    ]);
+
+    expect(blocks).toEqual([
+      { kind: "agent", messageId: "", content: "first message", isComplete: true },
+      {
+        kind: "agent",
+        messageId: "m2",
+        content: "a different message",
+        isComplete: false,
+      },
+    ]);
+  });
+
+  it("reconciles across the incremental projector too", () => {
+    const { project } = createAcpRunChatProjection();
+    const events: AcpRunRawEvent[] = [];
+    const push = (e: AcpRunRawEvent) => {
+      events.push(e);
+      return project(events.slice());
+    };
+
+    push(event({ updateType: "agent_message_chunk", content: "## Plan\n" }));
+    push(event({ updateType: "agent_message_chunk", content: "step one" }));
+    const blocks = push(agentChunk("m1", "## Plan\nstep one"));
+
+    expect(blocks).toEqual([
+      {
+        kind: "agent",
+        messageId: "m1",
+        content: "## Plan\nstep one",
+        isComplete: false,
+      },
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // empty thought signals
 // ---------------------------------------------------------------------------
 

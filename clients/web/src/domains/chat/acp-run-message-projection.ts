@@ -179,6 +179,20 @@ export function applyAcpChatEvent(
         };
         return;
       }
+      // Some agents stream a message as id-less deltas, then re-send the whole
+      // message as one chunk that finally carries a messageId. Adopt the id
+      // onto the streamed block rather than opening a duplicate of it.
+      if (
+        messageId !== ANONYMOUS_MESSAGE_ID &&
+        last &&
+        last.kind === "agent" &&
+        last.messageId === ANONYMOUS_MESSAGE_ID &&
+        !last.isComplete &&
+        last.content === (event.content ?? "")
+      ) {
+        blocks[blocks.length - 1] = { ...last, messageId };
+        return;
+      }
       closeTrailingMessage(blocks);
       blocks.push({
         kind: "agent",
