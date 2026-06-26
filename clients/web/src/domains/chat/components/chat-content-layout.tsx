@@ -167,7 +167,8 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
 
   // -------------------------------------------------------------------------
   // Escape closes whichever right-hand side panel is open (tool detail /
-  // thought process, subagent detail, document viewer). Surfaces stacked
+  // thought process, subagent detail, workflow detail, acp run detail,
+  // document viewer). Surfaces stacked
   // above the panel that own Escape — Radix layers (dialogs, popovers,
   // dropdowns), the command palette, voice recording, the attachment
   // preview — all run before this bubble-phase window listener (document
