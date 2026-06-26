@@ -8,10 +8,6 @@ export const contacts = sqliteTable("contacts", {
   notes: text("notes"),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
-  role: text("role", { enum: ["guardian", "contact"] })
-    .notNull()
-    .default("contact"),
-  principalId: text("principal_id"), // internal auth principal (nullable)
   userFile: text("user_file"), // workspace-relative path to per-user persona file
   contactType: text("contact_type", { enum: ["human", "assistant"] })
     .notNull()
@@ -31,13 +27,7 @@ export const contactChannels = sqliteTable(
       .notNull()
       .default(false),
     externalChatId: text("external_chat_id"), // delivery/notification routing address (e.g., Telegram chat ID)
-    status: text("status").notNull().default("unverified"), // 'active' | 'pending' | 'revoked' | 'blocked' | 'unverified'
-    policy: text("policy").notNull().default("allow"), // 'allow' | 'deny' | 'escalate'
-    verifiedAt: integer("verified_at"), // epoch ms
-    verifiedVia: text("verified_via"), // 'challenge' | 'invite' | 'bootstrap' | etc.
     inviteId: text("invite_id"), // reference to invite that onboarded
-    revokedReason: text("revoked_reason"),
-    blockedReason: text("blocked_reason"),
     lastSeenAt: integer("last_seen_at"), // epoch ms
     interactionCount: integer("interaction_count").notNull().default(0),
     lastInteraction: integer("last_interaction"),

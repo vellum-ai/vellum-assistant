@@ -35,9 +35,38 @@ function resetContactTables(): void {
   sqlite.run("DELETE FROM contacts");
 }
 
+/** Whether a column exists on a table, via `PRAGMA table_info`. */
+function hasColumn(table: string, column: string): boolean {
+  const rows = getSqlite()
+    .query<{ name: string }, []>(`PRAGMA table_info(${table})`)
+    .all();
+  return rows.some((r) => r.name === column);
+}
+
+/**
+ * The guardian-cleanup path reads the legacy ACL columns `contacts.role` and
+ * `contact_channels.status` / `verified_at`, which migration 305 drops from the
+ * production schema. Re-add them (pre-drop shape) in the isolated test DB so the
+ * migration's `aclColumnsPresent` guard finds them and the cleanup path runs —
+ * exactly the historical schema the migration was written against.
+ */
+function ensureAclColumns(): void {
+  const sqlite = getSqlite();
+  if (!hasColumn("contacts", "role")) {
+    sqlite.run("ALTER TABLE contacts ADD COLUMN role TEXT");
+  }
+  if (!hasColumn("contact_channels", "status")) {
+    sqlite.run("ALTER TABLE contact_channels ADD COLUMN status TEXT");
+  }
+  if (!hasColumn("contact_channels", "verified_at")) {
+    sqlite.run("ALTER TABLE contact_channels ADD COLUMN verified_at INTEGER");
+  }
+}
+
 /**
  * Insert a guardian contact plus an active channel so the migration's
- * raw-SQL guardian read resolves it.
+ * raw-SQL guardian read resolves it. Requires the legacy ACL columns, so
+ * it ensures they are present first.
  */
 function seedGuardian(input: {
   id: string;
@@ -47,6 +76,7 @@ function seedGuardian(input: {
   address?: string;
   verifiedAt?: number;
 }): void {
+  ensureAclColumns();
   const now = Date.now();
   const sqlite = getSqlite();
   sqlite.run(
@@ -68,12 +98,18 @@ function seedGuardian(input: {
   );
 }
 
-/** Drop the legacy ACL columns the guardian read depends on. */
+/** Drop the legacy ACL columns the guardian read depends on, if present. */
 function dropAclColumns(): void {
   const sqlite = getSqlite();
-  sqlite.run("ALTER TABLE contacts DROP COLUMN role");
-  sqlite.run("ALTER TABLE contact_channels DROP COLUMN status");
-  sqlite.run("ALTER TABLE contact_channels DROP COLUMN verified_at");
+  if (hasColumn("contacts", "role")) {
+    sqlite.run("ALTER TABLE contacts DROP COLUMN role");
+  }
+  if (hasColumn("contact_channels", "status")) {
+    sqlite.run("ALTER TABLE contact_channels DROP COLUMN status");
+  }
+  if (hasColumn("contact_channels", "verified_at")) {
+    sqlite.run("ALTER TABLE contact_channels DROP COLUMN verified_at");
+  }
 }
 
 function guardianUserFile(id: string): string | null {
@@ -140,6 +176,11 @@ function customizedContent(): string {
 beforeEach(() => {
   resetContactTables();
   cleanupWorkspaceFiles();
+  // Most scenarios exercise the guardian-cleanup path, which the migration
+  // only enters when the legacy ACL columns are present. Migration 305 drops
+  // them from the production schema, so re-add them (pre-drop shape) by default;
+  // the dedicated "ACL columns absent" test drops them to cover the skip-path.
+  ensureAclColumns();
 });
 
 // ── Tests ─────────────────────────────────────────────────────────
@@ -333,8 +374,10 @@ describe("workspace migration 031-drop-user-md", () => {
   });
 
   test("ACL columns absent — skips guardian cleanup cleanly and leaves USER.md untouched", () => {
-    // Mirror the later phase that drops the assistant-DB ACL columns. The
-    // migration must skip the guardian-dependent cleanup with no throw.
+    // Mirror the post-drop assistant-DB schema (migration 305). The migration's
+    // `aclColumnsPresent` guard must skip the guardian-dependent cleanup with no
+    // throw. Guardian-seeding tests re-add the columns via `ensureAclColumns()`,
+    // so dropping them here only affects this scenario.
     const content = customizedContent();
     writeFileSync(userMdPath(), content, "utf-8");
 
@@ -342,12 +385,9 @@ describe("workspace migration 031-drop-user-md", () => {
     try {
       expect(() => dropUserMdMigration.run(workspaceDir())).not.toThrow();
     } finally {
-      // Restore schema so later runs (file load order independent) see the
-      // columns; beforeEach only clears rows, not schema.
-      const sqlite = getSqlite();
-      sqlite.run("ALTER TABLE contacts ADD COLUMN role TEXT");
-      sqlite.run("ALTER TABLE contact_channels ADD COLUMN status TEXT");
-      sqlite.run("ALTER TABLE contact_channels ADD COLUMN verified_at INTEGER");
+      // Restore schema so a later test that reads these columns directly is
+      // unaffected; beforeEach only clears rows, not schema.
+      ensureAclColumns();
     }
 
     // USER.md is left exactly as-is; no users/ scaffold is created.
