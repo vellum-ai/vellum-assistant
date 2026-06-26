@@ -617,6 +617,10 @@ Examples:
             conversationId: string,
             opts: { hint: string; source: string; json?: boolean },
           ) => {
+            // A script-mode schedule injects __SCHEDULE_RUN_ID into its env
+            // (see schedule/run-script.ts). When set, thread it through so the
+            // woken turn's usage is attributed to the firing.
+            const cronRunId = process.env.__SCHEDULE_RUN_ID;
             const result = await cliIpcCall<{
               invoked: boolean;
               producedToolCalls: boolean;
@@ -626,6 +630,7 @@ Examples:
                 conversationId,
                 hint: opts.hint,
                 source: opts.source,
+                ...(cronRunId ? { cronRunId } : {}),
               },
             });
 

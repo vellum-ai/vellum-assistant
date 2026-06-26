@@ -8991,6 +8991,9 @@ paths:
                 source:
                   default: cli
                   type: string
+                cronRunId:
+                  type: string
+                  minLength: 1
               required:
                 - conversationId
                 - hint
