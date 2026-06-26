@@ -381,7 +381,7 @@ export function dbMigrationUnavailableResponse(): Response | null {
 
 export function handleReadyz(): Response {
   const dbMigrations = getDbMigrationReadiness();
-  if (!dbMigrations.ready && dbMigrations.state === "failed") {
+  if (dbMigrations.state === "failed") {
     return Response.json(
       {
         status: "error",
