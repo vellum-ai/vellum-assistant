@@ -7,7 +7,7 @@
  * fallback resolve the intended trust.
  */
 
-import { eq } from "drizzle-orm";
+import { eq, type SQL } from "drizzle-orm";
 
 import { isChannelId } from "../../channels/types.js";
 import { upsertContact } from "../../contacts/contact-store.js";
@@ -93,4 +93,28 @@ export function seedContactChannel(params: {
   }
 
   return { contactId: contact.id, channelId: channel.id };
+}
+
+/**
+ * Stamp the local mirror of a gateway-owned channel ACL downgrade. Production
+ * revoke is gateway-owned (relayed via `mark_channel_revoked`); tests whose
+ * guardian-resolution reads run locally call these to mark channels `revoked`
+ * so those reads observe the downgrade. The ACL-column write is confined here
+ * so the trust/guardian test files don't reference the columns.
+ */
+export function revokeChannelsByType(channelType: string): void {
+  revokeChannelsWhere(eq(contactChannels.type, channelType));
+}
+
+/** Stamp a gateway-owned channel revoke for a single channel id. */
+export function revokeChannelById(channelId: string): void {
+  revokeChannelsWhere(eq(contactChannels.id, channelId));
+}
+
+function revokeChannelsWhere(predicate: SQL): void {
+  getDb()
+    .update(contactChannels)
+    .set({ status: "revoked", updatedAt: Date.now() })
+    .where(predicate)
+    .run();
 }

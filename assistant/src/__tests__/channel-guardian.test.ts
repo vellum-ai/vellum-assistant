@@ -74,17 +74,11 @@ mock.module("../ipc/gateway-client.js", () => ({
     params?: Record<string, unknown>,
   ) => {
     if (method === "mark_channel_revoked") {
-      const { getDb } = await import("../memory/db-connection.js");
-      const { contactChannels } = await import("../memory/schema.js");
-      const { eq } = await import("drizzle-orm");
+      const { revokeChannelById } = await import(
+        "./helpers/seed-contact-channel.js"
+      );
       const channelId = params?.contactChannelId as string | undefined;
-      if (channelId) {
-        getDb()
-          .update(contactChannels)
-          .set({ status: "revoked" })
-          .where(eq(contactChannels.id, channelId))
-          .run();
-      }
+      if (channelId) revokeChannelById(channelId);
     }
     return {
       ok: true,
@@ -105,40 +99,10 @@ mock.module("../ipc/gateway-client.js", () => ({
 // existence from the gateway. Derive the list from the local binding state so
 // the gateway-backed presence guard mirrors the DB the rest of the test sets up.
 const resolveGuardianList = async (input?: { channelTypes?: string[] }) => {
-  const { getDb } = await import("../memory/db-connection.js");
-  const { contacts, contactChannels } = await import("../memory/schema.js");
-  const { and, eq } = await import("drizzle-orm");
-  const channels = input?.channelTypes ?? [];
-  return channels
-    .map((channelType) => {
-      const row = getDb()
-        .select({ contact: contacts, channel: contactChannels })
-        .from(contacts)
-        .innerJoin(
-          contactChannels,
-          eq(contacts.id, contactChannels.contactId),
-        )
-        .where(
-          and(
-            eq(contacts.role, "guardian"),
-            eq(contactChannels.type, channelType),
-            eq(contactChannels.status, "active"),
-          ),
-        )
-        .get();
-      if (!row) return null;
-      return {
-        channelType,
-        contactId: row.contact.id,
-        principalId: row.contact.principalId ?? null,
-        displayName: row.contact.displayName ?? null,
-        address: row.channel.address,
-        externalChatId: row.channel.externalChatId ?? null,
-        status: "active",
-        verifiedAt: row.channel.verifiedAt ?? null,
-      };
-    })
-    .filter((g) => g !== null);
+  const { deriveGuardianDeliveries } = await import(
+    "./helpers/derive-guardian-delivery.js"
+  );
+  return deriveGuardianDeliveries({ channelTypes: input?.channelTypes ?? [] });
 };
 
 mock.module("../contacts/guardian-delivery-reader.js", () => ({
@@ -179,7 +143,6 @@ import {
 } from "../memory/guardian-rate-limits.js";
 import {
   channelVerificationSessions,
-  contactChannels,
   conversations,
 } from "../memory/schema.js";
 import {
@@ -206,6 +169,7 @@ import {
 } from "../runtime/verification-templates.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import { revokeChannelsByType } from "./helpers/seed-contact-channel.js";
 
 initializeDb();
 
@@ -226,16 +190,11 @@ function resetTables(): void {
 }
 
 /**
- * Revoke a guardian channel's local ACL state directly. The production revoke
- * is gateway-owned (relayed via mark_channel_revoked); this stamps the local
- * mirror so the guardian-resolution reads still under test see the downgrade.
+ * Stamp the local mirror of a gateway-owned guardian-channel revoke so the
+ * guardian-resolution reads still running locally observe the downgrade.
  */
 function revokeGuardianChannelLocally(channelType: string): void {
-  getDb()
-    .update(contactChannels)
-    .set({ status: "revoked" })
-    .where(eq(contactChannels.type, channelType))
-    .run();
+  revokeChannelsByType(channelType);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

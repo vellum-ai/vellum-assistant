@@ -62,11 +62,11 @@ mock.module("../../daemon/approval-generators.js", () => ({
 }));
 
 import type { TrustClass, TrustVerdict } from "@vellumai/gateway-client";
-import { and, desc, eq } from "drizzle-orm";
 
+import { isChannelId } from "../../channels/types.js";
 import { findContactChannel } from "../../contacts/contact-store.js";
-import { getDb } from "../../memory/db-connection.js";
-import { contactChannels, contacts } from "../../memory/schema.js";
+import { getCachedMemberAcl } from "../../runtime/member-verdict-cache.js";
+import { deriveGuardianForChannel } from "./derive-guardian-delivery.js";
 import type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
@@ -147,27 +147,6 @@ function stampTrustVerdict(body: Record<string, unknown>): void {
   body.sourceMetadata = { ...(meta ?? {}), trustVerdict: verdict };
 }
 
-/**
- * Local mirror of the gateway's active-guardian-channel resolution, querying
- * the contact store directly (the production query now lives in the gateway).
- */
-function localGuardianForChannel(channelType: string) {
-  const row = getDb()
-    .select({ contact: contacts, channel: contactChannels })
-    .from(contacts)
-    .innerJoin(contactChannels, eq(contacts.id, contactChannels.contactId))
-    .where(
-      and(
-        eq(contacts.role, "guardian"),
-        eq(contactChannels.type, channelType),
-        eq(contactChannels.status, "active"),
-      ),
-    )
-    .orderBy(desc(contactChannels.verifiedAt))
-    .get();
-  return row ? { contact: row.contact, channel: row.channel } : null;
-}
-
 /** Local mirror of the gateway resolver, reading the daemon contact store. */
 export function resolveLocalTrustVerdict(input: {
   channelType: string;
@@ -182,28 +161,25 @@ export function resolveLocalTrustVerdict(input: {
         address: input.actorExternalId,
       })
     : null;
-  const guardian = localGuardianForChannel(input.channelType);
+  const guardian = deriveGuardianForChannel(input.channelType);
 
   const isGuardian =
     !!guardian &&
     !!canonicalSenderId &&
-    guardian.channel.address.toLowerCase() === canonicalSenderId.toLowerCase();
+    guardian.address.toLowerCase() === canonicalSenderId.toLowerCase();
 
-  // ACL columns are no longer on the slimmed ContactChannel type; read the raw
-  // row (columns still exist) so this local mirror sees status/policy/verified.
-  const memberRow = member
-    ? (getDb()
-        .select()
-        .from(contactChannels)
-        .where(eq(contactChannels.id, member.channel.id))
-        .get() ?? null)
-    : null;
+  // Mirror the gateway: read the member ACL from the warmed verdict cache (the
+  // source production resolves from) rather than the local ACL columns.
+  const memberAcl =
+    member && input.actorExternalId && isChannelId(input.channelType)
+      ? getCachedMemberAcl(input.channelType, input.actorExternalId)
+      : undefined;
 
   let trustClass: TrustClass;
   if (isGuardian) {
     trustClass = "guardian";
-  } else if (memberRow) {
-    const status = memberRow.status;
+  } else if (memberAcl) {
+    const status = memberAcl.status;
     if (status === "active") trustClass = "trusted_contact";
     else if (status === "unverified" || status === "pending")
       trustClass = "unverified_contact";
@@ -215,23 +191,21 @@ export function resolveLocalTrustVerdict(input: {
   const verdict: TrustVerdict = { trustClass, canonicalSenderId };
 
   if (guardian) {
-    verdict.guardianExternalUserId = guardian.channel.address;
-    verdict.guardianDeliveryChatId = guardian.channel.externalChatId;
-    if (guardian.contact.principalId)
-      verdict.guardianPrincipalId = guardian.contact.principalId;
-    verdict.guardianDisplayName = guardian.contact.displayName;
+    verdict.guardianExternalUserId = guardian.address;
+    verdict.guardianDeliveryChatId = guardian.externalChatId ?? null;
+    if (guardian.principalId)
+      verdict.guardianPrincipalId = guardian.principalId;
+    verdict.guardianDisplayName = guardian.displayName ?? undefined;
   }
 
-  if (member && memberRow) {
+  if (member && memberAcl) {
     verdict.contactId = member.channel.contactId;
     verdict.channelId = member.channel.id;
     verdict.type = member.channel.type;
     verdict.address = member.channel.address;
     verdict.externalChatId = member.channel.externalChatId;
-    verdict.status = memberRow.status;
-    verdict.policy = memberRow.policy;
-    verdict.verifiedAt = memberRow.verifiedAt;
-    verdict.verifiedVia = memberRow.verifiedVia;
+    verdict.status = memberAcl.status;
+    verdict.policy = memberAcl.policy;
     verdict.memberDisplayName = member.contact.displayName;
   }
 
