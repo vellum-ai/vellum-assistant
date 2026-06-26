@@ -100,6 +100,27 @@ let contactStoreListMock: ReturnType<typeof mock<ListFn>> = mock(async () => [])
 type GetFn = (contactId: string) => Promise<typeof DEFAULT_MOCK_CONTACT | null>;
 let contactStoreGetMock: ReturnType<typeof mock<GetFn>> = mock(async () => null);
 
+// getAclByContactIds returns the gateway ACL source of truth keyed by contact
+// id; the overlay path on filtered/search list reads uses it. Default: empty
+// map (no ACL to overlay) so the existing forward/passthrough tests are
+// unaffected.
+type ChannelAcl = {
+  id: string;
+  type: string;
+  address: string;
+  status: string | null;
+  policy: string | null;
+  verifiedAt: number | null;
+  verifiedVia: string | null;
+  revokedReason: string | null;
+  blockedReason: string | null;
+};
+type ContactAcl = { role: string; channels: Map<string, ChannelAcl> };
+type GetAclFn = (ids: string[]) => Promise<Map<string, ContactAcl>>;
+let contactStoreGetAclMock: ReturnType<typeof mock<GetAclFn>> = mock(
+  async () => new Map<string, ContactAcl>(),
+);
+
 type UpdateChannelFn = (channelId: string, params: {
   status?: string;
   policy?: string;
@@ -204,6 +225,9 @@ mock.module("../db/contact-store.js", () => ({
     async getContactWithInfo(contactId: string) {
       return contactStoreGetMock(contactId);
     }
+    async getAclByContactIds(ids: string[]) {
+      return contactStoreGetAclMock(ids);
+    }
     async updateChannelStatus(channelId: string, params: {
       status?: string;
       policy?: string;
@@ -289,6 +313,7 @@ afterEach(() => {
   }));
   contactStoreListMock = mock(async () => []);
   contactStoreGetMock = mock(async () => null);
+  contactStoreGetAclMock = mock(async () => new Map<string, ContactAcl>());
   contactStoreUpdateChannelMock = mock(() => null);
   contactStoreMergeMock = mock(async () => null);
   contactStoreGetContactMock = mock(() => ({ id: "ct_1" }));
@@ -853,6 +878,336 @@ describe("handleListContacts (gateway-native)", () => {
 
     const body = await res.json();
     expect(body.contacts[0].channels[0].externalUserId).toBe("@alice");
+  });
+});
+
+describe("handleListContacts ACL overlay (filtered/search path)", () => {
+  // A daemon contact as it comes back post-Combo-11: neutral role, channels
+  // with no/unverified ACL. The overlay must replace role + channel ACL from
+  // the gateway DB while leaving info/identity fields untouched.
+  function daemonContact(overrides: Record<string, unknown> = {}) {
+    return {
+      id: "c1",
+      displayName: "Alice",
+      role: "contact",
+      notes: "friend from college",
+      contactType: "human",
+      interactionCount: 7,
+      lastInteraction: 555,
+      createdAt: 100,
+      updatedAt: 200,
+      channels: [
+        {
+          id: "ch1",
+          contactId: "c1",
+          type: "telegram",
+          address: "@alice",
+          isPrimary: true,
+          externalUserId: "@alice",
+          externalChatId: "12345",
+          inviteId: null,
+          status: "unverified",
+          policy: "allow",
+          verifiedAt: null,
+          verifiedVia: null,
+          revokedReason: null,
+          blockedReason: null,
+          lastSeenAt: null,
+          interactionCount: 3,
+          lastInteraction: 555,
+          createdAt: 100,
+          updatedAt: 200,
+        },
+      ],
+      ...overrides,
+    };
+  }
+
+  function daemonResponse(contacts: unknown[]) {
+    return new Response(JSON.stringify({ ok: true, contacts }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
+
+  test("overlays gateway role + channel ACL onto a filtered query", async () => {
+    fetchMock = mock(async () => daemonResponse([daemonContact()]));
+    contactStoreGetAclMock = mock(
+      async () =>
+        new Map<string, ContactAcl>([
+          [
+            "c1",
+            {
+              role: "guardian",
+              channels: new Map<string, ChannelAcl>([
+                [
+                  "ch1",
+                  {
+                    id: "ch1",
+                    type: "telegram",
+                    address: "@alice",
+                    status: "active",
+                    policy: "escalate",
+                    verifiedAt: 9999,
+                    verifiedVia: "manual",
+                    revokedReason: null,
+                    blockedReason: null,
+                  },
+                ],
+              ]),
+            },
+          ],
+        ]),
+    );
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts?query=alice"),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.contacts[0].role).toBe("guardian");
+    const ch = body.contacts[0].channels[0];
+    expect(ch.status).toBe("active");
+    expect(ch.policy).toBe("escalate");
+    expect(ch.verifiedAt).toBe(9999);
+    expect(ch.verifiedVia).toBe("manual");
+    expect(contactStoreGetAclMock).toHaveBeenCalledTimes(1);
+    expect(contactStoreGetAclMock.mock.calls[0][0]).toEqual(["c1"]);
+  });
+
+  test("channel matched by id: ACL replaced, info/identity preserved exactly", async () => {
+    fetchMock = mock(async () => daemonResponse([daemonContact()]));
+    contactStoreGetAclMock = mock(
+      async () =>
+        new Map<string, ContactAcl>([
+          [
+            "c1",
+            {
+              role: "guardian",
+              channels: new Map<string, ChannelAcl>([
+                [
+                  "ch1",
+                  {
+                    id: "ch1",
+                    type: "telegram",
+                    address: "@alice",
+                    status: "active",
+                    policy: "deny",
+                    verifiedAt: 1234,
+                    verifiedVia: "challenge",
+                    revokedReason: null,
+                    blockedReason: null,
+                  },
+                ],
+              ]),
+            },
+          ],
+        ]),
+    );
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts?query=alice"),
+    );
+    const body = await res.json();
+    const contact = body.contacts[0];
+    const ch = contact.channels[0];
+
+    // ACL replaced.
+    expect(ch.status).toBe("active");
+    expect(ch.policy).toBe("deny");
+    expect(ch.verifiedVia).toBe("challenge");
+    // Info/identity preserved.
+    expect(contact.displayName).toBe("Alice");
+    expect(contact.notes).toBe("friend from college");
+    expect(contact.contactType).toBe("human");
+    expect(contact.interactionCount).toBe(7);
+    expect(ch.address).toBe("@alice");
+    expect(ch.externalUserId).toBe("@alice");
+    expect(ch.externalChatId).toBe("12345");
+    expect(ch.isPrimary).toBe(true);
+    expect(ch.interactionCount).toBe(3);
+  });
+
+  test("channel matched by (type,address) when ids differ", async () => {
+    // Daemon channel id differs from the gateway's; fall back to (type,address).
+    fetchMock = mock(async () =>
+      daemonResponse([
+        daemonContact({
+          channels: [
+            {
+              ...daemonContact().channels[0],
+              id: "daemon-side-id",
+            },
+          ],
+        }),
+      ]),
+    );
+    contactStoreGetAclMock = mock(
+      async () =>
+        new Map<string, ContactAcl>([
+          [
+            "c1",
+            {
+              role: "contact",
+              channels: new Map<string, ChannelAcl>([
+                [
+                  "gateway-side-id",
+                  {
+                    id: "gateway-side-id",
+                    type: "telegram",
+                    address: "@alice",
+                    status: "active",
+                    policy: "allow",
+                    verifiedAt: 42,
+                    verifiedVia: "manual",
+                    revokedReason: null,
+                    blockedReason: null,
+                  },
+                ],
+              ]),
+            },
+          ],
+        ]),
+    );
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts?query=alice"),
+    );
+    const body = await res.json();
+    const ch = body.contacts[0].channels[0];
+    expect(ch.status).toBe("active");
+    expect(ch.verifiedAt).toBe(42);
+    // The daemon channel id is preserved (we only overlay ACL fields).
+    expect(ch.id).toBe("daemon-side-id");
+  });
+
+  test("soft-fail: ACL read throws → original daemon response unchanged", async () => {
+    const original = { ok: true, contacts: [daemonContact()] };
+    fetchMock = mock(
+      async () =>
+        new Response(JSON.stringify(original), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    contactStoreGetAclMock = mock(async () => {
+      throw new Error("gateway DB unavailable");
+    });
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts?query=alice"),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // Unchanged: neutral role + unverified channel, exactly as the daemon sent.
+    expect(body).toEqual(original);
+    expect(body.contacts[0].role).toBe("contact");
+    expect(body.contacts[0].channels[0].status).toBe("unverified");
+  });
+
+  test("dual-write gap: present contact overlaid, missing one keeps daemon ACL; neither dropped", async () => {
+    const c2 = daemonContact({
+      id: "c2",
+      displayName: "Bob",
+      channels: [
+        {
+          ...daemonContact().channels[0],
+          id: "ch2",
+          contactId: "c2",
+          address: "@bob",
+        },
+      ],
+    });
+    fetchMock = mock(async () =>
+      daemonResponse([daemonContact(), c2]),
+    );
+    // Only c1 is in the gateway ACL map; c2 is the dual-write-gap survivor.
+    contactStoreGetAclMock = mock(
+      async () =>
+        new Map<string, ContactAcl>([
+          [
+            "c1",
+            {
+              role: "guardian",
+              channels: new Map<string, ChannelAcl>([
+                [
+                  "ch1",
+                  {
+                    id: "ch1",
+                    type: "telegram",
+                    address: "@alice",
+                    status: "active",
+                    policy: "allow",
+                    verifiedAt: 1,
+                    verifiedVia: "manual",
+                    revokedReason: null,
+                    blockedReason: null,
+                  },
+                ],
+              ]),
+            },
+          ],
+        ]),
+    );
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts?query=team"),
+    );
+    const body = await res.json();
+
+    // Neither contact dropped.
+    expect(body.contacts).toHaveLength(2);
+    // c1 overlaid.
+    const c1 = body.contacts.find((c: { id: string }) => c.id === "c1");
+    expect(c1.role).toBe("guardian");
+    expect(c1.channels[0].status).toBe("active");
+    // c2 keeps the daemon ACL (neutral).
+    const bob = body.contacts.find((c: { id: string }) => c.id === "c2");
+    expect(bob.role).toBe("contact");
+    expect(bob.channels[0].status).toBe("unverified");
+  });
+
+  test("regression guard: no-filter request stays gateway-native (no daemon forward)", async () => {
+    contactStoreListMock = mock(async () => [
+      { ...DEFAULT_MOCK_CONTACT, id: "c1", displayName: "Alice" },
+    ]);
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts"),
+    );
+
+    expect(res.status).toBe(200);
+    // Native path: daemon forward and ACL overlay are NOT used.
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(contactStoreGetAclMock).not.toHaveBeenCalled();
+    expect(contactStoreListMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("soft-fail: non-2xx daemon status returned unchanged", async () => {
+    fetchMock = mock(
+      async () =>
+        new Response(JSON.stringify({ error: "boom" }), {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts?query=alice"),
+    );
+
+    expect(res.status).toBe(500);
+    expect(contactStoreGetAclMock).not.toHaveBeenCalled();
+    expect(await res.json()).toEqual({ error: "boom" });
   });
 });
 
