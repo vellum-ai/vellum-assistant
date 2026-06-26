@@ -2013,6 +2013,11 @@ export class Conversation {
       overrideProfile?: string;
       /** Float `overrideProfile` above call-site layers for this run. */
       forceOverrideProfile?: boolean;
+      /**
+       * Firing's `cron_runs.id` stamped onto this turn's usage rows. Per-turn:
+       * forwarded into {@link runAgentLoopImpl} and threaded to `recordUsage`.
+       */
+      cronRunId?: string | null;
     },
   ): Promise<void> {
     const { onEvent, ...rest } = options ?? {};
