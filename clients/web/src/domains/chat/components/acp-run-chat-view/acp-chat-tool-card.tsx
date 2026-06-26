@@ -1,0 +1,168 @@
+/**
+ * A tool call rendered as a distinct card in the ACP chat transcript: a kind
+ * glyph, the tool title, a status pill, and a streaming indicator while
+ * running. Inline output (parsed from the tool content) renders in a monospace
+ * block, collapsed behind a toggle when long. Any file changes the call touched
+ * surface as clickable chips that invoke `onOpenDiff`.
+ */
+
+import { ChevronDown, ChevronRight, Code, FileText } from "lucide-react";
+import { useMemo, useState } from "react";
+
+import { Tag, Typography, type TagTone } from "@vellumai/design-library";
+
+import {
+  getAcpFileChanges,
+  parseAcpToolContent,
+} from "@/domains/chat/acp-tool-content";
+import type { AcpChatBlock } from "@/domains/chat/acp-run-message-projection";
+import type { AcpToolStatus } from "@/domains/chat/acp-run-step-projection";
+import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
+
+type AcpToolBlock = Extract<AcpChatBlock, { kind: "tool" }>;
+
+/** A single file the tool call touched. */
+export type AcpFileChange = {
+  path: string;
+  oldText?: string;
+  newText?: string;
+};
+
+export interface AcpChatToolCardProps {
+  /** The `kind: "tool"` chat block to render. */
+  block: AcpToolBlock;
+  /** Invoked when a file-change chip is activated. */
+  onOpenDiff: (fileChange: AcpFileChange) => void;
+}
+
+/** Output longer than this (chars) collapses behind a toggle. */
+const COLLAPSE_THRESHOLD = 600;
+
+const STATUS_TONE: Record<AcpToolStatus, TagTone> = {
+  running: "neutral",
+  completed: "positive",
+  error: "negative",
+};
+
+const STATUS_LABEL: Record<AcpToolStatus, string> = {
+  running: "Running",
+  completed: "Completed",
+  error: "Failed",
+};
+
+/** Leading kind glyph — file glyph for read/edit, code brackets otherwise. */
+function KindIcon({ toolKind }: { toolKind?: string }) {
+  const Icon = toolKind === "read" || toolKind === "edit" ? FileText : Code;
+  return (
+    <Icon
+      aria-hidden
+      className="h-4 w-4 shrink-0 text-[var(--content-tertiary)]"
+    />
+  );
+}
+
+export function AcpChatToolCard({ block, onOpenDiff }: AcpChatToolCardProps) {
+  const [expanded, setExpanded] = useState(false);
+
+  const parsed = useMemo(
+    () => parseAcpToolContent(block.content),
+    [block.content],
+  );
+
+  const outputText = useMemo(
+    () =>
+      parsed
+        .filter((b) => b.type === "content" || b.type === "terminal")
+        .map((b) => ("text" in b ? (b.text ?? "") : ""))
+        .filter((text) => text.length > 0)
+        .join("\n"),
+    [parsed],
+  );
+
+  const fileChanges = useMemo(
+    () => getAcpFileChanges(parsed, block.locations),
+    [parsed, block.locations],
+  );
+
+  const isRunning = block.status === "running";
+  const isLong = outputText.length > COLLAPSE_THRESHOLD;
+  const showOutput = outputText.length > 0 && (!isLong || expanded);
+
+  return (
+    <div
+      data-testid="acp-chat-tool-card"
+      data-status={block.status}
+      className="w-full rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3"
+    >
+      <div className="flex items-center gap-2">
+        <KindIcon toolKind={block.toolKind} />
+        <Typography
+          variant="body-small-emphasised"
+          className="min-w-0 flex-1 truncate text-[var(--content-default)]"
+          title={block.title}
+        >
+          {block.title || "Tool call"}
+        </Typography>
+        <Tag
+          tone={STATUS_TONE[block.status]}
+          data-testid="acp-chat-tool-status"
+        >
+          {STATUS_LABEL[block.status]}
+        </Tag>
+        {isRunning && (
+          <ThreeDotIndicator
+            className="shrink-0"
+            data-testid="acp-chat-tool-running"
+          />
+        )}
+      </div>
+
+      {fileChanges.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {fileChanges.map((fileChange) => (
+            <button
+              key={fileChange.path}
+              type="button"
+              data-testid="acp-chat-tool-file-chip"
+              onClick={() => onOpenDiff(fileChange)}
+              title={fileChange.path}
+              className="flex max-w-full items-center gap-1.5 rounded-md border border-[var(--border-base)] bg-[var(--surface-base)] px-2 py-1 text-body-small-default text-[var(--content-secondary)] transition-colors hover:bg-[var(--surface-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--border-focus)]"
+            >
+              <FileText aria-hidden className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate font-mono">{fileChange.path}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {outputText.length > 0 && (
+        <div className="mt-2">
+          {isLong && (
+            <button
+              type="button"
+              data-testid="acp-chat-tool-output-toggle"
+              aria-expanded={expanded}
+              onClick={() => setExpanded((prev) => !prev)}
+              className="mb-1.5 flex items-center gap-1 text-body-small-default text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-default)]"
+            >
+              {expanded ? (
+                <ChevronDown aria-hidden className="h-3.5 w-3.5 shrink-0" />
+              ) : (
+                <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0" />
+              )}
+              <span>{expanded ? "Hide output" : "Show output"}</span>
+            </button>
+          )}
+          {showOutput && (
+            <pre
+              data-testid="acp-chat-tool-output"
+              className="max-h-60 overflow-auto rounded-md border border-[var(--border-element)] bg-[var(--surface-base)] p-2.5 font-mono text-body-small-default whitespace-pre-wrap break-words text-[var(--content-default)]"
+            >
+              {outputText}
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
