@@ -60,10 +60,14 @@ mock.module("../../../../util/logger.js", () => ({
 const realDense = { ...(await import("../dense.js")) };
 let denseMockActive = false;
 let denseHits: Array<{ article: Slug; section: number }> = [];
+let denseCalls: Array<{ query: string; k: number }> = [];
 mock.module("../dense.js", () => ({
   ...realDense,
-  denseLane: async (...args: Parameters<typeof realDense.denseLane>) =>
-    denseMockActive ? denseHits : realDense.denseLane(...args),
+  denseLane: async (...args: Parameters<typeof realDense.denseLane>) => {
+    if (!denseMockActive) return realDense.denseLane(...args);
+    denseCalls.push({ query: args[1], k: args[2] });
+    return args[2] <= 0 ? [] : denseHits;
+  },
 }));
 
 const { orchestrate, DEFAULT_NEEDLE_K, DEFAULT_DENSE_K } =
@@ -250,6 +254,7 @@ beforeEach(() => {
   denseMockActive = true;
   providerStub = null;
   denseHits = [];
+  denseCalls = [];
   lastPool = [];
   lastPoolLines = [];
   lastPrefixBlock = null;
@@ -357,7 +362,52 @@ describe("orchestrate — candidate pool composition", () => {
     providerStub = selectProvider([]);
     await orchestrate(makeTurn(1, "x"), depsOf(lanes, { needle }));
     expect(needleK).toBe(DEFAULT_NEEDLE_K);
+    expect(denseCalls[0]?.k).toBe(DEFAULT_DENSE_K);
     expect(DEFAULT_DENSE_K).toBe(100);
+  });
+
+  test("denseK override controls the embedding-backed candidate budget", async () => {
+    const lanes = await buildLanes();
+    providerStub = selectProvider([]);
+
+    await orchestrate(makeTurn(1, "apple"), depsOf(lanes, { denseK: 7 }));
+
+    expect(denseCalls.map((call) => call.k)).toEqual([7]);
+  });
+
+  test("selectorEnabled=false keeps all pooled candidates without calling the selector provider", async () => {
+    const lanes = await buildLanes();
+    // "apple" hits topic-a (needle), dense returns topic-b, and topic-a links
+    // to topic-d. With the selector disabled, every pooled candidate is passed
+    // through as a selection without requiring the L2 callsite.
+    denseHits = [{ article: "topic-b", section: 0 }];
+
+    const result = await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, { selectorEnabled: false }),
+    );
+
+    expect(selectCalls).toBe(0);
+    expect(new Set(result.selections.map((s) => s.slug))).toEqual(
+      new Set(["topic-a", "topic-b", "topic-d"]),
+    );
+  });
+
+  test("selectorEnabled=false with zero candidate lanes returns no selections", async () => {
+    const lanes = await buildLanes();
+    const result = await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, {
+        needleK: 0,
+        denseK: 0,
+        replyQueryK: 0,
+        selectorEnabled: false,
+      }),
+    );
+
+    expect(selectCalls).toBe(0);
+    expect(result.selections).toEqual([]);
+    expect(result.lanes).toEqual({ core: [], hot: [], fresh: [], finder: [] });
   });
 
   test("matchedSections is populated from matched lane sections", async () => {

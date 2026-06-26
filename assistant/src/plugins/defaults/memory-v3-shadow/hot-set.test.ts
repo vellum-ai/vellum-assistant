@@ -126,6 +126,11 @@ describe("MemoryV3ConfigSchema hotSet", () => {
     expect(config.hotSet).toEqual({ k: 5, halfLifeDays: 7 });
   });
 
+  test("zero k disables the lane", () => {
+    const config = MemoryV3ConfigSchema.parse({ hotSet: { k: 0 } });
+    expect(config.hotSet.k).toBe(0);
+  });
+
   test("rejects negative k", () => {
     expect(() => MemoryV3ConfigSchema.parse({ hotSet: { k: -1 } })).toThrow();
   });

@@ -51,7 +51,7 @@ import { denseLane } from "./dense.js";
 import type { EdgeGraph } from "./edge.js";
 import { edgeExpand } from "./edge.js";
 import type { PoolCandidate, StableCandidate } from "./pool-select.js";
-import { selectPool } from "./pool-select.js";
+import { selectAllPoolCandidates, selectPool } from "./pool-select.js";
 import type { SectionNeedle } from "./section-needle.js";
 import type {
   FinderLane,
@@ -123,6 +123,9 @@ export interface OrchestrateDeps {
    *  The live caller resolves `memory.v3.selectorPromptPath` (workspace-relative
    *  file override) via `resolveSelectorPrompt` and threads the result here. */
   selectorPrompt?: string;
+  /** Whether to run the selector LLM. False passes all pooled candidates
+   *  straight through as selections, preserving pool-order slug dedup. */
+  selectorEnabled?: boolean;
 }
 
 /** A finder-lane candidate: the slug, the descriptor that justified it, and
@@ -384,11 +387,11 @@ export async function orchestrate(
   // selections come back slug-deduped (pinned flags ORed) — `selectPool`'s
   // contract. `selectorPrompt` is the (optionally overridden) instruction
   // scaffold; `undefined` falls through to the bundled default.
-  const selections = await selectPool(
-    { stable, finder: finderTail },
-    turn,
-    deps.selectorPrompt,
-  );
+  const pool = { stable, finder: finderTail };
+  const selections =
+    deps.selectorEnabled === false
+      ? selectAllPoolCandidates(pool)
+      : await selectPool(pool, turn, deps.selectorPrompt);
 
   return {
     selections,
