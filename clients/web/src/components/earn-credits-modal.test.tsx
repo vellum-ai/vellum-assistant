@@ -37,7 +37,7 @@ const BASE_REFERRAL: MyReferralCodeResponse = {
 
 function renderModal(referral: MyReferralCodeResponse): string {
   const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   });
   client.setQueryData(referralCodesMeRetrieveQueryKey(), referral);
   render(
