@@ -21,10 +21,16 @@ export function handleAcpSessionSpawned(event: AcpSessionSpawnedEvent): void {
 
 export function handleAcpSessionUpdate(event: AcpSessionUpdateEvent): void {
   const store = useAcpRunStore.getState();
-  // Drop replayed events on reconnection: anything at or below the mark.
-  const hwm = store.highWaterMark.get(event.acpSessionId);
-  const seq = event.seq ?? Date.now();
-  if (seq <= (hwm ?? -1)) return;
+  // Replay de-dupe gates only on real daemon seqs. Older assistants may omit
+  // `seq`; pass those through untouched so the store appends them without
+  // deduping and without advancing the high-water mark (its documented seqless
+  // contract) — otherwise two seqless chunks sharing a receive timestamp would
+  // collide and the second would be dropped.
+  const seq = event.seq;
+  if (typeof seq === "number") {
+    const hwm = store.highWaterMark.get(event.acpSessionId);
+    if (seq <= (hwm ?? -1)) return;
+  }
 
   store.receiveEvent({
     acpSessionId: event.acpSessionId,

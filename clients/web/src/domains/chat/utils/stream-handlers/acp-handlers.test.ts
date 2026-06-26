@@ -100,6 +100,30 @@ describe("handleAcpSessionUpdate", () => {
     expect(getState().byId["acp-1"]?.events).toHaveLength(1);
     expect(getState().highWaterMark.get("acp-1")).toBe(1);
   });
+
+  it("keeps multiple seqless updates and never advances the high-water mark", () => {
+    spawn();
+    // Older assistants omit `seq`. Two seqless chunks (same receive tick) must
+    // both land — appended without dedup, and the replay mark stays unset so a
+    // later seqless chunk is never gated out.
+    handleAcpSessionUpdate({
+      type: "acp_session_update",
+      acpSessionId: "acp-1",
+      updateType: "agent_message_chunk",
+      content: "first",
+      messageId: "m-1",
+    });
+    handleAcpSessionUpdate({
+      type: "acp_session_update",
+      acpSessionId: "acp-1",
+      updateType: "agent_message_chunk",
+      content: "second",
+      messageId: "m-2",
+    });
+    const events = getState().byId["acp-1"]?.events ?? [];
+    expect(events.map((e) => e.content)).toEqual(["first", "second"]);
+    expect(getState().highWaterMark.get("acp-1")).toBeUndefined();
+  });
 });
 
 describe("handleAcpSessionUsage", () => {
