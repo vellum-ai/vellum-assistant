@@ -14,6 +14,7 @@ import {
   getUsageGroupedSeries,
   getUsageHourBuckets,
   getUsageTotals,
+  listRunConversationIds,
   listUsageEvents,
   queryUnreportedUsageEvents,
   recordUsageEvent,
@@ -367,6 +368,49 @@ describe("listUsageEvents", () => {
     expect(typeof event.cacheReadInputTokens).toBe("number");
     expect(typeof event.estimatedCostUsd).toBe("number");
     expect(typeof event.pricingStatus).toBe("string");
+  });
+});
+
+describe("listRunConversationIds", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run(`DELETE FROM llm_usage_events`);
+  });
+
+  /** Record an event for a conversation, stamped with the given cron run id. */
+  function insertRunEvent(
+    cronRunId: string,
+    conversationId: string | null,
+  ): void {
+    const event = recordUsageEvent(makeInput({ conversationId }), pricedResult);
+    const db = getDb();
+    db.run(
+      `UPDATE llm_usage_events SET cron_run_id = '${cronRunId}' WHERE id = '${event.id}'`,
+    );
+  }
+
+  test("returns the distinct conversation ids a firing touched (deduped)", () => {
+    insertRunEvent("run-1", "conv-a");
+    insertRunEvent("run-1", "conv-a"); // same conversation, second LLM call
+    insertRunEvent("run-1", "conv-b");
+
+    expect(listRunConversationIds("run-1").sort()).toEqual([
+      "conv-a",
+      "conv-b",
+    ]);
+  });
+
+  test("returns an empty array for an unknown run", () => {
+    insertRunEvent("run-1", "conv-a");
+    expect(listRunConversationIds("run-unknown")).toEqual([]);
+  });
+
+  test("ignores rows with no conversation id and other runs", () => {
+    insertRunEvent("run-1", "conv-a");
+    insertRunEvent("run-1", null); // memory consolidation etc.
+    insertRunEvent("run-2", "conv-b");
+
+    expect(listRunConversationIds("run-1")).toEqual(["conv-a"]);
   });
 });
 

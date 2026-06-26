@@ -491,6 +491,25 @@ export function getUsageCostForConversationWindow({
 }
 
 /**
+ * Return the distinct conversation ids touched by a single cron firing,
+ * identified by its `cron_run_id` stamp on the usage ledger. Rows with a null
+ * `conversation_id` are excluded, and the result is deduped. Returns an empty
+ * array for an unknown or un-stamped run.
+ */
+export function listRunConversationIds(cronRunId: string): string[] {
+  const rows = rawAll<{ conversation_id: string }>(
+    /*sql*/ `
+    SELECT DISTINCT conversation_id
+    FROM llm_usage_events
+    WHERE cron_run_id = ?1
+      AND conversation_id IS NOT NULL
+    `,
+    cronRunId,
+  );
+  return rows.map((row) => row.conversation_id);
+}
+
+/**
  * Return aggregate totals for all usage events within the given time range.
  */
 export function getUsageTotals(
