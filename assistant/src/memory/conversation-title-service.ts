@@ -7,9 +7,14 @@
  * overwritten, never user-provided custom titles.
  */
 
-import { getConfiguredProvider } from "../providers/provider-send-message.js";
-import type { Provider } from "../providers/types.js";
-import { runBtwSidechain } from "../runtime/btw-sidechain.js";
+import {
+  createTimeout,
+  extractAllText,
+  extractToolUse,
+  getConfiguredProvider,
+  userMessage as buildUserMessage,
+} from "../providers/provider-send-message.js";
+import type { Provider, ToolDefinition } from "../providers/types.js";
 import { publishConversationTitleChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import { Mutex } from "../util/mutex.js";
@@ -171,16 +176,7 @@ export async function generateAndPersistConversationTitle(
   }
 
   const prompt = buildTitlePrompt(context, userMessage, assistantResponse);
-  const result = await runBtwSidechain({
-    content: prompt,
-    provider,
-    systemPrompt: buildTitleSystemPrompt(),
-    tools: [],
-    callSite: "conversationTitle",
-    signal,
-    timeoutMs: 15_000,
-  });
-  const title = normalizeTitle(result.text);
+  const title = await generateTitleViaLLM(provider, prompt, signal);
   if (title) {
     // Re-check replaceability before persisting (race guard)
     const current = getConversation(conversationId);
@@ -318,16 +314,7 @@ export async function regenerateConversationTitle(
   if (!/\n(?:User|Assistant): /.test(prompt)) {
     return { title: conversation.title ?? UNTITLED_FALLBACK, updated: false };
   }
-  const result = await runBtwSidechain({
-    content: prompt,
-    provider,
-    systemPrompt: buildTitleSystemPrompt(),
-    tools: [],
-    callSite: "conversationTitle",
-    signal,
-    timeoutMs: 15_000,
-  });
-  const title = normalizeTitle(result.text);
+  const title = await generateTitleViaLLM(provider, prompt, signal);
   if (title) {
     // Re-check isAutoTitle before persisting (race guard against manual rename)
     const current = getConversation(conversationId);
@@ -394,6 +381,81 @@ function buildTitleSystemPrompt(): string {
     "- Do NOT assess feasibility or comment on capabilities",
     "- If input is sparse or references external context, extract a topic from the words that ARE present (e.g. 'so about that t-shirt...' → 'T-Shirt Discussion'). Never describe the absence, emptiness, or insufficiency of context — titles like 'Missing Context', 'Unclear Request', 'No Topic' are forbidden",
   ].join("\n");
+}
+
+const TITLE_TOOL_NAME = "record_conversation_title";
+
+/**
+ * Tool the title model is forced to call. Constraining the output to a single
+ * `title` argument keeps weak/fast models (e.g. Haiku-class title models) from
+ * "thinking aloud" or continuing the conversation in the response text —
+ * failure modes that otherwise get captured verbatim as the title
+ * (e.g. "I need to generate a…", "I'll work through these files…").
+ */
+function buildTitleTool(): ToolDefinition {
+  return {
+    name: TITLE_TOOL_NAME,
+    description:
+      "Record the conversation's title. Call this exactly once with a short noun phrase naming the TOPIC — never a sentence, a reply, or any preamble.",
+    input_schema: {
+      type: "object",
+      properties: {
+        title: {
+          type: "string",
+          description:
+            "2–5 words, 40 characters max. A scannable sidebar label naming the topic (e.g. 'Auth Middleware Rewrite', 'Docker Volume Mounts'). No quotes, markdown, or trailing punctuation.",
+        },
+      },
+      required: ["title"],
+    },
+  };
+}
+
+/**
+ * Run the title LLM call with a forced tool so the model returns a structured
+ * `{ title }` rather than free text. Returns a normalized title, or "" when the
+ * model declines or misbehaves — callers fall back to a deterministic title.
+ *
+ * Forcing the tool is the primary guard against prose leakage; `normalizeTitle`
+ * is the backstop for the text-fallback path and for any provider that ignores
+ * forced `tool_choice`.
+ */
+async function generateTitleViaLLM(
+  provider: Provider,
+  prompt: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const { signal: timeoutSignal, cleanup } = createTimeout(15_000);
+  const combinedSignal = signal
+    ? AbortSignal.any([signal, timeoutSignal])
+    : timeoutSignal;
+  try {
+    const response = await provider.sendMessage([buildUserMessage(prompt)], {
+      tools: [buildTitleTool()],
+      systemPrompt: buildTitleSystemPrompt(),
+      config: {
+        max_tokens: 256,
+        callSite: "conversationTitle",
+        tool_choice: { type: "tool", name: TITLE_TOOL_NAME },
+        disableCache: true,
+      },
+      signal: combinedSignal,
+    });
+    const toolBlock = extractToolUse(response);
+    const titleInput = toolBlock?.input as { title?: unknown } | undefined;
+    if (
+      toolBlock?.name === TITLE_TOOL_NAME &&
+      typeof titleInput?.title === "string"
+    ) {
+      return normalizeTitle(titleInput.title);
+    }
+    // Provider ignored the forced tool (or the model emitted prose instead of
+    // calling it). Fall back to the response text — `normalizeTitle`'s prose
+    // guard rejects a ramble while keeping a compliant plain-text title.
+    return normalizeTitle(extractAllText(response));
+  } finally {
+    cleanup();
+  }
 }
 
 function buildTitlePrompt(
@@ -503,11 +565,76 @@ function truncateTitle(title: string): string {
 function normalizeTitle(raw: string): string {
   let title = raw.trim().replace(/^["']|["']$/g, "");
   title = stripMarkdown(title);
-  title = stripThinkingTags(title);
+  title = stripThinkingTags(title).trim();
+  if (!title) return "";
+  // Reject outputs that are the model reasoning aloud or continuing the
+  // conversation instead of naming it (e.g. "I need to generate a…", "I'll
+  // work through these files…"). Callers fall back to a deterministic title.
+  if (looksLikeLeakedProse(title)) {
+    return "";
+  }
   if (META_FAILURE_TITLES.has(title.toLowerCase())) {
     return "";
   }
   return truncateTitle(title);
+}
+
+/** Reasoning/sentence openers that never start a legitimate topic title. */
+const LEAKED_PROSE_PREFIXES = [
+  "i need to",
+  "i needed to",
+  "i should",
+  "i will",
+  "i'll",
+  "i can ",
+  "i can't",
+  "i cannot",
+  "i'm ",
+  "i am ",
+  "i've ",
+  "i have ",
+  "i'd ",
+  "i would",
+  "let me",
+  "looking at",
+  "based on",
+  "given the",
+  "to generate",
+  "to summarize",
+  "to title",
+  "the user",
+  "the conversation",
+  "this conversation",
+  "the assistant",
+  "the title",
+  "here's ",
+  "here is ",
+  "here are ",
+  "sure,",
+  "okay,",
+  "ok,",
+];
+
+/**
+ * Heuristic guard for title outputs that are clearly prose — the model
+ * reasoning aloud or replying to the conversation rather than naming it. A real
+ * title is a single-line short noun phrase, so we reject multi-line output,
+ * embedded transcript markers, leading reasoning openers, and sentence-shaped
+ * clauses. Deliberately tight: a false reject only costs a deterministic
+ * fallback title, while a false accept persists a broken one.
+ */
+function looksLikeLeakedProse(title: string): boolean {
+  if (/\n/.test(title)) return true;
+  if (/\b(?:user|assistant)\s*:/i.test(title)) return true;
+  const lower = title.toLowerCase();
+  if (LEAKED_PROSE_PREFIXES.some((prefix) => lower.startsWith(prefix))) {
+    return true;
+  }
+  // Sentence-shaped: terminal punctuation on a multi-word clause.
+  if (/[.?!]$/.test(title) && title.split(/\s+/).length > 5) {
+    return true;
+  }
+  return false;
 }
 
 /** Strip thinking tags so they don't bleed into generated titles. */
