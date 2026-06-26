@@ -520,12 +520,14 @@ export async function runAgentLoopImpl(
   let turnStarted = false;
   const state = createEventHandlerState();
   let persistedErrorAssistantMessage = false;
+  let deletedReservedAssistantMessage = false;
 
   const publishLoopMessagesChanged = (): void => {
     if (
       state.lastAssistantMessageId ||
       state.persistedToolUseIds.size > 0 ||
-      persistedErrorAssistantMessage
+      persistedErrorAssistantMessage ||
+      deletedReservedAssistantMessage
     ) {
       publishConversationMessagesChanged(ctx.conversationId);
     }
@@ -1164,6 +1166,7 @@ export async function runAgentLoopImpl(
       ) {
         try {
           deleteMessageById(state.lastAssistantMessageId);
+          deletedReservedAssistantMessage = true;
           state.lastAssistantMessageId = undefined;
           state.assistantRowAwaitingFinalization = false;
         } catch (err) {

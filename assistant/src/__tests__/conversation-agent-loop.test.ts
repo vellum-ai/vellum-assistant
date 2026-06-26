@@ -2506,6 +2506,41 @@ describe("session-agent-loop", () => {
       expect(lastSync?.[1]).toBe("mock-msg-id");
       expect(lastSync?.[1]).not.toBe("msg-orphaned-reservation");
     });
+
+    test("managed-key provider-error cleanup publishes message invalidation after deleting the reservation", async () => {
+      reserveMessageMock.mockImplementationOnce(async () => ({
+        id: "msg-managed-key-reservation",
+      }));
+      mockConversationErrorClassification = {
+        code: "MANAGED_KEY_INVALID",
+        userMessage: "Couldn't refresh assistant credentials.",
+        retryable: false,
+        errorCategory: "managed_key_invalid",
+      };
+
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage() {
+            throw new Error("API key has expired.");
+          },
+        } as unknown as Provider,
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+
+      expect(deleteMessageByIdMock).toHaveBeenCalledTimes(1);
+      const deleteCall = deleteMessageByIdMock.mock.calls[0] as unknown as [
+        string,
+      ];
+      expect(deleteCall[0]).toBe("msg-managed-key-reservation");
+      expect(addMessageMock).not.toHaveBeenCalled();
+      expect(syncMessageToDiskMock).not.toHaveBeenCalled();
+
+      const messagePublishes = (
+        publishSyncInvalidationMock.mock.calls as unknown as Array<[string[]]>
+      ).filter((args) => args[0]?.includes("conversation:test-conv:messages"));
+      expect(messagePublishes).toHaveLength(1);
+    });
   });
 
   describe("partial persistence", () => {
