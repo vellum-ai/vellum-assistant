@@ -72,7 +72,7 @@ afterEach(() => {
 async function seed(sessions: unknown[]): Promise<void> {
   nextResponses = [{ status: 200, body: { sessions } }];
   const entries = await fetchAcpSessions("asst-1", "conv-1");
-  getState().seedFromHistory(entries);
+  getState().seedFromHistory(entries ?? []);
 }
 
 describe("fetchAcpSessions", () => {
@@ -86,9 +86,9 @@ describe("fetchAcpSessions", () => {
     expect(requests[0]!.query).toEqual({ conversationId: "conv-1" });
   });
 
-  test("returns an empty list on a non-ok response", async () => {
+  test("returns null on a non-ok response (distinct from an empty snapshot)", async () => {
     nextResponses = [{ status: 500, body: null }];
-    expect(await fetchAcpSessions("asst-1", "conv-1")).toEqual([]);
+    expect(await fetchAcpSessions("asst-1", "conv-1")).toBeNull();
   });
 });
 

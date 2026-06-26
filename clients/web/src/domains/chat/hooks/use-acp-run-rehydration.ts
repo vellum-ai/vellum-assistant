@@ -5,12 +5,14 @@
  * and `seedFromHistory` the acp-run store: completed and in-progress runs
  * reappear with their event timelines, terminal status, and usage.
  *
- * Also re-seed when the SSE stream reopens after a drop (sleep, flaky network,
- * backgrounding). ACP events emitted during the outage aren't ring-replayed —
- * they carry no `conversationId`, so the daemon's reconnect replay skips them —
- * leaving a stale transcript/status until the user navigates away. Re-fetching
- * routes the catch-up through the seed path. Mirrors the conversation-history
- * hook's reconnect refetch.
+ * Also reconcile when the SSE stream reopens after a drop (sleep, flaky
+ * network, backgrounding). ACP events emitted during the outage aren't
+ * ring-replayed — they carry no `conversationId`, so the daemon's reconnect
+ * replay skips them — leaving a stale transcript/status until the user
+ * navigates away. Re-fetching routes the catch-up through the seed path, and an
+ * authoritative snapshot that no longer reports a previously-active run retires
+ * it (the daemon restarted and lost an unpersisted subprocess). Mirrors the
+ * conversation-history hook's reconnect refetch.
  *
  * Seeding sets each run's `highWaterMark` to the max `seq` over its events.
  * The live SSE handler drops updates whose `seq <= highWaterMark`, so events
@@ -31,7 +33,7 @@ import {
   type AcpRunEntry,
   type AcpRunRawEvent,
 } from "@/domains/chat/acp-run-store";
-import { type AcpRunStatus } from "@/utils/acp-run-status";
+import { isActiveAcpStatus, type AcpRunStatus } from "@/utils/acp-run-status";
 
 interface AcpSessionEventLogItem {
   updateType?: AcpRunRawEvent["updateType"];
@@ -143,10 +145,15 @@ function toRunEntry(row: AcpSessionRow): AcpRunEntry {
   };
 }
 
+/**
+ * Fetch the authoritative ACP session snapshot for a conversation. Returns
+ * `null` on a failed/non-ok fetch so callers can distinguish "couldn't load"
+ * from an authoritative empty snapshot (which must retire stale runs).
+ */
 export async function fetchAcpSessions(
   assistantId: string,
   conversationId: string,
-): Promise<AcpRunEntry[]> {
+): Promise<AcpRunEntry[] | null> {
   try {
     const { data, response } = await daemonClient.get<AcpSessionsResponses>({
       url: "/v1/assistants/{assistant_id}/acp/sessions",
@@ -154,13 +161,48 @@ export async function fetchAcpSessions(
       query: { conversationId },
       throwOnError: false,
     });
-    if (!response?.ok || !data?.sessions) return [];
+    if (!response?.ok || !data?.sessions) return null;
     return data.sessions
       .filter((row): row is AcpSessionRow => !!row?.id)
       .map(toRunEntry);
   } catch (err) {
     captureError(err, { context: "fetchAcpSessions" });
-    return [];
+    return null;
+  }
+}
+
+/** Active run ids in the store that belong to `conversationId`. */
+function activeRunIdsFor(conversationId: string): string[] {
+  const { byId, orderedIds } = useAcpRunStore.getState();
+  return orderedIds.filter((id) => {
+    const entry = byId[id];
+    return (
+      !!entry &&
+      isActiveAcpStatus(entry.status) &&
+      entry.parentConversationId === conversationId
+    );
+  });
+}
+
+/**
+ * Apply an authoritative snapshot: seed the reported runs and retire any run
+ * that was active in the store for this conversation but is absent from the
+ * snapshot — the daemon restarted and lost it. `priorActiveIds` is captured
+ * before the fetch so a run spawned live during the round-trip (not yet in the
+ * daemon's snapshot) is never retired. A `null` snapshot means the fetch
+ * failed, so nothing is reconciled.
+ */
+function applyAcpSnapshot(
+  entries: AcpRunEntry[] | null,
+  priorActiveIds: string[],
+): void {
+  if (entries === null) return;
+  const store = useAcpRunStore.getState();
+  if (entries.length > 0) store.seedFromHistory(entries);
+  const present = new Set(entries.map((e) => e.acpSessionId));
+  const missing = priorActiveIds.filter((id) => !present.has(id));
+  if (missing.length > 0) {
+    store.retireMissingRuns({ acpSessionIds: missing, completedAt: Date.now() });
   }
 }
 
@@ -171,20 +213,22 @@ export function useAcpRunRehydration(
   useEffect(() => {
     if (!assistantId || !conversationId) return;
     let cancelled = false;
+    const priorActiveIds = activeRunIdsFor(conversationId);
     void fetchAcpSessions(assistantId, conversationId).then((entries) => {
-      if (cancelled || entries.length === 0) return;
-      useAcpRunStore.getState().seedFromHistory(entries);
+      if (cancelled) return;
+      applyAcpSnapshot(entries, priorActiveIds);
     });
     return () => {
       cancelled = true;
     };
   }, [assistantId, conversationId]);
 
-  // Re-seed on SSE reopen so a connection that dropped past the daemon's replay
-  // ring doesn't leave a stale ACP transcript. `fresh`/`anchor` opens are
-  // skipped — the conversation-change effect above already owns the initial
-  // load. `seedFromHistory` merges by `seq` and raises the high-water mark, so
-  // re-seeding is idempotent against events already streamed.
+  // Reconcile on SSE reopen so a connection that dropped past the daemon's
+  // replay ring doesn't leave a stale ACP transcript — and so a run whose
+  // daemon restarted (lost subprocess, never persisted) is retired rather than
+  // stuck `running`. `fresh`/`anchor` opens are skipped — the conversation
+  // effect above already owns the initial load. Seeding merges by `seq` and is
+  // idempotent against events already streamed.
   useBusSubscription(
     "sse.opened",
     ({ assistantId: openedAssistantId, cause }) => {
@@ -192,9 +236,9 @@ export function useAcpRunRehydration(
       if (!assistantId || !conversationId || openedAssistantId !== assistantId) {
         return;
       }
+      const priorActiveIds = activeRunIdsFor(conversationId);
       void fetchAcpSessions(assistantId, conversationId).then((entries) => {
-        if (entries.length === 0) return;
-        useAcpRunStore.getState().seedFromHistory(entries);
+        applyAcpSnapshot(entries, priorActiveIds);
       });
     },
   );
