@@ -156,7 +156,7 @@ describe("contacts read API relays from the gateway", () => {
     getGuardianContactIdsMock.mockClear();
   });
 
-  test("list relays to contacts_list_rich and derives the guardian role from the gateway id set", async () => {
+  test("list relays to contacts_list_rich and trusts the gateway-sourced role", async () => {
     ipcResult = { ok: true, contacts: [gatewayContact] };
 
     const result = await handleListContacts({ limit: "50" });
@@ -168,10 +168,11 @@ describe("contacts read API relays from the gateway", () => {
     expect(result.contacts).toHaveLength(1);
 
     const [contact] = result.contacts;
-    // Role + name override derive from the gateway guardian id set.
+    // Role comes straight from the relayed payload; the name override keys off
+    // that role. The guardian id set is NOT consulted on relayed reads.
     expect((contact as { role?: string }).role).toBe("guardian");
     expect(contact.displayName).toBe("guardian:Alice");
-    expect(getGuardianContactIdsMock).toHaveBeenCalled();
+    expect(getGuardianContactIdsMock).not.toHaveBeenCalled();
     expect(contact.interactionCount).toBe(7);
     expect(contact.lastInteraction).toBe(1900);
     const channel = contact.channels[0] as Record<string, unknown>;
@@ -183,6 +184,35 @@ describe("contacts read API relays from the gateway", () => {
     // Channel compat echoes address into externalUserId for older clients.
     expect(channel.externalUserId).toBe("+15550100");
 
+    expect(contactStoreReadGuard).not.toHaveBeenCalled();
+  });
+
+  test("relayed list trusts the gateway role even when the guardian id set is empty/stale", async () => {
+    // Reproduces the rebind race: the gateway already returned role "guardian",
+    // but the 30s guardian-id cache is empty (or fail-softed). The relayed role
+    // must NOT be downgraded to "contact", and the name override must still run.
+    ipcResult = { ok: true, contacts: [gatewayContact] };
+    guardianIds = new Set();
+
+    const result = await handleListContacts({ limit: "50" });
+
+    const [contact] = result.contacts;
+    expect((contact as { role?: string }).role).toBe("guardian");
+    expect(contact.displayName).toBe("guardian:Alice");
+    // Relayed reads don't consult the guardian id set (they trust the role).
+    expect(getGuardianContactIdsMock).not.toHaveBeenCalled();
+    expect(contactStoreReadGuard).not.toHaveBeenCalled();
+  });
+
+  test("relayed get trusts the gateway role even when the guardian id set is empty/stale", async () => {
+    ipcResult = { ok: true, contact: gatewayContact };
+    guardianIds = new Set();
+
+    const result = await handleGetContact("ct_1");
+
+    expect(result.contact.role).toBe("guardian");
+    expect(result.contact.displayName).toBe("guardian:Alice");
+    expect(getGuardianContactIdsMock).not.toHaveBeenCalled();
     expect(contactStoreReadGuard).not.toHaveBeenCalled();
   });
 

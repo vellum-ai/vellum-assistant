@@ -37,6 +37,9 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("contact-routes");
 
+/** Sentinel for relayed-read calls that trust the gateway role (no derivation). */
+const EMPTY_GUARDIAN_IDS: ReadonlySet<string> = new Set<string>();
+
 /**
  * Re-throw a relayed gateway `IpcCallError` as a `RouteError` so the IPC/HTTP
  * adapters honor its statusCode/errorCode (4xx surfaces as 4xx, not a generic
@@ -67,13 +70,18 @@ function withGuardianNameOverride<
 }
 
 /**
- * Stamp `role` from the gateway guardian id set (source of truth). Every
- * serve path derives the role here rather than from the local `contacts.role`
- * column; fail-soft (empty set → everyone is `"contact"`).
+ * Stamp `role` from the gateway guardian id set on DAEMON-NATIVE reads, whose
+ * `role` is the neutral `"contact"` default (search / contactType-filtered).
+ * Fail-soft: empty set → everyone is `"contact"`.
+ *
+ * NOT applied to gateway-relayed reads (`contacts_list_rich`/`_get_rich`),
+ * which already carry a gateway-sourced `role`. Re-deriving there would let a
+ * stale/empty 30s id-set cache DOWNGRADE a freshly-rebound guardian to
+ * `"contact"` during a rebind.
  */
 function withGatewayRole<T extends { id: string; role: string }>(
   contact: T,
-  guardianIds: Set<string>,
+  guardianIds: ReadonlySet<string>,
 ): T {
   return {
     ...contact,
@@ -94,12 +102,18 @@ function withChannelCompat<T extends { channels: { address: string }[] }>(
   };
 }
 
-/** Compose the response transforms: derive role from the gateway guardian id
- * set, apply the guardian display-name override from that derived role, and add
- * the channel compat field. Also coerces nullable gateway-sourced fields to
- * their DB defaults so the response satisfies the strict enum schema even in
- * degraded mode (assistant DB unreachable → gateway soft-fail join produces
- * nulls).
+/** Compose the response transforms, then apply the guardian display-name
+ * override (keyed off the role that's correct for this path) and the channel
+ * compat field. Also coerces nullable gateway-sourced fields to their DB
+ * defaults so the response satisfies the strict enum schema even in degraded
+ * mode (assistant DB unreachable → gateway soft-fail join produces nulls).
+ *
+ * `deriveRole` controls where `role` comes from:
+ *   - `true`  (daemon-native reads): role is the neutral `"contact"` default,
+ *     so derive it from the gateway guardian id set.
+ *   - `false` (gateway-relayed reads): TRUST the gateway-sourced `role` already
+ *     on the `ContactRead`. Never re-derive — a stale/empty id-set cache must
+ *     not downgrade a relayed guardian to `"contact"`.
  */
 function prepareContactResponse<
   T extends {
@@ -109,12 +123,14 @@ function prepareContactResponse<
     contactType?: string | null;
     channels: { address: string }[];
   },
->(contact: T, guardianIds: Set<string>): T {
+>(contact: T, guardianIds: ReadonlySet<string>, deriveRole: boolean): T {
   const coerced =
     contact.contactType == null
       ? { ...contact, contactType: "human" as T["contactType"] }
       : contact;
-  const withRole = withGatewayRole(coerced, guardianIds);
+  const withRole = deriveRole
+    ? withGatewayRole(coerced, guardianIds)
+    : coerced;
   return withChannelCompat(withGuardianNameOverride(withRole));
 }
 
@@ -132,8 +148,9 @@ function isContactType(value: string): value is ContactType {
 // blockedReason) are gateway-owned and present ONLY on gateway-relayed reads
 // (`contacts_list_rich`/`contacts_get_rich`). Daemon-native filtered reads
 // (search / contactType) omit them, so they are `.optional()`. Contact-level
-// `role` is derived from the gateway guardian id set at the serve layer (see
-// prepareContactResponse) and returned on all paths. INFO telemetry
+// `role` is gateway-sourced: relayed reads trust the role on the `ContactRead`,
+// while daemon-native reads derive it from the gateway guardian id set at the
+// serve layer (see prepareContactResponse). INFO telemetry
 // (lastSeenAt/interactionCount/lastInteraction) is locally hydrated on every
 // read path and stays required.
 const contactChannelSchema = z.object({
@@ -186,10 +203,13 @@ async function relayListContacts(limit: number, role: ContactRole | undefined) {
       ...(role ? { role } : {}),
     });
     const { contacts } = ListContactsIpcResponseSchema.parse(result);
-    const guardianIds = await getGuardianContactIds();
+    // Relayed reads carry a gateway-sourced role — trust it (deriveRole=false),
+    // so the guardian id set is not consulted here.
     return {
       ok: true,
-      contacts: contacts.map((c) => prepareContactResponse(c, guardianIds)),
+      contacts: contacts.map((c) =>
+        prepareContactResponse(c, EMPTY_GUARDIAN_IDS, false),
+      ),
     };
   } catch (err) {
     rethrowGatewayError(err);
@@ -226,10 +246,13 @@ export async function handleListContacts(queryParams: Record<string, string>) {
       contactType,
       limit,
     });
+    // Daemon-native read: role is the neutral default, so derive it.
     const guardianIds = await getGuardianContactIds();
     return {
       ok: true,
-      contacts: contacts.map((c) => prepareContactResponse(c, guardianIds)),
+      contacts: contacts.map((c) =>
+        prepareContactResponse(c, guardianIds, true),
+      ),
     };
   }
 
@@ -242,10 +265,13 @@ export async function handleListContacts(queryParams: Record<string, string>) {
       "handleListContacts: contactType-filtered read served daemon-native (gateway-native contactType filtering is design-blocked, pending ACL classification)",
     );
     const contacts = listContacts(limit, contactType);
+    // Daemon-native read: role is the neutral default, so derive it.
     const guardianIds = await getGuardianContactIds();
     return {
       ok: true,
-      contacts: contacts.map((c) => prepareContactResponse(c, guardianIds)),
+      contacts: contacts.map((c) =>
+        prepareContactResponse(c, guardianIds, true),
+      ),
     };
   }
 
@@ -261,10 +287,10 @@ export async function handleGetContact(contactId: string) {
     }
     const { contact, assistantMetadata } =
       GetContactIpcResponseSchema.parse(result);
-    const guardianIds = await getGuardianContactIds();
+    // Relayed read: trust the gateway-sourced role (deriveRole=false).
     return {
       ok: true,
-      contact: prepareContactResponse(contact, guardianIds),
+      contact: prepareContactResponse(contact, EMPTY_GUARDIAN_IDS, false),
       assistantMetadata: assistantMetadata ?? undefined,
     };
   } catch (err) {
@@ -689,9 +715,10 @@ export const ROUTES: RouteDefinition[] = [
       log.debug(
         "search_contacts: search served daemon-native (gateway-native search is design-blocked)",
       );
+      // Daemon-native read: role is the neutral default, so derive it.
       const guardianIds = await getGuardianContactIds();
       return searchContacts(parsed).map((c) =>
-        prepareContactResponse(c, guardianIds),
+        prepareContactResponse(c, guardianIds, true),
       );
     },
   },
@@ -788,8 +815,12 @@ async function handleMergeContactsRoute(args: RouteHandlerArgs) {
 
   try {
     const contact = mergeContacts(keepId, mergeId);
+    // Daemon-native read (assistant DB): role is the neutral default, derive it.
     const guardianIds = await getGuardianContactIds();
-    return { ok: true, contact: prepareContactResponse(contact, guardianIds) };
+    return {
+      ok: true,
+      contact: prepareContactResponse(contact, guardianIds, true),
+    };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new BadRequestError(message);

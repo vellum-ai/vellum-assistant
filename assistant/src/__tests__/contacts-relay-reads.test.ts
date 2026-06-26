@@ -211,11 +211,16 @@ describe("handleListContacts relay", () => {
     expect(ch.externalUserId).toBe(ch.address);
   });
 
-  test("applies guardian display-name override to relayed contacts in the gateway guardian id set", async () => {
-    guardianIds = new Set(["gw-1"]);
+  test("trusts the gateway-relayed guardian role + applies the name override regardless of the id-set cache", async () => {
+    // Relayed read carries role "guardian" from the gateway. The guardian id
+    // set is empty/stale (rebind race) but must NOT downgrade the role; the
+    // name override keys off the relayed role.
+    guardianIds = new Set();
     ipcStub = () => ({
       ok: true,
-      contacts: [gatewayContact({ displayName: "Real Name" })],
+      contacts: [
+        gatewayContact({ role: "guardian", displayName: "Real Name" }),
+      ],
     });
 
     const result = await handleListContacts({});
@@ -353,11 +358,12 @@ describe("handleGetContact relay", () => {
     expect(contact.updatedAt).toBe(1700000000);
   });
 
-  test("applies guardian display-name override when the contact is in the gateway guardian id set", async () => {
-    guardianIds = new Set(["gw-1"]);
+  test("trusts the gateway-relayed guardian role + applies the name override regardless of the id-set cache", async () => {
+    // Empty/stale guardian id set must not downgrade a relayed guardian.
+    guardianIds = new Set();
     ipcStub = () => ({
       ok: true,
-      contact: gatewayContact({ displayName: "Real Name" }),
+      contact: gatewayContact({ role: "guardian", displayName: "Real Name" }),
     });
 
     const result = await handleGetContact("gw-1");
