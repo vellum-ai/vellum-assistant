@@ -1152,6 +1152,66 @@ describe("wakeAgentForOpportunity", () => {
     expect(conversation.toolContextPin).toBeUndefined();
   });
 
+  test("clientless pins hasNoClient=true for the run and restores it after", async () => {
+    let hasNoClientDuringRun: unknown;
+    const conversation = makeWakeConversation({
+      runImpl: async (input) => {
+        hasNoClientDuringRun = (
+          conversation as unknown as { hasNoClient?: boolean }
+        ).hasNoClient;
+        return runResult([
+          ...input,
+          { role: "assistant", content: [{ type: "text", text: "ok" }] },
+        ]);
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "poll result",
+        source: "script-schedule",
+        clientless: true,
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result.invoked).toBe(true);
+    // hasNoClient is pinned true for the run, so conversation-tool-setup
+    // derives isInteractive:false (-> background/headless via policy-context).
+    expect(hasNoClientDuringRun).toBe(true);
+    // Restored to the pre-wake value afterward.
+    expect(
+      (conversation as unknown as { hasNoClient?: boolean }).hasNoClient,
+    ).toBeUndefined();
+  });
+
+  test("without clientless, the run does not pin hasNoClient", async () => {
+    let hasNoClientDuringRun: unknown;
+    const conversation = makeWakeConversation({
+      runImpl: async (input) => {
+        hasNoClientDuringRun = (
+          conversation as unknown as { hasNoClient?: boolean }
+        ).hasNoClient;
+        return runResult([
+          ...input,
+          { role: "assistant", content: [{ type: "text", text: "ok" }] },
+        ]);
+      },
+    });
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "user wake",
+        source: "cli",
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(hasNoClientDuringRun).toBeUndefined();
+  });
+
   test("defaults to the wire gate mode when toolGateMode is absent", async () => {
     let gateModeDuringRun: string | undefined;
     const conversation = makeWakeConversation({

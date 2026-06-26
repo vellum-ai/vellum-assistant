@@ -323,6 +323,19 @@ export interface WakeOptions {
    * woken turn's cost is attributed to that firing.
    */
   cronRunId?: string;
+  /**
+   * Run the woken turn clientless: pin `hasNoClient = true` for the duration of
+   * the agent-loop run (restored after). Wakes bypass the orchestrator's
+   * turn-start interactivity setup, so a wake on a conversation with no client
+   * attached otherwise derives `isInteractive: true` (the default
+   * `hasNoClient = false`). Pinning it makes `conversation-tool-setup` derive
+   * `isInteractive: false`, which `policy-context` maps to `background`
+   * (guardian) / `headless` (unknown) — so a side-effecting tool that would
+   * prompt is denied instead of stalling on a client that isn't there — and
+   * makes the tool-definition gate treat the turn as clientless. Used by
+   * script-mode schedule escalations.
+   */
+  clientless?: boolean;
 }
 
 /**
@@ -1233,8 +1246,10 @@ export async function wakeAgentForOpportunity(
       // user turn or a later background read never inherits the wake's stamps.
       const priorCallSite = conversation.currentCallSite;
       const priorTurnOverrideProfile = conversation.currentTurnOverrideProfile;
+      const priorHasNoClient = conversation.hasNoClient;
       conversation.currentCallSite = callSite;
       conversation.currentTurnOverrideProfile = overrideProfile;
+      if (opts.clientless) conversation.hasNoClient = true;
 
       let updatedHistory: Message[];
       try {
@@ -1294,6 +1309,7 @@ export async function wakeAgentForOpportunity(
         // at the start of the next normal turn regardless.)
         conversation.currentCallSite = priorCallSite;
         conversation.currentTurnOverrideProfile = priorTurnOverrideProfile;
+        conversation.hasNoClient = priorHasNoClient;
       }
 
       // The loop swallows provider rejections into a graceful no-output

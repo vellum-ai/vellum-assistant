@@ -8997,7 +8997,7 @@ paths:
                 source:
                   default: cli
                   type: string
-                cronRunId:
+                runToken:
                   type: string
                   minLength: 1
               required:
