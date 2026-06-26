@@ -12,6 +12,7 @@ import { z } from "zod";
 import { clearAllConversations as clearAllActive } from "../../daemon/handlers/conversations.js";
 import { formatJson, formatMarkdown } from "../../export/formatter.js";
 import { ipcCall as ipcCallGateway } from "../../ipc/gateway-client.js";
+import type { ConversationCreateType } from "../../memory/conversation-crud.js";
 import { isConversationProcessing } from "../../memory/conversation-crud.js";
 import {
   addMessage,
@@ -73,6 +74,12 @@ type SeededConversationMessage = z.infer<
   typeof seededConversationMessageSchema
 >;
 
+const conversationCreateTypeSchema = z.enum([
+  "standard",
+  "background",
+  "scheduled",
+]);
+
 function textContentJson(text: string): string {
   return JSON.stringify([{ type: "text", text }]);
 }
@@ -82,7 +89,20 @@ async function handleCreateCli({ body = {} }: RouteHandlerArgs) {
   const messages =
     (body.messages as SeededConversationMessage[] | undefined) ?? [];
 
-  const conversation = createConversation(title);
+  let conversationType: ConversationCreateType | undefined;
+  if (body.conversationType !== undefined) {
+    const parsed = conversationCreateTypeSchema.safeParse(
+      body.conversationType,
+    );
+    if (!parsed.success) {
+      throw new BadRequestError(
+        `Invalid conversationType: must be one of ${conversationCreateTypeSchema.options.join(", ")}`,
+      );
+    }
+    conversationType = parsed.data;
+  }
+
+  const conversation = createConversation({ title, conversationType });
   const conversationKey = uuid();
   setConversationKey(conversationKey, conversation.id);
 
