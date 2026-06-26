@@ -7,7 +7,7 @@
  * `gwContacts`/`gwContactChannels`) and warm the member-verdict cache so verdict
  * synthesis and the sync trust fallback resolve the intended trust. The assistant
  * row carries only identity/info columns (id, displayName, channel address/chat
- * id, principalId) — never the Phase-B-dropped ACL columns.
+ * id, principalId) — never the ACL columns, which are gateway-owned.
  */
 
 import { eq } from "drizzle-orm";
@@ -63,8 +63,8 @@ export function seedContactChannel(params: {
     reassignConflictingChannels: !!params.contactId,
   });
 
-  // principalId is an identity column that survives Phase B — keep stamping it
-  // on the assistant row so identity-keyed reads resolve it.
+  // principalId is an identity column (assistant-owned) — keep stamping it on
+  // the assistant row so identity-keyed reads resolve it.
   const db = getDb();
   if (params.principalId !== undefined) {
     db.update(contacts)
