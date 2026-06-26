@@ -1,19 +1,36 @@
 
 import {
-  Fragment,
-  forwardRef,
   useCallback,
-  useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
+  useState,
   type ReactNode,
+  type Ref,
 } from "react";
 
-import { partitionLatestTurn } from "@/domains/chat/transcript/partition-latest-turn";
-import type { TranscriptItem } from "@/domains/chat/transcript/types";
+import {
+  VirtualList,
+  type VirtualListHandle,
+} from "@vellumai/design-library/components/virtual-list";
 
-import { LatestTurnRow } from "@/domains/chat/transcript/latest-turn-row";
+import { partitionLatestTurn } from "@/domains/chat/transcript/partition-latest-turn";
+import {
+  computePrependDelta,
+  findLatestUserAnchorKey,
+  PINNED_THRESHOLD_PX,
+  type ScrollClassification,
+} from "@/domains/chat/transcript/transcript-scroll-utils";
+import type {
+  MessageItem,
+  TranscriptItem,
+} from "@/domains/chat/transcript/types";
+
+import {
+  LatestTurnRow,
+  type LatestTurnRowProps,
+} from "@/domains/chat/transcript/latest-turn-row";
 import { PullRefreshSpinner } from "@/domains/chat/transcript/pull-refresh-spinner";
 import { TranscriptRow } from "@/domains/chat/transcript/transcript-row";
 import { PULL_THRESHOLD_PX } from "@/domains/chat/transcript/pull-to-refresh-utils";
@@ -22,15 +39,20 @@ import { useViewportMinHeight } from "@/domains/chat/transcript/use-viewport-min
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 
-/** Distance from the bottom (in px) at or below which the transcript is
- *  considered pinned to the latest message. Surfaced through
- *  `TranscriptHandle.getScrollState()` for the debug API. Kept in sync
- *  with the same threshold inside `useTranscriptScroll`. */
-const PINNED_THRESHOLD_PX = 64;
+/** Virtuoso addresses items by an absolute index that survives prepends. We
+ *  start high and decrement by the prepended count (see `computePrependDelta`)
+ *  so older pages insert at the front without the viewport jumping. */
+const FIRST_ITEM_INDEX_BASE = 1_000_000;
 
-/** Outcome of a pull-to-refresh, returned by the consumer's
- *  `onPullRefresh` handler so the page can render the right feedback
- *  pill. */
+/** Constant key for the composite latest-edge row. A stable key preserves the
+ *  `LatestTurnRow` memo and the assistant avatar's entrance-spring state across
+ *  streaming growth and the no-anchor → anchor transition. */
+const LATEST_EDGE_KEY = "latest-edge";
+
+/**
+ * Outcome of a pull-to-refresh, returned by the consumer's `onPullRefresh`
+ * handler so the page can render the right feedback pill.
+ */
 export type RefreshOutcome =
   | { kind: "no-change" }
   | { kind: "new-messages"; count: number }
@@ -117,238 +139,402 @@ export interface TranscriptProps {
    *  when omitted, getScrollState() falls back to defaults. `isPinned`
    *  is derived from scroll geometry inside `getScrollState()` rather
    *  than passed in. */
-  scrollCoordinatorState?: {
-    showScrollToLatest: boolean;
-    shouldLoadOlder: boolean;
-  };
+  scrollCoordinatorState?: Pick<
+    ScrollClassification,
+    "showScrollToLatest" | "shouldLoadOlder"
+  >;
+  ref?: Ref<TranscriptHandle>;
 }
 
 export interface TranscriptHandle {
   scrollToLatest(opts?: { behavior?: "auto" | "smooth" }): void;
   /** Scroll a message into view by id and briefly highlight it. Returns
-   *  `false` when no element with that message id is currently rendered (e.g.
-   *  the message lives in an older history page not yet loaded). */
+   *  `false` when the message is not currently loaded (e.g. it lives in an
+   *  older history page that hasn't been fetched). The caller may retry once
+   *  the page loads. */
   scrollToMessage(messageId: string): boolean;
-  getScrollElement(): HTMLDivElement | null;
-  /** Inner wrapper that surrounds all rendered children. Sized to the
-   *  scroll content; observable via `ResizeObserver` to detect when
-   *  scroll content height changes (e.g. async min-height settling,
-   *  late image loads, streaming growth). */
-  getContentElement(): HTMLDivElement | null;
+  getScrollElement(): HTMLElement | null;
   getViewportHeight(): number;
   /** Debug API: snapshot of the current scroll state (distance from bottom,
-   *  pinned-to-latest flag, button visibility, older-page load flag). */
-  getScrollState(): {
-    distanceFromBottom: number;
-    isPinned: boolean;
-    showScrollToLatest: boolean;
-    shouldLoadOlder: boolean;
-  };
+   *  pinned-to-latest flag, button visibility, older-page load flag). Reuses
+   *  the coordinator's {@link ScrollClassification} shape rather than
+   *  re-declaring it. */
+  getScrollState(): ScrollClassification;
 }
 
-export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
-  function Transcript(props, ref) {
-    const { items, conversationId, onPullRefresh, pullRefreshEnabled, ...rest } =
-      props;
-    const scrollRef = useRef<HTMLDivElement | null>(null);
-    const contentRef = useRef<HTMLDivElement | null>(null);
-    // Pending removal of the transient deep-link highlight class.
-    const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const viewportMinHeight = useViewportMinHeight(scrollRef);
-
-    useEffect(() => {
-      return () => {
-        if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
-      };
-    }, []);
-
-    const pullEnabled = !!pullRefreshEnabled && !!onPullRefresh;
-    const handlePullRefresh = useCallback(async () => {
-      if (!onPullRefresh) return;
-      await onPullRefresh();
-    }, [onPullRefresh]);
-    const pull = usePullToRefresh({
-      scrollRef,
-      onRefresh: handlePullRefresh,
-      enabled: pullEnabled,
-    });
-
-
-    const partition = useMemo(() => partitionLatestTurn(items), [items]);
-
-    useImperativeHandle(
-      ref,
-      (): TranscriptHandle => ({
-        scrollToLatest(opts) {
-          const el = scrollRef.current;
-          if (!el) return;
-          el.scrollTo({
-            top: el.scrollHeight - el.clientHeight,
-            behavior: opts?.behavior ?? "auto",
-          });
-        },
-        scrollToMessage(messageId) {
-          const target = document.getElementById(`msg-${messageId}`);
-          if (!target) return false;
-          target.scrollIntoView({ block: "center", behavior: "smooth" });
-          target.classList.add("message-highlighted");
-          if (highlightTimerRef.current) {
-            clearTimeout(highlightTimerRef.current);
-          }
-          highlightTimerRef.current = setTimeout(() => {
-            target.classList.remove("message-highlighted");
-            highlightTimerRef.current = null;
-          }, 2000);
-          return true;
-        },
-        getScrollElement() {
-          return scrollRef.current;
-        },
-        getContentElement() {
-          return contentRef.current;
-        },
-        getViewportHeight() {
-          return scrollRef.current?.clientHeight ?? 0;
-        },
-        getScrollState() {
-          const el = scrollRef.current;
-          if (!el) {
-            return {
-              distanceFromBottom: 0,
-              isPinned: true,
-              showScrollToLatest: false,
-              shouldLoadOlder: false,
-            };
-          }
-          const distanceFromBottom = Math.max(
-            0,
-            el.scrollHeight - el.clientHeight - el.scrollTop,
-          );
-          return {
-            distanceFromBottom,
-            isPinned: distanceFromBottom <= PINNED_THRESHOLD_PX,
-            showScrollToLatest: rest.scrollCoordinatorState?.showScrollToLatest ?? false,
-            shouldLoadOlder: rest.scrollCoordinatorState?.shouldLoadOlder ?? false,
-          };
-        },
-      }),
-      [rest.scrollCoordinatorState],
-    );
-
-    const rowProps = {
-      conversationId,
-      onSurfaceAction: rest.onSurfaceAction,
-      onForkConversation: rest.onForkConversation,
-      onInspectMessage: rest.onInspectMessage,
-      renderOnboardingChoice: rest.renderOnboardingChoice,
-      assistantDisplayName: rest.assistantDisplayName,
-      onOpenRuleEditor: rest.onOpenRuleEditor,
-      unknownNudgeToolCallIds: rest.unknownNudgeToolCallIds,
-      onDismissUnknownNudge: rest.onDismissUnknownNudge,
-      onConfirmationSubmit: rest.onConfirmationSubmit,
-      onAllowAndCreateRule: rest.onAllowAndCreateRule,
-      onOpenApp: rest.onOpenApp,
-      onOpenDocument: rest.onOpenDocument,
-      assistantId: rest.assistantId,
-      onSubagentClick: rest.onSubagentClick,
-      onStopSubagent: rest.onStopSubagent,
-      onWorkflowClick: rest.onWorkflowClick,
-      onStopWorkflow: rest.onStopWorkflow,
+/** A row in the virtual list: either a stable history item, or the single
+ *  composite "latest-edge" row (latest user message + its streaming response +
+ *  the avatar), which is always last when present. */
+type VirtualRow =
+  | { type: "history"; item: TranscriptItem }
+  | {
+      type: "latest-edge";
+      anchorMessage: MessageItem | null;
+      responseItems: TranscriptItem[];
+      hasAvatar: boolean;
     };
 
-    return (
-      <div
-        key={conversationId}
-        ref={scrollRef}
-        data-testid="transcript-scroll-container"
-        className="flex h-full w-full flex-col overflow-y-auto overscroll-none [overflow-anchor:none]"
-      >
-        {/* Inner content wrapper — observed by the scroll coordinator's
-         *  ResizeObserver so we can re-pin to bottom when scroll content
-         *  height changes (async min-height settle, late image loads,
-         *  streaming growth). Wrapping all rows in a single observed
-         *  element is cheaper than observing each row individually. */}
-        <div ref={contentRef} className="flex w-full flex-col">
-          {/* History items in chronological order — oldest at top. */}
-          {partition.historyItems.map((item) => (
-            <Fragment key={item.key}>
-              <div className="mx-auto w-full max-w-[var(--chat-max-width)] contain-content px-4 sm:px-6">
-                <TranscriptRow item={item} {...rowProps} />
-              </div>
-            </Fragment>
-          ))}
-          {/* Latest-edge region: contains the latest-turn cluster and the
-           *  assistant avatar. Two layout modes:
-           *
-           *  1. Anchor present — `minHeight: viewportMinHeight` pins the
-           *     anchor user message to the viewport top. The avatar
-           *     renders directly below the response items so it follows
-           *     the conversation flow visually. The `flex-1` spacer then
-           *     fills the remaining vertical space so the latest-edge
-           *     sentinel sits at the bottom of the viewport (preserving
-           *     the bottom-pin scroll target).
-           *  2. No anchor (assistant-only history, e.g. recovered
-           *     conversation or first paint before a submit) — neither
-           *     the viewport-height min-height NOR the flex-1 spacer
-           *     render. The avatar appears inline directly below the
-           *     last history item.
-           *
-           *  Key invariant: the avatar always sits directly below the
-           *  most recent assistant content. No giant empty gap between
-           *  the response and the avatar. The spacer is purely a layout
-           *  device to keep the latest-edge sentinel at the viewport
-           *  bottom for the anchor-pinning UX — it must NOT push the
-           *  avatar away from its content.
-           *
-           *  The avatar is intentionally decoupled from `partition.anchorMessage`
-           *  so it persists across the user-send → response gap AND across the
-           *  "no user message yet" case. The wrapper renders whenever either
-           *  the anchor or avatar slot is active; DOM identity (and ChatAvatar
-           *  entrance-spring state) is preserved across the no-anchor → anchor
-           *  transition because React's reconciler tracks `fiber.index` (see
-           *  the `transcript.test.tsx` regression test). */}
-          {(partition.anchorMessage || rest.renderAvatar) && (
-            <div
-              className="mx-auto flex w-full max-w-[var(--chat-max-width)] flex-col contain-content px-4 sm:px-6"
-              style={
-                partition.anchorMessage
-                  ? { minHeight: viewportMinHeight }
-                  : undefined
-              }
-            >
-              {partition.anchorMessage && (
-                <LatestTurnRow
-                  anchorMessage={partition.anchorMessage}
-                  responseItems={partition.responseItems}
-                  {...rowProps}
-                />
-              )}
-              {rest.renderAvatar && (
-                <div
-                  data-latest-assistant-avatar="true"
-                  className="flex justify-start pl-1 pt-3 pb-2"
-                >
-                  {rest.renderAvatar()}
-                </div>
-              )}
-              {partition.anchorMessage && (
-                <div data-latest-edge-spacer="true" className="flex-1" />
-              )}
-              <div aria-hidden data-latest-edge="true" />
-            </div>
-          )}
-          {/* Spinner last = visual bottom in flex-col. Only rendered when
-           *  the gesture is feature-flag-enabled so the flag-off path has
-           *  zero DOM impact. */}
-          {pullEnabled && (
-            <PullRefreshSpinner
-              height={pull.pullDistance}
-              progress={pull.pullDistance / PULL_THRESHOLD_PX}
-              phase={pull.phase}
-            />
-          )}
+/** The shared per-row props forwarded to every `TranscriptRow` /
+ *  `LatestTurnRow` — everything the row renderers need except the item
+ *  payload itself. */
+type RowSharedProps = Omit<
+  LatestTurnRowProps,
+  "anchorMessage" | "responseItems"
+>;
+
+export interface LatestEdgeRowProps {
+  /** The latest user message, or `null` for assistant-only history (the
+   *  avatar still mounts, but no anchor / min-height / spacer). */
+  anchorMessage: MessageItem | null;
+  responseItems: TranscriptItem[];
+  /** Whether to mount the bottom-pinned assistant avatar slot. */
+  hasAvatar: boolean;
+  /** Produces the avatar element; only invoked when `hasAvatar`. */
+  renderAvatar?: () => ReactNode;
+  /** Reserved min-height that pins the anchor to the viewport top while the
+   *  response streams into the space below. Applied only when an anchor is
+   *  present. */
+  viewportMinHeight: number | undefined;
+  /** Shared row props forwarded to the inner `LatestTurnRow`. */
+  rowProps: RowSharedProps;
+}
+
+/**
+ * The composite trailing row of the transcript: the latest user message
+ * (anchor) + its streaming response + the bottom-pinned assistant avatar,
+ * all inside a min-height wrapper. Two layout modes:
+ *
+ *  1. **Anchor present** — `minHeight: viewportMinHeight` pins the anchor to
+ *     the viewport top; the avatar renders below the response; the `flex-1`
+ *     spacer fills the remaining space so the latest-edge sentinel sits at
+ *     the viewport bottom.
+ *  2. **No anchor** (assistant-only history, or first paint before a submit) —
+ *     no min-height, no spacer; the avatar appears inline below the last
+ *     history item.
+ *
+ * The avatar is decoupled from the anchor so it persists across the
+ * user-send → response gap; the composite's constant row key preserves its
+ * `ChatAvatar` entrance-spring state across the no-anchor → anchor flip.
+ *
+ * Extracted from `Transcript` so its layout invariants (markers, min-height,
+ * child ordering) stay unit-testable with `renderToStaticMarkup` —
+ * `Transcript` itself renders through virtuoso, which paints nothing
+ * server-side.
+ */
+export function LatestEdgeRow({
+  anchorMessage,
+  responseItems,
+  hasAvatar,
+  renderAvatar,
+  viewportMinHeight,
+  rowProps,
+}: LatestEdgeRowProps) {
+  return (
+    <div
+      className="mx-auto flex w-full max-w-[var(--chat-max-width)] flex-col contain-content px-4 sm:px-6"
+      style={anchorMessage ? { minHeight: viewportMinHeight } : undefined}
+    >
+      {anchorMessage && (
+        <LatestTurnRow
+          anchorMessage={anchorMessage}
+          responseItems={responseItems}
+          {...rowProps}
+        />
+      )}
+      {hasAvatar && renderAvatar && (
+        <div
+          data-latest-assistant-avatar="true"
+          className="flex justify-start pl-1 pt-3 pb-2"
+        >
+          {renderAvatar()}
         </div>
-      </div>
+      )}
+      {anchorMessage && (
+        <div data-latest-edge-spacer="true" className="flex-1" />
+      )}
+      <div aria-hidden data-latest-edge="true" />
+    </div>
+  );
+}
+
+export function Transcript({
+  items,
+  conversationId,
+  onPullRefresh,
+  pullRefreshEnabled,
+  ref,
+  ...rest
+}: TranscriptProps) {
+  const virtualListRef = useRef<VirtualListHandle>(null);
+  // Virtuoso owns the scroll element. Capture it after mount into state so the
+  // viewport-min-height + pull-to-refresh hooks (which expect a ref) re-run
+  // once it exists, and again when the list remounts on conversation switch.
+  const [scrollEl, setScrollEl] = useState<HTMLElement | null>(null);
+  const scrollElRef = useMemo(() => ({ current: scrollEl }), [scrollEl]);
+  // Pending removal of the transient deep-link highlight class.
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const hasItems = items.length > 0;
+  useLayoutEffect(() => {
+    setScrollEl(virtualListRef.current?.getScrollElement() ?? null);
+  }, [conversationId, hasItems]);
+
+  useLayoutEffect(() => {
+    return () => {
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    };
+  }, []);
+
+  const viewportMinHeight = useViewportMinHeight(scrollElRef);
+
+  const pullEnabled = !!pullRefreshEnabled && !!onPullRefresh;
+  const handlePullRefresh = useCallback(async () => {
+    if (!onPullRefresh) return;
+    await onPullRefresh();
+  }, [onPullRefresh]);
+  const pull = usePullToRefresh({
+    scrollRef: scrollElRef,
+    onRefresh: handlePullRefresh,
+    enabled: pullEnabled,
+  });
+
+  const partition = useMemo(() => partitionLatestTurn(items), [items]);
+
+  // History rows + a single trailing composite when there's an anchor or an
+  // avatar to mount (mirrors the old latest-edge guard).
+  const rows = useMemo<VirtualRow[]>(() => {
+    const out: VirtualRow[] = partition.historyItems.map((item) => ({
+      type: "history",
+      item,
+    }));
+    if (partition.anchorMessage || rest.renderAvatar) {
+      out.push({
+        type: "latest-edge",
+        anchorMessage: partition.anchorMessage,
+        responseItems: partition.responseItems,
+        hasAvatar: !!rest.renderAvatar,
+      });
+    }
+    return out;
+  }, [partition, rest.renderAvatar]);
+
+  // firstItemIndex: decrement by the prepended history count so older pages
+  // insert at the front without the viewport jumping (virtuoso anchors the
+  // scroll itself). Derived during render — it must be correct on the prepend
+  // frame — and guarded on `items` identity so StrictMode's double-invoke
+  // can't double-apply the decrement.
+  const firstItemIndexRef = useRef(FIRST_ITEM_INDEX_BASE);
+  const prevFirstKeyRef = useRef<string | null>(null);
+  const prevHistoryLenRef = useRef(0);
+  const prevConversationIdRef = useRef(conversationId);
+  const processedItemsRef = useRef<TranscriptItem[] | null>(null);
+  if (processedItemsRef.current !== items) {
+    if (prevConversationIdRef.current !== conversationId) {
+      prevConversationIdRef.current = conversationId;
+      firstItemIndexRef.current = FIRST_ITEM_INDEX_BASE;
+      prevFirstKeyRef.current = null;
+      prevHistoryLenRef.current = 0;
+    }
+    firstItemIndexRef.current -= computePrependDelta(
+      partition.historyItems,
+      prevFirstKeyRef.current,
+      prevHistoryLenRef.current,
     );
-  },
-);
+    prevFirstKeyRef.current = partition.historyItems[0]?.key ?? null;
+    prevHistoryLenRef.current = partition.historyItems.length;
+    processedItemsRef.current = items;
+  }
+  const firstItemIndex = firstItemIndexRef.current;
+
+  // Map both the server `message.id` (the deep-link + DOM id) and the optimistic
+  // `clientMessageId` to a row index, for `scrollToMessage`.
+  const indexById = useMemo(() => {
+    const map = new Map<string, number>();
+    const register = (msg: MessageItem | null, index: number) => {
+      if (!msg) return;
+      map.set(msg.message.id, index);
+      if (msg.message.clientMessageId) {
+        map.set(msg.message.clientMessageId, index);
+      }
+    };
+    rows.forEach((row, index) => {
+      if (row.type === "history") {
+        if (row.item.kind === "message") register(row.item, index);
+      } else {
+        register(row.anchorMessage, index);
+      }
+    });
+    return map;
+  }, [rows]);
+
+  useImperativeHandle(
+    ref,
+    (): TranscriptHandle => ({
+      scrollToLatest(opts) {
+        virtualListRef.current?.scrollToBottom({
+          behavior: opts?.behavior ?? "auto",
+        });
+      },
+      scrollToMessage(messageId) {
+        const index = indexById.get(messageId);
+        if (index === undefined) return false;
+        virtualListRef.current?.scrollToIndex({
+          index,
+          behavior: "smooth",
+          align: "center",
+        });
+        // The row may not be painted yet (virtuoso scrolls, then mounts it),
+        // so poll briefly for the DOM node before applying the highlight.
+        let frames = 0;
+        const tryHighlight = () => {
+          const target = document.getElementById(`msg-${messageId}`);
+          if (target) {
+            target.classList.add("message-highlighted");
+            if (highlightTimerRef.current) {
+              clearTimeout(highlightTimerRef.current);
+            }
+            highlightTimerRef.current = setTimeout(() => {
+              target.classList.remove("message-highlighted");
+              highlightTimerRef.current = null;
+            }, 2000);
+            return;
+          }
+          if (frames++ < 10) requestAnimationFrame(tryHighlight);
+        };
+        requestAnimationFrame(tryHighlight);
+        return true;
+      },
+      getScrollElement() {
+        return virtualListRef.current?.getScrollElement() ?? null;
+      },
+      getViewportHeight() {
+        return virtualListRef.current?.getScrollElement()?.clientHeight ?? 0;
+      },
+      getScrollState() {
+        const el = virtualListRef.current?.getScrollElement() ?? null;
+        if (!el) {
+          return {
+            distanceFromBottom: 0,
+            isPinned: true,
+            showScrollToLatest: false,
+            shouldLoadOlder: false,
+          };
+        }
+        const distanceFromBottom = Math.max(
+          0,
+          el.scrollHeight - el.clientHeight - el.scrollTop,
+        );
+        return {
+          distanceFromBottom,
+          isPinned: distanceFromBottom <= PINNED_THRESHOLD_PX,
+          showScrollToLatest:
+            rest.scrollCoordinatorState?.showScrollToLatest ?? false,
+          shouldLoadOlder: rest.scrollCoordinatorState?.shouldLoadOlder ?? false,
+        };
+      },
+    }),
+    [indexById, rest.scrollCoordinatorState],
+  );
+
+  // Submit pin: when a new user message becomes the anchor, align the composite
+  // (last row) to the viewport top — the min-height wrapper reserves a viewport
+  // of space below it for the streaming response. Skipped on conversation
+  // switch, where the remount + initialTopMostItemIndex="LAST" handle position.
+  const prevAnchorKeyRef = useRef<string | null>(
+    findLatestUserAnchorKey(items),
+  );
+  const prevConvForPinRef = useRef(conversationId);
+  useLayoutEffect(() => {
+    const anchorKey = findLatestUserAnchorKey(items);
+    if (prevConvForPinRef.current !== conversationId) {
+      prevConvForPinRef.current = conversationId;
+      prevAnchorKeyRef.current = anchorKey;
+      return;
+    }
+    if (
+      anchorKey !== null &&
+      anchorKey !== prevAnchorKeyRef.current &&
+      rows.length > 0
+    ) {
+      virtualListRef.current?.scrollToIndex({
+        index: rows.length - 1,
+        align: "start",
+        behavior: "auto",
+      });
+    }
+    prevAnchorKeyRef.current = anchorKey;
+  }, [items, conversationId, rows.length]);
+
+  const rowProps = {
+    conversationId,
+    onSurfaceAction: rest.onSurfaceAction,
+    onForkConversation: rest.onForkConversation,
+    onInspectMessage: rest.onInspectMessage,
+    renderOnboardingChoice: rest.renderOnboardingChoice,
+    assistantDisplayName: rest.assistantDisplayName,
+    onOpenRuleEditor: rest.onOpenRuleEditor,
+    unknownNudgeToolCallIds: rest.unknownNudgeToolCallIds,
+    onDismissUnknownNudge: rest.onDismissUnknownNudge,
+    onConfirmationSubmit: rest.onConfirmationSubmit,
+    onAllowAndCreateRule: rest.onAllowAndCreateRule,
+    onOpenApp: rest.onOpenApp,
+    onOpenDocument: rest.onOpenDocument,
+    assistantId: rest.assistantId,
+    onSubagentClick: rest.onSubagentClick,
+    onStopSubagent: rest.onStopSubagent,
+    onWorkflowClick: rest.onWorkflowClick,
+    onStopWorkflow: rest.onStopWorkflow,
+  };
+
+  const renderAvatar = rest.renderAvatar;
+
+  const itemContent = (_index: number, row: VirtualRow): ReactNode => {
+    if (row.type === "history") {
+      return (
+        <div className="mx-auto w-full max-w-[var(--chat-max-width)] contain-content px-4 sm:px-6">
+          <TranscriptRow item={row.item} {...rowProps} />
+        </div>
+      );
+    }
+    // Latest-edge region — see {@link LatestEdgeRow} for the two layout modes.
+    return (
+      <LatestEdgeRow
+        anchorMessage={row.anchorMessage}
+        responseItems={row.responseItems}
+        hasAvatar={row.hasAvatar}
+        renderAvatar={renderAvatar}
+        viewportMinHeight={viewportMinHeight}
+        rowProps={rowProps}
+      />
+    );
+  };
+
+  const computeItemKey = useCallback(
+    (_index: number, row: VirtualRow): string =>
+      row.type === "history" ? row.item.key : LATEST_EDGE_KEY,
+    [],
+  );
+
+  return (
+    <VirtualList<VirtualRow>
+      key={conversationId}
+      ref={virtualListRef}
+      items={rows}
+      itemContent={itemContent}
+      computeItemKey={computeItemKey}
+      firstItemIndex={firstItemIndex}
+      initialTopMostItemIndex="LAST"
+      increaseViewportBy={{ top: 200, bottom: 0 }}
+      className="h-full w-full overscroll-none [overflow-anchor:none]"
+      footer={
+        pullEnabled ? (
+          <PullRefreshSpinner
+            height={pull.pullDistance}
+            progress={pull.pullDistance / PULL_THRESHOLD_PX}
+            phase={pull.phase}
+          />
+        ) : undefined
+      }
+    />
+  );
+}

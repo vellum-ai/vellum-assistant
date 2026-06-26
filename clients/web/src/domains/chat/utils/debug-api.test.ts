@@ -947,7 +947,6 @@ function makeTranscriptHandle(
     scrollToLatest: () => {},
     scrollToMessage: () => false,
     getScrollElement: () => scrollEl,
-    getContentElement: () => null,
     getViewportHeight: () => scrollEl?.clientHeight ?? 0,
     getScrollState: () => ({
       distanceFromBottom: 0,

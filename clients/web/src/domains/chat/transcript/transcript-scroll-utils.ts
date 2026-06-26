@@ -104,63 +104,29 @@ export function findLatestUserAnchorKey(
 }
 
 // ---------------------------------------------------------------------------
-// Items-change decision helper
+// Prepend detection (firstItemIndex anchoring)
 // ---------------------------------------------------------------------------
 
-export interface AnchorSnapshot {
-  key: string;
-  scrollTop: number;
-  /** scrollHeight captured at the moment the anchor was saved. The
-   *  hook restores `scrollTop + (newScrollHeight − savedScrollHeight)`
-   *  after the older-page prepend lands, so the user's view stays on
-   *  the same row regardless of how many pixels of older content were
-   *  inserted above it. */
-  scrollHeight: number;
-}
-
-export type ItemsChangeAction =
-  | { kind: "none" }
-  | {
-      kind: "anchor-correct";
-      newIndex: number;
-      savedScrollTop: number;
-      savedScrollHeight: number;
-    };
-
-export interface ItemsChangeContext {
-  items: readonly TranscriptItem[];
-  previousItems: readonly TranscriptItem[];
-  conversationId: string | null;
-  savedAnchor: AnchorSnapshot | null;
-}
-
-/** Decide what the scroll coordinator should do in response to an
- *  `items` change. The caller is responsible for executing the action
- *  (calling into the TranscriptHandle) and for updating the
- *  `savedAnchor` bookkeeping state.
+/** How many history items were prepended at the front since the previous
+ *  render — the amount to decrement virtuoso's `firstItemIndex` by so the
+ *  viewport stays visually stable after an older-page load (virtuoso anchors
+ *  the scroll position itself; no manual scrollTop math needed).
  *
- *  Notes:
- *  - "open-to-latest" on conversation switch is handled by the
- *    conversation-reset effect, not here.
- *  - Streaming growth deliberately returns `none` here. The viewport
- *    stays put so the reader is in control; the "Go to Newest" pill
- *    appears once distance-from-bottom crosses its threshold. */
-export function decideItemsChangeAction(
-  ctx: ItemsChangeContext,
-): ItemsChangeAction {
-  if (ctx.conversationId === null) return { kind: "none" };
-
-  if (ctx.savedAnchor && ctx.items.length > 0) {
-    const newIndex = findAnchorIndex(ctx.items, ctx.savedAnchor.key);
-    if (newIndex >= 0) {
-      return {
-        kind: "anchor-correct",
-        newIndex,
-        savedScrollTop: ctx.savedAnchor.scrollTop,
-        savedScrollHeight: ctx.savedAnchor.scrollHeight,
-      };
-    }
-  }
-
-  return { kind: "none" };
+ *  Returns the prepended count only for a *pure* front-prepend: the list grew
+ *  and the previously-first item now sits exactly that many slots down.
+ *  Anything else — append, in-place streaming growth, replace, shrink, or the
+ *  first render with no baseline — returns 0 and leaves `firstItemIndex`
+ *  untouched (stable `computeItemKey` handles reconciliation there). */
+export function computePrependDelta(
+  historyItems: readonly TranscriptItem[],
+  prevFirstKey: string | null,
+  prevLen: number,
+): number {
+  if (prevFirstKey === null) return 0;
+  const newLen = historyItems.length;
+  if (newLen <= prevLen) return 0;
+  const delta = newLen - prevLen;
+  // For a pure prepend the old first item must now sit exactly `delta` slots
+  // down; otherwise it's a prepend+append mix or a reorder — don't shift.
+  return findAnchorIndex(historyItems, prevFirstKey) === delta ? delta : 0;
 }

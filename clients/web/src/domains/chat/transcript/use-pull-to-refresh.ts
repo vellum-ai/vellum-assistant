@@ -46,7 +46,13 @@ function visualPullHeight(dragDistance: number): number {
 }
 
 export interface UsePullToRefreshArgs {
-  scrollRef: RefObject<HTMLDivElement | null>;
+  /** The scroll container. Widened from `HTMLDivElement` to `HTMLElement`
+   *  because the virtualized transcript hands us virtuoso's scroller element
+   *  (captured via `VirtualList.getScrollElement()`) rather than a div the
+   *  component owns directly. The hook only reads
+   *  `scrollTop`/`scrollHeight`/`clientHeight` and `style.overscrollBehavior`,
+   *  all of which live on `HTMLElement`. */
+  scrollRef: RefObject<HTMLElement | null>;
   onRefresh: () => Promise<void>;
   enabled: boolean;
 }

@@ -1,23 +1,31 @@
 /**
- * Smoke tests for the `Transcript` component.
+ * Tests for the `Transcript` component.
  *
- * The repo doesn't run DOM-based tests (no `@testing-library/react`). We
- * verify behavior via `renderToStaticMarkup` plus `mock.module` shims that
- * replace leaf rendering dependencies with deterministic stubs.
+ * Since LUM-2605 the transcript renders through the `VirtualList`
+ * (`react-virtuoso`) primitive, which paints nothing under
+ * `renderToStaticMarkup` (its item rendering is driven by layout effects).
+ * So the suite is split:
  *
- * The component uses plain `flex-col` to render items: history items
- * appear first in DOM order (visual top, oldest first) and the
- * LatestTurnRow follows at the end of the DOM (visual bottom).
+ *  - The composite trailing row's layout invariants (markers, min-height,
+ *    child ordering, avatar DOM identity) are unit-tested against the
+ *    extracted {@link LatestEdgeRow} via `renderToStaticMarkup` / jsdom —
+ *    those assertions don't need virtuoso at all.
+ *  - The wiring Transcript owns — that it mounts the list scroller and that
+ *    its row-index map resolves message ids (`scrollToMessage`) — is checked
+ *    with a jsdom render. NOTE: `react-virtuoso` only paints items when the
+ *    test's `VirtuosoMockContext` is the SAME module instance the list renders
+ *    with; in this workspace the design-library bundles its own react-virtuoso
+ *    copy (distinct from clients/web's), so items don't paint under jsdom
+ *    here. The "items flow through virtuoso" path is covered by the
+ *    design-library's own VirtualList tests.
+ *
+ * The transcript uses plain `flex-col`: history items appear first in DOM
+ * order (visual top, oldest first) and the latest-edge composite follows
+ * at the end (visual bottom).
  */
 
-import {
-  afterEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
-import { act, useEffect } from "react";
+import { afterEach, describe, expect, mock, test } from "bun:test";
+import { act, createRef, useEffect } from "react";
 import { cleanup, render } from "@testing-library/react";
 
 // `ChatMarkdownMessage` pulls in `react-markdown` + `remark-gfm`. They render
@@ -58,12 +66,17 @@ mock.module("@/domains/chat/components/chat-attachments/message-attachments", ()
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
-import type { TranscriptItem } from "@/domains/chat/transcript/types";
+import type { MessageItem } from "@/domains/chat/transcript/types";
 
-import { Transcript } from "@/domains/chat/transcript/transcript";
+import {
+  LatestEdgeRow,
+  Transcript,
+  type TranscriptHandle,
+} from "@/domains/chat/transcript/transcript";
 
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
-function userMessage(id: string, content: string): TranscriptItem {
+
+function userMessage(id: string, content: string): MessageItem {
   const msg: DisplayMessage = {
     id,
     role: "user",
@@ -72,7 +85,7 @@ function userMessage(id: string, content: string): TranscriptItem {
   return { kind: "message", key: id, message: msg };
 }
 
-function assistantMessage(id: string, content: string): TranscriptItem {
+function assistantMessage(id: string, content: string): MessageItem {
   const msg: DisplayMessage = {
     id,
     role: "assistant",
@@ -83,128 +96,90 @@ function assistantMessage(id: string, content: string): TranscriptItem {
 
 const noop = () => {};
 
-describe("Transcript", () => {
-  test("with empty items, renders zero rows", () => {
+/** Minimal shared row props for `LatestEdgeRow` — only `onSurfaceAction` is
+ *  required; the rest are optional callbacks the row renderers tolerate. */
+const rowProps = { onSurfaceAction: noop };
+
+// ---------------------------------------------------------------------------
+// LatestEdgeRow — composite trailing row layout invariants (static markup).
+// ---------------------------------------------------------------------------
+
+describe("LatestEdgeRow", () => {
+  test("with an anchor, renders the latest-turn cluster and the edge sentinel", () => {
     const html = renderToStaticMarkup(
-      <Transcript
-        items={[]}
-        conversationId={null}
-        onSurfaceAction={noop}
-
-      />,
-    );
-    // No message content → no rendered rows.
-    expect(html).not.toContain('data-latest-turn="true"');
-    expect(html).not.toContain('data-testid="markdown"');
-  });
-
-  test("scroll container has flex-col class (chronological order)", () => {
-    const html = renderToStaticMarkup(
-      <Transcript
-        items={[]}
-        conversationId={null}
-        onSurfaceAction={noop}
-
-      />,
-    );
-    expect(html).toContain("flex-col");
-    expect(html).not.toContain("flex-col-reverse");
-  });
-
-  test("with trailing user message, renders history rows and a latest-turn row", () => {
-    const items: TranscriptItem[] = [
-      assistantMessage("a1", "hello"),
-      userMessage("u1", "first question"),
-      assistantMessage("a2", "some reply"),
-      userMessage("u2", "latest question"),
-      assistantMessage("a3", "streaming reply"),
-    ];
-    // partitionLatestTurn -> historyItems: [a1, u1, a2] (3), anchor: u2,
-    //                       responseItems: [a3].
-    const html = renderToStaticMarkup(
-      <Transcript
-        items={items}
-        conversationId={null}
-        onSurfaceAction={noop}
-
+      <LatestEdgeRow
+        anchorMessage={userMessage("u1", "latest question")}
+        responseItems={[assistantMessage("a1", "streaming reply")]}
+        hasAvatar={false}
+        viewportMinHeight={undefined}
+        rowProps={rowProps}
       />,
     );
 
-    // All history message content appears in the rendered output.
-    expect(html).toContain("hello");
-    expect(html).toContain("first question");
-    expect(html).toContain("some reply");
-
-    // LatestTurnRow renders the anchor message + response items inline.
     expect(html).toContain("latest question");
     expect(html).toContain("streaming reply");
-
-    // Marker attributes emitted by LatestTurnRow.
     expect(html).toContain('data-latest-turn="true"');
     expect(html).toContain('data-latest-edge="true"');
   });
 
-  test("with no user messages at all, no latest-turn row is rendered", () => {
-    const items: TranscriptItem[] = [
-      assistantMessage("a1", "only assistant"),
-      assistantMessage("a2", "also assistant"),
-    ];
+  test("with no anchor, renders no latest-turn cluster but still the edge sentinel", () => {
     const html = renderToStaticMarkup(
-      <Transcript
-        items={items}
-        conversationId={null}
-        onSurfaceAction={noop}
-
+      <LatestEdgeRow
+        anchorMessage={null}
+        responseItems={[]}
+        hasAvatar={false}
+        viewportMinHeight={undefined}
+        rowProps={rowProps}
       />,
     );
 
     expect(html).not.toContain('data-latest-turn="true"');
-    // History items still render.
-    expect(html).toContain("only assistant");
-    expect(html).toContain("also assistant");
+    expect(html).toContain('data-latest-edge="true"');
   });
 
-  test("items render in correct visual order (flex-col: history first in DOM, latest-turn last)", () => {
-    const items: TranscriptItem[] = [
-      assistantMessage("a1", "FIRST_MSG"),
-      userMessage("u1", "SECOND_MSG"),
-      assistantMessage("a2", "THIRD_MSG"),
-    ];
-    // partition: history=[a1], anchor=u1, response=[a2]
+  test("with an anchor, applies the viewport min-height (anchor pins to top)", () => {
     const html = renderToStaticMarkup(
-      <Transcript
-        items={items}
-        conversationId={null}
-        onSurfaceAction={noop}
-
+      <LatestEdgeRow
+        anchorMessage={userMessage("u1", "ANCHOR_MARKER")}
+        responseItems={[]}
+        hasAvatar={false}
+        viewportMinHeight={640}
+        rowProps={rowProps}
       />,
     );
+    expect(html).toContain("min-height");
+  });
 
-    // In flex-col DOM order: history items come first (visual top),
-    // LatestTurnRow (u1 + a2) is rendered last (visual bottom).
-    const latestTurnIdx = html.indexOf('data-latest-turn="true"');
-    const firstMsgIdx = html.indexOf("FIRST_MSG");
-    expect(latestTurnIdx).toBeGreaterThanOrEqual(0);
-    expect(firstMsgIdx).toBeGreaterThanOrEqual(0);
-    // History appears first in DOM (before LatestTurnRow).
-    expect(firstMsgIdx).toBeLessThan(latestTurnIdx);
+  test("with no anchor, omits the min-height entirely", () => {
+    // Codex P2 #1 regression. With assistant-only history the wrapper must
+    // not occupy a full viewport-height region after the last history item,
+    // or the bottom-pin would land on blank space instead of the latest
+    // assistant message.
+    const html = renderToStaticMarkup(
+      <LatestEdgeRow
+        anchorMessage={null}
+        responseItems={[]}
+        hasAvatar
+        renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
+        viewportMinHeight={640}
+        rowProps={rowProps}
+      />,
+    );
+    expect(html).toContain('data-latest-assistant-avatar="true"');
+    expect(html).not.toContain("min-height");
   });
 });
 
-describe("Transcript avatar slot", () => {
-  test("renderAvatar with no anchor (assistant-only history) still mounts the avatar at the bottom", () => {
-    // No user message → no anchor. Avatar must still appear so the
-    // bottom-of-conversation slot is conversation-agnostic.
-    const items: TranscriptItem[] = [
-      assistantMessage("a1", "only assistant"),
-    ];
+describe("LatestEdgeRow avatar slot", () => {
+  test("no anchor (assistant-only history) still mounts the avatar", () => {
     const html = renderToStaticMarkup(
-      <Transcript
-        items={items}
-        conversationId={null}
-        onSurfaceAction={noop}
-
+      <LatestEdgeRow
+        anchorMessage={null}
+        responseItems={[]}
+        hasAvatar
         renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
+        viewportMinHeight={undefined}
+        rowProps={rowProps}
       />,
     );
 
@@ -214,19 +189,15 @@ describe("Transcript avatar slot", () => {
     expect(html).toContain('data-latest-edge="true"');
   });
 
-  test("renderAvatar with anchor: avatar appears AFTER the latest-turn cluster but BEFORE the latest-edge sentinel", () => {
-    const items: TranscriptItem[] = [
-      assistantMessage("a1", "history"),
-      userMessage("u1", "ANCHOR_MARKER"),
-      assistantMessage("a2", "RESPONSE_MARKER"),
-    ];
+  test("with anchor: avatar appears AFTER the cluster but BEFORE the edge sentinel", () => {
     const html = renderToStaticMarkup(
-      <Transcript
-        items={items}
-        conversationId={null}
-        onSurfaceAction={noop}
-
+      <LatestEdgeRow
+        anchorMessage={userMessage("u1", "ANCHOR_MARKER")}
+        responseItems={[assistantMessage("a1", "RESPONSE_MARKER")]}
+        hasAvatar
         renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
+        viewportMinHeight={640}
+        rowProps={rowProps}
       />,
     );
 
@@ -246,106 +217,18 @@ describe("Transcript avatar slot", () => {
     expect(avatarIdx).toBeLessThan(edgeIdx);
   });
 
-  test("renderAvatar omitted → no avatar slot rendered", () => {
-    const items: TranscriptItem[] = [
-      userMessage("u1", "question"),
-      assistantMessage("a1", "reply"),
-    ];
+  test("with anchor: avatar appears BEFORE the flex-1 spacer (stays attached to content)", () => {
+    // The spacer pushes the latest-edge sentinel to the viewport bottom — but
+    // the avatar must stay attached to the assistant's content, not get
+    // pushed away with the sentinel.
     const html = renderToStaticMarkup(
-      <Transcript
-        items={items}
-        conversationId={null}
-        onSurfaceAction={noop}
-
-      />,
-    );
-
-    expect(html).not.toContain('data-latest-assistant-avatar="true"');
-    // Latest-edge sentinel still renders because the anchor exists.
-    expect(html).toContain('data-latest-edge="true"');
-  });
-
-  test("renderAvatar with neither anchor nor history → avatar still renders (empty conversation w/ avatar)", () => {
-    const html = renderToStaticMarkup(
-      <Transcript
-        items={[]}
-        conversationId={null}
-        onSurfaceAction={noop}
-
+      <LatestEdgeRow
+        anchorMessage={userMessage("u1", "ANCHOR_MARKER")}
+        responseItems={[assistantMessage("a1", "RESPONSE_MARKER")]}
+        hasAvatar
         renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
-      />,
-    );
-    expect(html).toContain('data-latest-assistant-avatar="true"');
-    expect(html).toContain("AVATAR_SLOT_MARKER");
-  });
-
-  // Codex P2 #1 regression. When `renderAvatar` is provided but there is
-  // NO anchor message (assistant-only history — e.g. a recovered conversation
-  // whose user message was lost, or the onboarding-only state), the latest-
-  // edge wrapper must not apply `minHeight: viewportMinHeight`. If it did,
-  // the wrapper would occupy a full viewport-height region after the last
-  // history item, and the bottom-pin scroll on conversation switch (see
-  // `595071cbb1 — scroll to bottom on transcript container DOM attach`)
-  // would land on blank space + the avatar instead of on the actual latest
-  // assistant message.
-  test("renderAvatar with no anchor: latest-edge wrapper does NOT apply viewport-height min-height", () => {
-    const items: TranscriptItem[] = [
-      assistantMessage("a1", "LATEST_ASSISTANT_MSG"),
-    ];
-    const html = renderToStaticMarkup(
-      <Transcript
-        items={items}
-        conversationId="conv-1"
-        onSurfaceAction={noop}
-
-        renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
-      />,
-    );
-
-    // Sanity: avatar + edge sentinel both render.
-    expect(html).toContain('data-latest-assistant-avatar="true"');
-    expect(html).toContain('data-latest-edge="true"');
-    // The only place the component sets `min-height` is the latest-edge
-    // wrapper. With no anchor, that style must be omitted entirely.
-    expect(html).not.toContain("min-height");
-  });
-
-  test("renderAvatar with anchor: latest-edge wrapper applies min-height (viewport pinning preserved)", () => {
-    const items: TranscriptItem[] = [
-      userMessage("u1", "ANCHOR_MARKER"),
-    ];
-    const html = renderToStaticMarkup(
-      <Transcript
-        items={items}
-        conversationId="conv-1"
-        onSurfaceAction={noop}
-
-        renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
-      />,
-    );
-
-    // Min-height attribute must be present so the anchor pins to the top
-    // and the flex-1 spacer pushes the avatar to the bottom.
-    expect(html).toContain("min-height");
-  });
-
-  // Layout invariant: the avatar must sit directly below the response
-  // items, NOT below the `flex-1` spacer. With anchor + avatar, the spacer
-  // pushes the latest-edge sentinel to the bottom of the viewport — but
-  // the avatar must stay attached to the assistant's content, not get
-  // pushed away with the sentinel.
-  test("renderAvatar with anchor: avatar appears BEFORE the flex-1 spacer", () => {
-    const items: TranscriptItem[] = [
-      userMessage("u1", "ANCHOR_MARKER"),
-      assistantMessage("a1", "RESPONSE_MARKER"),
-    ];
-    const html = renderToStaticMarkup(
-      <Transcript
-        items={items}
-        conversationId="conv-1"
-        onSurfaceAction={noop}
-
-        renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
+        viewportMinHeight={640}
+        rowProps={rowProps}
       />,
     );
 
@@ -354,11 +237,6 @@ describe("Transcript avatar slot", () => {
     const spacerIdx = html.indexOf('data-latest-edge-spacer="true"');
     const edgeIdx = html.indexOf('data-latest-edge="true"');
 
-    expect(responseIdx).toBeGreaterThanOrEqual(0);
-    expect(avatarIdx).toBeGreaterThanOrEqual(0);
-    expect(spacerIdx).toBeGreaterThanOrEqual(0);
-    expect(edgeIdx).toBeGreaterThanOrEqual(0);
-
     // response → avatar → spacer → edge sentinel
     expect(responseIdx).toBeLessThan(avatarIdx);
     expect(avatarIdx).toBeLessThan(spacerIdx);
@@ -366,35 +244,29 @@ describe("Transcript avatar slot", () => {
   });
 
   test("no anchor: no flex-1 spacer rendered (avatar sits inline under history)", () => {
-    const items: TranscriptItem[] = [
-      assistantMessage("a1", "history one"),
-    ];
     const html = renderToStaticMarkup(
-      <Transcript
-        items={items}
-        conversationId="conv-1"
-        onSurfaceAction={noop}
-
+      <LatestEdgeRow
+        anchorMessage={null}
+        responseItems={[]}
+        hasAvatar
         renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
+        viewportMinHeight={undefined}
+        rowProps={rowProps}
       />,
     );
 
     expect(html).toContain('data-latest-assistant-avatar="true"');
-    // No spacer in the no-anchor case — avatar sits inline.
     expect(html).not.toContain('data-latest-edge-spacer="true"');
   });
 
-  test("anchor without renderAvatar: still applies min-height (viewport pinning is for the anchor, not the avatar)", () => {
-    const items: TranscriptItem[] = [
-      userMessage("u1", "ANCHOR_MARKER"),
-      assistantMessage("a1", "RESPONSE_MARKER"),
-    ];
+  test("anchor without avatar: still applies min-height (pinning is for the anchor)", () => {
     const html = renderToStaticMarkup(
-      <Transcript
-        items={items}
-        conversationId="conv-1"
-        onSurfaceAction={noop}
-
+      <LatestEdgeRow
+        anchorMessage={userMessage("u1", "ANCHOR_MARKER")}
+        responseItems={[assistantMessage("a1", "RESPONSE_MARKER")]}
+        hasAvatar={false}
+        viewportMinHeight={640}
+        rowProps={rowProps}
       />,
     );
 
@@ -406,23 +278,18 @@ describe("Transcript avatar slot", () => {
 // ---------------------------------------------------------------------------
 // Codex P2 #2 regression — DOM identity across no-anchor → anchor transition.
 //
-// The latest-edge wrapper has unkeyed conditional children. Codex's review
-// claimed that inserting `<LatestTurnRow>` at slot 0 (was `false`) would
-// cause React to "reconcile the following <div>s by index", reusing the
-// current avatar wrapper as the spacer and remounting `ChatAvatar`, replaying
-// the entrance-spring animation. Empirically that does NOT happen — React's
-// reconciler tracks `fiber.index` (the OLD render's position), so the
-// existing avatar fiber at fiber.index=2 still matches newIdx=2 even after
-// the conditional slot 0 lights up. This test locks in the correct behavior
-// so a future refactor (e.g. reordering siblings, changing the conditional
-// shape) doesn't silently regress.
+// When the anchor lights up, `<LatestTurnRow>` is inserted at slot 0 (was
+// `false`). React's reconciler tracks `fiber.index` (the OLD render's
+// position), so the existing avatar fiber still matches its new position and
+// `ChatAvatar` is NOT remounted — its entrance-spring state is preserved.
+// Re-targeted at `LatestEdgeRow` (the unit that owns the conditional shape).
 // ---------------------------------------------------------------------------
-describe("Transcript no-anchor → anchor transition preserves avatar DOM identity", () => {
+describe("LatestEdgeRow no-anchor → anchor transition preserves avatar DOM identity", () => {
   afterEach(() => {
     cleanup();
   });
 
-  test("ChatAvatar instance is NOT remounted when first user anchor appears", async () => {
+  test("avatar instance is NOT remounted when the first anchor appears", async () => {
     let avatarMountCount = 0;
     let avatarUnmountCount = 0;
     function MountTracker() {
@@ -434,64 +301,101 @@ describe("Transcript no-anchor → anchor transition preserves avatar DOM identi
       }, []);
       return <span data-testid="mount-tracker">avatar</span>;
     }
-
-    // Start with assistant-only history + renderAvatar. No anchor.
-    const historyOnly: TranscriptItem[] = [
-      assistantMessage("a1", "history one"),
-    ];
-
     const renderAvatar = () => <MountTracker />;
 
     const { rerender } = render(
-      <Transcript
-        items={historyOnly}
-        conversationId="conv-1"
-        onSurfaceAction={noop}
-
+      <LatestEdgeRow
+        anchorMessage={null}
+        responseItems={[]}
+        hasAvatar
         renderAvatar={renderAvatar}
+        viewportMinHeight={undefined}
+        rowProps={rowProps}
       />,
     );
     expect(avatarMountCount).toBe(1);
     expect(avatarUnmountCount).toBe(0);
 
-    // Now insert the first user message → anchor lights up. This is the
-    // exact transition Codex flagged.
-    const withAnchor: TranscriptItem[] = [
-      assistantMessage("a1", "history one"),
-      userMessage("u1", "first user message"),
+    // First user message lands → anchor lights up.
+    await act(async () => {
+      rerender(
+        <LatestEdgeRow
+          anchorMessage={userMessage("u1", "first user message")}
+          responseItems={[]}
+          hasAvatar
+          renderAvatar={renderAvatar}
+          viewportMinHeight={640}
+          rowProps={rowProps}
+        />,
+      );
+    });
+    expect(avatarMountCount).toBe(1);
+    expect(avatarUnmountCount).toBe(0);
+
+    // Reverse direction: drop the anchor again. Avatar identity preserved.
+    await act(async () => {
+      rerender(
+        <LatestEdgeRow
+          anchorMessage={null}
+          responseItems={[]}
+          hasAvatar
+          renderAvatar={renderAvatar}
+          viewportMinHeight={undefined}
+          rowProps={rowProps}
+        />,
+      );
+    });
+    expect(avatarMountCount).toBe(1);
+    expect(avatarUnmountCount).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Transcript — row model wired into VirtualList (jsdom; see file header on why
+// items don't paint here).
+// ---------------------------------------------------------------------------
+
+describe("Transcript (virtualized)", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  test("mounts the VirtualList scroller for a non-empty transcript", () => {
+    const items: MessageItem[] = [
+      assistantMessage("a1", "reply"),
+      userMessage("u1", "question"),
     ];
-    await act(async () => {
-      rerender(
-        <Transcript
-          items={withAnchor}
-          conversationId="conv-1"
-          onSurfaceAction={noop}
-  
-          renderAvatar={renderAvatar}
-        />,
-      );
-    });
+    const { container } = render(
+      <Transcript items={items} conversationId="c1" onSurfaceAction={noop} />,
+    );
+    // VirtualList tags its scroll root with this slot; its presence proves the
+    // row model is wired into the primitive even though items don't paint.
+    expect(container.querySelector('[data-slot="virtual-list"]')).not.toBeNull();
+  });
 
-    // CRITICAL: ChatAvatar must NOT have been unmounted + remounted.
-    // If it had, entrance-spring state would replay on every first-turn
-    // landing — exactly the flicker this PR is preventing.
-    expect(avatarMountCount).toBe(1);
-    expect(avatarUnmountCount).toBe(0);
+  test("scrollToMessage resolves loaded ids and rejects unknown ones", () => {
+    const ref = createRef<TranscriptHandle>();
+    const items: MessageItem[] = [
+      assistantMessage("a1", "reply one"),
+      userMessage("u1", "question one"),
+      assistantMessage("a2", "reply two"),
+      userMessage("u2", "latest question"),
+    ];
+    // partition: history [a1, u1, a2] (all registered in indexById) + anchor u2.
+    render(
+      <Transcript
+        ref={ref}
+        items={items}
+        conversationId="c1"
+        onSurfaceAction={noop}
+      />,
+    );
 
-    // Reverse direction: drop the anchor (e.g. message deletion or
-    // conversation restore). Avatar identity must still be preserved.
-    await act(async () => {
-      rerender(
-        <Transcript
-          items={historyOnly}
-          conversationId="conv-1"
-          onSurfaceAction={noop}
-  
-          renderAvatar={renderAvatar}
-        />,
-      );
-    });
-    expect(avatarMountCount).toBe(1);
-    expect(avatarUnmountCount).toBe(0);
+    // A loaded history message and the anchor resolve to a row index → true.
+    expect(ref.current?.scrollToMessage("a1")).toBe(true);
+    expect(ref.current?.scrollToMessage("u2")).toBe(true);
+    // An id not present in the loaded window → false (the caller retries once
+    // the older page loads).
+    expect(ref.current?.scrollToMessage("not-loaded")).toBe(false);
   });
 });

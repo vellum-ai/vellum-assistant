@@ -95,4 +95,16 @@ describe("VirtualList rendering", () => {
     });
     expect(html).toContain('data-slot="virtual-list"');
   });
+
+  test("renders a provided footer node in the scroll content", () => {
+    const html = render({
+      footer: createElement("div", { "data-testid": "list-footer" }, "footer"),
+    });
+    expect(html).toContain('data-testid="list-footer"');
+    expect(html).toContain("footer");
+  });
+
+  test("mounts no footer when none is provided", () => {
+    expect(render()).not.toContain('data-testid="list-footer"');
+  });
 });

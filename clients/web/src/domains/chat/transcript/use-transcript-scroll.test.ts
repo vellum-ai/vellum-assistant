@@ -1,13 +1,12 @@
 /**
  * Tests for the transcript scroll coordinator.
  *
- * This project's test runner (bun:test) has no DOM environment and no
- * @testing-library/react, so we cannot render the hook directly. Instead
- * we split the coordinator into pure helpers (`classifyScrollPosition`,
- * `findAnchorIndex`, `decideItemsChangeAction`) that own every
- * load-bearing decision. The hook itself is a thin wiring layer on top of
- * those helpers — each test below maps directly to one of the
- * acceptance-criteria behaviors in the PR plan.
+ * The coordinator's load-bearing decisions live in pure helpers
+ * (`classifyScrollPosition`, `findAnchorIndex`, `findLatestUserAnchorKey`,
+ * `computePrependDelta`) so they can be unit-tested without a render cycle.
+ * The hook itself is a thin wiring layer on top of those helpers; its
+ * scroll-event / load-older timing is covered separately in
+ * `use-transcript-scroll.burst.test.tsx`.
  *
  * The transcript uses plain `flex-col` (chronological order):
  *   - distanceFromTop    = scrollTop
@@ -21,7 +20,7 @@ import { describe, expect, mock, test } from "bun:test";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import {
   classifyScrollPosition,
-  decideItemsChangeAction,
+  computePrependDelta,
   findAnchorIndex,
   findLatestUserAnchorKey,
   PINNED_THRESHOLD_PX,
@@ -77,14 +76,12 @@ function makeHandle(): TranscriptHandle & {
   calls: {
     scrollToLatest: Array<[{ behavior?: "auto" | "smooth" }?]>;
     getScrollElement: number;
-    getContentElement: number;
     getViewportHeight: number;
   };
 } {
   const calls = {
     scrollToLatest: [] as Array<[{ behavior?: "auto" | "smooth" }?]>,
     getScrollElement: 0,
-    getContentElement: 0,
     getViewportHeight: 0,
   };
   const scrollToLatest = mock((opts?: { behavior?: "auto" | "smooth" }) => {
@@ -92,10 +89,6 @@ function makeHandle(): TranscriptHandle & {
   });
   const getScrollElement = mock((): HTMLDivElement | null => {
     calls.getScrollElement += 1;
-    return null;
-  });
-  const getContentElement = mock((): HTMLDivElement | null => {
-    calls.getContentElement += 1;
     return null;
   });
   const getViewportHeight = mock((): number => {
@@ -112,7 +105,6 @@ function makeHandle(): TranscriptHandle & {
     scrollToLatest,
     scrollToMessage: mock((): boolean => false),
     getScrollElement,
-    getContentElement,
     getViewportHeight,
     getScrollState,
     calls,
@@ -267,12 +259,10 @@ describe("findAnchorIndex", () => {
 // ---------------------------------------------------------------------------
 // findLatestUserAnchorKey
 //
-// Backs the items-effect's submit-detection branch. The hook compares
-// the latest call's key to the previous render's key — when they differ
-// (typically because the user just sent a new message), the hook
-// re-engages the auto-pin window so the new anchor lands at the top of
-// the viewport even if the upstream `scrollToLatest()` call fired
-// before the optimistic add landed.
+// Backs the submit-detection branch in `Transcript`. The component compares
+// this render's key to the previous render's key — when they differ
+// (typically because the user just sent a new message), it pins the new
+// anchor to the viewport top so the response streams into the space below.
 // ---------------------------------------------------------------------------
 
 describe("findLatestUserAnchorKey", () => {
@@ -359,104 +349,49 @@ describe("findLatestUserAnchorKey", () => {
 });
 
 // ---------------------------------------------------------------------------
-// decideItemsChangeAction
+// computePrependDelta
+//
+// Drives virtuoso's `firstItemIndex` decrement so an older-page prepend keeps
+// the viewport visually stable. Returns the prepended count ONLY for a pure
+// front-prepend; every other shape (append, in-place growth, mixed
+// prepend+append, replace, shrink, first render) returns 0 so the index is
+// left untouched and stable `computeItemKey` handles reconciliation.
 // ---------------------------------------------------------------------------
 
-describe("decideItemsChangeAction — no-conversation returns none", () => {
-  test("does not act when conversationId is null", () => {
-    const action = decideItemsChangeAction({
-      items: items(["m1"]),
-      previousItems: [],
-      conversationId: null,
-      savedAnchor: null,
-    });
-    expect(action.kind).toBe("none");
-  });
-});
-
-describe("decideItemsChangeAction — streaming growth", () => {
-  // The coordinator deliberately does NOT auto-follow as a response
-  // streams in. The user keeps control of the viewport; the "Go to
-  // Newest" pill surfaces once they drift past the threshold.
-
-  test("items grow during streaming -> none", () => {
-    const prev = items(["m1", "m2"]);
-    const next = items(["m1", "m2", "m3"]);
-    const action = decideItemsChangeAction({
-      items: next,
-      previousItems: prev,
-      conversationId: "conv-1",
-      savedAnchor: null,
-    });
-    expect(action.kind).toBe("none");
+describe("computePrependDelta", () => {
+  test("first render (no baseline key) returns 0", () => {
+    expect(computePrependDelta(items(["m1", "m2"]), null, 0)).toBe(0);
   });
 
-  test("content swap at same length -> none", () => {
-    const prev = items(["m1", "m2"]);
-    const next = items(["m1", "m2-edited"]);
-    const action = decideItemsChangeAction({
-      items: next,
-      previousItems: prev,
-      conversationId: "conv-1",
-      savedAnchor: null,
-    });
-    expect(action.kind).toBe("none");
+  test("pure front-prepend returns the prepended count", () => {
+    // prev first key "m1" (len 3) now sits at index 2 after 2 older items.
+    const after = items(["o1", "o2", "m1", "m2", "m3"]);
+    expect(computePrependDelta(after, "m1", 3)).toBe(2);
   });
 
-  test("no change -> none", () => {
-    const list = items(["m1", "m2"]);
-    const action = decideItemsChangeAction({
-      items: list,
-      previousItems: list,
-      conversationId: "conv-1",
-      savedAnchor: null,
-    });
-    expect(action.kind).toBe("none");
-  });
-});
-
-describe("decideItemsChangeAction — anchor-preserving prepend", () => {
-  test("saved anchor present and found -> anchor-correct with saved metrics", () => {
-    const before = items(["m1", "m2", "m3"]);
-    const afterPrepend = items(["o1", "o2", "m1", "m2", "m3"]);
-    const action = decideItemsChangeAction({
-      items: afterPrepend,
-      previousItems: before,
-      conversationId: "conv-1",
-      savedAnchor: { key: "m1", scrollTop: 42, scrollHeight: 1800 },
-    });
-    expect(action).toEqual({
-      kind: "anchor-correct",
-      newIndex: 2,
-      savedScrollTop: 42,
-      savedScrollHeight: 1800,
-    });
+  test("append-only returns 0 (old first item stays at the front)", () => {
+    const after = items(["m1", "m2", "m3"]);
+    expect(computePrependDelta(after, "m1", 2)).toBe(0);
   });
 
-  test("anchor correction wins over the otherwise-noop streaming-growth path", () => {
-    const before = items(["m1"]);
-    const afterPrepend = items(["o1", "m1", "m2"]);
-    const action = decideItemsChangeAction({
-      items: afterPrepend,
-      previousItems: before,
-      conversationId: "conv-1",
-      savedAnchor: { key: "m1", scrollTop: 123, scrollHeight: 1800 },
-    });
-    expect(action.kind).toBe("anchor-correct");
+  test("mixed prepend+append returns 0 (don't mis-shift)", () => {
+    // Grew by 2, but the old first key moved only 1 slot → not a pure prepend.
+    const after = items(["o1", "m1", "m2", "m3"]);
+    expect(computePrependDelta(after, "m1", 2)).toBe(0);
   });
 
-  test("saved anchor but key missing -> falls through to none", () => {
-    const action = decideItemsChangeAction({
-      items: items(["n1", "n2"]),
-      previousItems: items(["m1"]),
-      conversationId: "conv-1",
-      savedAnchor: {
-        key: "m1-no-longer-present",
-        scrollTop: 10,
-        scrollHeight: 1800,
-      },
-    });
-    expect(action.kind).toBe("none");
+  test("same length (content swap / streaming in-place) returns 0", () => {
+    const after = items(["m1", "m2-edited"]);
+    expect(computePrependDelta(after, "m1", 2)).toBe(0);
+  });
+
+  test("shrink returns 0", () => {
+    expect(computePrependDelta(items(["m2", "m3"]), "m1", 3)).toBe(0);
+  });
+
+  test("old first key absent after a replace returns 0", () => {
+    const after = items(["n1", "n2", "n3"]);
+    expect(computePrependDelta(after, "m1", 2)).toBe(0);
   });
 });
 
@@ -529,39 +464,19 @@ describe("integration — handleScroll-style dispatch via pure helpers", () => {
     expect(show).toBe(false);
   });
 
-  test("anchor-preserving prepend: saved anchor -> anchor-correct on next items change", () => {
-    const before = items(["m1", "m2", "m3"]);
-    // Saved anchor captured during a load-older scroll event.
-    const saved = { key: "m1", scrollTop: 150, scrollHeight: 1800 };
-    // New items arrive with two older messages prepended.
+  test("anchor-preserving prepend: pure front-prepend yields a non-zero delta", () => {
+    // The prepend correction now rides virtuoso's `firstItemIndex` via
+    // `computePrependDelta` rather than a saved-anchor scrollTop fix-up.
     const after = items(["o1", "o2", "m1", "m2", "m3"]);
-    const action = decideItemsChangeAction({
-      items: after,
-      previousItems: before,
-      conversationId: "conv-1",
-      savedAnchor: saved,
-    });
-    expect(action).toEqual({
-      kind: "anchor-correct",
-      newIndex: 2,
-      savedScrollTop: 150,
-      savedScrollHeight: 1800,
-    });
+    expect(computePrependDelta(after, "m1", 3)).toBe(2);
   });
 
   test("streaming growth never triggers an auto-scroll", () => {
     const handle = makeHandle();
-    const prev = items(["m1"]);
+    // In-place growth at the tail (a streaming response) is not a prepend, so
+    // `firstItemIndex` is left untouched and no scroll command is issued.
     const grown = items(["m1", "m2"]);
-    const action = decideItemsChangeAction({
-      items: grown,
-      previousItems: prev,
-      conversationId: "conv-1",
-      savedAnchor: null,
-    });
-    // Decision helper no longer emits stick-to-latest under any pinned
-    // state — the viewport stays put while the user reads.
-    expect(action.kind).toBe("none");
+    expect(computePrependDelta(grown, "m1", 1)).toBe(0);
     expect(handle.calls.scrollToLatest.length).toBe(0);
   });
 });

@@ -1,4 +1,4 @@
-import { type ForwardedRef } from "react";
+import { type Ref } from "react";
 
 import {
   Transcript,
@@ -54,7 +54,7 @@ export interface ChatScrollAreaProps {
   /** {@link ChatEmptyStateProps} forwarded to {@link ChatEmptyState}. */
   emptyStateProps: ChatEmptyStateProps;
   /** Ref forwarded to the underlying {@link Transcript}. */
-  transcriptRef: ForwardedRef<TranscriptHandle>;
+  transcriptRef: Ref<TranscriptHandle>;
   /** {@link TranscriptProps} forwarded to {@link Transcript}. */
   transcriptProps: TranscriptProps;
 }

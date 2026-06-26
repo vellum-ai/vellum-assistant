@@ -74,13 +74,64 @@ mock.module(
 
 import type { ConversationContentBlock } from "@vellumai/assistant-api";
 
-import { Transcript } from "@/domains/chat/transcript/transcript";
+import { partitionLatestTurn } from "@/domains/chat/transcript/partition-latest-turn";
+import { LatestEdgeRow } from "@/domains/chat/transcript/transcript";
+import { TranscriptRow } from "@/domains/chat/transcript/transcript-row";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
 const noop = () => {};
+
+/**
+ * Renders the transcript's row content WITHOUT the `VirtualList` wrapper.
+ * `react-virtuoso` doesn't paint items under jsdom in this workspace (see the
+ * header in `transcript.test.tsx`), and these tests assert on the spawn-group
+ * markup *inside* a message body — a per-row concern. `Turn` mirrors
+ * `Transcript`'s `itemContent` exactly: history items as `TranscriptRow`s,
+ * then the composite latest-edge row (anchor user message + streaming
+ * response), so the assistant turn under test paints as it does in production.
+ * Accepts the same prop subset these tests pass to `Transcript`, so call sites
+ * are unchanged apart from the element name.
+ */
+function Turn({
+  items,
+  conversationId = null,
+  onSurfaceAction = noop,
+  onSubagentClick,
+  onStopSubagent,
+}: {
+  items: TranscriptItem[];
+  conversationId?: string | null;
+  onSurfaceAction?: (surfaceId: string, action: string, input?: unknown) => void;
+  onSubagentClick?: (subagentId: string) => void;
+  onStopSubagent?: (subagentId: string) => void;
+}) {
+  const partition = partitionLatestTurn(items);
+  const rowProps = {
+    conversationId,
+    onSurfaceAction,
+    onSubagentClick,
+    onStopSubagent,
+  };
+  return (
+    <>
+      {partition.historyItems.map((item) => (
+        <TranscriptRow key={item.key} item={item} {...rowProps} />
+      ))}
+      {partition.anchorMessage && (
+        <LatestEdgeRow
+          anchorMessage={partition.anchorMessage}
+          responseItems={partition.responseItems}
+          hasAvatar={false}
+          viewportMinHeight={undefined}
+          rowProps={rowProps}
+        />
+      )}
+    </>
+  );
+}
 
 /**
  * Expand every collapsed `SubagentSpawnGroup` in the tree so its per-subagent
@@ -258,7 +309,7 @@ describe("Transcript — collapsible subagent spawn group", () => {
     ];
 
     const { getAllByTestId, queryAllByTestId } = render(
-      <Transcript
+      <Turn
         items={items}
         conversationId={null}
         onSurfaceAction={noop}
@@ -278,7 +329,7 @@ describe("Transcript — collapsible subagent spawn group", () => {
     ];
 
     const { container, getAllByTestId, queryAllByTestId } = render(
-      <Transcript
+      <Turn
         items={items}
         conversationId={null}
         onSurfaceAction={noop}
@@ -307,7 +358,7 @@ describe("Transcript — collapsible subagent spawn group", () => {
     ];
 
     const { container, getByTestId } = render(
-      <Transcript
+      <Turn
         items={items}
         conversationId={null}
         onSurfaceAction={noop}
@@ -336,7 +387,7 @@ describe("Transcript — collapsible subagent spawn group", () => {
     ];
 
     const { queryAllByTestId } = render(
-      <Transcript
+      <Turn
         items={items}
         conversationId={null}
         onSurfaceAction={noop}
@@ -355,7 +406,7 @@ describe("Transcript — collapsible subagent spawn group", () => {
     ];
 
     const { container, getByTestId } = render(
-      <Transcript
+      <Turn
         items={items}
         conversationId={null}
         onSurfaceAction={noop}
@@ -392,7 +443,7 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
     ];
 
     const { container, getAllByTestId } = render(
-      <Transcript
+      <Turn
         items={items}
         conversationId={null}
         onSurfaceAction={noop}
@@ -427,7 +478,7 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
     ];
 
     const { container, getAllByTestId } = render(
-      <Transcript
+      <Turn
         items={items}
         conversationId={null}
         onSurfaceAction={noop}
@@ -476,7 +527,7 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
     ];
 
     const { container, getAllByTestId } = render(
-      <Transcript
+      <Turn
         items={items}
         conversationId={null}
         onSurfaceAction={noop}
@@ -497,7 +548,7 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
     ];
 
     const { queryAllByTestId } = render(
-      <Transcript
+      <Turn
         items={items}
         conversationId={null}
         onSurfaceAction={noop}
@@ -551,7 +602,7 @@ describe("Transcript — toolUseId anchor (PR 3)", () => {
     ];
 
     const { getAllByTestId, container } = render(
-      <Transcript
+      <Turn
         items={items}
         conversationId={null}
         onSurfaceAction={noop}
@@ -626,7 +677,7 @@ describe("Transcript — cross-group claimed-set (fix-r1-c)", () => {
     ];
 
     const { container, getAllByTestId } = render(
-      <Transcript
+      <Turn
         items={items}
         conversationId={null}
         onSurfaceAction={noop}
@@ -679,7 +730,7 @@ describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
 
   function transcript(items: TranscriptItem[]) {
     return (
-      <Transcript
+      <Turn
         items={items}
         conversationId={null}
         onSurfaceAction={noop}
@@ -813,7 +864,7 @@ describe("Transcript — legacy SubagentProgressCard mount is gone (PR 8)", () =
     ];
 
     const { container } = render(
-      <Transcript
+      <Turn
         items={items}
         conversationId={null}
         onSurfaceAction={noop}

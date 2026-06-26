@@ -8,6 +8,8 @@ import {
 } from "react";
 import {
   Virtuoso,
+  type Components,
+  type ContextProp,
   type FollowOutput,
   type IndexLocationWithAlign,
   type VirtuosoHandle,
@@ -66,6 +68,12 @@ export interface VirtualListProps<T> {
   overscan?: number;
   increaseViewportBy?: number | { top: number; bottom: number };
   className?: string;
+  /** Node rendered after the last item, inside the scroll content (virtuoso's
+   *  non-sticky `components.Footer`). Use for a load-more spinner or
+   *  pull-to-refresh affordance that must grow the scroll height at the bottom.
+   *  Delivered through virtuoso's `context`, so it updates live without
+   *  remounting (e.g. a spinner whose height changes every frame). */
+  footer?: ReactNode;
   ref?: Ref<VirtualListHandle>;
 }
 
@@ -111,6 +119,17 @@ export function resolveInitialTopMostItemIndex(
   return initialTopMostItemIndex;
 }
 
+/**
+ * Stable footer component for virtuoso. The consumer's `footer` node is
+ * delivered through virtuoso's `context`, so this component keeps a constant
+ * identity and re-renders (rather than remounting) when the footer changes —
+ * essential for a footer that updates every frame, like a pull-to-refresh
+ * spinner.
+ */
+function FooterSlot({ context }: ContextProp<ReactNode>) {
+  return <>{context}</>;
+}
+
 export function VirtualList<T>({
   items,
   itemContent,
@@ -125,10 +144,18 @@ export function VirtualList<T>({
   overscan,
   increaseViewportBy,
   className,
+  footer,
   ref,
 }: VirtualListProps<T>) {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const scrollElementRef = useRef<HTMLElement | null>(null);
+
+  // Stable components object so virtuoso never remounts the footer; the live
+  // footer node flows in through `context` below.
+  const components = useMemo<Components<T, ReactNode>>(
+    () => ({ Footer: FooterSlot }),
+    [],
+  );
 
   useImperativeHandle(
     ref,
@@ -189,6 +216,9 @@ export function VirtualList<T>({
         : {})}
       {...(overscan !== undefined ? { overscan } : {})}
       {...(increaseViewportBy !== undefined ? { increaseViewportBy } : {})}
+      // Only mount a Footer when the consumer supplies one; pass the node via
+      // `context` so the stable FooterSlot re-renders it live.
+      {...(footer != null ? { components, context: footer } : {})}
     />
   );
 }
