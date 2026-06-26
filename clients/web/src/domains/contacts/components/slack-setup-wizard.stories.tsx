@@ -23,13 +23,19 @@ type Story = StoryObj<typeof SlackSetupWizard>;
 
 export const Step1CreateApp: Story = {};
 
-export const Step2AppToken: Story = {
+export const Step2GenerateAppToken: Story = {
   args: {
     initialStepId: "app-token",
   },
 };
 
-export const Step3BotToken: Story = {
+export const Step3InstallApp: Story = {
+  args: {
+    initialStepId: "install-app",
+  },
+};
+
+export const Step4AddBotToken: Story = {
   args: {
     initialStepId: "bot-token",
     onSave: async (_botToken: string, _appToken: string) => {

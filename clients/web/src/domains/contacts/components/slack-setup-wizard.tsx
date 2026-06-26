@@ -1,15 +1,18 @@
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Plus } from "lucide-react";
 import { useCallback, useState } from "react";
 
-import { Button, Card, Input, Notice, Stepper, type StepperStep } from "@vellumai/design-library";
+import { Button, Card, Input, Stepper, type StepperStep } from "@vellumai/design-library";
 
-const WIZARD_STEP_IDS = ["create-app", "app-token", "bot-token"] as const;
+import { publicAsset } from "@/utils/public-asset";
+
+const WIZARD_STEP_IDS = ["create-app", "app-token", "install-app", "bot-token"] as const;
 type WizardStepId = (typeof WIZARD_STEP_IDS)[number];
 
 const WIZARD_STEPS: StepperStep[] = [
   { id: "create-app", label: "1. Create App" },
-  { id: "app-token", label: "2. App Token" },
-  { id: "bot-token", label: "3. Bot Token" },
+  { id: "app-token", label: "2. Generate App Token" },
+  { id: "install-app", label: "3. Install App" },
+  { id: "bot-token", label: "4. Add Bot Token" },
 ];
 
 export interface SlackSetupWizardProps {
@@ -54,11 +57,10 @@ const SLACK_MANIFEST_SCOPES = {
   ],
 } as const;
 
-function buildSlackManifestUrl(name: string, description: string): string {
+function buildSlackManifestUrl(name: string): string {
   const manifest = {
     display_information: {
       name,
-      ...(description ? { description } : {}),
       background_color: "#1a1a2e",
     },
     features: {
@@ -69,7 +71,7 @@ function buildSlackManifestUrl(name: string, description: string): string {
       },
       bot_user: { display_name: name, always_online: true },
       assistant_view: {
-        assistant_description: description || name,
+        assistant_description: name,
         suggested_prompts: [],
       },
     },
@@ -104,24 +106,17 @@ export function SlackSetupWizard({
   onSave,
 }: SlackSetupWizardProps) {
   const [stepId, setStepId] = useState<WizardStepId>(initialStepId);
-  const [botName, setBotName] = useState(assistantName);
-  const [botDescription, setBotDescription] = useState("");
   const [appToken, setAppToken] = useState("");
   const [botToken, setBotToken] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [appCreated, setAppCreated] = useState(false);
 
   const stepIndex = WIZARD_STEP_IDS.indexOf(stepId);
 
   const handleCreateApp = useCallback(() => {
-    const url = buildSlackManifestUrl(
-      botName.trim() || assistantName,
-      botDescription.trim(),
-    );
+    const url = buildSlackManifestUrl(assistantName);
     window.open(url, "_blank", "noopener,noreferrer");
-    setAppCreated(true);
-  }, [botName, assistantName, botDescription]);
+  }, [assistantName]);
 
   const handleSave = useCallback(async () => {
     if (!onSave || !botToken.trim() || !appToken.trim()) return;
@@ -145,10 +140,26 @@ export function SlackSetupWizard({
     [stepIndex],
   );
 
+  const goNext = useCallback(() => {
+    const next = stepIndex + 1;
+    if (next < WIZARD_STEP_IDS.length) {
+      setStepId(WIZARD_STEP_IDS[next]);
+    }
+  }, [stepIndex]);
+
   return (
     <div className="pl-7" data-slot="slack-setup-wizard">
       <Card.Root>
-        <Card.Header>Slack setup</Card.Header>
+        <Card.Header>
+          <div className="flex items-center gap-3">
+            <img
+              src={publicAsset("/images/integrations/slack.svg")}
+              alt=""
+              className="size-8 rounded-lg bg-[var(--surface-sunken)] p-1"
+            />
+            <span>Slack setup</span>
+          </div>
+        </Card.Header>
         <Card.Body>
           <div className="flex flex-col gap-4">
             <Stepper
@@ -158,35 +169,36 @@ export function SlackSetupWizard({
               disabled={saving}
             />
 
-            {stepId === "create-app" && (
-              <CreateAppStep
-                botName={botName}
-                botDescription={botDescription}
-                appCreated={appCreated}
-                onBotNameChange={setBotName}
-                onBotDescriptionChange={setBotDescription}
-                onCreateApp={handleCreateApp}
-                onNext={() => setStepId("app-token")}
-              />
-            )}
+            <div className="rounded-lg bg-[var(--surface-sunken)] p-4">
+              {stepId === "create-app" && (
+                <CreateAppStep
+                  onCreateApp={handleCreateApp}
+                  onNext={goNext}
+                />
+              )}
 
-            {stepId === "app-token" && (
-              <AppTokenStep
-                appToken={appToken}
-                onAppTokenChange={setAppToken}
-                onNext={() => setStepId("bot-token")}
-              />
-            )}
+              {stepId === "app-token" && (
+                <AppTokenStep
+                  appToken={appToken}
+                  onAppTokenChange={setAppToken}
+                  onNext={goNext}
+                />
+              )}
 
-            {stepId === "bot-token" && (
-              <BotTokenStep
-                botToken={botToken}
-                saving={saving}
-                error={error}
-                onBotTokenChange={setBotToken}
-                onSave={handleSave}
-              />
-            )}
+              {stepId === "install-app" && (
+                <InstallAppStep onNext={goNext} />
+              )}
+
+              {stepId === "bot-token" && (
+                <BotTokenStep
+                  botToken={botToken}
+                  saving={saving}
+                  error={error}
+                  onBotTokenChange={setBotToken}
+                  onSave={handleSave}
+                />
+              )}
+            </div>
           </div>
         </Card.Body>
       </Card.Root>
@@ -199,74 +211,46 @@ export function SlackSetupWizard({
 // ---------------------------------------------------------------------------
 
 interface CreateAppStepProps {
-  botName: string;
-  botDescription: string;
-  appCreated: boolean;
-  onBotNameChange: (value: string) => void;
-  onBotDescriptionChange: (value: string) => void;
   onCreateApp: () => void;
   onNext: () => void;
 }
 
-function CreateAppStep({
-  botName,
-  botDescription,
-  appCreated,
-  onBotNameChange,
-  onBotDescriptionChange,
-  onCreateApp,
-  onNext,
-}: CreateAppStepProps) {
+function CreateAppStep({ onCreateApp, onNext }: CreateAppStepProps) {
   return (
-    <div className="flex flex-col gap-3">
-      <Notice tone="info">
-        Name your bot, then click the button below. Slack will open with
-        everything pre-configured — just pick your workspace and click{" "}
-        <strong>Create</strong>.
-      </Notice>
-      <Input
-        label="Bot Name"
-        type="text"
-        value={botName}
-        onChange={(e) => onBotNameChange(e.target.value)}
-        placeholder="My Assistant"
-        fullWidth
-      />
-      <Input
-        label="Description (optional)"
-        type="text"
-        value={botDescription}
-        onChange={(e) => onBotDescriptionChange(e.target.value)}
-        placeholder="A brief description of your bot"
-        fullWidth
-      />
-      <div className="flex items-center gap-2">
+    <div className="flex flex-col gap-4">
+      <p className="text-body-medium-lighter text-[var(--content-default)]">
+        First, let&apos;s create the app with my name on it:
+      </p>
+      <div className="flex items-center">
         <Button
           type="button"
-          onClick={onCreateApp}
-          disabled={!botName.trim()}
-          leftIcon={<ExternalLink aria-hidden />}
+          onClick={() => {
+            onCreateApp();
+            onNext();
+          }}
+          leftIcon={<Plus aria-hidden className="size-4" />}
+          rightIcon={<ExternalLink aria-hidden className="size-4" />}
         >
-          Create Slack App
+          Add Slack App
         </Button>
-        {appCreated ? (
-          <Button type="button" variant="outlined" onClick={onNext}>
-            Next
-          </Button>
-        ) : null}
+      </div>
+      <div className="flex justify-end">
+        <Button type="button" variant="primary" onClick={onNext}>
+          Next &gt;
+        </Button>
       </div>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Step 2 — App-Level Token
+// Step 2 — Generate App Token
 // ---------------------------------------------------------------------------
 
 interface AppTokenStepProps {
   appToken: string;
   onAppTokenChange: (value: string) => void;
-  onNext?: () => void;
+  onNext: () => void;
 }
 
 function AppTokenStep({
@@ -275,45 +259,31 @@ function AppTokenStep({
   onNext,
 }: AppTokenStepProps) {
   return (
-    <div className="flex flex-col gap-3">
-      <Notice tone="info" title="In your Slack app settings:">
-        <ol className="mt-1 ml-4 list-decimal space-y-1">
-          <li>
-            Go to <strong>Basic Information</strong>
-          </li>
-          <li>
-            Scroll to <strong>App-Level Tokens</strong>
-          </li>
-          <li>
-            Click <strong>Generate Token and Scopes</strong>
-          </li>
-          <li>Name it anything (e.g. &quot;Socket Mode&quot;)</li>
-          <li>
-            Add scope:{" "}
-            <code className="rounded bg-[var(--surface-sunken)] px-1 py-0.5">
-              connections:write
-            </code>
-          </li>
-          <li>
-            Click <strong>Generate</strong> and copy the token
-          </li>
-        </ol>
-      </Notice>
-      <Input
-        label="App-Level Token"
-        type="password"
-        value={appToken}
-        onChange={(e) => onAppTokenChange(e.target.value)}
-        placeholder="xapp-..."
-        fullWidth
-      />
-      <div>
+    <div className="flex flex-col gap-4">
+      <p className="text-body-medium-lighter text-[var(--content-default)]">
+        Go to <strong>Basic Information</strong> &rarr;{" "}
+        <strong>App-Level Tokens</strong> and generate a token with the{" "}
+        <strong>connections:write</strong> scope. Copy the token that starts
+        with <strong>xapp-</strong>.
+      </p>
+      <div className="flex items-end gap-3">
+        <div className="flex-1">
+          <Input
+            label="App Token"
+            type="password"
+            value={appToken}
+            onChange={(e) => onAppTokenChange(e.target.value)}
+            placeholder="xapp-..."
+            fullWidth
+          />
+        </div>
         <Button
           type="button"
+          variant="primary"
           onClick={onNext}
           disabled={!appToken.trim()}
         >
-          Next
+          Next &gt;
         </Button>
       </div>
     </div>
@@ -321,7 +291,37 @@ function AppTokenStep({
 }
 
 // ---------------------------------------------------------------------------
-// Step 3 — Bot Token
+// Step 3 — Install App
+// ---------------------------------------------------------------------------
+
+interface InstallAppStepProps {
+  onNext: () => void;
+}
+
+function InstallAppStep({ onNext }: InstallAppStepProps) {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-2">
+        <p className="text-body-medium-lighter text-[var(--content-default)]">
+          Go to <strong>Install App</strong> &rarr;{" "}
+          <strong>Install to Workspace</strong> and approve the app permissions.
+        </p>
+        <p className="text-body-medium-lighter text-[var(--content-faint)]">
+          If Slack shows Request approval, a workspace admin needs to approve it
+          first.
+        </p>
+      </div>
+      <div className="flex justify-end">
+        <Button type="button" variant="primary" onClick={onNext}>
+          Next &gt;
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Step 4 — Bot Token
 // ---------------------------------------------------------------------------
 
 interface BotTokenStepProps {
@@ -340,41 +340,36 @@ function BotTokenStep({
   onSave,
 }: BotTokenStepProps) {
   return (
-    <div className="flex flex-col gap-3">
-      <Notice tone="info" title="Install your Slack app:">
-        <ol className="mt-1 ml-4 list-decimal space-y-1">
-          <li>
-            Go to <strong>Install App</strong> in the sidebar
-          </li>
-          <li>
-            Click <strong>Install to Workspace</strong>
-          </li>
-          <li>Authorize the requested permissions</li>
-          <li>
-            Copy the <strong>Bot User OAuth Token</strong>
-          </li>
-        </ol>
-      </Notice>
-      <Input
-        label="Bot User OAuth Token"
-        type="password"
-        value={botToken}
-        onChange={(e) => onBotTokenChange(e.target.value)}
-        placeholder="xoxb-..."
-        fullWidth
-      />
-      {error ? (
-        <Notice tone="error">{error}</Notice>
-      ) : null}
-      <div>
+    <div className="flex flex-col gap-4">
+      <p className="text-body-medium-lighter text-[var(--content-default)]">
+        After install, copy the <strong>Bot User OAuth Token</strong> that
+        starts with <strong>xoxb-</strong>.
+      </p>
+      <div className="flex items-end gap-3">
+        <div className="flex-1">
+          <Input
+            label="Bot Token"
+            type="password"
+            value={botToken}
+            onChange={(e) => onBotTokenChange(e.target.value)}
+            placeholder="xoxb-..."
+            fullWidth
+          />
+        </div>
         <Button
           type="button"
+          variant="primary"
           onClick={onSave}
           disabled={!botToken.trim() || saving}
         >
           {saving ? "Saving\u2026" : "Save"}
         </Button>
       </div>
+      {error ? (
+        <p className="text-body-small-default text-[var(--system-negative-strong)]">
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }
