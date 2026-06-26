@@ -2,8 +2,8 @@
  * A tool call rendered as a distinct card in the ACP chat transcript: a kind
  * glyph, a standardized kind label, a status pill, and a streaming indicator
  * while running. For non-file-op kinds the raw agent title/command surfaces as
- * a wrapping body line. Inline output (parsed from the tool content) renders in a monospace
- * block, collapsed behind a toggle when long. Any file changes the call touched
+ * a wrapping body line. Inline output (parsed from the tool content) renders as
+ * markdown, collapsed behind a toggle when long. Any file changes the call touched
  * surface as clickable chips that invoke `onOpenDiff`.
  */
 
@@ -32,6 +32,7 @@ import {
 } from "@/domains/chat/acp-tool-content";
 import type { AcpChatBlock } from "@/domains/chat/acp-run-message-projection";
 import type { AcpToolStatus } from "@/domains/chat/acp-run-step-projection";
+import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
 
 type AcpToolBlock = Extract<AcpChatBlock, { kind: "tool" }>;
@@ -271,12 +272,12 @@ export function AcpChatToolCard({
             </button>
           )}
           {showOutput && (
-            <pre
+            <div
               data-testid="acp-chat-tool-output"
-              className="max-h-60 overflow-auto rounded-md border border-[var(--border-element)] bg-[var(--surface-base)] p-2.5 font-mono text-body-small-default whitespace-pre-wrap break-words text-[var(--content-default)]"
+              className="max-h-60 overflow-auto rounded-md border border-[var(--border-element)] bg-[var(--surface-base)] p-2.5"
             >
-              {outputText}
-            </pre>
+              <ChatMarkdownMessage content={outputText} />
+            </div>
           )}
         </div>
       )}
