@@ -62,6 +62,19 @@ export class ContactStore {
       .all();
   }
 
+  /**
+   * Guardian contact ids from the gateway DB (source of truth). Singular per
+   * workspace, but returns a list to be safe.
+   */
+  listGuardianContactIds(): string[] {
+    return this.db
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(eq(contacts.role, "guardian"))
+      .all()
+      .map((r) => r.id);
+  }
+
   getContactByChannel(
     channelType: string,
     address: string,

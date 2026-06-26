@@ -68,6 +68,14 @@ function seedGuardian(input: {
   );
 }
 
+/** Drop the legacy ACL columns the guardian read depends on. */
+function dropAclColumns(): void {
+  const sqlite = getSqlite();
+  sqlite.run("ALTER TABLE contacts DROP COLUMN role");
+  sqlite.run("ALTER TABLE contact_channels DROP COLUMN status");
+  sqlite.run("ALTER TABLE contact_channels DROP COLUMN verified_at");
+}
+
 function guardianUserFile(id: string): string | null {
   const row = getSqlite()
     .query<{ user_file: string | null }, [string]>(
@@ -322,5 +330,29 @@ describe("workspace migration 031-drop-user-md", () => {
   test("down() is a no-op (deletion is irreversible)", () => {
     dropUserMdMigration.down(workspaceDir());
     expect(existsSync(userMdPath())).toBe(false);
+  });
+
+  test("ACL columns absent — skips guardian cleanup cleanly and leaves USER.md untouched", () => {
+    // Mirror the later phase that drops the assistant-DB ACL columns. The
+    // migration must skip the guardian-dependent cleanup with no throw.
+    const content = customizedContent();
+    writeFileSync(userMdPath(), content, "utf-8");
+
+    dropAclColumns();
+    try {
+      expect(() => dropUserMdMigration.run(workspaceDir())).not.toThrow();
+    } finally {
+      // Restore schema so later runs (file load order independent) see the
+      // columns; beforeEach only clears rows, not schema.
+      const sqlite = getSqlite();
+      sqlite.run("ALTER TABLE contacts ADD COLUMN role TEXT");
+      sqlite.run("ALTER TABLE contact_channels ADD COLUMN status TEXT");
+      sqlite.run("ALTER TABLE contact_channels ADD COLUMN verified_at INTEGER");
+    }
+
+    // USER.md is left exactly as-is; no users/ scaffold is created.
+    expect(existsSync(userMdPath())).toBe(true);
+    expect(readFileSync(userMdPath(), "utf-8")).toBe(content);
+    expect(existsSync(join(workspaceDir(), "users"))).toBe(false);
   });
 });
