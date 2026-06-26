@@ -65,6 +65,21 @@ describe("AcpChatToolCard", () => {
     expect(screen.queryByTestId("acp-chat-tool-detail")).toBeNull();
   });
 
+  test("a file-op block with no chips falls back to showing its title", () => {
+    render(
+      <AcpChatToolCard
+        block={toolBlock({ toolKind: "read", title: "src/foo.ts" })}
+        onOpenDiff={() => {}}
+      />,
+    );
+    // No locations/diff → no chip → the title must still surface as the detail.
+    expect(screen.getByText("Read file")).toBeDefined();
+    expect(screen.queryByTestId("acp-chat-tool-file-ref")).toBeNull();
+    expect(screen.getByTestId("acp-chat-tool-detail").textContent).toBe(
+      "src/foo.ts",
+    );
+  });
+
   test("an unknown kind falls back to the Tool call label and Code icon", () => {
     const { container } = render(
       <AcpChatToolCard

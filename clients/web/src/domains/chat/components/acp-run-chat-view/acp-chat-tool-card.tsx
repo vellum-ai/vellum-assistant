@@ -159,12 +159,14 @@ export function AcpChatToolCard({
 
   const kindLabel =
     (block.toolKind && KIND_LABEL[block.toolKind]) || DEFAULT_KIND_LABEL;
-  // Surface the raw agent title only for kinds without file chips, where the
-  // header label alone hides what the tool actually did (e.g. the command).
+  // Surface the raw agent title when the header label alone hides what the tool
+  // did (e.g. the command). File-op kinds normally show their path via chips, so
+  // suppress it there — but fall back to the title when no chips rendered (a
+  // title-only tool call with no locations/diff).
   const detailLine =
-    !FILE_OP_KINDS.has(block.toolKind ?? "") &&
     block.title &&
-    block.title !== kindLabel
+    block.title !== kindLabel &&
+    (!FILE_OP_KINDS.has(block.toolKind ?? "") || fileChanges.length === 0)
       ? block.title
       : null;
 
