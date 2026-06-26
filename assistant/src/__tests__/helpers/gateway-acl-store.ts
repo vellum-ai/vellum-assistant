@@ -8,11 +8,12 @@
  * here; instead this module mirrors the gateway ACL rows the resolver reads
  * (`role`, `status`, `verifiedAt`, delivery endpoints). The test seed helpers
  * write here and the test guardian-delivery resolver reads here, so NO test code
- * touches the assistant DB's ACL columns (which Phase B drops).
+ * touches the assistant DB's ACL columns — those columns are gateway-owned.
  *
- * Purely in-memory: no assistant DB / `src/` reach. Isolation is explicit — a
- * test's `beforeEach` calls {@link resetGatewayAclStore} to clear the store,
- * mirroring how sibling in-memory test stores reset themselves.
+ * Purely in-memory: no assistant DB / `src/` reach. Per-test isolation comes
+ * from the shared DB reset: `resetDbForTesting()` (db-test-helpers.ts) calls
+ * {@link resetGatewayAclStore}, so every test that resets the DB also clears
+ * this store. Tests that don't go through that reset call it directly.
  */
 
 export interface GatewayAclRow {
@@ -71,9 +72,9 @@ export function gatewayAclByChannelId(
 }
 
 /**
- * Clear the gateway ACL store. Tests call this in `beforeEach` (alongside the
- * assistant DB reset) for per-test isolation, the same way sibling in-memory
- * test stores reset themselves.
+ * Clear the gateway ACL store. Invoked by `resetDbForTesting()` so the shared DB
+ * reset gives every seeding test per-test isolation; tests that don't go through
+ * that reset call this directly in `beforeEach`.
  */
 export function resetGatewayAclStore(): void {
   rows.clear();

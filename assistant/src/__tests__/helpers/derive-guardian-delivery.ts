@@ -9,7 +9,7 @@
  * seed that gateway state via {@link seedContactChannel} / `createGuardianBinding`
  * into the in-process gateway ACL store ({@link gatewayAclRows}); this resolver
  * reads the SAME store so the gateway-derived delivery list reflects the seeded
- * binding. No assistant ACL columns are read here — those are Phase-B-dropped.
+ * binding. No assistant ACL columns are read here — the ACL is gateway-owned.
  */
 
 import type { GuardianDelivery } from "@vellumai/gateway-client";
