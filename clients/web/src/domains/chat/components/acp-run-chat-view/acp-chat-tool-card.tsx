@@ -142,19 +142,45 @@ export function AcpChatToolCard({
 
       {fileChanges.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">
-          {fileChanges.map((fileChange) => (
-            <button
-              key={fileChange.path}
-              type="button"
-              data-testid="acp-chat-tool-file-chip"
-              onClick={() => onOpenDiff(block.toolCallId, fileChange)}
-              title={fileChange.path}
-              className="flex max-w-full items-center gap-1.5 rounded-md border border-[var(--border-base)] bg-[var(--surface-base)] px-2 py-1 text-body-small-default text-[var(--content-secondary)] transition-colors hover:bg-[var(--surface-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--border-focus)]"
-            >
-              <FileText aria-hidden className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate font-mono">{fileChange.path}</span>
-            </button>
-          ))}
+          {fileChanges.map((fileChange) => {
+            // A change with no `oldText`/`newText` is a location-only reference
+            // (e.g. a read/follow-along tool reporting a touched path). There's
+            // no diff to open, so render it as a static pill rather than a chip
+            // that would open a blank diff panel.
+            const hasDiff =
+              fileChange.oldText !== undefined ||
+              fileChange.newText !== undefined;
+            const chipClass =
+              "flex max-w-full items-center gap-1.5 rounded-md border border-[var(--border-base)] bg-[var(--surface-base)] px-2 py-1 text-body-small-default text-[var(--content-secondary)]";
+
+            if (!hasDiff) {
+              return (
+                <span
+                  key={fileChange.path}
+                  data-testid="acp-chat-tool-file-ref"
+                  title={fileChange.path}
+                  className={chipClass}
+                >
+                  <FileText aria-hidden className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate font-mono">{fileChange.path}</span>
+                </span>
+              );
+            }
+
+            return (
+              <button
+                key={fileChange.path}
+                type="button"
+                data-testid="acp-chat-tool-file-chip"
+                onClick={() => onOpenDiff(block.toolCallId, fileChange)}
+                title={fileChange.path}
+                className={`${chipClass} cursor-pointer transition-colors hover:bg-[var(--surface-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--border-focus)]`}
+              >
+                <FileText aria-hidden className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate font-mono">{fileChange.path}</span>
+              </button>
+            );
+          })}
         </div>
       )}
 

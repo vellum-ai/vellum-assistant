@@ -83,14 +83,18 @@ describe("AcpChatToolCard", () => {
     });
   });
 
-  test("unions path-only locations into chips", () => {
+  test("renders a location-only path as a static ref, not a clickable diff chip", () => {
     render(
       <AcpChatToolCard
         block={toolBlock({ locations: [{ path: "src/touched.ts" }] })}
         onOpenDiff={() => {}}
       />,
     );
-    expect(screen.getByText("src/touched.ts")).toBeDefined();
+    // The path still shows, but as a non-interactive ref (no diff to open).
+    expect(screen.getByTestId("acp-chat-tool-file-ref").textContent).toContain(
+      "src/touched.ts",
+    );
+    expect(screen.queryByTestId("acp-chat-tool-file-chip")).toBeNull();
   });
 
   test("renders no chips when there are no file changes", () => {
