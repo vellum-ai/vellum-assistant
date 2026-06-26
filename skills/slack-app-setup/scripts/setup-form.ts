@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 // Slack app setup, as a single in-chat form.
 //
-// Replaces the multi-turn token-collection conversation with one
-// `assistant ui request` multi-page form. The user creates the app from a
+// Collects Slack credentials through a single `assistant ui request`
+// multi-page form (FormSurface with progressStyle "tabs"). The user creates the app from a
 // one-click manifest link, generates an app-level token, installs the app,
 // and pastes both tokens — all inside one card. This script then stores the
 // tokens through the same validated credential path the Settings UI uses
@@ -188,7 +188,7 @@ try {
   emit({
     ok: false,
     status: "error",
-    error: `Could not parse the form response: ${uiStderr.trim() || uiStdout.trim() || "no output"}`,
+    error: "Could not parse the form response. Please try again.",
   });
 }
 
