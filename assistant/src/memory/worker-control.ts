@@ -1,5 +1,5 @@
 /**
- * Shared control surface for the memory jobs worker *process* — the detached
+ * Shared control surface for the memory jobs worker *process* — the background
  * OS process whose entry point is `worker-process.ts`.
  *
  * Both the `assistant memory worker` CLI and the daemon lifecycle (when
@@ -119,16 +119,31 @@ export function removeSyncRunnerMarker(): void {
 export class MemoryWorkerSpawnError extends Error {}
 
 /**
- * Spawn the memory worker as a detached background process.
+ * Spawn the memory worker as a background process.
+ *
+ * `detached` (default `true`) controls process parentage:
+ *   - `true` — the worker is its own session leader and outlives the spawning
+ *     process. The short-lived `assistant memory worker` CLI needs this so the
+ *     worker keeps running after the command returns.
+ *   - `false` — the worker is a direct child of the spawning process. The
+ *     daemon passes this so the worker it owns appears in its process tree
+ *     (`assistant ps`) and is torn down with the daemon. It does not need to
+ *     survive daemon restarts; the daemon re-spawns it on boot.
+ *
+ * Either way the child is `unref`'d so the spawning process is never blocked
+ * waiting on it, and the worker is tracked via its PID file (not the handle).
  *
  * If a worker is already running, returns its PID with `alreadyRunning: true`
  * rather than spawning a second one. Throws {@link MemoryWorkerSpawnError} if
  * the child is spawned but never writes its PID file (i.e. failed to start).
  */
-export async function spawnMemoryWorkerProcess(): Promise<{
+export async function spawnMemoryWorkerProcess(
+  opts: { detached?: boolean } = {},
+): Promise<{
   pid: number;
   alreadyRunning: boolean;
 }> {
+  const detached = opts.detached ?? true;
   const current = probeMemoryWorker();
   if (current.status === "running" && current.pid != null) {
     return { pid: current.pid, alreadyRunning: true };
@@ -153,11 +168,10 @@ export async function spawnMemoryWorkerProcess(): Promise<{
     // crash output is at least visible to the spawning process.
   }
 
-  // Spawn detached so the worker survives the spawning process exiting.
   const child = Bun.spawn({
     cmd: ["bun", "run", entry.pathname],
     stdio: ["ignore", "ignore", stderrFd],
-    detached: true,
+    detached,
   });
 
   // Close our copy of the log fd — the child has its own.

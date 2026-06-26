@@ -197,7 +197,11 @@ export interface MemoryJobsWorker {
  */
 export function startMemoryJobsWorker(): MemoryJobsWorker {
   if (getConfig().memory.worker?.enabled === true) {
-    void spawnMemoryWorkerProcess()
+    // Spawn as a direct child (not detached) so the worker the daemon owns
+    // shows up in its process tree (`assistant ps`) and is torn down with the
+    // daemon. It is re-spawned on the next daemon boot, so it need not survive
+    // a restart.
+    void spawnMemoryWorkerProcess({ detached: false })
       .then(({ pid, alreadyRunning }) =>
         log.info(
           { pid, alreadyRunning },
