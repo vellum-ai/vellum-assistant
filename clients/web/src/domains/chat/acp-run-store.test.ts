@@ -511,6 +511,71 @@ describe("cancelRun", () => {
 });
 
 // ---------------------------------------------------------------------------
+// restoreRunStatus
+// ---------------------------------------------------------------------------
+
+describe("restoreRunStatus", () => {
+  it("reverts an optimistic cancel to the prior status and clears completedAt", () => {
+    spawn();
+    getState().cancelRun({ acpSessionId: "acp-1", completedAt: NOW });
+    expect(getState().byId["acp-1"]!.status).toBe("cancelled");
+
+    getState().restoreRunStatus({ acpSessionId: "acp-1", status: "running" });
+
+    expect(getState().byId["acp-1"]!.status).toBe("running");
+    expect(getState().byId["acp-1"]!.completedAt).toBeUndefined();
+  });
+
+  it("is a no-op once a real terminal has landed (never regresses to active)", () => {
+    spawn();
+    getState().setTerminal({
+      acpSessionId: "acp-1",
+      status: "completed",
+      completedAt: NOW,
+    });
+    getState().restoreRunStatus({ acpSessionId: "acp-1", status: "running" });
+    expect(getState().byId["acp-1"]!.status).toBe("completed");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// retireMissingRuns
+// ---------------------------------------------------------------------------
+
+describe("retireMissingRuns", () => {
+  it("marks an active run cancelled with a daemon_restarted stop reason", () => {
+    spawn();
+    getState().retireMissingRuns({ acpSessionIds: ["acp-1"], completedAt: NOW });
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.status).toBe("cancelled");
+    expect(entry.stopReason).toBe("daemon_restarted");
+    expect(entry.completedAt).toBe(NOW);
+  });
+
+  it("leaves an already-terminal run untouched", () => {
+    spawn();
+    getState().setTerminal({
+      acpSessionId: "acp-1",
+      status: "completed",
+      completedAt: NOW,
+    });
+    getState().retireMissingRuns({
+      acpSessionIds: ["acp-1"],
+      completedAt: NOW + 1,
+    });
+    expect(getState().byId["acp-1"]!.status).toBe("completed");
+  });
+
+  it("ignores unknown ids without touching state", () => {
+    spawn();
+    const before = getState().byId;
+    getState().retireMissingRuns({ acpSessionIds: ["nope"], completedAt: NOW });
+    expect(getState().byId).toBe(before);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // updateUsage
 // ---------------------------------------------------------------------------
 

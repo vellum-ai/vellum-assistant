@@ -162,6 +162,30 @@ export interface AcpRunActions {
    */
   cancelRun: (params: { acpSessionId: string; completedAt: number }) => void;
 
+  /**
+   * Roll back an optimistic {@link cancelRun} when the cancel request fails —
+   * restore the prior status and clear `completedAt`. No-op unless the run is
+   * still in the optimistic `cancelled` state, so a real terminal that already
+   * landed is never regressed back to active.
+   */
+  restoreRunStatus: (params: {
+    acpSessionId: string;
+    status: AcpRunStatus;
+  }) => void;
+
+  /**
+   * Retire active runs that an authoritative `/acp/sessions` snapshot no longer
+   * reports — the daemon restarted and lost the in-memory subprocess before it
+   * persisted a terminal history row, so no event will ever settle the run.
+   * Marks each still-active run `cancelled` with a `daemon_restarted` stop
+   * reason, mirroring the daemon's own boot-time `cleanupStaleRunningRows`.
+   * No-op for runs already terminal.
+   */
+  retireMissingRuns: (params: {
+    acpSessionIds: string[];
+    completedAt: number;
+  }) => void;
+
   updateUsage: (params: {
     acpSessionId: string;
     usedTokens: number;
@@ -469,6 +493,43 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
         },
       },
     });
+  },
+
+  restoreRunStatus: (params) => {
+    const { byId } = get();
+    const existing = byId[params.acpSessionId];
+    // Only revert our own optimistic cancel; if a real terminal already landed,
+    // leave it.
+    if (!existing || existing.status !== "cancelled") return;
+
+    set({
+      byId: {
+        ...byId,
+        [params.acpSessionId]: {
+          ...existing,
+          status: params.status,
+          completedAt: undefined,
+        },
+      },
+    });
+  },
+
+  retireMissingRuns: (params) => {
+    const { byId } = get();
+    let changed = false;
+    const next = { ...byId };
+    for (const id of params.acpSessionIds) {
+      const existing = next[id];
+      if (!existing || !isActiveAcpStatus(existing.status)) continue;
+      next[id] = {
+        ...existing,
+        status: "cancelled",
+        stopReason: "daemon_restarted",
+        completedAt: params.completedAt,
+      };
+      changed = true;
+    }
+    if (changed) set({ byId: next });
   },
 
   updateUsage: (params) => {
