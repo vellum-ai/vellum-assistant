@@ -240,6 +240,25 @@ describe("textToSlackBlocks", () => {
     ).toBe(true);
   });
 
+  test("falls back to text once the per-message table-cell budget (10k) is exceeded", () => {
+    // Slack caps aggregate table-cell characters per message at 10,000. Two
+    // tables that each pass the per-table check but together exceed 10k must not
+    // both emit `table` blocks — the later one degrades to text.
+    const bigCell = "x".repeat(6000);
+    const tableA = ["| H | V |", "| --- | --- |", `| a | ${bigCell} |`].join(
+      "\n",
+    );
+    const tableB = ["| H | V |", "| --- | --- |", `| b | ${bigCell} |`].join(
+      "\n",
+    );
+    const blocks = textToSlackBlocks(`${tableA}\n\n${tableB}`);
+    expect(blocks).toBeDefined();
+    // First table fits the budget; the second pushes the aggregate over 10k and
+    // falls back to section blocks.
+    expect(blocks!.filter((b) => b.type === "table").length).toBe(1);
+    expect(blocks!.some((b) => b.type === "section")).toBe(true);
+  });
+
   test("requires header + separator + data row for table detection", () => {
     // Only header and separator, no data rows
     const input = "| A | B |\n| --- | --- |";

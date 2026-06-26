@@ -27,6 +27,9 @@ export function textToSlackBlocks(text: string): KnownBlock[] | undefined {
 
   const segments = splitIntoSegments(text);
   const blocks: KnownBlock[] = [];
+  // Slack caps aggregate table-cell characters across one message at 10,000, so
+  // track usage and fall later tables back to text once the budget is spent.
+  let tableCellCharsUsed = 0;
 
   for (let i = 0; i < segments.length; i++) {
     if (i > 0) {
@@ -57,13 +60,19 @@ export function textToSlackBlocks(text: string): KnownBlock[] | undefined {
       });
     } else if (segment.type === "table") {
       const tableBlock = tryBuildTableBlock(segment.headers, segment.rows);
-      if (tableBlock) {
+      const tableChars = tableBlock ? countTableCellChars(tableBlock) : 0;
+      if (
+        tableBlock &&
+        tableCellCharsUsed + tableChars <= SLACK_TABLE_MAX_TOTAL_CHARS
+      ) {
         blocks.push(tableBlock);
+        tableCellCharsUsed += tableChars;
       } else {
-        // Table exceeds Slack's table-block limits (≤100 rows / ≤20 columns /
-        // ≤10,000 chars across cells); fall back to structured bullet text
-        // split across section blocks so an oversize table degrades on its own
-        // rather than failing the payload.
+        // Table can't render as a `table` block — it either exceeds Slack's
+        // per-table limits (≤100 rows / ≤20 columns / ≤10,000 chars) or it would
+        // push the message past Slack's 10,000-char aggregate table-cell cap.
+        // Fall back to structured bullet text split across section blocks so it
+        // degrades on its own rather than failing the whole payload.
         const structured = convertTableToStructuredText(
           segment.headers,
           segment.rows,
@@ -291,8 +300,23 @@ function tryParseTable(
 /** Slack `table` blocks allow at most 100 rows (incl. the header) and 20 columns. */
 const SLACK_TABLE_MAX_ROWS = 100;
 const SLACK_TABLE_MAX_COLUMNS = 20;
-/** Slack rejects a `table` block whose cell text totals more than 10,000 characters. */
+/**
+ * Slack caps table cell text at 10,000 characters — both within one table block
+ * and in aggregate across every table block in a single message. Either
+ * overflow is rejected as `invalid_blocks`.
+ */
 const SLACK_TABLE_MAX_TOTAL_CHARS = 10_000;
+
+/** Total characters across a table block's `raw_text` cells. */
+function countTableCellChars(block: TableBlock): number {
+  let total = 0;
+  for (const row of block.rows) {
+    for (const cell of row) {
+      if ("text" in cell) total += cell.text.length;
+    }
+  }
+  return total;
+}
 
 /**
  * Build a Slack `table` block from a parsed markdown table, or `null` when the
