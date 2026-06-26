@@ -271,8 +271,8 @@ export function ChatMainPanel({
     if (assistantId) void useViewerStore.getState().loadDocument(assistantId, surfaceId);
   }, [assistantId]);
 
-  const activeSubagentIds = useActiveSubagentIds();
-  const activeAcpRunIds = useActiveAcpRunIds();
+  const activeSubagentIds = useActiveSubagentIds(activeConversationId);
+  const activeAcpRunIds = useActiveAcpRunIds(activeConversationId);
   const activeWorkflowRunIds = useActiveWorkflowRunIds();
 
   // Rehydrate ACP runs from the daemon on conversation load so completed and
