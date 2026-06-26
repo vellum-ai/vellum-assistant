@@ -19,6 +19,8 @@ export interface AcpChatTerminalBlockProps {
   stopReason?: string;
   /** Error message shown when the run failed. */
   error?: string;
+  /** Epoch-ms the run reached its terminal state; appended as "at {time}". */
+  completedAt?: number;
 }
 
 /** Completed-run copy keyed off the ACP stop reason. */
@@ -37,10 +39,29 @@ function completedLabel(stopReason: string | undefined): string {
   }
 }
 
+/** Short local clock time, e.g. "3:42 PM". */
+function formatTerminalTime(ms: number): string {
+  return new Date(ms).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+/** De-emphasized "at {time}" suffix shown beside a terminal label. */
+function TerminalTime({ completedAt }: { completedAt: number | undefined }) {
+  if (completedAt === undefined) return null;
+  return (
+    <span data-testid="acp-chat-terminal-time">
+      at {formatTerminalTime(completedAt)}
+    </span>
+  );
+}
+
 export function AcpChatTerminalBlock({
   status,
   stopReason,
   error,
+  completedAt,
 }: AcpChatTerminalBlockProps) {
   if (isActiveAcpStatus(status)) return null;
 
@@ -67,6 +88,7 @@ export function AcpChatTerminalBlock({
       >
         <MinusCircle aria-hidden className="h-4 w-4 shrink-0" />
         <span>Cancelled</span>
+        <TerminalTime completedAt={completedAt} />
       </div>
     );
   }
@@ -83,6 +105,7 @@ export function AcpChatTerminalBlock({
         className="h-4 w-4 shrink-0 text-[var(--system-positive-strong)]"
       />
       <span>{label}</span>
+      <TerminalTime completedAt={completedAt} />
     </div>
   );
 }

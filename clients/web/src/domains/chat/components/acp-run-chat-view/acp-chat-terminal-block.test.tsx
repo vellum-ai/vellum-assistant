@@ -5,6 +5,14 @@ import { AcpChatTerminalBlock } from "./acp-chat-terminal-block";
 
 afterEach(cleanup);
 
+// Fixed epoch; compare against the same local-time formatting the component
+// uses so the assertion is locale/timezone-independent.
+const COMPLETED_AT = 1700000000000;
+const EXPECTED_TIME = new Date(COMPLETED_AT).toLocaleTimeString([], {
+  hour: "numeric",
+  minute: "2-digit",
+});
+
 describe("AcpChatTerminalBlock", () => {
   test("renders nothing for active statuses", () => {
     const { container } = render(
@@ -68,5 +76,32 @@ describe("AcpChatTerminalBlock", () => {
     const root = screen.getByTestId("acp-chat-terminal-block");
     expect(root.getAttribute("data-terminal-kind")).toBe("cancelled");
     expect(screen.getByText("Cancelled")).toBeDefined();
+  });
+
+  describe("completion time", () => {
+    test("completed + completedAt → appends the time", () => {
+      render(
+        <AcpChatTerminalBlock status="completed" completedAt={COMPLETED_AT} />,
+      );
+      // Label stays its own node; the time is a sibling suffix.
+      expect(screen.getByText("Completed")).toBeDefined();
+      expect(screen.getByTestId("acp-chat-terminal-time").textContent).toBe(
+        `at ${EXPECTED_TIME}`,
+      );
+    });
+
+    test("completed without completedAt → no time suffix", () => {
+      render(<AcpChatTerminalBlock status="completed" />);
+      expect(screen.queryByTestId("acp-chat-terminal-time")).toBeNull();
+    });
+
+    test("cancelled status + completedAt → appends the time", () => {
+      render(
+        <AcpChatTerminalBlock status="cancelled" completedAt={COMPLETED_AT} />,
+      );
+      expect(screen.getByTestId("acp-chat-terminal-time").textContent).toBe(
+        `at ${EXPECTED_TIME}`,
+      );
+    });
   });
 });

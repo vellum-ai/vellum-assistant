@@ -28,14 +28,48 @@ function statValue(label: string): string | undefined {
 }
 
 describe("AcpUsageMeter", () => {
-  test("renders input, output, and total with thousands separators", () => {
+  test("falls back to Total tokens when no cost is reported", () => {
     render(<AcpUsageMeter entry={entry({ inputTokens: 12000, outputTokens: 3400 })} />);
 
     expect(screen.getByTestId("acp-usage-meter")).toBeDefined();
     expect(statValue("input")).toBe("12,000");
     expect(statValue("output")).toBe("3,400");
-    // Total = input + output.
+    // Total = input + output; shown because there's no cost to display.
     expect(statValue("total")).toBe("15,400");
+    expect(statValue("cost")).toBeUndefined();
+  });
+
+  test("replaces Total with the run's actual cost when reported", () => {
+    render(
+      <AcpUsageMeter
+        entry={entry({
+          inputTokens: 12000,
+          outputTokens: 3400,
+          costAmount: 1.23,
+          costCurrency: "USD",
+        })}
+      />,
+    );
+
+    expect(statValue("input")).toBe("12,000");
+    expect(statValue("output")).toBe("3,400");
+    expect(statValue("cost")).toBe("$1.23");
+    expect(statValue("total")).toBeUndefined();
+  });
+
+  test("renders a sub-cent cost as a less-than-one-cent form", () => {
+    render(
+      <AcpUsageMeter
+        entry={entry({
+          inputTokens: 10,
+          outputTokens: 5,
+          costAmount: 0.004,
+          costCurrency: "USD",
+        })}
+      />,
+    );
+
+    expect(statValue("cost")).toBe("<$0.01");
   });
 
   test("treats a missing side as zero when the other is present", () => {

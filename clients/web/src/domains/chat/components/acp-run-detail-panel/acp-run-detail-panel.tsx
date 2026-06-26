@@ -49,6 +49,7 @@ import {
   type AcpTimelineStep,
 } from "@/domains/chat/acp-run-step-projection";
 import { useAcpRunStore, type AcpRunEntry } from "@/domains/chat/acp-run-store";
+import { formatAcpCost } from "@/domains/chat/utils/format-acp-cost";
 import {
   steerAcpRun,
   stopAcpRun,
@@ -61,20 +62,6 @@ import {
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
-
-/**
- * Currency-aware cost label. A nonzero amount under one cent rounds to `$0.00`
- * under standard 2-fraction-digit currency formatting, under-reporting real
- * spend for short runs — render those as a "less than one cent" form instead.
- */
-export function formatAcpCost(amount: number, currency: string): string {
-  const format = (value: number) =>
-    new Intl.NumberFormat(undefined, { style: "currency", currency }).format(
-      value,
-    );
-  if (amount > 0 && amount < 0.01) return `<${format(0.01)}`;
-  return format(amount);
-}
 
 /**
  * Live joined output for a running ACP tool, re-derived from the store so an

@@ -188,6 +188,7 @@ export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
                 status={entry.status}
                 stopReason={entry.stopReason}
                 error={entry.error}
+                completedAt={entry.completedAt}
               />
             )}
           </div>
