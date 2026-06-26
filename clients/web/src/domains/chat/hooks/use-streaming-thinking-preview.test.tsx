@@ -82,12 +82,21 @@ describe("firstSentenceOfLatestThinkingParagraph", () => {
     ).toBe("I should inspect the route first.");
   });
 
-  test("returns an incomplete latest paragraph when no sentence terminator has streamed", () => {
+  test("returns null until the latest paragraph streams a period", () => {
     expect(
       firstSentenceOfLatestThinkingParagraph(
         "Complete prior thought.\n\nStill forming the latest idea",
       ),
-    ).toBe("Still forming the latest idea");
+    ).toBeNull();
+    expect(firstSentenceOfLatestThinkingParagraph("I")).toBeNull();
+  });
+
+  test("parses through the first period in the latest paragraph", () => {
+    expect(
+      firstSentenceOfLatestThinkingParagraph(
+        "Complete prior thought.\n\nWhy? Because this is enough. Later sentence.",
+      ),
+    ).toBe("Why? Because this is enough.");
   });
 
   test("returns null for blank thinking text", () => {
@@ -101,17 +110,17 @@ describe("useStreamingThinkingPreview", () => {
       ({ content }) => useStreamingThinkingPreview(content, true),
       {
         initialProps: {
-          content: "First visible thought",
+          content: "First visible thought.",
         },
       },
     );
 
-    expect(result.current).toBe("First visible thought");
+    expect(result.current).toBe("First visible thought.");
 
     setSystemTime(new Date(START + 1_000));
     rerender({ content: "Second visible thought. More detail follows." });
 
-    expect(result.current).toBe("First visible thought");
+    expect(result.current).toBe("First visible thought.");
     expect(pendingTimeouts()).toHaveLength(1);
     expect(pendingTimeouts()[0]!.ms).toBe(
       STREAMING_THINKING_PREVIEW_UPDATE_INTERVAL_MS - 1_000,
@@ -128,7 +137,7 @@ describe("useStreamingThinkingPreview", () => {
       ({ content }) => useStreamingThinkingPreview(content, true),
       {
         initialProps: {
-          content: "First visible thought",
+          content: "First visible thought.",
         },
       },
     );
@@ -141,7 +150,7 @@ describe("useStreamingThinkingPreview", () => {
         "Second visible thought.\n\nNewest paragraph should win. Later sentence.",
     });
 
-    expect(result.current).toBe("First visible thought");
+    expect(result.current).toBe("First visible thought.");
     expect(pendingTimeouts()).toHaveLength(1);
 
     setSystemTime(new Date(START + STREAMING_THINKING_PREVIEW_UPDATE_INTERVAL_MS));

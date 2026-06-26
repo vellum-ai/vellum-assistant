@@ -13,8 +13,9 @@ export function firstSentenceOfLatestThinkingParagraph(
   if (!latestParagraph) return null;
 
   const normalized = latestParagraph.replace(/\s+/g, " ");
-  const firstSentence = normalized.match(/^.*?[.!?](?=\s|$)/)?.[0];
-  return (firstSentence ?? normalized).trim() || null;
+  const periodIndex = normalized.indexOf(".");
+  if (periodIndex === -1) return null;
+  return normalized.slice(0, periodIndex + 1).trim() || null;
 }
 
 export function useStreamingThinkingPreview(
