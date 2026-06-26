@@ -256,6 +256,29 @@ describe("recordUsageEvent", () => {
     const [event] = listUsageEvents();
     expect(event.rawUsage).toBeNull();
   });
+
+  test("round-trips cronRunId through SQLite", () => {
+    const event = recordUsageEvent(
+      makeInput({ cronRunId: "cron-run-1" }),
+      pricedResult,
+    );
+    expect(event.cronRunId).toBe("cron-run-1");
+
+    const row = getSqlite()
+      .query("SELECT cron_run_id FROM llm_usage_events WHERE id = ?")
+      .get(event.id) as { cron_run_id: string | null } | null;
+    expect(row?.cron_run_id).toBe("cron-run-1");
+  });
+
+  test("cronRunId defaults to null when omitted", () => {
+    const event = recordUsageEvent(makeInput(), pricedResult);
+    expect(event.cronRunId ?? null).toBeNull();
+
+    const row = getSqlite()
+      .query("SELECT cron_run_id FROM llm_usage_events WHERE id = ?")
+      .get(event.id) as { cron_run_id: string | null } | null;
+    expect(row?.cron_run_id).toBeNull();
+  });
 });
 
 describe("listUsageEvents", () => {
