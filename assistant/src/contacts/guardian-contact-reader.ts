@@ -30,8 +30,8 @@ export async function getGuardianContactIds(): Promise<Set<string>> {
 
   try {
     const result = await ipcCallPersistent("get_guardian_contact", {});
-    const { guardians } = GetGuardianContactIpcResponseSchema.parse(result);
-    const ids = new Set(guardians.map((g) => g.id));
+    const { guardianIds } = GetGuardianContactIpcResponseSchema.parse(result);
+    const ids = new Set(guardianIds);
     cache = { ids, expiresAt: Date.now() + CACHE_TTL_MS };
     return ids;
   } catch (err) {
@@ -45,10 +45,9 @@ export async function getGuardianContactIds(): Promise<Set<string>> {
 
 /**
  * Drop the cached guardian set. Subscribed to `onContactChange` so contact
- * mutations (rebind/revoke/upsert) refetch on the next read; also exported for
- * any caller that wants to invalidate explicitly.
+ * mutations (rebind/revoke/upsert) refetch on the next read.
  */
-export function invalidateGuardianContactCache(): void {
+function invalidateGuardianContactCache(): void {
   cache = null;
 }
 

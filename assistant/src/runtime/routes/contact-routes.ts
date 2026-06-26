@@ -37,9 +37,6 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("contact-routes");
 
-/** Sentinel for relayed-read calls that trust the gateway role (no derivation). */
-const EMPTY_GUARDIAN_IDS: ReadonlySet<string> = new Set<string>();
-
 /**
  * Re-throw a relayed gateway `IpcCallError` as a `RouteError` so the IPC/HTTP
  * adapters honor its statusCode/errorCode (4xx surfaces as 4xx, not a generic
@@ -108,12 +105,12 @@ function withChannelCompat<T extends { channels: { address: string }[] }>(
  * defaults so the response satisfies the strict enum schema even in degraded
  * mode (assistant DB unreachable → gateway soft-fail join produces nulls).
  *
- * `deriveRole` controls where `role` comes from:
- *   - `true`  (daemon-native reads): role is the neutral `"contact"` default,
- *     so derive it from the gateway guardian id set.
- *   - `false` (gateway-relayed reads): TRUST the gateway-sourced `role` already
+ * `guardianIds` controls where `role` comes from:
+ *   - omitted (gateway-relayed reads): TRUST the gateway-sourced `role` already
  *     on the `ContactRead`. Never re-derive — a stale/empty id-set cache must
  *     not downgrade a relayed guardian to `"contact"`.
+ *   - provided (daemon-native reads): role is the neutral `"contact"` default,
+ *     so derive it from the gateway guardian id set.
  */
 function prepareContactResponse<
   T extends {
@@ -123,12 +120,12 @@ function prepareContactResponse<
     contactType?: string | null;
     channels: { address: string }[];
   },
->(contact: T, guardianIds: ReadonlySet<string>, deriveRole: boolean): T {
+>(contact: T, guardianIds?: ReadonlySet<string>): T {
   const coerced =
     contact.contactType == null
       ? { ...contact, contactType: "human" as T["contactType"] }
       : contact;
-  const withRole = deriveRole
+  const withRole = guardianIds
     ? withGatewayRole(coerced, guardianIds)
     : coerced;
   return withChannelCompat(withGuardianNameOverride(withRole));
@@ -203,13 +200,11 @@ async function relayListContacts(limit: number, role: ContactRole | undefined) {
       ...(role ? { role } : {}),
     });
     const { contacts } = ListContactsIpcResponseSchema.parse(result);
-    // Relayed reads carry a gateway-sourced role — trust it (deriveRole=false),
+    // Relayed reads carry a gateway-sourced role — trust it (omit guardianIds),
     // so the guardian id set is not consulted here.
     return {
       ok: true,
-      contacts: contacts.map((c) =>
-        prepareContactResponse(c, EMPTY_GUARDIAN_IDS, false),
-      ),
+      contacts: contacts.map((c) => prepareContactResponse(c)),
     };
   } catch (err) {
     rethrowGatewayError(err);
@@ -250,9 +245,7 @@ export async function handleListContacts(queryParams: Record<string, string>) {
     const guardianIds = await getGuardianContactIds();
     return {
       ok: true,
-      contacts: contacts.map((c) =>
-        prepareContactResponse(c, guardianIds, true),
-      ),
+      contacts: contacts.map((c) => prepareContactResponse(c, guardianIds)),
     };
   }
 
@@ -269,9 +262,7 @@ export async function handleListContacts(queryParams: Record<string, string>) {
     const guardianIds = await getGuardianContactIds();
     return {
       ok: true,
-      contacts: contacts.map((c) =>
-        prepareContactResponse(c, guardianIds, true),
-      ),
+      contacts: contacts.map((c) => prepareContactResponse(c, guardianIds)),
     };
   }
 
@@ -287,10 +278,10 @@ export async function handleGetContact(contactId: string) {
     }
     const { contact, assistantMetadata } =
       GetContactIpcResponseSchema.parse(result);
-    // Relayed read: trust the gateway-sourced role (deriveRole=false).
+    // Relayed read: trust the gateway-sourced role (omit guardianIds).
     return {
       ok: true,
-      contact: prepareContactResponse(contact, EMPTY_GUARDIAN_IDS, false),
+      contact: prepareContactResponse(contact),
       assistantMetadata: assistantMetadata ?? undefined,
     };
   } catch (err) {
@@ -718,7 +709,7 @@ export const ROUTES: RouteDefinition[] = [
       // Daemon-native read: role is the neutral default, so derive it.
       const guardianIds = await getGuardianContactIds();
       return searchContacts(parsed).map((c) =>
-        prepareContactResponse(c, guardianIds, true),
+        prepareContactResponse(c, guardianIds),
       );
     },
   },
@@ -819,7 +810,7 @@ async function handleMergeContactsRoute(args: RouteHandlerArgs) {
     const guardianIds = await getGuardianContactIds();
     return {
       ok: true,
-      contact: prepareContactResponse(contact, guardianIds, true),
+      contact: prepareContactResponse(contact, guardianIds),
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
