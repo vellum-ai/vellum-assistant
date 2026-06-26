@@ -73,6 +73,16 @@ export type ResearchOnboardingFunnelStep =
   (typeof RESEARCH_ONBOARDING_FUNNEL_STEPS)[keyof typeof RESEARCH_ONBOARDING_FUNNEL_STEPS];
 
 /**
+ * Marker event for the persona plugins auto-installed during the research flow.
+ * Kept OUT of RESEARCH_ONBOARDING_FUNNEL_STEPS (its `satisfies Record<ResearchStep,…>`
+ * would break) because this is not a navigational step.
+ */
+const RESEARCH_ONBOARDING_PLUGINS_INSTALLED_STEP = {
+  stepName: "research_plugins_installed",
+  stepIndex: 10,
+} as const satisfies OnboardingFunnelStepDescriptor;
+
+/**
  * How the user left a step: `completed` (clicked the primary Continue/action) vs
  * `skipped` (clicked Skip). Lets analytics tell a deliberate completion apart
  * from a skip on steps that offer both. The pre-chat funnel omits this (it never
@@ -87,6 +97,11 @@ export interface OnboardingFunnelStepCompletedOptions {
   funnelVersion?: string;
   /** Completed vs skipped; omitted when the funnel doesn't distinguish. */
   outcome?: OnboardingFunnelStepOutcome;
+  /**
+   * Auto-installed persona plugins. Carried only by the research flow's
+   * plugins-installed marker event; omitted (→ stripped) everywhere else.
+   */
+  plugins?: string[];
 }
 
 export interface OnboardingFunnelEvent {
@@ -103,6 +118,11 @@ export interface OnboardingFunnelEvent {
   ab_variant: OnboardingFunnelVariant;
   /** Completed vs skipped; absent when the funnel doesn't distinguish. */
   outcome?: OnboardingFunnelStepOutcome;
+  /**
+   * Auto-installed persona plugins. Carried only by the research flow's
+   * plugins-installed marker event; absent (→ stripped) everywhere else.
+   */
+  plugins?: string[];
 }
 
 function stripUndefined(value: object): Record<string, unknown> {
@@ -185,6 +205,9 @@ export function buildOnboardingFunnelEvent(
     ab_variant: variant,
     // Omitted (→ stripped before send) unless the caller distinguishes the two.
     outcome: options.outcome,
+    // Omitted (→ stripped before send) unless the caller carries plugins; an
+    // explicit array (incl. []) is preserved.
+    plugins: options.plugins,
   };
 }
 
@@ -233,6 +256,27 @@ export function emitResearchOnboardingStepCompleted(
     funnelVersion: RESEARCH_ONBOARDING_FUNNEL_VERSION,
     outcome: options.outcome ?? "completed",
   });
+}
+
+/**
+ * Emit the research-onboarding marker event carrying the persona plugins
+ * auto-installed for the assistant. Mirrors emitResearchOnboardingStepCompleted
+ * (control variant passed explicitly, research funnel version) but carries
+ * `plugins` and no `outcome`.
+ */
+export function emitResearchOnboardingPluginsInstalled(
+  plugins: string[],
+  options: { userId?: string | null } = {},
+): void {
+  emitOnboardingFunnelStepCompleted(
+    RESEARCH_ONBOARDING_PLUGINS_INSTALLED_STEP,
+    {
+      userId: options.userId,
+      variant: ONBOARDING_FUNNEL_VARIANTS.control,
+      funnelVersion: RESEARCH_ONBOARDING_FUNNEL_VERSION,
+      plugins,
+    },
+  );
 }
 
 export function __resetOnboardingFunnelEventsForTests(): void {

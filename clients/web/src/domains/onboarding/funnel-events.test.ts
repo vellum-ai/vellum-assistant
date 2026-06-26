@@ -4,6 +4,7 @@ import {
   __resetOnboardingFunnelEventsForTests,
   buildOnboardingFunnelEvent,
   emitOnboardingFunnelStepCompleted,
+  emitResearchOnboardingPluginsInstalled,
   emitResearchOnboardingStepCompleted,
   onboardingFunnelVariantFromExperiment,
   ONBOARDING_FUNNEL_STEPS,
@@ -200,6 +201,118 @@ describe("onboarding funnel events", () => {
       funnel_version: RESEARCH_ONBOARDING_FUNNEL_VERSION,
       outcome: "skipped",
     });
+  });
+
+  test("emits the plugins-installed marker carrying the installed set", () => {
+    localStorage.setItem("device:share_analytics", "true");
+    const fetchMock = mock(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response("{}", { status: 200 }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    // Emit a normal step first so we can assert the marker shares its session id.
+    emitResearchOnboardingStepCompleted(RESEARCH_ONBOARDING_FUNNEL_STEPS.form, {
+      userId: "user-123",
+    });
+    emitResearchOnboardingPluginsInstalled(["gmail-triage", "calendar-prep"], {
+      userId: "user-123",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const calls = fetchMock.mock.calls as Array<
+      [RequestInfo | URL, RequestInit | undefined]
+    >;
+    const stepEvent = (
+      JSON.parse(calls[0]?.[1]?.body as string) as {
+        events: Array<Record<string, unknown>>;
+      }
+    ).events[0];
+    const markerEvent = (
+      JSON.parse(calls[1]?.[1]?.body as string) as {
+        events: Array<Record<string, unknown>>;
+      }
+    ).events[0];
+
+    expect(calls[1]?.[0]).toBe("/v1/telemetry/ingest/");
+    expect(markerEvent).toMatchObject({
+      type: "onboarding",
+      step_name: "research_plugins_installed",
+      step_index: 10,
+      funnel_version: RESEARCH_ONBOARDING_FUNNEL_VERSION,
+      ab_variant: "control",
+      user_id: "user-123",
+      plugins: ["gmail-triage", "calendar-prep"],
+    });
+    // Shares the funnel session id with the rest of the journey.
+    expect(markerEvent?.session_id).toBe(stepEvent?.session_id);
+    // The marker carries no outcome (it's not a navigational step).
+    expect(markerEvent).not.toHaveProperty("outcome");
+  });
+
+  test("emits the plugins-installed marker with an empty set preserved", () => {
+    localStorage.setItem("device:share_analytics", "true");
+    const fetchMock = mock(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response("{}", { status: 200 }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    emitResearchOnboardingPluginsInstalled([], { userId: "user-123" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const calls = fetchMock.mock.calls as Array<
+      [RequestInfo | URL, RequestInit | undefined]
+    >;
+    const markerEvent = (
+      JSON.parse(calls[0]?.[1]?.body as string) as {
+        events: Array<Record<string, unknown>>;
+      }
+    ).events[0];
+
+    // An explicit empty array is preserved (not stripped).
+    expect(markerEvent).toHaveProperty("plugins");
+    expect(markerEvent?.plugins).toEqual([]);
+  });
+
+  test("a normal research step event carries no plugins key", () => {
+    localStorage.setItem("device:share_analytics", "true");
+    const fetchMock = mock(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response("{}", { status: 200 }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    emitResearchOnboardingStepCompleted(RESEARCH_ONBOARDING_FUNNEL_STEPS.form, {
+      userId: "user-123",
+    });
+
+    const calls = fetchMock.mock.calls as Array<
+      [RequestInfo | URL, RequestInit | undefined]
+    >;
+    const stepEvent = (
+      JSON.parse(calls[0]?.[1]?.body as string) as {
+        events: Array<Record<string, unknown>>;
+      }
+    ).events[0];
+
+    // stripUndefined removes the undefined `plugins` field on ordinary events.
+    expect(stepEvent).not.toHaveProperty("plugins");
+  });
+
+  test("does not emit the plugins marker until analytics sharing is opted in", () => {
+    useOnboardingStore.setState({ shareAnalytics: false });
+    const fetchMock = mock(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response("{}", { status: 200 }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    emitResearchOnboardingPluginsInstalled(["gmail-triage"], {
+      userId: "user-123",
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test("does not emit research telemetry until analytics sharing is opted in", () => {
