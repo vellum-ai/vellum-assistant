@@ -167,6 +167,7 @@ export function SlackSetupWizard({
               current={stepIndex}
               onStepSelect={handleStepSelect}
               disabled={saving}
+              className="overflow-hidden"
             />
 
             <div className="rounded-lg bg-[var(--surface-sunken)] p-4">

@@ -10,7 +10,7 @@ const meta: Meta<typeof SlackSetupWizard> = {
   },
   decorators: [
     (Story) => (
-      <div style={{ maxWidth: 600, margin: "2rem auto" }}>
+      <div style={{ maxWidth: 800, margin: "2rem auto" }}>
         <Story />
       </div>
     ),
