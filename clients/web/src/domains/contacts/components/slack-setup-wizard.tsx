@@ -14,6 +14,7 @@ const WIZARD_STEPS: StepperStep[] = [
 
 export interface SlackSetupWizardProps {
   assistantName: string;
+  initialStepId?: WizardStepId;
   onSave?: (botToken: string, appToken: string) => Promise<void>;
 }
 
@@ -99,9 +100,10 @@ function buildSlackManifestUrl(name: string, description: string): string {
 
 export function SlackSetupWizard({
   assistantName,
+  initialStepId = "create-app",
   onSave,
 }: SlackSetupWizardProps) {
-  const [stepId, setStepId] = useState<WizardStepId>("create-app");
+  const [stepId, setStepId] = useState<WizardStepId>(initialStepId);
   const [botName, setBotName] = useState(assistantName);
   const [botDescription, setBotDescription] = useState("");
   const [appToken, setAppToken] = useState("");

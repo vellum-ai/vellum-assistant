@@ -14,10 +14,17 @@ export default meta;
 
 type Story = StoryObj<typeof SlackSetupWizard>;
 
-export const CreateApp: Story = {};
+export const Step1CreateApp: Story = {};
 
-export const WithSaveHandler: Story = {
+export const Step2AppToken: Story = {
   args: {
+    initialStepId: "app-token",
+  },
+};
+
+export const Step3BotToken: Story = {
+  args: {
+    initialStepId: "bot-token",
     onSave: async (_botToken: string, _appToken: string) => {
       await new Promise((resolve) => setTimeout(resolve, 1000));
     },
