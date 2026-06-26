@@ -112,3 +112,42 @@ describe("AcpChatToolCard", () => {
     expect(screen.getByTestId("acp-chat-tool-output")).toBeDefined();
   });
 });
+
+describe("terminal run", () => {
+  test("renders a still-running tool as Ended when the run is terminal", () => {
+    render(
+      <AcpChatToolCard
+        block={toolBlock({ status: "running" })}
+        isTerminal
+        onOpenDiff={() => {}}
+      />,
+    );
+    expect(screen.getByText("Ended")).toBeDefined();
+    expect(screen.queryByText("Running")).toBeNull();
+    expect(screen.queryByTestId("acp-chat-tool-running")).toBeNull();
+  });
+
+  test("keeps the running spinner while the run is active", () => {
+    render(
+      <AcpChatToolCard
+        block={toolBlock({ status: "running" })}
+        isTerminal={false}
+        onOpenDiff={() => {}}
+      />,
+    );
+    expect(screen.getByText("Running")).toBeDefined();
+    expect(screen.getByTestId("acp-chat-tool-running")).toBeDefined();
+  });
+
+  test("does not override an already-terminal tool status", () => {
+    render(
+      <AcpChatToolCard
+        block={toolBlock({ status: "completed" })}
+        isTerminal
+        onOpenDiff={() => {}}
+      />,
+    );
+    expect(screen.getByText("Completed")).toBeDefined();
+    expect(screen.queryByText("Ended")).toBeNull();
+  });
+});

@@ -31,6 +31,13 @@ export type AcpFileChange = {
 export interface AcpChatToolCardProps {
   /** The `kind: "tool"` chat block to render. */
   block: AcpToolBlock;
+  /**
+   * Whether the whole run has reached a terminal state. A tool still
+   * `running` at that point was never finalized by the agent (ACP has no
+   * cancelled tool status and doesn't require a terminal update on cancel),
+   * so it renders as a neutral "Ended" state instead of a live spinner.
+   */
+  isTerminal?: boolean;
   /** Invoked when a file-change chip is activated. */
   onOpenDiff: (fileChange: AcpFileChange) => void;
 }
@@ -38,16 +45,22 @@ export interface AcpChatToolCardProps {
 /** Output longer than this (chars) collapses behind a toggle. */
 const COLLAPSE_THRESHOLD = 600;
 
-const STATUS_TONE: Record<AcpToolStatus, TagTone> = {
+/** Display status: the data model's `AcpToolStatus` plus a terminal-only
+ *  "ended" state for a tool the agent never finalized. */
+type ToolDisplayStatus = AcpToolStatus | "ended";
+
+const STATUS_TONE: Record<ToolDisplayStatus, TagTone> = {
   running: "neutral",
   completed: "positive",
   error: "negative",
+  ended: "neutral",
 };
 
-const STATUS_LABEL: Record<AcpToolStatus, string> = {
+const STATUS_LABEL: Record<ToolDisplayStatus, string> = {
   running: "Running",
   completed: "Completed",
   error: "Failed",
+  ended: "Ended",
 };
 
 /** Leading kind glyph — file glyph for read/edit, code brackets otherwise. */
@@ -61,7 +74,11 @@ function KindIcon({ toolKind }: { toolKind?: string }) {
   );
 }
 
-export function AcpChatToolCard({ block, onOpenDiff }: AcpChatToolCardProps) {
+export function AcpChatToolCard({
+  block,
+  isTerminal = false,
+  onOpenDiff,
+}: AcpChatToolCardProps) {
   const [expanded, setExpanded] = useState(false);
 
   const parsed = useMemo(
@@ -84,7 +101,9 @@ export function AcpChatToolCard({ block, onOpenDiff }: AcpChatToolCardProps) {
     [parsed, block.locations],
   );
 
-  const isRunning = block.status === "running";
+  const displayStatus: ToolDisplayStatus =
+    isTerminal && block.status === "running" ? "ended" : block.status;
+  const isRunning = displayStatus === "running";
   const isLong = outputText.length > COLLAPSE_THRESHOLD;
   const showOutput = outputText.length > 0 && (!isLong || expanded);
 
@@ -104,10 +123,10 @@ export function AcpChatToolCard({ block, onOpenDiff }: AcpChatToolCardProps) {
           {block.title || "Tool call"}
         </Typography>
         <Tag
-          tone={STATUS_TONE[block.status]}
+          tone={STATUS_TONE[displayStatus]}
           data-testid="acp-chat-tool-status"
         >
-          {STATUS_LABEL[block.status]}
+          {STATUS_LABEL[displayStatus]}
         </Tag>
         {isRunning && (
           <ThreeDotIndicator

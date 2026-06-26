@@ -357,7 +357,13 @@ function ChatBlock({
         />
       );
     case "tool":
-      return <AcpChatToolCard block={block} onOpenDiff={onOpenDiff} />;
+      return (
+        <AcpChatToolCard
+          block={block}
+          isTerminal={isTerminal}
+          onOpenDiff={onOpenDiff}
+        />
+      );
     case "plan":
       return <AcpChatPlanBlock entries={block.entries} />;
   }
