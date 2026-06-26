@@ -73,6 +73,33 @@ export type ResearchOnboardingFunnelStep =
   (typeof RESEARCH_ONBOARDING_FUNNEL_STEPS)[keyof typeof RESEARCH_ONBOARDING_FUNNEL_STEPS];
 
 /**
+ * Query param the app reads to attribute a deep-link landing to an onboarding
+ * source, and the value the Day-2 check-in calendar event's CTA carries.
+ *
+ * The marketing-site UTM capture only runs on the marketing sites (platform
+ * repo) and never sees `/assistant/*` app routes, so `utm_*` params on a link
+ * that lands in the app do nothing. Instead the calendar CTA carries this
+ * app-owned param, which the conversation route reads on landing and reports as
+ * the funnel step below — same telemetry path as every other event here, so it
+ * lands in BigQuery with no backend change. Kept in sync with the href built in
+ * `assistant/src/onboarding/checkin-event.ts`.
+ */
+export const ONBOARDING_ATTRIBUTION_PARAM = "vref";
+export const RESEARCH_CHECKIN_CALENDAR_ATTRIBUTION = "research_checkin";
+
+/**
+ * The check-in calendar-event click. Part of the research-onboarding funnel (it
+ * rides RESEARCH_ONBOARDING_FUNNEL_VERSION), but fired a day later when the user
+ * clicks the booked event's CTA rather than from an in-flow screen — so it isn't
+ * a `ResearchStep` and lives outside RESEARCH_ONBOARDING_FUNNEL_STEPS, which is
+ * keyed to the in-flow steps. Indexed after the last in-flow step.
+ */
+export const RESEARCH_ONBOARDING_CHECKIN_STEP = {
+  stepName: "research_checkin_open",
+  stepIndex: 10,
+} as const satisfies OnboardingFunnelStepDescriptor;
+
+/**
  * How the user left a step: `completed` (clicked the primary Continue/action) vs
  * `skipped` (clicked Skip). Lets analytics tell a deliberate completion apart
  * from a skip on steps that offer both. The pre-chat funnel omits this (it never
@@ -232,6 +259,24 @@ export function emitResearchOnboardingStepCompleted(
     variant: ONBOARDING_FUNNEL_VARIANTS.control,
     funnelVersion: RESEARCH_ONBOARDING_FUNNEL_VERSION,
     outcome: options.outcome ?? "completed",
+  });
+}
+
+/**
+ * Emit the research-onboarding check-in calendar-event click. Reached when the
+ * user clicks the CTA in the Day-2 check-in calendar event a day after finishing
+ * onboarding, so it's stamped with the research funnel version and `control`
+ * variant exactly like the in-flow steps — just sourced from the deep-link's
+ * attribution param instead of an on-screen Continue/Skip.
+ */
+export function emitResearchOnboardingCheckinCalendarOpened(
+  options: { userId?: string | null } = {},
+): void {
+  emitOnboardingFunnelStepCompleted(RESEARCH_ONBOARDING_CHECKIN_STEP, {
+    userId: options.userId,
+    variant: ONBOARDING_FUNNEL_VARIANTS.control,
+    funnelVersion: RESEARCH_ONBOARDING_FUNNEL_VERSION,
+    outcome: "completed",
   });
 }
 
