@@ -29,6 +29,10 @@ import type { AcpRunEntry } from "@/domains/chat/acp-run-store";
 
 const noop = () => {};
 
+// The panel is lazy-loaded behind a LazyBoundary and pulls in the full daemon
+// SDK mock, so first paint can exceed findBy's 1000ms default under CI load.
+const LAZY_WAIT = { timeout: 5000 };
+
 function makeEntry(overrides: Partial<AcpRunEntry> = {}): AcpRunEntry {
   return {
     acpSessionId: "acp-1",
@@ -57,7 +61,7 @@ describe("MobileAcpRunDetailOverlay", () => {
 
   test("renders the panel when given an entry", async () => {
     render(<MobileAcpRunDetailOverlay entry={makeEntry()} onClose={noop} />);
-    expect(await screen.findByText("claude")).toBeDefined();
+    expect(await screen.findByText("claude", undefined, LAZY_WAIT)).toBeDefined();
   });
 
   test("close button fires onClose", async () => {
@@ -70,7 +74,9 @@ describe("MobileAcpRunDetailOverlay", () => {
         }}
       />,
     );
-    fireEvent.click(await screen.findByLabelText("Close run detail"));
+    fireEvent.click(
+      await screen.findByLabelText("Close run detail", undefined, LAZY_WAIT),
+    );
     expect(closed).toBe(1);
   });
 
@@ -81,7 +87,7 @@ describe("MobileAcpRunDetailOverlay", () => {
         onClose={noop}
       />,
     );
-    await screen.findByText("claude");
+    await screen.findByText("claude", undefined, LAZY_WAIT);
     expect(screen.getByLabelText("Stop run")).toBeDefined();
   });
 
@@ -92,7 +98,7 @@ describe("MobileAcpRunDetailOverlay", () => {
         onClose={noop}
       />,
     );
-    await screen.findByText("claude");
+    await screen.findByText("claude", undefined, LAZY_WAIT);
     expect(screen.queryByLabelText("Stop run")).toBeNull();
   });
 });
