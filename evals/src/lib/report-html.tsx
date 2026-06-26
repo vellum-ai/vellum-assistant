@@ -2,7 +2,6 @@ import MarkdownIt from "markdown-it";
 import katex from "katex";
 import katexCssText from "katex/dist/katex.min.css?text";
 import { renderToStaticMarkup } from "react-dom/server";
-import React from "react";
 
 import type {
   CostDiagnostic,
@@ -454,7 +453,7 @@ td .row-link { display: block; }
 .status { border: 1px solid currentColor; border-radius: 999px; padding: 3px 8px; font-size: 11px; font-weight: 800; text-transform: uppercase; }
 .transcript { display: flex; flex-direction: column; gap: 12px; }
 .transcript-wrap { display: flex; flex-direction: column; gap: 12px; }
-.transcript-header { display: flex; align-items: center; justify-content: center; gap: 12px; }
+.transcript-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .transcript-header h2 { margin: 0; }
 .conversation-switcher { display: flex; flex-direction: column; gap: 12px; }
 .conversation-select { padding: 8px 12px; font-size: 13px; font-weight: 700; color: var(--text); background: rgba(0,0,0,.18); border: 1px solid var(--border); border-radius: 10px; cursor: pointer; min-width: 180px; }
@@ -1579,23 +1578,16 @@ function Transcript({
       <div className="conversation-switcher">
         <div className="transcript-header">
           <h2>{headerText}</h2>
-          {/* renderToStaticMarkup passes string onChange through to the
-              HTML attribute, but React's TS types expect a function.
-              Cast to Record to bridge the static-HTML rendering model. */}
-          {React.createElement(
-            "select",
-            {
-              className: "conversation-select",
-              "data-conv-count": groups.length,
-              onChange:
-                "document.querySelectorAll('.conversation-panel').forEach((p,i)=>{p.style.display=i===this.selectedIndex?'flex':'none'});const u=new URL(location.href);u.searchParams.set('conv',this.selectedIndex);history.replaceState(null,'',u)",
-            } as Record<string, unknown>,
-            groups.map((group, index) => (
+          <select
+            className="conversation-select"
+            data-conv-count={groups.length}
+          >
+            {groups.map((group, index) => (
               <option key={group.key} value={index}>
                 {group.label}
               </option>
-            )),
-          )}
+            ))}
+          </select>
         </div>
         <p className="section-subtle">{subText}</p>
         <div className="transcript-wrap">
@@ -2093,9 +2085,19 @@ function PhaseTiming({ run }: { run: ReportRunDetail }) {
     (e) => e.emittedAt,
   )?.emittedAt;
   const ingestLast = (() => {
+    // Use message_complete (or the last text delta) as the ingest turn
+    // end, NOT the last event in the array. collectUntilSentinel drains
+    // with a long quiet window, so trailing events like disk_pressure
+    // can arrive minutes after the turn finished and inflate the span.
     for (let i = run.ingestAssistantEvents.length - 1; i >= 0; i--) {
-      if (run.ingestAssistantEvents[i].emittedAt)
-        return run.ingestAssistantEvents[i].emittedAt;
+      const e = run.ingestAssistantEvents[i];
+      if (e.message.type === "message_complete" && e.emittedAt)
+        return e.emittedAt;
+    }
+    for (let i = run.ingestAssistantEvents.length - 1; i >= 0; i--) {
+      const e = run.ingestAssistantEvents[i];
+      const text = e.message.text ?? e.message.chunk;
+      if (text && text.trim() && e.emittedAt) return e.emittedAt;
     }
     return undefined;
   })();
@@ -2259,11 +2261,25 @@ function ExecutionPage({
             if (radio) radio.checked = true;
           }
           var sel = document.querySelector('.conversation-select');
-          if (sel && conv !== null) {
-            var idx = parseInt(conv, 10);
-            if (!isNaN(idx) && idx >= 0 && idx < sel.options.length) {
-              sel.selectedIndex = idx;
-              sel.dispatchEvent(new Event('change'));
+          function syncConvPanels(idx) {
+            document.querySelectorAll('.conversation-panel').forEach(function(p) {
+              var i = parseInt(p.getAttribute('data-conv-index'), 10);
+              p.style.display = i === idx ? 'flex' : 'none';
+            });
+            var u = new URL(location.href);
+            u.searchParams.set('conv', idx);
+            history.replaceState(null, '', u);
+          }
+          if (sel) {
+            sel.addEventListener('change', function() {
+              syncConvPanels(this.selectedIndex);
+            });
+            if (conv !== null) {
+              var idx = parseInt(conv, 10);
+              if (!isNaN(idx) && idx >= 0 && idx < sel.options.length) {
+                sel.selectedIndex = idx;
+                syncConvPanels(idx);
+              }
             }
           }
           tabIds.forEach(function(name) {
