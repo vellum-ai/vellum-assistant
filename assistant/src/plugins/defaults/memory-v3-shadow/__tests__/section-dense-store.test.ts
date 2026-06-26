@@ -24,6 +24,12 @@ const embedState = {
   statusModel: "test-model" as string | null,
   embedProvider: "local",
   embedModel: "test-model",
+  // Gemini embedding options that change the vector for identical text. The
+  // mocked `geminiCacheExtras` renders these into cache-key fragments exactly
+  // as the production helper does, so a test can flip the task type and assert
+  // the section cache treats it as a miss.
+  geminiTaskType: undefined as string | undefined,
+  geminiDimensions: undefined as number | undefined,
 };
 mock.module("../../../../memory/embedding-backend.js", () => ({
   getMemoryBackendStatus: async () => ({
@@ -42,6 +48,16 @@ mock.module("../../../../memory/embedding-backend.js", () => ({
         Array.from({ length: embedState.dim }, (_v, j) => (i + 1) * (j + 1)),
       ),
     };
+  },
+  geminiCacheExtras: () => {
+    const extras: string[] = [];
+    if (embedState.geminiTaskType) {
+      extras.push(`task=${embedState.geminiTaskType}`);
+    }
+    if (embedState.geminiDimensions != null) {
+      extras.push(`dim=${embedState.geminiDimensions}`);
+    }
+    return extras;
   },
 }));
 
@@ -235,6 +251,8 @@ function resetState(): void {
   embedState.statusModel = "test-model";
   embedState.embedProvider = "local";
   embedState.embedModel = "test-model";
+  embedState.geminiTaskType = undefined;
+  embedState.geminiDimensions = undefined;
   cacheState.store.clear();
   cacheState.reads.length = 0;
   _resetSectionDenseStoreForTests();
@@ -548,6 +566,54 @@ describe("memory v3 section-dense-store — embedding cache", () => {
       ["one changed"],
       ["lead", "one changed"],
     ]);
+  });
+
+  test("a Gemini task-type change re-embeds unchanged text (cache miss)", async () => {
+    state.collectionExists = true;
+    embedState.statusProvider = "gemini";
+    embedState.statusModel = "gemini-embedding-2";
+    embedState.embedProvider = "gemini";
+    embedState.embedModel = "gemini-embedding-2";
+    embedState.geminiTaskType = "RETRIEVAL_DOCUMENT";
+
+    await upsertSections(CONFIG, [
+      section("people/alice", 0, "alice lead text"),
+    ]);
+    expect(embedState.calls).toHaveLength(1); // cold cache → embedded once
+
+    // Same text, same provider/model — but a different Gemini task type yields a
+    // different vector, so the row cached under the old task type must not be
+    // served. The extras are folded into the content hash, so the comparison
+    // misses and the section re-embeds under the new task type.
+    embedState.geminiTaskType = "SEMANTIC_SIMILARITY";
+
+    await upsertSections(CONFIG, [
+      section("people/alice", 0, "alice lead text"),
+    ]);
+
+    expect(embedState.calls).toEqual([
+      ["alice lead text"],
+      ["alice lead text"],
+    ]);
+  });
+
+  test("an unchanged Gemini task type still serves from cache (no spurious miss)", async () => {
+    state.collectionExists = true;
+    embedState.statusProvider = "gemini";
+    embedState.statusModel = "gemini-embedding-2";
+    embedState.embedProvider = "gemini";
+    embedState.embedModel = "gemini-embedding-2";
+    embedState.geminiTaskType = "RETRIEVAL_DOCUMENT";
+
+    const sections = [section("people/alice", 0, "alice lead text")];
+
+    await upsertSections(CONFIG, sections);
+    await upsertSections(CONFIG, sections);
+
+    // Folding the extras into the hash must not break ordinary hits: with the
+    // task type unchanged the second pass reuses the cached vector.
+    expect(embedState.calls).toHaveLength(1);
+    expect(state.upsertCalls).toHaveLength(2);
   });
 });
 
