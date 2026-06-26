@@ -58,14 +58,11 @@ export function AcpRunInlineProgressCard({
     [acpSessionId],
   );
 
-  // Spawn race: assistant message references a run before its spawn event
-  // lands. Render `null` rather than a blank shell so the transcript doesn't
-  // flicker an empty card.
+  // Spawn race: no entry yet (see header).
   if (!data) return null;
 
   const leadingIcon = <Code size={20} aria-hidden />;
 
-  // Stop cancels the run directly whenever it is in-flight.
   const actionSlot = isRunning ? (
     <Button
       variant="dangerGhost"

@@ -367,7 +367,7 @@ export function useAcpRunSteps(events: AcpRunRawEvent[]): AcpTimelineStep[] {
 
   // Intentional render-phase ref usage: the projector is a per-instance
   // diff-aware cache (like `useMemo`, but it must run every render to fold in
-  // new events). Mirrors `useSubagentSteps`.
+  // new events).
   /* eslint-disable react-hooks/refs -- per-instance projection cache (see above) */
   if (projectorRef.current == null) {
     projectorRef.current = createAcpRunStepProjection();
@@ -416,8 +416,7 @@ function carouselStatus(step: AcpTimelineStep): AcpToolStatus {
 }
 
 /**
- * Derive the last N header-carousel items from the projected steps, mirroring
- * how the subagent card feeds its `HeaderStepCarousel`.
+ * Derive the last N header-carousel items from the projected steps.
  */
 export function acpStepsToCarousel(
   steps: AcpTimelineStep[],

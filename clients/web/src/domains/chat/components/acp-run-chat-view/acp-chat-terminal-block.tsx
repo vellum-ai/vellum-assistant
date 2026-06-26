@@ -3,9 +3,8 @@
  * ended: a completed run differentiates its `stopReason`; a failed run renders
  * with error styling and surfaces the `error` message.
  *
- * Reuses the shared `AcpRunStatus` type from `acp-run-status.ts`. Only terminal
- * statuses produce a block — active statuses render nothing (the trailing
- * agent/thinking block already shows the live indicator).
+ * Only terminal statuses produce a block — active statuses render nothing (the
+ * trailing agent/thinking block already shows the live indicator).
  */
 
 import { AlertTriangle, CheckCircle2, MinusCircle } from "lucide-react";

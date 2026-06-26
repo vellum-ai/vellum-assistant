@@ -11,10 +11,7 @@
  * `null` in that window so the transcript layout doesn't jiggle, mirroring
  * `useWorkflowCardData`.
  *
- * State mapping (see `deriveCardState`): `initializing`/`running` → `loading`;
- * `completed` with `stopReason === "cancelled"` → `warning` (a user-aborted
- * run still produced partial work, so it's not a clean finish nor an error);
- * `completed` → `complete`; `failed`/`cancelled` → `error`.
+ * Visual-state mapping lives in `deriveCardState`.
  */
 
 import { useMemo } from "react";
@@ -29,7 +26,7 @@ import type { AcpRunStatus } from "@/utils/acp-run-status";
 import type { ToolProgressCardState } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell";
 
 /**
- * Stable frozen empty buffer for the spawn-race window (no entry yet). A stable
+ * Stable shared empty buffer for the spawn-race window (no entry yet). A stable
  * reference keeps the projector's identity check happy so the hook doesn't
  * churn while waiting for the spawn event.
  */
@@ -45,8 +42,7 @@ export interface AcpRunCardData {
 
 /**
  * Translate the run status to a shell-compatible visual state. A `completed`
- * run that was cancelled reads as a `warning` (partial work); a clean
- * `completed` reads as `complete`; `failed`/`cancelled` read as `error`.
+ * run that was cancelled reads as a `warning` (partial work).
  */
 function deriveCardState(
   status: AcpRunStatus,

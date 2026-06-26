@@ -1,6 +1,5 @@
 /**
- * A plan checklist in the ACP chat transcript. Renders one row per entry with a
- * checked/unchecked glyph; completed rows read as muted with a strikethrough.
+ * A plan checklist in the ACP chat transcript.
  */
 
 import { Circle, CheckCircle2, ListChecks } from "lucide-react";

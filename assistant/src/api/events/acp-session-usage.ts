@@ -9,9 +9,8 @@
  * agent's cumulative cost. A side gauge, not part of the ordered update
  * timeline — carries no `seq`.
  *
- * Canonical wire-contract source. Daemon code imports the type
- * directly from this file; external consumers import via
- * `@vellumai/assistant-api`.
+ * Canonical wire-contract source. Re-exported to external consumers via
+ * `@vellumai/assistant-api` (the `api/index.ts` barrel).
  */
 
 import { z } from "zod";
