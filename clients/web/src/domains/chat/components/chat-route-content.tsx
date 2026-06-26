@@ -17,7 +17,7 @@
  * - `useChatBannerSlots` — nudge/queued/slack banner assembly
  */
 
-import { type Dispatch, type MutableRefObject, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type Dispatch, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { useActiveSubagentIds } from "@/domains/chat/hooks/use-active-subagent-ids";
 import { useActiveWorkflowRunIds } from "@/domains/chat/hooks/use-active-workflow-run-ids";
@@ -53,6 +53,8 @@ import { ProviderBillingBanner } from "@/domains/chat/components/provider-billin
 import { SendErrorModal } from "@/domains/chat/components/send-error-modal";
 import { SuggestionDetailPanel } from "@/domains/chat/components/suggestion-detail-panel";
 import type { ThreadSuggestion } from "@/domains/chat/suggestions/types";
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { BottomSheet } from "@vellumai/design-library";
 import { useEditMessage } from "@/domains/chat/hooks/use-edit-message";
 import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice";
 import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh";
@@ -663,8 +665,21 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   const newThreadSuggestionsEnabled =
     useClientFeatureFlagStore.use.newThreadSuggestions();
+  // Called unconditionally — the desktop drawer vs mobile sheet choice below
+  // branches on this, but the hook must run on every render.
+  const isMobile = useIsMobile();
   const [selectedSuggestion, setSelectedSuggestion] =
     useState<ThreadSuggestion | null>(null);
+
+  // Suggestion cards only render in the empty state, so a picked suggestion is
+  // never meaningful once a conversation goes active. Clearing it here is
+  // defensive: the desktop drawer stays mounted across the empty→active
+  // transition (see below), and this guarantees it's closed there regardless.
+  useEffect(() => {
+    if (!isEmptyConversation && selectedSuggestion) {
+      setSelectedSuggestion(null);
+    }
+  }, [isEmptyConversation, selectedSuggestion]);
 
   // Close, and Save-for-later, both just dismiss the drawer: persisting saved
   // suggestions is not implemented yet.
@@ -928,29 +943,71 @@ export function ChatMainPanel({
     />
   );
 
-  // Behind the flag, the empty-state chat shares the pane with an animated
-  // right-hand drawer that holds the picked suggestion's detail. Outside the
-  // flag-on empty-state path the chat renders exactly as before — no wrapper.
-  const mainContent =
-    newThreadSuggestionsEnabled && isEmptyConversation ? (
+  const suggestionDetailPanel = selectedSuggestion ? (
+    <SuggestionDetailPanel
+      suggestion={selectedSuggestion}
+      onClose={handleCloseSuggestion}
+      onConfirm={handleConfirmSuggestion}
+      onSaveForLater={handleCloseSuggestion}
+    />
+  ) : null;
+
+  // Behind the flag the picked suggestion's detail rides alongside the chat.
+  //
+  // Desktop: an animated right-hand drawer. The wrapper is gated on the flag
+  // (and desktop), NOT on `isEmptyConversation`, so the `chatBody` subtree keeps
+  // the same tree position across the empty→active transition and never
+  // remounts — preserving composer focus/textarea state through the first send.
+  // Suggestion cards only render in the empty state, so `selectedSuggestion` is
+  // null in active conversations and the drawer simply sits closed there.
+  //
+  // Mobile: `AnimatedRightDrawer` is a desktop split that overflows narrow
+  // viewports, so the chat renders normally and the detail floats above it in a
+  // `BottomSheet` instead.
+  //
+  // Flag off (either viewport): the chat renders exactly as before — no wrapper.
+  let mainContent: ReactNode = chatBody;
+  if (newThreadSuggestionsEnabled && !isMobile) {
+    mainContent = (
       <AnimatedRightDrawer
         open={Boolean(selectedSuggestion)}
         storageKey="vellum:suggestion-drawer-width"
         left={chatBody}
-        right={
-          selectedSuggestion ? (
-            <SuggestionDetailPanel
-              suggestion={selectedSuggestion}
-              onClose={handleCloseSuggestion}
-              onConfirm={handleConfirmSuggestion}
-              onSaveForLater={handleCloseSuggestion}
-            />
-          ) : null
-        }
+        right={suggestionDetailPanel}
       />
-    ) : (
-      chatBody
     );
+  } else if (newThreadSuggestionsEnabled && isMobile) {
+    mainContent = (
+      <>
+        {chatBody}
+        <BottomSheet.Root
+          open={Boolean(selectedSuggestion)}
+          onOpenChange={(next) => {
+            if (!next) handleCloseSuggestion();
+          }}
+        >
+          {/* `SuggestionDetailPanel` brings its own visible heading + scroll-
+              body + footer, so it sits directly inside `Content` (no
+              BottomSheet.Body). The taller cap plus the panel's `h-full` give it
+              a bounded height inside the sheet's flex column so its body scrolls.
+              Radix Dialog still needs a Title for screen readers; the panel's
+              heading isn't a Dialog.Title, so a visually-hidden one mirrors it
+              (matches composer-settings-menu's pattern). */}
+          <BottomSheet.Content
+            aria-describedby={undefined}
+            className="h-[80dvh] max-h-[80dvh]"
+          >
+            <BottomSheet.Header className="sr-only">
+              <BottomSheet.Title>
+                {selectedSuggestion?.detail.heading ?? "Suggestion"}
+              </BottomSheet.Title>
+            </BottomSheet.Header>
+            {suggestionDetailPanel}
+          </BottomSheet.Content>
+        </BottomSheet.Root>
+      </>
+    );
+  }
 
   return (
     <>

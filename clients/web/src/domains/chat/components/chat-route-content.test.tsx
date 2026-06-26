@@ -10,7 +10,9 @@
  *
  * - clicking a featured card opens the drawer with that suggestion's detail;
  * - "Let's do it!" submits the suggestion's prompt and closes the drawer;
- * - close / Save for Later dismiss the drawer without submitting.
+ * - close / Save for Later dismiss the drawer without submitting;
+ * - on mobile the detail opens in a `BottomSheet` (not the desktop drawer) and
+ *   still opens/confirms correctly.
  *
  * `motion/react` is mocked so the drawer mounts/unmounts synchronously instead
  * of depending on real animation timing (see active-subagents-overlay.test).
@@ -121,13 +123,23 @@ mock.module("motion/react", () => ({
   useReducedMotion: () => true,
 }));
 
+import { BottomSheet } from "@vellumai/design-library";
+
 import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-drawer";
 import { SuggestionDetailPanel } from "@/domains/chat/components/suggestion-detail-panel";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { useChatEmptyState } from "@/domains/chat/hooks/use-chat-empty-state";
 
 // Harness mirroring ChatMainPanel's drawer wiring with the real components.
-function Harness({ onSubmit }: { onSubmit: (prompt: string) => void }) {
+// `isMobile` selects the same desktop-drawer vs mobile-sheet branch the
+// production component picks via `useIsMobile()`.
+function Harness({
+  onSubmit,
+  isMobile = false,
+}: {
+  onSubmit: (prompt: string) => void;
+  isMobile?: boolean;
+}) {
   const [selected, setSelected] = useState<ThreadSuggestion | null>(null);
 
   const { startersSlot } = useChatEmptyState({
@@ -156,20 +168,43 @@ function Harness({ onSubmit }: { onSubmit: (prompt: string) => void }) {
   );
   const handleSaveForLater = useCallback(() => setSelected(null), []);
 
+  const detailPanel = selected ? (
+    <SuggestionDetailPanel
+      suggestion={selected}
+      onClose={handleClose}
+      onConfirm={handleConfirm}
+      onSaveForLater={handleSaveForLater}
+    />
+  ) : null;
+
+  if (isMobile) {
+    return (
+      <>
+        <div>{startersSlot}</div>
+        <BottomSheet.Root
+          open={Boolean(selected)}
+          onOpenChange={(next) => {
+            if (!next) handleClose();
+          }}
+        >
+          <BottomSheet.Content aria-describedby={undefined}>
+            <BottomSheet.Header className="sr-only">
+              <BottomSheet.Title>
+                {selected?.detail.heading ?? "Suggestion"}
+              </BottomSheet.Title>
+            </BottomSheet.Header>
+            {detailPanel}
+          </BottomSheet.Content>
+        </BottomSheet.Root>
+      </>
+    );
+  }
+
   return (
     <AnimatedRightDrawer
       open={Boolean(selected)}
       left={<div>{startersSlot}</div>}
-      right={
-        selected ? (
-          <SuggestionDetailPanel
-            suggestion={selected}
-            onClose={handleClose}
-            onConfirm={handleConfirm}
-            onSaveForLater={handleSaveForLater}
-          />
-        ) : null
-      }
+      right={detailPanel}
     />
   );
 }
@@ -246,6 +281,48 @@ describe("ChatMainPanel suggestion drawer wiring", () => {
     expect(submitted).toHaveLength(0);
     expect(
       container.querySelector('[data-slot="suggestion-detail-panel"]'),
+    ).toBeNull();
+  });
+
+  test("mobile: card click opens the detail in a bottom sheet and confirms", () => {
+    const submitted: string[] = [];
+    // The sheet portals outside `container`, so query the whole document
+    // (`baseElement`, default document.body) instead.
+    const { getByText, baseElement } = render(
+      <Harness isMobile onSubmit={(p) => submitted.push(p)} />,
+    );
+
+    // Closed: no detail panel and no desktop split.
+    expect(
+      baseElement.querySelector('[data-slot="suggestion-detail-panel"]'),
+    ).toBeNull();
+    expect(
+      baseElement.querySelector('[data-slot="animated-right-drawer"]'),
+    ).toBeNull();
+
+    fireEvent.click(getByText(FEATURED.title));
+
+    // Opens in the bottom sheet (still no desktop drawer). The panel's heading
+    // lives inside its own `data-slot`; an sr-only Dialog.Title duplicates the
+    // text for accessibility, so scope the heading assertion to the panel.
+    const sheet = baseElement.querySelector(
+      '[data-slot="bottom-sheet-content"]',
+    );
+    expect(sheet).not.toBeNull();
+    expect(
+      baseElement.querySelector('[data-slot="animated-right-drawer"]'),
+    ).toBeNull();
+    expect(
+      sheet?.querySelector('[data-slot="suggestion-detail-panel"]'),
+    ).not.toBeNull();
+    expect(submitted).toHaveLength(0);
+
+    fireEvent.click(getByText("Let's do it!"));
+
+    expect(submitted).toEqual([FEATURED.prompt]);
+    expect(useComposerStore.getState().input).toBe(FEATURED.prompt);
+    expect(
+      baseElement.querySelector('[data-slot="suggestion-detail-panel"]'),
     ).toBeNull();
   });
 });
