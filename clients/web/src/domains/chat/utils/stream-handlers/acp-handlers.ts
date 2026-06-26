@@ -36,11 +36,8 @@ export function handleAcpSessionUpdate(event: AcpSessionUpdateEvent): void {
       toolTitle: event.toolTitle,
       toolKind: event.toolKind,
       toolStatus: event.toolStatus,
-      // `locations` rides the SSE event since the daemon forwards tool-call
-      // locations[], but the web event type doesn't declare it yet — read it
-      // defensively. Absent on older daemons.
-      locations: (event as { locations?: { path: string; line?: number }[] })
-        .locations,
+      // Tool-call locations[]; absent on older daemons.
+      locations: event.locations,
       messageId: event.messageId,
     },
   });

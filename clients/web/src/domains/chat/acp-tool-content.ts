@@ -65,8 +65,13 @@ function parseBlock(item: unknown): AcpToolContentBlock | null {
         ...(typeof obj.oldText === "string" ? { oldText: obj.oldText } : {}),
       };
     }
-    case "terminal":
-      return { type: "terminal" };
+    case "terminal": {
+      // The ACP terminal block references a terminal by id and carries no text
+      // of its own; surface a `text` field only on the best-effort chance the
+      // wire shape includes one rather than discarding it.
+      const text = extractTerminalText(obj);
+      return text !== undefined ? { type: "terminal", text } : { type: "terminal" };
+    }
     default:
       return null;
   }
@@ -84,6 +89,23 @@ function extractContentText(content: unknown): string {
     if (typeof text === "string") return text;
   }
   return "";
+}
+
+/**
+ * Best-effort terminal text. The wire shape references a terminal by id and has
+ * no text of its own, so this reads a direct `text` field (or a nested
+ * `output`/`content` text) when one is present and returns `undefined`
+ * otherwise — never fabricating an empty string.
+ */
+function extractTerminalText(obj: Record<string, unknown>): string | undefined {
+  if (typeof obj.text === "string") return obj.text;
+  if (typeof obj.output === "string") return obj.output;
+  if (typeof obj.content === "string") return obj.content;
+  if (typeof obj.content === "object" && obj.content !== null) {
+    const text = (obj.content as Record<string, unknown>).text;
+    if (typeof text === "string") return text;
+  }
+  return undefined;
 }
 
 /**

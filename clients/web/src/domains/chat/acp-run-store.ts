@@ -16,6 +16,16 @@ import { createSelectors } from "@/utils/create-selectors";
 import { isActiveAcpStatus, type AcpRunStatus } from "@/utils/acp-run-status";
 
 // ---------------------------------------------------------------------------
+// Optimistic-steer marker contract
+// ---------------------------------------------------------------------------
+
+/** Content prefix `appendLocalMarker` stamps onto an optimistic steering note. */
+export const STEER_MARKER_PREFIX = "↻ Steering: ";
+
+/** Synthetic `messageId` prefix `appendLocalMarker` gives a steer marker. */
+export const LOCAL_MARKER_ID_PREFIX = "local-marker-";
+
+// ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 
@@ -376,7 +386,7 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
     const marker: AcpRunRawEvent = {
       seq: maxSeq + 0.5,
       updateType: "agent_message_chunk",
-      messageId: `local-marker-${existing.events.length}`,
+      messageId: `${LOCAL_MARKER_ID_PREFIX}${existing.events.length}`,
       content: params.content,
     };
 

@@ -19,6 +19,7 @@ import {
   type AcpChatBlock,
 } from "@/domains/chat/acp-run-message-projection";
 import {
+  STEER_MARKER_PREFIX,
   useAcpRunStore,
   type AcpRunEntry,
   type AcpRunRawEvent,
@@ -339,7 +340,7 @@ function SteerComposer({ acpSessionId }: { acpSessionId: string }) {
       // high-water mark so the daemon's first real post-steer event survives.
       useAcpRunStore.getState().appendLocalMarker({
         acpSessionId,
-        content: `↻ Steering: ${instruction}`,
+        content: `${STEER_MARKER_PREFIX}${instruction}`,
       });
 
       void steerAcpRun(acpSessionId, instruction)
