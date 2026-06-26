@@ -6,9 +6,9 @@
  * via `mock.module` so the test stays focused on the slot-selection logic:
  *
  * - Flag OFF → the existing conversation-starter chips render (no regression).
- * - Flag ON (empty conversation, no app-editing) → the new SuggestionLibrary
- *   renders instead, and selecting a card maps the suggestion onto the
- *   existing `onSelectStarter` path.
+ * - Flag ON (empty conversation, no app-editing) with `onSelectSuggestion`
+ *   provided → the new SuggestionLibrary renders instead, and selecting a card
+ *   calls `onSelectSuggestion` to open the detail drawer.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -103,9 +103,11 @@ describe("useChatEmptyState startersSlot", () => {
     ).not.toBeNull();
   });
 
-  test("flag ON renders the suggestion library on a fresh thread", () => {
+  test("flag ON with onSelectSuggestion renders the suggestion library on a fresh thread", () => {
     flagRef.value = true;
-    const { result } = renderHook(() => useChatEmptyState(baseParams()));
+    const { result } = renderHook(() =>
+      useChatEmptyState(baseParams({ onSelectSuggestion: () => {} })),
+    );
 
     const { container, getByText } = render(<>{result.current.startersSlot}</>);
     expect(
@@ -114,29 +116,20 @@ describe("useChatEmptyState startersSlot", () => {
     expect(getByText(FEATURED.title)).toBeTruthy();
   });
 
-  test("flag ON: selecting a card submits the suggestion's prompt via onSelectStarter", () => {
+  test("flag ON without onSelectSuggestion falls back to the conversation-starter chips", () => {
     flagRef.value = true;
-    const selected: ConversationStarter[] = [];
-    const { result } = renderHook(() =>
-      useChatEmptyState(
-        baseParams({ onSelectStarter: (s) => selected.push(s) }),
-      ),
-    );
+    const { result } = renderHook(() => useChatEmptyState(baseParams()));
 
-    const { getByText } = render(<>{result.current.startersSlot}</>);
-    fireEvent.click(getByText(FEATURED.title));
-
-    expect(selected).toHaveLength(1);
-    expect(selected[0]).toEqual({
-      id: FEATURED.id,
-      label: FEATURED.title,
-      prompt: FEATURED.prompt,
-      category: null,
-      batch: 0,
-    });
+    const { container } = render(<>{result.current.startersSlot}</>);
+    expect(
+      container.querySelector('[data-slot="suggestion-library"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector(`[aria-label="Send: ${STARTER.label}"]`),
+    ).not.toBeNull();
   });
 
-  test("flag ON: onSelectSuggestion (when provided) wins over onSelectStarter", () => {
+  test("flag ON: selecting a card opens the suggestion via onSelectSuggestion", () => {
     flagRef.value = true;
     const submitted: ConversationStarter[] = [];
     const opened: ThreadSuggestion[] = [];
