@@ -304,6 +304,7 @@ export async function runScheduleDueWorkOnce(
         );
         const result: ScriptResult = await runScript(job.script, {
           timeoutMs: job.timeoutMs ?? undefined,
+          scheduleRunId: runId,
         });
         completeScheduleRun(runId, {
           status: result.exitCode === 0 ? "ok" : "error",
