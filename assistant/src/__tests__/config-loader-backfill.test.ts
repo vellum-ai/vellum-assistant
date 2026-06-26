@@ -854,6 +854,7 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles.balanced.model).toBe(
       "accounts/fireworks/models/glm-5p2",
     );
+    expect(raw.llm.profiles.balanced.effort).toBe("high");
     expect(raw.llm.profiles.balanced.source).toBe("managed");
     // Quality serves Anthropic Opus, the most capable managed profile.
     expect(raw.llm.profiles["quality-optimized"].provider).toBe("anthropic");
