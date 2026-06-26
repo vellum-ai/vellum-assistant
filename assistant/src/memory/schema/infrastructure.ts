@@ -223,6 +223,7 @@ export const llmUsageEvents = sqliteTable(
     createdAt: integer("created_at").notNull(),
     conversationId: text("conversation_id"),
     runId: text("run_id"),
+    cronRunId: text("cron_run_id"),
     requestId: text("request_id"),
     actor: text("actor").notNull(),
     callSite: text("call_site"),
