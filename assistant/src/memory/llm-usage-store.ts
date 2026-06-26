@@ -494,6 +494,42 @@ export function getUsageCostForConversationWindow({
 }
 
 /**
+ * Cost a single schedule run, attributing usage by EITHER its exact
+ * `cron_run_id` stamp OR the legacy conversation + time-window fallback (for
+ * un-stamped rows). Script-mode runs carry a sentinel `conversationId` that
+ * matches no real rows, so they are costed purely by `cronRunId`; the window
+ * branch is included only when a real `conversationId` is supplied.
+ */
+export function getUsageCostForRun({
+  cronRunId,
+  conversationId,
+  from,
+  to,
+}: {
+  cronRunId: string;
+  conversationId?: string;
+  from: number;
+  to: number;
+}): number {
+  let predicate = "cron_run_id = ?1";
+  const params: UsageQueryParam[] = [cronRunId];
+  if (conversationId) {
+    predicate +=
+      " OR (conversation_id = ?2 AND created_at >= ?3 AND created_at <= ?4)";
+    params.push(conversationId, from, to);
+  }
+  const rows = rawAll<{ total_cost: number | null }>(
+    /*sql*/ `
+    SELECT COALESCE(SUM(estimated_cost_usd), 0) AS total_cost
+    FROM llm_usage_events
+    WHERE ${predicate}
+    `,
+    ...params,
+  );
+  return rows[0]?.total_cost ?? 0;
+}
+
+/**
  * Return the distinct conversation ids touched by a single cron firing,
  * identified by its `cron_run_id` stamp on the usage ledger. Rows with a null
  * `conversation_id` are excluded, and the result is deduped. Returns an empty

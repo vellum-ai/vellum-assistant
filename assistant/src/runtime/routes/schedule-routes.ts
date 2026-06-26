@@ -11,7 +11,7 @@ import { getOrCreateConversation } from "../../daemon/conversation-store.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../daemon/trust-context.js";
 import { bootstrapConversation } from "../../memory/conversation-bootstrap.js";
 import { getConversation } from "../../memory/conversation-crud.js";
-import { getUsageCostForConversationWindow } from "../../memory/llm-usage-store.js";
+import { getUsageCostForRun } from "../../memory/llm-usage-store.js";
 import { validateScheduleInferenceProfile } from "../../schedule/inference-profile.js";
 import {
   describeRRuleExpression,
@@ -565,13 +565,12 @@ function handleListScheduleRuns(
         conversationId: r.conversationId,
         conversationExists: conversation != null,
         conversationArchivedAt: conversation?.archivedAt ?? null,
-        estimatedCostUsd: r.conversationId
-          ? getUsageCostForConversationWindow({
-              conversationId: r.conversationId,
-              from: r.startedAt,
-              to: r.finishedAt ?? now,
-            })
-          : 0,
+        estimatedCostUsd: getUsageCostForRun({
+          cronRunId: r.id,
+          conversationId: r.conversationId ?? undefined,
+          from: r.startedAt,
+          to: r.finishedAt ?? now,
+        }),
         createdAt: r.createdAt,
       };
     }),
