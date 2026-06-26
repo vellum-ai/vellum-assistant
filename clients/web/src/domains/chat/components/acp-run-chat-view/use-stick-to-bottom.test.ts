@@ -182,4 +182,32 @@ describe("useStickToBottom", () => {
     });
     expect(latest!.showScrollToLatest).toBe(true);
   });
+
+  test("re-pins to the bottom when the content key changes while pinned", () => {
+    // The chat view folds terminal state into the content key: the terminal
+    // system block renders without a new chat block, so a key change (not just a
+    // new `blocks` array) must still re-pin a bottom-pinned user to the latest.
+    function Harness({ contentKey }: { contentKey: unknown }) {
+      const api = useStickToBottom(contentKey);
+      return createElement("div", {
+        ref: api.scrollRef,
+        "data-testid": "scroll",
+      });
+    }
+
+    const { container, rerender } = render(
+      createElement(Harness, { contentKey: "a" }),
+    );
+    const el = container.querySelector(
+      "[data-testid=scroll]",
+    ) as HTMLDivElement;
+    // Pinned by default; scrolled to the top so a re-pin is observable.
+    stubLayout(el, { scrollTop: 0, scrollHeight: 5000, clientHeight: 800 });
+
+    // A new content key (e.g. the run going terminal) re-pins to the bottom.
+    act(() => {
+      rerender(createElement(Harness, { contentKey: "b" }));
+    });
+    expect(el.scrollTop).toBe(5000);
+  });
 });

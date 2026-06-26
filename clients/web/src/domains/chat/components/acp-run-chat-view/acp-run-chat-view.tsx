@@ -10,7 +10,7 @@
  */
 
 import { ArrowDown, ArrowLeft, ChevronRight, Code, Send, Square, X } from "lucide-react";
-import { useCallback, useState, type FormEvent } from "react";
+import { useCallback, useMemo, useState, type FormEvent } from "react";
 
 import { Button, Typography } from "@vellumai/design-library";
 
@@ -107,11 +107,17 @@ export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
   );
   const handleCloseDiff = useCallback(() => setActiveDiff(null), []);
 
-  // The hook re-pins in a layout effect keyed on `blocks` identity (the
-  // projection returns a fresh array on every streamed append), so no
-  // render-phase content-change call is needed.
+  // The hook re-pins in a layout effect keyed on this content key. `blocks`
+  // identity changes on every streamed append; status/completedAt are folded in
+  // so the run going terminal also re-pins — the terminal system block renders
+  // below the transcript without appending an ACP event, so `blocks` alone
+  // wouldn't change and a bottom-pinned user would be stranded above it.
+  const scrollContentKey = useMemo(
+    () => ({ blocks, status: entry.status, completedAt: entry.completedAt }),
+    [blocks, entry.status, entry.completedAt],
+  );
   const { scrollRef, showScrollToLatest, scrollToLatest } =
-    useStickToBottom(blocks);
+    useStickToBottom(scrollContentKey);
 
   // Whether the run is terminal — used to force any trailing live agent/thinking
   // block to render as complete (the projection leaves the last block
