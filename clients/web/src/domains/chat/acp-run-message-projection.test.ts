@@ -123,17 +123,22 @@ describe("messageId coalescing", () => {
 // ---------------------------------------------------------------------------
 
 describe("empty thought signals", () => {
-  it("does not open a thinking block for all-empty thought chunks", () => {
+  it("opens an empty thinking block for all-empty thought chunks", () => {
     const blocks = computeAcpRunChatBlocks([
       thoughtChunk("t1", ""),
       thoughtChunk("t1", ""),
       agentChunk("a1", "hello"),
     ]);
 
-    expect(blocks.map((b) => b.kind)).toEqual(["agent"]);
+    expect(blocks.map((b) => b.kind)).toEqual(["thinking", "agent"]);
+    expect(blocks[0]).toMatchObject({
+      kind: "thinking",
+      messageId: "t1",
+      content: "",
+    });
   });
 
-  it("starts the thinking block at the first non-empty chunk", () => {
+  it("absorbs an empty leading chunk into the thinking block", () => {
     const blocks = computeAcpRunChatBlocks([
       thoughtChunk("t1", ""),
       thoughtChunk("t1", "real"),

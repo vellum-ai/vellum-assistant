@@ -60,7 +60,11 @@ export function AcpChatThinkingBlock({
           data-testid="acp-chat-thinking-body"
           className="mt-1.5 border-l-2 border-[var(--border-base)] pl-3 text-body-small-default text-[var(--content-tertiary)]"
         >
-          <ChatMarkdownMessage content={content} />
+          {content.trim() ? (
+            <ChatMarkdownMessage content={content} />
+          ) : (
+            <span className="italic">No reasoning details provided.</span>
+          )}
         </div>
       )}
     </div>

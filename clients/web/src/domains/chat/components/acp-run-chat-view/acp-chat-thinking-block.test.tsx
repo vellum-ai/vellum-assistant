@@ -58,6 +58,17 @@ describe("AcpChatThinkingBlock", () => {
     expect(screen.queryByTestId("acp-chat-thinking-body")).toBeNull();
   });
 
+  test("shows a placeholder when expanded with no reasoning content", () => {
+    render(<AcpChatThinkingBlock content="" isComplete />);
+    const toggle = screen.getByTestId("acp-chat-thinking-toggle");
+
+    // The card still renders (the agent signalled thinking) and stays expandable.
+    expect(screen.getByText("Thought process")).toBeDefined();
+    fireEvent.click(toggle);
+    expect(screen.getByTestId("acp-chat-thinking-body")).toBeDefined();
+    expect(screen.getByText("No reasoning details provided.")).toBeDefined();
+  });
+
   test("reflects expanded state via aria-expanded", () => {
     render(<AcpChatThinkingBlock content="x" isComplete />);
     const toggle = screen.getByTestId("acp-chat-thinking-toggle");

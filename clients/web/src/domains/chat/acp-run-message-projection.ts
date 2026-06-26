@@ -197,9 +197,10 @@ export function applyAcpChatEvent(
         };
         return;
       }
-      // Some agents (e.g. claude-agent-acp) emit empty thought "signals" with
-      // no reasoning text; don't open a hollow thinking block for those.
-      if (!(event.content ?? "").trim()) return;
+      // Open a thinking block even for an empty thought "signal" (some agents,
+      // e.g. claude-agent-acp, emit reasoning markers with no text) so the
+      // transcript still surfaces that the agent was thinking; the card stays
+      // expandable and fills in if reasoning text streams in under this id.
       closeTrailingMessage(blocks);
       blocks.push({
         kind: "thinking",
