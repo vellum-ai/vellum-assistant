@@ -1,8 +1,7 @@
 # Web App — Backwards Compatibility
 
-How the web client copes with talking to an assistant (the local daemon)
-that may be running an older — or newer — version than the bundle the
-browser just loaded.
+How the web client copes with talking to an assistant that may be running an older version 
+than the bundle the browser just loaded.
 
 See also [`clients/web/AGENTS.md`](../AGENTS.md), the umbrella
 [`CONVENTIONS.md`](./CONVENTIONS.md), and
@@ -13,12 +12,12 @@ See also [`clients/web/AGENTS.md`](../AGENTS.md), the umbrella
 ## The problem
 
 The web app **always serves the latest bundle** from Vellum's
-infrastructure. The assistant side, however, runs locally and can be at
+infrastructure. The assistant side, however, runs separately and can be at
 **any version the user happens to have installed**. New web features ship
 continuously, well before every assistant in the wild has upgraded. So on
-any given page load the browser may be newer than the daemon it's
+any given page load the browser may be newer than the assistant it's
 connected to — and a feature that assumes a new endpoint, wire field, or
-event shape will break against an older daemon.
+event shape will break against an older assistant.
 
 The fix is **version gating**: the web app detects the connected
 assistant's version and either lights up the new code path or falls back
@@ -27,7 +26,8 @@ to whatever the assistant understood before.
 This is explicitly a **temporary** layer. Every gate is delete-on-sight
 the day we solve serving a matching web bundle per assistant version. To
 keep that future deletion tractable, all the "if assistant < X.Y.Z, do
-the old thing" logic lives in one place.
+the old thing" logic lives in one place. We will soon also have telemetry
+informing us of live clients in use so we can delete old cold paths incrementally.
 
 ## Where it lives
 
@@ -37,7 +37,7 @@ the old thing" logic lives in one place.
 | `src/lib/backwards-compat/utils.ts` | The shared gate primitives: `useAssistantSupports`, `assistantSupports`, `whenAssistantVersionKnown`. Every gate uses these so semver parsing and pre-release handling are uniform. |
 | `src/utils/semver.ts` | Low-level `parseSemver` / `compareParsed` / `comparePreRelease`. No app knowledge — just version-string math. |
 | `src/stores/assistant-identity-store.ts` | Zustand store holding the active assistant's `{ name, version }`. The source of truth every gate reads. |
-| `src/assistant/identity.ts` | Fetches identity from the daemon's `/identity` endpoint and refreshes it on the SSE `identity_changed` event. |
+| `src/assistant/identity.ts` | Fetches identity from the assistant's `/identity` endpoint and refreshes it on the SSE `identity_changed` event. |
 | `src/lib/backwards-compat/impersonate-version-flag.ts` | Debug flag for overriding the reported version locally, so a single dev can exercise old and new code paths without juggling installs. |
 
 ## How a gate is detected
@@ -88,7 +88,7 @@ harmless even if it briefly runs before the version hydrates.
 
 It is **not safe for writes** whose legacy fallback mutates state in a way
 a newer assistant would ignore — you could send the old-shaped write to a
-new daemon just because the version hadn't loaded yet. Those paths
+new assistant just because the version hadn't loaded yet. Those paths
 `await whenAssistantVersionKnown()` first, then read the gate against a
 resolved version instead of the conservative `false`-on-unknown default.
 The avatar upload path is the canonical example (`assistant/avatar-api.ts`
@@ -119,7 +119,7 @@ Each module owns one feature's old/new split. Current registry:
 |---|---|---|---|
 | `flag-query-freshness.ts` | `0.8.5` | 5 s poll interval on feature-flag queries | Push-based invalidation via `sync_changed` + SSE reconnect (60 s stale, no poll) |
 | `conversation-id-wire-field.ts` | `0.8.6` | Send `conversationKey` (create-or-lookup) on `POST /v1/messages` | Send strict `conversationId` (direct internal-id lookup) |
-| `server-minted-conversation.ts` | `0.8.6` | Mint a draft UUID locally, send as `conversationKey` | Omit both id fields; daemon mints the id and echoes it back on first send |
+| `server-minted-conversation.ts` | `0.8.6` | Mint a draft UUID locally, send as `conversationKey` | Omit both id fields; assistant mints the id and echoes it back on first send |
 | `avatar-state-manifest.ts` | `0.8.7` | Infer render mode from workspace sidecar files; write via generic `workspace/write` + `workspace/delete` | Authoritative `GET /avatar/state` + atomic `POST /avatar/image` |
 | `conversation-processing-state.ts` | `0.8.8` | Client-side optimistic mirror (`processingConversationIds`), cleared manually on terminal events | Trust the server `isProcessing` flag on the conversation row |
 | `llm-context-summary-view.ts` | `0.8.12` | Inline context sections from the list response | `view=summary` light list + lazy per-log detail via `GET /v1/llm-request-logs/:id/context` |
@@ -141,7 +141,7 @@ with the code they protect:
 - **Message normalization** — `src/domains/chat/api/messages.ts`
   reconstructs the unified `contentBlocks` discriminated union from the
   pre-0.8.8 positional arrays (`textSegments`, `thinkingSegments`,
-  `toolCalls`, `surfaces`, `attachments`, `contentOrder`) when a daemon
+  `toolCalls`, `surfaces`, `attachments`, `contentOrder`) when an assistant
   omits `contentBlocks`, so the renderer only ever deals with one shape.
 - **Electron / Capacitor bridge** — `src/runtime/is-electron.ts` declares
   `window.vellum` with **optional capability groups** (`helper?`,
@@ -152,16 +152,16 @@ with the code they protect:
 - **localStorage migrations** — `src/utils/storage-migration.ts` performs
   one-time, idempotent key renames (legacy keys → the `vellum:` / `device:`
   namespaces). Run at startup before any store reads localStorage. This is
-  client-internal versioning, not daemon compatibility.
+  client-internal versioning, not assistant compatibility.
 
-## Testing against an old (or new) daemon
+## Testing against an old (or new) assistant
 
 You don't need multiple assistant installs. The impersonation flag
 overrides the version every gate sees:
 
 ```js
 // In the browser console (debug builds expose window._vellumDebug.flags):
-impersonateVersion("0.8.6"); // pretend the daemon is 0.8.6, then reload
+impersonateVersion("0.8.6"); // pretend the assistant is 0.8.6, then reload
 impersonateVersion(null);    // clear the override, then reload
 impersonateVersion();        // log the current override, no reload
 ```
