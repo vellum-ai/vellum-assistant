@@ -9,7 +9,7 @@
  * nested-diff selection in LOCAL state (not the viewer store).
  */
 
-import { ArrowDown, Code, Send, Square, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ChevronRight, Code, Send, Square, X } from "lucide-react";
 import { useCallback, useState, type FormEvent } from "react";
 
 import { Button, Typography } from "@vellumai/design-library";
@@ -121,11 +121,40 @@ export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
+      {activeDiff && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-hover)] px-5 py-3">
+          <button
+            type="button"
+            onClick={handleCloseDiff}
+            title={entry.agent}
+            className="min-w-0 shrink cursor-pointer truncate text-left text-[var(--content-default)] hover:underline"
+          >
+            <Typography variant="body-small-default" as="span">
+              {entry.agent}
+            </Typography>
+          </button>
+          <ChevronRight
+            className="h-2.5 w-2.5 shrink-0 text-[var(--content-tertiary)]"
+            aria-hidden
+          />
+          <Typography
+            variant="body-small-default"
+            as="span"
+            title={activeDiff.path}
+            className="min-w-0 shrink truncate font-mono text-[var(--content-secondary)]"
+          >
+            {activeDiff.path}
+          </Typography>
+        </div>
+      )}
+
       <ChatViewHeader
         key={`header-${entry.acpSessionId}`}
         entry={entry}
         isRunning={isRunning}
         onClose={onClose}
+        showBack={!!activeDiff}
+        onBack={handleCloseDiff}
       />
 
       {activeDiff ? (
@@ -134,7 +163,6 @@ export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
             path={activeDiff.path}
             oldText={activeDiff.oldText}
             newText={activeDiff.newText}
-            onBack={handleCloseDiff}
           />
         </div>
       ) : (
@@ -197,10 +225,14 @@ function ChatViewHeader({
   entry,
   isRunning,
   onClose,
+  showBack = false,
+  onBack,
 }: {
   entry: AcpRunEntry;
   isRunning: boolean;
   onClose: () => void;
+  showBack?: boolean;
+  onBack?: () => void;
 }) {
   const [stopping, setStopping] = useState(false);
 
@@ -214,6 +246,17 @@ function ChatViewHeader({
 
   return (
     <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border-hover)] px-5 py-4">
+      {showBack && (
+        <Button
+          variant="outlined"
+          iconOnly={<ArrowLeft />}
+          onClick={onBack}
+          aria-label="Back to conversation"
+          tooltip="Back"
+          data-testid="acp-chat-diff-back"
+          className="shrink-0 rounded-lg"
+        />
+      )}
       <Code
         aria-hidden
         className="h-5 w-5 shrink-0 text-[var(--content-secondary)]"

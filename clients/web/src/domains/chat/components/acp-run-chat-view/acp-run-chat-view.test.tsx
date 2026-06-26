@@ -158,19 +158,19 @@ describe("AcpRunChatView", () => {
 
     // Conversation visible; no diff yet.
     expect(screen.getByTestId("acp-chat-conversation")).toBeDefined();
-    expect(screen.queryByTestId("file-diff-back")).toBeNull();
+    expect(screen.queryByTestId("acp-chat-diff-back")).toBeNull();
 
     fireEvent.click(screen.getByTestId("acp-chat-tool-file-chip"));
 
     // Diff replaces the conversation.
-    expect(screen.getByTestId("file-diff-back")).toBeDefined();
+    expect(screen.getByTestId("acp-chat-diff-back")).toBeDefined();
     expect(screen.queryByTestId("acp-chat-conversation")).toBeNull();
     expect(screen.getByText("src/parser.ts")).toBeDefined();
 
     // Back restores the conversation.
-    fireEvent.click(screen.getByTestId("file-diff-back"));
+    fireEvent.click(screen.getByTestId("acp-chat-diff-back"));
     expect(screen.getByTestId("acp-chat-conversation")).toBeDefined();
-    expect(screen.queryByTestId("file-diff-back")).toBeNull();
+    expect(screen.queryByTestId("acp-chat-diff-back")).toBeNull();
   });
 
   test("renders the terminal block when the run has a terminal status", () => {
