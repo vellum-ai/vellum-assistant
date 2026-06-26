@@ -344,6 +344,9 @@ describe("conversation-title-service", () => {
     "I need to generate a",
     "I'll work through these 22 files systematically.",
     "The user wants a title",
+    "The conversation is about cooking",
+    "The assistant should summarize this",
+    "The title for this chat is unclear",
     "Let me look at the new results",
     "Based on the conversation, this is about cooking.",
     "Here is a title for the conversation",
@@ -373,6 +376,13 @@ describe("conversation-title-service", () => {
     "Onboarding Flow",
     "Morning Check-In",
     "T-Shirt Discussion",
+    // Bare noun-phrase titles whose opening words ("the user", "the
+    // conversation", "the assistant", "the title") must not be mistaken for
+    // leaked reasoning prose. They are legitimate topics and must be accepted.
+    "The User Interface Redesign",
+    "The Conversation API",
+    "The Assistant Onboarding",
+    "The Title Bar Bug",
   ])("accepts a clean noun-phrase title: %s", async (good) => {
     const provider = makeProvider(async () => toolResponse(good));
 
