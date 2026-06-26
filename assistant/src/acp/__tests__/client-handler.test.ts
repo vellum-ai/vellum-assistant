@@ -408,6 +408,99 @@ describe("VellumAcpClientHandler seq + enriched fields", () => {
     });
   });
 
+  test("tool_call forwards rawInput/rawOutput structurally when present", async () => {
+    const { handler, sent } = makeHandler();
+
+    const rawInput = { command: "ls", args: ["-la"] };
+    const rawOutput = { stdout: "file.txt", exitCode: 0 };
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tc-raw",
+        title: "Run ls",
+        kind: "execute",
+        status: "completed",
+        rawInput,
+        rawOutput,
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      updateType: "tool_call",
+      toolCallId: "tc-raw",
+      // Forwarded as-is, NOT stringified (unlike content).
+      rawInput: { command: "ls", args: ["-la"] },
+      rawOutput: { stdout: "file.txt", exitCode: 0 },
+    });
+  });
+
+  test("tool_call leaves rawInput/rawOutput undefined when source omits them", async () => {
+    const { handler, sent } = makeHandler();
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tc-no-raw",
+        title: "Edit main.ts",
+        kind: "edit",
+        status: "pending",
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    const msg = sent[0] as { rawInput?: unknown; rawOutput?: unknown };
+    expect(msg.rawInput).toBeUndefined();
+    expect(msg.rawOutput).toBeUndefined();
+  });
+
+  test("tool_call_update forwards rawInput/rawOutput structurally when present", async () => {
+    const { handler, sent } = makeHandler();
+
+    const rawInput = { path: "/repo/main.ts", oldText: "a", newText: "b" };
+    const rawOutput = { applied: true };
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tc-raw-update",
+        status: "completed",
+        rawInput,
+        rawOutput,
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      updateType: "tool_call_update",
+      toolCallId: "tc-raw-update",
+      rawInput: { path: "/repo/main.ts", oldText: "a", newText: "b" },
+      rawOutput: { applied: true },
+    });
+  });
+
+  test("tool_call_update leaves rawInput/rawOutput undefined when source omits them", async () => {
+    const { handler, sent } = makeHandler();
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tc-no-raw-update",
+        status: "in_progress",
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    const msg = sent[0] as { rawInput?: unknown; rawOutput?: unknown };
+    expect(msg.rawInput).toBeUndefined();
+    expect(msg.rawOutput).toBeUndefined();
+  });
+
   test("tool_call_update forwards locations: [] when null (explicit clear)", async () => {
     const { handler, sent } = makeHandler();
 
