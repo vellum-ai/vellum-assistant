@@ -13,6 +13,7 @@ import { GetGuardianContactIpcResponseSchema } from "@vellumai/gateway-client/ga
 
 import { ipcCallPersistent } from "../ipc/gateway-client.js";
 import { getLogger } from "../util/logger.js";
+import { onContactChange } from "./contact-events.js";
 
 const log = getLogger("guardian-contact-reader");
 
@@ -42,7 +43,13 @@ export async function getGuardianContactIds(): Promise<Set<string>> {
   }
 }
 
-/** Drop the cached guardian set (e.g. after a guardian rebind). */
+/**
+ * Drop the cached guardian set. Subscribed to `onContactChange` so contact
+ * mutations (rebind/revoke/upsert) refetch on the next read; also exported for
+ * any caller that wants to invalidate explicitly.
+ */
 export function invalidateGuardianContactCache(): void {
   cache = null;
 }
+
+onContactChange(invalidateGuardianContactCache);

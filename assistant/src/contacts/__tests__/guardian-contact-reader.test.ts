@@ -27,6 +27,8 @@ const { getGuardianContactIds, invalidateGuardianContactCache } = await import(
   "../guardian-contact-reader.js"
 );
 
+const { emitContactChange } = await import("../contact-events.js");
+
 beforeEach(() => {
   ipcCallPersistentMock.mockClear();
   ipcError = undefined;
@@ -94,6 +96,18 @@ describe("getGuardianContactIds", () => {
     };
     await getGuardianContactIds();
     invalidateGuardianContactCache();
+    await getGuardianContactIds();
+
+    expect(ipcCallPersistentMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("a contact-change event clears the cache", async () => {
+    ipcResult = {
+      ok: true,
+      guardians: [{ id: "g1", displayName: "Guardian One" }],
+    };
+    await getGuardianContactIds();
+    emitContactChange();
     await getGuardianContactIds();
 
     expect(ipcCallPersistentMock).toHaveBeenCalledTimes(2);
