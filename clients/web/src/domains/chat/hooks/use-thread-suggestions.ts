@@ -1,10 +1,7 @@
 /**
- * Provides the new-thread suggestions library data behind a stable shape.
- *
- * The data is currently mocked: `featured` and `groups` come from
- * {@link MOCK_SUGGESTION_GROUPS}. The result shape is intentionally stable so
- * the source can later swap to a real query — installed plugins/skills plus a
- * Vellum-curated source — without touching consumers.
+ * Returns the featured suggestions and grouped suggestions for the new-thread
+ * empty state. The data comes from the bundled mock suggestion set
+ * ({@link MOCK_SUGGESTION_GROUPS}).
  */
 
 import { useMemo } from "react";
@@ -26,7 +23,7 @@ export interface UseThreadSuggestionsResult {
 export function useThreadSuggestions(): UseThreadSuggestionsResult {
   return useMemo(
     () => ({
-      featured: getFeaturedSuggestions(3),
+      featured: getFeaturedSuggestions(),
       groups: MOCK_SUGGESTION_GROUPS,
     }),
     [],
