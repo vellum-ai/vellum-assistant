@@ -126,6 +126,7 @@ export function routeDefinitionsToHTTPRoutes(
           body,
           rawBody,
           headers,
+          principalType: authContext?.principalType,
           abortSignal: req.signal,
         });
 
