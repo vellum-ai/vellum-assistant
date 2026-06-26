@@ -26,6 +26,7 @@ import {
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { recordLifecycleDiagnostic } from "@/lib/diagnostics";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { getSSEConnectedSnapshot } from "@/stores/sse-connected-store";
 
 /** Re-export generated types under their legacy names for consumers. */
@@ -47,13 +48,16 @@ function clampPollMs(value: number | null | undefined): number {
 function canPollOperationalStatus({
   assistantState,
   activeAssistantIsPlatformHosted,
+  targetIsKnownPlatformHostedAssistant,
   targetIsLifecycleOperationAssistant,
 }: {
   assistantState: AssistantState;
   activeAssistantIsPlatformHosted: boolean;
+  targetIsKnownPlatformHostedAssistant: boolean;
   targetIsLifecycleOperationAssistant: boolean;
 }): boolean {
   if (targetIsLifecycleOperationAssistant) return true;
+  if (targetIsKnownPlatformHostedAssistant) return true;
 
   switch (assistantState.kind) {
     case "active":
@@ -133,23 +137,30 @@ async function fetchOperationalStatus(
 }
 
 export function useAssistantOperationalStatus(assistantId: string | null) {
-  const platformHostedGate = usePlatformGate({ platformHostedOnly: true });
   const platformApiGate = usePlatformGate();
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   const operationalStatusAssistantId =
     useAssistantLifecycleStore.use.operationalStatusAssistantId();
+  const targetAssistant = useResolvedAssistantsStore((state) =>
+    assistantId
+      ? state.assistants.find((assistant) => assistant.id === assistantId)
+      : undefined,
+  );
   const activeAssistantIsPlatformHosted = useActiveAssistantIsPlatformHosted();
   const isOrgReady = useIsOrgReady();
   const targetIsLifecycleOperationAssistant =
     Boolean(assistantId) && assistantId === operationalStatusAssistantId;
+  const targetIsKnownPlatformHostedAssistant =
+    targetAssistant?.isPlatformHosted === true &&
+    targetAssistant.isLocal === false;
   const enabled =
     Boolean(assistantId) &&
-    platformHostedGate === "full" &&
     platformApiGate === "full" &&
     isOrgReady &&
     canPollOperationalStatus({
       assistantState,
       activeAssistantIsPlatformHosted,
+      targetIsKnownPlatformHostedAssistant,
       targetIsLifecycleOperationAssistant,
     });
 

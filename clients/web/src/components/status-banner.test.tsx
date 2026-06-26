@@ -24,6 +24,14 @@ let connectivityStateMock: "online" | "device-offline" | "backend-unreachable" =
 let retryConnectivityMock = mock(async () => connectivityStateMock);
 let isElectronMock = false;
 let activeAssistantIdMock: string | null = "assistant-123";
+let selectedAssistantIdMock: string | null = null;
+let assistantsMock: Array<{
+  id: string;
+  isLocal: boolean;
+  isPlatformHosted: boolean;
+  organizationId?: string | null;
+}> = [];
+let currentOrganizationIdMock: string | null = "org-1";
 let operationalStatusAssistantIdMock: string | null = null;
 let assistantStateMock:
   | { kind: "loading" }
@@ -144,9 +152,29 @@ mock.module("@/assistant/lifecycle-store", () => ({
 }));
 
 mock.module("@/stores/resolved-assistants-store", () => ({
+  assistantsValidForOrg: (
+    assistants: typeof assistantsMock,
+    activeOrgId: string | null,
+  ) =>
+    assistants.filter(
+      (assistant) =>
+        assistant.isLocal ||
+        assistant.organizationId == null ||
+        assistant.organizationId === activeOrgId,
+    ),
   useResolvedAssistantsStore: {
     use: {
       activeAssistantId: () => activeAssistantIdMock,
+      selectedAssistantId: () => selectedAssistantIdMock,
+      assistants: () => assistantsMock,
+    },
+  },
+}));
+
+mock.module("@/stores/organization-store", () => ({
+  useOrganizationStore: {
+    use: {
+      currentOrganizationId: () => currentOrganizationIdMock,
     },
   },
 }));
@@ -180,6 +208,16 @@ beforeEach(() => {
   retryConnectivityMock = mock(async () => connectivityStateMock);
   isElectronMock = false;
   activeAssistantIdMock = "assistant-123";
+  selectedAssistantIdMock = null;
+  assistantsMock = [
+    {
+      id: "assistant-123",
+      isLocal: false,
+      isPlatformHosted: true,
+      organizationId: "org-1",
+    },
+  ];
+  currentOrganizationIdMock = "org-1";
   operationalStatusAssistantIdMock = null;
   assistantStateMock = { kind: "active", isLocal: false };
   requestedOperationalStatusAssistantId = undefined;
@@ -270,6 +308,30 @@ describe("StatusBanner", () => {
     expect(requestedOperationalStatusAssistantId).toBe("assistant-operation");
   });
 
+  test("uses selected platform assistant id while lifecycle is loading", () => {
+    activeAssistantIdMock = null;
+    assistantStateMock = { kind: "loading" };
+    selectedAssistantIdMock = "assistant-selected";
+    assistantsMock = [
+      {
+        id: "assistant-selected",
+        isLocal: false,
+        isPlatformHosted: true,
+        organizationId: "org-1",
+      },
+    ];
+    operationalStatusQueryMock = {
+      data: { state: "migrating" },
+      isError: false,
+    };
+
+    const html = renderToStaticMarkup(<StatusBanner />);
+
+    expect(requestedOperationalStatusAssistantId).toBe("assistant-selected");
+    expect(html).toContain("Assistant is migrating");
+    expect(html).toContain('data-tone="info"');
+  });
+
   test("renders operational error states with error tone and Doctor action for platform assistants", () => {
     for (const [state, title] of [
       ["crash_loop", "Assistant is crash looping"],
@@ -298,6 +360,7 @@ describe("StatusBanner", () => {
       "resizing_machine",
       "resizing_storage",
       "initializing",
+      "migrating",
       "provisioning",
     ] as const) {
       operationalStatusQueryMock = {

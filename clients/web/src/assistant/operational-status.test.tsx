@@ -58,6 +58,7 @@ mock.module("@/hooks/use-is-org-ready", () => ({
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAssistantOperationalStatus } from "@/assistant/operational-status";
 import { useAuthStore } from "@/stores/auth-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 const initialAuthState = useAuthStore.getState();
 const initialLifecycleState = useAssistantLifecycleStore.getState();
@@ -107,6 +108,12 @@ beforeEach(() => {
     true,
   );
   useAssistantLifecycleStore.setState(initialLifecycleState, true);
+  useResolvedAssistantsStore.setState({
+    assistants: [],
+    activeAssistantId: null,
+    selectedAssistantId: null,
+    assistantsHydrated: false,
+  });
 });
 
 afterEach(() => {
@@ -141,6 +148,29 @@ describe("useAssistantOperationalStatus", () => {
     setLifecycle({ kind: "initializing" }, "assistant-operation");
 
     renderHook(() => useAssistantOperationalStatus("assistant-operation"), {
+      wrapper,
+    });
+
+    await waitFor(() => {
+      expect(sdkMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  test("fetches for known platform-hosted assistants while lifecycle is loading", async () => {
+    useResolvedAssistantsStore.setState({
+      assistants: [
+        {
+          id: "assistant-platform",
+          isLocal: false,
+          isPlatformHosted: true,
+        },
+      ],
+      selectedAssistantId: "assistant-platform",
+      assistantsHydrated: true,
+    });
+    setLifecycle({ kind: "loading" });
+
+    renderHook(() => useAssistantOperationalStatus("assistant-platform"), {
       wrapper,
     });
 
