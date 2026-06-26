@@ -1,9 +1,16 @@
 /**
- * Rehydrate ACP runs from the daemon on conversation load.
+ * Rehydrate ACP runs from the daemon on conversation load and on SSE reconnect.
  *
  * On conversation change, fetch `/acp/sessions` for the active conversation
  * and `seedFromHistory` the acp-run store: completed and in-progress runs
  * reappear with their event timelines, terminal status, and usage.
+ *
+ * Also re-seed when the SSE stream reopens after a drop (sleep, flaky network,
+ * backgrounding). ACP events emitted during the outage aren't ring-replayed —
+ * they carry no `conversationId`, so the daemon's reconnect replay skips them —
+ * leaving a stale transcript/status until the user navigates away. Re-fetching
+ * routes the catch-up through the seed path. Mirrors the conversation-history
+ * hook's reconnect refetch.
  *
  * Seeding sets each run's `highWaterMark` to the max `seq` over its events.
  * The live SSE handler drops updates whose `seq <= highWaterMark`, so events
@@ -14,6 +21,8 @@
  */
 
 import { useEffect } from "react";
+
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { captureError } from "@/lib/sentry/capture-error";
@@ -170,4 +179,23 @@ export function useAcpRunRehydration(
       cancelled = true;
     };
   }, [assistantId, conversationId]);
+
+  // Re-seed on SSE reopen so a connection that dropped past the daemon's replay
+  // ring doesn't leave a stale ACP transcript. `fresh`/`anchor` opens are
+  // skipped — the conversation-change effect above already owns the initial
+  // load. `seedFromHistory` merges by `seq` and raises the high-water mark, so
+  // re-seeding is idempotent against events already streamed.
+  useBusSubscription(
+    "sse.opened",
+    ({ assistantId: openedAssistantId, cause }) => {
+      if (cause === "fresh" || cause === "anchor") return;
+      if (!assistantId || !conversationId || openedAssistantId !== assistantId) {
+        return;
+      }
+      void fetchAcpSessions(assistantId, conversationId).then((entries) => {
+        if (entries.length === 0) return;
+        useAcpRunStore.getState().seedFromHistory(entries);
+      });
+    },
+  );
 }
