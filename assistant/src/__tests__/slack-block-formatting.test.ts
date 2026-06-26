@@ -221,6 +221,25 @@ describe("textToSlackBlocks", () => {
     ).toBe(true);
   });
 
+  test("falls back to text sections when table cell content exceeds Slack's character cap", () => {
+    // Slack caps total cell characters per table at 10,000. A table within the
+    // row/column limits but with an oversize cell must degrade to structured
+    // text rather than emit a table block Slack would reject as invalid_blocks.
+    const huge = "x".repeat(10_001);
+    const table = [
+      "| Name | Notes |",
+      "| --- | --- |",
+      `| Alpha | ${huge} |`,
+    ].join("\n");
+
+    const blocks = textToSlackBlocks(table);
+    expect(blocks).toBeDefined();
+    expect(blocks!.some((b) => b.type === "table")).toBe(false);
+    expect(
+      blocks!.every((b) => b.type === "section" || b.type === "divider"),
+    ).toBe(true);
+  });
+
   test("requires header + separator + data row for table detection", () => {
     // Only header and separator, no data rows
     const input = "| A | B |\n| --- | --- |";

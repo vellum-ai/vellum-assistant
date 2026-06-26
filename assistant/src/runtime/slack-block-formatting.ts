@@ -60,9 +60,10 @@ export function textToSlackBlocks(text: string): KnownBlock[] | undefined {
       if (tableBlock) {
         blocks.push(tableBlock);
       } else {
-        // Table exceeds Slack's table-block limits (≤100 rows / ≤20 columns);
-        // fall back to structured bullet text split across section blocks so an
-        // oversize table degrades on its own rather than failing the payload.
+        // Table exceeds Slack's table-block limits (≤100 rows / ≤20 columns /
+        // ≤10,000 chars across cells); fall back to structured bullet text
+        // split across section blocks so an oversize table degrades on its own
+        // rather than failing the payload.
         const structured = convertTableToStructuredText(
           segment.headers,
           segment.rows,
@@ -290,13 +291,19 @@ function tryParseTable(
 /** Slack `table` blocks allow at most 100 rows (incl. the header) and 20 columns. */
 const SLACK_TABLE_MAX_ROWS = 100;
 const SLACK_TABLE_MAX_COLUMNS = 20;
+/** Slack rejects a `table` block whose cell text totals more than 10,000 characters. */
+const SLACK_TABLE_MAX_TOTAL_CHARS = 10_000;
 
 /**
  * Build a Slack `table` block from a parsed markdown table, or `null` when the
- * table exceeds Slack's table-block limits so the caller can fall back to a text
- * rendering. The header row is emitted first. Cells are `raw_text`; markdown
- * inside a cell is not re-rendered (rich-text cells would be a future
- * enhancement). Short rows are padded so every row has the same cell count.
+ * table exceeds Slack's table-block limits — ≤100 rows (incl. the header), ≤20
+ * columns, and ≤10,000 characters across all cells — so the caller can fall
+ * back to a text rendering. (An over-limit table is rejected as
+ * `invalid_blocks`, which drops every block in the message, so gating here lets
+ * an oversize table degrade to text on its own.) The header row is emitted
+ * first. Cells are `raw_text`; markdown inside a cell is not re-rendered
+ * (rich-text cells would be a future enhancement). Short rows are padded so
+ * every row has the same cell count.
  */
 function tryBuildTableBlock(
   headers: string[],
@@ -316,9 +323,19 @@ function tryBuildTableBlock(
       return { type: "raw_text", text: text.length > 0 ? text : " " };
     });
 
+  const tableRows = [toCells(headers), ...rows.map(toCells)];
+
+  // Slack caps the total character count across all cells in a table at 10,000
+  // (empty cells count as their single padding space); over that, Slack rejects
+  // the block, so fall back to the text rendering instead.
+  const totalCellChars = tableRows
+    .flat()
+    .reduce((sum, cell) => sum + cell.text.length, 0);
+  if (totalCellChars > SLACK_TABLE_MAX_TOTAL_CHARS) return null;
+
   return {
     type: "table",
-    rows: [toCells(headers), ...rows.map(toCells)],
+    rows: tableRows,
   };
 }
 
