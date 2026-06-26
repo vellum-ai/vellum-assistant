@@ -20,11 +20,16 @@
 import { AlertCircle, CheckCircle2, Square, Workflow } from "lucide-react";
 import { useCallback, type KeyboardEvent, type MouseEvent } from "react";
 
-import { Button, Typography } from "@vellumai/design-library";
+import { Button } from "@vellumai/design-library";
 
 import { HeaderStepCarousel } from "@/domains/chat/components/tool-progress-card/header-step-carousel";
 import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
-import { useWorkflowCardData } from "@/domains/chat/hooks/use-workflow-card-data";
+import {
+  useWorkflowAgentAvatarSeeds,
+  useWorkflowCardData,
+} from "@/domains/chat/hooks/use-workflow-card-data";
+
+import { WorkflowAgentsChip } from "./workflow-agents-chip";
 
 export interface WorkflowInlineProgressCardProps {
   runId: string;
@@ -40,6 +45,7 @@ export function WorkflowInlineProgressCard({
   onStopWorkflow,
 }: WorkflowInlineProgressCardProps) {
   const data = useWorkflowCardData(runId);
+  const agentSeeds = useWorkflowAgentAvatarSeeds(runId);
   // "loading" = the live window where stopping the run is meaningful
   // (see `deriveCardState`).
   const isRunning = data?.state === "loading";
@@ -137,15 +143,11 @@ export function WorkflowInlineProgressCard({
           bypassDwell={data.state !== "loading"}
         />
       </span>
-      <span className="flex shrink-0 items-center gap-2">
+      {/* div (not span) so the chip's div root nests validly; the count text
+          and Stop button stay inline via flex. Stop remains rightmost. */}
+      <div className="flex shrink-0 items-center gap-2">
         {showStepCount ? (
-          <Typography
-            variant="body-small-default"
-            className="text-[var(--content-tertiary)]"
-            data-testid="workflow-inline-card-step-count"
-          >
-            {stepCount}
-          </Typography>
+          <WorkflowAgentsChip countLabel={stepCount} seeds={agentSeeds} />
         ) : null}
         {onStopWorkflow && isRunning ? (
           <Button
@@ -157,7 +159,7 @@ export function WorkflowInlineProgressCard({
             onClick={handleStop}
           />
         ) : null}
-      </span>
+      </div>
     </div>
   );
 }

@@ -7,9 +7,25 @@
  * header-click callback.
  */
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 import { act } from "react";
 import { cleanup, fireEvent, render } from "@testing-library/react";
+
+// `SubagentAvatarChip` (rendered inside the agents chip) lazily loads a heavy
+// bundled-avatar payload, so it is stubbed to keep avatar output deterministic.
+mock.module("@/components/avatar/subagent-avatar-chip", () => ({
+  SubagentAvatarChip: ({ subagentId }: { subagentId: string }) => (
+    <span data-testid="avatar-stub" data-subagent-id={subagentId} />
+  ),
+}));
 
 import { WorkflowInlineProgressCard } from "@/domains/chat/components/workflow-inline-progress-card/workflow-inline-progress-card";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
@@ -22,6 +38,10 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+});
+
+afterAll(() => {
+  mock.restore();
 });
 
 function startRun(runId: string, label = "Research workflow") {
@@ -52,6 +72,7 @@ describe("WorkflowInlineProgressCard — fixture run", () => {
     );
 
     expect(getByTestId("workflow-inline-progress-card")).toBeTruthy();
+    expect(getByTestId("workflow-inline-card-agents-chip")).toBeTruthy();
     expect(getByText("2 agents")).toBeTruthy();
   });
 
@@ -64,12 +85,17 @@ describe("WorkflowInlineProgressCard — fixture run", () => {
       <WorkflowInlineProgressCard runId="wf-order" onStopWorkflow={() => {}} />,
     );
 
+    const chip = getByTestId("workflow-inline-card-agents-chip");
     const stepCount = getByTestId("workflow-inline-card-step-count");
     const stop = getByTestId("workflow-inline-card-stop");
     // The stop button follows the step count in DOM order (step count first).
     expect(
       stepCount.compareDocumentPosition(stop) &
         Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // The agents chip precedes the stop button (stop stays rightmost).
+    expect(
+      chip.compareDocumentPosition(stop) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
 });
