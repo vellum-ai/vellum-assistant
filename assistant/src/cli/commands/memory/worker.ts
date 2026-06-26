@@ -60,7 +60,10 @@ async function startWorker(
 ): Promise<void> {
   let result: { pid: number; alreadyRunning: boolean };
   try {
-    result = await spawnMemoryWorkerProcess();
+    // Terminate the child if it times out: this path leaves
+    // `memory.worker.enabled` off on failure, so a worker that came up late
+    // would drain the queue alongside the daemon's synchronous runner.
+    result = await spawnMemoryWorkerProcess({ terminateOnTimeout: true });
   } catch (err) {
     // Spawn failed — leave `memory.worker.enabled` untouched so the daemon's
     // synchronous runner keeps draining the queue rather than standing down
