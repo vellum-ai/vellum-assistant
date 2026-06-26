@@ -23,6 +23,11 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import {
+  resetReadinessForTest,
+  setDbReady,
+  setStartupComplete,
+} from "../daemon/daemon-readiness.js";
+import {
   handleDetailedHealth,
   handleHealth,
   handleReadyz,
@@ -196,31 +201,6 @@ describe("identity routes — health endpoint", () => {
   describe("CES readiness", () => {
     beforeEach(() => {
       setCesClient(undefined);
-    });
-
-    test("readyz returns 200 and logs warning when CES is unavailable", () => {
-      const res = handleReadyz();
-      expect(res.status).toBe(200);
-    });
-
-    test("readyz returns 200 when CES is connected and ready", () => {
-      const mockClient = {
-        isReady: () => true,
-        close: () => {},
-      } as unknown as import("../credential-execution/client.js").CesClient;
-      setCesClient(mockClient);
-      const res = handleReadyz();
-      expect(res.status).toBe(200);
-    });
-
-    test("readyz returns 200 when CES client exists but is not ready", () => {
-      const mockClient = {
-        isReady: () => false,
-        close: () => {},
-      } as unknown as import("../credential-execution/client.js").CesClient;
-      setCesClient(mockClient);
-      const res = handleReadyz();
-      expect(res.status).toBe(200);
     });
 
     test("/v1/health reports ces.connected=true when CES is ready", async () => {
@@ -445,6 +425,73 @@ describe("identity routes — trivial /healthz liveness probe", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body).toEqual({ status: "ok", version: APP_VERSION });
+  });
+});
+
+describe("identity routes — /readyz readiness gate", () => {
+  afterEach(() => {
+    resetReadinessForTest();
+    setCesClient(undefined);
+  });
+
+  test("returns 503 with notReady:['startup','db'] before startup", async () => {
+    resetReadinessForTest();
+    const res = handleReadyz();
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toEqual({
+      status: "unready",
+      ready: false,
+      notReady: ["startup", "db"],
+    });
+  });
+
+  test("returns 503 with notReady:['startup'] when db is ready but startup isn't", async () => {
+    resetReadinessForTest();
+    setDbReady(true);
+    const res = handleReadyz();
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.ready).toBe(false);
+    expect(body.notReady).toEqual(["startup"]);
+  });
+
+  test("returns 503 with notReady:['db'] when started but db not ready", async () => {
+    resetReadinessForTest();
+    setStartupComplete();
+    const res = handleReadyz();
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.ready).toBe(false);
+    expect(body.notReady).toEqual(["db"]);
+  });
+
+  test("returns 200 when started and db ready even if CES is down", async () => {
+    resetReadinessForTest();
+    setStartupComplete();
+    setDbReady(true);
+    const explodingClient = {
+      isReady: () => {
+        throw new Error("/readyz must not consult CES");
+      },
+      close: () => {},
+    } as unknown as import("../credential-execution/client.js").CesClient;
+    setCesClient(explodingClient);
+
+    const res = handleReadyz();
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.ready).toBe(true);
+  });
+
+  test("returns 200 with the ok body when fully ready", async () => {
+    resetReadinessForTest();
+    setStartupComplete();
+    setDbReady(true);
+    const res = handleReadyz();
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toEqual({ status: "ok", ready: true, notReady: [] });
   });
 });
 

@@ -8,6 +8,7 @@ import { availableParallelism, cpus, totalmem } from "node:os";
 import { z } from "zod";
 
 import { getCpuLimit, getIsPlatform } from "../../config/env-registry.js";
+import { isDbReady, isStartupComplete } from "../../daemon/daemon-readiness.js";
 import { parseIdentityFields } from "../../daemon/handlers/identity.js";
 import { getProfilerRuntimeStatus } from "../../daemon/profiler-run-store.js";
 import { getMaxRollbackVersion } from "../../memory/migrations/run-migrations.js";
@@ -17,7 +18,6 @@ import {
   getDiskUsageInfo,
   parseK8sMemoryBytes,
 } from "../../util/disk-usage.js";
-import { getLogger } from "../../util/logger.js";
 import { getWorkspacePromptPath } from "../../util/platform.js";
 import { APP_VERSION } from "../../version.js";
 import { resolveHatchedAtReadOnly } from "../../workspace/hatched-date.js";
@@ -362,17 +362,28 @@ export function handleDetailedHealth(): Response {
   return Response.json(getDetailedHealth());
 }
 
+/**
+ * Strict readiness probe (`GET /readyz`).
+ *
+ * Reports whether the daemon can actually serve requests, gating on two
+ * monotonic startup latches read SYNCHRONOUSLY (no `await`, DB query, or
+ * subprocess) so the probe stays cheap on a ~10s interval. Returns 503 until
+ * both latches are set, then a stable 200 for the rest of the process lifetime.
+ *
+ * CES is intentionally never consulted: it is informational only. Gating on it
+ * would leave a pod permanently NotReady whenever CES never handshakes, even
+ * though the daemon serves degraded with an encrypted-store fallback.
+ */
 export function handleReadyz(): Response {
-  const cesClient = getCesClient();
-  if (!cesClient?.isReady()) {
-    // TODO: Return 503 once we confirm via logs that this won't cause
-    // regressions in the K8s readinessProbe.
-    getLogger("health").warn(
-      { reason: cesClient ? "ces_not_ready" : "ces_unavailable" },
-      "CES not ready — pod would be unready if 503 were enabled",
-    );
-  }
-  return Response.json({ status: "ok" });
+  const notReady: string[] = [];
+  if (!isStartupComplete()) notReady.push("startup");
+  if (!isDbReady()) notReady.push("db");
+  const ready = notReady.length === 0;
+
+  return Response.json(
+    { status: ready ? "ok" : "unready", ready, notReady },
+    { status: ready ? 200 : 503 },
+  );
 }
 
 function getIdentity() {
