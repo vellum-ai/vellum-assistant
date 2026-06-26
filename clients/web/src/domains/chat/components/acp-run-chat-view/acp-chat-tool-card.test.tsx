@@ -147,6 +147,22 @@ describe("AcpChatToolCard", () => {
     expect(output.querySelector("code.language-console")).not.toBeNull();
   });
 
+  test("preserves single newlines in unfenced output as hard line breaks", () => {
+    // Unfenced terminal-style output: single newlines must survive as <br>,
+    // not collapse into one wrapped paragraph (hardLineBreaks).
+    const content = JSON.stringify([
+      { type: "content", content: { type: "text", text: "line1\nline2" } },
+    ]);
+    render(
+      <AcpChatToolCard block={toolBlock({ content })} onOpenDiff={() => {}} />,
+    );
+    const output = screen.getByTestId("acp-chat-tool-output");
+    // The single newline renders as an explicit <br>, keeping the lines apart.
+    expect(output.querySelector("br")).not.toBeNull();
+    expect(output.textContent).toContain("line1");
+    expect(output.textContent).toContain("line2");
+  });
+
   test("renders a file chip per diff and fires onOpenDiff with the tool id + file change", () => {
     const content = JSON.stringify([
       { type: "diff", path: "src/a.ts", oldText: "old", newText: "new" },
