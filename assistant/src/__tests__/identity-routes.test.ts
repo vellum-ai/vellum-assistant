@@ -24,11 +24,13 @@ mock.module("../util/logger.js", () => ({
 
 import {
   handleDetailedHealth,
+  handleHealth,
   handleReadyz,
   ROUTES,
 } from "../runtime/routes/identity-routes.js";
 import { setCesClient } from "../security/secure-keys.js";
 import { getWorkspaceDir } from "../util/platform.js";
+import { APP_VERSION } from "../version.js";
 import {
   getHatchedSidecarPath,
   resolveHatchedAtReadOnly,
@@ -404,6 +406,45 @@ describe("identity routes — health endpoint", () => {
       expect(last).toBeDefined();
       expect(last.runId).toBe("newer-completed");
     });
+  });
+});
+
+describe("identity routes — trivial /healthz liveness probe", () => {
+  test("returns 200 with { status: 'ok', version } carrying APP_VERSION", async () => {
+    const res = handleHealth();
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.status).toBe("ok");
+    expect(typeof body.version).toBe("string");
+    expect(body.version).not.toBe("");
+    expect(body.version).toBe(APP_VERSION);
+  });
+
+  test("never touches CES/lifecycle state — a throwing CES client is never consulted", async () => {
+    // If the trivial probe touched CES at all this would throw.
+    const explodingClient = {
+      isReady: () => {
+        throw new Error("handleHealth must not access CES");
+      },
+      close: () => {},
+    } as unknown as import("../credential-execution/client.js").CesClient;
+    setCesClient(explodingClient);
+
+    const res = handleHealth();
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toEqual({ status: "ok", version: APP_VERSION });
+
+    setCesClient(undefined);
+  });
+
+  test("answers with CES uninitialized", async () => {
+    setCesClient(undefined);
+    const res = handleHealth();
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toEqual({ status: "ok", version: APP_VERSION });
   });
 });
 
