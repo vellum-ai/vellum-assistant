@@ -2,7 +2,7 @@ import { Sparkles } from "lucide-react";
 
 import { GmailLogo } from "@/components/icons/gmail-logo";
 import { GoogleCalendarLogo } from "@/components/icons/google-calendar-logo";
-import { GoogleLogo } from "@/components/icons/google-logo";
+import { GoogleDriveLogo } from "@/components/icons/google-drive-logo";
 import type { SuggestionIconKey } from "@/domains/chat/suggestions/types";
 
 /**
@@ -22,7 +22,7 @@ export function SuggestionIcon({
     case "google-calendar":
       return <GoogleCalendarLogo size={size} />;
     case "google-drive":
-      return <GoogleLogo size={size} />;
+      return <GoogleDriveLogo size={size} />;
     case "vellum":
       return (
         <Sparkles size={size} aria-hidden className="text-[var(--primary-base)]" />

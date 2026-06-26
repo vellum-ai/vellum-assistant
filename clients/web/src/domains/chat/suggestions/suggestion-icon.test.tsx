@@ -24,6 +24,11 @@ describe("SuggestionIcon", () => {
     expect(html).toContain("<svg");
   });
 
+  test("renders an <svg> for the google-drive key", () => {
+    const html = renderToStaticMarkup(<SuggestionIcon iconKey="google-drive" />);
+    expect(html).toContain("<svg");
+  });
+
   test("falls back to an <svg> for the generic key", () => {
     const html = renderToStaticMarkup(<SuggestionIcon iconKey="generic" />);
     expect(html).toContain("<svg");
