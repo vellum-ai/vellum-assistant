@@ -42,20 +42,24 @@ type ManagedProfileTemplate = Omit<
  * (`preserveProfileNames`) take precedence when present.
  */
 const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
-  // Served by MiniMax M3 on Together AI via managed platform inference: a strong
-  // open model at a lower price point than the managed Anthropic route.
+  // Served by GLM 5.2 on Fireworks via managed platform inference, matching the
+  // managed `quality-optimized` profile below: same model, provider, connection,
+  // and inference config. Only the profile key (`balanced`) and `label` keep the
+  // slot's own identity so existing `inference_profile` pins keep resolving.
+  // `model` is pinned explicitly rather than resolved via the `balanced` intent
+  // (which still maps to MiniMax M3 on Together for `custom-balanced` and OS
+  // beta).
   balanced: {
-    intent: "balanced",
-    provider: "together",
-    connectionName: "together-managed",
+    model: "accounts/fireworks/models/glm-5p2",
+    provider: "fireworks",
+    connectionName: "fireworks-managed",
     source: "managed",
     label: "Balanced",
-    description: "Good balance of quality, cost, and speed",
+    description: "High-quality results with a leading open model (GLM 5.2)",
     maxTokens: 32000,
-    effort: "medium",
+    effort: "high",
     thinking: { enabled: true, streamThinking: true },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-    topP: 0.95,
   },
   // Served by GLM 5.2 on Fireworks via managed platform inference: a leading
   // open model. `model` is pinned explicitly rather than resolved via the
