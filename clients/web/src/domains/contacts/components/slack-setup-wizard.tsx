@@ -1,7 +1,7 @@
 import { ExternalLink } from "lucide-react";
 import { useCallback, useState } from "react";
 
-import { Button, Card, Input, Stepper, type StepperStep, Typography } from "@vellumai/design-library";
+import { Button, Input, Notice, Stepper, type StepperStep } from "@vellumai/design-library";
 
 const WIZARD_STEP_IDS = ["create-app", "app-token", "bot-token"] as const;
 type WizardStepId = (typeof WIZARD_STEP_IDS)[number];
@@ -211,53 +211,44 @@ function CreateAppStep({
   onNext,
 }: CreateAppStepProps) {
   return (
-    <Card bordered>
-      <Card.Header>Create Your Slack App</Card.Header>
-      <Card.Body>
-        <div className="flex flex-col gap-3">
-          <Typography
-            as="p"
-            variant="body-small-default"
-            className="text-[color:var(--content-secondary)]"
-          >
-            Name your bot, then click the button below. Slack will open with
-            everything pre-configured — just pick your workspace and click{" "}
-            <strong>Create</strong>.
-          </Typography>
-          <Input
-            label="Bot Name"
-            type="text"
-            value={botName}
-            onChange={(e) => onBotNameChange(e.target.value)}
-            placeholder="My Assistant"
-            fullWidth
-          />
-          <Input
-            label="Description (optional)"
-            type="text"
-            value={botDescription}
-            onChange={(e) => onBotDescriptionChange(e.target.value)}
-            placeholder="A brief description of your bot"
-            fullWidth
-          />
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              onClick={onCreateApp}
-              disabled={!botName.trim()}
-            >
-              <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
-              Create Slack App
-            </Button>
-            {appCreated ? (
-              <Button type="button" variant="outlined" onClick={onNext}>
-                Next
-              </Button>
-            ) : null}
-          </div>
-        </div>
-      </Card.Body>
-    </Card>
+    <div className="flex flex-col gap-3">
+      <Notice tone="info">
+        Name your bot, then click the button below. Slack will open with
+        everything pre-configured — just pick your workspace and click{" "}
+        <strong>Create</strong>.
+      </Notice>
+      <Input
+        label="Bot Name"
+        type="text"
+        value={botName}
+        onChange={(e) => onBotNameChange(e.target.value)}
+        placeholder="My Assistant"
+        fullWidth
+      />
+      <Input
+        label="Description (optional)"
+        type="text"
+        value={botDescription}
+        onChange={(e) => onBotDescriptionChange(e.target.value)}
+        placeholder="A brief description of your bot"
+        fullWidth
+      />
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          onClick={onCreateApp}
+          disabled={!botName.trim()}
+          leftIcon={<ExternalLink aria-hidden />}
+        >
+          Create Slack App
+        </Button>
+        {appCreated ? (
+          <Button type="button" variant="outlined" onClick={onNext}>
+            Next
+          </Button>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -277,58 +268,48 @@ function AppTokenStep({
   onNext,
 }: AppTokenStepProps) {
   return (
-    <Card bordered>
-      <Card.Header>Generate App-Level Token</Card.Header>
-      <Card.Body>
-        <div className="flex flex-col gap-3">
-          <Typography
-            as="div"
-            variant="body-small-default"
-            className="text-[color:var(--content-secondary)]"
-          >
-            In your Slack app settings:
-            <ol className="mt-2 ml-4 list-decimal space-y-1">
-              <li>
-                Go to <strong>Basic Information</strong>
-              </li>
-              <li>
-                Scroll to <strong>App-Level Tokens</strong>
-              </li>
-              <li>
-                Click <strong>Generate Token and Scopes</strong>
-              </li>
-              <li>Name it anything (e.g. &quot;Socket Mode&quot;)</li>
-              <li>
-                Add scope:{" "}
-                <code className="rounded bg-[var(--surface-sunken)] px-1 py-0.5">
-                  connections:write
-                </code>
-              </li>
-              <li>
-                Click <strong>Generate</strong> and copy the token
-              </li>
-            </ol>
-          </Typography>
-          <Input
-            label="App-Level Token"
-            type="password"
-            value={appToken}
-            onChange={(e) => onAppTokenChange(e.target.value)}
-            placeholder="xapp-..."
-            fullWidth
-          />
-          <div>
-            <Button
-              type="button"
-              onClick={onNext}
-              disabled={!appToken.trim()}
-            >
-              Next
-            </Button>
-          </div>
-        </div>
-      </Card.Body>
-    </Card>
+    <div className="flex flex-col gap-3">
+      <Notice tone="info" title="In your Slack app settings:">
+        <ol className="mt-1 ml-4 list-decimal space-y-1">
+          <li>
+            Go to <strong>Basic Information</strong>
+          </li>
+          <li>
+            Scroll to <strong>App-Level Tokens</strong>
+          </li>
+          <li>
+            Click <strong>Generate Token and Scopes</strong>
+          </li>
+          <li>Name it anything (e.g. &quot;Socket Mode&quot;)</li>
+          <li>
+            Add scope:{" "}
+            <code className="rounded bg-[var(--surface-sunken)] px-1 py-0.5">
+              connections:write
+            </code>
+          </li>
+          <li>
+            Click <strong>Generate</strong> and copy the token
+          </li>
+        </ol>
+      </Notice>
+      <Input
+        label="App-Level Token"
+        type="password"
+        value={appToken}
+        onChange={(e) => onAppTokenChange(e.target.value)}
+        placeholder="xapp-..."
+        fullWidth
+      />
+      <div>
+        <Button
+          type="button"
+          onClick={onNext}
+          disabled={!appToken.trim()}
+        >
+          Next
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -352,55 +333,41 @@ function BotTokenStep({
   onSave,
 }: BotTokenStepProps) {
   return (
-    <Card bordered>
-      <Card.Header>Install & Get Bot Token</Card.Header>
-      <Card.Body>
-        <div className="flex flex-col gap-3">
-          <Typography
-            as="div"
-            variant="body-small-default"
-            className="text-[color:var(--content-secondary)]"
-          >
-            <ol className="ml-4 list-decimal space-y-1">
-              <li>
-                Go to <strong>Install App</strong> in the sidebar
-              </li>
-              <li>
-                Click <strong>Install to Workspace</strong>
-              </li>
-              <li>Authorize the requested permissions</li>
-              <li>
-                Copy the <strong>Bot User OAuth Token</strong>
-              </li>
-            </ol>
-          </Typography>
-          <Input
-            label="Bot User OAuth Token"
-            type="password"
-            value={botToken}
-            onChange={(e) => onBotTokenChange(e.target.value)}
-            placeholder="xoxb-..."
-            fullWidth
-          />
-          {error ? (
-            <p
-              className="text-label-small"
-              style={{ color: "var(--content-negative)" }}
-            >
-              {error}
-            </p>
-          ) : null}
-          <div>
-            <Button
-              type="button"
-              onClick={onSave}
-              disabled={!botToken.trim() || saving}
-            >
-              {saving ? "Saving\u2026" : "Save"}
-            </Button>
-          </div>
-        </div>
-      </Card.Body>
-    </Card>
+    <div className="flex flex-col gap-3">
+      <Notice tone="info" title="Install your Slack app:">
+        <ol className="mt-1 ml-4 list-decimal space-y-1">
+          <li>
+            Go to <strong>Install App</strong> in the sidebar
+          </li>
+          <li>
+            Click <strong>Install to Workspace</strong>
+          </li>
+          <li>Authorize the requested permissions</li>
+          <li>
+            Copy the <strong>Bot User OAuth Token</strong>
+          </li>
+        </ol>
+      </Notice>
+      <Input
+        label="Bot User OAuth Token"
+        type="password"
+        value={botToken}
+        onChange={(e) => onBotTokenChange(e.target.value)}
+        placeholder="xoxb-..."
+        fullWidth
+      />
+      {error ? (
+        <Notice tone="error">{error}</Notice>
+      ) : null}
+      <div>
+        <Button
+          type="button"
+          onClick={onSave}
+          disabled={!botToken.trim() || saving}
+        >
+          {saving ? "Saving\u2026" : "Save"}
+        </Button>
+      </div>
+    </div>
   );
 }

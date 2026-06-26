@@ -8,6 +8,13 @@ const meta: Meta<typeof SlackSetupWizard> = {
   args: {
     assistantName: "Example Assistant",
   },
+  decorators: [
+    (Story) => (
+      <div style={{ maxWidth: 600, margin: "2rem auto" }}>
+        <Story />
+      </div>
+    ),
+  ],
 };
 
 export default meta;
