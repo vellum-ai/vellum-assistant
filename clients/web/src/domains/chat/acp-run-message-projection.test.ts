@@ -192,6 +192,37 @@ describe("user blocks", () => {
     const blocks = computeAcpRunChatBlocks([userChunk("u1", "hi there")]);
     expect((blocks[0] as { content: string }).content).toBe("hi there");
   });
+
+  it("reconciles the agent's echoed steer with the optimistic marker", () => {
+    const blocks = computeAcpRunChatBlocks([
+      steerMarker(1, "focus on tests"),
+      // The agent echoes the accepted steer as a real user chunk.
+      userChunk("u-echo", "focus on tests"),
+    ]);
+    // One bubble, upgraded to the real id — not the marker plus a duplicate.
+    expect(blocks).toEqual([
+      { kind: "user", id: "u-echo", content: "focus on tests" },
+    ]);
+  });
+
+  it("reconciles the echo even when agent output lands between marker and echo", () => {
+    const blocks = computeAcpRunChatBlocks([
+      steerMarker(1, "stop and summarize"),
+      agentChunk("a1", "cancelling…"),
+      userChunk("u-echo", "stop and summarize"),
+    ]);
+    const users = blocks.filter((b) => b.kind === "user");
+    expect(users).toHaveLength(1);
+    expect((users[0] as { id: string }).id).toBe("u-echo");
+  });
+
+  it("keeps a user_message_chunk that does not match any marker", () => {
+    const blocks = computeAcpRunChatBlocks([
+      steerMarker(1, "focus on tests"),
+      userChunk("u1", "something else entirely"),
+    ]);
+    expect(blocks.filter((b) => b.kind === "user")).toHaveLength(2);
+  });
 });
 
 // ---------------------------------------------------------------------------
