@@ -123,6 +123,7 @@ mock.module("motion/react", () => ({
 
 import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-drawer";
 import { SuggestionDetailPanel } from "@/domains/chat/components/suggestion-detail-panel";
+import { useComposerStore } from "@/domains/chat/composer-store";
 import { useChatEmptyState } from "@/domains/chat/hooks/use-chat-empty-state";
 
 // Harness mirroring ChatMainPanel's drawer wiring with the real components.
@@ -145,6 +146,9 @@ function Harness({ onSubmit }: { onSubmit: (prompt: string) => void }) {
   const handleClose = useCallback(() => setSelected(null), []);
   const handleConfirm = useCallback(
     (s: ThreadSuggestion) => {
+      // Mirror the production wiring: seed the composer before submitting so a
+      // blocked send leaves the prompt available to retry.
+      useComposerStore.getState().setInput(s.prompt);
       setSelected(null);
       onSubmit(s.prompt);
     },
@@ -208,6 +212,8 @@ describe("ChatMainPanel suggestion drawer wiring", () => {
     fireEvent.click(getByText("Let's do it!"));
 
     expect(submitted).toEqual([FEATURED.prompt]);
+    // The prompt is seeded into the composer so a blocked send is recoverable.
+    expect(useComposerStore.getState().input).toBe(FEATURED.prompt);
     expect(
       container.querySelector('[data-slot="suggestion-detail-panel"]'),
     ).toBeNull();

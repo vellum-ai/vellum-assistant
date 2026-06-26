@@ -672,10 +672,13 @@ export function ChatMainPanel({
 
   const handleConfirmSuggestion = useCallback(
     (s: ThreadSuggestion) => {
+      // Seed the composer before submitting (mirrors handleSelectStarter) so a
+      // blocked send leaves the prompt in the composer to retry, rather than
+      // silently dropping it when the drawer closes.
+      handleSelectStarter({ prompt: s.prompt });
       setSelectedSuggestion(null);
-      void submitMessage(s.prompt);
     },
-    [submitMessage],
+    [handleSelectStarter],
   );
 
   // -------------------------------------------------------------------------
