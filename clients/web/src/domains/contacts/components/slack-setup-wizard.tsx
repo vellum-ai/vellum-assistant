@@ -38,6 +38,7 @@ export function SlackSetupWizard({
   onSave,
 }: SlackSetupWizardProps) {
   const [stepId, setStepId] = useState<WizardStepId>(initialStepId);
+  const [slackAppName, setSlackAppName] = useState(assistantName);
   const [appToken, setAppToken] = useState("");
   const [botToken, setBotToken] = useState("");
   const [saving, setSaving] = useState(false);
@@ -46,9 +47,10 @@ export function SlackSetupWizard({
   const stepIndex = WIZARD_STEP_IDS.indexOf(stepId);
 
   const handleCreateApp = useCallback(() => {
-    const url = buildSlackManifestUrl(assistantName);
+    const name = slackAppName.trim() || "My Assistant";
+    const url = buildSlackManifestUrl(name);
     window.open(url, "_blank", "noopener,noreferrer");
-  }, [assistantName]);
+  }, [slackAppName]);
 
   const handleSave = useCallback(async () => {
     if (!onSave || !botToken.trim() || !appToken.trim()) return;
@@ -159,6 +161,8 @@ export function SlackSetupWizard({
             <div className="rounded-lg bg-[var(--surface-sunken)] p-4">
               {stepId === "create-app" && (
                 <CreateAppStep
+                  slackAppName={slackAppName}
+                  onSlackAppNameChange={setSlackAppName}
                   onCreateApp={handleCreateApp}
                   onNext={goNext}
                 />
@@ -198,19 +202,31 @@ export function SlackSetupWizard({
 // ---------------------------------------------------------------------------
 
 interface CreateAppStepProps {
+  slackAppName: string;
+  onSlackAppNameChange: (value: string) => void;
   onCreateApp: () => void;
   onNext: () => void;
 }
 
-function CreateAppStep({ onCreateApp, onNext }: CreateAppStepProps) {
+function CreateAppStep({ slackAppName, onSlackAppNameChange, onCreateApp, onNext }: CreateAppStepProps) {
+  const nameValid = slackAppName.trim().length > 0;
+
   return (
     <div className="flex flex-col gap-4">
       <p className="text-body-medium-lighter text-[var(--content-default)]">
-        First, let&apos;s create the app with my name on it:
+        Name your Slack app, then click below to create it:
       </p>
+      <Input
+        label="App Name"
+        value={slackAppName}
+        onChange={(e) => onSlackAppNameChange(e.target.value.slice(0, 35))}
+        placeholder="My Assistant"
+        fullWidth
+      />
       <div className="flex items-center">
         <Button
           type="button"
+          disabled={!nameValid}
           onClick={() => {
             onCreateApp();
             onNext();

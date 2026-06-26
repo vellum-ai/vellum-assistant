@@ -26,9 +26,10 @@
  * manifest with all required scopes, events, and Socket Mode enabled.
  */
 export function buildManifestUrl(name: string, desc = ""): string {
+  const safeName = name.trim().slice(0, 35) || "My Assistant";
   const manifest = {
     display_information: {
-      name,
+      name: safeName,
       ...(desc ? { description: desc } : {}),
       background_color: "#1a1a2e",
     },
@@ -39,11 +40,11 @@ export function buildManifestUrl(name: string, desc = ""): string {
         messages_tab_read_only_enabled: false,
       },
       bot_user: {
-        display_name: name,
+        display_name: safeName,
         always_online: true,
       },
       assistant_view: {
-        assistant_description: desc || name,
+        assistant_description: desc || safeName,
         suggested_prompts: [],
       },
     },
