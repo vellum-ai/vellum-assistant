@@ -7,17 +7,28 @@ mock.module("../../../../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
 }));
 
+// Keep the real exports (e.g. getQdrantClient) so this partial mock is harmless
+// when section-dense-store's transitive imports pull them in; only
+// resolveQdrantUrl is pinned to a fixed URL.
+const realQdrantClient = await import("../../../../memory/qdrant-client.js");
 mock.module("../../../../memory/qdrant-client.js", () => ({
+  ...realQdrantClient,
   resolveQdrantUrl: () => "http://127.0.0.1:6333",
 }));
 
 // Stub the shared embedding backend. Records the queries it was asked to embed
 // and returns one deterministic vector so `denseLane` can issue the search.
+// Keep the real exports (e.g. generateSparseEmbedding) so this partial mock is
+// harmless when section-dense-store's transitive imports pull them in; only
+// embedWithBackend is replaced.
+const realEmbeddingBackend =
+  await import("../../../../memory/embedding-backend.js");
 const embedState = {
   calls: [] as string[][],
   throws: null as Error | null,
 };
 mock.module("../../../../memory/embedding-backend.js", () => ({
+  ...realEmbeddingBackend,
   embedWithBackend: async (_config: unknown, inputs: string[]) => {
     embedState.calls.push(inputs);
     if (embedState.throws) throw embedState.throws;
