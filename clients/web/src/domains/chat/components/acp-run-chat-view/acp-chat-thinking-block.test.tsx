@@ -58,15 +58,21 @@ describe("AcpChatThinkingBlock", () => {
     expect(screen.queryByTestId("acp-chat-thinking-body")).toBeNull();
   });
 
-  test("shows a placeholder when expanded with no reasoning content", () => {
+  test("renders a static, non-expandable indicator when there's no reasoning text", () => {
     render(<AcpChatThinkingBlock content="" isComplete />);
-    const toggle = screen.getByTestId("acp-chat-thinking-toggle");
-
-    // The card still renders (the agent signalled thinking) and stays expandable.
+    // The card still shows (the agent signalled thinking)...
+    expect(screen.getByTestId("acp-chat-thinking-block")).toBeDefined();
     expect(screen.getByText("Thought process")).toBeDefined();
-    fireEvent.click(toggle);
-    expect(screen.getByTestId("acp-chat-thinking-body")).toBeDefined();
-    expect(screen.getByText("No reasoning details provided.")).toBeDefined();
+    // ...but it is NOT an expandable accordion — no toggle, no body.
+    expect(screen.queryByTestId("acp-chat-thinking-toggle")).toBeNull();
+    expect(screen.queryByTestId("acp-chat-thinking-body")).toBeNull();
+  });
+
+  test("shows the live indicator for an empty thought signal while streaming", () => {
+    render(<AcpChatThinkingBlock content="" isComplete={false} />);
+    expect(screen.getByText("Thinking…")).toBeDefined();
+    expect(screen.getByTestId("acp-chat-thinking-streaming")).toBeDefined();
+    expect(screen.queryByTestId("acp-chat-thinking-toggle")).toBeNull();
   });
 
   test("reflects expanded state via aria-expanded", () => {

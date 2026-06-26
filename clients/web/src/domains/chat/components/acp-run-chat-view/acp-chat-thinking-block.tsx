@@ -1,10 +1,14 @@
 /**
- * A self-contained collapsible "thinking" block for the ACP chat transcript.
+ * A self-contained "thinking" block for the ACP chat transcript.
  *
- * Deliberately does NOT reuse `SingleActivity`, which couples to the global
- * viewer-store drawer. Collapse state is local: auto-expanded while streaming,
- * default collapsed once the block completes. The header carries a muted
- * `Brain` glyph and a streaming indicator while live.
+ * With reasoning text it renders as a collapsible accordion (deliberately NOT
+ * reusing `SingleActivity`, which couples to the global viewer-store drawer):
+ * collapse state is local — auto-expanded while streaming, default collapsed
+ * once complete. An empty thought "signal" (no reasoning text) renders as a
+ * static, non-expandable indicator — no chevron, no toggle, no body — so the
+ * transcript still surfaces that the agent was thinking without an accordion
+ * that expands to nothing. Both carry a muted `Brain` glyph and a streaming
+ * indicator while live.
  */
 
 import { Brain, ChevronDown, ChevronRight } from "lucide-react";
@@ -29,6 +33,29 @@ export function AcpChatThinkingBlock({
   // only — never touches the global viewer store.
   const [override, setOverride] = useState<boolean | null>(null);
   const expanded = override ?? !isComplete;
+  const hasContent = content.trim().length > 0;
+
+  const label = isComplete ? "Thought process" : "Thinking…";
+  const streamingIndicator = !isComplete && (
+    <ThreeDotIndicator
+      className="ml-1"
+      dotSize={5}
+      data-testid="acp-chat-thinking-streaming"
+    />
+  );
+
+  // No reasoning text: a static indicator, not an expandable accordion.
+  if (!hasContent) {
+    return (
+      <div data-testid="acp-chat-thinking-block" className="w-full">
+        <div className="flex w-full items-center gap-1.5 text-body-small-default text-[var(--content-tertiary)]">
+          <Brain aria-hidden className="h-3.5 w-3.5 shrink-0" />
+          <span>{label}</span>
+          {streamingIndicator}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div data-testid="acp-chat-thinking-block" className="w-full">
@@ -45,14 +72,8 @@ export function AcpChatThinkingBlock({
           <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0" />
         )}
         <Brain aria-hidden className="h-3.5 w-3.5 shrink-0" />
-        <span>{isComplete ? "Thought process" : "Thinking…"}</span>
-        {!isComplete && (
-          <ThreeDotIndicator
-            className="ml-1"
-            dotSize={5}
-            data-testid="acp-chat-thinking-streaming"
-          />
-        )}
+        <span>{label}</span>
+        {streamingIndicator}
       </button>
 
       {expanded && (
@@ -60,11 +81,7 @@ export function AcpChatThinkingBlock({
           data-testid="acp-chat-thinking-body"
           className="mt-1.5 border-l-2 border-[var(--border-base)] pl-3 text-body-small-default text-[var(--content-tertiary)]"
         >
-          {content.trim() ? (
-            <ChatMarkdownMessage content={content} />
-          ) : (
-            <span className="italic">No reasoning details provided.</span>
-          )}
+          <ChatMarkdownMessage content={content} />
         </div>
       )}
     </div>
