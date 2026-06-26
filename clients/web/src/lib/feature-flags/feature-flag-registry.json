@@ -417,6 +417,14 @@
       "label": "OS Beta",
       "description": "Enable the OS Beta model profile (MiniMax M3 / Together) in the assistant's model profile selection.",
       "defaultEnabled": false
+    },
+    {
+      "id": "new-thread-suggestions",
+      "scope": "client",
+      "key": "new-thread-suggestions",
+      "label": "New-thread suggestions library",
+      "description": "Replace the empty-state conversation-starter chips with the scrollable, categorized suggestions library and detail drawer (currently mocked data).",
+      "defaultEnabled": false
     }
   ]
 }
