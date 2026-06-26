@@ -7,15 +7,13 @@ import {
   getMessages,
   updateMessageMetadata,
 } from "../memory/conversation-crud.js";
+import { channelForCallback } from "../messaging/providers/callback-routing.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { getLogger } from "../util/logger.js";
 import type { ChannelDeliveryResult } from "./gateway-client.js";
 import { deliverChannelReply } from "./gateway-client.js";
 import type { RuntimeAttachmentMetadata } from "./http-types.js";
-import {
-  isSlackCallbackUrl,
-  textToSlackBlocks,
-} from "./slack-block-formatting.js";
+import { textToSlackBlocks } from "./slack-block-formatting.js";
 
 const log = getLogger("channel-reply-delivery");
 
@@ -167,7 +165,7 @@ export async function deliverRenderedReplyViaCallback(
     return;
   }
 
-  const isSlack = isSlackCallbackUrl(callbackUrl);
+  const isSlack = channelForCallback(callbackUrl) === "slack";
 
   // Only the first segment uses messageTs for in-place update;
   // subsequent segments are posted as new messages.
