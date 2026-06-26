@@ -2,11 +2,22 @@
  * Slack Block Kit rendering: mdast → Slack blocks.
  *
  * The channel-neutral parse (markdown → mdast) lives in `messaging/content`;
- * this module is Slack's "how". Prose, lists, quotes, and code render to Slack
- * `markdown` blocks (native GFM, 12k-char limit) sliced straight from the
- * original source by node position — so there is no inline→mrkdwn serializer to
- * hand-roll. Headings become `header` blocks, GFM tables become `table` blocks
- * (with Slack's row / column / character caps), and a `---` becomes a divider.
+ * this module is Slack's "how". It maps each top-level mdast node to its
+ * natural Slack block: a heading → `header`, a GFM table → `table` (or markdown
+ * when it exceeds Slack's table limits), a thematic break → `divider`, and every
+ * other run of content → a `markdown` block carrying the exact original GFM,
+ * sliced from the source by node position (so there is no inline → mrkdwn
+ * serializer to hand-roll).
+ *
+ * Scope: this renderer enforces only Slack's documented *per-element* limits —
+ * a header's 150 characters, a table's row / column / cell budgets. It does NOT
+ * police whole-message size (total block count, or cumulative `markdown` text).
+ * Those ceilings — the 50-block limit, and an undocumented cumulative-markdown
+ * limit Slack surfaces as `msg_blocks_too_long` around ~13k characters — are the
+ * transport's responsibility: `send.ts` posts the blocks and resends the
+ * message as plain text if Slack rejects the payload. Keeping size policy at the
+ * send boundary lets Slack stay the authority on its own limits and keeps this
+ * module a straight mapping with no guessed byte ceiling.
  */
 
 import type { KnownBlock, RawTextElement, TableBlock } from "@slack/types";
@@ -21,19 +32,6 @@ import type {
 
 import { parseMarkdown } from "../../content/parse.js";
 
-/** Slack rejects messages with more than 50 Block Kit blocks. */
-const SLACK_BLOCK_LIMIT = 50;
-/** A `markdown` block's text is capped at 12,000 characters. */
-const SLACK_MARKDOWN_MAX_CHARS = 12_000;
-/**
- * Slack also caps the *cumulative* `markdown`-block text across a single message
- * payload, not just per block — an over-limit payload is rejected as
- * `invalid_blocks`. The exact ceiling isn't documented in `@slack/types`; 12,000
- * is conservative (it matches the documented per-block limit and stays under the
- * observed cumulative threshold). Past it, the reply is delivered as plain text
- * rather than risking rejection.
- */
-const SLACK_MARKDOWN_PAYLOAD_MAX_CHARS = 12_000;
 /** A `header` block's plain_text is capped at 150 characters. */
 const SLACK_HEADER_MAX_CHARS = 150;
 /**
@@ -66,10 +64,8 @@ export function renderSlack(tree: Root, source: string): KnownBlock[] {
   let tableCharsUsed = 0;
 
   const flushRun = (): void => {
-    if (run.length === 0) return;
-    for (const chunk of runToMarkdownChunks(run, source)) {
-      blocks.push({ type: "markdown", text: chunk });
-    }
+    const md = sliceRun(run, source);
+    if (md.length > 0) blocks.push({ type: "markdown", text: md });
     run = [];
   };
 
@@ -84,12 +80,11 @@ export function renderSlack(tree: Root, source: string): KnownBlock[] {
         blocks.push(built.block);
         tableCharsUsed += built.cellChars;
       } else {
-        // Too big for a `table` block (Slack would reject the payload). Fall
-        // back to the raw table markdown in `markdown` blocks so the content
-        // still shows, just not as a rendered table.
-        for (const chunk of splitAtLines(sliceNode(node, source))) {
-          if (chunk.length > 0) blocks.push({ type: "markdown", text: chunk });
-        }
+        // Too big for a `table` block (Slack would reject it). Keep the content
+        // as its raw table markdown so it still shows, just not as a rendered
+        // table.
+        const md = sliceNode(node, source).trim();
+        if (md.length > 0) blocks.push({ type: "markdown", text: md });
       }
     } else if (node.type === "thematicBreak") {
       flushRun();
@@ -100,18 +95,7 @@ export function renderSlack(tree: Root, source: string): KnownBlock[] {
   }
   flushRun();
 
-  // Slack caps cumulative `markdown`-block text per payload (see
-  // SLACK_MARKDOWN_PAYLOAD_MAX_CHARS). If the rendered markdown would exceed it,
-  // deliver the whole reply as plain text instead of a reject-prone payload —
-  // the same outcome as the `invalid_blocks` retry, but without the failed
-  // round trip. Returning an empty array makes the caller fall back to `text`.
-  const markdownChars = blocks.reduce(
-    (sum, block) => (block.type === "markdown" ? sum + block.text.length : sum),
-    0,
-  );
-  if (markdownChars > SLACK_MARKDOWN_PAYLOAD_MAX_CHARS) return [];
-
-  return capBlocks(blocks);
+  return blocks;
 }
 
 // ---------------------------------------------------------------------------
@@ -127,71 +111,17 @@ function sliceNode(node: RootContent, source: string): string {
 }
 
 /**
- * Turn a run of ordinary (non-heading / non-table / non-rule) nodes into
- * `markdown`-block-sized chunks, splitting at node boundaries so a chunk never
- * bisects a node unless that single node is itself over the limit.
+ * Slice a run of consecutive ordinary (non-heading / non-table / non-rule)
+ * nodes back to one markdown string, spanning the first node's start to the last
+ * node's end so the original GFM — and the blank lines between nodes — is
+ * preserved verbatim. Returns "" for an empty run.
  */
-function runToMarkdownChunks(run: RootContent[], source: string): string[] {
-  const chunks: string[] = [];
-  let current = "";
-
-  for (const node of run) {
-    const md = sliceNode(node, source).trim();
-    if (md.length === 0) continue;
-
-    if (md.length > SLACK_MARKDOWN_MAX_CHARS) {
-      if (current.length > 0) {
-        chunks.push(current);
-        current = "";
-      }
-      chunks.push(...splitAtLines(md));
-      continue;
-    }
-
-    if (
-      current.length > 0 &&
-      current.length + 2 + md.length > SLACK_MARKDOWN_MAX_CHARS
-    ) {
-      chunks.push(current);
-      current = "";
-    }
-    current = current.length > 0 ? `${current}\n\n${md}` : md;
-  }
-
-  if (current.length > 0) chunks.push(current);
-  return chunks;
-}
-
-/** Split text into ≤`max` chunks, preferring line boundaries, hard-slicing only an over-long single line. */
-function splitAtLines(
-  text: string,
-  max: number = SLACK_MARKDOWN_MAX_CHARS,
-): string[] {
-  if (text.length <= max) return [text];
-
-  const chunks: string[] = [];
-  let current = "";
-
-  for (const line of text.split("\n")) {
-    if (line.length > max) {
-      if (current.length > 0) {
-        chunks.push(current);
-        current = "";
-      }
-      for (let i = 0; i < line.length; i += max) {
-        chunks.push(line.slice(i, i + max));
-      }
-      continue;
-    }
-    if (current.length > 0 && current.length + 1 + line.length > max) {
-      chunks.push(current);
-      current = "";
-    }
-    current = current.length > 0 ? `${current}\n${line}` : line;
-  }
-
-  if (current.length > 0) chunks.push(current);
-  return chunks;
+function sliceRun(run: RootContent[], source: string): string {
+  if (run.length === 0) return "";
+  const start = run[0]?.position?.start.offset;
+  const end = run[run.length - 1]?.position?.end.offset;
+  if (start === undefined || end === undefined) return "";
+  return source.slice(start, end).trim();
 }
 
 /** A `header` block from a heading node (plain text, formatting stripped, ≤150 chars). */
@@ -273,22 +203,4 @@ function serializePlain(nodes: PhrasingContent[]): string {
     }
   }
   return out;
-}
-
-/** Cap output at Slack's 50-block limit, appending a truncation note when over. */
-function capBlocks(blocks: KnownBlock[]): KnownBlock[] {
-  if (blocks.length <= SLACK_BLOCK_LIMIT) return blocks;
-  const omitted = blocks.length - (SLACK_BLOCK_LIMIT - 1);
-  return [
-    ...blocks.slice(0, SLACK_BLOCK_LIMIT - 1),
-    {
-      type: "context",
-      elements: [
-        {
-          type: "mrkdwn",
-          text: `_${omitted} more block${omitted === 1 ? "" : "s"} omitted (Slack's ${SLACK_BLOCK_LIMIT}-block limit)._`,
-        },
-      ],
-    },
-  ];
 }
