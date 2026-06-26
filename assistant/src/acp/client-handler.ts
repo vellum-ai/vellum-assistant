@@ -168,11 +168,7 @@ export class VellumAcpClientHandler implements Client {
           toolTitle: update.title,
           toolKind: update.kind,
           toolStatus: update.status,
-          locations:
-            update.locations?.map((l) => ({
-              path: l.path,
-              line: l.line ?? undefined,
-            })) ?? undefined,
+          locations: mapLocations(update.locations),
         });
         break;
       }
@@ -185,11 +181,7 @@ export class VellumAcpClientHandler implements Client {
           toolKind: update.kind ?? undefined,
           toolStatus: update.status ?? undefined,
           content: update.content ? JSON.stringify(update.content) : undefined,
-          locations:
-            update.locations?.map((l) => ({
-              path: l.path,
-              line: l.line ?? undefined,
-            })) ?? undefined,
+          locations: mapLocations(update.locations),
         });
         break;
       }
@@ -403,6 +395,19 @@ export class VellumAcpClientHandler implements Client {
     }
     return {};
   }
+}
+
+/** Normalize ACP tool-call locations into the SSE update's `locations` shape. */
+function mapLocations(
+  locations:
+    | ReadonlyArray<{ path: string; line?: number | null }>
+    | null
+    | undefined,
+): Array<{ path: string; line?: number }> | undefined {
+  return (
+    locations?.map((l) => ({ path: l.path, line: l.line ?? undefined })) ??
+    undefined
+  );
 }
 
 function findAllowOptionId(

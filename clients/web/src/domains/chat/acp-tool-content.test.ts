@@ -38,9 +38,18 @@ describe("parseAcpToolContent", () => {
     ]);
   });
 
-  it("maps terminal blocks", () => {
+  it("maps terminal blocks without text", () => {
     const content = JSON.stringify([{ type: "terminal", terminalId: "t-1" }]);
     expect(parseAcpToolContent(content)).toEqual([{ type: "terminal" }]);
+  });
+
+  it("carries terminal text through when present", () => {
+    const content = JSON.stringify([
+      { type: "terminal", terminalId: "t-1", text: "$ ls\nfile.txt" },
+    ]);
+    expect(parseAcpToolContent(content)).toEqual([
+      { type: "terminal", text: "$ ls\nfile.txt" },
+    ]);
   });
 
   it("ignores unknown variants while keeping known ones", () => {

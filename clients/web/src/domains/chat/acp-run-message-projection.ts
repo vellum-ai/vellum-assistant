@@ -27,7 +27,11 @@
 
 import { useRef } from "react";
 
-import type { AcpRunRawEvent } from "@/domains/chat/acp-run-store";
+import {
+  LOCAL_MARKER_ID_PREFIX,
+  STEER_MARKER_PREFIX,
+  type AcpRunRawEvent,
+} from "@/domains/chat/acp-run-store";
 import type { AcpToolStatus } from "@/domains/chat/acp-run-step-projection";
 
 // ---------------------------------------------------------------------------
@@ -55,12 +59,6 @@ export type AcpChatBlock =
 
 /** Synthetic id for chunks from older daemons that don't emit a messageId. */
 const ANONYMOUS_MESSAGE_ID = "";
-
-/** Prefix `appendLocalMarker` stamps onto optimistic steering notes. */
-const STEER_MARKER_PREFIX = "↻ Steering: ";
-
-/** Synthetic `messageId` prefix `appendLocalMarker` uses for steer markers. */
-const LOCAL_MARKER_ID_PREFIX = "local-marker-";
 
 /** Map a raw daemon `toolStatus` to a block status; keep `fallback` if absent. */
 function mapToolStatus(
@@ -254,19 +252,18 @@ export function applyAcpChatEvent(
 }
 
 /**
- * Best-effort extraction of `locations` from a tool event. The store's raw
- * event carries no typed `locations` field today; this reads an optional
- * passthrough off the event without widening the store type.
+ * Normalize a tool event's typed `locations` field for a chat block.
  *
- * Returns `undefined` only when the field is ABSENT or not an array (the caller
+ * Returns `undefined` when the field is ABSENT or not an array (the caller
  * treats this as "no change"). A VALID array — including an empty one — returns
  * a parsed array (possibly `[]`), so an ACP `locations: []` update can clear
- * stale locations rather than preserving the previous value.
+ * stale locations rather than preserving the previous value. The runtime guard
+ * tolerates off-wire shapes that don't match the declared type.
  */
 function parseLocations(
   event: AcpRunRawEvent,
 ): { path: string; line?: number }[] | undefined {
-  const raw = (event as { locations?: unknown }).locations;
+  const raw = event.locations;
   if (!Array.isArray(raw)) return undefined;
   const out: { path: string; line?: number }[] = [];
   for (const item of raw) {

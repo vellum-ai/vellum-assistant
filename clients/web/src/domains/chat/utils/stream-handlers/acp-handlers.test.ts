@@ -67,10 +67,8 @@ describe("handleAcpSessionUpdate", () => {
       updateType: "tool_call",
       toolCallId: "tc-1",
       seq: 1,
-      // `locations` rides the wire (daemon forwards it) but isn't on the web
-      // event type yet — cast to attach it like the daemon does.
       locations: [{ path: "a.ts", line: 12 }, { path: "b.ts" }],
-    } as Parameters<typeof handleAcpSessionUpdate>[0]);
+    });
     expect(getState().byId["acp-1"]?.events[0]?.locations).toEqual([
       { path: "a.ts", line: 12 },
       { path: "b.ts" },
