@@ -14,6 +14,7 @@ import {
   getWeatherIcon,
   parseWeatherData,
 } from "@/domains/chat/components/surfaces/weather-utils";
+import { cn } from "@/utils/misc";
 
 // ---------------------------------------------------------------------------
 // Sub-components
@@ -36,22 +37,24 @@ function UnitToggle({
       <button
         type="button"
         onClick={() => onToggle(true)}
-        className={`px-2 py-0.5 text-body-small-default transition-colors ${
+        className={cn(
+          "px-2 py-0.5 text-body-small-default transition-colors",
           useFahrenheit
             ? "bg-[var(--primary-base)] text-[var(--content-inset)]"
-            : "bg-transparent text-[var(--content-quiet)]"
-        }`}
+            : "bg-transparent text-[var(--content-quiet)]",
+        )}
       >
         &deg;F
       </button>
       <button
         type="button"
         onClick={() => onToggle(false)}
-        className={`px-2 py-0.5 text-body-small-default transition-colors ${
+        className={cn(
+          "px-2 py-0.5 text-body-small-default transition-colors",
           !useFahrenheit
             ? "bg-[var(--primary-base)] text-[var(--content-inset)]"
-            : "bg-transparent text-[var(--content-quiet)]"
-        }`}
+            : "bg-transparent text-[var(--content-quiet)]",
+        )}
       >
         &deg;C
       </button>
@@ -241,11 +244,12 @@ function DailySection({
           return (
             <div key={item.id ?? i} className="flex items-center gap-2">
               <span
-                className={`w-12 shrink-0 truncate text-body-small-default ${
+                className={cn(
+                  "w-12 shrink-0 truncate text-body-small-default",
                   isToday
                     ? "text-[var(--content-default)]"
-                    : "text-[var(--content-quiet)]"
-                }`}
+                    : "text-[var(--content-quiet)]",
+                )}
               >
                 {dayName}
               </span>

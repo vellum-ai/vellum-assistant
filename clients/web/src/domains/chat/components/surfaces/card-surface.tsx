@@ -7,6 +7,7 @@ import type { Surface } from "@/domains/chat/types/types";
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
+import { cn } from "@/utils/misc";
 
 // Weather card has its own data-shape parsing and forecast UI that is only
 // rendered when a card surface advertises a weather template. Defer loading
@@ -90,7 +91,10 @@ function StatusBadge({ status }: { status: string | undefined }) {
   const { label, colorClass } = getStatusConfig(status);
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-body-small-default ${colorClass}`}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-body-small-default",
+        colorClass,
+      )}
       style={{
         backgroundColor: "color-mix(in srgb, currentColor 15%, transparent)",
       }}
@@ -102,13 +106,13 @@ function StatusBadge({ status }: { status: string | undefined }) {
 
 function StepIcon({ status }: { status: string | undefined }) {
   const { colorClass } = getStatusConfig(status);
-  const iconClass = `h-4 w-4 shrink-0 ${colorClass}`;
+  const iconClass = cn("h-4 w-4 shrink-0", colorClass);
 
   switch (status) {
     case "completed":
       return <CircleCheck className={iconClass} />;
     case "in_progress":
-      return <Loader2 className={`${iconClass} animate-spin`} />;
+      return <Loader2 className={cn(iconClass, "animate-spin")} />;
     case "waiting":
       return <Clock className={iconClass} />;
     case "failed":

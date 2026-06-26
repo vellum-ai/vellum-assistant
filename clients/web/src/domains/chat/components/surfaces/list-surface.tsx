@@ -4,6 +4,7 @@ import { sfSymbolToLucideIcon } from "@/domains/chat/components/surfaces/sf-symb
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
 import { useSelectionState } from "@/domains/chat/components/surfaces/use-selection-state";
 import type { Surface } from "@/domains/chat/types/types";
+import { cn } from "@/utils/misc";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -55,24 +56,26 @@ export function ListSurface({ surface, onAction }: ListSurfaceProps) {
                 type="button"
                 disabled={!isSelectable}
                 onClick={() => handleToggle(item.id)}
-                className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors ${
+                className={cn(
+                  "flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors",
                   isSelectable
                     ? "cursor-pointer hover:bg-[var(--surface-hover)]"
-                    : "cursor-default"
-                } ${
+                    : "cursor-default",
                   isSelected
                     ? "bg-[var(--system-positive-weak)]"
-                    : ""
-                }`}
+                    : "",
+                )}
               >
                 {/* Selection indicator */}
                 {isSelectable && (
                   <span
-                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors ${
+                    className={cn(
+                      "flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors",
                       isSelected
                         ? "border-[var(--primary-base)] bg-[var(--primary-base)] text-[var(--content-inset)]"
-                        : "border-[var(--border-element)]"
-                    } ${selectionMode === "single" ? "rounded-full" : "rounded"}`}
+                        : "border-[var(--border-element)]",
+                      selectionMode === "single" ? "rounded-full" : "rounded",
+                    )}
                   >
                     {isSelected && <Check className="h-3 w-3" />}
                   </span>
