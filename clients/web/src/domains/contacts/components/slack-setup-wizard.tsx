@@ -232,7 +232,6 @@ export function SlackSetupWizard({
               current={stepIndex}
               onStepSelect={handleStepSelect}
               disabled={saving}
-              className="scrollbar-none"
             />
 
             <div className="rounded-lg bg-[var(--surface-sunken)] p-4">

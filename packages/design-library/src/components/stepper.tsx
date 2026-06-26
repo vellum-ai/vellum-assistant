@@ -75,7 +75,7 @@ export function Stepper({
     <nav
       data-slot="stepper"
       className={cn(
-        "flex items-center gap-4 overflow-x-auto border-b border-[var(--border-base)]",
+        "flex items-center gap-4 overflow-x-clip border-b border-[var(--border-base)]",
         className,
       )}
       {...rest}
