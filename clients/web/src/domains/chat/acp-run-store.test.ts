@@ -490,6 +490,33 @@ describe("updateUsage", () => {
     expect(entry.outputTokens).toBe(3400);
   });
 
+  it("preserves cumulative input/output/cost when a later event omits them", () => {
+    spawn();
+    // A prompt finishes carrying the cumulative totals + cost.
+    getState().updateUsage({
+      acpSessionId: "acp-1",
+      usedTokens: 1500,
+      contextSize: 200000,
+      inputTokens: 12000,
+      outputTokens: 3400,
+      costAmount: 0.05,
+      costCurrency: "USD",
+    });
+    // A subsequent streaming usage_update carries only used/size (no totals).
+    getState().updateUsage({
+      acpSessionId: "acp-1",
+      usedTokens: 1800,
+      contextSize: 200000,
+    });
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.usedTokens).toBe(1800);
+    expect(entry.inputTokens).toBe(12000);
+    expect(entry.outputTokens).toBe(3400);
+    expect(entry.costAmount).toBe(0.05);
+    expect(entry.costCurrency).toBe("USD");
+  });
+
   it("ignores an unknown session", () => {
     const before = { ...getState().byId };
     getState().updateUsage({

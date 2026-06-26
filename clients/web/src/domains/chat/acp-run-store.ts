@@ -449,10 +449,14 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
           ...existing,
           usedTokens: params.usedTokens,
           contextSize: params.contextSize,
-          inputTokens: params.inputTokens,
-          outputTokens: params.outputTokens,
-          costAmount: params.costAmount,
-          costCurrency: params.costCurrency,
+          // Cumulative totals/cost aren't on every usage_update — streaming
+          // events carry only used/size until the prompt finishes — so preserve
+          // the last known value when an event omits them; otherwise a resumed
+          // run's live usage_update would null out the persisted meter.
+          inputTokens: params.inputTokens ?? existing.inputTokens,
+          outputTokens: params.outputTokens ?? existing.outputTokens,
+          costAmount: params.costAmount ?? existing.costAmount,
+          costCurrency: params.costCurrency ?? existing.costCurrency,
         },
       },
     });
