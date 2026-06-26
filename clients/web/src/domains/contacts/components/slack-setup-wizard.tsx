@@ -168,7 +168,15 @@ export function SlackSetupWizard({
                 alt=""
                 className="size-8 rounded-lg bg-[var(--surface-sunken)] p-1"
               />
-              <span>Slack settings</span>
+              <div className="flex flex-col">
+                <Typography as="span" variant="body-medium-default">
+                  Slack settings
+                </Typography>
+                <span className="flex items-center gap-1.5 text-body-small-default text-[var(--content-secondary)]">
+                  <span className="size-2 rounded-full bg-[var(--system-positive-strong)]" />
+                  Connected as {assistantName}
+                </span>
+              </div>
             </div>
           </Card.Header>
           <Card.Body>
@@ -224,7 +232,7 @@ export function SlackSetupWizard({
               current={stepIndex}
               onStepSelect={handleStepSelect}
               disabled={saving}
-              className="overflow-hidden"
+              className="scrollbar-none"
             />
 
             <div className="rounded-lg bg-[var(--surface-sunken)] p-4">
