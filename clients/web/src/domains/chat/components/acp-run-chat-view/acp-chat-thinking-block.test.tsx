@@ -20,6 +20,32 @@ describe("AcpChatThinkingBlock", () => {
     expect(screen.getByText("Thought process")).toBeDefined();
   });
 
+  test("auto-collapses when streaming completes while mounted", () => {
+    const { rerender } = render(
+      <AcpChatThinkingBlock content="reasoning" isComplete={false} />,
+    );
+    expect(screen.getByTestId("acp-chat-thinking-body")).toBeDefined();
+
+    rerender(<AcpChatThinkingBlock content="reasoning" isComplete />);
+    expect(screen.queryByTestId("acp-chat-thinking-body")).toBeNull();
+    expect(screen.getByText("Thought process")).toBeDefined();
+  });
+
+  test("persists a manual toggle across an isComplete change", () => {
+    const { rerender } = render(
+      <AcpChatThinkingBlock content="reasoning" isComplete={false} />,
+    );
+    const toggle = screen.getByTestId("acp-chat-thinking-toggle");
+
+    // User collapses the block mid-stream.
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId("acp-chat-thinking-body")).toBeNull();
+
+    // Streaming completes — the user's collapsed choice must stick.
+    rerender(<AcpChatThinkingBlock content="reasoning" isComplete />);
+    expect(screen.queryByTestId("acp-chat-thinking-body")).toBeNull();
+  });
+
   test("toggles the body open and closed", () => {
     render(<AcpChatThinkingBlock content="deep thoughts" isComplete />);
     const toggle = screen.getByTestId("acp-chat-thinking-toggle");

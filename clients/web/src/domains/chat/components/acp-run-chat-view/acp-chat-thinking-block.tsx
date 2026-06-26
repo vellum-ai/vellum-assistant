@@ -24,16 +24,18 @@ export function AcpChatThinkingBlock({
   content,
   isComplete,
 }: AcpChatThinkingBlockProps) {
-  // Auto-expanded while streaming; collapsed once complete. Local only — never
-  // touches the global viewer store.
-  const [expanded, setExpanded] = useState(!isComplete);
+  // Auto-expanded while streaming; collapsed once complete. A user toggle sets
+  // an override that sticks regardless of later `isComplete` changes. Local
+  // only — never touches the global viewer store.
+  const [override, setOverride] = useState<boolean | null>(null);
+  const expanded = override ?? !isComplete;
 
   return (
     <div data-testid="acp-chat-thinking-block" className="w-full">
       <button
         type="button"
         aria-expanded={expanded}
-        onClick={() => setExpanded((prev) => !prev)}
+        onClick={() => setOverride(!expanded)}
         data-testid="acp-chat-thinking-toggle"
         className="flex w-full items-center gap-1.5 text-body-small-default text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)]"
       >
