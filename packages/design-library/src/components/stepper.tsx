@@ -24,17 +24,13 @@ export type StepperProps = ComponentProps<"nav"> & {
   disabled?: boolean;
 };
 
-// Color is keyed on the step's position (`status`); interactivity is keyed on
-// the native `:enabled` / `:disabled` state, so a completed step keeps its
-// visited color even when navigation is locked (e.g. while submitting).
+// Color is keyed on the step's position (`status`); the `navigable` variant adds
+// the interactive affordances (cursor, hover, focus ring) for the completed
+// steps that render as buttons. A completed step keeps its visited color even
+// when navigation is locked (e.g. while submitting), since color is independent
+// of interactivity.
 export const stepVariants = cva(
-  [
-    "-mb-px inline-flex items-center whitespace-nowrap border-b-2 border-transparent pb-2",
-    "text-body-medium-default outline-none transition-colors",
-    "keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)] keyboard-focus:ring-offset-0",
-    "enabled:cursor-pointer enabled:hover:text-[var(--content-strong)]",
-    "disabled:cursor-default",
-  ].join(" "),
+  "-mb-px inline-flex items-center whitespace-nowrap border-b-2 border-transparent pb-2 text-body-medium-default transition-colors",
   {
     variants: {
       status: {
@@ -42,8 +38,12 @@ export const stepVariants = cva(
         completed: "text-[var(--content-default)]",
         upcoming: "text-[var(--content-disabled)]",
       },
+      navigable: {
+        true: "cursor-pointer outline-none hover:text-[var(--content-strong)] keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)] keyboard-focus:ring-offset-0",
+        false: "cursor-default",
+      },
     },
-    defaultVariants: { status: "upcoming" },
+    defaultVariants: { status: "upcoming", navigable: false },
   },
 );
 
@@ -55,9 +55,13 @@ export type StepStatus = NonNullable<VariantProps<typeof stepVariants>["status"]
  * steps (before it) read as visited and can navigate back, the active step is
  * marked with `aria-current="step"`, and upcoming steps (after it) are muted
  * and locked. A completed step keeps its visited styling even when navigation
- * is disabled, so it never looks like an upcoming step. This is the step
- * pattern — distinct from `Tabs`, which models parallel, independently
- * selectable panels.
+ * is disabled, so it never looks like an upcoming step.
+ *
+ * Only navigable (completed) steps render as `<button>`s; the active and
+ * upcoming steps render as non-interactive `<span>`s, so a screen reader
+ * announces the current step via `aria-current` rather than as a disabled
+ * button. This is the step pattern — distinct from `Tabs`, which models
+ * parallel, independently selectable panels.
  */
 export function Stepper({
   steps,
@@ -85,18 +89,30 @@ export function Stepper({
               : "upcoming";
         const navigable =
           status === "completed" && !disabled && !!onStepSelect;
+
+        if (navigable) {
+          return (
+            <button
+              key={step.id}
+              type="button"
+              data-slot="stepper-step"
+              onClick={() => onStepSelect?.(index)}
+              className={stepVariants({ status, navigable: true })}
+            >
+              {step.label}
+            </button>
+          );
+        }
+
         return (
-          <button
+          <span
             key={step.id}
-            type="button"
             data-slot="stepper-step"
-            disabled={!navigable}
             aria-current={status === "active" ? "step" : undefined}
-            onClick={navigable ? () => onStepSelect?.(index) : undefined}
             className={stepVariants({ status })}
           >
             {step.label}
-          </button>
+          </span>
         );
       })}
     </nav>
