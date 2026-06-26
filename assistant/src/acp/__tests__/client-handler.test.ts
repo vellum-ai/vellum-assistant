@@ -381,6 +381,29 @@ describe("VellumAcpClientHandler seq + enriched fields", () => {
     });
   });
 
+  test("tool_call_update forwards locations: [] when null (explicit clear)", async () => {
+    const { handler, sent } = makeHandler();
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tc-clear",
+        status: "completed",
+        // ACP `null` means "replace the locations collection with empty".
+        // We forward an empty array so web clears its prior locations.
+        locations: null,
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      updateType: "tool_call_update",
+      toolCallId: "tc-clear",
+      locations: [],
+    });
+  });
+
   test("tool_call_update omits locations key when absent", async () => {
     const { handler, sent } = makeHandler();
 

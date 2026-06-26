@@ -24,6 +24,7 @@ import type {
   SessionNotification,
   TerminalOutputRequest,
   TerminalOutputResponse,
+  ToolCallLocation,
   WaitForTerminalExitRequest,
   WaitForTerminalExitResponse,
   WriteTextFileRequest,
@@ -397,17 +398,20 @@ export class VellumAcpClientHandler implements Client {
   }
 }
 
-/** Normalize ACP tool-call locations into the SSE update's `locations` shape. */
+/**
+ * Normalize ACP tool-call locations into the SSE update's `locations` shape.
+ *
+ * The ACP `tool_call_update.locations` field is tri-state:
+ * - `undefined`/absent → no change; omit the field so web preserves prior locations.
+ * - `null` → explicit clear; forward `[]` (web clears its locations on an empty array).
+ * - an array → replace with the mapped locations.
+ */
 function mapLocations(
-  locations:
-    | ReadonlyArray<{ path: string; line?: number | null }>
-    | null
-    | undefined,
+  locations: ToolCallLocation[] | null | undefined,
 ): Array<{ path: string; line?: number }> | undefined {
-  return (
-    locations?.map((l) => ({ path: l.path, line: l.line ?? undefined })) ??
-    undefined
-  );
+  if (locations === undefined) return undefined;
+  if (locations === null) return [];
+  return locations.map((l) => ({ path: l.path, line: l.line ?? undefined }));
 }
 
 function findAllowOptionId(
