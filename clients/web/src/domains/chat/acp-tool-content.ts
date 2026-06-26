@@ -122,13 +122,21 @@ export function getAcpToolCommand(rawInput: unknown): string | undefined {
 
 /**
  * Format a raw ACP input/output value for display. `undefined`/`null` → no
- * value; strings pass through verbatim; objects pretty-print as JSON; anything
- * else stringifies. Used to render the expandable Raw input/output section.
+ * value; strings pass through verbatim; objects pretty-print as JSON (falling
+ * back to `String` when a payload can't serialize, e.g. a circular reference);
+ * anything else stringifies. Used to render the expandable Raw input/output
+ * section. (Mirrors the inspector's `formatPayload`.)
  */
 export function formatRawValue(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
   if (typeof value === "string") return value;
-  if (typeof value === "object") return JSON.stringify(value, null, 2);
+  if (typeof value === "object") {
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return String(value);
+    }
+  }
   return String(value);
 }
 

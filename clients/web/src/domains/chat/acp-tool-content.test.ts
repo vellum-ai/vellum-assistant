@@ -156,4 +156,11 @@ describe("formatRawValue", () => {
     expect(formatRawValue(42)).toBe("42");
     expect(formatRawValue(true)).toBe("true");
   });
+
+  it("falls back to String on a non-serializable (circular) object", () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    // Must not throw; falls back rather than crashing the card render.
+    expect(formatRawValue(circular)).toBe(String(circular));
+  });
 });
