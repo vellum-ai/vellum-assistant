@@ -19,6 +19,9 @@
 // The URL-building logic is exported as `buildManifestUrl` so sibling
 // scripts (e.g. `setup-form.ts`) reuse the exact same manifest — the
 // scopes, events, and Socket Mode settings live in one place only.
+//
+// Duplicated in clients/web/src/utils/slack-manifest.ts for the static
+// settings page (skills cannot import from client packages).
 
 /**
  * Build the Slack "create app from manifest" URL for a bot with the given

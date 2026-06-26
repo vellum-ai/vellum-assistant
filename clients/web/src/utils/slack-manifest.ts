@@ -39,9 +39,9 @@ const SLACK_MANIFEST_SCOPES = {
  * display name and optional description. The returned URL encodes a full
  * manifest with all required scopes, events, and Socket Mode enabled.
  *
- * Mirrors the skill-side implementation at
- * skills/slack-app-setup/scripts/build-manifest-url.ts — both must produce
- * identical manifests for the same inputs.
+ * Canonical source: skills/slack-app-setup/scripts/build-manifest-url.ts
+ * Duplicated here because skills cannot import from client packages.
+ * Keep both in sync when changing scopes, events, or manifest shape.
  */
 export function buildSlackManifestUrl(name: string, desc = ""): string {
   const safeName = name.trim().slice(0, 35) || "My Assistant";
