@@ -60,6 +60,7 @@ import type {
   CopyBlockSurfaceData,
   DynamicPageSurfaceData,
   FileUploadSurfaceData,
+  FormField,
   FormSurfaceData,
   ListSurfaceData,
   OAuthConnectSurfaceData,
@@ -98,6 +99,39 @@ const MAX_UNDO_DEPTH = 10;
  * "lost work on crash" window to ~half a second.
  */
 const SURFACE_PERSIST_DEBOUNCE_MS = 500;
+
+/**
+ * Strip password-type field values from submitted data before broadcasting
+ * to connected clients. Prevents tokens/secrets from leaking via SSE.
+ */
+function stripPasswordFields(
+  data: Record<string, unknown> | undefined,
+  formData: FormSurfaceData | undefined,
+): Record<string, unknown> | undefined {
+  if (!data || !formData) return data;
+
+  const passwordFieldIds = new Set<string>();
+  const collectPasswordFields = (fields: FormField[]) => {
+    for (const field of fields) {
+      if (field.type === "password") passwordFieldIds.add(field.id);
+    }
+  };
+
+  collectPasswordFields(formData.fields);
+  if (formData.pages) {
+    for (const page of formData.pages) {
+      collectPasswordFields(page.fields);
+    }
+  }
+
+  if (passwordFieldIds.size === 0) return data;
+
+  const filtered: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (!passwordFieldIds.has(key)) filtered[key] = value;
+  }
+  return filtered;
+}
 
 /**
  * In-flight debounced persist timers keyed by `surfaceId`. Surface IDs
@@ -1792,7 +1826,7 @@ export async function handleSurfaceAction(
       conversationId: ctx.conversationId,
       surfaceId,
       summary,
-      submittedData: data,
+      submittedData: stripPasswordFields(data, stored?.data as FormSurfaceData),
     });
     markSurfaceCompleted(ctx, surfaceId, summary);
 
@@ -2325,7 +2359,10 @@ export async function handleSurfaceAction(
       conversationId: ctx.conversationId,
       surfaceId,
       summary: completionSummary,
-      submittedData: mergedDataForText,
+      submittedData: stripPasswordFields(
+        mergedDataForText,
+        stored?.data as FormSurfaceData,
+      ),
     });
     markSurfaceCompleted(ctx, surfaceId, completionSummary);
   }
@@ -3278,7 +3315,10 @@ export async function surfaceProxyResolver(
         conversationId: ctx.conversationId,
         surfaceId,
         summary,
-        submittedData: lastAction.data,
+        submittedData: stripPasswordFields(
+          lastAction.data,
+          stored?.data as FormSurfaceData,
+        ),
       });
       markSurfaceCompleted(ctx, surfaceId, summary);
     } else {
