@@ -4,40 +4,46 @@
  * Production resolves the guardian binding + per-channel delivery endpoints from
  * the gateway (`gateway/src/risk/guardian-delivery-resolver.ts`, reached via the
  * `resolve_guardian_delivery` IPC route) — `role = 'guardian'` joined to active
- * gateway contact channels, ordered by verification recency. Tests seed that
- * gateway state via {@link seedContactChannel} / `createGuardianBinding` into the
- * in-process gateway ACL store ({@link liveGatewayAclRows}); this resolver reads
- * the SAME store so the gateway-derived delivery list reflects the seeded
+ * gateway contact channels, returning EVERY active row ordered by `verifiedAt`
+ * desc, optionally narrowed to `channelTypes` (empty array = unfiltered). Tests
+ * seed that gateway state via {@link seedContactChannel} / `createGuardianBinding`
+ * into the in-process gateway ACL store ({@link gatewayAclRows}); this resolver
+ * reads the SAME store so the gateway-derived delivery list reflects the seeded
  * binding. No assistant ACL columns are read here — those are Phase-B-dropped.
  */
 
 import type { GuardianDelivery } from "@vellumai/gateway-client";
 
-import { liveGatewayAclRows } from "./gateway-acl-store.js";
+import { gatewayAclRows } from "./gateway-acl-store.js";
 
 /**
  * Resolve active guardian deliveries from the gateway ACL store, optionally
  * filtered to a single channel (when `channelType` is given) or to a set of
  * channel types (when `channelTypes` is given). Mirrors the gateway resolution:
- * `role = 'guardian'` joined to active channels, ordered by verification
- * recency.
+ * `role = 'guardian'` joined to active channels, returning ALL active rows
+ * ordered by verification recency. An empty `channelTypes` array means
+ * unfiltered (all types), matching the production resolver.
  */
 export function deriveGuardianDeliveries(filter?: {
   channelType?: string;
   channelTypes?: string[];
 }): GuardianDelivery[] {
-  const rows = liveGatewayAclRows()
-    .filter((r) => r.role === "guardian" && r.status === "active")
-    .sort((a, b) => (b.verifiedAt ?? 0) - (a.verifiedAt ?? 0));
+  const channelTypes =
+    filter?.channelTypes ??
+    (filter?.channelType !== undefined ? [filter.channelType] : undefined);
 
-  if (rows.length === 0) return [];
-
-  // One active guardian per channel type (most-recently-verified wins, since
-  // rows are ordered by verifiedAt desc), matching the gateway resolution.
-  const byChannel = new Map<string, GuardianDelivery>();
-  for (const r of rows) {
-    if (byChannel.has(r.channelType)) continue;
-    byChannel.set(r.channelType, {
+  return gatewayAclRows()
+    .filter((r) => {
+      if (r.role !== "guardian" || r.status !== "active") return false;
+      // Empty array => no filter (all types), matching production's
+      // `channelTypes.length > 0` predicate guard.
+      if (channelTypes && channelTypes.length > 0) {
+        return channelTypes.includes(r.channelType);
+      }
+      return true;
+    })
+    .sort((a, b) => (b.verifiedAt ?? 0) - (a.verifiedAt ?? 0))
+    .map((r) => ({
       channelType: r.channelType,
       contactId: r.contactId,
       principalId: r.principalId ?? null,
@@ -46,21 +52,12 @@ export function deriveGuardianDeliveries(filter?: {
       externalChatId: r.externalChatId ?? null,
       status: "active",
       verifiedAt: r.verifiedAt ?? null,
-    });
-  }
-  const list = [...byChannel.values()];
-
-  const channelTypes =
-    filter?.channelTypes ??
-    (filter?.channelType ? [filter.channelType] : undefined);
-  return channelTypes
-    ? list.filter((g) => channelTypes.includes(g.channelType))
-    : list;
+    }));
 }
 
 /**
  * The single active guardian delivery for a channel type, mirroring the
- * gateway's per-channel resolution.
+ * gateway's per-channel resolution (most-recently-verified wins).
  */
 export function deriveGuardianForChannel(
   channelType: string,

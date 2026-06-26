@@ -87,6 +87,7 @@ import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { conversations } from "../memory/schema.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import { resetGatewayAclStore } from "./helpers/gateway-acl-store.js";
 
 await initializeDb();
 
@@ -115,6 +116,7 @@ function resetTables(): void {
   db.run("DELETE FROM conversations");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
+  resetGatewayAclStore();
 
   // Seed the vellum guardian binding (gateway does this at startup in production)
   createGuardianBinding({
@@ -210,6 +212,7 @@ describe("guardian-dispatch", () => {
     const db = getDb();
     db.run("DELETE FROM contact_channels");
     db.run("DELETE FROM contacts");
+    resetGatewayAclStore();
     createGuardianBinding({
       channel: "vellum",
       guardianExternalUserId: "local-actor-principal",
@@ -253,6 +256,7 @@ describe("guardian-dispatch", () => {
     const db = getDb();
     db.run("DELETE FROM contact_channels");
     db.run("DELETE FROM contacts");
+    resetGatewayAclStore();
 
     const convId = "conv-dispatch-no-principal";
     ensureConversation(convId);

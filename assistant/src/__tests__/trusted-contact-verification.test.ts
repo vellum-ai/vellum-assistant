@@ -42,6 +42,7 @@ import {
 } from "../runtime/member-verdict-cache.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 import { deriveGuardianForChannel } from "./helpers/derive-guardian-delivery.js";
+import { resetGatewayAclStore } from "./helpers/gateway-acl-store.js";
 
 await initializeDb();
 
@@ -55,6 +56,7 @@ function resetTables(): void {
   db.run("DELETE FROM channel_guardian_rate_limits");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
+  resetGatewayAclStore();
 }
 
 // Mirror a warmed gateway verdict so the sync resolveActorTrust fallback

@@ -10,17 +10,10 @@
  * write here and the test guardian-delivery resolver reads here, so NO test code
  * touches the assistant DB's ACL columns (which Phase B drops).
  *
- * Isolation: rows are keyed by the assistant channel id (which the identity
- * upsert regenerates per test). Reads drop any row whose backing assistant
- * identity channel no longer exists, so a `DELETE FROM contact_channels` /
- * `resetDbForTesting()` in a test's `beforeEach` automatically evicts stale
- * gateway rows without each test having to reset this store.
+ * Purely in-memory: no assistant DB / `src/` reach. Isolation is explicit — a
+ * test's `beforeEach` calls {@link resetGatewayAclStore} to clear the store,
+ * mirroring how sibling in-memory test stores reset themselves.
  */
-
-import { eq } from "drizzle-orm";
-
-import { getDb } from "../../memory/db-connection.js";
-import { contactChannels } from "../../memory/schema.js";
 
 export interface GatewayAclRow {
   contactId: string;
@@ -63,27 +56,16 @@ export function setGatewayAclStatusByType(
   }
 }
 
-/**
- * Live gateway ACL rows: those whose backing assistant identity channel still
- * exists. Stale rows (left over from a prior test whose tables were reset) are
- * dropped, giving automatic per-test isolation.
- */
-export function liveGatewayAclRows(): GatewayAclRow[] {
-  const db = getDb();
-  const live: GatewayAclRow[] = [];
-  for (const row of rows.values()) {
-    const exists = db
-      .select({ id: contactChannels.id })
-      .from(contactChannels)
-      .where(eq(contactChannels.id, row.channelId))
-      .get();
-    if (exists) live.push(row);
-    else rows.delete(row.channelId);
-  }
-  return live;
+/** All gateway ACL rows currently in the store. */
+export function gatewayAclRows(): GatewayAclRow[] {
+  return [...rows.values()];
 }
 
-/** Test-only: clear the entire gateway ACL store. */
-export function __resetGatewayAclStoreForTest(): void {
+/**
+ * Clear the gateway ACL store. Tests call this in `beforeEach` (alongside the
+ * assistant DB reset) for per-test isolation, the same way sibling in-memory
+ * test stores reset themselves.
+ */
+export function resetGatewayAclStore(): void {
   rows.clear();
 }

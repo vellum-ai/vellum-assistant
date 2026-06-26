@@ -169,6 +169,7 @@ import {
 } from "../runtime/verification-templates.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import { resetGatewayAclStore } from "./helpers/gateway-acl-store.js";
 import { revokeChannelsByType } from "./helpers/seed-contact-channel.js";
 
 initializeDb();
@@ -184,6 +185,7 @@ function resetTables(): void {
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
   db.run("DELETE FROM external_conversation_bindings");
+  resetGatewayAclStore();
   telegramDeliverCalls.length = 0;
   voiceCallInitCalls.length = 0;
   mockBotUsername = "test_bot";

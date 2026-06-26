@@ -434,6 +434,7 @@ import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 import { deriveGuardianDeliveries } from "./helpers/derive-guardian-delivery.js";
+import { resetGatewayAclStore } from "./helpers/gateway-acl-store.js";
 import { seedContactChannel } from "./helpers/seed-contact-channel.js";
 
 await initializeDb();
@@ -516,6 +517,7 @@ function resetTables() {
     "contact_channels",
     "contacts",
   );
+  resetGatewayAclStore();
   ensuredConvIds = new Set();
 }
 
@@ -2952,6 +2954,7 @@ describe("relay-server", () => {
     const db = getDb();
     db.run("DELETE FROM contact_channels");
     db.run("DELETE FROM contacts");
+    resetGatewayAclStore();
     try {
       ensureConversation("conv-invite-no-name");
       const session = createCallSession({
@@ -2996,6 +2999,7 @@ describe("relay-server", () => {
     const db = getDb();
     db.run("DELETE FROM contact_channels");
     db.run("DELETE FROM contacts");
+    resetGatewayAclStore();
     try {
       ensureConversation("conv-invite-uuid-name");
       const session = createCallSession({
