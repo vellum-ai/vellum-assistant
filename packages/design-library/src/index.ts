@@ -88,6 +88,11 @@ export {
   type SegmentControlProps,
 } from "./components/segment-control";
 export {
+  Stepper,
+  type StepperStep,
+  type StepperProps,
+} from "./components/stepper";
+export {
   Slider,
   isRangeValue,
   toValueArray,
