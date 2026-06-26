@@ -845,8 +845,8 @@ describe("loadConfig startup behavior", () => {
       "gpt-5.4-nano",
     );
 
-    // Managed profiles are also seeded (balanced now uses Fireworks/GLM 5.2,
-    // matching the quality profile).
+    // Managed profiles are also seeded. Balanced now serves GLM 5.2 on
+    // Fireworks (the model Quality used to carry).
     expect(raw.llm.profiles.balanced.provider).toBe("fireworks");
     expect(raw.llm.profiles.balanced.provider_connection).toBe(
       "fireworks-managed",
@@ -855,12 +855,9 @@ describe("loadConfig startup behavior", () => {
       "accounts/fireworks/models/glm-5p2",
     );
     expect(raw.llm.profiles.balanced.source).toBe("managed");
-    // Quality is also GLM 5.2 on Fireworks; Frontier carries the Anthropic Opus
-    // config Quality used to have.
-    expect(raw.llm.profiles["quality-optimized"].provider).toBe("fireworks");
-    expect(raw.llm.profiles["quality-optimized"].model).toBe(
-      "accounts/fireworks/models/glm-5p2",
-    );
+    // Quality now serves Anthropic Opus, the same model as Frontier.
+    expect(raw.llm.profiles["quality-optimized"].provider).toBe("anthropic");
+    expect(raw.llm.profiles["quality-optimized"].model).toBe("claude-opus-4-8");
     expect(raw.llm.profiles.frontier.provider).toBe("anthropic");
     expect(raw.llm.profiles.frontier.model).toBe("claude-opus-4-8");
     // Speed is served by DeepSeek V4 Flash on Fireworks.
@@ -943,14 +940,14 @@ describe("loadConfig startup behavior", () => {
   test("reseed updates a source-less legacy canonical managed profile", () => {
     // Migration 052 seeded canonical profiles without a `source`. Such a
     // source-less `quality-optimized` is legacy managed, not user-owned, so it
-    // must still reseed to the latest template (GLM 5.2) and be tagged managed.
+    // must still reseed to the latest template (Opus) and be tagged managed.
     writeConfig({
       llm: {
         profiles: {
           "quality-optimized": {
-            provider: "anthropic",
-            model: "claude-opus-4-8",
-            provider_connection: "anthropic-managed",
+            provider: "fireworks",
+            model: "accounts/fireworks/models/glm-5p2",
+            provider_connection: "fireworks-managed",
           },
         },
       },
@@ -959,9 +956,7 @@ describe("loadConfig startup behavior", () => {
     mergeDefaultConfigAndSeedInferenceProfiles();
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
-    expect(raw.llm.profiles["quality-optimized"].model).toBe(
-      "accounts/fireworks/models/glm-5p2",
-    );
+    expect(raw.llm.profiles["quality-optimized"].model).toBe("claude-opus-4-8");
     expect(raw.llm.profiles["quality-optimized"].source).toBe("managed");
   });
 
@@ -1622,12 +1617,11 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
     expect(raw.llm.activeProfile).toBe("balanced");
-    // Balanced now lives on `fireworks-managed`, the same connection as
-    // `quality-optimized` and `cost-optimized`. Selecting balanced at hatch
-    // keeps that connection active, so all three fireworks-managed profiles
-    // stay enabled and the default advisor picks the higher-ranked managed
-    // `quality-optimized` (equivalent GLM 5.2 model).
-    expect(raw.llm.advisorProfile).toBe("quality-optimized");
+    // Balanced lives on `fireworks-managed`; `quality-optimized` and `frontier`
+    // (both Opus on `anthropic-managed`) are on a different connection, so
+    // selecting balanced at hatch disables them. The default advisor falls to
+    // the only active managed profile, `balanced`.
+    expect(raw.llm.advisorProfile).toBe("balanced");
     expect(raw.llm.profiles.balanced.provider_connection).toBe(
       "fireworks-managed",
     );

@@ -4,9 +4,9 @@ import { join } from "node:path";
 import type { WorkspaceMigration } from "./types.js";
 
 // Bring an existing workspace's managed `balanced` profile in line with the
-// current code template: it now runs GLM 5.2 (Fireworks), matching the managed
-// `quality-optimized` profile's model, provider, connection, effort, and
-// description.
+// current code template: it now runs GLM 5.2 (Fireworks) at effort `high`,
+// taking over the model the managed `quality-optimized` profile used to serve.
+// The slot keeps its own `label` and `description`.
 //
 // A migration is needed even though the seeder reconciles managed-profile
 // content from the templates on every boot, because the seeder only consults a
@@ -35,8 +35,7 @@ const SEEDED_TOP_P = 0.95;
 
 export const swapBalancedProfileToGlm52Migration: WorkspaceMigration = {
   id: "113-swap-balanced-profile-to-glm-5p2",
-  description:
-    "Set the managed balanced profile to GLM 5.2 (Fireworks), matching the quality profile",
+  description: "Set the managed balanced profile to GLM 5.2 (Fireworks)",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
     if (!existsSync(configPath)) return;
@@ -69,8 +68,6 @@ export const swapBalancedProfileToGlm52Migration: WorkspaceMigration = {
     profile.provider = "fireworks";
     profile.provider_connection = "fireworks-managed";
     profile.effort = "high";
-    profile.description =
-      "High-quality results with a leading open model (GLM 5.2)";
     if (profile.topP === SEEDED_TOP_P) {
       delete profile.topP;
     }

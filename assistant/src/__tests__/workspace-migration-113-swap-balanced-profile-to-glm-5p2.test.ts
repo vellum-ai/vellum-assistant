@@ -89,14 +89,14 @@ describe("113-swap-balanced-profile-to-glm-5p2 migration", () => {
     expect(profile.provider).toBe("fireworks");
     expect(profile.provider_connection).toBe("fireworks-managed");
     expect(profile.effort).toBe("high");
-    expect(profile.description).toBe(
-      "High-quality results with a leading open model (GLM 5.2)",
-    );
-    // The seeded default topP is dropped so the profile matches the quality
-    // profile, which has no topP.
+    // The seeded default topP (0.95) is dropped — GLM 5.2 carries no topP.
     expect("topP" in profile).toBe(false);
-    // The slot's own identity (key + label) is preserved so pins keep resolving.
+    // The slot's own identity (key + label + description) is preserved so pins
+    // keep resolving.
     expect(profile.label).toBe("Balanced");
+    expect(profile.description).toBe(
+      "Good balance of quality, cost, and speed",
+    );
   });
 
   test("swaps a source-less legacy managed balanced profile", () => {
