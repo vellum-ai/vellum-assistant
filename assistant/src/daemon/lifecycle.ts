@@ -413,7 +413,12 @@ export async function runDaemon(): Promise<void> {
     // If DB initialization fails (e.g. a migration error), the daemon
     // continues in a degraded state — DB-dependent features won't work but
     // the HTTP server and config-based subsystems still start so the process
-    // remains reachable for health checks and diagnostics.
+    // remains reachable for diagnostics. In this state the trivial /healthz
+    // and detailed /v1/health(z) endpoints still answer 200, but because
+    // setDbReady(true) is only called on DB-init success the readiness latch
+    // is never set, so /readyz reports not-ready (503) for the rest of the
+    // process lifetime. That 503 is intentional: a DB-broken daemon should
+    // fail readiness so it is not routed user traffic.
     let dbReady = false;
     try {
       await initializeDb();
@@ -1124,9 +1129,12 @@ export async function runDaemon(): Promise<void> {
 
     // Wire up the runtime HTTP server's deferred dependencies. The server
     // itself was bound early in runDaemon (right after the auth signing key
-    // was loaded) so /healthz and /readyz already answer 200 OK; these
-    // registrations attach the live DaemonServer / CES / relay handlers to
-    // the running routes. They're module-level state, so they're effective
+    // was loaded), so the trivial /healthz endpoint already answers 200 OK;
+    // /readyz, however, is a real readiness gate and answers 503 from bind
+    // time until the startup latches (isStartupComplete + isDbReady) are set
+    // near the end of startup, becoming 200 only once startup completes.
+    // These registrations attach the live DaemonServer / CES / relay handlers
+    // to the running routes. They're module-level state, so they're effective
     // even when the HTTP server failed to bind (IPC clients still work).
     registerSecretsDeps({
       getCesClient: () => server.getCesClient(),
