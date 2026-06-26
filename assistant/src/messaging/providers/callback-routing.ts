@@ -22,9 +22,10 @@ export type DirectDeliveryChannel = (typeof DIRECT_DELIVERY_CHANNELS)[number];
 const CALLBACK_PREFIX = "/deliver/";
 
 /**
- * Resolve a gateway callback URL to the direct-delivery channel that owns it,
- * or `undefined` when no channel delivers it directly. Matches on URL pathname,
- * with a query-stripped fallback for callback strings that lack a parseable base.
+ * Resolve a gateway callback URL to the direct-delivery channel that owns it, or
+ * `undefined` when no channel delivers it directly. Gateway callbacks are always
+ * absolute URLs; an unparseable (e.g. base-less) callback is treated as not
+ * directly delivered and falls through to the gateway HTTP proxy.
  */
 export function channelForCallback(
   callbackUrl: string,
@@ -33,7 +34,7 @@ export function channelForCallback(
   try {
     pathname = new URL(callbackUrl).pathname;
   } catch {
-    pathname = callbackUrl.split("?", 1)[0];
+    return undefined;
   }
   if (!pathname.startsWith(CALLBACK_PREFIX)) return undefined;
   const channel = pathname.slice(CALLBACK_PREFIX.length);

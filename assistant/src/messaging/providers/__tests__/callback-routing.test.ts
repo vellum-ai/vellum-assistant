@@ -30,7 +30,7 @@ describe("channelForCallback", () => {
     expect(channelForCallback("not-a-url")).toBeUndefined();
   });
 
-  test("resolves base-less callback paths", () => {
-    expect(channelForCallback("/deliver/slack?threadTs=1")).toBe("slack");
+  test("treats base-less callback paths as not directly delivered", () => {
+    expect(channelForCallback("/deliver/slack?threadTs=1")).toBeUndefined();
   });
 });
