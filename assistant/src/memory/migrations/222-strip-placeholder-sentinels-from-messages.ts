@@ -2,34 +2,16 @@ import {
   PLACEHOLDER_BLOCKS_OMITTED,
   PLACEHOLDER_EMPTY_TURN,
 } from "../../providers/placeholder-sentinels.js";
-import { getLogger } from "../../util/logger.js";
 import { getDbPath } from "../../util/platform.js";
 import { runAsyncSqlite } from "../db-async-query.js";
 import type { DrizzleDb } from "../db-connection.js";
 import { getSqliteFrom } from "../db-connection.js";
 
-const log = getLogger("db-init");
-
-/**
- * Checkpoint key holding the highest `messages.rowid` already swept by this
- * migration. Persisted after every window so an interrupted run resumes from
- * where it left off instead of restarting the whole table scan. The value is a
- * plain integer string — deliberately not `started`/`rolling_back`, so
- * `recoverCrashedMigrations` never mistakes it for a stalled step and clears
- * it, and not `step:`-prefixed, so `validateMigrationState` ignores it.
- */
-const WATERMARK_KEY = "migration_222_strip_placeholder_watermark";
-
 /**
  * Number of `rowid` values swept per `runAsyncSqlite` dispatch. Each window is
- * one off-thread subprocess transaction. The size stays well below the row
- * count of a typical `messages` table so the whole table is never swept in a
- * single subprocess: a window must finish inside {@link WINDOW_TIMEOUT_MS} for
- * the per-window watermark to advance, and only an advancing watermark lets an
- * interrupted run resume from the last completed window instead of re-running
- * the same window forever. A smaller window also bounds WAL growth per
- * statement and how long a single write lock is held, at the cost of more
- * (cheap) subprocess spawns.
+ * one off-thread subprocess transaction. Keeping it well below the row count of
+ * a typical `messages` table bounds how long a single write lock is held and how
+ * much WAL one statement appends, at the cost of more (cheap) subprocess spawns.
  */
 export const ROWID_WINDOW = 2_000;
 
@@ -39,8 +21,7 @@ export const ROWID_WINDOW = 2_000;
  * content blobs, so it trips only on a genuinely stuck subprocess (e.g. one
  * blocked on a stale write lock) rather than on legitimately slow progress.
  * Far below `runAsyncSqlite`'s one-hour whole-process default so a stuck window
- * surfaces in minutes and the runner retries from the last completed window on
- * the next boot.
+ * surfaces in minutes instead of blocking startup for an hour.
  */
 export const WINDOW_TIMEOUT_MS = 15 * 60 * 1000;
 
@@ -67,8 +48,8 @@ const ELEMENT_IS_SENTINEL = `(json_extract(value, '$.type') = 'text'
 /**
  * SQL predicate: this `json_each` element is kept. `IS NOT 1` (rather than a
  * bare `NOT`) keeps any element whose sentinel test is false *or* NULL, so a
- * non-text block — or one with an absent `type`/`text` — survives, matching the
- * JS filter the original migration used (drop only exact sentinel text blocks).
+ * non-text block — or one with an absent `type`/`text` — survives, dropping only
+ * exact sentinel text blocks.
  */
 const ELEMENT_IS_KEPT = `(json_extract(value, '$.type') = 'text'
    AND json_extract(value, '$.text') IN (${SENTINEL_TEXT_LIST})) IS NOT 1`;
@@ -80,8 +61,7 @@ const ELEMENT_IS_KEPT = `(json_extract(value, '$.type') = 'text'
  *    kept block, rebuilding the content array in place. `json(value)` re-embeds
  *    each surviving element as JSON rather than a quoted string.
  *  - Statement B replaces all-sentinel rows (no kept block survives) with an
- *    empty array `[]`, matching the original "if stripping leaves the message
- *    empty, store []" behavior.
+ *    empty array `[]`.
  *
  * Both are gated by a cheap `content LIKE '%__PLACEHOLDER__%'` substring
  * prefilter so the expensive `json_each` work only runs for rows that could
@@ -129,17 +109,16 @@ function windowSql(lo: number, hi: number): string {
  * bubbles as bold "PLACEHOLDER[...]" (markdown interprets the double-underscore
  * surround as bold).
  *
- * The rewrite runs entirely inside SQLite (via JSON1), dispatched through
+ * The strip runs entirely inside SQLite (via JSON1), dispatched through
  * {@link runAsyncSqlite} a rowid window at a time. On a host with the `sqlite3`
- * CLI each window executes in a subprocess, leaving the daemon's event loop
- * free to answer `/healthz` while a multi-GB table is rewritten — a synchronous
- * in-process scan-and-parse loop would block the loop for minutes and risk
- * tripping the startup liveness probe into a restart loop. Progress is
- * checkpointed per window, so an interrupted run resumes instead of rescanning
- * from the start.
+ * CLI each window executes in a subprocess, so the daemon's event loop stays
+ * free to answer `/healthz` while the messages table is rewritten and each
+ * window's write transaction stays small and short-lived.
  *
- * Idempotent — safe to re-run. Already-cleaned rows no longer contain a
- * sentinel, so the substring prefilter skips them.
+ * Idempotent — already-cleaned rows no longer contain a sentinel, so the
+ * substring prefilter skips them. The migration runner owns run-once
+ * bookkeeping: it only records the step as applied once this function returns,
+ * so a boot interrupted mid-sweep simply re-runs the whole sweep next boot.
  */
 export async function migrateStripPlaceholderSentinelsFromMessages(
   database: DrizzleDb,
@@ -154,16 +133,7 @@ export async function migrateStripPlaceholderSentinelsFromMessages(
   ).m;
   if (maxRow == null) return; // empty table — nothing to sweep
 
-  const watermarkRow = raw
-    .query(`SELECT value FROM memory_checkpoints WHERE key = ?`)
-    .get(WATERMARK_KEY) as { value: string } | undefined;
-  let lo = watermarkRow ? Number.parseInt(watermarkRow.value, 10) || 0 : 0;
-
-  const setWatermark = raw.query(
-    `INSERT OR REPLACE INTO memory_checkpoints (key, value, updated_at) VALUES (?, ?, ?)`,
-  );
-
-  while (lo < maxRow) {
+  for (let lo = 0; lo < maxRow; lo += ROWID_WINDOW) {
     const hi = Math.min(lo + ROWID_WINDOW, maxRow);
 
     const res = await runAsyncSqlite(windowSql(lo, hi), {
@@ -171,24 +141,14 @@ export async function migrateStripPlaceholderSentinelsFromMessages(
       timeoutMs: WINDOW_TIMEOUT_MS,
     });
     if (!res.ok) {
-      // Leave the watermark at the last completed window; throwing reports the
-      // step failed so the runner retries it (from the watermark) next boot
-      // rather than checkpointing it as done.
+      // Surface the failure so the runner leaves the step un-checkpointed and
+      // retries the whole sweep on the next boot.
       throw new Error(
         `strip-placeholder window (${lo}, ${hi}] failed: ${res.error}`,
       );
     }
-
-    lo = hi;
-    setWatermark.run(WATERMARK_KEY, String(lo), Date.now());
   }
 
-  // Bound WAL growth left by the windowed rewrites, then drop the watermark so
-  // a future re-run (e.g. after a rollback) starts clean.
+  // Bound WAL growth left by the windowed rewrites.
   await runAsyncSqlite(`PRAGMA wal_checkpoint(TRUNCATE);`, { dbPath });
-  raw.query(`DELETE FROM memory_checkpoints WHERE key = ?`).run(WATERMARK_KEY);
-
-  log.info(
-    "Migration 222: stripped placeholder sentinels from assistant messages",
-  );
 }

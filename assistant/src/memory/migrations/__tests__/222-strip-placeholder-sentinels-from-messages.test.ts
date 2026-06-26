@@ -6,8 +6,8 @@
  * rowid window at a time through `runAsyncSqlite`. These tests drive the step
  * directly against a real DB and assert the at-rest content, idempotency,
  * scoping (assistant rows only), tolerance of malformed content, that both the
- * null-byte-prefixed and bare sentinel forms are dropped, and that the
- * persisted rowid watermark is honored for resume.
+ * null-byte-prefixed and bare sentinel forms are dropped, and that a span wider
+ * than one window is swept across multiple windows.
  */
 import { describe, expect, test } from "bun:test";
 
@@ -72,13 +72,6 @@ function content(id: string): string {
 
 function blocks(id: string): Array<Record<string, unknown>> {
   return JSON.parse(content(id));
-}
-
-/** The persisted resume watermark, or null once the sweep has cleared it. */
-function watermark(): unknown {
-  return getSqlite()
-    .query(`SELECT value FROM memory_checkpoints WHERE key = ?`)
-    .get("migration_222_strip_placeholder_watermark");
 }
 
 describe("migration 222 — strip placeholder sentinels from assistant messages", () => {
@@ -212,46 +205,6 @@ describe("migration 222 — strip placeholder sentinels from assistant messages"
     expect(blocks(id)).toEqual([{ type: "text", text: "stable" }]);
   });
 
-  test("honors the persisted rowid watermark and resumes above it", async () => {
-    const below = insert(
-      "assistant",
-      JSON.stringify([
-        { type: "text", text: PLACEHOLDER_EMPTY_TURN },
-        { type: "text", text: "below" },
-      ]),
-    );
-    const above = insert(
-      "assistant",
-      JSON.stringify([
-        { type: "text", text: PLACEHOLDER_EMPTY_TURN },
-        { type: "text", text: "above" },
-      ]),
-    );
-
-    // Pretend a prior run already swept through `below`'s rowid: the sweep must
-    // resume strictly above it, leaving `below` untouched and cleaning `above`.
-    getSqlite()
-      .query(
-        `INSERT OR REPLACE INTO memory_checkpoints (key, value, updated_at) VALUES (?, ?, ?)`,
-      )
-      .run(
-        "migration_222_strip_placeholder_watermark",
-        String(below.rowid),
-        Date.now(),
-      );
-
-    await migrateStripPlaceholderSentinelsFromMessages(getDb());
-
-    expect(blocks(below.id)).toEqual([
-      { type: "text", text: PLACEHOLDER_EMPTY_TURN },
-      { type: "text", text: "below" },
-    ]);
-    expect(blocks(above.id)).toEqual([{ type: "text", text: "above" }]);
-
-    // The watermark is cleared once the sweep reaches the end of the table.
-    expect(watermark()).toBeNull();
-  });
-
   test("sweeps a rowid span wider than one window across multiple windows", async () => {
     const base =
       (
@@ -280,7 +233,6 @@ describe("migration 222 — strip placeholder sentinels from assistant messages"
 
     expect(blocks(first.id)).toEqual([{ type: "text", text: "first" }]);
     expect(blocks(second.id)).toEqual([{ type: "text", text: "second" }]);
-    expect(watermark()).toBeNull();
   });
 
   test("keeps the sweep window and timeout bounded so it cannot overrun a whole table", () => {
