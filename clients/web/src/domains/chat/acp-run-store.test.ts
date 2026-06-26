@@ -475,6 +475,21 @@ describe("updateUsage", () => {
     expect(entry.costCurrency).toBe("USD");
   });
 
+  it("sets cumulative input/output tokens", () => {
+    spawn();
+    getState().updateUsage({
+      acpSessionId: "acp-1",
+      usedTokens: 1500,
+      contextSize: 200000,
+      inputTokens: 12000,
+      outputTokens: 3400,
+    });
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.inputTokens).toBe(12000);
+    expect(entry.outputTokens).toBe(3400);
+  });
+
   it("ignores an unknown session", () => {
     const before = { ...getState().byId };
     getState().updateUsage({
@@ -671,6 +686,23 @@ describe("seedFromHistory", () => {
     expect(entry.contextSize).toBe(200000);
     expect(entry.costAmount).toBe(0.005);
     expect(entry.costCurrency).toBe("USD");
+  });
+
+  it("folds persisted input/output tokens onto a live entry", () => {
+    spawn({ acpSessionId: "acp-1" });
+    getState().seedFromHistory([
+      historyEntry({
+        acpSessionId: "acp-1",
+        status: "completed",
+        completedAt: NOW + 5000,
+        inputTokens: 12000,
+        outputTokens: 3400,
+      }),
+    ]);
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.inputTokens).toBe(12000);
+    expect(entry.outputTokens).toBe(3400);
   });
 
   it("backfills a missing task from history", () => {

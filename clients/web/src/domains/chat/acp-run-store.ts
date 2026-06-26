@@ -63,6 +63,10 @@ export interface AcpRunEntry {
   usedTokens: number;
   /** Size of the agent's context window. */
   contextSize: number;
+  /** Cumulative input tokens across all turns, when available. */
+  inputTokens?: number;
+  /** Cumulative output tokens across all turns, when available. */
+  outputTokens?: number;
   /** Cumulative cost reported by the agent, when available. */
   costAmount?: number;
   costCurrency?: string;
@@ -138,6 +142,8 @@ export interface AcpRunActions {
     acpSessionId: string;
     usedTokens: number;
     contextSize: number;
+    inputTokens?: number;
+    outputTokens?: number;
     costAmount?: number;
     costCurrency?: string;
   }) => void;
@@ -242,6 +248,8 @@ function mergeHistoryEntry(
     completedAt: incoming.completedAt ?? existing.completedAt,
     usedTokens: incoming.usedTokens || existing.usedTokens,
     contextSize: incoming.contextSize || existing.contextSize,
+    inputTokens: incoming.inputTokens ?? existing.inputTokens,
+    outputTokens: incoming.outputTokens ?? existing.outputTokens,
     costAmount: incoming.costAmount ?? existing.costAmount,
     costCurrency: incoming.costCurrency ?? existing.costCurrency,
     task: existing.task ?? incoming.task,
@@ -431,6 +439,8 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
           ...existing,
           usedTokens: params.usedTokens,
           contextSize: params.contextSize,
+          inputTokens: params.inputTokens,
+          outputTokens: params.outputTokens,
           costAmount: params.costAmount,
           costCurrency: params.costCurrency,
         },
