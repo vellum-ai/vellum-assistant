@@ -1,6 +1,5 @@
 /**
- * A user turn in the ACP chat transcript — right-aligned bubble mirroring the
- * main chat's user message styling.
+ * A user turn in the ACP chat transcript — right-aligned bubble.
  */
 
 export interface AcpChatUserTurnProps {

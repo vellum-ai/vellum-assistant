@@ -24,12 +24,7 @@ import { useCallback, useLayoutEffect, useRef, useState } from "react";
 const PIN_THRESHOLD = 80;
 
 export interface UseStickToBottomReturn {
-  /**
-   * Callback ref for the scroll container. A callback ref (not a ref object)
-   * so the scroll listener follows the node across remounts — the conversation
-   * div unmounts when a file diff opens and remounts on Back, and a plain
-   * ref + effect with stable deps would leave the listener on the detached node.
-   */
+  // Callback ref so the scroll listener follows the node across remounts (see impl).
   scrollRef: (node: HTMLDivElement | null) => void;
   showScrollToLatest: boolean;
   scrollToLatest: () => void;

@@ -445,7 +445,7 @@ export function useAcpRunChatBlocks(events: AcpRunRawEvent[]): AcpChatBlock[] {
 
   // Intentional render-phase ref usage: the projector is a per-instance
   // diff-aware cache (like `useMemo`, but it must run every render to fold in
-  // new events). Mirrors `useAcpRunSteps`.
+  // new events).
   /* eslint-disable react-hooks/refs -- per-instance projection cache (see above) */
   if (projectorRef.current == null) {
     projectorRef.current = createAcpRunChatProjection();

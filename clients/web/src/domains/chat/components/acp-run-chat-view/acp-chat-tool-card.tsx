@@ -1,12 +1,8 @@
 /**
- * A tool call rendered as a distinct card in the ACP chat transcript: a kind
- * glyph, a standardized kind label, a status pill, and a streaming indicator
- * while running. For non-file-op kinds the command (from `rawInput`, falling
- * back to the agent title) surfaces as a wrapping body line. Inline output
- * (parsed from the tool content) renders as markdown, collapsed behind a toggle
- * when long. Any file changes the call touched surface as clickable chips that
- * invoke `onOpenDiff`. When the call carries raw input/output, a collapsible
- * section pretty-prints them.
+ * A tool call rendered as a card in the ACP chat transcript: a kind glyph +
+ * standardized label, a status pill, the command/title as a body line, markdown
+ * output (collapsible when long), file-change chips (`onOpenDiff`), and a
+ * collapsible raw input/output section.
  */
 
 import {

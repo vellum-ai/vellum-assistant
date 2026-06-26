@@ -10,7 +10,7 @@ import { client } from "@/generated/daemon/client.gen";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
-/** Response of `POST /v1/acp/:id/steer`. Mirrors the daemon's responseBody. */
+/** Response of `POST /v1/acp/:id/steer`. Hand-maintained to match the daemon's action response shape. */
 export interface SteerAcpRunResponse {
   acpSessionId: string;
   steered: boolean;

@@ -1,7 +1,7 @@
 /**
  * A streamed agent response in the ACP chat transcript. Left-aligned and
- * full-width with no bubble — mirrors the main chat's assistant styling. A
- * trailing `ThreeDotIndicator` marks the block as still streaming.
+ * full-width with no bubble. A trailing `ThreeDotIndicator` marks the block as
+ * still streaming.
  */
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";

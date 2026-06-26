@@ -918,7 +918,17 @@ export function getAllToolDefinitions(): Tool[] {
   // the base tool list, which is shared across sessions via the global
   // registry.  Including them here causes "Tool names must be unique"
   // errors when the projection appends the same tools a second time.
-  return getAllTools().filter(
+  //
+  // Build on `getEnabledTools()` so tools from a disabled plugin are also
+  // excluded. This is the base snapshot the conversation tool resolver
+  // captures at creation: a plugin disabled BEFORE a new conversation is
+  // created would otherwise leak its tools here, and because the resolver's
+  // core/plugin split reads the (filtered) `getPluginToolDefinitions()`, the
+  // disabled plugin's tools would be misclassified as core and stay on the
+  // wire to the LLM — executable even though `assistant tools list` reports
+  // them gone. Filtering here keeps the executable surface and the listing
+  // in lockstep.
+  return getEnabledTools().filter(
     (t) => ownersByName.get(t.name)?.kind !== "skill",
   );
 }
