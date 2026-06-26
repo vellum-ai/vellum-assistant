@@ -18,13 +18,19 @@
  * intended default.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
 /** Distance (px) from the bottom within which we treat the user as "pinned". */
 const PIN_THRESHOLD = 80;
 
 export interface UseStickToBottomReturn {
-  scrollRef: React.RefObject<HTMLDivElement | null>;
+  /**
+   * Callback ref for the scroll container. A callback ref (not a ref object)
+   * so the scroll listener follows the node across remounts — the conversation
+   * div unmounts when a file diff opens and remounts on Back, and a plain
+   * ref + effect with stable deps would leave the listener on the detached node.
+   */
+  scrollRef: (node: HTMLDivElement | null) => void;
   showScrollToLatest: boolean;
   scrollToLatest: () => void;
 }
@@ -35,20 +41,20 @@ function isNearBottom(el: HTMLElement): boolean {
 }
 
 export function useStickToBottom(contentKey: unknown): UseStickToBottomReturn {
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const nodeRef = useRef<HTMLDivElement | null>(null);
   // Whether the user is currently pinned to the bottom. Seeded true so a fresh
   // run lands at the latest block.
   const pinnedRef = useRef(true);
   const [showScrollToLatest, setShowScrollToLatest] = useState(false);
 
   const pinToBottom = useCallback(() => {
-    const el = scrollRef.current;
+    const el = nodeRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
   }, []);
 
   const reclassify = useCallback(() => {
-    const el = scrollRef.current;
+    const el = nodeRef.current;
     if (!el) return;
     const pinned = isNearBottom(el);
     pinnedRef.current = pinned;
@@ -61,21 +67,31 @@ export function useStickToBottom(contentKey: unknown): UseStickToBottomReturn {
     setShowScrollToLatest(false);
   }, [pinToBottom]);
 
+  // Callback ref so the scroll listener always tracks the mounted node. When
+  // the conversation div unmounts (a file diff opens) React calls this with
+  // null — detach; when it remounts on Back, React calls it with the new node —
+  // reattach and re-pin. A stable ref + effect wouldn't rerun, stranding the
+  // listener on the detached node.
+  const scrollRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      const prev = nodeRef.current;
+      if (prev) prev.removeEventListener("scroll", reclassify);
+      nodeRef.current = node;
+      if (!node) return;
+      node.addEventListener("scroll", reclassify, { passive: true });
+      // Land at the latest (or surface the affordance) on (re)mount.
+      if (pinnedRef.current) node.scrollTop = node.scrollHeight;
+      else reclassify();
+    },
+    [reclassify],
+  );
+
   // Re-pin (or surface the affordance) whenever the content identity changes.
   // useLayoutEffect so the pin lands before paint and there's no visible jump.
   useLayoutEffect(() => {
     if (pinnedRef.current) pinToBottom();
     else reclassify();
   }, [contentKey, pinToBottom, reclassify]);
-
-  // Track user scroll so a manual scroll-up disengages the pin and shows the
-  // "Go to newest" pill; scrolling back down re-engages it.
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    el.addEventListener("scroll", reclassify, { passive: true });
-    return () => el.removeEventListener("scroll", reclassify);
-  }, [reclassify]);
 
   return { scrollRef, showScrollToLatest, scrollToLatest };
 }

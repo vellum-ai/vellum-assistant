@@ -16,7 +16,7 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { act, cleanup, render } from "@testing-library/react";
-import { createElement } from "react";
+import { createElement, useState } from "react";
 
 import {
   useStickToBottom,
@@ -146,5 +146,40 @@ describe("useStickToBottom", () => {
 
     // THEN the affordance hides again
     expect(latest().showScrollToLatest).toBe(false);
+  });
+
+  test("rebinds the scroll listener when the conversation node remounts", () => {
+    // Mimic the chat view: the scroll div unmounts when a file diff opens and
+    // remounts on Back, while the hook itself stays mounted throughout.
+    let latest: UseStickToBottomReturn | null = null;
+    let setMounted: ((v: boolean) => void) | null = null;
+
+    function Harness() {
+      const [mounted, setM] = useState(true);
+      setMounted = setM;
+      const api = useStickToBottom("content-1");
+      latest = api;
+      return mounted
+        ? createElement("div", { ref: api.scrollRef, "data-testid": "scroll" })
+        : createElement("div", { "data-testid": "diff" });
+    }
+
+    const { container } = render(createElement(Harness));
+
+    // Unmount the scroll node (open diff), then remount it (Back).
+    act(() => setMounted!(false));
+    act(() => setMounted!(true));
+
+    const el = container.querySelector(
+      "[data-testid=scroll]",
+    ) as HTMLDivElement;
+    stubLayout(el, { scrollTop: 0, scrollHeight: 5000, clientHeight: 800 });
+
+    // Scrolling the REMOUNTED node must still drive the affordance — the
+    // listener has to have rebound to the new node, not the detached one.
+    act(() => {
+      el.dispatchEvent(new Event("scroll"));
+    });
+    expect(latest!.showScrollToLatest).toBe(true);
   });
 });
