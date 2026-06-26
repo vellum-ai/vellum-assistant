@@ -12,9 +12,26 @@ paths:
   /healthz:
     get:
       operationId: healthz_get
+      summary: Liveness probe
+      description:
+        Trivial liveness/startup probe. Returns { status, version } the instant the HTTP server is up, with zero
+        DB/CES/lifecycle access.
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  version:
+                    type: string
+                required:
+                  - status
+                  - version
+                additionalProperties: false
   /pages/{id}:
     get:
       operationId: pages__id__get

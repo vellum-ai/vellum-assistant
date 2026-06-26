@@ -314,8 +314,16 @@ function getCpuInfo(): CpuInfo {
   };
 }
 
+/**
+ * Trivial liveness/startup probe (`GET /healthz`).
+ *
+ * This is the k8s startup + liveness probe target: it must answer the instant
+ * the HTTP server is up and must NEVER touch DB, CES, migrations, or any other
+ * lifecycle state. Keep it to a static `{ status, version }` payload — no
+ * syscalls, no disk/memory/cpu reads, no async work.
+ */
 export function handleHealth(): Response {
-  return Response.json({ status: "ok" });
+  return Response.json({ status: "ok", version: APP_VERSION });
 }
 
 function getDetailedHealth() {
