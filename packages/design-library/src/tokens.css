@@ -699,4 +699,20 @@
   animation: collapsible-slide-up var(--anim-fast) var(--anim-spring);
 }
 
+/* ---------------------------------------------------------------------------
+ * Streaming-dot pulse — the three animated dots in `GoToNewest`, signalling
+ * that content is still arriving out of view. Each dot offsets its
+ * `animation-delay` so they read as a travelling wave. Applied through the
+ * `animate-go-to-newest-dot` utility behind a `motion-safe` variant so it
+ * honours `prefers-reduced-motion`.
+ * --------------------------------------------------------------------------- */
+@keyframes typing-dot-pulse {
+  0%, 100% { opacity: 0.45; transform: scale(0.6); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+@utility animate-go-to-newest-dot {
+  animation: typing-dot-pulse 1s ease-in-out infinite;
+}
+
 
