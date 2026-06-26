@@ -291,3 +291,28 @@ export const GetContactIpcResponseSchema = z.object({
 export type GetContactIpcResponse = z.infer<
   typeof GetContactIpcResponseSchema
 >;
+
+export const GetGuardianContactIpcParamsSchema = z
+  .object({})
+  .strict()
+  .default({});
+
+export type GetGuardianContactIpcParams = z.infer<
+  typeof GetGuardianContactIpcParamsSchema
+>;
+
+export const GuardianContactSchema = z.object({
+  id: z.string(),
+  displayName: z.string(),
+});
+
+export type GuardianContact = z.infer<typeof GuardianContactSchema>;
+
+export const GetGuardianContactIpcResponseSchema = z.object({
+  ok: z.boolean(),
+  guardians: z.array(GuardianContactSchema),
+});
+
+export type GetGuardianContactIpcResponse = z.infer<
+  typeof GetGuardianContactIpcResponseSchema
+>;
