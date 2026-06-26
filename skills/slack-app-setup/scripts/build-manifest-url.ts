@@ -37,7 +37,7 @@ if (stdinText.trim()) {
 const name = input.name ?? process.env.BOT_NAME;
 const desc = input.desc ?? process.env.BOT_DESC ?? "";
 
-if (!name) {
+if (name === undefined) {
   console.error(
     JSON.stringify({
       ok: false,
