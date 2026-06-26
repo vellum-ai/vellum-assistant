@@ -1,13 +1,17 @@
 /**
- * Block Kit block generation for Slack channel replies.
+ * Slack Block Kit rendering for channel replies.
  *
- * Converts markdown/plain text into Slack Block Kit blocks (typed via
- * `@slack/types`) so the assistant can attach pre-formatted `blocks` to a
- * Slack delivery. Handles code fences, headers, markdown tables, and
- * oversize-section splitting.
+ * Renders a channel-neutral `RichContent` tree (produced by
+ * `parseMarkdownToRichContent`) into Slack Block Kit blocks: code fences,
+ * headings, markdown tables, and oversize-section splitting. The markdown →
+ * structure parsing lives in `messaging/content/rich-content.ts`; this module
+ * is the Slack-specific "how".
  */
 
 import type { KnownBlock, RawTextElement, TableBlock } from "@slack/types";
+
+import type { RichContent } from "../messaging/content/rich-content.js";
+import { parseMarkdownToRichContent } from "../messaging/content/rich-content.js";
 
 /** Slack rejects messages with more than 50 Block Kit blocks. */
 const SLACK_BLOCK_LIMIT = 50;
@@ -24,20 +28,30 @@ const SLACK_BLOCK_LIMIT = 50;
  */
 export function textToSlackBlocks(text: string): KnownBlock[] | undefined {
   if (!text || text.trim().length === 0) return undefined;
+  const blocks = renderRichContentToBlocks(parseMarkdownToRichContent(text));
+  return blocks.length > 0 ? blocks : undefined;
+}
 
-  const segments = splitIntoSegments(text);
+/**
+ * Render a channel-neutral `RichContent` tree into Slack Block Kit blocks.
+ * Each node becomes one or more blocks separated by dividers, and oversize
+ * code, tables, and prose degrade gracefully (see the per-branch comments).
+ * Output is capped at `SLACK_BLOCK_LIMIT`, with a truncation note appended
+ * when the cap is hit.
+ */
+function renderRichContentToBlocks(nodes: RichContent): KnownBlock[] {
   const blocks: KnownBlock[] = [];
 
-  for (let i = 0; i < segments.length; i++) {
+  for (let i = 0; i < nodes.length; i++) {
     if (i > 0) {
       blocks.push({ type: "divider" });
     }
 
-    const segment = segments[i];
+    const node = nodes[i];
 
-    if (segment.type === "code") {
-      const lang = segment.lang ?? "";
-      const codeChunks = splitCodeSegmentContent(segment.content, lang);
+    if (node.type === "code") {
+      const lang = node.lang ?? "";
+      const codeChunks = splitCodeSegmentContent(node.text, lang);
       for (let c = 0; c < codeChunks.length; c++) {
         if (c > 0) {
           blocks.push({ type: "divider" });
@@ -50,13 +64,13 @@ export function textToSlackBlocks(text: string): KnownBlock[] | undefined {
           },
         });
       }
-    } else if (segment.type === "header") {
+    } else if (node.type === "heading") {
       blocks.push({
         type: "header",
-        text: { type: "plain_text", text: segment.content },
+        text: { type: "plain_text", text: node.text },
       });
-    } else if (segment.type === "table") {
-      const tableBlock = tryBuildTableBlock(segment.headers, segment.rows);
+    } else if (node.type === "table") {
+      const tableBlock = tryBuildTableBlock(node.headers, node.rows);
       if (tableBlock) {
         blocks.push(tableBlock);
       } else {
@@ -65,8 +79,8 @@ export function textToSlackBlocks(text: string): KnownBlock[] | undefined {
         // split across section blocks so an oversize table degrades on its own
         // rather than failing the payload.
         const structured = convertTableToStructuredText(
-          segment.headers,
-          segment.rows,
+          node.headers,
+          node.rows,
         );
         const mrkdwn = markdownToMrkdwn(structured);
         const chunks = splitLongTextSegment(mrkdwn);
@@ -91,7 +105,7 @@ export function textToSlackBlocks(text: string): KnownBlock[] | undefined {
       // `<url|First sentence. Second sentence>`) or when a span straddles
       // the maxChars window. The preceding table branch uses the same
       // ordering.
-      const mrkdwn = markdownToMrkdwn(segment.content);
+      const mrkdwn = markdownToMrkdwn(node.text);
       const chunks = splitLongTextSegment(mrkdwn);
       for (let c = 0; c < chunks.length; c++) {
         if (c > 0) {
@@ -124,169 +138,12 @@ export function textToSlackBlocks(text: string): KnownBlock[] | undefined {
     ];
   }
 
-  return blocks.length > 0 ? blocks : undefined;
+  return blocks;
 }
 
 // ---------------------------------------------------------------------------
 // Internals
 // ---------------------------------------------------------------------------
-
-interface TextSegment {
-  type: "text";
-  content: string;
-}
-
-interface CodeSegment {
-  type: "code";
-  content: string;
-  lang?: string;
-}
-
-interface HeaderSegment {
-  type: "header";
-  content: string;
-}
-
-interface TableSegment {
-  type: "table";
-  headers: string[];
-  rows: string[][];
-}
-
-type Segment = TextSegment | CodeSegment | HeaderSegment | TableSegment;
-
-function splitIntoSegments(text: string): Segment[] {
-  const lines = text.split("\n");
-  const segments: Segment[] = [];
-  let currentTextLines: string[] = [];
-
-  function flushText(): void {
-    const joined = currentTextLines.join("\n").trim();
-    if (joined.length > 0) {
-      segments.push({ type: "text", content: joined });
-    }
-    currentTextLines = [];
-  }
-
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-    const fenceMatch = line.match(/^```(\w*)\s*$/);
-
-    if (fenceMatch) {
-      flushText();
-      const lang = fenceMatch[1] || undefined;
-      const codeLines: string[] = [];
-      i++;
-      while (i < lines.length && !lines[i].match(/^```\s*$/)) {
-        codeLines.push(lines[i]);
-        i++;
-      }
-      segments.push({ type: "code", content: codeLines.join("\n"), lang });
-      i++; // skip closing fence
-      continue;
-    }
-
-    const headingMatch = line.match(/^#{1,3}\s+(.+)$/);
-    if (headingMatch) {
-      flushText();
-      segments.push({ type: "header", content: headingMatch[1].trim() });
-      i++;
-      continue;
-    }
-
-    // Detect markdown tables: header row + separator row + data rows
-    const tableSegment = tryParseTable(lines, i);
-    if (tableSegment) {
-      flushText();
-      segments.push(tableSegment.segment);
-      i = tableSegment.nextIndex;
-      continue;
-    }
-
-    currentTextLines.push(line);
-    i++;
-  }
-
-  flushText();
-  return segments;
-}
-
-/**
- * Parse cells from a pipe-delimited table row, trimming whitespace.
- */
-function parseTableRow(line: string): string[] {
-  const ESCAPED_PIPE_PLACEHOLDER = "\x00PIPE\x00";
-  const ESCAPED_BACKSLASH_PLACEHOLDER = "\x00BSLASH\x00";
-  return (
-    line
-      // First, protect escaped backslashes (\\) so they don't interfere
-      .replace(/\\\\/g, ESCAPED_BACKSLASH_PLACEHOLDER)
-      // Now a remaining \| is a genuinely escaped pipe (odd backslash)
-      .replace(/\\\|/g, ESCAPED_PIPE_PLACEHOLDER)
-      .replace(/^\|/, "")
-      .replace(/\|$/, "")
-      .split("|")
-      .map((cell) =>
-        cell
-          .replaceAll(ESCAPED_PIPE_PLACEHOLDER, "|")
-          .replaceAll(ESCAPED_BACKSLASH_PLACEHOLDER, "\\\\")
-          .trim(),
-      )
-  );
-}
-
-/**
- * Check if a line is a markdown table separator row (e.g., |---|---|).
- */
-function isSeparatorRow(line: string): boolean {
-  return /^\|[\s:-]+(\|[\s:-]+)*\|?\s*$/.test(line);
-}
-
-/**
- * Try to parse a markdown table starting at the given line index.
- * Returns the parsed table segment and the next line index, or null
- * if the lines don't form a valid table (header + separator + at least
- * one data row).
- */
-function tryParseTable(
-  lines: string[],
-  startIndex: number,
-): { segment: TableSegment; nextIndex: number } | null {
-  // Need at least 3 lines: header, separator, one data row
-  if (startIndex + 2 >= lines.length) return null;
-
-  const headerLine = lines[startIndex];
-  const separatorLine = lines[startIndex + 1];
-
-  // Header must be a pipe-delimited row
-  if (!headerLine.includes("|") || !headerLine.match(/^\|.*\|$/)) return null;
-  if (!isSeparatorRow(separatorLine)) return null;
-
-  const headers = parseTableRow(headerLine);
-
-  // Collect data rows
-  const rows: string[][] = [];
-  let i = startIndex + 2;
-  while (
-    i < lines.length &&
-    lines[i].includes("|") &&
-    lines[i].match(/^\|.*\|$/)
-  ) {
-    if (!isSeparatorRow(lines[i])) {
-      rows.push(parseTableRow(lines[i]));
-    }
-    i++;
-  }
-
-  // Need at least one data row to qualify as a table
-  if (rows.length === 0) return null;
-
-  return {
-    segment: { type: "table", headers, rows },
-    nextIndex: i,
-  };
-}
 
 /** Slack `table` blocks allow at most 100 rows (incl. the header) and 20 columns. */
 const SLACK_TABLE_MAX_ROWS = 100;
