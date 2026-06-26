@@ -644,7 +644,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-25T11:46:21.000Z"
+      "updatedAt": "2026-06-25T11:56:53.000Z"
     },
     {
       "id": "public-ingress",
@@ -761,7 +761,7 @@
     {
       "id": "slack-app-setup",
       "name": "slack-app-setup",
-      "description": "Connect a Slack app to the Vellum Assistant via Socket Mode. Use whenever the user wants to set up Slack for their assistant, connect a workspace, or get the assistant talking in Slack — the skill generates a one-click manifest URL so they only have to name, save, and copy two tokens.",
+      "description": "Connect a Slack app to the Vellum Assistant via Socket Mode. Use whenever the user wants to set up Slack for their assistant, connect a workspace, or get the assistant talking in Slack — the skill shows a single in-chat form that generates a one-click manifest URL and collects the two tokens securely.",
       "metadata": {
         "emoji": "💬",
         "vellum": {
@@ -782,7 +782,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-19T17:01:42.000Z"
+      "updatedAt": "2026-06-26T02:50:57.000Z"
     },
     {
       "id": "start-the-day",
