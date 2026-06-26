@@ -13,12 +13,15 @@ import { type ReactNode, useMemo } from "react";
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state";
 import { ConversationStarterGrid } from "@/domains/chat/components/conversation-starter-grid";
+import { SuggestionLibrary } from "@/domains/chat/components/suggestion-library";
 import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-starters";
 import { useEmptyStateGreeting } from "@/domains/chat/hooks/use-empty-state-greeting";
+import { useThreadSuggestions } from "@/domains/chat/hooks/use-thread-suggestions";
 import { buildEditAppGreeting, buildEditAppStarters } from "@/domains/chat/utils/edit-app-empty-state";
 import { pickRandomPlaceholder } from "@/domains/chat/utils/empty-state-constants";
 import type { ConversationStarter } from "@/domains/chat/utils/conversation-starters";
 import type { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 // ---------------------------------------------------------------------------
 // Params & return type
@@ -63,6 +66,12 @@ export function useChatEmptyState({
 }: UseChatEmptyStateParams): ChatEmptyStateResult {
   const { components: avatarComponents, traits: avatarTraits, customImageUrl: avatarImageUrl } = avatar;
 
+  const newThreadSuggestionsEnabled =
+    useClientFeatureFlagStore.use.newThreadSuggestions();
+  // Cheap memoized hook — safe to call unconditionally; the result is only
+  // rendered on the flag-on path below.
+  const { featured, groups } = useThreadSuggestions();
+
   const emptyStatePlaceholder = useMemo(() => pickRandomPlaceholder(), []);
   const { greeting: emptyStateGreeting, isGenerating: greetingIsGenerating } =
     useEmptyStateGreeting({
@@ -102,15 +111,41 @@ export function useChatEmptyState({
     ? buildEditAppStarters(editingApp)
     : conversationStarters;
 
-  const startersSlot =
-    isEmptyConversation && emptyStateStarters.length > 0 ? (
+  // Behind the flag, the new suggestions library replaces the starter chips
+  // on a fresh thread. The app-editing override keeps its bespoke chips
+  // regardless of the flag, so it stays on the grid path.
+  const showSuggestionLibrary =
+    newThreadSuggestionsEnabled && isEmptyConversation && !editingApp;
+
+  let startersSlot: ReactNode | undefined;
+  if (showSuggestionLibrary) {
+    startersSlot = (
+      <div className="mt-4">
+        <SuggestionLibrary
+          featured={featured}
+          groups={groups}
+          onSelect={(s) =>
+            onSelectStarter({
+              id: s.id,
+              label: s.title,
+              prompt: s.prompt,
+              category: null,
+              batch: 0,
+            })
+          }
+        />
+      </div>
+    );
+  } else if (isEmptyConversation && emptyStateStarters.length > 0) {
+    startersSlot = (
       <div className="mt-4">
         <ConversationStarterGrid
           starters={emptyStateStarters}
           onSelect={onSelectStarter}
         />
       </div>
-    ) : undefined;
+    );
+  }
 
   // Stable callback so the latest-turn avatar slot isn't rebuilt on every
   // transcript render. Paired with `memo(ChatAvatar)`, the avatar
