@@ -360,11 +360,11 @@ describe("get_guardian_contact IPC handler", () => {
 
     const res = (await getGuardianContactHandler({})) as {
       ok: boolean;
-      guardians: { id: string; displayName: string }[];
+      guardianIds: string[];
     };
 
     expect(res.ok).toBe(true);
-    expect(res.guardians).toEqual([{ id: "g1", displayName: "name-g1" }]);
+    expect(res.guardianIds).toEqual(["g1"]);
   });
 
   test("excludes non-guardian contacts", async () => {
@@ -373,11 +373,11 @@ describe("get_guardian_contact IPC handler", () => {
 
     const res = (await getGuardianContactHandler({})) as {
       ok: boolean;
-      guardians: { id: string }[];
+      guardianIds: string[];
     };
 
     expect(res.ok).toBe(true);
-    expect(res.guardians).toEqual([]);
+    expect(res.guardianIds).toEqual([]);
   });
 });
 

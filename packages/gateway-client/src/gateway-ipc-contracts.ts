@@ -301,16 +301,9 @@ export type GetGuardianContactIpcParams = z.infer<
   typeof GetGuardianContactIpcParamsSchema
 >;
 
-export const GuardianContactSchema = z.object({
-  id: z.string(),
-  displayName: z.string(),
-});
-
-export type GuardianContact = z.infer<typeof GuardianContactSchema>;
-
 export const GetGuardianContactIpcResponseSchema = z.object({
   ok: z.boolean(),
-  guardians: z.array(GuardianContactSchema),
+  guardianIds: z.array(z.string()),
 });
 
 export type GetGuardianContactIpcResponse = z.infer<

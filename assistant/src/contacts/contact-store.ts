@@ -96,8 +96,8 @@ function parseContact(row: typeof contacts.$inferSelect): Contact {
     id: row.id,
     displayName: row.displayName,
     notes: row.notes,
-    // Role is gateway-owned: the serve layer stamps the real role from the
-    // gateway guardian id set. This neutral default is never authoritative.
+    // gateway-owned; the serve layer stamps the real role from the gateway
+    // guardian id set.
     role: "contact",
     lastInteraction: null,
     interactionCount: 0,

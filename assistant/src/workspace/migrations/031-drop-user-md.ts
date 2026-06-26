@@ -125,10 +125,9 @@ function tableColumns(db: Database, table: string): Set<string> {
 
 /**
  * The guardian read below depends on the legacy ACL columns
- * `contacts.role` and `contact_channels.status` / `verified_at`. The gateway
- * owns guardian ACL, and a later phase drops these columns from the assistant
- * DB. On schemas without them this one-time cleanup is a no-op: fresh installs
- * have no legacy USER.md to clean, and existing installs already ran it.
+ * `contacts.role` and `contact_channels.status` / `verified_at`. Guardian ACL
+ * is gateway-owned, so these columns may be absent from the assistant DB; this
+ * one-time cleanup is skipped when they are.
  */
 function aclColumnsPresent(db: Database): boolean {
   const contactCols = tableColumns(db, "contacts");

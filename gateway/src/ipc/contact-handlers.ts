@@ -113,8 +113,11 @@ export const contactRoutes: IpcRoute[] = [
     method: "get_guardian_contact",
     schema: GetGuardianContactIpcParamsSchema,
     handler: () => {
-      const guardians = getStore().listGuardianContactIds();
-      return GetGuardianContactIpcResponseSchema.parse({ ok: true, guardians });
+      const guardianIds = getStore().listGuardianContactIds();
+      return GetGuardianContactIpcResponseSchema.parse({
+        ok: true,
+        guardianIds,
+      });
     },
   },
   {

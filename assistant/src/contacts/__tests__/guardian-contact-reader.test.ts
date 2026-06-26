@@ -8,7 +8,7 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-let ipcResult: unknown = { ok: true, guardians: [] };
+let ipcResult: unknown = { ok: true, guardianIds: [] };
 let ipcError: Error | undefined;
 
 const ipcCallPersistentMock = mock(async () => {
@@ -23,7 +23,7 @@ mock.module("../../ipc/gateway-client.js", () => ({
   ipcCallPersistent: ipcCallPersistentMock,
 }));
 
-const { getGuardianContactIds, invalidateGuardianContactCache } = await import(
+const { getGuardianContactIds } = await import(
   "../guardian-contact-reader.js"
 );
 
@@ -32,16 +32,15 @@ const { emitContactChange } = await import("../contact-events.js");
 beforeEach(() => {
   ipcCallPersistentMock.mockClear();
   ipcError = undefined;
-  ipcResult = { ok: true, guardians: [] };
-  invalidateGuardianContactCache();
+  ipcResult = { ok: true, guardianIds: [] };
+  // Clear any cache carried over from a prior test by emitting a contact change
+  // (the in-file onContactChange subscription drops the cache).
+  emitContactChange();
 });
 
 describe("getGuardianContactIds", () => {
   test("returns the guardian id set from the gateway IPC", async () => {
-    ipcResult = {
-      ok: true,
-      guardians: [{ id: "g1", displayName: "Guardian One" }],
-    };
+    ipcResult = { ok: true, guardianIds: ["g1"] };
 
     const ids = await getGuardianContactIds();
 
@@ -53,10 +52,7 @@ describe("getGuardianContactIds", () => {
   });
 
   test("caches within the TTL (second call does not re-invoke the IPC)", async () => {
-    ipcResult = {
-      ok: true,
-      guardians: [{ id: "g1", displayName: "Guardian One" }],
-    };
+    ipcResult = { ok: true, guardianIds: ["g1"] };
 
     const first = await getGuardianContactIds();
     const second = await getGuardianContactIds();
@@ -79,33 +75,15 @@ describe("getGuardianContactIds", () => {
     await getGuardianContactIds();
 
     ipcError = undefined;
-    ipcResult = {
-      ok: true,
-      guardians: [{ id: "g1", displayName: "Guardian One" }],
-    };
+    ipcResult = { ok: true, guardianIds: ["g1"] };
     const ids = await getGuardianContactIds();
 
     expect([...ids]).toEqual(["g1"]);
     expect(ipcCallPersistentMock).toHaveBeenCalledTimes(2);
   });
 
-  test("invalidate forces a re-fetch", async () => {
-    ipcResult = {
-      ok: true,
-      guardians: [{ id: "g1", displayName: "Guardian One" }],
-    };
-    await getGuardianContactIds();
-    invalidateGuardianContactCache();
-    await getGuardianContactIds();
-
-    expect(ipcCallPersistentMock).toHaveBeenCalledTimes(2);
-  });
-
-  test("a contact-change event clears the cache", async () => {
-    ipcResult = {
-      ok: true,
-      guardians: [{ id: "g1", displayName: "Guardian One" }],
-    };
+  test("a contact-change event clears the cache (forces a re-fetch)", async () => {
+    ipcResult = { ok: true, guardianIds: ["g1"] };
     await getGuardianContactIds();
     emitContactChange();
     await getGuardianContactIds();
