@@ -531,6 +531,19 @@ describe("usage aggregation schedule filters", () => {
     );
   }
 
+  function insertStampedEventAt(
+    timestamp: number,
+    cronRunId: string,
+    inputOverrides?: Partial<UsageEventInput>,
+    pricing: PricingResult = pricedResult,
+  ): void {
+    const event = recordUsageEvent(makeInput(inputOverrides), pricing);
+    getSqlite().run(
+      `UPDATE llm_usage_events SET created_at = ?, cron_run_id = ? WHERE id = ?`,
+      [timestamp, cronRunId, event.id],
+    );
+  }
+
   function seedScheduleUsage(): void {
     insertScheduleJob("schedule-a", "Morning summary");
     insertScheduleJob("schedule-b", "Nightly sync");
@@ -698,6 +711,56 @@ describe("usage aggregation schedule filters", () => {
       totalInputTokens: 1_290,
       eventCount: 3,
     });
+  });
+
+  test("attributes a cron_run_id-stamped row to its firing's schedule and keeps legacy windowed rows", () => {
+    insertScheduleJob("schedule-a", "Morning summary");
+    insertScheduleJob("schedule-b", "Nightly sync");
+    insertScheduleRun({
+      id: "run-a-1",
+      scheduleId: "schedule-a",
+      conversationId: "conv-reused",
+      startedAt: 1_000,
+      finishedAt: 2_000,
+    });
+    insertScheduleRun({
+      id: "run-b-1",
+      scheduleId: "schedule-b",
+      conversationId: "conv-reused",
+      startedAt: 3_000,
+      finishedAt: 3_500,
+    });
+
+    // Legacy row: null cron_run_id, attributed to schedule-a via the conversation + window match.
+    insertEventAt(
+      1_500,
+      { conversationId: "conv-reused", inputTokens: 100 },
+      { estimatedCostUsd: 0.1, pricingStatus: "priced" },
+    );
+
+    // Stamped row: cron_run_id pins it to schedule-a's firing even though it is
+    // outside every run window and on a conversation no run references.
+    insertStampedEventAt(
+      9_999,
+      "run-a-1",
+      { conversationId: "conv-script", inputTokens: 50 },
+      { estimatedCostUsd: 0.05, pricingStatus: "priced" },
+    );
+
+    const range = { from: 0, to: 10_000 };
+    const breakdown = getUsageGroupBreakdown(range, "schedule");
+    const scheduleA = breakdown.find((row) => row.groupKey === "schedule-a");
+    const scheduleB = breakdown.find((row) => row.groupKey === "schedule-b");
+
+    expect(scheduleA).toMatchObject({
+      groupId: "schedule-a",
+      groupKey: "schedule-a",
+      totalInputTokens: 150,
+      eventCount: 2,
+    });
+    // The stamped row neither leaks into schedule-b's later window nor lands in "Other".
+    expect(scheduleB).toBeUndefined();
+    expect(breakdown.find((row) => row.groupKey === null)).toBeUndefined();
   });
 });
 
