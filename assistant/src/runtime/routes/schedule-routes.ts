@@ -38,6 +38,7 @@ import {
   updateSchedule,
 } from "../../schedule/schedule-store.js";
 import { getScheduleUsageSummaries } from "../../schedule/schedule-usage-store.js";
+import { getSystemTaskUsageSummaries } from "../../schedule/system-task-usage-store.js";
 import { areCoreToolsInitialized } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
 import { normalizeCapabilityManifest } from "../../workflows/capabilities.js";
@@ -579,7 +580,12 @@ function handleListScheduleRuns(
 
 function handleScheduleUsageSummary(queryParams: Record<string, string>) {
   const range = parseEpochMillisRange(queryParams);
-  return { summaries: getScheduleUsageSummaries(range) };
+  return {
+    summaries: [
+      ...getScheduleUsageSummaries(range),
+      ...getSystemTaskUsageSummaries(range),
+    ],
+  };
 }
 
 // ---------------------------------------------------------------------------

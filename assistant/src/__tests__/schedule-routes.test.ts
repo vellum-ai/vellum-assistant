@@ -17,6 +17,9 @@ mock.module("../config/loader.js", () => ({
       cronExpression: null,
       timezone: null,
     },
+    llm: {
+      pricingOverrides: {},
+    },
   }),
   getConfigReadOnly: () => ({
     llm: {
@@ -82,6 +85,7 @@ import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { recordUsageEvent } from "../memory/llm-usage-store.js";
 import { rawRun } from "../memory/raw-query.js";
+import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../memory/v2/constants.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { BadRequestError, NotFoundError } from "../runtime/routes/errors.js";
@@ -178,6 +182,30 @@ function setScheduleRunWindow({
     finishedAt == null ? null : finishedAt - startedAt,
     startedAt,
     runId,
+  );
+}
+
+function setConversationCreatedAt(conversationId: string, createdAt: number) {
+  rawRun(
+    "UPDATE conversations SET created_at = ?, updated_at = ? WHERE id = ?",
+    createdAt,
+    createdAt,
+    conversationId,
+  );
+}
+
+function insertMessage(
+  conversationId: string,
+  role: "user" | "assistant",
+  createdAt: number,
+) {
+  rawRun(
+    "INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)",
+    `msg-${conversationId}-${role}-${createdAt}`,
+    conversationId,
+    role,
+    "x",
+    createdAt,
   );
 }
 
@@ -1126,6 +1154,111 @@ describe("GET /schedules/usage-summary", () => {
       eventCount: 3,
     });
     expect(result.summaries[0].totalEstimatedCostUsd).toBeCloseTo(0.06);
+  });
+
+  test("includes heartbeat task usage without counting skipped scheduler ticks", () => {
+    const conversation = createConversation({
+      title: "Heartbeat summary conversation",
+      source: "heartbeat",
+    });
+    const completedRun = insertPendingHeartbeatRun(1000);
+    rawRun(
+      "UPDATE heartbeat_runs SET status = 'ok', scheduled_for = ?, started_at = ?, finished_at = ?, duration_ms = ?, conversation_id = ?, created_at = ? WHERE id = ?",
+      1000,
+      1000,
+      2000,
+      1000,
+      conversation.id,
+      1000,
+      completedRun,
+    );
+    const skippedRun = insertPendingHeartbeatRun(1500);
+    rawRun(
+      "UPDATE heartbeat_runs SET status = 'skipped', skip_reason = 'outside_active_hours', scheduled_for = ?, started_at = NULL, finished_at = NULL, duration_ms = NULL, created_at = ? WHERE id = ?",
+      1500,
+      1500,
+      skippedRun,
+    );
+
+    recordUsageCostAt(conversation.id, "heartbeat-summary-before", 999, 0.4);
+    recordUsageCostAt(conversation.id, "heartbeat-summary-start", 1000, 0.01);
+    recordUsageCostAt(conversation.id, "heartbeat-summary-inside", 1500, 0.02);
+    recordUsageCostAt(conversation.id, "heartbeat-summary-finish", 2000, 0.03);
+    recordUsageCostAt(conversation.id, "heartbeat-summary-after", 2001, 0.5);
+
+    const result = getUsageSummary({ from: "1000", to: "2000" });
+    const byScheduleId = new Map(
+      result.summaries.map((summary) => [summary.scheduleId, summary]),
+    );
+
+    expect(byScheduleId.get("system-heartbeat")).toMatchObject({
+      scheduleId: "system-heartbeat",
+      runCount: 1,
+      eventCount: 3,
+    });
+    expect(
+      byScheduleId.get("system-heartbeat")?.totalEstimatedCostUsd,
+    ).toBeCloseTo(0.06);
+  });
+
+  test("includes completed consolidation task usage without counting in-flight conversations", () => {
+    const completedConversation = createConversation({
+      title: "Completed consolidation",
+      source: MEMORY_V2_CONSOLIDATION_SOURCE,
+    });
+    const runningConversation = createConversation({
+      title: "Running consolidation",
+      source: MEMORY_V2_CONSOLIDATION_SOURCE,
+    });
+    setConversationCreatedAt(completedConversation.id, 1000);
+    setConversationCreatedAt(runningConversation.id, 1500);
+    insertMessage(completedConversation.id, "assistant", 2000);
+    insertMessage(runningConversation.id, "user", 1600);
+
+    recordUsageCostAt(
+      completedConversation.id,
+      "consolidation-summary-before",
+      999,
+      0.4,
+    );
+    recordUsageCostAt(
+      completedConversation.id,
+      "consolidation-summary-start",
+      1000,
+      0.01,
+    );
+    recordUsageCostAt(
+      completedConversation.id,
+      "consolidation-summary-inside",
+      1500,
+      0.02,
+    );
+    recordUsageCostAt(
+      completedConversation.id,
+      "consolidation-summary-finish",
+      2000,
+      0.03,
+    );
+    recordUsageCostAt(
+      completedConversation.id,
+      "consolidation-summary-after",
+      2001,
+      0.5,
+    );
+
+    const result = getUsageSummary({ from: "1000", to: "2000" });
+    const byScheduleId = new Map(
+      result.summaries.map((summary) => [summary.scheduleId, summary]),
+    );
+
+    expect(byScheduleId.get("system-consolidation")).toMatchObject({
+      scheduleId: "system-consolidation",
+      runCount: 1,
+      eventCount: 3,
+    });
+    expect(
+      byScheduleId.get("system-consolidation")?.totalEstimatedCostUsd,
+    ).toBeCloseTo(0.06);
   });
 
   test("validates required numeric range parameters", () => {
