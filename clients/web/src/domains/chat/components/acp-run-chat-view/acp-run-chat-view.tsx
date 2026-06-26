@@ -394,7 +394,7 @@ function SteerComposer({ acpSessionId }: { acpSessionId: string }) {
       // Optimistic user turn so the steer shows immediately ahead of the
       // daemon's echoed events. Appended without advancing the dedup
       // high-water mark so the daemon's first real post-steer event survives.
-      useAcpRunStore.getState().appendLocalMarker({
+      const markerId = useAcpRunStore.getState().appendLocalMarker({
         acpSessionId,
         content: `${STEER_MARKER_PREFIX}${instruction}`,
       });
@@ -402,6 +402,13 @@ function SteerComposer({ acpSessionId }: { acpSessionId: string }) {
       void steerAcpRun(acpSessionId, instruction)
         .then(() => setInput(""))
         .catch((err) => {
+          // Roll back the optimistic marker so the transcript doesn't keep
+          // showing a steer the agent never received.
+          if (markerId) {
+            useAcpRunStore
+              .getState()
+              .removeLocalMarker({ acpSessionId, markerId });
+          }
           captureError(err, { context: "AcpRunChatView.steer" });
         })
         .finally(() => setPending(false));

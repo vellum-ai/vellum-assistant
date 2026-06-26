@@ -295,7 +295,7 @@ function AcpRunTimelinePanel({
       // Optimistic timeline marker so the steer is visible immediately, ahead
       // of the daemon's echoed events. Appended without advancing the dedup
       // high-water mark so the daemon's first real post-steer event survives.
-      useAcpRunStore.getState().appendLocalMarker({
+      const markerId = useAcpRunStore.getState().appendLocalMarker({
         acpSessionId: entry.acpSessionId,
         content: `↻ Steering: ${instruction}`,
       });
@@ -306,6 +306,13 @@ function AcpRunTimelinePanel({
           setApprovalPending(res.approvalPending === true);
         })
         .catch((err) => {
+          // Roll back the optimistic marker so the timeline doesn't keep
+          // showing a steer the agent never received.
+          if (markerId) {
+            useAcpRunStore
+              .getState()
+              .removeLocalMarker({ acpSessionId: entry.acpSessionId, markerId });
+          }
           captureError(err, { context: "AcpRunDetailPanel.steer" });
         })
         .finally(() => setSteerPending(false));

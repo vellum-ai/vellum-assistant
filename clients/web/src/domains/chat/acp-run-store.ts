@@ -125,10 +125,24 @@ export interface AcpRunActions {
    * synthetic `messageId` so it can't coalesce into an adjacent real message.
    * Leaving the dedup mark untouched keeps the next real daemon event (which
    * the daemon stamps with a contiguous integer seq) from being dropped.
+   *
+   * Returns the marker's id (pass it to {@link removeLocalMarker} to roll the
+   * marker back), or `null` if the session is unknown.
    */
   appendLocalMarker: (params: {
     acpSessionId: string;
     content: string;
+  }) => string | null;
+
+  /**
+   * Remove a local marker by the id returned from {@link appendLocalMarker}.
+   * Rolls back an optimistic steer note when the steer request fails so the
+   * transcript doesn't keep showing an instruction the agent never received.
+   * No-op for an unknown session or already-removed marker.
+   */
+  removeLocalMarker: (params: {
+    acpSessionId: string;
+    markerId: string;
   }) => void;
 
   setTerminal: (params: {
@@ -373,7 +387,7 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
   appendLocalMarker: (params) => {
     const { byId } = get();
     const existing = byId[params.acpSessionId];
-    if (!existing) return;
+    if (!existing) return null;
 
     // Fractional seq sorts after existing events but never collides with a
     // daemon integer seq; the events-length-derived messageId is unique so it
@@ -383,10 +397,11 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
       (max, ev) => (typeof ev.seq === "number" && ev.seq > max ? ev.seq : max),
       0,
     );
+    const markerId = `${LOCAL_MARKER_ID_PREFIX}${existing.events.length}`;
     const marker: AcpRunRawEvent = {
       seq: maxSeq + 0.5,
       updateType: "agent_message_chunk",
-      messageId: `${LOCAL_MARKER_ID_PREFIX}${existing.events.length}`,
+      messageId: markerId,
       content: params.content,
     };
 
@@ -397,6 +412,25 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
           ...existing,
           events: [...existing.events, marker],
         },
+      },
+    });
+    return markerId;
+  },
+
+  removeLocalMarker: (params) => {
+    const { byId } = get();
+    const existing = byId[params.acpSessionId];
+    if (!existing) return;
+
+    const events = existing.events.filter(
+      (ev) => ev.messageId !== params.markerId,
+    );
+    if (events.length === existing.events.length) return;
+
+    set({
+      byId: {
+        ...byId,
+        [params.acpSessionId]: { ...existing, events },
       },
     });
   },

@@ -371,6 +371,63 @@ describe("appendLocalMarker", () => {
     getState().appendLocalMarker({ acpSessionId: "acp-missing", content: "x" });
     expect(getState().byId).toEqual({});
   });
+
+  it("returns the marker id, or null for an unknown session", () => {
+    spawn();
+    const markerId = getState().appendLocalMarker({
+      acpSessionId: "acp-1",
+      content: "↻ Steering: go",
+    });
+    const events = getState().byId["acp-1"]!.events;
+    expect(markerId).toBe(events[events.length - 1]!.messageId!);
+
+    expect(
+      getState().appendLocalMarker({ acpSessionId: "acp-missing", content: "x" }),
+    ).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// removeLocalMarker
+// ---------------------------------------------------------------------------
+
+describe("removeLocalMarker", () => {
+  it("removes the marker appended by its id (steer rollback)", () => {
+    spawn();
+    const store = getState();
+    store.receiveEvent({
+      acpSessionId: "acp-1",
+      event: event({ seq: 1, content: "real", messageId: "m-1" }),
+    });
+    const markerId = store.appendLocalMarker({
+      acpSessionId: "acp-1",
+      content: "↻ Steering: go",
+    })!;
+    expect(getState().byId["acp-1"]!.events).toHaveLength(2);
+
+    getState().removeLocalMarker({ acpSessionId: "acp-1", markerId });
+
+    const events = getState().byId["acp-1"]!.events;
+    expect(events).toHaveLength(1);
+    expect(events.some((e) => e.content === "↻ Steering: go")).toBe(false);
+    // The real event is untouched.
+    expect(events[0]!.messageId).toBe("m-1");
+  });
+
+  it("is a no-op for an unknown marker id or session", () => {
+    spawn();
+    getState().receiveEvent({
+      acpSessionId: "acp-1",
+      event: event({ seq: 1, content: "real", messageId: "m-1" }),
+    });
+    const before = getState().byId["acp-1"]!.events;
+
+    getState().removeLocalMarker({ acpSessionId: "acp-1", markerId: "nope" });
+    getState().removeLocalMarker({ acpSessionId: "acp-missing", markerId: "x" });
+
+    // Same array reference — no state churn when nothing matched.
+    expect(getState().byId["acp-1"]!.events).toBe(before);
+  });
 });
 
 // ---------------------------------------------------------------------------
