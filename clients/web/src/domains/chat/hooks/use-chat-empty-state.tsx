@@ -43,8 +43,8 @@ export interface UseChatEmptyStateParams {
   onSelectStarter: (starter: ConversationStarter) => void;
   /**
    * Behind the new-thread-suggestions flag, clicking a library card invokes
-   * this instead of submitting via {@link onSelectStarter} — the caller opens
-   * the detail drawer. When omitted, the library falls back to submitting.
+   * this to open the detail drawer. The library only renders when this is
+   * provided; otherwise the empty state falls back to the starter chips.
    */
   onSelectSuggestion?: (suggestion: ThreadSuggestion) => void;
 }
@@ -88,16 +88,29 @@ export function useChatEmptyState({
       enabled: isEmptyConversation,
     });
 
-  // Gate the daemon fetch by `isEmptyConversation` so non-empty chats
-  // stop polling for data that's never rendered.
-  const { starters: conversationStarters } = useConversationStarters(
-    isEmptyConversation ? assistantId : null,
-  );
-
   const editingApp =
     mainView === "app-editing" && openedAppState
       ? { name: openedAppState.name, dirName: openedAppState.dirName }
       : null;
+
+  // Behind the flag, the new suggestions library replaces the starter chips
+  // on a fresh thread. The app-editing override keeps its bespoke chips
+  // regardless of the flag, so it stays on the grid path. The library also
+  // needs `onSelectSuggestion` to open its detail drawer; without it we fall
+  // back to the chip grid.
+  const showSuggestionLibrary =
+    newThreadSuggestionsEnabled &&
+    isEmptyConversation &&
+    !editingApp &&
+    onSelectSuggestion != null;
+
+  // Gate the daemon fetch by `isEmptyConversation` so non-empty chats stop
+  // polling for data that's never rendered. Also skip it whenever the
+  // suggestions library is shown — the daemon GET enqueues starter generation
+  // and polls every few seconds for chips the library path never renders.
+  const { starters: conversationStarters } = useConversationStarters(
+    isEmptyConversation && !showSuggestionLibrary ? assistantId : null,
+  );
 
   const emptyStateProps: ChatEmptyStateProps = {
     avatarSlot:
@@ -119,12 +132,6 @@ export function useChatEmptyState({
     ? buildEditAppStarters(editingApp)
     : conversationStarters;
 
-  // Behind the flag, the new suggestions library replaces the starter chips
-  // on a fresh thread. The app-editing override keeps its bespoke chips
-  // regardless of the flag, so it stays on the grid path.
-  const showSuggestionLibrary =
-    newThreadSuggestionsEnabled && isEmptyConversation && !editingApp;
-
   let startersSlot: ReactNode | undefined;
   if (showSuggestionLibrary) {
     startersSlot = (
@@ -132,19 +139,7 @@ export function useChatEmptyState({
         <SuggestionLibrary
           featured={featured}
           groups={groups}
-          onSelect={(s) => {
-            if (onSelectSuggestion) {
-              onSelectSuggestion(s);
-              return;
-            }
-            onSelectStarter({
-              id: s.id,
-              label: s.title,
-              prompt: s.prompt,
-              category: null,
-              batch: 0,
-            });
-          }}
+          onSelect={onSelectSuggestion}
         />
       </div>
     );
