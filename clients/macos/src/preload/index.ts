@@ -266,6 +266,11 @@ const bridge: VellumBridge = {
       ipcRenderer.send("vellum:status:connection", status);
     },
   },
+  identity: {
+    setName: (name: string): void => {
+      ipcRenderer.send("vellum:identity:name", name);
+    },
+  },
   icon: {
     setAvatar: (png: Uint8Array | null): void => {
       ipcRenderer.send("vellum:icon:setAvatar", png);
