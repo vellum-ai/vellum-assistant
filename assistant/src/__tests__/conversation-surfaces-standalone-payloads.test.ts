@@ -208,8 +208,8 @@ describe("standalone confirmation surface payload shapes", () => {
     expect(completeMsg!.surfaceId).toBe("payload-surf-2");
     expect(typeof completeMsg!.summary).toBe("string");
     expect(completeMsg!.summary).toBe('User chose: "Deploy"');
-    // submittedData should contain the action data from the user click
-    expect(completeMsg!.submittedData).toEqual({ environment: "production" });
+    // submittedData is not included in the broadcast (kept in-process only)
+    expect(completeMsg!).not.toHaveProperty("submittedData");
   });
 
   test("ui_surface_complete payload on cancel matches UiSurfaceCompleteMessage contract", async () => {
@@ -403,10 +403,8 @@ describe("standalone form surface payload shapes", () => {
     expect(completeMsg!.conversationId).toBe("payload-test-conv");
     expect(completeMsg!.surfaceId).toBe("payload-surf-form-2");
     expect(completeMsg!.summary).toBe("Submitted");
-    expect(completeMsg!.submittedData).toEqual({
-      email: "alice@example.com",
-      age: 30,
-    });
+    // submittedData is not included in the broadcast (kept in-process only)
+    expect(completeMsg!).not.toHaveProperty("submittedData");
   });
 
   test("form dismiss action resolves as cancelled with correct payload", async () => {
@@ -908,7 +906,8 @@ describe("standalone multi-page form payload shapes", () => {
     const completeMsg = findByType(ctx.sentMessages, "ui_surface_complete");
     expect(completeMsg).toBeDefined();
     expect(completeMsg!.summary).toBe("Submitted");
-    expect(completeMsg!.submittedData).toEqual({ a: "hello", b: 42 });
+    // submittedData is not included in the broadcast (kept in-process only)
+    expect(completeMsg!).not.toHaveProperty("submittedData");
   });
 });
 
