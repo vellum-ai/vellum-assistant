@@ -26,6 +26,13 @@ const WakeConversationBody = z.object({
   // body — any `chat.write` caller could otherwise attribute a wake to an
   // arbitrary firing.
   runToken: z.string().min(1).optional(),
+  // Persist the trigger as a transcript-visible `<background_event>` instead of
+  // an ephemeral hint, so repeated wakes stay prompt-cache-friendly.
+  persist: z.boolean().optional(),
+  // Raw third-party data (email/PR/notification payloads) the script polled.
+  // Fenced inside `<external_content>` so the model treats it as data, never
+  // instructions; only consulted alongside `persist`.
+  externalContent: z.string().optional(),
 });
 
 export const ROUTES: RouteDefinition[] = [
@@ -48,8 +55,14 @@ export const ROUTES: RouteDefinition[] = [
       reason: z.string().optional(),
     }),
     handler: async ({ body }) => {
-      const { conversationId, hint, source, runToken } =
-        WakeConversationBody.parse(body);
+      const {
+        conversationId,
+        hint,
+        source,
+        runToken,
+        persist,
+        externalContent,
+      } = WakeConversationBody.parse(body);
 
       const conversation = getConversation(conversationId);
       if (!conversation) {
@@ -82,6 +95,10 @@ export const ROUTES: RouteDefinition[] = [
           : {}),
         ...(cronRunId ? { cronRunId } : {}),
         ...(runToken ? { clientless: true } : {}),
+        ...(persist ? { persistTriggerAsEvent: true } : {}),
+        ...(externalContent !== undefined
+          ? { untrustedOutput: { content: externalContent, source: "webhook" } }
+          : {}),
       });
     },
   },

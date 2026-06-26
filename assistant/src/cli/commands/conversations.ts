@@ -599,6 +599,14 @@ Examples:
           "Source label for logging (e.g. github-notification)",
           "cli",
         )
+        .option(
+          "--persist",
+          "Persist the trigger as a transcript-visible background event instead of an ephemeral hint",
+        )
+        .option(
+          "--external-content-file <path>",
+          "Path to a file of raw third-party data to fence as untrusted content (implies --persist)",
+        )
         .option("--json", "Output result as JSON")
         .addHelpText(
           "after",
@@ -612,17 +620,29 @@ only to the LLM — it never appears in the transcript or SSE feed. If the
 agent produces output (text or tool calls), it is persisted and emitted to
 connected clients. Otherwise the wake is a silent no-op.
 
+--hint is TRUSTED framing authored by you. Any attacker-influenceable data
+(email bodies, PR text, fetched web pages, notification payloads) MUST be
+passed via --external-content-file, never inlined into --hint. The file's
+contents are fenced inside <external_content> so the model treats them as
+data, never instructions. --external-content-file implies --persist.
+
 Requires the assistant to be running. Communicates via IPC socket.
 
 Examples:
   $ assistant conversations wake abc123 --hint "PR #25933 received a review requesting changes"
   $ assistant conversations wake abc123 --hint "CI failed on commit abc" --source github-ci
-  $ assistant conversations wake abc123 --hint "New Slack DM from Vargas" --source slack --json`,
+  $ assistant conversations wake abc123 --persist --hint "New emails to triage" --external-content-file emails.json`,
         )
         .action(
           async (
             conversationId: string,
-            opts: { hint: string; source: string; json?: boolean },
+            opts: {
+              hint: string;
+              source: string;
+              persist?: boolean;
+              externalContentFile?: string;
+              json?: boolean;
+            },
           ) => {
             // A script-mode schedule injects __SCHEDULE_RUN_TOKEN into its env
             // (see schedule/run-script.ts). When set, send it so the daemon can
@@ -630,6 +650,25 @@ Examples:
             // woken turn's cost — the run id is derived from the token, never
             // sent directly.
             const runToken = process.env.__SCHEDULE_RUN_TOKEN;
+
+            let externalContent: string | undefined;
+            if (opts.externalContentFile) {
+              if (!existsSync(opts.externalContentFile)) {
+                const msg = `External content file not found: ${opts.externalContentFile}`;
+                if (opts.json) {
+                  log.info(JSON.stringify({ ok: false, error: msg }));
+                } else {
+                  log.error(msg);
+                }
+                process.exitCode = 1;
+                return;
+              }
+              externalContent = readFileSync(opts.externalContentFile, "utf8");
+            }
+            // Untrusted external content is only fenced on the persisted-event
+            // path, so providing it implies --persist.
+            const persist = opts.persist || externalContent !== undefined;
+
             const result = await cliIpcCall<{
               invoked: boolean;
               producedToolCalls: boolean;
@@ -640,6 +679,8 @@ Examples:
                 hint: opts.hint,
                 source: opts.source,
                 ...(runToken ? { runToken } : {}),
+                ...(persist ? { persist: true } : {}),
+                ...(externalContent !== undefined ? { externalContent } : {}),
               },
             });
 
