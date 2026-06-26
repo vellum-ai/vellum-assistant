@@ -11,10 +11,11 @@
  * - `isAppMinimized` — mobile-only: app viewer minimized
  * - `intelligenceTab` — sub-tab inside the intelligence panel
  * - `assetsRefreshKey` — counter bumped to force asset re-fetches
- * - `viewBeforeDocument` / `viewBeforeSubagentDetail` / `viewBeforeToolDetail` / `viewBeforeWorkflowDetail` — previous view for restoration
+ * - `viewBeforeDocument` / `viewBeforeSubagentDetail` / `viewBeforeToolDetail` / `viewBeforeWorkflowDetail` / `viewBeforeAcpRunDetail` — previous view for restoration
  * - `activeSubagentId` — subagent detail panel
  * - `activeToolDetail` — tool-call detail drawer payload
  * - `activeWorkflowRunId` — workflow detail panel
+ * - `activeAcpRunId` — ACP run detail panel
  *
  * App share/deploy lifecycle lives in `domains/chat/deploy-store.ts`.
  *
@@ -31,7 +32,12 @@ import type { WebSearchResultItem } from "@/assistant/web-activity-types";
 import { createSelectors } from "@/utils/create-selectors";
 
 /** Views that overlay the main content and track a "back" destination. */
-type OverlayView = "document" | "subagent-detail" | "tool-detail" | "workflow-detail";
+type OverlayView =
+  | "document"
+  | "subagent-detail"
+  | "tool-detail"
+  | "workflow-detail"
+  | "acp-run-detail";
 
 /**
  * Resolve the "view before" value for overlay navigation.
@@ -91,14 +97,16 @@ function resolveViewBefore(
     | "viewBeforeDocument"
     | "viewBeforeSubagentDetail"
     | "viewBeforeToolDetail"
-    | "viewBeforeWorkflowDetail",
+    | "viewBeforeWorkflowDetail"
+    | "viewBeforeAcpRunDetail",
 ): Exclude<MainView, OverlayView> {
   const mv = state.mainView;
   if (
     mv === "document" ||
     mv === "subagent-detail" ||
     mv === "tool-detail" ||
-    mv === "workflow-detail"
+    mv === "workflow-detail" ||
+    mv === "acp-run-detail"
   ) {
     return state[field];
   }
@@ -116,7 +124,8 @@ export type MainView =
   | "document"
   | "subagent-detail"
   | "tool-detail"
-  | "workflow-detail";
+  | "workflow-detail"
+  | "acp-run-detail";
 
 export type IntelligenceTab = "identity" | "skills" | "workspace" | "contacts";
 
@@ -231,13 +240,15 @@ export interface ViewerState {
   isAppMinimized: boolean;
   intelligenceTab: IntelligenceTab;
   assetsRefreshKey: number;
-  viewBeforeDocument: Exclude<MainView, "document" | "subagent-detail" | "tool-detail" | "workflow-detail">;
+  viewBeforeDocument: Exclude<MainView, OverlayView>;
   activeSubagentId: string | null;
-  viewBeforeSubagentDetail: Exclude<MainView, "document" | "subagent-detail" | "tool-detail" | "workflow-detail">;
+  viewBeforeSubagentDetail: Exclude<MainView, OverlayView>;
   activeToolDetail: ToolDetailPayload | null;
-  viewBeforeToolDetail: Exclude<MainView, "document" | "subagent-detail" | "tool-detail" | "workflow-detail">;
+  viewBeforeToolDetail: Exclude<MainView, OverlayView>;
   activeWorkflowRunId: string | null;
-  viewBeforeWorkflowDetail: Exclude<MainView, "document" | "subagent-detail" | "tool-detail" | "workflow-detail">;
+  viewBeforeWorkflowDetail: Exclude<MainView, OverlayView>;
+  activeAcpRunId: string | null;
+  viewBeforeAcpRunDetail: Exclude<MainView, OverlayView>;
   /**
    * Monotonic counter bumped when a viewer (e.g. the mobile tool-detail
    * overlay, which lives in a separate portal subtree) asks to open the trust
@@ -270,6 +281,10 @@ export interface ViewerActions {
   // --- Workflow detail ---
   openWorkflowDetail: (runId: string) => void;
   closeWorkflowDetail: () => void;
+
+  // --- ACP run detail ---
+  openAcpRunDetail: (acpSessionId: string) => void;
+  closeAcpRunDetail: () => void;
 
   // --- Tool detail ---
   openToolDetail: (payload: ToolDetailPayload) => void;
@@ -320,6 +335,8 @@ const INITIAL_STATE: ViewerState = {
   viewBeforeToolDetail: "chat",
   activeWorkflowRunId: null,
   viewBeforeWorkflowDetail: "chat",
+  activeAcpRunId: null,
+  viewBeforeAcpRunDetail: "chat",
   ruleEditorRequestSeq: 0,
 };
 
@@ -459,6 +476,23 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     set({
       mainView: get().viewBeforeWorkflowDetail,
       activeWorkflowRunId: null,
+    });
+  },
+
+  // --- ACP run detail ---
+
+  openAcpRunDetail: (acpSessionId) => {
+    set({
+      mainView: "acp-run-detail",
+      activeAcpRunId: acpSessionId,
+      viewBeforeAcpRunDetail: resolveViewBefore(get(), "viewBeforeAcpRunDetail"),
+    });
+  },
+
+  closeAcpRunDetail: () => {
+    set({
+      mainView: get().viewBeforeAcpRunDetail,
+      activeAcpRunId: null,
     });
   },
 

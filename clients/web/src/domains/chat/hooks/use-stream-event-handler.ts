@@ -65,6 +65,13 @@ import {
   handleSubagentEvent,
 } from "@/domains/chat/utils/stream-handlers/subagent-handlers";
 import {
+  handleAcpSessionSpawned,
+  handleAcpSessionUpdate,
+  handleAcpSessionUsage,
+  handleAcpSessionCompleted,
+  handleAcpSessionError,
+} from "@/domains/chat/utils/stream-handlers/acp-handlers";
+import {
   handleWorkflowStarted,
   handleWorkflowProgress,
   handleWorkflowLeafStarted,
@@ -386,6 +393,22 @@ export function useStreamEventHandler(
           break;
         case "subagent_event":
           handleSubagentEvent(event, ctx);
+          break;
+
+        case "acp_session_spawned":
+          handleAcpSessionSpawned(event);
+          break;
+        case "acp_session_update":
+          handleAcpSessionUpdate(event);
+          break;
+        case "acp_session_usage":
+          handleAcpSessionUsage(event);
+          break;
+        case "acp_session_completed":
+          handleAcpSessionCompleted(event);
+          break;
+        case "acp_session_error":
+          handleAcpSessionError(event);
           break;
 
         case "workflow_started":

@@ -228,6 +228,23 @@ export function isRunWorkflowCall(toolCall: ChatMessageToolCall): boolean {
 }
 
 /**
+ * Detect whether a tool call is an `acp_spawn` invocation. Like
+ * `subagent_spawn`/`run_workflow`, the daemon exposes `acp_spawn` as a
+ * bundled-skill tool, so the LLM emits a `skill_execute` call with
+ * `input.tool === "acp_spawn"` — the `tool_use_start` event the frontend
+ * receives still carries `toolName: "skill_execute"`. Matching on the raw
+ * `toolName` alone would miss every spawn and leave the inline ACP run card
+ * unrendered.
+ */
+export function isAcpSpawnCall(toolCall: ChatMessageToolCall): boolean {
+  if (toolCall.name === "acp_spawn") return true;
+  if (toolCall.name !== "skill_execute") return false;
+  const input = toolCall.input;
+  if (input == null || typeof input !== "object") return false;
+  return (input as Record<string, unknown>).tool === "acp_spawn";
+}
+
+/**
  * Detect a task-progress card surface — `template === "task_progress"` with a
  * non-empty `steps` array. Used by the activity-summary hoist-detection path.
  */

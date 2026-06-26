@@ -114,9 +114,10 @@ function dropAclColumns(): void {
 
 function guardianUserFile(id: string): string | null {
   const row = getSqlite()
-    .query<{ user_file: string | null }, [string]>(
-      `SELECT user_file FROM contacts WHERE id = ?`,
-    )
+    .query<
+      { user_file: string | null },
+      [string]
+    >(`SELECT user_file FROM contacts WHERE id = ?`)
     .get(id);
   return row?.user_file ?? null;
 }
@@ -352,7 +353,11 @@ describe("workspace migration 031-drop-user-md", () => {
   });
 
   test("template-shaped USER.md with no destination file — seeds scaffold and deletes USER.md", () => {
-    seedGuardian({ id: "guardian-6", displayName: "Dana", userFile: "dana.md" });
+    seedGuardian({
+      id: "guardian-6",
+      displayName: "Dana",
+      userFile: "dana.md",
+    });
 
     writeFileSync(userMdPath(), templateContent(), "utf-8");
 
