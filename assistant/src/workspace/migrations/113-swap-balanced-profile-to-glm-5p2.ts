@@ -16,18 +16,26 @@ import type { WorkspaceMigration } from "./types.js";
 // platform workspace whose `balanced` profile still resolves to Together
 // MiniMax M3 therefore relies on this migration to move it to GLM 5.2.
 //
-// Scope: only the managed `balanced` profile still on the Together MiniMax M3
-// default is rewritten. `balanced` is a canonical name reserved since migration
-// 052, which seeded it source-less, so absent `source` means legacy managed —
-// treat it as ours. An explicit `source: "user"` (a profile the user took
-// ownership of) or one whose model the user changed is left untouched. Matching
-// on the old model id keeps the migration idempotent and leaves a
-// user-retargeted profile alone. The profile key stays `balanced`, so persisted
-// `inference_profile` pins on conversations/schedules keep resolving.
+// Scope: only the managed `balanced` profile is rewritten. `balanced` is a
+// canonical name reserved since migration 052, which seeded it source-less, so
+// absent `source` means legacy managed — treat it as ours. An explicit
+// `source: "user"` (a profile the user took ownership of) or one whose model the
+// user retargeted to something other than the MiniMax/GLM defaults is left
+// untouched. The profile key stays `balanced`, so persisted `inference_profile`
+// pins on conversations/schedules keep resolving.
 //
-// `topP` was a seeded default (0.95) on the old MiniMax template; GLM 5.2 has no
-// sampling override, so the seeded value is dropped to truly match the new
-// template. A user-customized `topP` (any other value) is preserved.
+// Two on-disk states are reconciled:
+//   1. Still on Together MiniMax M3 (`OLD_MODEL`): swap to GLM 5.2 on Fireworks
+//      at effort `high`, and drop the seeded `topP`.
+//   2. Already on GLM 5.2 (`NEW_MODEL`): the boot seeder may have rewritten the
+//      model before this migration ran (it runs on every boot, even when DB
+//      init failure skips the migration runner) while preserving the old
+//      `topP: 0.95` by key-presence. Strip that stale seeded `topP` so the
+//      profile matches the new template, which carries no sampling override.
+//
+// In both cases only the seeded default `topP` (0.95) is dropped — a
+// user-customized `topP` (any other value) is preserved. Matching on the model
+// id keeps the migration idempotent and leaves a user-retargeted profile alone.
 
 const OLD_MODEL = "MiniMaxAI/MiniMax-M3";
 const NEW_MODEL = "accounts/fireworks/models/glm-5p2";
@@ -56,21 +64,25 @@ export const swapBalancedProfileToGlm52Migration: WorkspaceMigration = {
     if (profiles === null) return;
 
     const profile = readObject(profiles["balanced"]);
-    if (
-      profile === null ||
-      profile.source === "user" ||
-      profile.model !== OLD_MODEL
-    ) {
-      return;
-    }
+    if (profile === null || profile.source === "user") return;
 
-    profile.model = NEW_MODEL;
-    profile.provider = "fireworks";
-    profile.provider_connection = "fireworks-managed";
-    profile.effort = "high";
-    if (profile.topP === SEEDED_TOP_P) {
-      delete profile.topP;
+    let changed = false;
+    if (profile.model === OLD_MODEL) {
+      profile.model = NEW_MODEL;
+      profile.provider = "fireworks";
+      profile.provider_connection = "fireworks-managed";
+      profile.effort = "high";
+      changed = true;
     }
+    // Drop the stale seeded topP — whether we just swapped from MiniMax above or
+    // the boot seeder already rewrote the model to GLM (carrying topP by
+    // key-presence) before this migration had a chance to run.
+    if (profile.model === NEW_MODEL && profile.topP === SEEDED_TOP_P) {
+      delete profile.topP;
+      changed = true;
+    }
+    if (!changed) return;
+
     profiles["balanced"] = profile;
     llm.profiles = profiles;
     config.llm = llm;
