@@ -136,6 +136,26 @@ describe("useChatEmptyState startersSlot", () => {
     });
   });
 
+  test("flag ON: onSelectSuggestion (when provided) wins over onSelectStarter", () => {
+    flagRef.value = true;
+    const submitted: ConversationStarter[] = [];
+    const opened: ThreadSuggestion[] = [];
+    const { result } = renderHook(() =>
+      useChatEmptyState(
+        baseParams({
+          onSelectStarter: (s) => submitted.push(s),
+          onSelectSuggestion: (s) => opened.push(s),
+        }),
+      ),
+    );
+
+    const { getByText } = render(<>{result.current.startersSlot}</>);
+    fireEvent.click(getByText(FEATURED.title));
+
+    expect(opened).toEqual([FEATURED]);
+    expect(submitted).toHaveLength(0);
+  });
+
   test("flag ON but app-editing keeps the conversation-starter grid", () => {
     flagRef.value = true;
     const { result } = renderHook(() =>

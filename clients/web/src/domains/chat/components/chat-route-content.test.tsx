@@ -1,0 +1,245 @@
+/**
+ * Focused test for the new-thread suggestion drawer wiring used by
+ * `ChatMainPanel`.
+ *
+ * `ChatMainPanel` itself pulls in dozens of stores/hooks, so rather than
+ * rendering the whole orchestrator we exercise the exact seam it composes: the
+ * `useChatEmptyState` library slot drives `onSelectSuggestion`, which opens an
+ * `AnimatedRightDrawer` holding a real `SuggestionDetailPanel`. All three are
+ * the real components, so this asserts the actual behaviour:
+ *
+ * - clicking a featured card opens the drawer with that suggestion's detail;
+ * - "Let's do it!" submits the suggestion's prompt and closes the drawer;
+ * - close / Save for Later dismiss the drawer without submitting.
+ *
+ * `motion/react` is mocked so the drawer mounts/unmounts synchronously instead
+ * of depending on real animation timing (see active-subagents-overlay.test).
+ */
+
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { cleanup, fireEvent, render } from "@testing-library/react";
+import {
+  createElement,
+  useCallback,
+  useEffect,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from "react";
+
+import type { ThreadSuggestion } from "@/domains/chat/suggestions/types";
+
+// --- Mocks ----------------------------------------------------------------
+
+const flagRef = { value: true };
+
+mock.module("@/stores/client-feature-flag-store", () => {
+  const store = () => null;
+  store.use = {
+    newThreadSuggestions: () => flagRef.value,
+  };
+  return { useClientFeatureFlagStore: store };
+});
+
+mock.module("@/domains/chat/hooks/use-empty-state-greeting", () => ({
+  useEmptyStateGreeting: () => ({ greeting: "Hi there", isGenerating: false }),
+}));
+
+mock.module("@/domains/chat/hooks/use-conversation-starters", () => ({
+  useConversationStarters: () => ({ starters: [] }),
+}));
+
+const FEATURED: ThreadSuggestion = {
+  id: "sugg-1",
+  title: "Email Helper",
+  iconKey: "gmail",
+  prompt: "Help me triage my inbox",
+  detail: {
+    heading: "Email Helper Detail",
+    description: "Triage your inbox.",
+    requirements: [],
+    capabilities: ["Summarize threads"],
+  },
+};
+
+mock.module("@/domains/chat/hooks/use-thread-suggestions", () => ({
+  useThreadSuggestions: () => ({ featured: [FEATURED], groups: [] }),
+}));
+
+// Render motion elements synchronously and fire `onAnimationComplete` after
+// each render so the drawer mounts on open and its close path (which unmounts
+// content onAnimationComplete) resolves without real animation timing.
+const MOTION_ONLY_PROPS = new Set([
+  "initial",
+  "animate",
+  "exit",
+  "transition",
+  "variants",
+  "whileHover",
+  "whileTap",
+  "layout",
+  "layoutId",
+  "custom",
+  "onAnimationStart",
+  "onAnimationComplete",
+]);
+
+function MotionStub({
+  tag,
+  onAnimationComplete,
+  ...rest
+}: Record<string, unknown> & {
+  tag: string;
+  onAnimationComplete?: () => void;
+}) {
+  useEffect(() => {
+    onAnimationComplete?.();
+  });
+  return createElement(tag, rest);
+}
+
+mock.module("motion/react", () => ({
+  motion: new Proxy(
+    {} as Record<string, (props: Record<string, unknown>) => ReactElement>,
+    {
+      get: (_target, tag) => (props: Record<string, unknown>) => {
+        const domProps: Record<string, unknown> = {};
+        for (const key in props) {
+          if (!MOTION_ONLY_PROPS.has(key)) domProps[key] = props[key];
+        }
+        return createElement(MotionStub, {
+          ...domProps,
+          tag: String(tag),
+          onAnimationComplete: props.onAnimationComplete as
+            | (() => void)
+            | undefined,
+        });
+      },
+    },
+  ),
+  AnimatePresence: ({ children }: { children?: ReactNode }) => children,
+  useReducedMotion: () => true,
+}));
+
+import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-drawer";
+import { SuggestionDetailPanel } from "@/domains/chat/components/suggestion-detail-panel";
+import { useChatEmptyState } from "@/domains/chat/hooks/use-chat-empty-state";
+
+// Harness mirroring ChatMainPanel's drawer wiring with the real components.
+function Harness({ onSubmit }: { onSubmit: (prompt: string) => void }) {
+  const [selected, setSelected] = useState<ThreadSuggestion | null>(null);
+
+  const { startersSlot } = useChatEmptyState({
+    assistantId: "a1",
+    conversationId: "c1",
+    isEmptyConversation: true,
+    avatar: { components: null, traits: null, customImageUrl: null } as never,
+    mainView: "chat",
+    openedAppState: null,
+    isAssistantStreaming: false,
+    activeConversationIsProcessing: false,
+    onSelectStarter: () => {},
+    onSelectSuggestion: setSelected,
+  });
+
+  const handleClose = useCallback(() => setSelected(null), []);
+  const handleConfirm = useCallback(
+    (s: ThreadSuggestion) => {
+      setSelected(null);
+      onSubmit(s.prompt);
+    },
+    [onSubmit],
+  );
+  const handleSaveForLater = useCallback(() => setSelected(null), []);
+
+  return (
+    <AnimatedRightDrawer
+      open={Boolean(selected)}
+      left={<div>{startersSlot}</div>}
+      right={
+        selected ? (
+          <SuggestionDetailPanel
+            suggestion={selected}
+            onClose={handleClose}
+            onConfirm={handleConfirm}
+            onSaveForLater={handleSaveForLater}
+          />
+        ) : null
+      }
+    />
+  );
+}
+
+beforeEach(() => {
+  flagRef.value = true;
+});
+
+afterEach(() => {
+  cleanup();
+});
+
+describe("ChatMainPanel suggestion drawer wiring", () => {
+  test("clicking a featured card opens the drawer with its detail", () => {
+    const submitted: string[] = [];
+    const { getByText, container } = render(
+      <Harness onSubmit={(p) => submitted.push(p)} />,
+    );
+
+    expect(
+      container.querySelector('[data-slot="suggestion-detail-panel"]'),
+    ).toBeNull();
+
+    fireEvent.click(getByText(FEATURED.title));
+
+    expect(
+      container.querySelector('[data-slot="suggestion-detail-panel"]'),
+    ).not.toBeNull();
+    expect(getByText(FEATURED.detail.heading)).toBeTruthy();
+    expect(submitted).toHaveLength(0);
+  });
+
+  test("'Let's do it!' submits the prompt and closes the drawer", () => {
+    const submitted: string[] = [];
+    const { getByText, container } = render(
+      <Harness onSubmit={(p) => submitted.push(p)} />,
+    );
+
+    fireEvent.click(getByText(FEATURED.title));
+    fireEvent.click(getByText("Let's do it!"));
+
+    expect(submitted).toEqual([FEATURED.prompt]);
+    expect(
+      container.querySelector('[data-slot="suggestion-detail-panel"]'),
+    ).toBeNull();
+  });
+
+  test("close dismisses the drawer without submitting", () => {
+    const submitted: string[] = [];
+    const { getByText, getByLabelText, container } = render(
+      <Harness onSubmit={(p) => submitted.push(p)} />,
+    );
+
+    fireEvent.click(getByText(FEATURED.title));
+    fireEvent.click(getByLabelText("Close"));
+
+    expect(submitted).toHaveLength(0);
+    expect(
+      container.querySelector('[data-slot="suggestion-detail-panel"]'),
+    ).toBeNull();
+  });
+
+  test("Save for Later dismisses the drawer without submitting", () => {
+    const submitted: string[] = [];
+    const { getByText, container } = render(
+      <Harness onSubmit={(p) => submitted.push(p)} />,
+    );
+
+    fireEvent.click(getByText(FEATURED.title));
+    fireEvent.click(getByText("Save for Later"));
+
+    expect(submitted).toHaveLength(0);
+    expect(
+      container.querySelector('[data-slot="suggestion-detail-panel"]'),
+    ).toBeNull();
+  });
+});

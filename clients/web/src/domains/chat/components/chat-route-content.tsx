@@ -17,7 +17,7 @@
  * - `useChatBannerSlots` — nudge/queued/slack banner assembly
  */
 
-import { type Dispatch, type MutableRefObject, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { type Dispatch, type MutableRefObject, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { useActiveSubagentIds } from "@/domains/chat/hooks/use-active-subagent-ids";
 import { useActiveWorkflowRunIds } from "@/domains/chat/hooks/use-active-workflow-run-ids";
@@ -39,6 +39,7 @@ import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachmen
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { ActiveSubagentsOverlay } from "@/domains/chat/components/active-subagents-overlay/active-subagents-overlay";
 import { ActiveWorkflowsOverlay } from "@/domains/chat/components/active-workflows-overlay/active-workflows-overlay";
+import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-drawer";
 import { ChatBody } from "@/domains/chat/components/chat-body";
 import { ChatComposer } from "@/domains/chat/components/chat-composer/chat-composer";
 import { ChatRuleEditorModal } from "@/domains/chat/components/chat-rule-editor-modal";
@@ -50,6 +51,8 @@ import { MicPermissionPrimer } from "@/domains/chat/components/mic-permission-pr
 import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card";
 import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner";
 import { SendErrorModal } from "@/domains/chat/components/send-error-modal";
+import { SuggestionDetailPanel } from "@/domains/chat/components/suggestion-detail-panel";
+import type { ThreadSuggestion } from "@/domains/chat/suggestions/types";
 import { useEditMessage } from "@/domains/chat/hooks/use-edit-message";
 import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice";
 import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh";
@@ -656,6 +659,26 @@ export function ChatMainPanel({
   }, [submitMessage]);
 
   // -------------------------------------------------------------------------
+  // New-thread suggestion drawer (behind the flag, empty-state only)
+  // -------------------------------------------------------------------------
+  const newThreadSuggestionsEnabled =
+    useClientFeatureFlagStore.use.newThreadSuggestions();
+  const [selectedSuggestion, setSelectedSuggestion] =
+    useState<ThreadSuggestion | null>(null);
+
+  // Close, and Save-for-later, both just dismiss the drawer: persisting saved
+  // suggestions is not implemented yet.
+  const handleCloseSuggestion = useCallback(() => setSelectedSuggestion(null), []);
+
+  const handleConfirmSuggestion = useCallback(
+    (s: ThreadSuggestion) => {
+      setSelectedSuggestion(null);
+      void submitMessage(s.prompt);
+    },
+    [submitMessage],
+  );
+
+  // -------------------------------------------------------------------------
   // Rule editor bridge (viewer-store seq → rule editor open)
   // -------------------------------------------------------------------------
   useRuleEditorBridge(messages, handleOpenRuleEditorForToolCall);
@@ -689,6 +712,9 @@ export function ChatMainPanel({
     isAssistantStreaming,
     activeConversationIsProcessing,
     onSelectStarter: handleSelectStarter,
+    onSelectSuggestion: newThreadSuggestionsEnabled
+      ? setSelectedSuggestion
+      : undefined,
   });
 
   // -------------------------------------------------------------------------
@@ -867,37 +893,65 @@ export function ChatMainPanel({
   const isSidePanel = mainView === "app-editing" && !!openedAppState && !!editingConversationId;
   const variant = isSidePanel ? "side-panel" : "main";
 
+  const chatBody = (
+    <ChatBody
+      variant={variant}
+      scrollAreaProps={{
+        ...chatBodyScrollAreaPropsBase,
+        showMaintenanceRecoveryCard: isSidePanel ? false : isInMaintenanceWithNoMessages,
+      }}
+      composerSlot={composerNode}
+      onStopGenerating={handleStopGenerating}
+      dragHandlers={attachmentDropHandlers}
+      isAttachmentDragOver={isAttachmentDragOver}
+      showScrollToLatest={
+        scrollCoordinator.showScrollToLatest && messages.length > 0
+      }
+      onScrollToLatest={handleScrollToLatest}
+      isStreaming={isAssistantStreaming}
+      refreshFeedback={refreshFeedback}
+      onDismissRefreshFeedback={handleDismissRefreshFeedback}
+      onRetryRefresh={handleRetryRefreshFromPill}
+      genericChatError={genericChatBanner}
+      onDismissChatError={handleDismissChatError}
+      isChannelReadonly={isChannelReadonly}
+      canStopGenerating={canStopGenerating}
+      bannerSlot={isSidePanel ? undefined : mainBannerSlot}
+      queuedDrawerSlot={isSidePanel ? undefined : mainQueuedDrawerSlot}
+      readonlyBannerSlot={channelReadonlyBannerSlot}
+      startersSlot={startersSlot}
+      activeSubagentsSlot={activeSubagentsSlot}
+      activeWorkflowsSlot={activeWorkflowsSlot}
+    />
+  );
+
+  // Behind the flag, the empty-state chat shares the pane with an animated
+  // right-hand drawer that holds the picked suggestion's detail. Outside the
+  // flag-on empty-state path the chat renders exactly as before — no wrapper.
+  const mainContent =
+    newThreadSuggestionsEnabled && isEmptyConversation ? (
+      <AnimatedRightDrawer
+        open={Boolean(selectedSuggestion)}
+        storageKey="vellum:suggestion-drawer-width"
+        left={chatBody}
+        right={
+          selectedSuggestion ? (
+            <SuggestionDetailPanel
+              suggestion={selectedSuggestion}
+              onClose={handleCloseSuggestion}
+              onConfirm={handleConfirmSuggestion}
+              onSaveForLater={handleCloseSuggestion}
+            />
+          ) : null
+        }
+      />
+    ) : (
+      chatBody
+    );
+
   return (
     <>
-      <ChatBody
-        variant={variant}
-        scrollAreaProps={{
-          ...chatBodyScrollAreaPropsBase,
-          showMaintenanceRecoveryCard: isSidePanel ? false : isInMaintenanceWithNoMessages,
-        }}
-        composerSlot={composerNode}
-        onStopGenerating={handleStopGenerating}
-        dragHandlers={attachmentDropHandlers}
-        isAttachmentDragOver={isAttachmentDragOver}
-        showScrollToLatest={
-          scrollCoordinator.showScrollToLatest && messages.length > 0
-        }
-        onScrollToLatest={handleScrollToLatest}
-        isStreaming={isAssistantStreaming}
-        refreshFeedback={refreshFeedback}
-        onDismissRefreshFeedback={handleDismissRefreshFeedback}
-        onRetryRefresh={handleRetryRefreshFromPill}
-        genericChatError={genericChatBanner}
-        onDismissChatError={handleDismissChatError}
-        isChannelReadonly={isChannelReadonly}
-        canStopGenerating={canStopGenerating}
-        bannerSlot={isSidePanel ? undefined : mainBannerSlot}
-        queuedDrawerSlot={isSidePanel ? undefined : mainQueuedDrawerSlot}
-        readonlyBannerSlot={channelReadonlyBannerSlot}
-        startersSlot={startersSlot}
-        activeSubagentsSlot={activeSubagentsSlot}
-        activeWorkflowsSlot={activeWorkflowsSlot}
-      />
+      {mainContent}
       <MicPermissionPrimer
         open={showPrimer}
         onContinue={handlePrimerContinue}
