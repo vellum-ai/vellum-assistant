@@ -423,6 +423,61 @@ describe("tool blocks", () => {
     expect(tool.rawOutput).toBe("second");
   });
 
+  it("projects an explicit null rawInput/rawOutput over a prior value", () => {
+    const blocks = computeAcpRunChatBlocks([
+      event({
+        updateType: "tool_call",
+        toolCallId: "tc1",
+        toolTitle: "Bash",
+        rawInput: { command: "ls" },
+        rawOutput: "first",
+      }),
+      // A JSON `null` is a real value, not an omission — it must overwrite the
+      // prior rawInput/rawOutput rather than be treated as "field absent".
+      event({
+        updateType: "tool_call_update",
+        toolCallId: "tc1",
+        toolStatus: "completed",
+        rawInput: null,
+        rawOutput: null,
+      }),
+    ]);
+
+    const tool = blocks[0] as Extract<AcpChatBlock, { kind: "tool" }>;
+    expect(tool.rawInput).toBeNull();
+    expect(tool.rawOutput).toBeNull();
+  });
+
+  it("keeps a prior value when a later update omits rawInput/rawOutput", () => {
+    const blocks = computeAcpRunChatBlocks([
+      event({
+        updateType: "tool_call",
+        toolCallId: "tc1",
+        toolTitle: "Bash",
+        rawInput: { command: "ls" },
+        rawOutput: "out",
+      }),
+      // Sets a null value...
+      event({
+        updateType: "tool_call_update",
+        toolCallId: "tc1",
+        rawInput: null,
+        rawOutput: null,
+      }),
+      // ...then a later update omits both fields entirely — the prior (null)
+      // value is preserved, not reset to undefined.
+      event({
+        updateType: "tool_call_update",
+        toolCallId: "tc1",
+        toolStatus: "completed",
+      }),
+    ]);
+
+    const tool = blocks[0] as Extract<AcpChatBlock, { kind: "tool" }>;
+    expect(tool.rawInput).toBeNull();
+    expect(tool.rawOutput).toBeNull();
+  });
+
   it("leaves rawInput/rawOutput undefined when no event carries them", () => {
     const blocks = computeAcpRunChatBlocks([
       event({ updateType: "tool_call", toolCallId: "tc1", toolTitle: "Read" }),
