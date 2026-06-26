@@ -290,7 +290,12 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
 
       {showStepProgress &&
         (showTabs ? (
-          <PageTabs current={currentPage} pages={allPages} onNavigate={handleNavigate} />
+          <PageTabs
+            current={currentPage}
+            pages={allPages}
+            onNavigate={handleNavigate}
+            disabled={isSubmitting}
+          />
         ) : (
           <PageProgress current={currentPage} total={totalPages} />
         ))}
