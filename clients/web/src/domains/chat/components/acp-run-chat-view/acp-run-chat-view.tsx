@@ -101,9 +101,9 @@ export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
   } | null>(null);
 
   // Reset nested diff (parent-owned state) on run switch — render-phase guard
-  // tracking the prev id, mirroring `AcpRunDetailPanel`. Run-specific state that
-  // lives inside subcomponents (header `stopping`, composer `input`/`pending`)
-  // is reset by keying them on `entry.acpSessionId` below so they remount fresh.
+  // tracking the prev id. Run-specific state that lives inside subcomponents
+  // (header `stopping`, composer `input`/`pending`) is reset by keying them on
+  // `entry.acpSessionId` below so they remount fresh.
   const [prevSessionId, setPrevSessionId] = useState(entry.acpSessionId);
   if (prevSessionId !== entry.acpSessionId) {
     setPrevSessionId(entry.acpSessionId);
