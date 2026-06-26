@@ -118,21 +118,6 @@ export function textToSlackBlocks(text: string): KnownBlock[] | undefined {
   return blocks.length > 0 ? blocks : undefined;
 }
 
-/**
- * Detect whether a callback URL points to the gateway's Slack delivery endpoint.
- */
-export function isSlackCallbackUrl(callbackUrl: string): boolean {
-  try {
-    const url = new URL(callbackUrl);
-    return (
-      url.pathname === "/deliver/slack" ||
-      url.pathname.startsWith("/deliver/slack?")
-    );
-  } catch {
-    return false;
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Internals
 // ---------------------------------------------------------------------------

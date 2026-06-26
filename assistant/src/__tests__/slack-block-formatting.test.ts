@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  isSlackCallbackUrl,
-  textToSlackBlocks,
-} from "../runtime/slack-block-formatting.js";
+import { textToSlackBlocks } from "../runtime/slack-block-formatting.js";
 
 describe("textToSlackBlocks", () => {
   test("returns undefined for empty text", () => {
@@ -172,39 +169,5 @@ describe("textToSlackBlocks", () => {
       text: { type: string; text: string };
     };
     expect(section.text.text).toContain("|");
-  });
-});
-
-describe("isSlackCallbackUrl", () => {
-  test("returns true for Slack deliver URLs", () => {
-    expect(
-      isSlackCallbackUrl(
-        "http://127.0.0.1:7830/deliver/slack?threadTs=123&channel=C456",
-      ),
-    ).toBe(true);
-  });
-
-  test("returns true for bare Slack deliver path", () => {
-    expect(isSlackCallbackUrl("http://localhost:7830/deliver/slack")).toBe(
-      true,
-    );
-  });
-
-  test("returns false for non-Slack URLs", () => {
-    expect(isSlackCallbackUrl("http://localhost:7830/deliver/telegram")).toBe(
-      false,
-    );
-  });
-
-  test("returns false for invalid URLs", () => {
-    expect(isSlackCallbackUrl("not-a-url")).toBe(false);
-  });
-
-  test("returns false for managed outbound URLs", () => {
-    expect(
-      isSlackCallbackUrl(
-        "http://localhost:7830/v1/internal/managed-gateway/outbound-send/?route_id=r1&assistant_id=a1&source_channel=phone",
-      ),
-    ).toBe(false);
   });
 });

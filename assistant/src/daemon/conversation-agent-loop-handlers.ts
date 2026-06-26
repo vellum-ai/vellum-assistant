@@ -29,6 +29,7 @@ import {
   getMessageById,
   messageMetadataSchema,
   provenanceFromTrustContext,
+  recordConversationPersistedSeq,
   reserveMessage,
   setConversationHistoryStrippedAt,
   setLastNotifiedInferenceProfile,
@@ -57,10 +58,7 @@ import type {
   ImageContent,
   Message,
 } from "../providers/types.js";
-import {
-  getCurrentSeq,
-  recordPersistedSeq,
-} from "../runtime/assistant-stream-state.js";
+import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { extractDomain } from "../tools/network/domain-normalize.js";
@@ -103,6 +101,12 @@ import type {
 } from "./message-types/web-activity.js";
 
 const log = getLogger("agent-loop-handlers");
+
+function shouldPersistProviderErrorAsAssistantMessage(classified: {
+  code: string;
+}): boolean {
+  return classified.code !== "MANAGED_KEY_INVALID";
+}
 
 /**
  * Persist the history-stripped marker after the loop strips runtime injections
@@ -163,6 +167,7 @@ export interface EventHandlerState {
   readonly exchangeRawResponses: unknown[];
   model: string;
   providerErrorUserMessage: string | null;
+  persistProviderErrorAsAssistantMessage: boolean;
   lastAssistantMessageId: string | undefined;
   /**
    * True when `handleLlmCallStarted` has reserved an empty assistant row
@@ -341,6 +346,7 @@ export function createEventHandlerState(): EventHandlerState {
     exchangeRawResponses: [],
     model: "",
     providerErrorUserMessage: null,
+    persistProviderErrorAsAssistantMessage: false,
     lastAssistantMessageId: undefined,
     assistantRowAwaitingFinalization: false,
     pendingToolResults: new Map(),
@@ -530,7 +536,7 @@ async function flushAccumulatedContent(
     // Record only after the write commits, so the snapshot seq never
     // claims content that is not yet durable.
     if (flushedSeq != null) {
-      recordPersistedSeq(deps.ctx.conversationId, flushedSeq);
+      recordConversationPersistedSeq(deps.ctx.conversationId, flushedSeq);
     }
   } catch (err) {
     deps.rlog.warn(
@@ -918,7 +924,7 @@ export function handleToolUse(
   // persisted seq to it. Without this the snapshot would advertise a seq below
   // an event it already incorporates, and a client applying `seq > snapshot.seq`
   // would replay this tool start.
-  recordPersistedSeq(deps.ctx.conversationId, getCurrentSeq());
+  recordConversationPersistedSeq(deps.ctx.conversationId, getCurrentSeq());
 }
 
 export function handleToolUsePreviewStart(
@@ -1136,7 +1142,7 @@ async function persistPendingToolResultRow(
     rowId,
     JSON.stringify(buildToolResultBlocks(state.pendingToolResults)),
   );
-  recordPersistedSeq(deps.ctx.conversationId, seq);
+  recordConversationPersistedSeq(deps.ctx.conversationId, seq);
   const conv = getConversation(deps.ctx.conversationId);
   if (conv != null) {
     syncMessageToDisk(deps.ctx.conversationId, rowId, conv.createdAt);
@@ -1618,6 +1624,8 @@ function handleError(
     buildConversationErrorMessage(deps.ctx.conversationId, classified),
   );
   state.providerErrorUserMessage = classified.userMessage;
+  state.persistProviderErrorAsAssistantMessage =
+    shouldPersistProviderErrorAsAssistantMessage(classified);
 }
 
 export function handleMaxTokensReached(
@@ -1816,10 +1824,14 @@ export async function handleMessageComplete(
   // delta's seq -- the highest stamped content event this row reflects -- so
   // recording it is honest. A drained tool result was stamped earlier in the
   // turn, so this seq already covers it; a call that streams no content (a
-  // pure tool call) advances instead via `tool_use_start`. `recordPersistedSeq`
-  // clamps monotonically, so a lower value here never regresses the seq.
+  // pure tool call) advances instead via `tool_use_start`.
+  // `recordConversationPersistedSeq` clamps monotonically, so a lower value
+  // here never regresses the seq.
   if (state.lastPersistedContentSeq != null) {
-    recordPersistedSeq(deps.ctx.conversationId, state.lastPersistedContentSeq);
+    recordConversationPersistedSeq(
+      deps.ctx.conversationId,
+      state.lastPersistedContentSeq,
+    );
   }
   // Reset the partial-persist mirror so subsequent calls in this turn
   // start with an empty running view.
@@ -2127,6 +2139,13 @@ function handleProviderError(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "provider_error" }>,
 ): void {
+  const classified = classifyConversationError(event.error, {
+    phase: "agent_loop",
+  });
+  if (!shouldPersistProviderErrorAsAssistantMessage(classified)) {
+    return;
+  }
+
   try {
     recordRequestLog(
       deps.ctx.conversationId,

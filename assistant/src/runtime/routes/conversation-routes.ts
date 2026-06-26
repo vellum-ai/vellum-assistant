@@ -90,9 +90,11 @@ import {
   addMessage,
   extractImageSourcePaths,
   getConversation,
+  getConversationPersistedSeq,
   getMessages,
   getMessagesPaginated,
   hasMessages,
+  isConversationProcessing,
   type MessageRow,
   provenanceFromTrustContext,
   setConversationInferenceProfile,
@@ -122,7 +124,6 @@ import {
 } from "../../util/platform.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
-import { getPersistedSeq } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   type GuardianPendingScope,
@@ -393,6 +394,8 @@ function buildSlackHistoryMessage(
       : {}),
     ...(messageLink ? { messageLink } : {}),
     ...(threadLink ? { threadLink } : {}),
+    ...(slackMeta.eventKind ? { eventKind: slackMeta.eventKind } : {}),
+    ...(slackMeta.reaction ? { reaction: slackMeta.reaction } : {}),
   };
 }
 
@@ -657,6 +660,7 @@ export function handleListMessages({
         oldestTimestamp: null,
         oldestMessageId: null,
         seq: null,
+        processing: false,
       };
     }
     return { messages: [] };
@@ -1006,11 +1010,19 @@ export function handleListMessages({
   });
 
   // Snapshot↔stream alignment token: the `seq` of the last event whose
-  // content is durably persisted for this conversation in the current
-  // daemon process. Returned on every resolved-conversation response so a
-  // client can apply only stream events with a higher `seq`. Null when
-  // nothing has been persisted in-process (cold/aged-out/post-restart).
-  const persistedSeq = getPersistedSeq(resolvedConversationId);
+  // content is durably persisted for this conversation, read from the
+  // `conversations.seq` column. Returned on every resolved-conversation
+  // response so a client can apply only stream events with a higher `seq`.
+  // Null when nothing has been persisted (the conversation was created before
+  // any stream activity, or predates the column) -- the client cold-starts.
+  const persistedSeq = getConversationPersistedSeq(resolvedConversationId);
+
+  // Authoritative "is the agent mid-turn?" signal, sourced from the
+  // `processing_started_at` column (persisted, survives daemon restarts).
+  // Clients use this to distinguish a live turn still in flight from a
+  // turn that silently died — without it, a dropped SSE stream leaves the
+  // UI spinning forever with no way to learn the server is actually idle.
+  const processing = isConversationProcessing(resolvedConversationId);
 
   if (isPaginated) {
     // Prefer the page's oldest visible row (the documented cursor semantic).
@@ -1034,6 +1046,7 @@ export function handleListMessages({
         oldestTimestamp: oldestTimestamp ?? null,
         oldestMessageId: oldestMessageId ?? null,
         seq: persistedSeq,
+        processing,
       };
     }
 
@@ -1043,10 +1056,11 @@ export function handleListMessages({
       ...(oldestTimestamp != null ? { oldestTimestamp } : {}),
       ...(oldestMessageId != null ? { oldestMessageId } : {}),
       seq: persistedSeq,
+      processing,
     };
   }
 
-  return { messages, seq: persistedSeq };
+  return { messages, seq: persistedSeq, processing };
 }
 
 /**
@@ -2687,6 +2701,12 @@ export const ROUTES: RouteDefinition[] = [
         .optional()
         .describe(
           "Global SSE `seq` of the last event whose content is durably persisted for this conversation in the current daemon process. A client can align this snapshot with the `/events` stream by applying only events with `seq` greater than this value. Null when no events have been persisted in this process (cold conversation, after a daemon restart, or when the conversation has aged out of the in-memory map) — clients should cold-start in that case. Absent on older daemons that predate this field.",
+        ),
+      processing: z
+        .boolean()
+        .optional()
+        .describe(
+          "Whether the agent is currently mid-turn for this conversation, sourced authoritatively from the persisted `processing_started_at` column. `true` means a turn is in flight; `false` means the conversation is idle. Clients use this to recover from a dropped SSE stream: if a turn appears to be running locally but the server reports `processing: false`, the turn has ended (or died) and the UI should stop waiting rather than spin indefinitely. Absent on older daemons that predate this field.",
         ),
     }),
     handler: (args) => handleListMessages(args),

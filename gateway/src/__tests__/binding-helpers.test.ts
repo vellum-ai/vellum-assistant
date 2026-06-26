@@ -1,9 +1,8 @@
 /**
- * Tests for the guardian binding-helper lookups, which read the gateway DB
+ * Tests for the guardian binding helpers, which read and write the gateway DB
  * (source of truth for ACL). The gateway DB is a real (file-backed) DB seeded
- * per test; the assistant DB proxy is mocked and throws on read so the tests
- * prove the lookups never touch the assistant mirror. revokeExistingChannel
- * Guardian still writes both the assistant UPDATE and the gateway dual-write.
+ * per test; the assistant DB proxy is mocked and throws on every call so the
+ * tests prove the helpers never touch the assistant mirror.
  */
 
 import {
@@ -18,59 +17,14 @@ import {
 
 import "./test-preload.js";
 
-// Assistant DB proxy: reads throw (lookups must not touch it); the revoke
-// UPDATE is captured so we can assert the assistant mirror write still fires.
-// A simple in-memory `contact_channels` model lets us prove the id-keyed
-// update vs. the (type,address) logical-key fallback under id-divergence.
-const assistantRunCalls: { sql: string; bind?: unknown[] }[] = [];
-
-type AsstChannel = {
-  id: string;
-  type: string;
-  address: string;
-  status: string;
-  policy: string;
-};
-const asstChannels: AsstChannel[] = [];
-
-function seedAsstChannel(c: AsstChannel): void {
-  asstChannels.push(c);
-}
-
-let throwOnAsstRun = false;
-
+// Assistant DB proxy: every call throws so the tests prove the helpers read
+// and write only the gateway DB.
 mock.module("../db/assistant-db-proxy.js", () => ({
   assistantDbQuery: mock(async () => {
-    throw new Error("assistant DB read not expected in binding lookups");
+    throw new Error("assistant DB read not expected in binding helpers");
   }),
-  assistantDbRun: mock(async (sql: string, bind?: unknown[]) => {
-    assistantRunCalls.push({ sql, bind });
-    if (throwOnAsstRun) throw new Error("assistant DB proxy unavailable");
-    let changes = 0;
-    if (/WHERE id = \?/.test(sql)) {
-      const id = bind?.[1];
-      for (const ch of asstChannels) {
-        if (ch.id === id) {
-          ch.status = "revoked";
-          ch.policy = "deny";
-          changes++;
-        }
-      }
-    } else if (/WHERE type = \? AND address = \?/.test(sql)) {
-      const type = bind?.[1];
-      const address = bind?.[2];
-      for (const ch of asstChannels) {
-        if (
-          ch.type === type &&
-          ch.address.toLowerCase() === String(address).toLowerCase()
-        ) {
-          ch.status = "revoked";
-          ch.policy = "deny";
-          changes++;
-        }
-      }
-    }
-    return { changes, lastInsertRowid: 0 };
+  assistantDbRun: mock(async () => {
+    throw new Error("assistant DB write not expected in binding helpers");
   }),
   assistantDbExec: mock(async () => undefined),
 }));
@@ -96,8 +50,6 @@ beforeEach(() => {
   const db = getGatewayDb();
   db.delete(contactChannels).run();
   db.delete(contacts).run();
-  assistantRunCalls.length = 0;
-  asstChannels.length = 0;
 });
 
 afterAll(() => {
@@ -248,7 +200,7 @@ describe("resolveCanonicalPrincipal", () => {
 });
 
 describe("revokeExistingChannelGuardian", () => {
-  test("revokes the gateway channel and mirrors the write to the assistant DB", async () => {
+  test("revokes the active guardian channel in the gateway DB only", async () => {
     seedContact({ id: "g1", role: "guardian" });
     const chId = seedChannel({
       contactId: "g1",
@@ -256,18 +208,9 @@ describe("revokeExistingChannelGuardian", () => {
       address: "U_OWNER",
       status: "active",
     });
-    // Assistant row shares the same id — the id-keyed update matches.
-    seedAsstChannel({
-      id: chId,
-      type: "slack",
-      address: "U_OWNER",
-      status: "active",
-      policy: "allow",
-    });
 
     await revokeExistingChannelGuardian("slack");
 
-    // Gateway DB status flipped to revoked.
     const after = getGatewayDb()
       .select()
       .from(contactChannels)
@@ -275,79 +218,48 @@ describe("revokeExistingChannelGuardian", () => {
       .find((r) => r.id === chId);
     expect(after?.status).toBe("revoked");
     expect(after?.policy).toBe("deny");
-
-    // Assistant mirror revoked via the id-keyed update (no fallback needed).
-    expect(assistantRunCalls.length).toBe(1);
-    expect(assistantRunCalls[0]!.sql).toContain("WHERE id = ?");
-    expect(assistantRunCalls[0]!.bind).toContain(chId);
-    expect(asstChannels[0]!.status).toBe("revoked");
-    expect(asstChannels[0]!.policy).toBe("deny");
   });
 
-  test("revokes the assistant mirror by (type,address) when ids diverge", async () => {
+  test("revokes every active guardian channel for the type", async () => {
     seedContact({ id: "g1", role: "guardian" });
-    // Gateway guardian channel under id G.
-    seedChannel({
-      id: "G",
+    const a = seedChannel({
       contactId: "g1",
       type: "slack",
-      address: "U_OWNER",
+      address: "U_A",
       status: "active",
     });
-    // Assistant row shares (type,address) but sits under a DIFFERENT id A.
-    seedAsstChannel({
-      id: "A",
+    const b = seedChannel({
+      contactId: "g1",
       type: "slack",
-      address: "U_OWNER",
+      address: "U_B",
       status: "active",
-      policy: "allow",
     });
 
     await revokeExistingChannelGuardian("slack");
 
-    // id-keyed update missed; logical-key fallback revoked row A.
-    expect(asstChannels[0]!.status).toBe("revoked");
-    expect(asstChannels[0]!.policy).toBe("deny");
-    expect(assistantRunCalls.length).toBe(2);
-    expect(assistantRunCalls[0]!.sql).toContain("WHERE id = ?");
-    expect(assistantRunCalls[1]!.sql).toContain(
-      "WHERE type = ? AND address = ? COLLATE NOCASE",
-    );
-  });
-
-  test("no-ops (no writes) when no active guardian binding exists", async () => {
-    seedContact({ id: "g1", role: "guardian" });
-    seedChannel({ contactId: "g1", type: "slack", status: "revoked" });
-
-    await revokeExistingChannelGuardian("slack");
-
-    expect(assistantRunCalls.length).toBe(0);
-  });
-
-  test("revokes the gateway row even when the assistant mirror fails", async () => {
-    seedContact({ id: "g1", role: "guardian" });
-    const chId = seedChannel({
-      contactId: "g1",
-      type: "slack",
-      address: "U_OWNER",
-      status: "active",
-    });
-
-    throwOnAsstRun = true;
-    try {
-      // Must not throw — the best-effort mirror failure is swallowed.
-      await revokeExistingChannelGuardian("slack");
-    } finally {
-      throwOnAsstRun = false;
+    const rows = getGatewayDb().select().from(contactChannels).all();
+    for (const id of [a, b]) {
+      const row = rows.find((r) => r.id === id);
+      expect(row?.status).toBe("revoked");
+      expect(row?.policy).toBe("deny");
     }
+  });
 
-    // Gateway (source of truth) is revoked despite the mirror failure.
+  test("no-ops when no active guardian binding exists", async () => {
+    seedContact({ id: "g1", role: "guardian" });
+    const chId = seedChannel({
+      contactId: "g1",
+      type: "slack",
+      status: "revoked",
+    });
+
+    await revokeExistingChannelGuardian("slack");
+
     const after = getGatewayDb()
       .select()
       .from(contactChannels)
       .all()
       .find((r) => r.id === chId);
     expect(after?.status).toBe("revoked");
-    expect(after?.policy).toBe("deny");
   });
 });

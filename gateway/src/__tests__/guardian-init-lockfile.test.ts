@@ -445,7 +445,7 @@ describe("guardian/init one-time-use lockfile", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
 
-    // Verify contact records were written to the assistant DB
+    // Assistant DB mirrors identity only — no ACL columns (gateway-owned).
     const assistantDb = new Database(
       join(testRoot, "data", "db", "assistant.db"),
       {
@@ -455,21 +455,20 @@ describe("guardian/init one-time-use lockfile", () => {
 
     const contact = assistantDb
       .query<
-        { role: string; principal_id: string },
+        { id: string; display_name: string },
         []
-      >("SELECT role, principal_id FROM contacts WHERE role = 'guardian'")
+      >("SELECT id, display_name FROM contacts")
       .get();
     expect(contact).toBeTruthy();
-    expect(contact!.principal_id).toBe(body.guardianPrincipalId);
 
     const channel = assistantDb
       .query<
-        { type: string; status: string },
+        { type: string; contact_id: string },
         []
-      >("SELECT type, status FROM contact_channels WHERE type = 'vellum'")
+      >("SELECT type, contact_id FROM contact_channels WHERE type = 'vellum'")
       .get();
     expect(channel).toBeTruthy();
-    expect(channel!.status).toBe("active");
+    expect(channel!.contact_id).toBe(contact!.id);
 
     assistantDb.close();
 
@@ -477,6 +476,26 @@ describe("guardian/init one-time-use lockfile", () => {
     const gwDb = new Database(join(securityDir, "gateway.sqlite"), {
       readonly: true,
     });
+
+    // Gateway DB owns the ACL state for the guardian binding.
+    const gwContact = gwDb
+      .query<
+        { role: string; principal_id: string },
+        []
+      >("SELECT role, principal_id FROM contacts WHERE role = 'guardian'")
+      .get();
+    expect(gwContact).toBeTruthy();
+    expect(gwContact!.principal_id).toBe(body.guardianPrincipalId);
+
+    const gwChannel = gwDb
+      .query<
+        { status: string; policy: string },
+        []
+      >("SELECT status, policy FROM contact_channels WHERE type = 'vellum'")
+      .get();
+    expect(gwChannel).toBeTruthy();
+    expect(gwChannel!.status).toBe("active");
+    expect(gwChannel!.policy).toBe("allow");
 
     const tokenCount = gwDb
       .query<
