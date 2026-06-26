@@ -137,25 +137,33 @@ export function applyAcpChatEvent(
       const messageId = event.messageId ?? ANONYMOUS_MESSAGE_ID;
       const text = stripSteerPrefix(event.content);
       const last = blocks[blocks.length - 1];
-      // Coalesce consecutive same-id user chunks into one bubble.
+      // Coalesce consecutive same-id user chunks into one bubble; else start one.
       if (last && last.kind === "user" && last.id === messageId) {
         blocks[blocks.length - 1] = { ...last, content: last.content + text };
-        return;
+      } else {
+        closeTrailingMessage(blocks);
+        blocks.push({ kind: "user", id: messageId, content: text });
       }
-      // The agent may echo an accepted steer as a real user chunk. Reconcile it
-      // with the optimistic `local-marker-*` bubble appended for that steer so
-      // the same instruction doesn't appear twice — upgrade the marker in place
-      // to the real id, which also claims it from any second echo.
-      for (let i = blocks.length - 1; i >= 0; i--) {
+      // The agent may echo an accepted steer back as a real user chunk.
+      // Reconcile it with the optimistic `local-marker-*` bubble appended for
+      // that steer so the instruction doesn't appear twice: once the echoed
+      // bubble's FULLY assembled content matches a marker, drop the marker.
+      // Matching the assembled content (not a partial chunk) keeps this correct
+      // even when the echo streams across several user_message_chunks.
+      const assembled = (
+        blocks[blocks.length - 1] as Extract<AcpChatBlock, { kind: "user" }>
+      ).content;
+      for (let i = 0; i < blocks.length - 1; i++) {
         const b = blocks[i];
-        if (b.kind !== "user") continue;
-        if (b.id.startsWith(LOCAL_MARKER_ID_PREFIX) && b.content === text) {
-          blocks[i] = { ...b, id: messageId };
-          return;
+        if (
+          b.kind === "user" &&
+          b.id.startsWith(LOCAL_MARKER_ID_PREFIX) &&
+          b.content === assembled
+        ) {
+          blocks.splice(i, 1);
+          break;
         }
       }
-      closeTrailingMessage(blocks);
-      blocks.push({ kind: "user", id: messageId, content: text });
       return;
     }
 

@@ -223,6 +223,23 @@ describe("user blocks", () => {
     ]);
     expect(blocks.filter((b) => b.kind === "user")).toHaveLength(2);
   });
+
+  it("reconciles a steer echo that streams across multiple chunks", () => {
+    const blocks = computeAcpRunChatBlocks([
+      steerMarker(1, "focus on tests"),
+      // Same messageId, echoed in pieces — only fully matches the marker once
+      // both chunks are assembled.
+      userChunk("u-echo", "focus "),
+      userChunk("u-echo", "on tests"),
+    ]);
+    const users = blocks.filter((b) => b.kind === "user");
+    expect(users).toHaveLength(1);
+    expect(users[0]).toEqual({
+      kind: "user",
+      id: "u-echo",
+      content: "focus on tests",
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
