@@ -27,6 +27,8 @@ export interface GatewayAclRow {
   role: string;
   /** Mirrors gwContactChannels.status. */
   status: string;
+  /** Mirrors gwContactChannels.policy (allow/deny). */
+  policy: string;
   verifiedAt: number | null;
 }
 
@@ -59,6 +61,13 @@ export function setGatewayAclStatusByType(
 /** All gateway ACL rows currently in the store. */
 export function gatewayAclRows(): GatewayAclRow[] {
   return [...rows.values()];
+}
+
+/** The gateway ACL row for a channel id, or `undefined` when absent. */
+export function gatewayAclByChannelId(
+  channelId: string,
+): GatewayAclRow | undefined {
+  return rows.get(channelId);
 }
 
 /**

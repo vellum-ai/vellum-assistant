@@ -23,6 +23,7 @@ import { getDb } from "../../memory/db-connection.js";
 import { contacts } from "../../memory/schema.js";
 import { setMemberVerdict } from "../../runtime/member-verdict-cache.js";
 import {
+  gatewayAclByChannelId,
   setGatewayAclStatusByChannelId,
   setGatewayAclStatusByType,
   upsertGatewayAcl,
@@ -78,19 +79,24 @@ export function seedContactChannel(params: {
 
   // Stamp the gateway-owned ACL row (role/status/verifiedAt + delivery
   // endpoints) into the gateway ACL store — the source the guardian-delivery
-  // resolver reads, mirroring production.
+  // resolver reads, mirroring production. Re-seeding a channel's member ACL
+  // (e.g. a guardian's own active member row) without an explicit role keeps
+  // the existing gateway role, mirroring the gateway: an identity/member upsert
+  // never downgrades a guardian to a plain contact.
   const status = params.status ?? "active";
+  const existing = gatewayAclByChannelId(channel.id);
   upsertGatewayAcl({
     contactId: contact.id,
     channelId: channel.id,
     channelType: channel.type,
     address: channel.address,
     externalChatId: channel.externalChatId ?? null,
-    principalId: params.principalId ?? null,
+    principalId: params.principalId ?? existing?.principalId ?? null,
     displayName: contact.displayName ?? null,
-    role: params.role ?? "contact",
+    role: params.role ?? existing?.role ?? "contact",
     status,
-    verifiedAt: params.verifiedAt ?? null,
+    policy: params.policy ?? "allow",
+    verifiedAt: params.verifiedAt ?? existing?.verifiedAt ?? null,
   });
 
   // Warm the verdict cache so the sync trust fallback resolves this member, as
