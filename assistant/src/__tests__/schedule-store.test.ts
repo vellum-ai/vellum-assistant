@@ -1230,6 +1230,63 @@ describe("capability manifest", () => {
   });
 });
 
+// ── Trust level ─────────────────────────────────────────────────────
+
+describe("trust level", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run("DELETE FROM cron_runs");
+    db.run("DELETE FROM cron_jobs");
+  });
+
+  test("defaults trustLevel to 'restricted' when not provided", () => {
+    const job = createSchedule({
+      name: "No trust",
+      cronExpression: "0 9 * * *",
+      message: "default trust",
+      syntax: "cron",
+    });
+
+    expect(job.trustLevel).toBe("restricted");
+    expect(getSchedule(job.id)!.trustLevel).toBe("restricted");
+  });
+
+  test("persists a guardian trustLevel through create/read", () => {
+    const job = createSchedule({
+      name: "Guardian script",
+      cronExpression: "0 9 * * *",
+      message: "",
+      script: "echo hi",
+      mode: "script",
+      syntax: "cron",
+      trustLevel: "guardian",
+    });
+
+    expect(job.trustLevel).toBe("guardian");
+    expect(getSchedule(job.id)!.trustLevel).toBe("guardian");
+
+    const raw = getRawDb()
+      .query("SELECT trust_level FROM cron_jobs WHERE id = ?")
+      .get(job.id) as { trust_level: string };
+    expect(raw.trust_level).toBe("guardian");
+  });
+
+  test("reads a null trust_level column as 'restricted'", () => {
+    const job = createSchedule({
+      name: "Legacy schedule",
+      cronExpression: "0 9 * * *",
+      message: "legacy",
+      syntax: "cron",
+    });
+
+    getRawDb().run("UPDATE cron_jobs SET trust_level = NULL WHERE id = ?", [
+      job.id,
+    ]);
+
+    expect(getSchedule(job.id)!.trustLevel).toBe("restricted");
+  });
+});
+
 // ── listSchedules filters ───────────────────────────────────────────
 
 describe("listSchedules filters", () => {

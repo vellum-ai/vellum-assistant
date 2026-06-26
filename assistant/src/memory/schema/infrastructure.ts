@@ -39,6 +39,7 @@ export const cronJobs = sqliteTable("cron_jobs", {
   workflowName: text("workflow_name"), // saved workflow to trigger (nullable, only used when mode = 'workflow')
   workflowArgsJson: text("workflow_args_json"), // JSON-encoded args passed to the workflow run (nullable)
   capabilitiesJson: text("capabilities_json"), // JSON-encoded capability manifest for the run (nullable; null = hardcoded read-only manifest)
+  trustLevel: text("trust_level"), // 'guardian' | 'restricted' trust for the LLM escalation (nullable; null = restricted)
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });

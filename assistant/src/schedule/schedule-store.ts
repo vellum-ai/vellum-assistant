@@ -34,6 +34,11 @@ export type ScheduleMode =
   | "workflow";
 export type RoutingIntent = "single_channel" | "multi_channel" | "all_channels";
 export type ScheduleStatus = "active" | "firing" | "fired" | "cancelled";
+/**
+ * Trust declared on a schedule, applied to its LLM escalation turn.
+ * `guardian` = the escalation can act; `restricted` (default) = read/notify only.
+ */
+export type ScheduleTrustLevel = "guardian" | "restricted";
 
 export interface ScheduleJob {
   id: string;
@@ -53,6 +58,8 @@ export interface ScheduleJob {
   workflowArgs: unknown;
   /** Capability manifest scoping the schedule's run; null = unconstrained. */
   capabilities: unknown | null;
+  /** Trust applied to the schedule's LLM escalation; null column reads as 'restricted'. */
+  trustLevel: ScheduleTrustLevel;
   nextRunAt: number;
   lastRunAt: number | null;
   lastStatus: string | null;
@@ -111,6 +118,7 @@ export function createSchedule(params: {
   workflowName?: string | null;
   workflowArgs?: unknown;
   capabilities?: unknown;
+  trustLevel?: ScheduleTrustLevel;
   enabled?: boolean;
   createdBy?: string;
   syntax?: ScheduleSyntax;
@@ -163,6 +171,7 @@ export function createSchedule(params: {
   const retryBackoffMs = params.retryBackoffMs ?? 60000;
   const timeoutMs = params.timeoutMs ?? null;
   const inferenceProfile = params.inferenceProfile ?? null;
+  const trustLevel = params.trustLevel ?? "restricted";
   const createdFromConversationId = params.createdFromConversationId ?? null;
   const description = normalizeDescription(
     params.description,
@@ -196,6 +205,7 @@ export function createSchedule(params: {
         : JSON.stringify(params.workflowArgs),
     capabilitiesJson:
       params.capabilities != null ? JSON.stringify(params.capabilities) : null,
+    trustLevel,
     nextRunAt,
     lastRunAt: null as number | null,
     lastStatus: null as string | null,
@@ -1132,6 +1142,7 @@ function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
     workflowName: row.workflowName ?? null,
     workflowArgs: parseOptionalJson(row.workflowArgsJson),
     capabilities: parseOptionalJson(row.capabilitiesJson),
+    trustLevel: (row.trustLevel ?? "restricted") as ScheduleTrustLevel,
     nextRunAt: row.nextRunAt,
     lastRunAt: row.lastRunAt,
     lastStatus: row.lastStatus,
