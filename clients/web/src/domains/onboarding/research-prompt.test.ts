@@ -55,4 +55,14 @@ describe("buildResearchPrompt — capabilities", () => {
     const listed = caps.filter((c) => prompt.includes(`- ${c.name} —`)).length;
     expect(listed).toBe(12);
   });
+
+  test("treats the submitted role as first-party context", () => {
+    const prompt = buildResearchPrompt(SUBJECT);
+
+    expect(prompt).toContain(
+      "Treat the name, role, and hobby I provided above as first-party context from me.",
+    );
+    expect(prompt).toContain("not to override or correct it");
+    expect(prompt).toContain("keep claims and suggestions aligned with my stated role");
+  });
 });
