@@ -37,7 +37,7 @@ if (stdinText.trim()) {
 const name = input.name ?? process.env.BOT_NAME;
 const desc = input.desc ?? process.env.BOT_DESC ?? "";
 
-if (!name) {
+if (name === undefined) {
   console.error(
     JSON.stringify({
       ok: false,
@@ -47,9 +47,12 @@ if (!name) {
   process.exit(1);
 }
 
+// Slack requires display_information.name to be 1–35 characters.
+const safeName = name.trim().slice(0, 35) || "My Assistant";
+
 const manifest = {
   display_information: {
-    name,
+    name: safeName,
     ...(desc ? { description: desc } : {}),
     background_color: "#1a1a2e",
   },
@@ -60,11 +63,11 @@ const manifest = {
       messages_tab_read_only_enabled: false,
     },
     bot_user: {
-      display_name: name,
+      display_name: safeName,
       always_online: true,
     },
     assistant_view: {
-      assistant_description: desc || name,
+      assistant_description: desc || safeName,
       suggested_prompts: [],
     },
   },

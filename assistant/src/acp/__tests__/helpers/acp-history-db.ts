@@ -22,6 +22,14 @@ export interface HistoryRow {
   error: string | null;
   event_log_json: string;
   cwd: string | null;
+  task: string | null;
+  parent_tool_use_id: string | null;
+  used_tokens: number | null;
+  context_size: number | null;
+  cost_amount: number | null;
+  cost_currency: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
 }
 
 export function clearHistory(): void {
@@ -46,14 +54,24 @@ export function insertHistoryRow(row: {
   error?: string | null;
   eventLogJson?: string;
   cwd?: string | null;
+  task?: string | null;
+  parentToolUseId?: string | null;
+  usedTokens?: number | null;
+  contextSize?: number | null;
+  costAmount?: number | null;
+  costCurrency?: string | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
 }): void {
   getSqlite()
     .query(
       `INSERT INTO acp_session_history (
          id, agent_id, acp_session_id, parent_conversation_id,
          started_at, completed_at, status, stop_reason, error,
-         event_log_json, cwd
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         event_log_json, cwd, task, parent_tool_use_id,
+         used_tokens, context_size, cost_amount, cost_currency,
+         input_tokens, output_tokens
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       row.id,
@@ -67,6 +85,14 @@ export function insertHistoryRow(row: {
       row.error ?? null,
       row.eventLogJson ?? "[]",
       row.cwd === undefined ? "/tmp/proj" : row.cwd,
+      row.task ?? null,
+      row.parentToolUseId ?? null,
+      row.usedTokens ?? null,
+      row.contextSize ?? null,
+      row.costAmount ?? null,
+      row.costCurrency ?? null,
+      row.inputTokens ?? null,
+      row.outputTokens ?? null,
     );
 }
 
@@ -75,7 +101,9 @@ export function readHistoryRow(id: string): HistoryRow | null {
     .query(
       `SELECT id, agent_id, acp_session_id, parent_conversation_id,
               started_at, completed_at, status, stop_reason, error,
-              event_log_json, cwd
+              event_log_json, cwd, task, parent_tool_use_id,
+              used_tokens, context_size, cost_amount, cost_currency,
+              input_tokens, output_tokens
        FROM acp_session_history WHERE id = ?`,
     )
     .get(id) as HistoryRow | null;

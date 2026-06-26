@@ -103,7 +103,13 @@ describe("migrateDropContactAclColumns", () => {
       expect(contactCols.has(col)).toBe(false);
     }
     // Identity/INFO columns survive.
-    for (const col of ["id", "display_name", "notes", "user_file", "contact_type"]) {
+    for (const col of [
+      "id",
+      "display_name",
+      "notes",
+      "user_file",
+      "contact_type",
+    ]) {
       expect(contactCols.has(col)).toBe(true);
     }
 
@@ -123,9 +129,11 @@ describe("migrateDropContactAclColumns", () => {
 
     migrateDropContactAclColumns(db);
 
-    expect(indexNames(raw, "contact_channels").has(
-      "idx_contact_channels_type_ext_chat",
-    )).toBe(true);
+    expect(
+      indexNames(raw, "contact_channels").has(
+        "idx_contact_channels_type_ext_chat",
+      ),
+    ).toBe(true);
   });
 
   test("is idempotent — re-running on the dropped schema is a no-op", () => {

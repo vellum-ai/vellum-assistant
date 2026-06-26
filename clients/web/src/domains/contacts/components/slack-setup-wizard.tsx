@@ -64,9 +64,11 @@ const SLACK_MANIFEST_SCOPES = {
 } as const;
 
 function buildSlackManifestUrl(name: string): string {
+  // Slack requires display_information.name to be 1–35 characters.
+  const safeName = name.trim().slice(0, 35) || "My Assistant";
   const manifest = {
     display_information: {
-      name,
+      name: safeName,
       background_color: "#1a1a2e",
     },
     features: {
@@ -75,9 +77,9 @@ function buildSlackManifestUrl(name: string): string {
         messages_tab_enabled: true,
         messages_tab_read_only_enabled: false,
       },
-      bot_user: { display_name: name, always_online: true },
+      bot_user: { display_name: safeName, always_online: true },
       assistant_view: {
-        assistant_description: name,
+        assistant_description: safeName,
         suggested_prompts: [],
       },
     },

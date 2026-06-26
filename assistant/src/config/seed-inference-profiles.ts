@@ -42,7 +42,10 @@ type ManagedProfileTemplate = Omit<
  * (`preserveProfileNames`) take precedence when present.
  */
 const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
-  // Served by GLM 5.2 on Fireworks via managed platform inference.
+  // Served by GLM 5.2 on Fireworks via managed platform inference: a leading
+  // open model at a balanced price point. `model` is pinned explicitly rather
+  // than resolved via the `balanced` intent (which still maps to MiniMax M3 on
+  // Together for `custom-balanced` and OS beta).
   balanced: {
     model: "accounts/fireworks/models/glm-5p2",
     provider: "fireworks",
@@ -55,13 +58,16 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     thinking: { enabled: true, streamThinking: true },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
   },
+  // Served by Anthropic Opus via managed platform inference — the most capable
+  // managed profile. The `quality-optimized` intent resolves to Opus for the
+  // `anthropic` provider.
   "quality-optimized": {
     intent: "quality-optimized",
     provider: "anthropic",
     connectionName: "anthropic-managed",
     source: "managed",
     label: "Quality",
-    description: "Best results with the most capable model",
+    description: "High-quality results with the most capable model",
     maxTokens: 32000,
     effort: "high",
     thinking: { enabled: true, streamThinking: true },
@@ -170,7 +176,6 @@ export const MANAGED_PROFILE_NAMES = new Set([
   OS_BETA_PROFILE_KEY,
 ]);
 
-const RETIRED_MANAGED_PROFILE_NAMES = new Set(["frontier"]);
 const MIX_MIN_ARMS = 2;
 
 export type SeedInferenceProfilesOptions = {
@@ -322,8 +327,6 @@ export function seedInferenceProfiles(
     }
     profiles[name] = next as ProfileEntry;
   }
-
-  pruneRetiredManagedProfiles(llm, profiles);
 
   // 2. User profiles — only at hatch time for off-platform installations.
   let userConnectionName: string | undefined;
@@ -487,22 +490,6 @@ function pruneNonDispatchableProfiles(
       delete profiles[name];
       removed.add(name);
     }
-  }
-  pruneRemovedProfileReferences(llm, profiles, removed);
-}
-
-function pruneRetiredManagedProfiles(
-  llm: Record<string, unknown>,
-  profiles: Record<string, Record<string, unknown>>,
-): void {
-  const removed = new Set<string>();
-  for (const name of RETIRED_MANAGED_PROFILE_NAMES) {
-    const profile = readObject(profiles[name]);
-    if (profile !== null && profile.source !== "managed") continue;
-    if (profile?.source === "managed") {
-      delete profiles[name];
-    }
-    removed.add(name);
   }
   pruneRemovedProfileReferences(llm, profiles, removed);
 }

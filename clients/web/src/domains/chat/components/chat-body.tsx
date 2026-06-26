@@ -162,6 +162,12 @@ export interface ChatBodyProps {
    */
   activeSubagentsSlot?: ReactNode;
 
+  /**
+   * Top-center floating overlay for active ACP runs; gated identically to
+   * {@link activeSubagentsSlot} and placed alongside it.
+   */
+  activeAcpRunsSlot?: ReactNode;
+
   /** Floating overlay for active workflow runs; gated like activeSubagentsSlot. */
   activeWorkflowsSlot?: ReactNode;
 }
@@ -220,6 +226,7 @@ export function ChatBody({
   readonlyBannerSlot,
   startersSlot,
   activeSubagentsSlot,
+  activeAcpRunsSlot,
   activeWorkflowsSlot,
 }: ChatBodyProps) {
   const isEmptyState = scrollAreaProps.showEmptyState;
@@ -293,10 +300,11 @@ export function ChatBody({
 
       {!isEmptyState &&
         showScrollToLatest &&
-        (activeSubagentsSlot || activeWorkflowsSlot) && (
+        (activeSubagentsSlot || activeAcpRunsSlot || activeWorkflowsSlot) && (
           <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center gap-2 px-3 pt-2">
-            {/* subagents on the left, workflows on the right (do not reorder) */}
+            {/* subagents, then active acp runs, then workflows (do not reorder) */}
             {activeSubagentsSlot}
+            {activeAcpRunsSlot}
             {activeWorkflowsSlot}
           </div>
         )}
