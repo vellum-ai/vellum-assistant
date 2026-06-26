@@ -42,6 +42,7 @@ import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-mes
 import { MetricCard } from "@/domains/chat/components/metric-card";
 import { StatusBadgePill } from "@/domains/chat/components/status-badge-pill";
 import { ToolDetailBody } from "@/domains/chat/components/tool-detail-panel";
+import { AcpRunChatView } from "@/domains/chat/components/acp-run-chat-view/acp-run-chat-view";
 import { AcpRunPhaseTimeline } from "@/domains/chat/components/acp-run-detail-panel/acp-run-phase-timeline";
 import {
   useAcpRunSteps,
@@ -58,6 +59,7 @@ import {
   isActiveAcpStatus,
 } from "@/utils/acp-run-status";
 import { captureError } from "@/lib/sentry/capture-error";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 /**
@@ -223,7 +225,24 @@ export interface AcpRunDetailPanelProps {
 // Main component
 // ---------------------------------------------------------------------------
 
+/**
+ * Flag-gated entry point: with `acp-chat-view` on, the run renders as the
+ * Devin-style chat conversation; off, it renders the event timeline below. A
+ * single top-level branch keeps the swap fully reversible — flip the flag (or
+ * revert this wiring) to restore the timeline UI verbatim.
+ */
 export function AcpRunDetailPanel({
+  entry,
+  onClose,
+}: AcpRunDetailPanelProps) {
+  const chatView = useAssistantFeatureFlagStore.use.acpChatView();
+  if (chatView) {
+    return <AcpRunChatView entry={entry} onClose={onClose} />;
+  }
+  return <AcpRunTimelinePanel entry={entry} onClose={onClose} />;
+}
+
+function AcpRunTimelinePanel({
   entry,
   onClose,
 }: AcpRunDetailPanelProps) {

@@ -45,6 +45,9 @@ const { AcpRunDetailPanel } = await import(
   "@/domains/chat/components/acp-run-detail-panel/acp-run-detail-panel"
 );
 const { useAcpRunStore } = await import("@/domains/chat/acp-run-store");
+const { useAssistantFeatureFlagStore } = await import(
+  "@/stores/assistant-feature-flag-store"
+);
 import type {
   AcpRunEntry,
   AcpRunRawEvent,
@@ -89,6 +92,7 @@ const TOOL_CALL_EVENT: AcpRunRawEvent = {
 afterEach(() => {
   cleanup();
   useAcpRunStore.getState().reset();
+  useAssistantFeatureFlagStore.setState({ acpChatView: false });
   stopCalls.length = 0;
   steerCalls.length = 0;
   nextSteerResponse = { acpSessionId: "acp-1", steered: true };
@@ -506,5 +510,33 @@ describe("AcpRunDetailPanel — stop / steer / error", () => {
       />,
     );
     expect(screen.getByText("agent crashed")).toBeDefined();
+  });
+});
+
+describe("AcpRunDetailPanel — acp-chat-view flag swap", () => {
+  test("flag ON renders the chat view, not the timeline", () => {
+    const entry = makeEntry();
+    seedStore(entry);
+    act(() => {
+      useAssistantFeatureFlagStore.setState({ acpChatView: true });
+    });
+
+    render(<AcpRunDetailPanel entry={entry} onClose={noop} />);
+
+    expect(screen.getByTestId("acp-chat-conversation")).toBeDefined();
+    expect(screen.queryByText("Timeline")).toBeNull();
+  });
+
+  test("flag OFF renders the timeline, not the chat view", () => {
+    const entry = makeEntry();
+    seedStore(entry);
+    act(() => {
+      useAssistantFeatureFlagStore.setState({ acpChatView: false });
+    });
+
+    render(<AcpRunDetailPanel entry={entry} onClose={noop} />);
+
+    expect(screen.getByText("Timeline")).toBeDefined();
+    expect(screen.queryByTestId("acp-chat-conversation")).toBeNull();
   });
 });
