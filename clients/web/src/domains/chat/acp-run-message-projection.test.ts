@@ -383,6 +383,60 @@ describe("tool blocks", () => {
     const tool = blocks[0] as Extract<AcpChatBlock, { kind: "tool" }>;
     expect(tool.locations).toEqual([{ path: "a.ts", line: 12 }]);
   });
+
+  it("carries rawInput/rawOutput from a tool_call when present", () => {
+    const blocks = computeAcpRunChatBlocks([
+      event({
+        updateType: "tool_call",
+        toolCallId: "tc1",
+        toolTitle: "Bash",
+        rawInput: { command: "ls -la" },
+        rawOutput: "total 0",
+      }),
+    ]);
+
+    const tool = blocks[0] as Extract<AcpChatBlock, { kind: "tool" }>;
+    expect(tool.rawInput).toEqual({ command: "ls -la" });
+    expect(tool.rawOutput).toBe("total 0");
+  });
+
+  it("overrides rawInput/rawOutput on update only when the field is present", () => {
+    const blocks = computeAcpRunChatBlocks([
+      event({
+        updateType: "tool_call",
+        toolCallId: "tc1",
+        toolTitle: "Bash",
+        rawInput: { command: "ls" },
+        rawOutput: "first",
+      }),
+      // Updates rawOutput but omits rawInput — the prior rawInput is preserved.
+      event({
+        updateType: "tool_call_update",
+        toolCallId: "tc1",
+        toolStatus: "completed",
+        rawOutput: "second",
+      }),
+    ]);
+
+    const tool = blocks[0] as Extract<AcpChatBlock, { kind: "tool" }>;
+    expect(tool.rawInput).toEqual({ command: "ls" });
+    expect(tool.rawOutput).toBe("second");
+  });
+
+  it("leaves rawInput/rawOutput undefined when no event carries them", () => {
+    const blocks = computeAcpRunChatBlocks([
+      event({ updateType: "tool_call", toolCallId: "tc1", toolTitle: "Read" }),
+      event({
+        updateType: "tool_call_update",
+        toolCallId: "tc1",
+        toolStatus: "completed",
+      }),
+    ]);
+
+    const tool = blocks[0] as Extract<AcpChatBlock, { kind: "tool" }>;
+    expect(tool.rawInput).toBeUndefined();
+    expect(tool.rawOutput).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------

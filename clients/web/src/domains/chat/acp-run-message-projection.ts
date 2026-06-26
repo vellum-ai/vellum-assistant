@@ -50,6 +50,8 @@ export type AcpChatBlock =
       status: AcpToolStatus;
       content?: string;
       locations?: { path: string; line?: number }[];
+      rawInput?: unknown;
+      rawOutput?: unknown;
     }
   | { kind: "plan"; entries: { label: string; checked: boolean }[] };
 
@@ -225,6 +227,8 @@ export function applyAcpChatEvent(
         status: mapToolStatus(event.toolStatus, "running"),
         content: event.content,
         locations: parseLocations(event),
+        rawInput: event.rawInput,
+        rawOutput: event.rawOutput,
       });
       return;
     }
@@ -249,6 +253,8 @@ export function applyAcpChatEvent(
         // ACP `ToolCallUpdate.content` REPLACES the snapshot, not a delta.
         content: event.content ?? target.content,
         locations: parsedLocations ?? target.locations,
+        rawInput: event.rawInput ?? target.rawInput,
+        rawOutput: event.rawOutput ?? target.rawOutput,
       };
       return;
     }
