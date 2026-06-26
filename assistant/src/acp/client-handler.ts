@@ -94,6 +94,24 @@ export class VellumAcpClientHandler implements Client {
   }
 
   /**
+   * Cap a raw tool payload so a single large one can't evict real transcript
+   * events from the bounded session buffer (and the persisted event log). Small
+   * payloads pass through unchanged; oversize ones become a short marker string.
+   */
+  private capRawPayload(value: unknown): unknown {
+    const CAP_BYTES = 16 * 1024;
+    if (value === undefined) return undefined;
+    let serialized: string;
+    try {
+      serialized = JSON.stringify(value) ?? "";
+    } catch {
+      return "[raw payload omitted: not serializable]";
+    }
+    if (serialized.length <= CAP_BYTES) return value;
+    return `[raw payload omitted: ${serialized.length} bytes exceeds ${CAP_BYTES}-byte cap]`;
+  }
+
+  /**
    * Begins suppressing session updates from being forwarded to Vellum.
    *
    * Per the ACP spec, `session/load` replays the entire conversation history
@@ -173,10 +191,11 @@ export class VellumAcpClientHandler implements Client {
           // follow up with an update; forward it like the update branch so the
           // chat/file-diff UI has content to render.
           content: update.content ? JSON.stringify(update.content) : undefined,
-          // rawInput/rawOutput are unknown-shaped; forward them structurally —
-          // the SSE layer serializes the whole message, so no stringify here.
-          rawInput: update.rawInput,
-          rawOutput: update.rawOutput,
+          // rawInput/rawOutput are unknown-shaped; forward them structurally
+          // (the SSE layer serializes the message), capped so a single large
+          // payload can't evict real transcript events from the session buffer.
+          rawInput: this.capRawPayload(update.rawInput),
+          rawOutput: this.capRawPayload(update.rawOutput),
           locations: mapLocations(update.locations),
         });
         break;
@@ -190,8 +209,8 @@ export class VellumAcpClientHandler implements Client {
           toolKind: update.kind ?? undefined,
           toolStatus: update.status ?? undefined,
           content: update.content ? JSON.stringify(update.content) : undefined,
-          rawInput: update.rawInput,
-          rawOutput: update.rawOutput,
+          rawInput: this.capRawPayload(update.rawInput),
+          rawOutput: this.capRawPayload(update.rawOutput),
           locations: mapLocations(update.locations),
         });
         break;

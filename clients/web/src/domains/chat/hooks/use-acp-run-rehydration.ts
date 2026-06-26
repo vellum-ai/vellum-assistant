@@ -45,6 +45,8 @@ interface AcpSessionEventLogItem {
   locations?: { path: string; line?: number }[];
   messageId?: string;
   seq?: number;
+  rawInput?: unknown;
+  rawOutput?: unknown;
 }
 
 interface AcpSessionRow {
@@ -114,6 +116,8 @@ function toRawEvents(eventLog: AcpSessionEventLogItem[]): AcpRunRawEvent[] {
       toolStatus: item.toolStatus,
       locations: item.locations,
       messageId: item.messageId,
+      rawInput: item.rawInput,
+      rawOutput: item.rawOutput,
     });
   }
   return events;

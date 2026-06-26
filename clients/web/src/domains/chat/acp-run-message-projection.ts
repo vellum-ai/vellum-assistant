@@ -253,8 +253,10 @@ export function applyAcpChatEvent(
         // ACP `ToolCallUpdate.content` REPLACES the snapshot, not a delta.
         content: event.content ?? target.content,
         locations: parsedLocations ?? target.locations,
-        rawInput: event.rawInput ?? target.rawInput,
-        rawOutput: event.rawOutput ?? target.rawOutput,
+        rawInput:
+          event.rawInput !== undefined ? event.rawInput : target.rawInput,
+        rawOutput:
+          event.rawOutput !== undefined ? event.rawOutput : target.rawOutput,
       };
       return;
     }
