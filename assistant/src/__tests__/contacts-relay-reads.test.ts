@@ -37,6 +37,13 @@ mock.module("../prompts/user-reference.js", () => ({
   resolveGuardianName: () => "Your Guardian",
 }));
 
+// Role + the guardian name override derive from the gateway guardian id set.
+// Drive it deterministically per test.
+let guardianIds = new Set<string>();
+mock.module("../contacts/guardian-contact-reader.js", () => ({
+  getGuardianContactIds: async () => guardianIds,
+}));
+
 // IPC relay stub — each test sets the response/behavior.
 type IpcStub = (method: string, params?: Record<string, unknown>) => unknown;
 let ipcStub: IpcStub = () => undefined;
@@ -179,6 +186,7 @@ beforeEach(() => {
   localCalls.length = 0;
   debugLogs.length = 0;
   listContactsArgs.length = 0;
+  guardianIds = new Set();
 });
 
 describe("handleListContacts relay", () => {
@@ -203,13 +211,20 @@ describe("handleListContacts relay", () => {
     expect(ch.externalUserId).toBe(ch.address);
   });
 
-  test("applies guardian display-name override to relayed contacts", async () => {
+  test("trusts the gateway-relayed guardian role + applies the name override regardless of the id-set cache", async () => {
+    // Relayed read carries role "guardian" from the gateway. The guardian id
+    // set is empty/stale (rebind race) but must NOT downgrade the role; the
+    // name override keys off the relayed role.
+    guardianIds = new Set();
     ipcStub = () => ({
       ok: true,
-      contacts: [gatewayContact({ role: "guardian", displayName: "Real Name" })],
+      contacts: [
+        gatewayContact({ role: "guardian", displayName: "Real Name" }),
+      ],
     });
 
     const result = await handleListContacts({});
+    expect(result.contacts[0].role).toBe("guardian");
     expect(result.contacts[0].displayName).toBe("Your Guardian");
   });
 
@@ -343,13 +358,16 @@ describe("handleGetContact relay", () => {
     expect(contact.updatedAt).toBe(1700000000);
   });
 
-  test("applies guardian display-name override", async () => {
+  test("trusts the gateway-relayed guardian role + applies the name override regardless of the id-set cache", async () => {
+    // Empty/stale guardian id set must not downgrade a relayed guardian.
+    guardianIds = new Set();
     ipcStub = () => ({
       ok: true,
       contact: gatewayContact({ role: "guardian", displayName: "Real Name" }),
     });
 
     const result = await handleGetContact("gw-1");
+    expect(result.contact.role).toBe("guardian");
     expect(result.contact.displayName).toBe("Your Guardian");
   });
 
