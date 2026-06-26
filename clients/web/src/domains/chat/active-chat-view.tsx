@@ -292,6 +292,7 @@ export function ActiveChatView() {
     assistantId,
     activeConversationId,
     searchParams,
+    setSearchParams,
     sendMessage,
     reachabilityPhase: reachability.state.phase,
     reachabilityProbe: reachability.probe,
