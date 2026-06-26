@@ -116,7 +116,7 @@ describe("AcpChatToolCard", () => {
     expect(screen.queryByTestId("acp-chat-tool-running")).toBeNull();
   });
 
-  test("renders inline content output in a monospace block", () => {
+  test("renders inline content output through the markdown renderer", () => {
     const content = JSON.stringify([
       { type: "content", content: { type: "text", text: "file contents here" } },
     ]);
@@ -125,7 +125,42 @@ describe("AcpChatToolCard", () => {
     );
     const output = screen.getByTestId("acp-chat-tool-output");
     expect(output.textContent).toContain("file contents here");
-    expect(output.className).toContain("font-mono");
+    // Routed through ChatMarkdownMessage rather than a raw <pre>.
+    expect(output.querySelector("[data-slot='markdown-message']")).not.toBeNull();
+  });
+
+  test("renders a ```console fence as a code block, not literal backticks", () => {
+    const text = "```console\n$ ls -la\ntotal 0\n```";
+    const content = JSON.stringify([
+      { type: "content", content: { type: "text", text } },
+    ]);
+    render(
+      <AcpChatToolCard block={toolBlock({ content })} onOpenDiff={() => {}} />,
+    );
+    const output = screen.getByTestId("acp-chat-tool-output");
+    // The fence is parsed into a styled code block — no leaked backticks.
+    expect(output.textContent).not.toContain("```console");
+    expect(output.textContent).not.toContain("```");
+    // The inner command + stdout still render.
+    expect(output.textContent).toContain("$ ls -la");
+    expect(output.textContent).toContain("total 0");
+    expect(output.querySelector("code.language-console")).not.toBeNull();
+  });
+
+  test("preserves single newlines in unfenced output as hard line breaks", () => {
+    // Unfenced terminal-style output: single newlines must survive as <br>,
+    // not collapse into one wrapped paragraph (hardLineBreaks).
+    const content = JSON.stringify([
+      { type: "content", content: { type: "text", text: "line1\nline2" } },
+    ]);
+    render(
+      <AcpChatToolCard block={toolBlock({ content })} onOpenDiff={() => {}} />,
+    );
+    const output = screen.getByTestId("acp-chat-tool-output");
+    // The single newline renders as an explicit <br>, keeping the lines apart.
+    expect(output.querySelector("br")).not.toBeNull();
+    expect(output.textContent).toContain("line1");
+    expect(output.textContent).toContain("line2");
   });
 
   test("renders a file chip per diff and fires onOpenDiff with the tool id + file change", () => {
