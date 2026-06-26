@@ -263,12 +263,13 @@ function AppTokenStep({
 }: AppTokenStepProps) {
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-body-medium-lighter text-[var(--content-default)]">
-        Go to <strong>Basic Information</strong> &rarr;{" "}
-        <strong>App-Level Tokens</strong> and generate a token with the{" "}
-        <strong>connections:write</strong> scope. Copy the token that starts
-        with <strong>xapp-</strong>.
-      </p>
+      <ol className="list-decimal list-inside space-y-1 text-body-medium-lighter text-[var(--content-default)]">
+        <li>Go to <strong>Basic Information</strong> &rarr; <strong>App-Level Tokens</strong></li>
+        <li>Click <strong>Generate Token and Scopes</strong></li>
+        <li>Add the <strong>connections:write</strong> scope</li>
+        <li>Click <strong>Generate</strong></li>
+        <li>Copy the token (starts with <strong>xapp-</strong>) and paste it below</li>
+      </ol>
       <div className="flex items-end gap-3">
         <div className="flex-1">
           <Input
@@ -305,13 +306,14 @@ function InstallAppStep({ onNext }: InstallAppStepProps) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
-        <p className="text-body-medium-lighter text-[var(--content-default)]">
-          Go to <strong>Install App</strong> &rarr;{" "}
-          <strong>Install to Workspace</strong> and approve the app permissions.
-        </p>
+        <ol className="list-decimal list-inside space-y-1 text-body-medium-lighter text-[var(--content-default)]">
+          <li>Go to <strong>Install App</strong> in the sidebar</li>
+          <li>Click <strong>Install to Workspace</strong></li>
+          <li>Approve the requested permissions</li>
+        </ol>
         <p className="text-body-medium-lighter text-[var(--content-faint)]">
-          If Slack shows Request approval, a workspace admin needs to approve it
-          first.
+          If Slack shows &ldquo;Request approval&rdquo;, a workspace admin needs
+          to approve it first.
         </p>
       </div>
       <div className="flex justify-end">
@@ -344,10 +346,11 @@ function BotTokenStep({
 }: BotTokenStepProps) {
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-body-medium-lighter text-[var(--content-default)]">
-        After install, copy the <strong>Bot User OAuth Token</strong> that
-        starts with <strong>xoxb-</strong>.
-      </p>
+      <ol className="list-decimal list-inside space-y-1 text-body-medium-lighter text-[var(--content-default)]">
+        <li>Go to <strong>Install App</strong> in the sidebar</li>
+        <li>Copy the <strong>Bot User OAuth Token</strong> (starts with <strong>xoxb-</strong>)</li>
+        <li>Paste it below</li>
+      </ol>
       <div className="flex items-end gap-3">
         <div className="flex-1">
           <Input

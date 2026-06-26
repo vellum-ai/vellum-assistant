@@ -98,10 +98,11 @@ const payload = {
       id: "create-app",
       title: "Create App",
       description:
-        "Click the link below to create your Slack app. It's pre-configured " +
-        "with all the right permissions, events, and Socket Mode.\n\n" +
+        "Click below to create your Slack app (pre-configured with the right permissions and Socket Mode):\n\n" +
         `[Create Slack App](${manifestUrl})\n\n` +
-        "Select your workspace and click **Create**. Then continue to the next step.",
+        "1. Select your workspace\n" +
+        "2. Click **Create**\n" +
+        "3. Continue to the next step",
       fields: [],
     },
     {
@@ -129,10 +130,10 @@ const payload = {
       id: "bot-token",
       title: "Install & Get Bot Token",
       description:
-        "Go to **Settings → Install App → Install to Workspace**, then " +
-        "authorize the requested permissions.\n\n" +
-        "After install, the **Bot User OAuth Token** appears on the same " +
-        "page. Copy it and paste it below.",
+        "1. Go to **Settings → Install App**\n" +
+        "2. Click **Install to Workspace** and authorize\n" +
+        "3. Copy the **Bot User OAuth Token** (starts with `xoxb-`)\n" +
+        "4. Paste it below",
       fields: [
         {
           id: "bot_token",
