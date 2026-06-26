@@ -40,9 +40,9 @@ export function useStreamingThinkingPreview(
 
     updatedAtRef.current ??= now;
 
-    if (nextPreview === displayedPreview) return;
-
     if (!nextPreview) return;
+
+    if (nextPreview === displayedPreview) return;
 
     if (!displayedPreview) {
       updatedAtRef.current = now;
