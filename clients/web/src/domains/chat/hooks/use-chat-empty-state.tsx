@@ -20,6 +20,7 @@ import { useThreadSuggestions } from "@/domains/chat/hooks/use-thread-suggestion
 import { buildEditAppGreeting, buildEditAppStarters } from "@/domains/chat/utils/edit-app-empty-state";
 import { pickRandomPlaceholder } from "@/domains/chat/utils/empty-state-constants";
 import type { ConversationStarter } from "@/domains/chat/utils/conversation-starters";
+import type { ThreadSuggestion } from "@/domains/chat/suggestions/types";
 import type { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
@@ -40,6 +41,12 @@ export interface UseChatEmptyStateParams {
   isAssistantStreaming: boolean;
   activeConversationIsProcessing: boolean;
   onSelectStarter: (starter: ConversationStarter) => void;
+  /**
+   * Behind the new-thread-suggestions flag, clicking a library card invokes
+   * this instead of submitting via {@link onSelectStarter} — the caller opens
+   * the detail drawer. When omitted, the library falls back to submitting.
+   */
+  onSelectSuggestion?: (suggestion: ThreadSuggestion) => void;
 }
 
 export interface ChatEmptyStateResult {
@@ -63,6 +70,7 @@ export function useChatEmptyState({
   isAssistantStreaming,
   activeConversationIsProcessing,
   onSelectStarter,
+  onSelectSuggestion,
 }: UseChatEmptyStateParams): ChatEmptyStateResult {
   const { components: avatarComponents, traits: avatarTraits, customImageUrl: avatarImageUrl } = avatar;
 
@@ -124,15 +132,19 @@ export function useChatEmptyState({
         <SuggestionLibrary
           featured={featured}
           groups={groups}
-          onSelect={(s) =>
+          onSelect={(s) => {
+            if (onSelectSuggestion) {
+              onSelectSuggestion(s);
+              return;
+            }
             onSelectStarter({
               id: s.id,
               label: s.title,
               prompt: s.prompt,
               category: null,
               batch: 0,
-            })
-          }
+            });
+          }}
         />
       </div>
     );
