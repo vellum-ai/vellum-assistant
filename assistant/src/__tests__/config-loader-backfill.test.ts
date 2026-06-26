@@ -794,7 +794,7 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profileOrder).not.toContain("placeholder");
     expect(raw.llm.profileOrder).not.toContain("blend");
     expect(raw.llm.activeProfile).toBe("balanced");
-    expect(raw.llm.advisorProfile).toBe("frontier");
+    expect(raw.llm.advisorProfile).toBe("quality-optimized");
     expect(raw.llm.callSites.commitMessage.profile).toBeUndefined();
     expect(raw.llm.callSites.commitMessage.maxTokens).toBe(256);
   });
@@ -855,11 +855,9 @@ describe("loadConfig startup behavior", () => {
       "accounts/fireworks/models/glm-5p2",
     );
     expect(raw.llm.profiles.balanced.source).toBe("managed");
-    // Quality now serves Anthropic Opus, the same model as Frontier.
+    // Quality serves Anthropic Opus, the most capable managed profile.
     expect(raw.llm.profiles["quality-optimized"].provider).toBe("anthropic");
     expect(raw.llm.profiles["quality-optimized"].model).toBe("claude-opus-4-8");
-    expect(raw.llm.profiles.frontier.provider).toBe("anthropic");
-    expect(raw.llm.profiles.frontier.model).toBe("claude-opus-4-8");
     // Speed is served by DeepSeek V4 Flash on Fireworks.
     expect(raw.llm.profiles["cost-optimized"].provider).toBe("fireworks");
     expect(raw.llm.profiles["cost-optimized"].model).toBe(
@@ -897,46 +895,6 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.activeProfile).toBe("balanced");
   });
 
-  test("reseed leaves a user-owned profile that shares a managed name untouched", () => {
-    // A workspace that created its own profile named `frontier` before the name
-    // was reserved as managed must keep it: reseeding would change its
-    // provider/model and silently mark it managed.
-    const userFrontier = {
-      source: "user",
-      provider: "openai",
-      model: "gpt-5.4",
-      provider_connection: "openai-personal",
-      label: "My Frontier",
-    };
-    writeConfig({ llm: { profiles: { frontier: userFrontier } } });
-
-    mergeDefaultConfigAndSeedInferenceProfiles();
-    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
-
-    expect(raw.llm.profiles.frontier).toEqual(userFrontier);
-    // The advisor default must not route to the user-owned `frontier`; it falls
-    // back to the always-managed Quality profile.
-    expect(raw.llm.advisorProfile).toBe("quality-optimized");
-  });
-
-  test("reseed leaves a source-less profile sharing a managed name untouched", () => {
-    // The settings UI saves custom profiles without a `source` field; such a
-    // profile keyed `frontier` must not be clobbered or marked managed.
-    const sourcelessFrontier = {
-      provider: "openai",
-      model: "gpt-5.4",
-      provider_connection: "openai-personal",
-      label: "My Frontier",
-    };
-    writeConfig({ llm: { profiles: { frontier: sourcelessFrontier } } });
-
-    mergeDefaultConfigAndSeedInferenceProfiles();
-    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
-
-    expect(raw.llm.profiles.frontier).toEqual(sourcelessFrontier);
-    expect(raw.llm.advisorProfile).toBe("quality-optimized");
-  });
-
   test("reseed updates a source-less legacy canonical managed profile", () => {
     // Migration 052 seeded canonical profiles without a `source`. Such a
     // source-less `quality-optimized` is legacy managed, not user-owned, so it
@@ -960,14 +918,14 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles["quality-optimized"].source).toBe("managed");
   });
 
-  test("seeds the managed Frontier profile as the default advisor profile", () => {
+  test("seeds the managed Quality profile as the default advisor profile", () => {
     writeConfig({ llm: { default: { provider: "anthropic" } } });
 
     mergeDefaultConfigAndSeedInferenceProfiles();
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
-    expect(raw.llm.advisorProfile).toBe("frontier");
-    expect(raw.llm.profiles.frontier.source).toBe("managed");
+    expect(raw.llm.advisorProfile).toBe("quality-optimized");
+    expect(raw.llm.profiles["quality-optimized"].source).toBe("managed");
   });
 
   test("on-platform managed profiles reconcile to the code template on every boot", () => {
@@ -1445,7 +1403,6 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
 
     expect(config.llm.profiles.balanced?.status).toBe("disabled");
     expect(config.llm.profiles["quality-optimized"]?.status).toBe("disabled");
-    expect(config.llm.profiles.frontier?.status).toBe("disabled");
     expect(config.llm.profiles["cost-optimized"]?.status).toBe("disabled");
   });
 
@@ -1469,7 +1426,6 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     expect(
       config.llm.profiles["custom-quality-optimized"]?.provider_connection,
     ).toBe("anthropic-personal");
-    expect(config.llm.profiles.frontier?.status).toBe("disabled");
   });
 
   test("off-platform boot repairs a disabled managed advisor to a personal profile when no active managed replacement exists", () => {
@@ -1617,10 +1573,10 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
     expect(raw.llm.activeProfile).toBe("balanced");
-    // Balanced lives on `fireworks-managed`; `quality-optimized` and `frontier`
-    // (both Opus on `anthropic-managed`) are on a different connection, so
-    // selecting balanced at hatch disables them. The default advisor falls to
-    // the only active managed profile, `balanced`.
+    // Balanced lives on `fireworks-managed`; `quality-optimized` (Opus on
+    // `anthropic-managed`) is on a different connection, so selecting balanced at
+    // hatch disables it. The default advisor falls to the only active managed
+    // profile, `balanced`.
     expect(raw.llm.advisorProfile).toBe("balanced");
     expect(raw.llm.profiles.balanced.provider_connection).toBe(
       "fireworks-managed",
