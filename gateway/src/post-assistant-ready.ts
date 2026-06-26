@@ -9,8 +9,8 @@
  *
  * This module polls the assistant IPC health route and, once the assistant
  * is ready, runs data migrations and other deferred tasks. The gateway keeps
- * readiness and regular traffic closed until this completes, preventing auth
- * traffic from racing with data migrations.
+ * regular traffic closed until this completes, preventing auth traffic from
+ * racing with data migrations.
  */
 
 import type { Database } from "bun:sqlite";

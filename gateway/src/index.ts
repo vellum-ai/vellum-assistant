@@ -220,6 +220,14 @@ function generateTraceId(): string {
 let draining = false;
 let postAssistantReadyComplete = false;
 
+function bypassesPostAssistantReadyGate(pathname: string): boolean {
+  return (
+    pathname === "/readyz" ||
+    pathname === "/v1/health" ||
+    pathname === "/v1/healthz"
+  );
+}
+
 /**
  * Detect which services had credential changes and log them.
  * Returns the set of service names that changed so callers can
@@ -1757,7 +1765,17 @@ async function main() {
       return Response.json({ status: "ok" });
     }
 
-    if (!postAssistantReadyComplete) {
+    if (url.pathname === "/readyz") {
+      if (draining) {
+        return Response.json({ status: "draining" }, { status: 503 });
+      }
+      return Response.json({ status: "ok" });
+    }
+
+    if (
+      !postAssistantReadyComplete &&
+      !bypassesPostAssistantReadyGate(url.pathname)
+    ) {
       return Response.json({ status: "starting" }, { status: 503 });
     }
 
@@ -1778,32 +1796,6 @@ async function main() {
 
     if (url.pathname === "/schema") {
       return Response.json(buildSchema());
-    }
-
-    if (url.pathname === "/readyz") {
-      if (draining) {
-        return Response.json({ status: "draining" }, { status: 503 });
-      }
-      // Check that the upstream assistant is also reachable so callers
-      // know the full stack is ready, not just the gateway process.
-      try {
-        const upstream = await fetch(
-          `${config.assistantRuntimeBaseUrl}/readyz`,
-          { signal: AbortSignal.timeout(3000) },
-        );
-        if (!upstream.ok) {
-          return Response.json(
-            { status: "upstream_unhealthy", upstream: upstream.status },
-            { status: 503 },
-          );
-        }
-      } catch {
-        return Response.json(
-          { status: "upstream_unreachable" },
-          { status: 503 },
-        );
-      }
-      return Response.json({ status: "ok" });
     }
 
     // Per-request IP resolver — scoped to this request so it remains
@@ -1915,8 +1907,8 @@ async function main() {
 
   log.info({ port: server.port }, "Gateway HTTP server listening");
 
-  // Complete post-assistant-ready startup work after binding /healthz.
-  // All non-health routes stay closed until this finishes.
+  // Complete post-assistant-ready startup work after binding probes.
+  // Regular routes stay closed until this finishes.
   try {
     await runPostAssistantReady();
     postAssistantReadyComplete = true;

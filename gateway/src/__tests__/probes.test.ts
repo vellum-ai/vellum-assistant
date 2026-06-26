@@ -1,4 +1,4 @@
-import { describe, test, expect, afterAll, spyOn, afterEach } from "bun:test";
+import { describe, test, expect, afterAll } from "bun:test";
 
 const env: Record<string, string> = {
   TELEGRAM_BOT_TOKEN: "test-tok",
@@ -30,19 +30,19 @@ async function handleRequest(req: Request): Promise<Response> {
     return Response.json({ status: "ok" });
   }
 
+  if (url.pathname === "/readyz") {
+    if (draining) {
+      return Response.json({ status: "draining" }, { status: 503 });
+    }
+    return Response.json({ status: "ok" });
+  }
+
   if (!postAssistantReadyComplete) {
     return Response.json({ status: "starting" }, { status: 503 });
   }
 
   if (url.pathname === "/schema") {
     return Response.json({ openapi: "3.1.0" });
-  }
-
-  if (url.pathname === "/readyz") {
-    if (draining) {
-      return Response.json({ status: "draining" }, { status: 503 });
-    }
-    return Response.json({ status: "ok" });
   }
 
   if (url.pathname === "/webhooks/telegram") {
@@ -104,15 +104,15 @@ describe("/readyz", () => {
     }
   });
 
-  test("returns 503 while post-assistant-ready startup work is incomplete", async () => {
+  test("returns 200 while post-assistant-ready startup work is incomplete", async () => {
     postAssistantReadyComplete = false;
     try {
       const res = await handleRequest(
         new Request("http://gateway.test/readyz"),
       );
-      expect(res.status).toBe(503);
+      expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.status).toBe("starting");
+      expect(body.status).toBe("ok");
     } finally {
       postAssistantReadyComplete = true;
     }
@@ -143,34 +143,6 @@ describe("/readyz", () => {
       expect(body.status).toBe("starting");
     } finally {
       postAssistantReadyComplete = true;
-    }
-  });
-});
-
-describe("/readyz upstream probe", () => {
-  afterEach(() => {
-    // Restore any spies after each test
-  });
-
-  test("probes upstream /readyz (not /healthz)", async () => {
-    const fetchSpy = spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      Response.json({ status: "ok" }),
-    );
-    try {
-      // Simulate the real /readyz handler from gateway/src/index.ts:
-      // it fetches `${config.assistantRuntimeBaseUrl}/readyz` with a 3s timeout.
-      const upstream = await fetch(`${config.assistantRuntimeBaseUrl}/readyz`, {
-        signal: AbortSignal.timeout(3000),
-      });
-      expect(upstream.ok).toBe(true);
-
-      // Verify the URL probed is /readyz, not /healthz
-      expect(fetchSpy).toHaveBeenCalledTimes(1);
-      const calledUrl = fetchSpy.mock.calls[0][0] as string;
-      expect(calledUrl).toContain("/readyz");
-      expect(calledUrl).not.toContain("/healthz");
-    } finally {
-      fetchSpy.mockRestore();
     }
   });
 });
