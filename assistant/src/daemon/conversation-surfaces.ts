@@ -78,6 +78,37 @@ import type { TrustContext } from "./trust-context.js";
 
 const log = getLogger("conversation-surfaces");
 
+/**
+ * Returns a copy of `submittedData` with password-type field values replaced
+ * by "[REDACTED]". Used when broadcasting `ui_surface_complete` over SSE so
+ * sensitive tokens are never sent to other connected clients.
+ */
+function redactPasswordFields(
+  submittedData: Record<string, unknown> | undefined,
+  surfaceType: SurfaceType | undefined,
+  surfaceData: SurfaceData | undefined,
+): Record<string, unknown> | undefined {
+  if (!submittedData || surfaceType !== "form" || !surfaceData) {
+    return submittedData;
+  }
+  const formData = surfaceData as FormSurfaceData;
+  const passwordIds = new Set<string>();
+  for (const field of formData.fields ?? []) {
+    if (field.type === "password") passwordIds.add(field.id);
+  }
+  for (const page of formData.pages ?? []) {
+    for (const field of page.fields) {
+      if (field.type === "password") passwordIds.add(field.id);
+    }
+  }
+  if (passwordIds.size === 0) return submittedData;
+  const redacted: Record<string, unknown> = { ...submittedData };
+  for (const id of passwordIds) {
+    if (id in redacted) redacted[id] = "[REDACTED]";
+  }
+  return redacted;
+}
+
 // Tolerant variant of SurfaceActionSchema for parsing raw model output.
 // The canonical schema rejects unknown style values; this one coerces them
 // to "secondary" so a single mistyped style doesn't drop all actions.
@@ -1787,11 +1818,17 @@ export async function handleSurfaceAction(
       summary,
     };
 
+    const redactedData = redactPasswordFields(
+      data,
+      stored?.surfaceType,
+      stored?.data,
+    );
     broadcastMessage({
       type: "ui_surface_complete",
       conversationId: ctx.conversationId,
       surfaceId,
       summary,
+      ...(redactedData ? { submittedData: redactedData } : {}),
     });
     markSurfaceCompleted(ctx, surfaceId, summary);
 
@@ -2319,11 +2356,17 @@ export async function handleSurfaceAction(
     ONE_SHOT_SURFACE_TYPES.includes(pending.surfaceType)
   ) {
     const completionSummary = requestedCompletionSummary ?? summary;
+    const redactedOneShotData = redactPasswordFields(
+      mergedDataForText,
+      stored?.surfaceType,
+      stored?.data,
+    );
     broadcastMessage({
       type: "ui_surface_complete",
       conversationId: ctx.conversationId,
       surfaceId,
       summary: completionSummary,
+      ...(redactedOneShotData ? { submittedData: redactedOneShotData } : {}),
     });
     markSurfaceCompleted(ctx, surfaceId, completionSummary);
   }
@@ -3271,11 +3314,17 @@ export async function surfaceProxyResolver(
         lastAction.data,
         stored?.data as Record<string, unknown> | undefined,
       );
+      const redactedDismissData = redactPasswordFields(
+        lastAction.data,
+        stored?.surfaceType,
+        stored?.data,
+      );
       ctx.sendToClient({
         type: "ui_surface_complete",
         conversationId: ctx.conversationId,
         surfaceId,
         summary,
+        ...(redactedDismissData ? { submittedData: redactedDismissData } : {}),
       });
       markSurfaceCompleted(ctx, surfaceId, summary);
     } else {
