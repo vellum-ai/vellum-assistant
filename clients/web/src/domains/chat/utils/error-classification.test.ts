@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   getChatBillingBannerDecision,
+  isManagedCredentialChatError,
   shouldShowGenericChatErrorNotice,
   shouldSuppressGenericChatErrorNotice,
 } from "@/domains/chat/utils/error-classification";
@@ -60,6 +61,7 @@ describe("chat error classification", () => {
       errorCategory: "managed_key_invalid",
     };
 
+    expect(isManagedCredentialChatError(error)).toBe(true);
     expect(shouldSuppressGenericChatErrorNotice(error)).toBe(false);
     expect(shouldShowGenericChatErrorNotice(error)).toBe(true);
   });
