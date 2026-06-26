@@ -579,6 +579,7 @@ export async function observeTurn(
       learnedGraph: lanes.learnedGraph,
       learnedPerSeed: v3.learnedEdges.perSeed,
       learnedCap: v3.learnedEdges.cap,
+      selectorEnabled: v3.selectorEnabled,
       selectorPrompt: resolveSelectorPrompt(
         v3.selectorPromptPath,
         getWorkspaceDir(),
