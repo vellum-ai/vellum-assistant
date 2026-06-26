@@ -202,6 +202,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "platform callback-routes",
   "platform callback-routes register",
   "platform callback-routes list",
+  "ps",
   "routes",
   "routes list",
   "routes inspect",

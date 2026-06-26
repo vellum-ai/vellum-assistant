@@ -40,6 +40,7 @@ import { registerOAuthCommand } from "./commands/oauth/index.js";
 import { registerPendingCommand } from "./commands/pending.js";
 import { registerPlatformCommand } from "./commands/platform/index.js";
 import { registerPluginsCommand } from "./commands/plugins.js";
+import { registerPsCommand } from "./commands/ps.js";
 import { registerRoutesCommand } from "./commands/routes.js";
 import { registerSchedulesCommand } from "./commands/schedules.js";
 import { registerSequenceCommand } from "./commands/sequence.js";
@@ -137,6 +138,7 @@ Examples:
   if (isExternalPluginsEnabled(getConfigReadOnly())) {
     registerPluginsCommand(program);
   }
+  registerPsCommand(program);
   registerRoutesCommand(program);
   registerSchedulesCommand(program);
   registerSequenceCommand(program);
