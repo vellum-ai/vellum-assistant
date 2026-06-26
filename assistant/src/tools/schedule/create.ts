@@ -7,6 +7,7 @@ import { validateScriptTimeoutMs } from "../../schedule/run-script.js";
 import type {
   RoutingIntent,
   ScheduleMode,
+  ScheduleTrustLevel,
 } from "../../schedule/schedule-store.js";
 import {
   createSchedule,
@@ -26,6 +27,7 @@ const VALID_ROUTING_INTENTS: RoutingIntent[] = [
   "multi_channel",
   "all_channels",
 ];
+const VALID_TRUST_LEVELS: ScheduleTrustLevel[] = ["guardian", "restricted"];
 
 export async function executeScheduleCreate(
   input: Record<string, unknown>,
@@ -59,6 +61,7 @@ export async function executeScheduleCreate(
     typeof input.workflow_name === "string" ? input.workflow_name.trim() : null;
   const workflowArgs = input.workflow_args;
   const inferenceProfile = input.inference_profile as string | undefined;
+  const trustLevelInput = input.trust_level as string | undefined;
 
   // Validated workflow capability manifest, resolved only for workflow mode.
   // Left null for non-workflow modes so `createSchedule` persists no manifest.
@@ -83,6 +86,18 @@ export async function executeScheduleCreate(
       return { content: `Error: ${profileError}`, isError: true };
     }
   }
+
+  if (
+    trustLevelInput !== undefined &&
+    !VALID_TRUST_LEVELS.includes(trustLevelInput as ScheduleTrustLevel)
+  ) {
+    return {
+      content: `Error: trust_level must be one of: ${VALID_TRUST_LEVELS.join(", ")}`,
+      isError: true,
+    };
+  }
+  const trustLevel =
+    (trustLevelInput as ScheduleTrustLevel | undefined) ?? "restricted";
 
   if (!name || typeof name !== "string") {
     return {
@@ -217,6 +232,7 @@ export async function executeScheduleCreate(
         workflowName,
         workflowArgs,
         capabilities,
+        trustLevel,
         inferenceProfile,
         createdFromConversationId: context.conversationId,
       });
@@ -308,6 +324,7 @@ export async function executeScheduleCreate(
       workflowName,
       workflowArgs,
       capabilities,
+      trustLevel,
       inferenceProfile,
       createdFromConversationId: context.conversationId,
     });

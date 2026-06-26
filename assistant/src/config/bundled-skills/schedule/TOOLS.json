@@ -111,6 +111,11 @@
           "inference_profile": {
             "type": "string",
             "description": "Inference profile (a key from llm.profiles) the schedule's LLM-executed runs should use, e.g. to run a heavy task on a cheaper model. When omitted, runs use the default mainAgent model selection. Must name a configured profile."
+          },
+          "trust_level": {
+            "type": "string",
+            "enum": ["guardian", "restricted"],
+            "description": "Trust applied to a script-mode schedule's LLM escalation. \"restricted\" (default) runs the escalation read/notify-only; \"guardian\" lets it reason as a guardian. Only set \"guardian\" when the script's polled data is fenced as untrusted and the schedule legitimately needs to act."
           }
         },
         "required": ["name", "description"]

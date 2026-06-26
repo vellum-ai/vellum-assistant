@@ -235,6 +235,62 @@ describe("schedule_create tool", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain("restricted to guardian actors");
   });
+
+  test("persists trust_level: guardian for a script schedule", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Guardian poller",
+        description: "Poll then reason as guardian.",
+        expression: "0 * * * *",
+        mode: "script",
+        script: "echo poll",
+        trust_level: "guardian",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    const row = getRawDb()
+      .query("SELECT trust_level FROM cron_jobs LIMIT 1")
+      .get() as { trust_level: string | null };
+    expect(row.trust_level).toBe("guardian");
+  });
+
+  test("defaults trust_level to restricted when omitted", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Default trust poller",
+        description: "Poll with default trust.",
+        expression: "0 * * * *",
+        mode: "script",
+        script: "echo poll",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    const row = getRawDb()
+      .query("SELECT trust_level FROM cron_jobs LIMIT 1")
+      .get() as { trust_level: string | null };
+    expect(row.trust_level).toBe("restricted");
+  });
+
+  test("rejects an invalid trust_level", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Bad trust",
+        description: "Invalid trust value.",
+        expression: "0 * * * *",
+        mode: "script",
+        script: "echo poll",
+        trust_level: "admin",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("trust_level must be one of");
+  });
 });
 
 // ── schedule_create with fire_at (one-shot) ──────────────────────────
