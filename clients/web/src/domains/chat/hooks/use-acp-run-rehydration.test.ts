@@ -83,7 +83,7 @@ describe("fetchAcpSessions", () => {
     expect(requests).toHaveLength(1);
     expect(requests[0]!.url).toBe("/v1/assistants/{assistant_id}/acp/sessions");
     expect(requests[0]!.path).toEqual({ assistant_id: "asst-1" });
-    expect(requests[0]!.query).toEqual({ conversationId: "conv-1" });
+    expect(requests[0]!.query).toEqual({ conversationId: "conv-1", limit: 50 });
   });
 
   test("returns null on a non-ok response (distinct from an empty snapshot)", async () => {

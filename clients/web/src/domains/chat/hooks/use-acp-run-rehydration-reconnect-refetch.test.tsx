@@ -17,10 +17,12 @@ import { __resetForTesting, publish } from "@/lib/event-bus";
 let getCalls = 0;
 let mockOk = true;
 let mockSessions: unknown[] = [];
+let lastQuery: Record<string, unknown> | undefined;
 mock.module("@/generated/daemon/client.gen", () => ({
   client: {
-    get: async () => {
+    get: async (opts?: { query?: Record<string, unknown> }) => {
       getCalls += 1;
+      lastQuery = opts?.query;
       return {
         data: mockOk ? { sessions: mockSessions } : undefined,
         response: { ok: mockOk },
@@ -52,6 +54,7 @@ beforeEach(() => {
   getCalls = 0;
   mockOk = true;
   mockSessions = [];
+  lastQuery = undefined;
   useAcpRunStore.getState().reset();
 });
 
@@ -66,6 +69,12 @@ describe("useAcpRunRehydration — refetch on SSE reopen", () => {
     mount("asst-1", "conv-A");
     publish("sse.opened", { assistantId: "asst-1", cause: "resume" });
     expect(getCalls).toBe(1);
+  });
+
+  test("requests the snapshot with an explicit limit", () => {
+    mount("asst-1", "conv-A");
+    publish("sse.opened", { assistantId: "asst-1", cause: "resume" });
+    expect(lastQuery).toMatchObject({ conversationId: "conv-A", limit: 50 });
   });
 
   test.each([["error"], ["watchdog"], ["debug"]] as const)(
@@ -125,6 +134,23 @@ describe("useAcpRunRehydration — reconcile stale runs against the snapshot", (
     expect(useAcpRunStore.getState().byId["run-A"]!.stopReason).toBe(
       "daemon_restarted",
     );
+  });
+
+  test("does not retire from a full (possibly truncated) snapshot page", async () => {
+    seedActiveRun("run-A", "conv-A");
+    // A full page (== the limit) may have paginated run-A off rather than
+    // genuinely dropped it, so absence isn't authoritative — don't retire.
+    mockSessions = Array.from({ length: 50 }, (_, i) => ({
+      id: `s-${i}`,
+      acpSessionId: `s-${i}`,
+      status: "completed",
+      parentConversationId: "conv-A",
+      startedAt: i,
+    }));
+    renderHook(() => useAcpRunRehydration("asst-1", "conv-A"));
+
+    await flush();
+    expect(useAcpRunStore.getState().byId["run-A"]!.status).toBe("running");
   });
 
   test("does not retire on a failed fetch (null snapshot)", async () => {

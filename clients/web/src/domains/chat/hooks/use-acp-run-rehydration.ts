@@ -146,6 +146,15 @@ function toRunEntry(row: AcpSessionRow): AcpRunEntry {
 }
 
 /**
+ * Page size requested from `/acp/sessions` (matches the route's own default).
+ * Doubles as a completeness signal: the route returns sessions newest-first
+ * and slices to this limit, so a full page may have dropped an older
+ * still-running run. Snapshots returning fewer than this are authoritative;
+ * a full page is treated as possibly-truncated (see `applyAcpSnapshot`).
+ */
+const ACP_SNAPSHOT_LIMIT = 50;
+
+/**
  * Fetch the authoritative ACP session snapshot for a conversation. Returns
  * `null` on a failed/non-ok fetch so callers can distinguish "couldn't load"
  * from an authoritative empty snapshot (which must retire stale runs).
@@ -158,7 +167,7 @@ export async function fetchAcpSessions(
     const { data, response } = await daemonClient.get<AcpSessionsResponses>({
       url: "/v1/assistants/{assistant_id}/acp/sessions",
       path: { assistant_id: assistantId },
-      query: { conversationId },
+      query: { conversationId, limit: ACP_SNAPSHOT_LIMIT },
       throwOnError: false,
     });
     if (!response?.ok || !data?.sessions) return null;
@@ -191,6 +200,10 @@ function activeRunIdsFor(conversationId: string): string[] {
  * before the fetch so a run spawned live during the round-trip (not yet in the
  * daemon's snapshot) is never retired. A `null` snapshot means the fetch
  * failed, so nothing is reconciled.
+ *
+ * A full page (>= `ACP_SNAPSHOT_LIMIT`) may have paginated an older
+ * still-running run off the snapshot, so absence isn't authoritative there —
+ * we seed but skip retirement rather than risk cancelling a live run.
  */
 function applyAcpSnapshot(
   entries: AcpRunEntry[] | null,
@@ -199,6 +212,7 @@ function applyAcpSnapshot(
   if (entries === null) return;
   const store = useAcpRunStore.getState();
   if (entries.length > 0) store.seedFromHistory(entries);
+  if (entries.length >= ACP_SNAPSHOT_LIMIT) return;
   const present = new Set(entries.map((e) => e.acpSessionId));
   const missing = priorActiveIds.filter((id) => !present.has(id));
   if (missing.length > 0) {
