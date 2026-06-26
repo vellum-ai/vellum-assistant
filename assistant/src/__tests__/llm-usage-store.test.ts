@@ -269,6 +269,10 @@ describe("recordUsageEvent", () => {
       .query("SELECT cron_run_id FROM llm_usage_events WHERE id = ?")
       .get(event.id) as { cron_run_id: string | null } | null;
     expect(row?.cron_run_id).toBe("cron-run-1");
+
+    // listUsageEvents routes through rowToUsageEvent; cronRunId must survive it.
+    const [typed] = listUsageEvents();
+    expect(typed?.cronRunId).toBe("cron-run-1");
   });
 
   test("cronRunId defaults to null when omitted", () => {

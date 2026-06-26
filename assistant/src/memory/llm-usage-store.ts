@@ -94,6 +94,7 @@ function rowToUsageEvent(row: {
   createdAt: number;
   conversationId: string | null;
   runId: string | null;
+  cronRunId: string | null;
   requestId: string | null;
   actor: string;
   callSite: string | null;
@@ -116,6 +117,7 @@ function rowToUsageEvent(row: {
     createdAt: row.createdAt,
     conversationId: row.conversationId,
     runId: row.runId,
+    cronRunId: row.cronRunId,
     requestId: row.requestId,
     actor: row.actor as UsageEvent["actor"],
     callSite: row.callSite as UsageEvent["callSite"],
@@ -220,6 +222,7 @@ export function queryUnreportedUsageEvents(
       createdAt: llmUsageEvents.createdAt,
       conversationId: llmUsageEvents.conversationId,
       runId: llmUsageEvents.runId,
+      cronRunId: llmUsageEvents.cronRunId,
       requestId: llmUsageEvents.requestId,
       actor: llmUsageEvents.actor,
       callSite: llmUsageEvents.callSite,
