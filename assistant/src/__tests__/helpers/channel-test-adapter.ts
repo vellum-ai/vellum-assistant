@@ -65,13 +65,12 @@ import type { TrustClass, TrustVerdict } from "@vellumai/gateway-client";
 
 import { isChannelId } from "../../channels/types.js";
 import { findContactChannel } from "../../contacts/contact-store.js";
-import { getCachedMemberAcl } from "../../runtime/member-verdict-cache.js";
-import { deriveGuardianForChannel } from "./derive-guardian-delivery.js";
 import type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
   MessageProcessor,
 } from "../../runtime/http-types.js";
+import { getCachedMemberAcl } from "../../runtime/member-verdict-cache.js";
 import {
   handleChannelDeliveryAck as _handleChannelDeliveryAck,
   handleListDeadLetters as _handleListDeadLetters,
@@ -82,6 +81,7 @@ import {
   handleDeleteConversation as _handleDeleteConversation,
 } from "../../runtime/routes/channel-inbound-routes.js";
 import { RouteError } from "../../runtime/routes/errors.js";
+import { deriveGuardianForChannel } from "./derive-guardian-delivery.js";
 
 /**
  * Wrap a transport-agnostic handler call, converting RouteError throws
