@@ -24,8 +24,11 @@
  * Watch the console output — it prints the measured tick counts so you can
  * see the difference for yourself, not just trust a green check.
  */
-import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { describe, expect, test } from "bun:test";
+
+import { sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 
 /**
  * Run `fn` while counting event-loop iterations. Returns how many times the
@@ -74,7 +77,9 @@ describe("bun:sqlite async-mode truth", () => {
       () => new Promise<void>((resolve) => setTimeout(resolve, 200)),
     );
 
-    console.log(`[control: awaited setTimeout(200ms)]  ticks=${ticks}  ms=${ms}`);
+    console.log(
+      `[control: awaited setTimeout(200ms)]  ticks=${ticks}  ms=${ms}`,
+    );
 
     expect(ticks).toBeGreaterThan(50);
   });
@@ -152,4 +157,35 @@ describe("bun:sqlite async-mode truth", () => {
     },
     60_000,
   );
+
+  test('drizzle\'s bun-sqlite "async API" (await db...) still blocks the loop', async () => {
+    // The drizzle docs (https://orm.drizzle.team/docs/connect-bun-sqlite)
+    // advertise an async API for bun:sqlite: "unlike any other ORM, for
+    // synchronous drivers like `bun:sqlite` we have both async and sync APIs"
+    // — i.e. `await db.select().from(...)` instead of `.all()`. That `await`
+    // is cosmetic: the underlying driver is still synchronous `bun:sqlite`, so
+    // drizzle runs the query to completion on the main thread and merely wraps
+    // the already-computed result in a resolved promise. Awaiting it yields
+    // the thread only AFTER the query is done — the loop is frozen during it.
+    const db = drizzle(new Database(":memory:"));
+
+    let rowCount = 0;
+    const { ticks, ms } = await measureEventLoopTicks(async () => {
+      // The async form: await the query rather than calling `.all()`/`.get()`.
+      const rows = await db.all<{ n: number }>(sql.raw(HEAVY_QUERY));
+      rowCount = rows[0].n;
+    });
+
+    console.log(
+      `[drizzle bun-sqlite awaited "async API"]  ticks=${ticks}  ms=${ms}  (counted ${rowCount} rows)`,
+    );
+
+    // Same real work as the raw bun:sqlite case.
+    expect(rowCount).toBe(COUNT_TO);
+    expect(ms).toBeGreaterThan(50);
+
+    // Same verdict: zero event-loop turns during the query. Drizzle's "async"
+    // wrapper does not move bun:sqlite off the main thread.
+    expect(ticks).toBeLessThanOrEqual(1);
+  });
 });
