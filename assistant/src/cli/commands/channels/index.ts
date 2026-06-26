@@ -12,6 +12,8 @@
  * its own PR.
  */
 
+import { readFileSync } from "node:fs";
+
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
@@ -44,6 +46,74 @@ interface ChannelSnapshot {
 interface ReadinessResponse {
   success: boolean;
   snapshots: ChannelSnapshot[];
+}
+
+/**
+ * Result of storing Slack channel credentials. Mirrors the relevant subset
+ * of `SlackChannelConfigResult` from
+ * `runtime/routes/integrations/slack/channel.ts` so the CLI does not import
+ * daemon internals.
+ */
+interface SlackChannelConfigResult {
+  success: boolean;
+  connected: boolean;
+  hasBotToken: boolean;
+  hasAppToken: boolean;
+  teamName?: string;
+  botUsername?: string;
+  warning?: string;
+  error?: string;
+}
+
+/**
+ * Read `{ botToken, appToken }` from the `--payload` flag or, preferably,
+ * stdin. Reading from stdin keeps the secret tokens off the process command
+ * line — callers (e.g. the `slack-app-setup` skill) pipe the values in so
+ * they never appear in a process listing or shell history.
+ */
+function readSlackConfigPayload(payloadFlag?: string): {
+  botToken: string;
+  appToken: string;
+} {
+  let raw: string;
+  if (payloadFlag) {
+    raw = payloadFlag;
+  } else if (process.stdin.isTTY) {
+    throw new Error(
+      'No tokens provided. Pipe JSON {"botToken":"...","appToken":"..."} into stdin (preferred for secrets) or use --payload.',
+    );
+  } else {
+    raw = readFileSync("/dev/stdin", "utf-8");
+  }
+
+  if (!raw.trim()) {
+    throw new Error(
+      'Empty input. Provide JSON {"botToken":"...","appToken":"..."}.',
+    );
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new Error(
+      `Invalid JSON: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error(
+      "Payload must be a JSON object with botToken and appToken.",
+    );
+  }
+
+  const obj = parsed as Record<string, unknown>;
+  const botToken = typeof obj.botToken === "string" ? obj.botToken.trim() : "";
+  const appToken = typeof obj.appToken === "string" ? obj.appToken.trim() : "";
+  if (!botToken || !appToken) {
+    throw new Error("Both botToken and appToken are required.");
+  }
+  return { botToken, appToken };
 }
 
 // ---------------------------------------------------------------------------
@@ -150,10 +220,7 @@ Examples:
           false,
         )
         .action(
-          async (
-            opts: { json?: boolean; remote?: boolean },
-            cmd: Command,
-          ) => {
+          async (opts: { json?: boolean; remote?: boolean }, cmd: Command) => {
             const r = await cliIpcCall<ReadinessResponse>(
               "channels_readiness_get",
               {
@@ -185,17 +252,10 @@ Examples:
         .description(
           "Live readiness snapshot for one channel (always re-probes; no caching)",
         )
-        .argument(
-          "<channel>",
-          `Channel id: ${KNOWN_CHANNELS.join(", ")}`,
-        )
+        .argument("<channel>", `Channel id: ${KNOWN_CHANNELS.join(", ")}`)
         .option("--json", "Machine-readable compact JSON output")
         .action(
-          async (
-            channel: string,
-            _opts: { json?: boolean },
-            cmd: Command,
-          ) => {
+          async (channel: string, _opts: { json?: boolean }, cmd: Command) => {
             // `get` is always live: invalidate the cache and re-run remote
             // checks. This matches what source code does when it needs to
             // know the channel's current state — no stale snapshots.
@@ -213,7 +273,9 @@ Examples:
               (s) => s.channel === channel,
             );
             if (!snapshot) {
-              log.error(`No readiness probe registered for channel: ${channel}`);
+              log.error(
+                `No readiness probe registered for channel: ${channel}`,
+              );
               process.exitCode = 1;
               return;
             }
@@ -221,6 +283,77 @@ Examples:
               writeOutput(cmd, snapshot);
             } else {
               renderSnapshot(snapshot);
+            }
+          },
+        );
+
+      // -----------------------------------------------------------------------
+      // configure-slack — validate + store Slack tokens, activate Socket Mode
+      // -----------------------------------------------------------------------
+
+      channels
+        .command("configure-slack")
+        .description(
+          "Validate and store Slack bot + app tokens, then activate Socket Mode",
+        )
+        .option(
+          "--payload <json>",
+          'JSON object {"botToken":"...","appToken":"..."} (defaults to reading stdin; prefer stdin for secrets)',
+        )
+        .option("--json", "Machine-readable compact JSON output")
+        .addHelpText(
+          "after",
+          `
+Stores both Slack tokens through the same validated path the Settings UI
+uses: the bot token is checked against Slack's auth.test, workspace metadata
+is recorded, and Socket Mode activates once both tokens are present.
+
+Tokens are read from stdin by default so they never appear on the command
+line. Both botToken and appToken are required.
+
+Examples:
+  $ echo '{"botToken":"xoxb-...","appToken":"xapp-..."}' | assistant channels configure-slack --json`,
+        )
+        .action(
+          async (opts: { payload?: string; json?: boolean }, cmd: Command) => {
+            let tokens: { botToken: string; appToken: string };
+            try {
+              tokens = readSlackConfigPayload(opts.payload);
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              if (shouldOutputJson(cmd)) {
+                writeOutput(cmd, { ok: false, error: msg });
+              } else {
+                log.error(msg);
+              }
+              process.exitCode = 1;
+              return;
+            }
+
+            const r = await cliIpcCall<SlackChannelConfigResult>(
+              "integrations_slack_channel_config_post",
+              { body: tokens },
+            );
+            if (!r.ok) {
+              return exitFromIpcResult(
+                { ok: false, error: r.error, statusCode: r.statusCode },
+                cmd,
+              );
+            }
+
+            const result = r.result!;
+            if (shouldOutputJson(cmd)) {
+              writeOutput(cmd, { ok: true, ...result });
+            } else if (result.connected) {
+              const team = result.teamName ?? "your workspace";
+              const bot = result.botUsername ? ` (@${result.botUsername})` : "";
+              log.info(
+                `✅ Slack connected to ${team}${bot}. Socket Mode is active.`,
+              );
+            } else if (result.warning) {
+              log.info(`⚠️  ${result.warning}`);
+            } else {
+              log.info("Slack tokens stored.");
             }
           },
         );
