@@ -91,6 +91,57 @@ describe("AcpChatToolCard", () => {
     expect(container.querySelector(".lucide-code")).not.toBeNull();
   });
 
+  test("shows the command from rawInput.command as the detail line", () => {
+    render(
+      <AcpChatToolCard
+        block={toolBlock({
+          toolKind: "execute",
+          title: "fallback title",
+          rawInput: { command: "npm test" },
+        })}
+        onOpenDiff={() => {}}
+      />,
+    );
+    expect(screen.getByTestId("acp-chat-tool-detail").textContent).toBe(
+      "npm test",
+    );
+  });
+
+  test("falls back to the title and hides the raw section when rawInput is absent", () => {
+    render(
+      <AcpChatToolCard
+        block={toolBlock({ toolKind: "execute", title: "npm test" })}
+        onOpenDiff={() => {}}
+      />,
+    );
+    expect(screen.getByTestId("acp-chat-tool-detail").textContent).toBe(
+      "npm test",
+    );
+    expect(screen.queryByTestId("acp-chat-tool-raw")).toBeNull();
+  });
+
+  test("renders a collapsible raw input/output section that expands to pretty-printed values", () => {
+    render(
+      <AcpChatToolCard
+        block={toolBlock({
+          toolKind: "execute",
+          rawInput: { command: "npm test" },
+          rawOutput: { exitCode: 0, stdout: "ok" },
+        })}
+        onOpenDiff={() => {}}
+      />,
+    );
+    // Collapsed by default — sub-blocks not yet rendered.
+    expect(screen.queryByTestId("acp-chat-tool-raw-input")).toBeNull();
+    fireEvent.click(screen.getByTestId("acp-chat-tool-raw-toggle"));
+    expect(screen.getByTestId("acp-chat-tool-raw-input").textContent).toContain(
+      JSON.stringify({ command: "npm test" }, null, 2),
+    );
+    expect(
+      screen.getByTestId("acp-chat-tool-raw-output").textContent,
+    ).toContain(JSON.stringify({ exitCode: 0, stdout: "ok" }, null, 2));
+  });
+
   test("renders the status pill per status", () => {
     const { rerender } = render(
       <AcpChatToolCard block={toolBlock({ status: "running" })} onOpenDiff={() => {}} />,
