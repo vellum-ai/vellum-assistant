@@ -2,9 +2,9 @@
  * Mocked thread-suggestion data for the new-thread suggestions library.
  *
  * Pure data, typed against {@link SuggestionGroup}. Plugin groups model the
- * "your connected plugins" sections; the vellum-curated group is a placeholder
- * for editorially-authored picks. The detail drawer, suggestion cards, and the
- * always-visible featured row all read from here until real sourcing lands.
+ * "your connected plugins" sections; the vellum-curated group holds
+ * editorially-authored picks. The detail drawer, suggestion cards, and the
+ * always-visible featured row all read from here.
  */
 
 import type {
@@ -153,7 +153,8 @@ export const MOCK_SUGGESTION_GROUPS: SuggestionGroup[] = [
       },
     ],
   },
-  // TODO: replace curated picks with real Vellum-authored suggestions (tracked separately).
+  // Vellum-curated picks: placeholder/mock suggestions rendered behind the
+  // new-thread-suggestions feature flag.
   {
     id: "vellum-picks",
     title: "Vellum picks",
