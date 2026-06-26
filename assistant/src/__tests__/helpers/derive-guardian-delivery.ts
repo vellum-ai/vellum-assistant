@@ -2,40 +2,33 @@
  * Test-only resolver that mirrors the gateway's active-guardian-channel query.
  *
  * Production resolves the guardian binding + per-channel delivery endpoints from
- * the gateway (the `resolve_guardian_delivery` IPC route). Tests seed the
- * guardian state via {@link seedContactChannel} / `createGuardianBinding` and
- * back the gateway reader with this resolver so the gateway-derived delivery
- * list reflects the seeded binding. The ACL-column reads are confined here so
- * the trust/guardian test files don't reference the assistant ACL columns
- * directly.
+ * the gateway (`gateway/src/risk/guardian-delivery-resolver.ts`, reached via the
+ * `resolve_guardian_delivery` IPC route) — `role = 'guardian'` joined to active
+ * gateway contact channels, ordered by verification recency. Tests seed that
+ * gateway state via {@link seedContactChannel} / `createGuardianBinding` into the
+ * in-process gateway ACL store ({@link liveGatewayAclRows}); this resolver reads
+ * the SAME store so the gateway-derived delivery list reflects the seeded
+ * binding. No assistant ACL columns are read here — those are Phase-B-dropped.
  */
 
 import type { GuardianDelivery } from "@vellumai/gateway-client";
-import { and, desc, eq } from "drizzle-orm";
 
-import { getDb } from "../../memory/db-connection.js";
-import { contactChannels, contacts } from "../../memory/schema.js";
+import { liveGatewayAclRows } from "./gateway-acl-store.js";
 
 /**
- * Resolve active guardian deliveries from the local contacts DB, optionally
+ * Resolve active guardian deliveries from the gateway ACL store, optionally
  * filtered to a single channel (when `channelType` is given) or to a set of
  * channel types (when `channelTypes` is given). Mirrors the gateway resolution:
- * `contacts.role = 'guardian'` joined to active contact channels, ordered by
- * verification recency.
+ * `role = 'guardian'` joined to active channels, ordered by verification
+ * recency.
  */
 export function deriveGuardianDeliveries(filter?: {
   channelType?: string;
   channelTypes?: string[];
 }): GuardianDelivery[] {
-  const rows = getDb()
-    .select({ contact: contacts, channel: contactChannels })
-    .from(contacts)
-    .innerJoin(contactChannels, eq(contacts.id, contactChannels.contactId))
-    .where(
-      and(eq(contacts.role, "guardian"), eq(contactChannels.status, "active")),
-    )
-    .orderBy(desc(contactChannels.verifiedAt))
-    .all();
+  const rows = liveGatewayAclRows()
+    .filter((r) => r.role === "guardian" && r.status === "active")
+    .sort((a, b) => (b.verifiedAt ?? 0) - (a.verifiedAt ?? 0));
 
   if (rows.length === 0) return [];
 
@@ -43,16 +36,16 @@ export function deriveGuardianDeliveries(filter?: {
   // rows are ordered by verifiedAt desc), matching the gateway resolution.
   const byChannel = new Map<string, GuardianDelivery>();
   for (const r of rows) {
-    if (byChannel.has(r.channel.type)) continue;
-    byChannel.set(r.channel.type, {
-      channelType: r.channel.type,
-      contactId: r.contact.id,
-      principalId: r.contact.principalId ?? null,
-      displayName: r.contact.displayName ?? null,
-      address: r.channel.address,
-      externalChatId: r.channel.externalChatId ?? null,
+    if (byChannel.has(r.channelType)) continue;
+    byChannel.set(r.channelType, {
+      channelType: r.channelType,
+      contactId: r.contactId,
+      principalId: r.principalId ?? null,
+      displayName: r.displayName ?? null,
+      address: r.address,
+      externalChatId: r.externalChatId ?? null,
       status: "active",
-      verifiedAt: r.channel.verifiedAt ?? null,
+      verifiedAt: r.verifiedAt ?? null,
     });
   }
   const list = [...byChannel.values()];
