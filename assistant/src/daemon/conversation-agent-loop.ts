@@ -520,12 +520,14 @@ export async function runAgentLoopImpl(
   let turnStarted = false;
   const state = createEventHandlerState();
   let persistedErrorAssistantMessage = false;
+  let deletedReservedAssistantMessage = false;
 
   const publishLoopMessagesChanged = (): void => {
     if (
       state.lastAssistantMessageId ||
       state.persistedToolUseIds.size > 0 ||
-      persistedErrorAssistantMessage
+      persistedErrorAssistantMessage ||
+      deletedReservedAssistantMessage
     ) {
       publishConversationMessagesChanged(ctx.conversationId);
     }
@@ -1151,23 +1153,22 @@ export async function runAgentLoopImpl(
       !abortController.signal.aborted &&
       !yieldedForHandoff
     ) {
-      // Drop any reservation stranded by the failed LLM call before
-      // inserting the synthetic error message. The B3 pre-allocation
-      // path reserves an empty assistant row at `llm_call_started`;
-      // when the call exits through the provider-error branch (no
-      // `message_complete`), `assistantRowAwaitingFinalization` stays
-      // true. Without this delete the transcript would carry both the
-      // empty reserved row AND the error message — and downstream sync
-      // (`syncLastAssistantMessageToDisk`) would mis-target the empty
-      // row. After delete we set `lastAssistantMessageId` to the new
-      // error row's id so the post-loop emission paths still point at
-      // a real message.
+      // Drop any reservation stranded by the failed LLM call. The B3
+      // pre-allocation path reserves an empty assistant row at
+      // `llm_call_started`; when the call exits through the provider-error
+      // branch (no `message_complete`), `assistantRowAwaitingFinalization`
+      // stays true. Without this delete the transcript would carry an empty
+      // reserved row, and downstream sync (`syncLastAssistantMessageToDisk`)
+      // would target it.
       if (
         state.assistantRowAwaitingFinalization &&
         state.lastAssistantMessageId
       ) {
         try {
           deleteMessageById(state.lastAssistantMessageId);
+          deletedReservedAssistantMessage = true;
+          state.lastAssistantMessageId = undefined;
+          state.assistantRowAwaitingFinalization = false;
         } catch (err) {
           rlog.warn(
             { err, messageId: state.lastAssistantMessageId },
@@ -1175,57 +1176,63 @@ export async function runAgentLoopImpl(
           );
         }
       }
-      const errChannelMeta = {
-        ...provenanceFromTrustContext(ctx.trustContext),
-        userMessageChannel: capturedTurnChannelContext.userMessageChannel,
-        assistantMessageChannel:
-          capturedTurnChannelContext.assistantMessageChannel,
-        userMessageInterface: capturedTurnInterfaceContext.userMessageInterface,
-        assistantMessageInterface:
-          capturedTurnInterfaceContext.assistantMessageInterface,
-      };
-      const errorAssistantMessage = createAssistantMessage(
-        state.providerErrorUserMessage,
-      );
-      const errorRow = await addMessage(
-        ctx.conversationId,
-        "assistant",
-        JSON.stringify(errorAssistantMessage.content),
-        { metadata: errChannelMeta },
-      );
-      persistedErrorAssistantMessage = true;
-      // Repoint `lastAssistantMessageId` at the synthetic error row so the
-      // post-loop sync, attachment resolution, and `message_complete`/
-      // `generation_handoff` emissions all reference a real, persisted
-      // message id. The previous reservation (if any) was already deleted
-      // above. Mark finalization complete so the next LLM call in this run
-      // (or a downstream handler) doesn't try to clean up an id that
-      // already corresponds to a finalized row.
-      state.lastAssistantMessageId = errorRow.id;
-      state.assistantRowAwaitingFinalization = false;
-      newMessages.push(errorAssistantMessage);
-      // Pipe the just-assigned message id into any orphaned LLM request log
-      // row(s) for this turn. The success path links rows via
-      // `handleMessageComplete` -> `backfillMessageIdOnLogs`, but provider-
-      // failure turns never fire `message_complete` (the synthetic assistant
-      // message is persisted directly above), so without this call the rows
-      // from `handleProviderError` stay with `message_id IS NULL` and a
-      // later turn's backfill sweep would wrong-attach them to that turn's
-      // assistant message. Scope is per-conversation, so concurrent runs on
-      // other conversations cannot collide. Non-fatal — a DB hiccup must
-      // not escalate a provider rejection into a turn-level throw.
-      try {
-        backfillMessageIdOnLogs(ctx.conversationId, errorRow.id);
-      } catch (err) {
-        rlog.warn(
-          { err },
-          "Failed to backfill message_id on provider-error LLM request logs (non-fatal)",
+      if (!state.persistProviderErrorAsAssistantMessage) {
+        state.assistantRowAwaitingFinalization = false;
+        state.lastAssistantMessageId = undefined;
+      } else {
+        const errChannelMeta = {
+          ...provenanceFromTrustContext(ctx.trustContext),
+          userMessageChannel: capturedTurnChannelContext.userMessageChannel,
+          assistantMessageChannel:
+            capturedTurnChannelContext.assistantMessageChannel,
+          userMessageInterface:
+            capturedTurnInterfaceContext.userMessageInterface,
+          assistantMessageInterface:
+            capturedTurnInterfaceContext.assistantMessageInterface,
+        };
+        const errorAssistantMessage = createAssistantMessage(
+          state.providerErrorUserMessage,
         );
+        const errorRow = await addMessage(
+          ctx.conversationId,
+          "assistant",
+          JSON.stringify(errorAssistantMessage.content),
+          { metadata: errChannelMeta },
+        );
+        persistedErrorAssistantMessage = true;
+        // Repoint `lastAssistantMessageId` at the synthetic error row so the
+        // post-loop sync, attachment resolution, and `message_complete`/
+        // `generation_handoff` emissions all reference a real, persisted
+        // message id. The previous reservation (if any) was already deleted
+        // above. Mark finalization complete so the next LLM call in this run
+        // (or a downstream handler) doesn't try to clean up an id that
+        // already corresponds to a finalized row.
+        state.lastAssistantMessageId = errorRow.id;
+        state.assistantRowAwaitingFinalization = false;
+        newMessages.push(errorAssistantMessage);
+        // Pipe the just-assigned message id into any orphaned LLM request log
+        // row(s) for this turn. The success path links rows via
+        // `handleMessageComplete` -> `backfillMessageIdOnLogs`, but provider-
+        // failure turns never fire `message_complete` (the synthetic assistant
+        // message is persisted directly above), so without this call the rows
+        // from `handleProviderError` stay with `message_id IS NULL` and a
+        // later turn's backfill sweep would wrong-attach them to that turn's
+        // assistant message. Scope is per-conversation, so concurrent runs on
+        // other conversations cannot collide. Non-fatal — a DB hiccup must
+        // not escalate a provider rejection into a turn-level throw.
+        try {
+          backfillMessageIdOnLogs(ctx.conversationId, errorRow.id);
+        } catch (err) {
+          rlog.warn(
+            { err },
+            "Failed to backfill message_id on provider-error LLM request logs (non-fatal)",
+          );
+        }
+        // Do NOT send assistant_text_delta here — handleProviderError already
+        // emitted a conversation_error event for this same error text, and the
+        // client renders it as an InlineChatErrorAlert. Sending a text delta
+        // would create a duplicate plain-text bubble below the alert card.
       }
-      // Do NOT send assistant_text_delta here — handleProviderError already
-      // emitted a conversation_error event for this same error text, and the
-      // client renders it as an InlineChatErrorAlert. Sending a text delta
-      // would create a duplicate plain-text bubble below the alert card.
     }
 
     // Base persisted into `ctx.messages` is the loop's own returned history
