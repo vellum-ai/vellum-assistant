@@ -20,6 +20,13 @@ const WakeConversationBody = z.object({
   // Honored only for a `local` caller (see handler) — a remote `actor` could
   // otherwise attribute its wake's cost to an arbitrary firing.
   cronRunId: z.string().min(1).optional(),
+  // Persist the trigger as a transcript-visible `<background_event>` instead of
+  // an ephemeral hint, so repeated wakes stay prompt-cache-friendly.
+  persist: z.boolean().optional(),
+  // Raw third-party data (email/PR/notification payloads) the script polled.
+  // Fenced inside `<external_content>` so the model treats it as data, never
+  // instructions; only consulted alongside `persist`.
+  externalContent: z.string().optional(),
 });
 
 export const ROUTES: RouteDefinition[] = [
@@ -42,8 +49,14 @@ export const ROUTES: RouteDefinition[] = [
       reason: z.string().optional(),
     }),
     handler: async ({ body, principalType }) => {
-      const { conversationId, hint, source, cronRunId } =
-        WakeConversationBody.parse(body);
+      const {
+        conversationId,
+        hint,
+        source,
+        cronRunId,
+        persist,
+        externalContent,
+      } = WakeConversationBody.parse(body);
 
       const conversation = getConversation(conversationId);
       if (!conversation) {
@@ -68,6 +81,10 @@ export const ROUTES: RouteDefinition[] = [
           ? { trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT, clientless: true }
           : {}),
         ...(isLocal && cronRunId ? { cronRunId } : {}),
+        ...(persist ? { persistTriggerAsEvent: true } : {}),
+        ...(externalContent !== undefined
+          ? { untrustedOutput: { content: externalContent, source: "webhook" } }
+          : {}),
       });
     },
   },
