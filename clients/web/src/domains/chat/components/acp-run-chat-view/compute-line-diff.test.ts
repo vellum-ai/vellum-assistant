@@ -80,5 +80,7 @@ describe("computeLineDiff", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].type).toBe("too-large");
     expect(rows[0].text).toMatch(/too large/i);
+    // The sentinel must not claim to show content it omits.
+    expect(rows[0].text).not.toMatch(/full content/i);
   });
 });

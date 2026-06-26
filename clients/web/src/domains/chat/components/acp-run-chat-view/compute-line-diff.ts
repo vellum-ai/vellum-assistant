@@ -85,7 +85,12 @@ export function computeLineDiff(oldText: string, newText: string): DiffRow[] {
   const newLines = splitLines(newText);
 
   if (oldLines.length > MAX_DIFF_LINES || newLines.length > MAX_DIFF_LINES) {
-    return [{ type: "too-large", text: "Diff too large — showing full content" }];
+    return [
+      {
+        type: "too-large",
+        text: `Diff too large to render (over ${MAX_DIFF_LINES.toLocaleString()} lines)`,
+      },
+    ];
   }
 
   // New file: nothing on the left, every line is an addition.
