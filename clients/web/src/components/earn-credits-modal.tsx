@@ -68,7 +68,7 @@ function EarnCreditsModalInner() {
     });
   }, []);
 
-  const creditsGated = !!data && !data.is_eligible_for_credits;
+  const creditsGated = data?.is_eligible_for_credits === false;
 
   const subtitle = !data
     ? "Refer friends to earn free credits."

@@ -42,7 +42,7 @@ export function ReferralPanel() {
     });
   }, []);
 
-  const creditsGated = !!data && !data.is_eligible_for_credits;
+  const creditsGated = data?.is_eligible_for_credits === false;
 
   const subtitle = creditsGated
     ? "Invite friends to Vellum. You'll start earning referral credits once you've purchased credits or upgraded to Pro."
