@@ -5,12 +5,12 @@ import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
-import { Radio, RadioGroup } from "@vellumai/design-library/components/radio";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import { DetailCard } from "@/components/detail-card";
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
 import { ShareConnectionLinkButton } from "@/domains/contacts/components/share-connection-link-button";
+import { SlackSetupWizard, type SlackThreadMode } from "@/domains/contacts/components/slack-setup-wizard";
 import type { AssistantChannelState } from "@/domains/contacts/types";
 import {
   ADMISSION_POLICY_DEFAULT,
@@ -20,7 +20,7 @@ import {
   type AdmissionPolicy,
 } from "@/lib/channel-admission-policy/types";
 
-export type SlackThreadMode = "mention_only" | "mention_then_thread";
+export type { SlackThreadMode } from "@/domains/contacts/components/slack-setup-wizard";
 
 type ChannelKey = AssistantChannelState["key"];
 
@@ -192,10 +192,23 @@ export function AssistantChannelsDetail({
               ) : null}
               <ChannelRow
                 channel={channel}
+                assistantName={assistantName}
                 pending={pendingChannelKey === channel.key}
                 expanded={expandedChannels.has(channel.key)}
                 onToggleExpand={() => toggleExpanded(channel.key)}
-                onSetup={onSetup ? () => onSetup(channel.key) : undefined}
+                onSetup={
+                  channel.key === "slack"
+                    ? () => {
+                        setExpandedChannels((prev) => {
+                          const next = new Set(prev);
+                          next.add(channel.key);
+                          return next;
+                        });
+                      }
+                    : onSetup
+                      ? () => onSetup(channel.key)
+                      : undefined
+                }
                 onDisconnect={
                   onDisconnect ? () => setPendingDisconnect(channel.key) : undefined
                 }
@@ -262,6 +275,7 @@ export function AssistantChannelsDetail({
 
 interface ChannelRowProps {
   channel: AssistantChannelState;
+  assistantName: string;
   pending: boolean;
   expanded: boolean;
   onToggleExpand: () => void;
@@ -282,6 +296,7 @@ interface ChannelRowProps {
 
 function ChannelRow({
   channel,
+  assistantName,
   pending,
   expanded,
   onToggleExpand,
@@ -370,7 +385,7 @@ function ChannelRow({
       ) : null}
 
       {!connected && channel.key === "slack" && expanded ? (
-        <SlackCredentialEntry onSave={onSaveSlackConfig} />
+        <SlackSetupWizard assistantName={assistantName} onSave={onSaveSlackConfig} />
       ) : null}
 
       {!connected && channel.key === "phone" && expanded ? (
@@ -394,9 +409,11 @@ function ChannelRow({
           ) : null}
 
           {channel.key === "slack" ? (
-            <SlackThreadModeSection
+            <SlackSetupWizard
+              assistantName={assistantName}
+              connected
               threadMode={slackThreadMode}
-              pending={slackThreadModePending}
+              threadModePending={slackThreadModePending}
               onThreadModeChange={onSlackThreadModeChange}
             />
           ) : null}
@@ -539,120 +556,6 @@ function TelegramCredentialEntry({ onSave }: TelegramCredentialEntryProps) {
           {saving ? "Saving…" : "Save"}
         </Button>
       </div>
-    </div>
-  );
-}
-
-interface SlackCredentialEntryProps {
-  onSave?: (botToken: string, appToken: string) => Promise<void>;
-}
-
-function SlackCredentialEntry({ onSave }: SlackCredentialEntryProps) {
-  const [botToken, setBotToken] = useState("");
-  const [appToken, setAppToken] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const canSave = botToken.trim().length > 0 && appToken.trim().length > 0 && !saving;
-
-  const handleSave = async () => {
-    if (!onSave || !canSave) {
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    try {
-      await onSave(botToken.trim(), appToken.trim());
-      setBotToken("");
-      setAppToken("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="flex flex-col gap-3 pl-7">
-      <Input
-        label="Bot Token"
-        type="password"
-        value={botToken}
-        onChange={(e) => setBotToken(e.target.value)}
-        placeholder="xoxb-..."
-        disabled={saving}
-        fullWidth
-      />
-      <Input
-        label="App Token"
-        type="password"
-        value={appToken}
-        onChange={(e) => setAppToken(e.target.value)}
-        placeholder="xapp-..."
-        disabled={saving}
-        fullWidth
-      />
-      {error ? (
-        <p className="text-label-small" style={{ color: "var(--content-negative)" }}>
-          {error}
-        </p>
-      ) : null}
-      <div>
-        <Button
-          type="button"
-          onClick={handleSave}
-          disabled={!canSave}
-        >
-          {saving ? "Saving…" : "Save"}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Slack Thread Mode
-// ---------------------------------------------------------------------------
-
-interface SlackThreadModeSectionProps {
-  threadMode?: SlackThreadMode;
-  pending?: boolean;
-  onThreadModeChange?: (mode: SlackThreadMode) => void;
-}
-
-function SlackThreadModeSection({
-  threadMode,
-  pending = false,
-  onThreadModeChange,
-}: SlackThreadModeSectionProps) {
-  const mode = threadMode ?? "mention_only";
-
-  return (
-    <div className="flex flex-col gap-3 pl-7">
-      <Typography
-        as="span"
-        variant="body-small-emphasised"
-        className="text-[color:var(--content-secondary)]"
-      >
-        Thread Behavior
-      </Typography>
-      <RadioGroup<SlackThreadMode>
-        value={mode}
-        onValueChange={(next) => onThreadModeChange?.(next)}
-        disabled={pending || !onThreadModeChange}
-        aria-label="Slack thread behavior"
-      >
-        <Radio<SlackThreadMode>
-          value="mention_only"
-          label="Mentions only"
-          helperText="Bot only responds when @mentioned."
-        />
-        <Radio<SlackThreadMode>
-          value="mention_then_thread"
-          label="Follow threads after first mention"
-          helperText="After an @mention in a thread, bot listens to all subsequent replies."
-        />
-      </RadioGroup>
     </div>
   );
 }
