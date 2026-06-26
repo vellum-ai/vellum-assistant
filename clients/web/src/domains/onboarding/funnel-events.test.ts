@@ -5,6 +5,7 @@ import {
   buildOnboardingFunnelEvent,
   emitOnboardingFunnelStepCompleted,
   emitResearchOnboardingStepCompleted,
+  emitResearchOnboardingCheckinCalendarOpened,
   onboardingFunnelVariantFromExperiment,
   ONBOARDING_FUNNEL_STEPS,
   ONBOARDING_FUNNEL_VERSION,
@@ -199,6 +200,37 @@ describe("onboarding funnel events", () => {
       step_index: 9,
       funnel_version: RESEARCH_ONBOARDING_FUNNEL_VERSION,
       outcome: "skipped",
+    });
+  });
+
+  test("emits the check-in calendar click on the research funnel", () => {
+    localStorage.setItem("device:share_analytics", "true");
+    const fetchMock = mock(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response("{}", { status: 200 }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    emitResearchOnboardingCheckinCalendarOpened({ userId: "user-123" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const calls = fetchMock.mock.calls as Array<
+      [RequestInfo | URL, RequestInit | undefined]
+    >;
+    expect(calls[0]?.[0]).toBe("/v1/telemetry/ingest/");
+    const event = (
+      JSON.parse(calls[0]?.[1]?.body as string) as {
+        events: Array<Record<string, unknown>>;
+      }
+    ).events[0];
+    expect(event).toMatchObject({
+      type: "onboarding",
+      step_name: "research_checkin_open",
+      step_index: 10,
+      user_id: "user-123",
+      funnel_version: RESEARCH_ONBOARDING_FUNNEL_VERSION,
+      ab_variant: "control",
+      outcome: "completed",
     });
   });
 
