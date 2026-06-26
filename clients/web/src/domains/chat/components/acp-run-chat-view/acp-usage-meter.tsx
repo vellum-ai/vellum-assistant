@@ -31,10 +31,9 @@ function MeterStat({ label, value }: MeterStatProps) {
 
 /**
  * Presentational meter for an ACP run's usage. Renders the Input and Output
- * token counts (thousands-separated) plus a trailing stat that prefers the
- * run's actual cost (currency-formatted) and falls back to the Total token
- * count when no cost is reported (older daemons / pre-migration rows). Renders
- * nothing when neither input nor output is known.
+ * token counts (thousands-separated) plus the run's actual cost
+ * (currency-formatted) when reported. Renders nothing when neither input nor
+ * output is known.
  */
 export function AcpUsageMeter({ entry }: { entry: AcpRunEntry }) {
   const { inputTokens, outputTokens, costAmount, costCurrency } = entry;
@@ -48,10 +47,8 @@ export function AcpUsageMeter({ entry }: { entry: AcpRunEntry }) {
     <div className="flex items-center gap-3" data-testid="acp-usage-meter">
       <MeterStat label="Input" value={TOKEN_FORMAT.format(input)} />
       <MeterStat label="Output" value={TOKEN_FORMAT.format(output)} />
-      {hasCost ? (
+      {hasCost && (
         <MeterStat label="Cost" value={formatAcpCost(costAmount, costCurrency)} />
-      ) : (
-        <MeterStat label="Total" value={TOKEN_FORMAT.format(input + output)} />
       )}
     </div>
   );

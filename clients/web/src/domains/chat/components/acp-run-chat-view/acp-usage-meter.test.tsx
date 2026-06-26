@@ -28,14 +28,15 @@ function statValue(label: string): string | undefined {
 }
 
 describe("AcpUsageMeter", () => {
-  test("falls back to Total tokens when no cost is reported", () => {
+  test("shows only Input and Output when no cost is reported", () => {
     render(<AcpUsageMeter entry={entry({ inputTokens: 12000, outputTokens: 3400 })} />);
 
     expect(screen.getByTestId("acp-usage-meter")).toBeDefined();
     expect(statValue("input")).toBe("12,000");
     expect(statValue("output")).toBe("3,400");
-    // Total = input + output; shown because there's no cost to display.
-    expect(statValue("total")).toBe("15,400");
+    // No third stat: input+output is not the run total for reasoning runs, so
+    // we don't label a sum as "Total".
+    expect(statValue("total")).toBeUndefined();
     expect(statValue("cost")).toBeUndefined();
   });
 
@@ -77,7 +78,7 @@ describe("AcpUsageMeter", () => {
 
     expect(statValue("input")).toBe("5,000");
     expect(statValue("output")).toBe("0");
-    expect(statValue("total")).toBe("5,000");
+    expect(statValue("total")).toBeUndefined();
   });
 
   test("renders nothing when both input and output are absent", () => {
