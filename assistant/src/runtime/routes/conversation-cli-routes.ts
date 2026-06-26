@@ -376,6 +376,7 @@ export const ROUTES: RouteDefinition[] = [
     requestBody: z.object({
       title: z.string().optional(),
       messages: z.array(seededConversationMessageSchema).optional(),
+      conversationType: conversationCreateTypeSchema.optional(),
     }),
     responseBody: z.object({
       id: z.string(),
