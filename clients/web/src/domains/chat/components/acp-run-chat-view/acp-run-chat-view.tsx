@@ -19,6 +19,10 @@ import {
   type AcpChatBlock,
 } from "@/domains/chat/acp-run-message-projection";
 import {
+  getAcpFileChanges,
+  parseAcpToolContent,
+} from "@/domains/chat/acp-tool-content";
+import {
   STEER_MARKER_PREFIX,
   useAcpRunStore,
   type AcpRunEntry,
@@ -87,9 +91,14 @@ export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
   );
   const blocks = useAcpRunChatBlocks(events);
 
-  // Nested file diff in LOCAL state (never the viewer store). When set, the
-  // conversation is replaced by the diff with a Back affordance.
-  const [activeDiff, setActiveDiff] = useState<AcpFileChange | null>(null);
+  // Nested file diff in LOCAL state (never the viewer store). We store only the
+  // diff's IDENTITY (which tool + which file) and re-derive the diff from the
+  // live blocks below, so an open diff stays in sync as `tool_call_update`
+  // content replaces the snapshot while the tool is still running.
+  const [activeDiffRef, setActiveDiffRef] = useState<{
+    toolCallId: string;
+    path: string;
+  } | null>(null);
 
   // Reset nested diff (parent-owned state) on run switch — render-phase guard
   // tracking the prev id, mirroring `AcpRunDetailPanel`. Run-specific state that
@@ -98,14 +107,33 @@ export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
   const [prevSessionId, setPrevSessionId] = useState(entry.acpSessionId);
   if (prevSessionId !== entry.acpSessionId) {
     setPrevSessionId(entry.acpSessionId);
-    setActiveDiff(null);
+    setActiveDiffRef(null);
   }
 
   const handleOpenDiff = useCallback(
-    (fileChange: AcpFileChange) => setActiveDiff(fileChange),
+    (toolCallId: string, fileChange: AcpFileChange) =>
+      setActiveDiffRef({ toolCallId, path: fileChange.path }),
     [],
   );
-  const handleCloseDiff = useCallback(() => setActiveDiff(null), []);
+  const handleCloseDiff = useCallback(() => setActiveDiffRef(null), []);
+
+  // Live diff for the open chip, re-derived from the current blocks so it tracks
+  // streaming `tool_call_update` content. `null` once its tool block is gone or
+  // the path no longer resolves a change (callers fall back to the path-only
+  // header so the view stays open rather than flickering shut).
+  const activeDiff = useMemo<AcpFileChange | null>(() => {
+    if (!activeDiffRef) return null;
+    const toolBlock = blocks.find(
+      (b): b is Extract<AcpChatBlock, { kind: "tool" }> =>
+        b.kind === "tool" && b.toolCallId === activeDiffRef.toolCallId,
+    );
+    if (!toolBlock) return null;
+    const changes = getAcpFileChanges(
+      parseAcpToolContent(toolBlock.content),
+      toolBlock.locations,
+    );
+    return changes.find((c) => c.path === activeDiffRef.path) ?? null;
+  }, [activeDiffRef, blocks]);
 
   // The hook re-pins in a layout effect keyed on this content key. `blocks`
   // identity changes on every streamed append; status/completedAt are folded in
@@ -127,7 +155,7 @@ export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
-      {activeDiff && (
+      {activeDiffRef && (
         <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-hover)] px-5 py-3">
           <button
             type="button"
@@ -146,10 +174,10 @@ export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
           <Typography
             variant="body-small-default"
             as="span"
-            title={activeDiff.path}
+            title={activeDiffRef.path}
             className="min-w-0 shrink truncate font-mono text-[var(--content-secondary)]"
           >
-            {activeDiff.path}
+            {activeDiffRef.path}
           </Typography>
         </div>
       )}
@@ -159,16 +187,16 @@ export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
         entry={entry}
         isRunning={isRunning}
         onClose={onClose}
-        showBack={!!activeDiff}
+        showBack={!!activeDiffRef}
         onBack={handleCloseDiff}
       />
 
-      {activeDiff ? (
+      {activeDiffRef ? (
         <div className="flex-1 overflow-y-auto px-5 py-5">
           <FileDiffView
-            path={activeDiff.path}
-            oldText={activeDiff.oldText}
-            newText={activeDiff.newText}
+            path={activeDiffRef.path}
+            oldText={activeDiff?.oldText}
+            newText={activeDiff?.newText}
           />
         </div>
       ) : (
@@ -344,7 +372,7 @@ function ChatBlock({
   block: AcpChatBlock;
   /** When the run is terminal, force trailing live agent/thinking blocks complete. */
   isTerminal: boolean;
-  onOpenDiff: (fileChange: AcpFileChange) => void;
+  onOpenDiff: (toolCallId: string, fileChange: AcpFileChange) => void;
 }) {
   switch (block.kind) {
     case "user":

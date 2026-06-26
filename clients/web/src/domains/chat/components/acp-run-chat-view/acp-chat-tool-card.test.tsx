@@ -62,11 +62,11 @@ describe("AcpChatToolCard", () => {
     expect(output.className).toContain("font-mono");
   });
 
-  test("renders a file chip per diff and fires onOpenDiff with the file change", () => {
+  test("renders a file chip per diff and fires onOpenDiff with the tool id + file change", () => {
     const content = JSON.stringify([
       { type: "diff", path: "src/a.ts", oldText: "old", newText: "new" },
     ]);
-    const onOpenDiff = mock((_: { path: string }) => {});
+    const onOpenDiff = mock((_id: string, _fc: { path: string }) => {});
     render(
       <AcpChatToolCard block={toolBlock({ content })} onOpenDiff={onOpenDiff} />,
     );
@@ -75,7 +75,8 @@ describe("AcpChatToolCard", () => {
     expect(chip.textContent).toContain("src/a.ts");
     fireEvent.click(chip);
     expect(onOpenDiff).toHaveBeenCalledTimes(1);
-    expect(onOpenDiff).toHaveBeenCalledWith({
+    // The owning tool's id is passed so the viewer can re-derive a live diff.
+    expect(onOpenDiff).toHaveBeenCalledWith("call-1", {
       path: "src/a.ts",
       oldText: "old",
       newText: "new",

@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 
 import type {
   AcpRunEntry,
@@ -171,6 +178,48 @@ describe("AcpRunChatView", () => {
     fireEvent.click(screen.getByTestId("acp-chat-diff-back"));
     expect(screen.getByTestId("acp-chat-conversation")).toBeDefined();
     expect(screen.queryByTestId("acp-chat-diff-back")).toBeNull();
+  });
+
+  test("keeps the open file diff synced as tool_call_update content streams in", () => {
+    const e = entry();
+    seed(e, [
+      {
+        seq: 1,
+        updateType: "tool_call",
+        toolCallId: "call-1",
+        toolTitle: "Edit file",
+        toolStatus: "in_progress",
+        content: JSON.stringify([
+          { type: "diff", path: "src/parser.ts", oldText: "before", newText: "after-v1" },
+        ]),
+      },
+    ]);
+
+    render(<AcpRunChatView entry={e} onClose={() => {}} />);
+    fireEvent.click(screen.getByTestId("acp-chat-tool-file-chip"));
+    // Open diff shows the first snapshot.
+    expect(screen.getByText("after-v1")).toBeDefined();
+
+    // A later tool_call_update replaces the tool's content while the diff is open.
+    act(() => {
+      useAcpRunStore.getState().receiveEvent({
+        acpSessionId: "acp-1",
+        event: {
+          seq: 2,
+          updateType: "tool_call_update",
+          toolCallId: "call-1",
+          toolStatus: "completed",
+          content: JSON.stringify([
+            { type: "diff", path: "src/parser.ts", oldText: "before", newText: "after-v2" },
+          ]),
+        },
+      });
+    });
+
+    // The open diff re-derives from the live blocks — no Back/reopen needed.
+    expect(screen.getByText("after-v2")).toBeDefined();
+    expect(screen.queryByText("after-v1")).toBeNull();
+    expect(screen.getByTestId("acp-chat-diff-back")).toBeDefined();
   });
 
   test("renders the terminal block when the run has a terminal status", () => {

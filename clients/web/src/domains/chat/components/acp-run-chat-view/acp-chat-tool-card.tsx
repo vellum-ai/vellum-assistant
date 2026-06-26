@@ -38,8 +38,12 @@ export interface AcpChatToolCardProps {
    * so it renders as a neutral "Ended" state instead of a live spinner.
    */
   isTerminal?: boolean;
-  /** Invoked when a file-change chip is activated. */
-  onOpenDiff: (fileChange: AcpFileChange) => void;
+  /**
+   * Invoked when a file-change chip is activated. Receives the owning tool's
+   * `toolCallId` so the viewer can re-derive a live diff from the current
+   * blocks (the chip's `fileChange` is only a snapshot at click time).
+   */
+  onOpenDiff: (toolCallId: string, fileChange: AcpFileChange) => void;
 }
 
 /** Output longer than this (chars) collapses behind a toggle. */
@@ -143,7 +147,7 @@ export function AcpChatToolCard({
               key={fileChange.path}
               type="button"
               data-testid="acp-chat-tool-file-chip"
-              onClick={() => onOpenDiff(fileChange)}
+              onClick={() => onOpenDiff(block.toolCallId, fileChange)}
               title={fileChange.path}
               className="flex max-w-full items-center gap-1.5 rounded-md border border-[var(--border-base)] bg-[var(--surface-base)] px-2 py-1 text-body-small-default text-[var(--content-secondary)] transition-colors hover:bg-[var(--surface-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--border-focus)]"
             >
