@@ -1,12 +1,16 @@
 import { ExternalLink } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
-import { Button } from "@vellumai/design-library/components/button";
-import { Card } from "@vellumai/design-library/components/card";
-import { Input } from "@vellumai/design-library/components/input";
-import { Typography } from "@vellumai/design-library/components/typography";
+import { Button, Card, Input, Stepper, type StepperStep, Typography } from "@vellumai/design-library";
 
-type WizardStep = "create-app" | "app-token" | "bot-token";
+const WIZARD_STEP_IDS = ["create-app", "app-token", "bot-token"] as const;
+type WizardStepId = (typeof WIZARD_STEP_IDS)[number];
+
+const WIZARD_STEPS: StepperStep[] = [
+  { id: "create-app", label: "1. Create App" },
+  { id: "app-token", label: "2. App Token" },
+  { id: "bot-token", label: "3. Bot Token" },
+];
 
 export interface SlackSetupWizardProps {
   assistantName: string;
@@ -97,7 +101,7 @@ export function SlackSetupWizard({
   assistantName,
   onSave,
 }: SlackSetupWizardProps) {
-  const [step, setStep] = useState<WizardStep>("create-app");
+  const [stepId, setStepId] = useState<WizardStepId>("create-app");
   const [botName, setBotName] = useState(assistantName);
   const [botDescription, setBotDescription] = useState("");
   const [appToken, setAppToken] = useState("");
@@ -106,16 +110,18 @@ export function SlackSetupWizard({
   const [error, setError] = useState<string | null>(null);
   const [appCreated, setAppCreated] = useState(false);
 
-  const handleCreateApp = () => {
+  const stepIndex = WIZARD_STEP_IDS.indexOf(stepId);
+
+  const handleCreateApp = useCallback(() => {
     const url = buildSlackManifestUrl(
       botName.trim() || assistantName,
       botDescription.trim(),
     );
     window.open(url, "_blank", "noopener,noreferrer");
     setAppCreated(true);
-  };
+  }, [botName, assistantName, botDescription]);
 
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
     if (!onSave || !botToken.trim() || !appToken.trim()) return;
     setSaving(true);
     setError(null);
@@ -126,37 +132,27 @@ export function SlackSetupWizard({
     } finally {
       setSaving(false);
     }
-  };
+  }, [onSave, botToken, appToken]);
 
-  const stepIndex =
-    step === "create-app" ? 0 : step === "app-token" ? 1 : 2;
+  const handleStepSelect = useCallback(
+    (index: number) => {
+      if (index < stepIndex) {
+        setStepId(WIZARD_STEP_IDS[index]);
+      }
+    },
+    [stepIndex],
+  );
 
   return (
     <div className="flex flex-col gap-4 pl-7" data-slot="slack-setup-wizard">
-      <div className="flex items-center gap-1.5">
-        {[0, 1, 2].map((i) => (
-          <div
-            key={i}
-            className="h-1 flex-1 rounded-full transition-colors"
-            style={{
-              backgroundColor:
-                i <= stepIndex
-                  ? "var(--content-default)"
-                  : "var(--border-element)",
-            }}
-          />
-        ))}
-      </div>
+      <Stepper
+        steps={WIZARD_STEPS}
+        current={stepIndex}
+        onStepSelect={handleStepSelect}
+        disabled={saving}
+      />
 
-      <Typography
-        as="span"
-        variant="body-small-default"
-        className="text-[color:var(--content-tertiary)]"
-      >
-        Step {stepIndex + 1} of 3
-      </Typography>
-
-      {step === "create-app" && (
+      {stepId === "create-app" && (
         <CreateAppStep
           botName={botName}
           botDescription={botDescription}
@@ -164,26 +160,24 @@ export function SlackSetupWizard({
           onBotNameChange={setBotName}
           onBotDescriptionChange={setBotDescription}
           onCreateApp={handleCreateApp}
-          onNext={() => setStep("app-token")}
+          onNext={() => setStepId("app-token")}
         />
       )}
 
-      {step === "app-token" && (
+      {stepId === "app-token" && (
         <AppTokenStep
           appToken={appToken}
           onAppTokenChange={setAppToken}
-          onBack={() => setStep("create-app")}
-          onNext={() => setStep("bot-token")}
+          onNext={() => setStepId("bot-token")}
         />
       )}
 
-      {step === "bot-token" && (
+      {stepId === "bot-token" && (
         <BotTokenStep
           botToken={botToken}
           saving={saving}
           error={error}
           onBotTokenChange={setBotToken}
-          onBack={() => setStep("app-token")}
           onSave={handleSave}
         />
       )}
@@ -272,14 +266,12 @@ function CreateAppStep({
 interface AppTokenStepProps {
   appToken: string;
   onAppTokenChange: (value: string) => void;
-  onBack: () => void;
-  onNext: () => void;
+  onNext?: () => void;
 }
 
 function AppTokenStep({
   appToken,
   onAppTokenChange,
-  onBack,
   onNext,
 }: AppTokenStepProps) {
   return (
@@ -323,10 +315,7 @@ function AppTokenStep({
             placeholder="xapp-..."
             fullWidth
           />
-          <div className="flex items-center gap-2">
-            <Button type="button" variant="outlined" onClick={onBack}>
-              Back
-            </Button>
+          <div>
             <Button
               type="button"
               onClick={onNext}
@@ -350,7 +339,6 @@ interface BotTokenStepProps {
   saving: boolean;
   error: string | null;
   onBotTokenChange: (value: string) => void;
-  onBack: () => void;
   onSave: () => void;
 }
 
@@ -359,7 +347,6 @@ function BotTokenStep({
   saving,
   error,
   onBotTokenChange,
-  onBack,
   onSave,
 }: BotTokenStepProps) {
   return (
@@ -401,15 +388,7 @@ function BotTokenStep({
               {error}
             </p>
           ) : null}
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outlined"
-              onClick={onBack}
-              disabled={saving}
-            >
-              Back
-            </Button>
+          <div>
             <Button
               type="button"
               onClick={onSave}
