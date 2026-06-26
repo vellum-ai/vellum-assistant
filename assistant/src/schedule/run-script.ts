@@ -32,7 +32,7 @@ export interface ScriptResult {
  */
 export async function runScript(
   command: string,
-  options?: { timeoutMs?: number; cwd?: string },
+  options?: { timeoutMs?: number; cwd?: string; scheduleRunId?: string },
 ): Promise<ScriptResult> {
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const cwd = options?.cwd ?? getWorkspaceDir();
@@ -43,7 +43,12 @@ export async function runScript(
     cwd,
     stdout: "pipe",
     stderr: "pipe",
-    env: buildSanitizedEnv(),
+    env: {
+      ...buildSanitizedEnv(),
+      ...(options?.scheduleRunId
+        ? { __SCHEDULE_RUN_ID: options.scheduleRunId }
+        : {}),
+    },
   });
 
   // Start consuming streams immediately so buffered output is available even on timeout.
