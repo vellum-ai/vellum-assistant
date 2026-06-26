@@ -18,14 +18,14 @@ const STEPS = [
   { id: "install", label: "3. Install App" },
 ];
 
-// Gated wizard: the active step is underlined, completed steps navigate back,
-// and future steps are disabled.
+// Gated wizard: completed steps navigate back, the active step is underlined,
+// and upcoming steps are muted and locked.
 function GatedStepper() {
   const [current, setCurrent] = useState(1);
   return (
     <Stepper
       aria-label="Setup steps"
-      steps={STEPS.map((step, i) => ({ ...step, disabled: i > current }))}
+      steps={STEPS}
       current={current}
       onStepSelect={setCurrent}
     />
@@ -39,8 +39,20 @@ export const Gated: Story = {
 export const FirstStep: Story = {
   args: {
     "aria-label": "Setup steps",
-    steps: STEPS.map((step, i) => ({ ...step, disabled: i > 0 })),
+    steps: STEPS,
     current: 0,
     onStepSelect: () => {},
+  },
+};
+
+// While submitting, navigation is disabled — but completed steps keep their
+// visited styling, staying visually distinct from the muted upcoming steps.
+export const Submitting: Story = {
+  args: {
+    "aria-label": "Setup steps",
+    steps: STEPS,
+    current: 1,
+    onStepSelect: () => {},
+    disabled: true,
   },
 };

@@ -12,8 +12,7 @@ interface PageTabsProps {
 /**
  * Labeled step navigation for a multi-page form, built on the design library
  * `Stepper` primitive. Steps are numbered from their page title; completed
- * steps navigate back, and future steps (plus any step while the form is
- * submitting) are disabled.
+ * steps navigate back, and navigation is disabled while the form is submitting.
  */
 export function PageTabs({
   current,
@@ -24,7 +23,6 @@ export function PageTabs({
   const steps = pages.map((page, i) => ({
     id: page.id,
     label: `${i + 1}. ${page.title}`,
-    disabled: disabled || i > current,
   }));
 
   return (
@@ -33,6 +31,7 @@ export function PageTabs({
       steps={steps}
       current={current}
       onStepSelect={onNavigate}
+      disabled={disabled}
       className="mb-4"
     />
   );
