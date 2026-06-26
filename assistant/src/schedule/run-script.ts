@@ -32,7 +32,19 @@ export interface ScriptResult {
  */
 export async function runScript(
   command: string,
-  options?: { timeoutMs?: number; cwd?: string; scheduleRunId?: string },
+  options?: {
+    timeoutMs?: number;
+    cwd?: string;
+    scheduleRunId?: string;
+    /**
+     * Per-firing secret token injected as `__SCHEDULE_RUN_TOKEN`. Secret, so it
+     * is injected directly into the subprocess env and NOT added to
+     * SAFE_ENV_VARS (which would leak it to the bash tool / skill sandbox).
+     */
+    runToken?: string;
+    /** Receives the spawned subprocess so the caller can track liveness. */
+    onSpawn?: (proc: Bun.Subprocess) => void;
+  },
 ): Promise<ScriptResult> {
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const cwd = options?.cwd ?? getWorkspaceDir();
@@ -48,8 +60,10 @@ export async function runScript(
       ...(options?.scheduleRunId
         ? { __SCHEDULE_RUN_ID: options.scheduleRunId }
         : {}),
+      ...(options?.runToken ? { __SCHEDULE_RUN_TOKEN: options.runToken } : {}),
     },
   });
+  options?.onSpawn?.(proc);
 
   // Start consuming streams immediately so buffered output is available even on timeout.
   // When the process is killed the pipe fds close and these promises resolve on their own.
