@@ -173,6 +173,10 @@ export class VellumAcpClientHandler implements Client {
           // follow up with an update; forward it like the update branch so the
           // chat/file-diff UI has content to render.
           content: update.content ? JSON.stringify(update.content) : undefined,
+          // rawInput/rawOutput are unknown-shaped; forward them structurally —
+          // the SSE layer serializes the whole message, so no stringify here.
+          rawInput: update.rawInput,
+          rawOutput: update.rawOutput,
           locations: mapLocations(update.locations),
         });
         break;
@@ -186,6 +190,8 @@ export class VellumAcpClientHandler implements Client {
           toolKind: update.kind ?? undefined,
           toolStatus: update.status ?? undefined,
           content: update.content ? JSON.stringify(update.content) : undefined,
+          rawInput: update.rawInput,
+          rawOutput: update.rawOutput,
           locations: mapLocations(update.locations),
         });
         break;
