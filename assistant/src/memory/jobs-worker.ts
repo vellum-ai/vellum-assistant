@@ -197,7 +197,10 @@ export interface MemoryJobsWorker {
  */
 export function startMemoryJobsWorker(): MemoryJobsWorker {
   if (getConfig().memory.worker?.enabled === true) {
-    void spawnMemoryWorkerProcess()
+    // The flag is on, so the supervisor below stands the synchronous runner
+    // down: a worker that comes up late is the desired sole drainer, so do not
+    // terminate it on a slow start (the default).
+    void spawnMemoryWorkerProcess({ terminateOnTimeout: false })
       .then(({ pid, alreadyRunning }) =>
         log.info(
           { pid, alreadyRunning },

@@ -408,11 +408,14 @@ describe("memory worker start", () => {
   test("leaves the config flag untouched when the spawn fails", async () => {
     const restore = stubProcessKill(new Set());
     const originalSpawn = Bun.spawn;
-    // Spawn returns but never writes a PID file → spawnMemoryWorkerProcess
-    // throws after its wait loop, so the flag must stay disabled.
+    // Spawn returns a child that exits during startup without writing a PID file
+    // → spawnMemoryWorkerProcess detects the early exit and throws, so the flag
+    // must stay disabled.
     (Bun as { spawn: typeof Bun.spawn }).spawn = (() => ({
       unref: () => {},
-      pid: 0,
+      kill: () => {},
+      exited: Promise.resolve(1),
+      pid: 123,
     })) as unknown as typeof Bun.spawn;
     try {
       const { exitCode, stdout } = await runCommand([

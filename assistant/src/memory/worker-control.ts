@@ -119,16 +119,99 @@ export function removeSyncRunnerMarker(): void {
 export class MemoryWorkerSpawnError extends Error {}
 
 /**
+ * How long {@link spawnMemoryWorkerProcess} waits for the freshly-spawned worker
+ * to write its PID file before treating the spawn as failed. A cold
+ * `bun run worker-process.ts` start — new runtime, config load, DB open —
+ * routinely takes several seconds, so this is deliberately generous: a premature
+ * timeout makes `assistant memory worker start` report failure for a worker that
+ * is merely slow, and (because the CLI failure path leaves
+ * `memory.worker.enabled` off) leaves that detached worker draining the queue
+ * alongside the daemon's synchronous in-process runner — two drainers racing on
+ * the same jobs.
+ */
+const PID_FILE_WAIT_TIMEOUT_MS = 15_000;
+
+/** Poll interval while waiting for the worker's PID file to appear. */
+const PID_FILE_POLL_INTERVAL_MS = 100;
+
+export interface SpawnMemoryWorkerOptions {
+  /**
+   * Override how long to wait for the worker's PID file, in ms. Defaults to
+   * {@link PID_FILE_WAIT_TIMEOUT_MS}. Primarily a testing seam.
+   */
+  pidWaitTimeoutMs?: number;
+  /**
+   * Override the PID-file poll interval, in ms. Defaults to
+   * {@link PID_FILE_POLL_INTERVAL_MS}. Primarily a testing seam.
+   */
+  pidPollIntervalMs?: number;
+  /**
+   * When the wait times out while the child is still alive (a hung or very slow
+   * start), terminate that child before throwing. Callers that leave
+   * `memory.worker.enabled` off on failure — the CLI `memory worker start` —
+   * MUST set this: otherwise the detached worker keeps coming up and drains the
+   * queue behind the daemon's still-active synchronous runner. The daemon's own
+   * startup spawn leaves the flag on, so a late worker there becomes the sole
+   * drainer; it passes `false` to let that worker live.
+   */
+  terminateOnTimeout?: boolean;
+}
+
+type WorkerReadyOutcome = "ready" | "exited" | "timeout";
+
+/**
+ * Wait for the worker to signal readiness by writing its PID file.
+ *
+ *   - `"ready"`   — the PID file appeared.
+ *   - `"exited"`  — the child exited first (it crashed during startup).
+ *   - `"timeout"` — neither happened within `timeoutMs`.
+ *
+ * Polls for the PID file but also watches `exited`, so a crash-on-startup fails
+ * fast instead of waiting out the whole timeout.
+ */
+async function waitForWorkerPidFile(
+  pidPath: string,
+  exited: Promise<unknown> | undefined,
+  timeoutMs: number,
+  pollIntervalMs: number,
+): Promise<WorkerReadyOutcome> {
+  let childExited = false;
+  const markExited = () => {
+    childExited = true;
+  };
+  // A pending `exited` promise does not keep the event loop alive once the child
+  // is unref'd, so this floating wait won't hang the process.
+  void exited?.then(markExited, markExited);
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (existsSync(pidPath)) return "ready";
+    if (childExited) {
+      // The worker could write the PID file and exit in the same tick — re-check
+      // before declaring it dead.
+      return existsSync(pidPath) ? "ready" : "exited";
+    }
+    await Bun.sleep(pollIntervalMs);
+  }
+  return existsSync(pidPath) ? "ready" : "timeout";
+}
+
+/**
  * Spawn the memory worker as a detached background process.
  *
  * If a worker is already running, returns its PID with `alreadyRunning: true`
  * rather than spawning a second one. Throws {@link MemoryWorkerSpawnError} if
- * the child is spawned but never writes its PID file (i.e. failed to start).
+ * the child crashes during startup or never writes its PID file within the
+ * wait window (i.e. failed to start).
  */
-export async function spawnMemoryWorkerProcess(): Promise<{
+export async function spawnMemoryWorkerProcess(
+  opts: SpawnMemoryWorkerOptions = {},
+): Promise<{
   pid: number;
   alreadyRunning: boolean;
 }> {
+  const pidWaitTimeoutMs = opts.pidWaitTimeoutMs ?? PID_FILE_WAIT_TIMEOUT_MS;
+  const pidPollIntervalMs = opts.pidPollIntervalMs ?? PID_FILE_POLL_INTERVAL_MS;
   const current = probeMemoryWorker();
   if (current.status === "running" && current.pid != null) {
     return { pid: current.pid, alreadyRunning: true };
@@ -168,19 +251,34 @@ export async function spawnMemoryWorkerProcess(): Promise<{
   // Unreference so the spawning process doesn't wait for the child.
   child.unref();
 
-  // Wait briefly for the PID file to appear (the worker writes it on startup).
-  let pidWritten = false;
-  for (let i = 0; i < 10; i++) {
-    await Bun.sleep(100);
-    if (existsSync(pidPath)) {
-      pidWritten = true;
-      break;
-    }
-  }
+  // Wait for the worker to report readiness by writing its PID file (the worker
+  // writes it on startup). The child is detached, so a worker that is merely
+  // slow keeps coming up after we stop waiting.
+  const outcome = await waitForWorkerPidFile(
+    pidPath,
+    child.exited,
+    pidWaitTimeoutMs,
+    pidPollIntervalMs,
+  );
 
-  if (!pidWritten) {
+  if (outcome !== "ready") {
+    // On a plain timeout the child may still be alive (hung or very slow start).
+    // Terminate it when asked so a worker we are reporting as failed cannot come
+    // up later and drain the queue behind the daemon's synchronous runner. On an
+    // early exit the child is already gone, so there is nothing to kill.
+    if (outcome === "timeout" && opts.terminateOnTimeout) {
+      try {
+        child.kill();
+      } catch {
+        // best-effort — the child may already be gone
+      }
+    }
     throw new MemoryWorkerSpawnError(
-      "Memory worker was spawned but PID file did not appear within 1s",
+      outcome === "exited"
+        ? "Memory worker exited during startup before writing its PID file"
+        : `Memory worker was spawned but did not write its PID file within ${Math.round(
+            pidWaitTimeoutMs / 1000,
+          )}s`,
     );
   }
 
