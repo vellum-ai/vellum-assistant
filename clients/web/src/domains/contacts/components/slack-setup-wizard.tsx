@@ -1,7 +1,7 @@
 import { ExternalLink } from "lucide-react";
 import { useCallback, useState } from "react";
 
-import { Button, Input, Notice, Stepper, type StepperStep } from "@vellumai/design-library";
+import { Button, Card, Input, Notice, Stepper, type StepperStep, Typography } from "@vellumai/design-library";
 
 const WIZARD_STEP_IDS = ["create-app", "app-token", "bot-token"] as const;
 type WizardStepId = (typeof WIZARD_STEP_IDS)[number];
@@ -146,43 +146,50 @@ export function SlackSetupWizard({
   );
 
   return (
-    <div className="flex flex-col gap-4 pl-7" data-slot="slack-setup-wizard">
-      <Stepper
-        steps={WIZARD_STEPS}
-        current={stepIndex}
-        onStepSelect={handleStepSelect}
-        disabled={saving}
-      />
+    <div className="pl-7" data-slot="slack-setup-wizard">
+      <Card>
+        <div className="flex flex-col gap-4">
+          <Typography variant="title-small" as="span">
+            Slack setup
+          </Typography>
+          <Stepper
+            steps={WIZARD_STEPS}
+            current={stepIndex}
+            onStepSelect={handleStepSelect}
+            disabled={saving}
+          />
 
-      {stepId === "create-app" && (
-        <CreateAppStep
-          botName={botName}
-          botDescription={botDescription}
-          appCreated={appCreated}
-          onBotNameChange={setBotName}
-          onBotDescriptionChange={setBotDescription}
-          onCreateApp={handleCreateApp}
-          onNext={() => setStepId("app-token")}
-        />
-      )}
+          {stepId === "create-app" && (
+            <CreateAppStep
+              botName={botName}
+              botDescription={botDescription}
+              appCreated={appCreated}
+              onBotNameChange={setBotName}
+              onBotDescriptionChange={setBotDescription}
+              onCreateApp={handleCreateApp}
+              onNext={() => setStepId("app-token")}
+            />
+          )}
 
-      {stepId === "app-token" && (
-        <AppTokenStep
-          appToken={appToken}
-          onAppTokenChange={setAppToken}
-          onNext={() => setStepId("bot-token")}
-        />
-      )}
+          {stepId === "app-token" && (
+            <AppTokenStep
+              appToken={appToken}
+              onAppTokenChange={setAppToken}
+              onNext={() => setStepId("bot-token")}
+            />
+          )}
 
-      {stepId === "bot-token" && (
-        <BotTokenStep
-          botToken={botToken}
-          saving={saving}
-          error={error}
-          onBotTokenChange={setBotToken}
-          onSave={handleSave}
-        />
-      )}
+          {stepId === "bot-token" && (
+            <BotTokenStep
+              botToken={botToken}
+              saving={saving}
+              error={error}
+              onBotTokenChange={setBotToken}
+              onSave={handleSave}
+            />
+          )}
+        </div>
+      </Card>
     </div>
   );
 }
