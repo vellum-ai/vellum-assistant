@@ -33,12 +33,14 @@ function buildScheduleRunWindowPredicate({
   const scheduleClause = normalized.scheduleId
     ? `${runAlias}.job_id = ? AND `
     : "";
-  return `${scheduleClause}${runAlias}.conversation_id = ${usageColumn(
+  const cronRunMatch = `${usageColumn("cron_run_id", eventAlias)} = ${runAlias}.id`;
+  const windowMatch = `${runAlias}.conversation_id = ${usageColumn(
     "conversation_id",
     eventAlias,
   )}
     AND ${usageColumn("created_at", eventAlias)} >= ${runAlias}.started_at
     AND ${usageColumn("created_at", eventAlias)} <= COALESCE(${runAlias}.finished_at, ?)`;
+  return `${scheduleClause}(${cronRunMatch} OR (${windowMatch}))`;
 }
 
 function buildScheduleRunWindowParams(

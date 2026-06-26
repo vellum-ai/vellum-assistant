@@ -1059,6 +1059,7 @@ export async function runDaemon(): Promise<void> {
                 ...(options.overrideProfile
                   ? { overrideProfile: options.overrideProfile }
                   : {}),
+                ...(options.cronRunId ? { cronRunId: options.cronRunId } : {}),
               }
             : undefined,
         );

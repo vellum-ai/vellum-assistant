@@ -7492,6 +7492,12 @@ paths:
                     required:
                       - role
                       - content
+                conversationType:
+                  type: string
+                  enum:
+                    - standard
+                    - background
+                    - scheduled
       responses:
         "200":
           description: Successful response
@@ -8991,6 +8997,9 @@ paths:
                 source:
                   default: cli
                   type: string
+                cronRunId:
+                  type: string
+                  minLength: 1
               required:
                 - conversationId
                 - hint

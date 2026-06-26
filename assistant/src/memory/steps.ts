@@ -411,6 +411,7 @@ import { migrateAddProcessingStartedAt } from "./migrations/300-add-processing-s
 import { createWatchdogEventsTable } from "./migrations/301-create-watchdog-events.js";
 import { migrateCreateCompactionEvents } from "./migrations/302-create-compaction-events.js";
 import { migrateAddConversationCreationSeq } from "./migrations/303-add-conversation-creation-seq.js";
+import { migrateAddLlmUsageCronRunId } from "./migrations/304-add-llm-usage-cron-run-id.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1293,4 +1294,5 @@ export const migrationSteps: MigrationStep[] = [
   createWatchdogEventsTable,
   migrateCreateCompactionEvents,
   migrateAddConversationCreationSeq,
+  migrateAddLlmUsageCronRunId,
 ];

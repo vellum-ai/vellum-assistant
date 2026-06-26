@@ -163,6 +163,7 @@ export function recordUsage(
   llmCallCount = 1,
   contextWindow?: { tokens: number; maxTokens: number },
   attribution?: UsageAttributionInput | UsageAttributionSnapshot | null,
+  cronRunId: string | null = null,
 ): void {
   if (inputTokens <= 0 && outputTokens <= 0) return;
 
@@ -241,6 +242,7 @@ export function recordUsage(
         rawUsage: extractRawUsage(rawResponse),
         conversationId: ctx.conversationId,
         runId: null,
+        cronRunId,
         requestId,
         llmCallCount,
         callSite: attributionSnapshot?.callSite ?? null,

@@ -71,6 +71,12 @@ type ProcessMessageOptions = ConversationCreateOptions & {
   sourceChannel?: string;
   /** Originating interface (e.g. "cli", "web"). Defaults to "web". */
   sourceInterface?: string;
+  /**
+   * Firing's `cron_runs.id`, threaded through to the turn's usage rows so a
+   * scheduled execute turn attributes its LLM spend to that firing. Per-turn:
+   * not stored on the long-lived conversation.
+   */
+  cronRunId?: string | null;
 };
 
 function buildEventEmitter(
@@ -146,6 +152,7 @@ async function prepareConversationForMessage(
     sourceChannel,
     sourceInterface,
     onEvent: _onEvent,
+    cronRunId: _cronRunId,
     ...conversationOptions
   } = options ?? {};
   const conversation = await getOrCreateActiveConversation(
@@ -537,6 +544,7 @@ export async function processMessage(
       ...(options?.overrideProfile
         ? { overrideProfile: options.overrideProfile }
         : {}),
+      ...(options?.cronRunId ? { cronRunId: options.cronRunId } : {}),
     });
   } finally {
     if (
@@ -597,6 +605,7 @@ export async function processMessageInBackground(
       ...(options?.overrideProfile
         ? { overrideProfile: options.overrideProfile }
         : {}),
+      ...(options?.cronRunId ? { cronRunId: options.cronRunId } : {}),
     })
     .finally(() => {
       if (
