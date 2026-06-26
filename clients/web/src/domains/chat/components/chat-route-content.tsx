@@ -20,6 +20,8 @@
 import { type Dispatch, type MutableRefObject, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 
 import { useActiveSubagentIds } from "@/domains/chat/hooks/use-active-subagent-ids";
+import { useActiveAcpRunIds } from "@/domains/chat/hooks/use-active-acp-run-ids";
+import { useAcpRunRehydration } from "@/domains/chat/hooks/use-acp-run-rehydration";
 import { useActiveWorkflowRunIds } from "@/domains/chat/hooks/use-active-workflow-run-ids";
 import { useChatUIState } from "@/domains/chat/hooks/use-chat-ui-state";
 import { useTranscriptData } from "@/domains/chat/hooks/use-transcript-data";
@@ -38,6 +40,7 @@ import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attach
 import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachment-gate";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { ActiveSubagentsOverlay } from "@/domains/chat/components/active-subagents-overlay/active-subagents-overlay";
+import { ActiveAcpRunsOverlay } from "@/domains/chat/components/active-acp-runs-overlay/active-acp-runs-overlay";
 import { ActiveWorkflowsOverlay } from "@/domains/chat/components/active-workflows-overlay/active-workflows-overlay";
 import { ChatBody } from "@/domains/chat/components/chat-body";
 import { ChatComposer } from "@/domains/chat/components/chat-composer/chat-composer";
@@ -268,11 +271,20 @@ export function ChatMainPanel({
     if (assistantId) void useViewerStore.getState().loadDocument(assistantId, surfaceId);
   }, [assistantId]);
 
-  const activeSubagentIds = useActiveSubagentIds();
+  const activeSubagentIds = useActiveSubagentIds(activeConversationId);
+  const activeAcpRunIds = useActiveAcpRunIds(activeConversationId);
   const activeWorkflowRunIds = useActiveWorkflowRunIds();
+
+  // Rehydrate ACP runs from the daemon on conversation load so completed and
+  // in-progress runs reappear after a refresh / reconnect.
+  useAcpRunRehydration(assistantId, activeConversationId);
 
   const onSubagentClick = useCallback((id: string) => {
     useViewerStore.getState().openSubagentDetail(id);
+  }, []);
+
+  const onAcpRunClick = useCallback((acpSessionId: string) => {
+    useViewerStore.getState().openAcpRunDetail(acpSessionId);
   }, []);
 
   const onStopSubagent = useCallback(
@@ -851,6 +863,14 @@ export function ChatMainPanel({
       />
     ) : undefined;
 
+  const activeAcpRunsSlot =
+    activeAcpRunIds.length > 0 ? (
+      <ActiveAcpRunsOverlay
+        acpRunIds={activeAcpRunIds}
+        onAcpRunClick={onAcpRunClick}
+      />
+    ) : undefined;
+
   const activeWorkflowsSlot =
     activeWorkflowRunIds.length > 0 ? (
       <ActiveWorkflowsOverlay
@@ -896,6 +916,7 @@ export function ChatMainPanel({
         readonlyBannerSlot={channelReadonlyBannerSlot}
         startersSlot={startersSlot}
         activeSubagentsSlot={activeSubagentsSlot}
+        activeAcpRunsSlot={activeAcpRunsSlot}
         activeWorkflowsSlot={activeWorkflowsSlot}
       />
       <MicPermissionPrimer
