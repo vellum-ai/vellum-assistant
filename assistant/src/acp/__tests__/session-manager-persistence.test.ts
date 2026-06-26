@@ -180,6 +180,10 @@ describe("AcpSessionManager — terminal persistence", () => {
       toolTitle: "Read file",
       toolKind: "read",
       toolStatus: "running",
+      locations: [
+        { path: "/repo/src/main.ts", line: 7 },
+        { path: "/repo/README.md" },
+      ],
     });
     handles.emitUpdate({
       type: "acp_session_update",
@@ -217,6 +221,12 @@ describe("AcpSessionManager — terminal persistence", () => {
       updateType: "tool_call",
       toolCallId: "tc-1",
     });
+    // locations[] survives persistence so the route round-trips it for
+    // history rehydration (the live SSE path already forwards it).
+    expect(log[1]!.locations).toEqual([
+      { path: "/repo/src/main.ts", line: 7 },
+      { path: "/repo/README.md" },
+    ]);
     expect(log[2]).toMatchObject({
       updateType: "tool_call_update",
       toolCallId: "tc-1",
@@ -429,7 +439,9 @@ describe("AcpSessionManager — terminal persistence", () => {
 
     // Capture the usage event emitted at turn end.
     const captureSend = (
-      handles.manager as unknown as { sessions: Map<string, { sendToVellum: (m: ServerMessage) => void }> }
+      handles.manager as unknown as {
+        sessions: Map<string, { sendToVellum: (m: ServerMessage) => void }>;
+      }
     ).sessions.get(id);
     const originalSend = captureSend!.sendToVellum;
     captureSend!.sendToVellum = (msg: ServerMessage) => {
@@ -474,7 +486,9 @@ describe("AcpSessionManager — terminal persistence", () => {
     });
 
     const entry = (
-      handles.manager as unknown as { sessions: Map<string, { sendToVellum: (m: ServerMessage) => void }> }
+      handles.manager as unknown as {
+        sessions: Map<string, { sendToVellum: (m: ServerMessage) => void }>;
+      }
     ).sessions.get(id);
     const originalSend = entry!.sendToVellum;
     entry!.sendToVellum = (msg: ServerMessage) => {

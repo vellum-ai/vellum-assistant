@@ -17,7 +17,11 @@ import { useEffect } from "react";
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { captureError } from "@/lib/sentry/capture-error";
-import { useAcpRunStore, type AcpRunEntry, type AcpRunRawEvent } from "@/domains/chat/acp-run-store";
+import {
+  useAcpRunStore,
+  type AcpRunEntry,
+  type AcpRunRawEvent,
+} from "@/domains/chat/acp-run-store";
 import { type AcpRunStatus } from "@/utils/acp-run-status";
 
 interface AcpSessionEventLogItem {
@@ -27,6 +31,7 @@ interface AcpSessionEventLogItem {
   toolTitle?: string;
   toolKind?: string;
   toolStatus?: string;
+  locations?: { path: string; line?: number }[];
   messageId?: string;
   seq?: number;
 }
@@ -66,11 +71,16 @@ type AcpSessionsResponses = {
   200: AcpSessionsResponse;
 };
 
-const TERMINAL_STATUSES = new Set<AcpRunStatus>(["completed", "failed", "cancelled"]);
+const TERMINAL_STATUSES = new Set<AcpRunStatus>([
+  "completed",
+  "failed",
+  "cancelled",
+]);
 
 /** Map a daemon session status string onto an {@link AcpRunStatus}. */
 function toRunStatus(status: string): AcpRunStatus {
-  if (TERMINAL_STATUSES.has(status as AcpRunStatus)) return status as AcpRunStatus;
+  if (TERMINAL_STATUSES.has(status as AcpRunStatus))
+    return status as AcpRunStatus;
   return status === "initializing" ? "initializing" : "running";
 }
 
@@ -91,6 +101,7 @@ function toRawEvents(eventLog: AcpSessionEventLogItem[]): AcpRunRawEvent[] {
       toolTitle: item.toolTitle,
       toolKind: item.toolKind,
       toolStatus: item.toolStatus,
+      locations: item.locations,
       messageId: item.messageId,
     });
   }
@@ -108,10 +119,10 @@ function toRunEntry(row: AcpSessionRow): AcpRunEntry {
     parentConversationId: row.parentConversationId ?? "",
     task: row.task,
     status,
-    stopReason: isTerminal ? row.stopReason ?? undefined : undefined,
-    error: isTerminal ? row.error ?? undefined : undefined,
+    stopReason: isTerminal ? (row.stopReason ?? undefined) : undefined,
+    error: isTerminal ? (row.error ?? undefined) : undefined,
     startedAt: row.startedAt ?? Date.now(),
-    completedAt: isTerminal ? row.completedAt ?? undefined : undefined,
+    completedAt: isTerminal ? (row.completedAt ?? undefined) : undefined,
     parentToolUseId: row.parentToolUseId,
     usedTokens: row.usedTokens ?? 0,
     contextSize: row.contextSize ?? 0,
