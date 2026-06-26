@@ -33,6 +33,7 @@ import { createServer, type Server, type Socket } from "node:net";
 
 import { ensureSocketDir, SocketWatchdog } from "@vellumai/ipc-server-utils";
 
+import type { PrincipalType } from "../runtime/auth/types.js";
 import { findLocalGuardianPrincipalIdFromStore } from "../runtime/local-actor-identity.js";
 import { RouteError } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/index.js";
@@ -608,14 +609,21 @@ export class AssistantIpcServer {
 // ---------------------------------------------------------------------------
 
 /**
- * Inject a synthetic `x-vellum-actor-principal-id` header from the local
- * guardian principal when the caller hasn't already provided one.
+ * Resolve the caller's principal identity for an IPC request: the verified
+ * principal type and a synthetic `x-vellum-actor-principal-id` header from the
+ * local guardian when the caller hasn't already provided one.
  *
  * Local IPC is intra-process and owned by the same user as the daemon, so
  * routes that consume `headers["x-vellum-actor-principal-id"]` (e.g. the
  * same-user filter on `GET /v1/clients`) need an actor identity to function
  * over IPC. The HTTP adapter does this from the verified `AuthContext`
  * (`http-adapter.ts`); this helper mirrors that convention for IPC.
+ *
+ * `principalType` comes from the gateway-forwarded `x-vellum-principal-type`
+ * (the gateway IPC proxy sets it from the verified JWT), defaulting to
+ * `"local"` for direct CLI/local IPC callers. Routes that elevate trust gate
+ * on `"local"`, so a gateway-proxied remote `actor` must never be mistaken
+ * for a local caller.
  *
  * Existing headers from the caller (e.g. the gateway's IPC runtime proxy,
  * which forwards real `x-vellum-*` headers from the authenticated HTTP
@@ -627,8 +635,13 @@ function injectLocalActorHeader(
 ): RouteHandlerArgs {
   const args = (params ?? {}) as RouteHandlerArgs;
   const existingHeaders = args.headers;
+  const principalType: PrincipalType =
+    (existingHeaders?.["x-vellum-principal-type"] as
+      | PrincipalType
+      | undefined) ?? "local";
+
   if (existingHeaders?.["x-vellum-actor-principal-id"]) {
-    return args;
+    return { ...args, principalType };
   }
 
   // Defensive: the guardian lookup queries the contacts table, which may
@@ -643,12 +656,13 @@ function injectLocalActorHeader(
       { err },
       "failed to resolve local actor principal for IPC header injection",
     );
-    return args;
+    return { ...args, principalType };
   }
-  if (!localActor) return args;
+  if (!localActor) return { ...args, principalType };
 
   return {
     ...args,
+    principalType,
     headers: {
       ...existingHeaders,
       "x-vellum-actor-principal-id": localActor,

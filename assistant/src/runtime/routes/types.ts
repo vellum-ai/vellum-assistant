@@ -5,6 +5,7 @@
 import type { z } from "zod";
 
 import type { RoutePolicy } from "../auth/route-policy.js";
+import type { PrincipalType } from "../auth/types.js";
 
 export interface RouteQueryParam {
   name: string;
@@ -101,6 +102,14 @@ export interface RouteHandlerArgs {
   body?: Record<string, unknown>;
   rawBody?: Uint8Array;
   headers?: Record<string, string>;
+  /**
+   * Verified principal type of the caller. On HTTP it is the JWT's
+   * `authCtx.principalType`; on IPC it is the gateway-forwarded
+   * `x-vellum-principal-type`, defaulting to `"local"` for direct
+   * CLI/IPC callers. Handlers that elevate trust must gate on
+   * `"local"` — never on the unverified body.
+   */
+  principalType?: PrincipalType;
   /**
    * Abort signal tied to the client connection. Fired when the client
    * disconnects (e.g. SSE stream closed). The IPC adapter may pass
