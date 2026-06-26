@@ -88,16 +88,15 @@ describe("DB migration readiness HTTP gate", () => {
     expect(body).toEqual({ status: "ok" });
   });
 
-  test("blocks readyz while migrations are running", async () => {
+  test("continues serving readyz while migrations are running", async () => {
     markDbMigrationsRunning();
     await startServer();
 
     const response = await fetch(`http://127.0.0.1:${port}/readyz`);
-    expect(response.status).toBe(503);
+    expect(response.status).toBe(200);
 
     const body = (await response.json()) as Record<string, unknown>;
-    expect(body.ready).toBe(false);
-    expect(body.reason).toBe("db_migrations_running");
+    expect(body).toEqual({ status: "ok", ready: true });
   });
 
   test("blocks config schema while migrations are running", async () => {

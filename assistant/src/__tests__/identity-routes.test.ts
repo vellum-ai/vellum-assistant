@@ -225,14 +225,13 @@ describe("identity routes — health endpoint", () => {
       setCesClient(undefined);
     });
 
-    test("readyz returns 503 while DB migrations are running", async () => {
+    test("readyz returns 200 while DB migrations are running", async () => {
       markDbMigrationsRunning();
       const res = handleReadyz();
-      expect(res.status).toBe(503);
+      expect(res.status).toBe(200);
 
       const body = (await res.json()) as Record<string, unknown>;
-      expect(body.ready).toBe(false);
-      expect(body.reason).toBe("db_migrations_running");
+      expect(body).toEqual({ status: "ok", ready: true });
     });
 
     test("readyz returns 503 when DB migrations fail", async () => {

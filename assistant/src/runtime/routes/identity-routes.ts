@@ -380,8 +380,18 @@ export function dbMigrationUnavailableResponse(): Response | null {
 }
 
 export function handleReadyz(): Response {
-  const dbMigrationResponse = dbMigrationUnavailableResponse();
-  if (dbMigrationResponse) return dbMigrationResponse;
+  const dbMigrations = getDbMigrationReadiness();
+  if (!dbMigrations.ready && dbMigrations.state === "failed") {
+    return Response.json(
+      {
+        status: "error",
+        ready: false,
+        reason: dbMigrations.reason,
+        dbMigrations,
+      },
+      { status: 503 },
+    );
+  }
 
   const cesClient = getCesClient();
   if (!cesClient?.isReady()) {
