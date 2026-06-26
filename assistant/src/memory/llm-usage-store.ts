@@ -514,8 +514,9 @@ export function getUsageCostForRun({
   let predicate = "cron_run_id = ?1";
   const params: UsageQueryParam[] = [cronRunId];
   if (conversationId) {
+    // Fallback for unstamped legacy rows only; the stamp takes precedence.
     predicate +=
-      " OR (conversation_id = ?2 AND created_at >= ?3 AND created_at <= ?4)";
+      " OR (cron_run_id IS NULL AND conversation_id = ?2 AND created_at >= ?3 AND created_at <= ?4)";
     params.push(conversationId, from, to);
   }
   const rows = rawAll<{ total_cost: number | null }>(

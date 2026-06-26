@@ -290,6 +290,22 @@ describe("usage routes", () => {
 
       expect(total).toBeCloseTo(0.04);
     });
+
+    test("excludes rows stamped for a different run that overlap this run's window", () => {
+      // A different firing's stamped row shares the conversation + window; it
+      // must not count here — only the unstamped legacy row does.
+      recordCostAt("conv-shared", "legacy-in-window", 1_500, 0.04);
+      recordCostAt("conv-shared", "other-run-in-window", 1_600, 0.5, "run-x");
+
+      const total = getUsageCostForRun({
+        cronRunId: "run-shared",
+        conversationId: "conv-shared",
+        from: 1_000,
+        to: 2_000,
+      });
+
+      expect(total).toBeCloseTo(0.04);
+    });
   });
 
   // -- query parsing / validation --
