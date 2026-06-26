@@ -6,6 +6,7 @@
 
 import { z } from "zod";
 
+import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../daemon/trust-context.js";
 import { getConversation } from "../../memory/conversation-crud.js";
 import { wakeAgentForOpportunity } from "../agent-wake.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -16,6 +17,8 @@ const WakeConversationBody = z.object({
   conversationId: z.string().min(1),
   hint: z.string().min(1),
   source: z.string().default("cli"),
+  // Honored only for a `local` caller (see handler) — a remote `actor` could
+  // otherwise attribute its wake's cost to an arbitrary firing.
   cronRunId: z.string().min(1).optional(),
 });
 
@@ -38,7 +41,7 @@ export const ROUTES: RouteDefinition[] = [
       producedToolCalls: z.boolean(),
       reason: z.string().optional(),
     }),
-    handler: async ({ body }) => {
+    handler: async ({ body, principalType }) => {
       const { conversationId, hint, source, cronRunId } =
         WakeConversationBody.parse(body);
 
@@ -47,11 +50,24 @@ export const ROUTES: RouteDefinition[] = [
         throw new NotFoundError(`Conversation not found: ${conversationId}`);
       }
 
+      // A local IPC caller is already guardian-capable, so its wake runs as a
+      // non-interactive guardian: `clientless` makes the turn derive
+      // `isInteractive: false` (mapped to the `background` policy context), so
+      // read-only/reasoning tools stay available while side-effecting tools are
+      // denied at the default threshold rather than stalling on an absent
+      // client. A remote `actor` (reachable via the gateway) stays
+      // `unknown`/interactive. The body's `cronRunId` is trusted only from a
+      // local caller.
+      const isLocal = principalType === "local";
+
       return wakeAgentForOpportunity({
         conversationId,
         hint,
         source,
-        cronRunId,
+        ...(isLocal
+          ? { trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT, clientless: true }
+          : {}),
+        ...(isLocal && cronRunId ? { cronRunId } : {}),
       });
     },
   },
