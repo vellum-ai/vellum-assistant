@@ -34,15 +34,6 @@ import type {
 
 const ASSISTANT_ID = "asst-1";
 
-mock.module("@/stores/assistant-feature-flag-store", () => ({
-  useAssistantFeatureFlagStore: {
-    use: {
-      hasHydrated: () => true,
-      externalPlugins: () => true,
-    },
-  },
-}));
-
 mock.module("@/assistant/use-active-assistant-id", () => ({
   useActiveAssistantId: () => ASSISTANT_ID,
 }));

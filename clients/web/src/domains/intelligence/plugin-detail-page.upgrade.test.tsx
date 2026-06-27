@@ -37,15 +37,6 @@ const ASSISTANT_ID = "asst-1";
 const LOCAL_COMMIT = "60a392b0000000000000000000000000000000aa";
 const REMOTE_COMMIT = "3eae1820000000000000000000000000000000bb";
 
-mock.module("@/stores/assistant-feature-flag-store", () => ({
-  useAssistantFeatureFlagStore: {
-    use: {
-      hasHydrated: () => true,
-      externalPlugins: () => true,
-    },
-  },
-}));
-
 mock.module("@/assistant/use-active-assistant-id", () => ({
   useActiveAssistantId: () => ASSISTANT_ID,
 }));

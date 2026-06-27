@@ -6,7 +6,6 @@ import { Typography, cn } from "@vellumai/design-library";
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { PageShell } from "@/components/page-shell";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { routes } from "@/utils/routes";
 
@@ -15,21 +14,17 @@ interface IntelligenceTab {
   readonly to: string;
 }
 
-const BASE_INTELLIGENCE_TABS: readonly IntelligenceTab[] = [
+const INTELLIGENCE_TABS: readonly IntelligenceTab[] = [
   { label: "Identity", to: routes.identity },
+  { label: "Plugins", to: routes.plugins },
   { label: "Skills", to: routes.skills },
   { label: "Workspace", to: routes.workspace },
   { label: "Contacts", to: routes.contacts.root },
 ];
 
-const PLUGINS_TAB: IntelligenceTab = {
-  label: "Plugins",
-  to: routes.plugins,
-};
-
 /**
- * Shared layout for the "About Assistant" pages (Identity, Skills,
- * Workspace, Contacts). Renders a heading + tab bar above an
+ * Shared layout for the "About Assistant" pages (Identity, Plugins,
+ * Skills, Workspace, Contacts). Renders a heading + tab bar above an
  * `<Outlet />` for the active tab's content.
  *
  * Mounted as a pathless layout route in `routes.tsx` so the child
@@ -40,8 +35,6 @@ const PLUGINS_TAB: IntelligenceTab = {
  */
 export function IntelligenceLayout() {
   const assistantName = useAssistantIdentityStore.use.name();
-  const hasHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
-  const externalPlugins = useAssistantFeatureFlagStore.use.externalPlugins();
   const { pathname } = useLocation();
   const isMobile = useIsMobile();
   const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
@@ -68,17 +61,6 @@ export function IntelligenceLayout() {
     };
   }, [isMobile, assistantName, setTopBarCenter]);
 
-  // Insert the Plugins tab between Identity and Skills when the
-  // `external-plugins` flag is on. Gated on `hasHydrated` so we don't
-  // flash the tab in/out — until the first /feature-flags response
-  // lands, render the baseline tabs (Identity + Skills + Memories).
-  // The PluginsPage route itself also waits for hydration before
-  // deciding to redirect, so a deep-link to /assistant/plugins is safe.
-  const tabs: readonly IntelligenceTab[] =
-    hasHydrated && externalPlugins
-      ? [BASE_INTELLIGENCE_TABS[0], PLUGINS_TAB, ...BASE_INTELLIGENCE_TABS.slice(1)]
-      : BASE_INTELLIGENCE_TABS;
-
   return (
     <PageShell>
       <h1 className="mb-4 shrink-0 text-title-large text-[var(--content-default)] max-md:hidden">
@@ -90,7 +72,7 @@ export function IntelligenceLayout() {
         style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}
         aria-label="About assistant sections"
       >
-        {tabs.map(({ label, to }) => {
+        {INTELLIGENCE_TABS.map(({ label, to }) => {
           const isActive =
             pathname === to || pathname.startsWith(to + "/");
           return (

@@ -2,9 +2,8 @@
  * `assistant plugins` — manage external plugins installed under
  * `<workspaceDir>/plugins/`.
  *
- * Gated by the `external-plugins` feature flag (see
- * {@link ../../plugins/feature-gate}). Subcommands delegate the heavy
- * lifting to dedicated modules under {@link ../lib}.
+ * Subcommands delegate the heavy lifting to dedicated modules under
+ * {@link ../lib}.
  */
 
 import type { Command } from "commander";

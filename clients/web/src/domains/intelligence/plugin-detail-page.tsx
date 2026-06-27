@@ -31,7 +31,6 @@ import {
     usePluginsInstallPostMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { PluginsByNameGetResponse } from "@/generated/daemon/types.gen";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { routes } from "@/utils/routes";
 import { Button, Card, ConfirmDialog, toast } from "@vellumai/design-library";
 
@@ -50,13 +49,9 @@ function shortSha(sha: string | null): string {
  *
  * Mounted under `IntelligenceLayout` so the "About Assistant" heading
  * and tab bar stay in place (the Plugins tab reads active via the
- * layout's `pathname.startsWith` check). Gated by the same
- * `external-plugins` feature flag as `PluginsPage` — a direct deep-link
- * with the flag off redirects back to Identity.
+ * layout's `pathname.startsWith` check).
  */
 export function PluginDetailPage() {
-  const hasHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
-  const externalPlugins = useAssistantFeatureFlagStore.use.externalPlugins();
   const assistantId = useActiveAssistantId();
   const { name } = useParams<{ name: string }>();
   const navigate = useNavigate();
@@ -129,17 +124,6 @@ export function PluginDetailPage() {
       );
     },
   });
-
-  // Wait for the first /feature-flags response before deciding to
-  // redirect, mirroring PluginsPage — rendering nothing for one frame
-  // beats bouncing a user who genuinely has the flag enabled.
-  if (!hasHydrated) {
-    return null;
-  }
-
-  if (!externalPlugins) {
-    return <Navigate to={routes.identity} replace />;
-  }
 
   if (!name) {
     return <Navigate to={routes.plugins} replace />;

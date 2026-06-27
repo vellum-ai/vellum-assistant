@@ -5,9 +5,8 @@
  *
  * Strategy mirrors the Plugins tab tests — pre-populate the React Query
  * cache so the detail `useQuery` resolves on the first (single-pass)
- * `renderToStaticMarkup` render. The feature-flag store and active
- * assistant id are stubbed via `mock.module`, matching the approach in
- * `intelligence-layout.test.tsx`.
+ * `renderToStaticMarkup` render. The active assistant id is stubbed via
+ * `mock.module`, matching the approach in `intelligence-layout.test.tsx`.
  */
 
 import { describe, expect, mock, test } from "bun:test";
@@ -25,18 +24,6 @@ import type {
 } from "@/generated/daemon/types.gen";
 
 const ASSISTANT_ID = "asst-1";
-
-// The real feature-flag store imports the generated API client, which
-// isn't available under the test runner. Stub the two selectors the page
-// reads so the flag gate passes and the detail content renders.
-mock.module("@/stores/assistant-feature-flag-store", () => ({
-  useAssistantFeatureFlagStore: {
-    use: {
-      hasHydrated: () => true,
-      externalPlugins: () => true,
-    },
-  },
-}));
 
 mock.module("@/assistant/use-active-assistant-id", () => ({
   useActiveAssistantId: () => ASSISTANT_ID,
