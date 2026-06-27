@@ -17,13 +17,18 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mock } from "bun:test";
 
+import * as realLogger from "../../util/logger.js";
+import * as realPlatform from "../../util/platform.js";
+
 let tmpDir: string;
 let pidPath: string;
-let markerPath: string;
 
+// Spread the real modules and override only what we need: `mock.module` is
+// global across the test process, so a partial mock missing exports that other
+// co-run files import (e.g. jobs-worker's `getWorkspaceDir`) would break them.
 mock.module("../../util/platform.js", () => ({
+  ...realPlatform,
   getMemoryWorkerPidPath: () => pidPath,
-  getMemorySyncRunnerMarkerPath: () => markerPath,
 }));
 
 const noopLogger = {
@@ -33,13 +38,41 @@ const noopLogger = {
   debug: () => {},
 };
 mock.module("../../util/logger.js", () => ({
+  ...realLogger,
   getLogger: () => noopLogger,
   getCliLogger: () => noopLogger,
   getCurrentLogFilePath: () => join(tmpDir, "worker-control-test.log"),
 }));
 
-const { spawnMemoryWorkerProcess, MemoryWorkerSpawnError } =
+const { spawnMemoryWorkerProcess, MemoryWorkerSpawnError, probeMemoryWorker } =
   await import("../worker-control.js");
+
+/**
+ * Replace process.kill with a stub. `signal 0` (liveness) resolves for
+ * `livePids`, throws ESRCH otherwise — unless `permissionErrorPids` includes
+ * the pid, in which case it throws EPERM ("exists but not signalable").
+ */
+function stubProcessKill(
+  livePids: Set<number>,
+  permissionErrorPids: Set<number> = new Set(),
+): () => void {
+  const original = process.kill.bind(process);
+  process.kill = ((pid: number, signal?: string | number) => {
+    if ((signal ?? 0) !== 0) return true;
+    if (permissionErrorPids.has(pid)) {
+      const err = new Error("kill EPERM") as NodeJS.ErrnoException;
+      err.code = "EPERM";
+      throw err;
+    }
+    if (livePids.has(pid)) return true;
+    const err = new Error("kill ESRCH") as NodeJS.ErrnoException;
+    err.code = "ESRCH";
+    throw err;
+  }) as typeof process.kill;
+  return () => {
+    process.kill = original;
+  };
+}
 
 /**
  * Install a stub `Bun.spawn`. The `onSpawn` callback receives the resolved PID
@@ -70,7 +103,6 @@ function neverExits(): Promise<unknown> {
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), "worker-control-test-"));
   pidPath = join(tmpDir, "memory-worker.pid");
-  markerPath = join(tmpDir, "memory-sync-runner.pid");
 });
 
 afterEach(() => {
@@ -209,6 +241,18 @@ describe("spawnMemoryWorkerProcess", () => {
       const result = await spawnMemoryWorkerProcess({ pidWaitTimeoutMs: 100 });
       expect(result).toEqual({ pid: process.pid, alreadyRunning: true });
       expect(spawned).toBe(false);
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("probeMemoryWorker", () => {
+  test("reports running (not throws) when the process exists but is not signalable (EPERM)", () => {
+    writeFileSync(pidPath, "4321");
+    const restore = stubProcessKill(new Set(), new Set([4321]));
+    try {
+      expect(probeMemoryWorker()).toEqual({ status: "running", pid: 4321 });
     } finally {
       restore();
     }

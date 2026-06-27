@@ -93,11 +93,7 @@ import {
   memoryV2ConsolidateJob,
 } from "./v2/consolidation-job.js";
 import { memoryV2SweepJob } from "./v2/sweep-job.js";
-import {
-  removeSyncRunnerMarker,
-  spawnMemoryWorkerProcess,
-  writeSyncRunnerMarker,
-} from "./worker-control.js";
+import { spawnMemoryWorkerProcess } from "./worker-control.js";
 
 const log = getLogger("memory-jobs-worker");
 
@@ -173,10 +169,8 @@ export interface MemoryJobsWorker {
  * supervisor owns the synchronous in-process runner and reconciles to
  * `memory.worker.enabled` on every poll, re-reading the flag from disk so a
  * runtime change takes effect without a restart:
- *   - flag off (default): drain the queue in-process and publish the
- *     sync-runner marker so `status` reports the synchronous runner as going.
- *   - flag on: stand down (the out-of-process worker owns the queue) and clear
- *     the marker.
+ *   - flag off (default): drain the queue in-process (the synchronous runner).
+ *   - flag on: stand down (the out-of-process worker owns the queue).
  * Gating on the flag — rather than on the worker process actually being present
  * — keeps exactly one drainer active and avoids a boot race: when the flag is
  * on the supervisor never processes, so it can't claim jobs that the spawning
@@ -234,10 +228,9 @@ export function startMemoryJobsWorker(): MemoryJobsWorker {
  *
  * When `standDownForWorkerProcess` is set the loop acts as the daemon's
  * synchronous-runner supervisor: each tick it skips processing while
- * `memory.worker.enabled` is on (clearing the sync-runner marker), and
- * publishes the marker while it owns processing. The standalone worker process
- * must NOT set this — it runs precisely when the flag is on and would otherwise
- * stand itself down forever.
+ * `memory.worker.enabled` is on, and drains the queue while it is off. The
+ * standalone worker process must NOT set this — it runs precisely when the flag
+ * is on and would otherwise stand itself down forever.
  */
 export function startInProcessMemoryJobsWorker(
   opts: { standDownForWorkerProcess?: boolean } = {},
@@ -265,10 +258,6 @@ export function startInProcessMemoryJobsWorker(
   let tickRunning = false;
   let timer: ReturnType<typeof setTimeout>;
   let currentIntervalMs = POLL_INTERVAL_MIN_MS;
-  // Tracks whether this supervisor currently owns processing (and so has
-  // published the sync-runner marker). Only meaningful when
-  // `standDownForWorkerProcess` is set.
-  let syncRunnerMarked = false;
 
   const tick = async () => {
     if (stopped || tickRunning) return;
@@ -279,24 +268,14 @@ export function startInProcessMemoryJobsWorker(
         getConfig().memory.worker?.enabled === true
       ) {
         // The out-of-process worker owns the queue — stand the synchronous
-        // runner down so jobs aren't processed twice, and retract the marker.
-        if (syncRunnerMarked) {
-          removeSyncRunnerMarker();
-          syncRunnerMarked = false;
-        }
+        // runner down so jobs aren't processed twice.
+        //
         // Switching modes is a rare operator action, so poll at the slow cap
         // while standing down: it still picks up a `memory worker stop` (which
         // flips the flag back off) within one interval, without waking every
         // couple seconds for the whole time the worker owns the queue.
         currentIntervalMs = POLL_INTERVAL_MAX_MS;
         return;
-      }
-      if (standDownForWorkerProcess && !syncRunnerMarked) {
-        // The flag is off — this in-process runner owns processing. Publish the
-        // marker so `memory worker status` reports the synchronous runner as
-        // going.
-        writeSyncRunnerMarker(process.pid);
-        syncRunnerMarked = true;
       }
       const processed = await runMemoryJobsOnce({
         enableScheduledCleanup: true,
@@ -346,10 +325,6 @@ export function startInProcessMemoryJobsWorker(
     stop(): void {
       stopped = true;
       clearTimeout(timer);
-      if (syncRunnerMarked) {
-        removeSyncRunnerMarker();
-        syncRunnerMarked = false;
-      }
     },
   };
 }

@@ -20,7 +20,6 @@ import {
 import {
   MemoryWorkerSpawnError,
   probeMemoryWorker,
-  probeSyncRunner,
   spawnMemoryWorkerProcess,
   stopMemoryWorkerProcess,
 } from "../../memory/worker-control.js";
@@ -136,11 +135,23 @@ function stopMemoryWorker() {
  * Report the worker process state, the `memory.worker.enabled` config value,
  * and whether the daemon's synchronous in-process runner is currently draining
  * the queue.
+ *
+ * The supervisor drains in-process exactly when memory is enabled and the
+ * out-of-process worker is not (it stands down on `memory.worker.enabled`).
+ * This handler runs inside the daemon — the very process that is (or isn't) the
+ * synchronous runner — so the runner's state is derived directly from config,
+ * with the daemon's own PID, rather than read back from a marker file.
  */
 function memoryWorkerStatus() {
   const worker = probeMemoryWorker();
-  const syncRunner = probeSyncRunner();
-  const workerEnabled = getConfigReadOnly().memory.worker.enabled;
+  const config = getConfigReadOnly();
+  const workerEnabled = config.memory.worker.enabled;
+
+  const syncRunnerActive = config.memory.enabled !== false && !workerEnabled;
+  const syncRunner: { status: "running" | "not_running"; pid?: number } =
+    syncRunnerActive
+      ? { status: "running", pid: process.pid }
+      : { status: "not_running" };
 
   return {
     status: worker.status,

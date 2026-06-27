@@ -28,10 +28,8 @@ let enabledCalls: boolean[] = [];
 let workerProbe: { status: "running" | "not_running"; pid?: number } = {
   status: "not_running",
 };
-let syncProbe: { status: "running" | "not_running"; pid?: number } = {
-  status: "not_running",
-};
 let configEnabled = false;
+let memoryEnabled = true;
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -48,7 +46,6 @@ mock.module("../../../memory/worker-control.js", () => ({
   },
   stopMemoryWorkerProcess: () => stopImpl(),
   probeMemoryWorker: () => workerProbe,
-  probeSyncRunner: () => syncProbe,
 }));
 
 // Spread the real loader so the route-policy import chain keeps every other
@@ -56,7 +53,9 @@ mock.module("../../../memory/worker-control.js", () => ({
 // (the route's setMemoryWorkerEnabled goes through loadRawConfig/saveRawConfig).
 mock.module("../../../config/loader.js", () => ({
   ...actualLoader,
-  getConfigReadOnly: () => ({ memory: { worker: { enabled: configEnabled } } }),
+  getConfigReadOnly: () => ({
+    memory: { enabled: memoryEnabled, worker: { enabled: configEnabled } },
+  }),
   loadRawConfig: () => ({}),
   saveRawConfig: (cfg: { memory?: { worker?: { enabled?: boolean } } }) => {
     enabledCalls.push(cfg.memory?.worker?.enabled === true);
@@ -81,8 +80,8 @@ beforeEach(() => {
   spawnImpl = async () => ({ pid: 4242, alreadyRunning: false });
   stopImpl = () => ({ status: "not_running" });
   workerProbe = { status: "not_running" };
-  syncProbe = { status: "not_running" };
   configEnabled = false;
+  memoryEnabled = true;
 });
 
 // ---------------------------------------------------------------------------
@@ -159,9 +158,8 @@ describe("memory_worker_stop", () => {
 // ---------------------------------------------------------------------------
 
 describe("memory_worker_status", () => {
-  test("reports worker, sync runner, and the config flag", async () => {
+  test("reports the sync runner down when the worker flag is on", async () => {
     workerProbe = { status: "running", pid: 321 };
-    syncProbe = { status: "not_running" };
     configEnabled = true;
 
     const res = await handler("memory_worker_status")();
@@ -174,16 +172,29 @@ describe("memory_worker_status", () => {
     });
   });
 
-  test("omits pid when the worker is not running", async () => {
+  test("derives the sync runner (with the daemon's pid) from the flag being off", async () => {
     workerProbe = { status: "not_running" };
-    syncProbe = { status: "running", pid: 12 };
+    configEnabled = false;
 
     const res = await handler("memory_worker_status")();
 
     expect(res).toEqual({
       status: "not_running",
       workerEnabled: false,
-      syncRunner: { status: "running", pid: 12 },
+      syncRunner: { status: "running", pid: process.pid },
+    });
+  });
+
+  test("reports the sync runner down when memory is disabled", async () => {
+    workerProbe = { status: "not_running" };
+    configEnabled = false;
+    memoryEnabled = false;
+
+    const res = await handler("memory_worker_status")();
+
+    expect(res).toMatchObject({
+      workerEnabled: false,
+      syncRunner: { status: "not_running" },
     });
   });
 });
