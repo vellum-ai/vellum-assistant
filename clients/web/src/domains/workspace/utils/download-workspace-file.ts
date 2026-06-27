@@ -1,4 +1,5 @@
 import { workspaceFileContentGet } from "@/generated/daemon/sdk.gen";
+import { saveFile } from "@/runtime/native-file";
 
 /**
  * Download a workspace file to the user's device. Fetches the raw bytes from
@@ -11,8 +12,6 @@ export async function downloadWorkspaceFile(opts: {
   filename: string;
   showHidden?: boolean;
 }): Promise<void> {
-  const { saveFile } = await import("@/runtime/native-file");
-
   const { data, error } = await workspaceFileContentGet({
     path: { assistant_id: opts.assistantId },
     query: {

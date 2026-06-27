@@ -4,8 +4,14 @@ import * as daemonSdk from "@/generated/daemon/sdk.gen";
 
 type ContentResult = { data: Blob | null; error: { message: string } | null };
 
+type ContentRequest = {
+  path: { assistant_id: string };
+  query: { path: string; showHidden?: string };
+  parseAs: string;
+};
+
 const workspaceFileContentGet = mock(
-  async (): Promise<ContentResult> => ({
+  async (_request: ContentRequest): Promise<ContentResult> => ({
     data: new Blob(["binary"]),
     error: null,
   }),
@@ -16,7 +22,10 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   workspaceFileContentGet,
 }));
 
-const saveFile = mock(async (): Promise<void> => undefined);
+const saveFile = mock(
+  async (_source: Blob | string, _filename: string): Promise<void> =>
+    undefined,
+);
 
 mock.module("@/runtime/native-file", () => ({ saveFile }));
 
@@ -38,18 +47,14 @@ describe("downloadWorkspaceFile", () => {
     });
 
     expect(workspaceFileContentGet).toHaveBeenCalledTimes(1);
-    const call = workspaceFileContentGet.mock.calls[0]![0] as {
-      path: { assistant_id: string };
-      query: { path: string; showHidden?: string };
-      parseAs: string;
-    };
+    const call = workspaceFileContentGet.mock.calls[0]![0];
     expect(call.path.assistant_id).toBe("asst-1");
     expect(call.query.path).toBe("exports/report.tar.gz");
     expect(call.query.showHidden).toBeUndefined();
     expect(call.parseAs).toBe("blob");
 
     expect(saveFile).toHaveBeenCalledTimes(1);
-    const [blob, filename] = saveFile.mock.calls[0]! as [Blob, string];
+    const [blob, filename] = saveFile.mock.calls[0]!;
     expect(blob).toBeInstanceOf(Blob);
     expect(filename).toBe("report.tar.gz");
   });
@@ -62,9 +67,7 @@ describe("downloadWorkspaceFile", () => {
       showHidden: true,
     });
 
-    const call = workspaceFileContentGet.mock.calls[0]![0] as {
-      query: { showHidden?: string };
-    };
+    const call = workspaceFileContentGet.mock.calls[0]![0];
     expect(call.query.showHidden).toBe("true");
   });
 
