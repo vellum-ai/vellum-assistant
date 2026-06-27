@@ -1,5 +1,5 @@
 /**
- * Shared control surface for the memory jobs worker *process* — the detached
+ * Shared control surface for the memory jobs worker *process* — the background
  * OS process whose entry point is `worker-process.ts`.
  *
  * Both the `assistant memory worker` CLI and the daemon lifecycle (when
@@ -155,6 +155,19 @@ export interface SpawnMemoryWorkerOptions {
    * drainer; it passes `false` to let that worker live.
    */
   terminateOnTimeout?: boolean;
+  /**
+   * Process parentage (default `true`):
+   *   - `true` — the worker is its own session leader and outlives the spawning
+   *     process. The short-lived `assistant memory worker` CLI needs this so the
+   *     worker keeps running after the command returns.
+   *   - `false` — the worker is a direct child of the spawning process. The
+   *     daemon passes this so the worker it owns appears in its process tree
+   *     (`assistant ps`) and is torn down with the daemon. It does not need to
+   *     survive daemon restarts; the daemon re-spawns it on boot.
+   * Either way the child is `unref`'d, so the spawning process never blocks on
+   * it and the worker is tracked via its PID file rather than the handle.
+   */
+  detached?: boolean;
 }
 
 type WorkerReadyOutcome = "ready" | "exited" | "timeout";
@@ -197,7 +210,8 @@ async function waitForWorkerPidFile(
 }
 
 /**
- * Spawn the memory worker as a detached background process.
+ * Spawn the memory worker as a background process. `opts.detached` (default
+ * `true`) controls process parentage — see {@link SpawnMemoryWorkerOptions}.
  *
  * If a worker is already running, returns its PID with `alreadyRunning: true`
  * rather than spawning a second one. Throws {@link MemoryWorkerSpawnError} if
@@ -212,6 +226,7 @@ export async function spawnMemoryWorkerProcess(
 }> {
   const pidWaitTimeoutMs = opts.pidWaitTimeoutMs ?? PID_FILE_WAIT_TIMEOUT_MS;
   const pidPollIntervalMs = opts.pidPollIntervalMs ?? PID_FILE_POLL_INTERVAL_MS;
+  const detached = opts.detached ?? true;
   const current = probeMemoryWorker();
   if (current.status === "running" && current.pid != null) {
     return { pid: current.pid, alreadyRunning: true };
@@ -236,11 +251,10 @@ export async function spawnMemoryWorkerProcess(
     // crash output is at least visible to the spawning process.
   }
 
-  // Spawn detached so the worker survives the spawning process exiting.
   const child = Bun.spawn({
     cmd: ["bun", "run", entry.pathname],
     stdio: ["ignore", "ignore", stderrFd],
-    detached: true,
+    detached,
   });
 
   // Close our copy of the log fd — the child has its own.
@@ -252,7 +266,7 @@ export async function spawnMemoryWorkerProcess(
   child.unref();
 
   // Wait for the worker to report readiness by writing its PID file (the worker
-  // writes it on startup). The child is detached, so a worker that is merely
+  // writes it on startup). The child is `unref`'d, so a worker that is merely
   // slow keeps coming up after we stop waiting.
   const outcome = await waitForWorkerPidFile(
     pidPath,
