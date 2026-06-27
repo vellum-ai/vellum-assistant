@@ -199,8 +199,14 @@ export function startMemoryJobsWorker(): MemoryJobsWorker {
   if (getConfig().memory.worker?.enabled === true) {
     // The flag is on, so the supervisor below stands the synchronous runner
     // down: a worker that comes up late is the desired sole drainer, so do not
-    // terminate it on a slow start (the default).
-    void spawnMemoryWorkerProcess({ terminateOnTimeout: false })
+    // terminate it on a slow start (the default). Spawn it as a direct child
+    // (not detached) so the worker the daemon owns shows up in its process tree
+    // (`assistant ps`) and is torn down with the daemon; it is re-spawned on the
+    // next boot, so it need not survive a restart.
+    void spawnMemoryWorkerProcess({
+      terminateOnTimeout: false,
+      detached: false,
+    })
       .then(({ pid, alreadyRunning }) =>
         log.info(
           { pid, alreadyRunning },
