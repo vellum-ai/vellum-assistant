@@ -85,6 +85,7 @@ import {
   fetchConversationMessages,
   postChatMessage,
   pollForResponse,
+  RECONCILE_LATEST_PAGE_LIMIT,
 } from "@/domains/chat/api/messages";
 import { surfaceConversation } from "@/domains/chat/api/conversations";
 import { supportsServerMintedConversation } from "@/lib/backwards-compat/server-minted-conversation";
@@ -470,6 +471,7 @@ export function useSendMessage({
             const snapshot = await fetchConversationMessages(
               postResult.assistantId,
               effectiveConversationId,
+              { latestPageLimit: RECONCILE_LATEST_PAGE_LIMIT },
             );
             serverSeq = snapshot?.seq ?? null;
           } catch {
