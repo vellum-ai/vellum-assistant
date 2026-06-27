@@ -6,6 +6,7 @@ import { Typography, cn } from "@vellumai/design-library";
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { PageShell } from "@/components/page-shell";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useSupportsPluginsSurface } from "@/lib/backwards-compat/plugins-surface";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { routes } from "@/utils/routes";
 
@@ -14,18 +15,23 @@ interface IntelligenceTab {
   readonly to: string;
 }
 
-const INTELLIGENCE_TABS: readonly IntelligenceTab[] = [
+const BASE_INTELLIGENCE_TABS: readonly IntelligenceTab[] = [
   { label: "Identity", to: routes.identity },
-  { label: "Plugins", to: routes.plugins },
   { label: "Skills", to: routes.skills },
   { label: "Workspace", to: routes.workspace },
   { label: "Contacts", to: routes.contacts.root },
 ];
 
+const PLUGINS_TAB: IntelligenceTab = {
+  label: "Plugins",
+  to: routes.plugins,
+};
+
 /**
- * Shared layout for the "About Assistant" pages (Identity, Plugins,
- * Skills, Workspace, Contacts). Renders a heading + tab bar above an
- * `<Outlet />` for the active tab's content.
+ * Shared layout for the "About Assistant" pages (Identity, Skills,
+ * Workspace, Contacts, plus Plugins on plugin-capable assistants).
+ * Renders a heading + tab bar above an `<Outlet />` for the active
+ * tab's content.
  *
  * Mounted as a pathless layout route in `routes.tsx` so the child
  * routes keep their existing URL paths (`/assistant/identity`, etc.)
@@ -35,9 +41,20 @@ const INTELLIGENCE_TABS: readonly IntelligenceTab[] = [
  */
 export function IntelligenceLayout() {
   const assistantName = useAssistantIdentityStore.use.name();
+  const supportsPlugins = useSupportsPluginsSurface();
   const { pathname } = useLocation();
   const isMobile = useIsMobile();
   const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
+
+  // Insert the Plugins tab between Identity and Skills, but only when the
+  // connected assistant is new enough to expose the plugin routes (see
+  // `lib/backwards-compat/plugins-surface.ts`). On older assistants the
+  // routes 404, so the tab stays hidden rather than linking to a broken
+  // catalog. `useSupportsPluginsSurface` returns false until the version
+  // hydrates, so the tab appears once identity resolves.
+  const tabs: readonly IntelligenceTab[] = supportsPlugins
+    ? [BASE_INTELLIGENCE_TABS[0], PLUGINS_TAB, ...BASE_INTELLIGENCE_TABS.slice(1)]
+    : BASE_INTELLIGENCE_TABS;
 
   // On mobile the title moves out of the page body and into the shared top
   // bar — centered between the hamburger menu and the search icon — so the
@@ -72,7 +89,7 @@ export function IntelligenceLayout() {
         style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}
         aria-label="About assistant sections"
       >
-        {INTELLIGENCE_TABS.map(({ label, to }) => {
+        {tabs.map(({ label, to }) => {
           const isActive =
             pathname === to || pathname.startsWith(to + "/");
           return (

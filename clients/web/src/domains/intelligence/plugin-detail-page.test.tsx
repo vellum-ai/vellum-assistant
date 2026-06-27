@@ -4,24 +4,37 @@
  * reflects whether the plugin is already installed.
  *
  * Strategy mirrors the Plugins tab tests — pre-populate the React Query
- * cache so the detail `useQuery` resolves on the first (single-pass)
- * `renderToStaticMarkup` render. The active assistant id is stubbed via
- * `mock.module`, matching the approach in `intelligence-layout.test.tsx`.
+ * cache so the detail `useQuery` resolves on mount. The active assistant
+ * id is stubbed via `mock.module`, matching the approach in
+ * `intelligence-layout.test.tsx`, and the identity store is seeded with a
+ * plugin-capable version so the backwards-compat gate lets the page render
+ * instead of redirecting.
+ *
+ * Uses `@testing-library/react` (happy-dom) rather than
+ * `renderToStaticMarkup`: the gate reads the assistant version off the
+ * identity store, and zustand serves its *initial* snapshot during static
+ * markup rendering (so a runtime-seeded version would read back null). A
+ * client render reflects the seeded value.
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { renderToStaticMarkup } from "react-dom/server";
+import { cleanup, render } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
 
 import {
   pluginsByNameGetQueryKey,
+  pluginsByNameInspectGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { Options } from "@/generated/daemon/sdk.gen";
 import type {
   PluginsByNameGetData,
   PluginsByNameGetResponse,
+  PluginsByNameInspectGetData,
+  PluginsByNameInspectGetResponse,
 } from "@/generated/daemon/types.gen";
+import { MIN_VERSION } from "@/lib/backwards-compat/plugins-surface";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 const ASSISTANT_ID = "asst-1";
 
@@ -33,9 +46,25 @@ const { PluginDetailPage } = await import(
   "@/domains/intelligence/plugin-detail-page"
 );
 
+// Seed a plugin-capable version before each test. The identity store is a
+// shared singleton across web test files, so set it per-test rather than
+// once at module load (a sibling file's teardown can otherwise clear it).
+beforeEach(() => {
+  useAssistantIdentityStore.getState().setIdentity("Test Assistant", MIN_VERSION);
+});
+
+afterEach(() => {
+  cleanup();
+});
+
 function renderDetail(name: string, detail: PluginsByNameGetResponse): string {
   const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+    // Infinite stale time keeps the seeded queries from refetching on mount
+    // (a client render runs query effects), so neither the detail read nor
+    // the installed-copy drift inspect touches the network.
+    defaultOptions: {
+      queries: { retry: false, staleTime: Number.POSITIVE_INFINITY },
+    },
   });
   client.setQueryData(
     pluginsByNameGetQueryKey({
@@ -43,7 +72,23 @@ function renderDetail(name: string, detail: PluginsByNameGetResponse): string {
     } as Options<PluginsByNameGetData>),
     detail,
   );
-  return renderToStaticMarkup(
+  // The detail header inspects an installed copy for update drift; seed a
+  // benign "up to date" result so that query also resolves from cache.
+  client.setQueryData(
+    pluginsByNameInspectGetQueryKey({
+      path: { assistant_id: ASSISTANT_ID, name },
+    } as Options<PluginsByNameInspectGetData>),
+    {
+      name,
+      installed: detail.installed,
+      status: "up-to-date",
+      local: null,
+      remote: null,
+      remoteError: null,
+      surfaces: null,
+    } as PluginsByNameInspectGetResponse,
+  );
+  const { container } = render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[`/assistant/plugins/${name}`]}>
         <Routes>
@@ -52,6 +97,7 @@ function renderDetail(name: string, detail: PluginsByNameGetResponse): string {
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  return container.innerHTML;
 }
 
 describe("PluginDetailPage", () => {
