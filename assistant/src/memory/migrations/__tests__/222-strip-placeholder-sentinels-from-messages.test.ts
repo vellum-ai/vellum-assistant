@@ -20,8 +20,17 @@ const {
   ROWID_WINDOW,
   WINDOW_TIMEOUT_MS,
 } = await import("../222-strip-placeholder-sentinels-from-messages.js");
+const { loadRawConfig, saveRawConfig } =
+  await import("../../../config/loader.js");
 
 await initializeDb();
+
+// The sweep is gated behind `migrations.worker.enabled` (default false), under
+// which it short-circuits and passes. Enable it so the migration does its work
+// for these tests.
+const rawConfig = loadRawConfig();
+rawConfig.migrations = { worker: { enabled: true } };
+saveRawConfig(rawConfig);
 
 const CONV = "conv-222";
 getSqlite()
@@ -233,6 +242,28 @@ describe("migration 222 — strip placeholder sentinels from assistant messages"
 
     expect(blocks(first.id)).toEqual([{ type: "text", text: "first" }]);
     expect(blocks(second.id)).toEqual([{ type: "text", text: "second" }]);
+  });
+
+  test("skips the sweep and passes when migrations.worker.enabled is false", async () => {
+    const original = JSON.stringify([
+      { type: "text", text: PLACEHOLDER_EMPTY_TURN },
+      { type: "text", text: "gated" },
+    ]);
+    const { id } = insert("assistant", original);
+
+    const disabled = loadRawConfig();
+    disabled.migrations = { worker: { enabled: false } };
+    saveRawConfig(disabled);
+    try {
+      // Resolves without throwing and leaves the row untouched — the work is
+      // deferred to the async migration runner.
+      await migrateStripPlaceholderSentinelsFromMessages(getDb());
+      expect(content(id)).toBe(original);
+    } finally {
+      const enabled = loadRawConfig();
+      enabled.migrations = { worker: { enabled: true } };
+      saveRawConfig(enabled);
+    }
   });
 
   test("keeps the sweep window and timeout bounded so it cannot overrun a whole table", () => {

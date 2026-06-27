@@ -1,11 +1,15 @@
+import { getConfig } from "../../config/loader.js";
 import {
   PLACEHOLDER_BLOCKS_OMITTED,
   PLACEHOLDER_EMPTY_TURN,
 } from "../../providers/placeholder-sentinels.js";
+import { getLogger } from "../../util/logger.js";
 import { getDbPath } from "../../util/platform.js";
 import { runAsyncSqlite } from "../db-async-query.js";
 import type { DrizzleDb } from "../db-connection.js";
 import { getSqliteFrom } from "../db-connection.js";
+
+const log = getLogger("db-init");
 
 /**
  * Number of `rowid` values swept per `runAsyncSqlite` dispatch. Each window is
@@ -123,6 +127,19 @@ function windowSql(lo: number, hi: number): string {
 export async function migrateStripPlaceholderSentinelsFromMessages(
   database: DrizzleDb,
 ): Promise<void> {
+  // Gated on the async migration worker. This full-table sweep proved too
+  // expensive for the synchronous startup migration runner — on a large
+  // `messages` table it can hold the daemon's event loop and write lock for
+  // minutes. While `migrations.worker.enabled` is false, skip the work and let
+  // the step pass so startup is never blocked; performing the sweep is deferred
+  // to the new async migration runner once it takes shape.
+  if (!getConfig().migrations.worker.enabled) {
+    log.info(
+      "Migration 222: skipped — migrations.worker.enabled is false; deferring the placeholder-sentinel sweep to the async migration runner",
+    );
+    return;
+  }
+
   const raw = getSqliteFrom(database);
   const dbPath = getDbPath();
 
