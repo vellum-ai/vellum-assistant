@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 
 import { addMessage, getMessages } from "../memory/conversation-crud.js";
@@ -18,7 +18,6 @@ function ensureConversation(id: string): void {
       createdAt: now,
       updatedAt: now,
       lastMessageAt: now,
-      summaryState: "{}",
     })
     .onConflictDoNothing()
     .run();
