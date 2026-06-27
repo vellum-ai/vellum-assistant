@@ -1,16 +1,11 @@
 /**
- * Plugin registry — backward-compat wrapper.
+ * Plugin registry — tracks registered plugins by name and delegates hook
+ * registration to {@link ../hooks/registry.ts}.
  *
- * The hook registry has moved to {@link ../hooks/registry.ts}. This module
- * preserves the `registerPlugin` / `getRegisteredPlugins` / `unregisterPlugin`
- * API that many test files depend on, while delegating hook registration to
- * the new hooks registry. It tracks only plugin names (for
- * `getRegisteredPlugins` assertions in tests) — the actual hook surface
- * lives in `hooks/registry.ts`.
- *
- * Production code no longer imports from this module. It exists for test
- * compatibility and can be removed once tests are migrated to
- * `registerPluginHooks` / `getHooksFor` directly.
+ * `registerPlugin` validates a plugin manifest, records its name (so
+ * `getRegisteredPlugins` can enumerate registered plugins), and forwards the
+ * plugin's hooks to the hooks registry. The hook surface itself lives in
+ * `hooks/registry.ts`; this module owns only the plugin-name bookkeeping.
  */
 
 import {
@@ -127,10 +122,6 @@ export function unregisterPlugin(name: string): void {
   registeredPlugins.delete(name);
   unregisterPluginHooks(name);
 }
-
-// ─── Re-exports ──────────────────────────────────────────────────────────────
-
-export { getHooksFor } from "../hooks/registry.js";
 
 // ─── Test hooks ──────────────────────────────────────────────────────────────
 

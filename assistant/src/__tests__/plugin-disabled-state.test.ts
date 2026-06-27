@@ -14,9 +14,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import { getHooksFor } from "../hooks/registry.js";
 import { RiskLevel } from "../permissions/types.js";
 import {
-  getHooksFor,
   registerPlugin,
   resetPluginRegistryForTests,
   unregisterPlugin,
