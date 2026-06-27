@@ -290,6 +290,22 @@ async function bunInstallCli(): Promise<void> {
   const installDir = getCliInstallDir();
   mkdirSync(installDir, { recursive: true });
 
+  // Recover from a corrupt prior install. When `node_modules` already exists
+  // but no longer exposes the `vellum` bin — e.g. a partial tree left behind
+  // by an app upgrade — `bun add` treats the lockfile as satisfied and exits
+  // 0 without relinking the bin, so every relaunch repeats the same no-op and
+  // the app stays wedged on "Failed to connect". Wipe the stale tree (and its
+  // lockfile) so the install below re-extracts every package and recreates the
+  // bin from scratch, exactly as a fresh install would.
+  const nodeModulesDir = path.join(installDir, "node_modules");
+  if (existsSync(nodeModulesDir) && !existsSync(binPathIn(installDir))) {
+    log.warn(
+      "[cli-installer] stale CLI node_modules without a vellum bin; reinstalling clean",
+    );
+    rmSync(nodeModulesDir, { recursive: true, force: true });
+    rmSync(path.join(installDir, "bun.lock"), { force: true });
+  }
+
   if (PINNED_CLI_VERSION) {
     // Pinned: prefer the seeded frozen lockfile, else resolve the exact version.
     const seeded = seedCliLockfile(installDir);
