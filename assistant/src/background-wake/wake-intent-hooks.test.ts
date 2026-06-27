@@ -235,12 +235,10 @@ describe("background wake intent publisher hooks", () => {
       "utf-8",
     );
 
-    expect(lifecycleSource).toContain(
-      [
-        "heartbeat.start();",
-        "registerBackgroundWakeRuntime({ scheduler, heartbeat });",
-        'refreshBackgroundWakeIntent("daemon-startup");',
-      ].join("\n    "),
+    // Match the three calls in order, tolerant of indentation, so the
+    // assertion survives reformatting/re-indentation of lifecycle.ts.
+    expect(lifecycleSource).toMatch(
+      /heartbeat\.start\(\);\n[ \t]*registerBackgroundWakeRuntime\(\{ scheduler, heartbeat \}\);\n[ \t]*refreshBackgroundWakeIntent\("daemon-startup"\);/,
     );
   });
 
