@@ -26,6 +26,7 @@
 import { execFile } from "node:child_process";
 import {
   copyFileSync,
+  cpSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -45,6 +46,7 @@ import {
   computeFingerprint,
   type Fingerprint,
   parseFingerprint,
+  PRESERVED_ENTRIES,
 } from "./plugin-fingerprint.js";
 import {
   fetchMarketplaceEntries,
@@ -515,8 +517,8 @@ export function finalizeStagedInstall(
   // never hashes itself) — the baseline `plugins inspect` uses to detect later
   // local edits. The per-file fingerprint answers "which files changed"; the
   // whole-tree content hash is a compact integrity signal mirroring skills.
-  const fingerprint = computeFingerprint(stagingDir, [INSTALL_META_FILENAME]);
-  const contentHash = computeContentHash(stagingDir, [INSTALL_META_FILENAME]);
+  const fingerprint = computeFingerprint(stagingDir, PRESERVED_ENTRIES);
+  const contentHash = computeContentHash(stagingDir, PRESERVED_ENTRIES);
 
   // Record install provenance (source coordinates + resolved commit + content
   // digests) as a sidecar before the swap so it lands atomically with the
@@ -539,7 +541,24 @@ export function finalizeStagedInstall(
   // it, so the target's parent is no longer created as a side effect.
   const target = join(pluginsDir, name);
   mkdirSync(pluginsDir, { recursive: true });
+
+  // Copy preserved entries (config.json, data/, .disabled) from the existing
+  // install into the staging dir before the swap so user-owned state survives
+  // upgrades and reinstalls. Without this, the rm+rename below would destroy
+  // user config and runtime data.
   if (existsSync(target)) {
+    for (const entry of PRESERVED_ENTRIES) {
+      if (entry === INSTALL_META_FILENAME) continue; // sidecar is rewritten above
+      const src = join(target, entry);
+      if (!existsSync(src)) continue;
+      const dest = join(stagingDir, entry);
+      const stat = statSync(src);
+      if (stat.isDirectory()) {
+        cpSync(src, dest, { recursive: true });
+      } else {
+        copyFileSync(src, dest);
+      }
+    }
     rmSync(target, { recursive: true, force: true });
   }
   renameSync(stagingDir, target);

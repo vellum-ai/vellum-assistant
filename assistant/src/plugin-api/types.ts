@@ -75,13 +75,23 @@ export type HookFunction<TCtx = unknown> = (
  * Context passed to `Plugin.init()` during bootstrap. Carries the resolved
  * config, a pino-compatible logger scoped to the plugin, a per-plugin
  * writable data directory, and the assistant's version metadata.
+ *
+ * For user-installed plugins, config is read from `<pluginDir>/config.json`
+ * and `pluginStorageDir` points at `<pluginDir>/data/`. For first-party
+ * default plugins and standalone workspace hooks, config comes from the
+ * global `config.plugins.<name>` block and `pluginStorageDir` points at
+ * `<workspaceDir>/plugins-data/<name>/`.
  */
 export interface InitContext {
   /** Parsed config for this plugin (may be `unknown` until the manifest validates). */
   config: unknown;
   /** Pino-compatible child logger bound to `{ plugin: <name> }`. */
   logger: PluginLogger;
-  /** Absolute path to `<workspaceDir>/plugins-data/<plugin>/` (created by bootstrap). */
+  /**
+   * Absolute path to the per-plugin writable data directory. For user plugins
+   * this is `<pluginDir>/data/`; for defaults and workspace hooks it falls back
+   * to `<workspaceDir>/plugins-data/<plugin>/`. Created by bootstrap.
+   */
   pluginStorageDir: string;
   /**
    * Assistant semver. Plugins can compare against this for defensive
