@@ -1,8 +1,0 @@
-{
-  "entry": [
-    "src/**/*.test.ts",
-    "benchmarks/*/src/**/*.test.ts",
-    "benchmarks/*/src/run.ts"
-  ],
-  "project": ["src/**/*.ts", "src/**/*.tsx", "benchmarks/*/src/**/*.ts"]
-}
