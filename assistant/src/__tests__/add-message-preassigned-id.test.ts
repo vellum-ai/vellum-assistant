@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { addMessage, getMessages } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
