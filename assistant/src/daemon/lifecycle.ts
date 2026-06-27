@@ -38,10 +38,7 @@ import { FilingService } from "../filing/filing-service.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
-import {
-  startGatewayFlagListener,
-  stopGatewayFlagListener,
-} from "../ipc/gateway-flag-listener.js";
+import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import {
   getAttachmentsByIds,
@@ -112,11 +109,7 @@ import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/adaptive-t
 import { WorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import { runWorkspaceMigrations } from "../workspace/migrations/runner.js";
-import {
-  cleanupPidFile,
-  cleanupPidFileIfOwner,
-  writePid,
-} from "./daemon-control.js";
+import { cleanupPidFileIfOwner, writePid } from "./daemon-control.js";
 import {
   evaluateDiskPressureNow,
   startDiskPressureGuard,
@@ -1440,13 +1433,6 @@ export async function runDaemon(): Promise<void> {
       getQdrantManager: () => bgRefs.qdrantManager,
       mcpManager,
       telemetryReporter,
-      cleanupPidFile: () => {
-        stopGatewayFlagListener();
-        stopDiskPressureGuardForLifecycle();
-        stopOrphanReaper();
-        stopEventLoopWatchdog();
-        cleanupPidFile();
-      },
     });
 
     log.info(
