@@ -415,6 +415,36 @@ export function useSendMessage({
       });
 
       if (postResult.queued) {
+        // The client believed the conversation was idle (so it took the
+        // active-send path), but the assistant was still processing and
+        // queued this message instead. Reflect the queued state on the
+        // optimistic row so it renders with queued affordances rather than
+        // as a normal in-flight send: tag it `queueStatus: "queued"`, track
+        // it in the pending-queue FIFO so the `message_queued` SSE event can
+        // assign its real position, and register the request id eagerly so
+        // steer/cancel work before the event arrives. Mirrors the
+        // willQueue path in `sendMessage`.
+        if (clientMessageId) {
+          useChatSessionStore
+            .getState()
+            .pushPendingQueuedMessageId(clientMessageId);
+          setLiveTurn((prev) =>
+            prev.map((m) =>
+              m.id === clientMessageId
+                ? {
+                    ...m,
+                    queueStatus: "queued" as const,
+                    queuePosition: m.queuePosition ?? 0,
+                  }
+                : m,
+            ),
+          );
+          if (postResult.requestId) {
+            useChatSessionStore
+              .getState()
+              .setRequestIdMapping(postResult.requestId, clientMessageId);
+          }
+        }
         return {
           status: "ok",
           resolvedConversationId: postResult.conversationId,
