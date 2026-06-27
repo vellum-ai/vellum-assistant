@@ -1352,11 +1352,20 @@ export class Conversation {
     this._processing = value;
     // Persist the cross-process source of truth so out-of-process callers
     // (retrospective CLI, future detached workers) can detect mid-turn state
-    // by reading the conversations row directly.
-    setConversationProcessingStartedAt(
-      this.conversationId,
-      value ? Date.now() : null,
-    );
+    // by reading the conversations row directly. If the write fails (e.g.
+    // SQLITE_BUSY), the persisted column keeps its prior value, so revert the
+    // in-memory flag to match rather than stranding `processing = true` in
+    // memory against a NULL column. Re-throw so callers' existing failure
+    // handling still runs.
+    try {
+      setConversationProcessingStartedAt(
+        this.conversationId,
+        value ? Date.now() : null,
+      );
+    } catch (err) {
+      this._processing = wasProcessing;
+      throw err;
+    }
     if (wasProcessing && !value) {
       void publishSyncInvalidation([
         conversationMetadataSyncTag(this.conversationId),
