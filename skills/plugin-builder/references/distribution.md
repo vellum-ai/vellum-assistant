@@ -171,13 +171,13 @@ Move an installed plugin to the marketplace's current pinned commit. It is a no-
 - `--dry-run`: Report the commit move without touching the install.
 - `--json`: Emit machine-readable JSON instead of a summary.
 
-Note: Upgrading re-installs at the new commit and overwrites any local edits to the plugin's files. The upgraded code is picked up immediately for each surface.
+Note: Upgrading re-installs at the new commit and overwrites any local edits to the plugin's source files. Preserved entries (`config.json`, `data/`, `.disabled`) are carried over to the new install, so user config and runtime data survive upgrades. The upgraded code is picked up immediately for each surface.
 
 #### `plugins uninstall`
 
 **Signature:** `assistant plugins uninstall <name>`
 
-Remove `<workspaceDir>/plugins/<name>/`. Prompts for confirmation unless stdin is non-interactive.
+Remove `<workspaceDir>/plugins/<name>/`. Prompts for confirmation unless stdin is non-interactive. The entire plugin directory is removed, including `config.json` and `data/`, so no orphaned state is left behind.
 
 - `--force`: Skip the confirmation prompt.
 
@@ -189,7 +189,7 @@ Installs are pinned. Because the catalog pins each plugin to an immutable commit
 
 ### Drift and local edits
 
-Every install records its provenance (the resolved commit, the commit's timestamp, and a per-file fingerprint of the materialized tree) in an `install-meta.json` sidecar at the plugin root. `assistant plugins inspect <name>` reads that sidecar, compares the installed commit against the marketplace's current pin, and reports one of six states:
+Every install records its provenance (the resolved commit, the commit's timestamp, and a per-file fingerprint of the materialized tree) in an `install-meta.json` sidecar at the plugin root. The fingerprint excludes four preserved entries (`install-meta.json`, `config.json`, `data/`, `.disabled`) so user config edits and runtime data never show as drift. `assistant plugins inspect <name>` reads that sidecar, compares the installed commit against the marketplace's current pin, and reports one of six states:
 
 - `up-to-date`: the installed commit matches the pin.
 - `update-available`: the pin has moved past the installed commit.

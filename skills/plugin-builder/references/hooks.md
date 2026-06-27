@@ -36,8 +36,8 @@ These are the lifecycle hooks. The full set of wired hook names lives in the [`H
 
 | Field              | Type           | Access    | Description                                                                      |
 | ------------------ | -------------- | --------- | -------------------------------------------------------------------------------- |
-| `config`           | `unknown`      | Read-only | Parsed config for this plugin, validated against the manifest.                   |
-| `pluginStorageDir` | `string`       | Read-only | Absolute path to the plugin's writable data directory, created during bootstrap. |
+| `config`           | `unknown`      | Read-only | Parsed config for this plugin, read from `<pluginDir>/config.json`.             |
+| `pluginStorageDir` | `string`       | Read-only | Absolute path to `<pluginDir>/data/`, the plugin's writable data directory (created during bootstrap). |
 | `assistantVersion` | `string`       | Read-only | Assistant semver, for defensive runtime checks.                                  |
 | `logger`           | `PluginLogger` | Read-only | Pino-compatible logger scoped to the plugin.                                     |
 

@@ -10,6 +10,8 @@ A plugin lives at `<workspaceDir>/plugins/<name>/`. The host introspects the dir
 my-plugin/
 ├── package.json               # Manifest (required)
 ├── README.md                  # Optional plugin docs
+├── config.json                # User-editable config (preserved across upgrades)
+├── data/                      # Runtime data directory (preserved across upgrades)
 ├── hooks/                     # Lifecycle hooks, one per file
 │   ├── init.ts
 │   └── pre-model-call.ts
@@ -29,6 +31,18 @@ Loader rules:
 - **A broken surface file fails only itself.** A surface file present but missing a usable default export is logged with attribution and skipped. Sibling plugins keep loading.
 - **`src/` is yours.** Only the named surface directories are walked. Put shared helpers in `src/` (or any other directory) and import from them normally.
 - **Loading is time-boxed.** Each plugin has a 10s import budget. Anything slower is treated as a load failure and the plugin is skipped.
+
+### Preserved entries
+
+Three entries at the plugin root are runtime-owned state, not part of the plugin's source tree. They are excluded from fingerprinting, drift detection, and upgrades, so user edits and runtime data never show as drift and survive re-installs:
+
+| Entry         | Purpose                                                                                                      |
+| ------------- | ----------------------------------------------------------------------------------------------------------- |
+| `config.json` | User-editable plugin config. Read by the `init` hook via `InitContext.config`. Ship a default in your repo; users edit it in place. |
+| `data/`       | Runtime data directory. The `init` hook receives its path via `InitContext.pluginStorageDir`. Write whatever you want here. |
+| `.disabled`   | Sentinel file created by `assistant plugins disable`. Presence skips the plugin entirely (no hooks, no tools). |
+
+Uninstalling a plugin (`assistant plugins uninstall`) removes the entire plugin directory, so `config.json`, `data/`, and `.disabled` go with it. No orphaned state is left behind.
 
 Each surface can also be dropped straight into the workspace at `/workspace/<surface>/<name>/` without wrapping it in a plugin. A plugin is what lets you ship several surfaces together as one installable unit.
 
