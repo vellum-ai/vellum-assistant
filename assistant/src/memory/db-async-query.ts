@@ -31,7 +31,7 @@ import { Database } from "bun:sqlite";
 import { getLogger } from "../util/logger.js";
 import { getDbPath } from "../util/platform.js";
 import { findSqlite3 } from "../util/sqlite3-runtime.js";
-import { getSqlite } from "./db-connection.js";
+import { getSqlite, SQLITE_BUSY_TIMEOUT_MS } from "./db-connection.js";
 
 const log = getLogger("db-async-query");
 
@@ -172,8 +172,14 @@ async function runViaCli(
     stderr: "pipe",
   });
 
+  // Match the busy_timeout the daemon connection uses so this subprocess
+  // waits for — rather than instantly failing against — a lock held by the
+  // still-running in-process connection (and vice versa). Prepended to the
+  // piped SQL so it takes effect before the statement runs.
+  const sqlWithPragma = `PRAGMA busy_timeout=${SQLITE_BUSY_TIMEOUT_MS};\n${sql}`;
+
   // Write the SQL and close stdin so sqlite3 sees EOF and exits.
-  proc.stdin.write(sql + "\n");
+  proc.stdin.write(sqlWithPragma + "\n");
   await proc.stdin.end();
 
   // Begin draining the streams immediately so the subprocess never
@@ -253,6 +259,11 @@ async function runInProcessBlocking(
     let sqlite: Database;
     if (usesDedicatedFile) {
       transient = new Database(options.dbPath ?? getDbPath());
+      // Match the daemon connection's busy_timeout so this transient
+      // connection waits for a lock held by another writer rather than
+      // failing immediately with SQLITE_BUSY. (The daemon connection reused
+      // in the else branch already has it set via applyConnectionPragmas.)
+      transient.exec(`PRAGMA busy_timeout=${SQLITE_BUSY_TIMEOUT_MS}`);
       for (const a of options.attach ?? []) {
         transient.exec(
           `ATTACH DATABASE '${a.path.replace(/'/g, "''")}' AS ${a.alias}`,
