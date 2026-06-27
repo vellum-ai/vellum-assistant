@@ -16,7 +16,7 @@
  *    {@link isAssistantFeatureFlagEnabled}. If any listed flag is disabled,
  *    the plugin is skipped wholesale — no `init()`, no tool/route
  *    contributions, no entry in the shutdown hook, and the plugin is also
- *    dropped from the registry via {@link unregisterPlugin} so none of its
+ *    dropped from the hook registry via {@link unregisterPlugin} so none of its
  *    hooks participate in the turn lifecycle. This is the primary mechanism for
  *    shipping experimental plugins behind a feature flag.
  * 4. Validates the config block under `plugins.<name>` against
@@ -59,7 +59,7 @@ import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags
 import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
 import { HOOKS } from "../plugin-api/constants.js";
-import { registerDefaultPlugins } from "../plugins/defaults/index.js";
+import { getAllDefaultPlugins, registerDefaultPlugins } from "../plugins/defaults/index.js";
 import { getRegisteredPlugins, unregisterPlugin } from "../plugins/registry.js";
 import {
   type Plugin,
@@ -195,12 +195,17 @@ export async function bootstrapPlugins(): Promise<void> {
   // tests) do not throw.
   registerDefaultPlugins();
 
-  const plugins = getRegisteredPlugins();
+  // Combine the canonical default plugins with any plugins registered via
+  // `registerPlugin` (test fixtures). In production, `getRegisteredPlugins`
+  // returns empty — all user plugins go through the mtime cache. Defaults come
+  // first so their hooks compose innermost.
+  const defaultPlugins = getAllDefaultPlugins();
+  const testPlugins = getRegisteredPlugins().filter(
+    (p) => !defaultPlugins.some((d) => d.manifest.name === p.manifest.name),
+  );
+  const plugins = [...defaultPlugins, ...testPlugins];
   if (plugins.length === 0) {
-    // No-op fast path. The default plugins normally populate the registry, so
-    // this branch is primarily for tests that call
-    // `resetPluginRegistryForTests()` and stub the default registration.
-    log.debug("bootstrapPlugins: registry empty — skipping");
+    log.debug("bootstrapPlugins: no plugins — skipping");
     return;
   }
 
@@ -273,11 +278,11 @@ export async function bootstrapPlugins(): Promise<void> {
     } catch (err) {
       // Contain the failure to this plugin. `initializePlugin` already rolled
       // back its own partial tool/route contributions, so we just drop
-      // it from the registry and move on. A single plugin's init failure must
-      // never deregister the plugins that already came up — above all the
-      // first-party defaults, which carry core turn behavior. The daemon stays
-      // reachable with the failing plugin absent rather than losing the whole
-      // plugin layer.
+      // its hooks from the hook registry and move on. A single plugin's init
+      // failure must never deregister the plugins that already came up —
+      // above all the first-party defaults, which carry core turn behavior.
+      // The daemon stays reachable with the failing plugin absent rather than
+      // losing the whole plugin layer.
       unregisterPlugin(name);
       log.warn(
         { err, plugin: name },
