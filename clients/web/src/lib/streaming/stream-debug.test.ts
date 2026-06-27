@@ -3,6 +3,7 @@ import { describe, expect, test, beforeEach } from "bun:test";
 import {
   endSseClient,
   getSseClients,
+  getSseEnvelopesSince,
   getSseEvents,
   markClientEstablished,
   pushSseEvent,
@@ -11,6 +12,7 @@ import {
   resetSseDebugStateForTests,
 } from "@/lib/streaming/stream-debug";
 import type { AssistantEvent } from "@/types/event-types";
+import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 
 beforeEach(() => {
   resetSseDebugStateForTests();
@@ -18,6 +20,20 @@ beforeEach(() => {
 
 function makeTextDeltaEvent(text: string): AssistantEvent {
   return { type: "assistant_text_delta", text, messageId: "msg-1" };
+}
+
+function makeEnvelope(
+  message: AssistantEvent,
+  overrides: Partial<AssistantEventEnvelope> = {},
+): AssistantEventEnvelope {
+  return {
+    id: "evt",
+    conversationId: "conv-A",
+    seq: 1,
+    emittedAt: new Date(1000).toISOString(),
+    message,
+    ...overrides,
+  } as AssistantEventEnvelope;
 }
 
 describe("registerSseClient", () => {
@@ -215,7 +231,7 @@ describe("pushSseEvent", () => {
     const event = makeTextDeltaEvent("hello");
 
     const before = Date.now();
-    pushSseEvent(id, event);
+    pushSseEvent(id, makeEnvelope(event));
     const after = Date.now();
 
     const events = getSseEvents();
@@ -235,7 +251,7 @@ describe("pushSseEvent", () => {
 
     // Push 1005 events; only last 1000 should be retained
     for (let i = 0; i < 1005; i++) {
-      pushSseEvent(id, event);
+      pushSseEvent(id, makeEnvelope(event, { seq: i }));
     }
 
     const events = getSseEvents();
@@ -250,11 +266,49 @@ describe("getSseEvents limit", () => {
     const event = makeTextDeltaEvent("x");
 
     for (let i = 0; i < 20; i++) {
-      pushSseEvent(id, event);
+      pushSseEvent(id, makeEnvelope(event, { seq: i }));
     }
 
     expect(getSseEvents(5).length).toBe(5);
     expect(getSseEvents(50).length).toBe(20);
+  });
+});
+
+describe("getSseEnvelopesSince", () => {
+  test("returns the conversation's tail with seq > sinceSeq, in seq order", () => {
+    const ctrl = new AbortController();
+    const id = registerSseClient(ctrl.signal);
+    // Two conversations interleaved with sparse, non-consecutive global seqs.
+    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("a3"), { seq: 3, conversationId: "A" }));
+    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("b4"), { seq: 4, conversationId: "B" }));
+    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("a9"), { seq: 9, conversationId: "A" }));
+    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("a7"), { seq: 7, conversationId: "A" }));
+
+    const tail = getSseEnvelopesSince("A", 3);
+    expect(tail.map((e) => e.seq)).toEqual([7, 9]); // > 3, A only, seq-ordered
+    expect(tail[0]!.message as AssistantEvent).toEqual(makeTextDeltaEvent("a7"));
+    expect(tail[0]!.emittedAt).toBe(new Date(1000).toISOString());
+  });
+
+  test("returns [] without a version anchor (snapshot must stand alone)", () => {
+    const ctrl = new AbortController();
+    const id = registerSseClient(ctrl.signal);
+    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("x"), { seq: 5, conversationId: "A" }));
+    expect(getSseEnvelopesSince("A", null)).toEqual([]);
+  });
+
+  test("skips entries with no seq (can't be ordered or gated)", () => {
+    const ctrl = new AbortController();
+    const id = registerSseClient(ctrl.signal);
+    // An envelope with no `seq` at all (seq omitted, not set to undefined).
+    pushSseEvent(id, {
+      id: "no-seq",
+      conversationId: "A",
+      emittedAt: new Date(1000).toISOString(),
+      message: makeTextDeltaEvent("x"),
+    } as AssistantEventEnvelope);
+    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("y"), { seq: 6, conversationId: "A" }));
+    expect(getSseEnvelopesSince("A", 0).map((e) => e.seq)).toEqual([6]);
   });
 });
 

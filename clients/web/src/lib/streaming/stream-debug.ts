@@ -12,9 +12,15 @@
  *
  * Data is stored outside React state so it survives component unmounts and
  * can be inspected from the console via `window._vellumDebug.chat.events`.
+ *
+ * The event ring is also load-bearing: it retains each event's envelope
+ * metadata (`seq`, `conversationId`, `emittedAt`) so a resync can replay the
+ * recent tail onto a fresh snapshot (`getSseEnvelopesSince`) instead of
+ * guessing whether the live view raced ahead of a lagging snapshot.
  */
 
 import type { AssistantEvent } from "@/types/event-types";
+import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -68,8 +74,16 @@ export interface SseDebugEventEntry {
   clientId: string;
   /** ISO 8601 timestamp of when the event was received. */
   receivedAt: string;
-  /** The parsed event payload. */
+  /** The parsed event payload (the envelope's `message`). */
   event: AssistantEvent;
+  /** Envelope id, retained so the entry can be reconstituted as an envelope. */
+  id: string;
+  /** Conversation the event targets, when conversation-scoped. */
+  conversationId?: string;
+  /** Global per-assistant sequence number, when the daemon stamped one. */
+  seq?: number;
+  /** Daemon's ISO emit timestamp — the deterministic fold stamp on replay. */
+  emittedAt: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -176,14 +190,23 @@ export function recordSseTraffic(clientId: string, isData: boolean): void {
 }
 
 /**
- * Push a parsed event into the ring buffer. Called from the `onEvent`
- * callback inside {@link subscribeEvents}.
+ * Push an event envelope into the ring buffer. Called from the `onEvent`
+ * callback inside {@link subscribeEvents}. Retains the envelope metadata
+ * (`id`/`conversationId`/`seq`/`emittedAt`) so the entry can be reconstituted
+ * into an `AssistantEventEnvelope` for resync replay.
  */
-export function pushSseEvent(clientId: string, event: AssistantEvent): void {
+export function pushSseEvent(
+  clientId: string,
+  envelope: AssistantEventEnvelope,
+): void {
   events.push({
     clientId,
     receivedAt: new Date().toISOString(),
-    event,
+    event: envelope.message,
+    id: envelope.id,
+    conversationId: envelope.conversationId,
+    seq: envelope.seq,
+    emittedAt: envelope.emittedAt,
   });
   if (events.length > MAX_EVENTS) {
     events.shift();
@@ -207,6 +230,41 @@ export function getSseClients(): SseDebugClient[] {
 export function getSseEvents(limit = MAX_EVENTS): SseDebugEventEntry[] {
   const start = Math.max(0, events.length - limit);
   return events.slice(start);
+}
+
+/**
+ * Reconstitute the buffered tail for one conversation as envelopes with
+ * `seq > sinceSeq`, in ascending seq order — the events to replay onto a fresh
+ * snapshot during resync. Returns `[]` when there is no anchor (`sinceSeq`
+ * null), since without a watermark the snapshot must stand alone.
+ *
+ * Best-effort: the ring is bounded ({@link MAX_EVENTS}), so a tail older than
+ * the buffer holds simply isn't returned — the caller's gap detector falls
+ * back to taking the snapshot wholesale. Entries without a numeric `seq` (older
+ * daemons, non-stamped events) can't be ordered or gated and are skipped.
+ */
+export function getSseEnvelopesSince(
+  conversationId: string,
+  sinceSeq: number | null,
+): AssistantEventEnvelope[] {
+  if (sinceSeq === null) return [];
+  return events
+    .filter(
+      (e): e is SseDebugEventEntry & { seq: number } =>
+        e.conversationId === conversationId &&
+        typeof e.seq === "number" &&
+        e.seq > sinceSeq,
+    )
+    .sort((a, b) => a.seq - b.seq)
+    .map(
+      (e): AssistantEventEnvelope => ({
+        id: e.id,
+        conversationId, // the matched conversation (the filter guarantees it)
+        seq: e.seq,
+        emittedAt: e.emittedAt,
+        message: e.event as AssistantEventEnvelope["message"],
+      }),
+    );
 }
 
 /**
