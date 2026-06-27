@@ -38,6 +38,7 @@ import {
   formatCompactResult,
   isModelSlashCommand,
 } from "../../daemon/conversation-process.js";
+import { findConversation } from "../../daemon/conversation-registry.js";
 import {
   buildSlashContextForContent,
   resolveSlash,
@@ -76,6 +77,7 @@ import {
 } from "../../home/relationship-state-writer.js";
 import { ipcCall } from "../../ipc/gateway-client.js";
 import {
+  classifyKind,
   getAttachmentById,
   getAttachmentMetadataForMessage,
   getAttachmentsByIds,
@@ -603,6 +605,65 @@ async function tryConsumeCanonicalGuardianReply(params: {
   return { consumed: true, messageId };
 }
 
+/**
+ * Render the live conversation's in-memory message queue into history rows.
+ *
+ * Messages enqueued while the agent is mid-turn live only in memory until the
+ * queue drains and persists them, so they never reach the DB-sourced history
+ * list. The live path surfaces them via `message_queued` SSE events; a cold
+ * reload (no event replay) would otherwise drop them. Each queued row carries
+ * `queueStatus: "queued"` with its 1-based `queuePosition` (mirroring the
+ * client `DisplayMessage` queue fields) and is ordered FIFO so it appends to
+ * the newest page in send order, mirroring how the agent will drain them.
+ *
+ * Returns an empty array when the conversation is not live in memory (cold, or
+ * aged out of the registry) — there is no queue to read in that case.
+ */
+function buildQueuedMessagePayloads(
+  conversationId: string,
+): RuntimeMessagePayload[] {
+  const conversation = findConversation(conversationId);
+  if (!conversation) return [];
+
+  return conversation.snapshotQueuedMessages().map((item, index) => {
+    const text = item.displayContent ?? item.content;
+    const attachments: RuntimeAttachmentMetadata[] = item.attachments.map(
+      (a, idx) => ({
+        id: a.id ?? `${item.requestId}:attachment:${idx}`,
+        filename: a.filename,
+        mimeType: a.mimeType,
+        sizeBytes:
+          a.sizeBytes ?? (a.data ? Math.floor((a.data.length * 3) / 4) : 0),
+        kind: classifyKind(a.mimeType),
+        ...(a.mimeType.startsWith("image/") && a.data ? { data: a.data } : {}),
+        ...(a.thumbnailData ? { thumbnailData: a.thumbnailData } : {}),
+      }),
+    );
+
+    const contentBlocks: ConversationContentBlock[] = [];
+    if (text.length > 0) contentBlocks.push({ type: "text", text });
+    for (const attachment of attachments) {
+      contentBlocks.push({ type: "attachment", attachment });
+    }
+
+    return {
+      // The queued message has no DB row yet; its requestId is the stable
+      // identifier the queued-message delete/steer endpoints key on.
+      id: item.requestId,
+      role: "user" as const,
+      content: text,
+      timestamp: new Date(item.sentAt).toISOString(),
+      attachments,
+      ...(contentBlocks.length > 0 ? { contentBlocks } : {}),
+      ...(item.clientMessageId
+        ? { clientMessageId: item.clientMessageId }
+        : {}),
+      queueStatus: "queued" as const,
+      queuePosition: index + 1,
+    };
+  });
+}
+
 export function handleListMessages({
   queryParams,
 }: RouteHandlerArgs): Record<string, unknown> {
@@ -1023,6 +1084,15 @@ export function handleListMessages({
   // turn that silently died — without it, a dropped SSE stream leaves the
   // UI spinning forever with no way to learn the server is actually idle.
   const processing = isConversationProcessing(resolvedConversationId);
+
+  // Append the in-memory queue's pending user messages to the newest page so a
+  // cold reload restores them alongside persisted history. They are the newest
+  // rows in the conversation (enqueued during the in-flight turn) and are not
+  // yet persisted, so they belong only on a request for the latest content —
+  // never on an older-history page (`beforeTimestamp` set).
+  if (beforeTimestamp == null) {
+    messages.push(...buildQueuedMessagePayloads(resolvedConversationId));
+  }
 
   if (isPaginated) {
     // Prefer the page's oldest visible row (the documented cursor semantic).
