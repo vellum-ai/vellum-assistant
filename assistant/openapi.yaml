@@ -21296,7 +21296,9 @@ paths:
     get:
       operationId: ps_get
       summary: Process status
-      description: Returns a JSON summary of the assistant's process tree including qdrant and embed-worker status.
+      description:
+        "Returns the daemon's process tree: every descendant process parented to the assistant runtime, built from
+        the native OS process table."
       tags:
         - system
       responses:
