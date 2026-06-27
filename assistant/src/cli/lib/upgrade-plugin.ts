@@ -45,7 +45,6 @@ import {
   type FetchLike,
   finalizeStagedInstall,
   type GitRunner,
-  INSTALL_META_FILENAME,
   installPlugin,
   materializePluginTree,
   type PluginFetchSource,
@@ -56,7 +55,11 @@ import {
   sanitizePluginName,
 } from "./install-from-github.js";
 import { type ConflictLabels, mergePluginTree } from "./merge-plugin-tree.js";
-import { computeFingerprint, fingerprintsEqual } from "./plugin-fingerprint.js";
+import {
+  computeFingerprint,
+  fingerprintsEqual,
+  PRESERVED_ENTRIES,
+} from "./plugin-fingerprint.js";
 import { PluginNotInstalledError } from "./uninstall-plugin.js";
 
 /**
@@ -459,9 +462,7 @@ async function mergeUpgrade(
     // otherwise a curated adapter overlay that moved since install would read
     // as base→ours/theirs edits and corrupt the merge. Verify against the
     // recorded fingerprint, exactly as `plugins diff` does.
-    const baseFingerprint = computeFingerprint(baseDir, [
-      INSTALL_META_FILENAME,
-    ]);
+    const baseFingerprint = computeFingerprint(baseDir, PRESERVED_ENTRIES);
     if (!fingerprintsEqual(baseFingerprint, recorded)) {
       throw new PluginMergeBaselineError(
         name,

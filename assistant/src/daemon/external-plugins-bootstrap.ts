@@ -23,8 +23,10 @@
  *    `manifest.config` if the manifest supplies a parser-like validator
  *    (Zod schemas with `.parse()` are supported; anything else is passed
  *    through untouched).
- * 5. Creates `<workspaceDir>/plugins-data/<plugin>/` on demand for per-plugin
- *    writable state and exposes it via {@link InitContext.pluginStorageDir}.
+ * 5. Creates a per-plugin writable data directory on demand and exposes it via
+ *    {@link InitContext.pluginStorageDir}. For user plugins this is
+ *    `<pluginDir>/data/`; for default plugins it is
+ *    `<workspaceDir>/plugins-data/<plugin>/`.
  * 6. For each surviving plugin, registers its contributed tools and routes
  *    into their global registries via {@link registerPluginTools} and
  *    {@link registerSkillRoute}. Contributions land BEFORE `init()` so
