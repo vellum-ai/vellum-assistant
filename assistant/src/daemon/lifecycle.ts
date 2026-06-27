@@ -18,6 +18,7 @@ import {
   validateEnv,
 } from "../config/env.js";
 import { loadConfig, mergeDefaultWorkspaceConfig } from "../config/loader.js";
+import { activateManagedProfilesWhenProxyAvailable } from "../config/managed-profile-activation.js";
 import type { AssistantConfig } from "../config/schema.js";
 import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
 import { reconcileFlagGatedProfiles } from "../config/sync-gated-profiles.js";
@@ -626,6 +627,18 @@ export async function runDaemon(): Promise<void> {
       log.warn(
         { err },
         "Inference profile seeding failed — continuing startup",
+      );
+    }
+
+    try {
+      if (await activateManagedProfilesWhenProxyAvailable()) {
+        publishConfigChanged();
+        log.info("Activated managed inference profiles for platform bootstrap");
+      }
+    } catch (err) {
+      log.warn(
+        { err },
+        "Managed inference profile activation failed — continuing startup",
       );
     }
 

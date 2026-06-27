@@ -21,6 +21,7 @@ import {
   getConfig,
   invalidateConfigCache,
 } from "../../config/loader.js";
+import { activateManagedProfilesWhenProxyAvailable } from "../../config/managed-profile-activation.js";
 import type { CesClient } from "../../credential-execution/client.js";
 import { maybeReseedCapabilitiesAfterManagedCredential } from "../../daemon/memory-v2-startup.js";
 import { setSentryOrganizationId, setSentryUserId } from "../../instrument.js";
@@ -31,6 +32,7 @@ import { validateAtlasCloudApiKey } from "../../providers/atlascloud/client.js";
 import { validateGeminiApiKey } from "../../providers/gemini/client.js";
 import { validateMinimaxApiKey } from "../../providers/minimax/client.js";
 import { validateOpenAIApiKey } from "../../providers/openai/client.js";
+import { resolveManagedProxyContext } from "../../providers/platform-proxy/context.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
@@ -48,6 +50,7 @@ import {
 } from "../../tools/credentials/metadata-store.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { publishConfigChanged } from "../sync/resource-sync-events.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import { getSecretsDeps } from "./secrets-deps.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -68,6 +71,23 @@ const CES_READY_POLL_INTERVAL_MS = 500;
 const CES_READY_POLL_TIMEOUT_MS = 30_000;
 
 let apiKeyGeneration = 0;
+let managedProxyCredentialMutationQueue: Promise<void> = Promise.resolve();
+
+async function withManagedProxyCredentialMutationLock<T>(
+  fn: () => Promise<T>,
+): Promise<T> {
+  const previous = managedProxyCredentialMutationQueue;
+  let release: () => void = () => {};
+  managedProxyCredentialMutationQueue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous.catch(() => {});
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
+}
 
 async function queueApiKeyPropagation(
   cesClient: CesClient,
@@ -244,6 +264,7 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
       const service = name.slice(0, colonIdx);
       const field = name.slice(colonIdx + 1);
       const key = credentialKey(service, field);
+      const managedProxyCredential = isManagedProxyCredential(service, field);
 
       const TRIMMED_IDENTITY_FIELDS = new Set([
         "platform_assistant_id",
@@ -254,81 +275,98 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
         service === "vellum" && TRIMMED_IDENTITY_FIELDS.has(field);
       const effectiveValue = isTrimmedIdentity ? value.trim() : value;
 
-      if (isTrimmedIdentity && effectiveValue === "") {
-        const deleteResult = await deleteSecureKeyAsync(key);
-        if (deleteResult === "error") {
-          throw new InternalError(
-            `Failed to delete stale credential from secure storage: ${service}:${field}`,
-          );
+      const writeCredential = async () => {
+        const hadManagedProxyBefore = managedProxyCredential
+          ? (await resolveManagedProxyContext()).enabled
+          : false;
+
+        if (isTrimmedIdentity && effectiveValue === "") {
+          const deleteResult = await deleteSecureKeyAsync(key);
+          if (deleteResult === "error") {
+            throw new InternalError(
+              `Failed to delete stale credential from secure storage: ${service}:${field}`,
+            );
+          }
+          if (field === "platform_assistant_id") {
+            setPlatformAssistantId(undefined);
+          } else if (field === "platform_organization_id") {
+            setPlatformOrganizationId(undefined);
+            setSentryOrganizationId(undefined);
+          } else if (field === "platform_user_id") {
+            setPlatformUserId(undefined);
+            setSentryUserId(undefined);
+          }
+          deleteCredentialMetadata(service, field);
+        } else {
+          const stored = await setSecureKeyAsync(key, effectiveValue);
+          if (!stored) {
+            throw new InternalError(
+              `Failed to store credential in secure storage (backend: ${getActiveBackendName()})`,
+            );
+          }
+          upsertCredentialMetadata(service, field, {});
+          await syncManualTokenConnection(service);
+          if (service === "vellum" && field === "platform_base_url") {
+            setPlatformBaseUrl(effectiveValue);
+          }
+          if (service === "vellum" && field === "platform_assistant_id") {
+            setPlatformAssistantId(effectiveValue || undefined);
+          }
+          if (service === "vellum" && field === "platform_organization_id") {
+            setPlatformOrganizationId(effectiveValue || undefined);
+            setSentryOrganizationId(effectiveValue || undefined);
+          }
+          if (service === "vellum" && field === "platform_user_id") {
+            setPlatformUserId(effectiveValue || undefined);
+            setSentryUserId(effectiveValue || undefined);
+          }
         }
-        if (field === "platform_assistant_id") {
-          setPlatformAssistantId(undefined);
-        } else if (field === "platform_organization_id") {
-          setPlatformOrganizationId(undefined);
-          setSentryOrganizationId(undefined);
-        } else if (field === "platform_user_id") {
-          setPlatformUserId(undefined);
-          setSentryUserId(undefined);
-        }
-        deleteCredentialMetadata(service, field);
-      } else {
-        const stored = await setSecureKeyAsync(key, effectiveValue);
-        if (!stored) {
-          throw new InternalError(
-            `Failed to store credential in secure storage (backend: ${getActiveBackendName()})`,
-          );
-        }
-        upsertCredentialMetadata(service, field, {});
-        await syncManualTokenConnection(service);
-        if (service === "vellum" && field === "platform_base_url") {
-          setPlatformBaseUrl(effectiveValue);
-        }
-        if (service === "vellum" && field === "platform_assistant_id") {
-          setPlatformAssistantId(effectiveValue || undefined);
-        }
-        if (service === "vellum" && field === "platform_organization_id") {
-          setPlatformOrganizationId(effectiveValue || undefined);
-          setSentryOrganizationId(effectiveValue || undefined);
-        }
-        if (service === "vellum" && field === "platform_user_id") {
-          setPlatformUserId(effectiveValue || undefined);
-          setSentryUserId(effectiveValue || undefined);
-        }
-      }
-      if (isManagedProxyCredential(service, field)) {
-        await refreshProvidersAfterSecretChange();
-        // Close the first-boot race where the startup capability seed ran before
-        // the managed embedding credential was provisioned, leaving skill/CLI
-        // pages unseeded until restart. Detached — must not block the response.
-        void maybeReseedCapabilitiesAfterManagedCredential(getConfig());
-        if (service === "vellum" && field === "assistant_api_key") {
-          const generation = ++apiKeyGeneration;
-          const deps = getSecretsDeps();
-          const cesClient = deps?.getCesClient?.();
-          if (cesClient) {
-            if (cesClient.isReady()) {
-              try {
-                await cesClient.updateAssistantApiKey(
-                  value,
-                  getPlatformAssistantId() || undefined,
-                );
-                log.info(
-                  "Pushed assistant API key to CES after managed proxy credential update",
-                );
-              } catch (err) {
-                log.warn(
-                  { error: err instanceof Error ? err.message : String(err) },
-                  "Failed to push assistant API key to CES (non-fatal)",
-                );
+        if (managedProxyCredential) {
+          const profilesChanged =
+            await activateManagedProfilesWhenProxyAvailable({
+              hadManagedProxyBefore,
+            });
+          if (profilesChanged) {
+            publishConfigChanged();
+          }
+          await refreshProvidersAfterSecretChange();
+          // Close the first-boot race where the startup capability seed ran before
+          // the managed embedding credential was provisioned, leaving skill/CLI
+          // pages unseeded until restart. Detached — must not block the response.
+          void maybeReseedCapabilitiesAfterManagedCredential(getConfig());
+          if (service === "vellum" && field === "assistant_api_key") {
+            const generation = ++apiKeyGeneration;
+            const deps = getSecretsDeps();
+            const cesClient = deps?.getCesClient?.();
+            if (cesClient) {
+              if (cesClient.isReady()) {
+                try {
+                  await cesClient.updateAssistantApiKey(
+                    value,
+                    getPlatformAssistantId() || undefined,
+                  );
+                  log.info(
+                    "Pushed assistant API key to CES after managed proxy credential update",
+                  );
+                } catch (err) {
+                  log.warn(
+                    { error: err instanceof Error ? err.message : String(err) },
+                    "Failed to push assistant API key to CES (non-fatal)",
+                  );
+                }
+              } else {
+                void queueApiKeyPropagation(cesClient, value, generation);
               }
-            } else {
-              void queueApiKeyPropagation(cesClient, value, generation);
             }
           }
         }
-      }
-      log.info({ service, field }, "Credential added via HTTP");
-      return { success: true, type, name };
+        log.info({ service, field }, "Credential added via HTTP");
+        return { success: true, type, name };
+      };
+
+      return managedProxyCredential
+        ? await withManagedProxyCredentialMutationLock(writeCredential)
+        : await writeCredential();
     }
 
     throw new BadRequestError(
