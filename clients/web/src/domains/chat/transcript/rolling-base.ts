@@ -184,3 +184,16 @@ export function applyEventsToHistory(
 ): PaginatedHistoryResult {
   return events.reduce(applyEvent, history);
 }
+
+/**
+ * Resolve the base from a fresh snapshot and the buffered event tail to replay
+ * onto it (seed and resync share this). A `null` tail means the buffer can't
+ * cover the snapshot's watermark (eviction, or no anchor), so the snapshot
+ * stands alone; otherwise the tail's `seq > snapshot.seq` events fold on top.
+ */
+export function resolveBase(
+  snapshot: PaginatedHistoryResult,
+  tail: readonly AssistantEventEnvelope[] | null,
+): PaginatedHistoryResult {
+  return tail === null ? snapshot : applyEventsToHistory(snapshot, tail);
+}
