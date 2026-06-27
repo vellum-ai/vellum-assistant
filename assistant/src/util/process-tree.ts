@@ -44,10 +44,28 @@ const RUNTIMES = new Set([
 
 const basename = (p: string): string => p.split("/").pop() || p;
 
+/** Script extensions whose path we summarize as `<parent>-<file>`. */
+const SCRIPT_EXT_RE = /\.(ts|js|mjs|cjs|py)$/;
+
+/**
+ * Summarize a script path as `<parent-dir>-<filename-without-ext>` so the worker
+ * at `…/memory/worker.ts` reads as `memory-worker` and the daemon entry
+ * `…/daemon/main.ts` as `daemon-main`. Falls back to the bare extensionless
+ * filename when the script sits at the filesystem root.
+ */
+function scriptName(scriptPath: string): string {
+  const parts = scriptPath.split("/").filter(Boolean);
+  const file = parts[parts.length - 1].replace(SCRIPT_EXT_RE, "");
+  const parent = parts.length >= 2 ? parts[parts.length - 2] : "";
+  return parent ? `${parent}-${file}` : file;
+}
+
 /**
  * Derive a readable name from a command line. For interpreter invocations
- * (`bun run /…/worker-process.ts`) the script basename is far more useful than
- * the interpreter name, so prefer the first script-looking argument.
+ * (`bun run /…/memory/worker.ts`) the script path is far more useful than the
+ * interpreter name, so prefer the first script-looking argument and summarize it
+ * as `<parent-dir>-<filename>` (e.g. `memory-worker`). Plain binaries
+ * (`/…/vellum-qdrant`) keep their bare executable name.
  */
 export function deriveName(command: string): string {
   const tokens = command.trim().split(/\s+/).filter(Boolean);
@@ -55,8 +73,8 @@ export function deriveName(command: string): string {
 
   const argv0 = basename(tokens[0]);
   if (RUNTIMES.has(argv0)) {
-    const script = tokens.slice(1).find((t) => /\.(ts|js|mjs|cjs|py)$/.test(t));
-    if (script) return basename(script);
+    const script = tokens.slice(1).find((t) => SCRIPT_EXT_RE.test(t));
+    if (script) return scriptName(script);
   }
   return argv0;
 }

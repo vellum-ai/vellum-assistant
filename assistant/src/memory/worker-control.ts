@@ -1,6 +1,6 @@
 /**
  * Shared control surface for the memory jobs worker *process* — the background
- * OS process whose entry point is `worker-process.ts`.
+ * OS process whose entry point is `worker.ts`.
  *
  * Both the `assistant memory worker` CLI and the daemon lifecycle (when
  * `memory.worker.enabled` is set) need to probe, spawn, and stop this process,
@@ -82,7 +82,7 @@ export class MemoryWorkerSpawnError extends Error {}
 /**
  * How long {@link spawnMemoryWorkerProcess} waits for the freshly-spawned worker
  * to write its PID file before treating the spawn as failed. A cold
- * `bun run worker-process.ts` start — new runtime, config load, DB open —
+ * `bun run worker.ts` start — new runtime, config load, DB open —
  * routinely takes several seconds, so this is deliberately generous: a premature
  * timeout makes `assistant memory worker start` report failure for a worker that
  * is merely slow, and (because the CLI failure path leaves
@@ -194,7 +194,7 @@ export async function spawnMemoryWorkerProcess(
   }
 
   const pidPath = getMemoryWorkerPidPath();
-  const entry = new URL("./worker-process.ts", import.meta.url);
+  const entry = new URL("./worker.ts", import.meta.url);
 
   // Pipe the worker's stderr into the same daily log file the daemon
   // writes to. The worker's pino logger already writes there directly,
