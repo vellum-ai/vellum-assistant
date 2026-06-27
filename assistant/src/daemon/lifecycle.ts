@@ -109,16 +109,13 @@ import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/adaptive-t
 import { WorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import { runWorkspaceMigrations } from "../workspace/migrations/runner.js";
-import { cleanupPidFileIfOwner, writePid } from "./daemon-control.js";
+import { writePid } from "./daemon-control.js";
 import {
   evaluateDiskPressureNow,
   startDiskPressureGuard,
   stopDiskPressureGuard,
 } from "./disk-pressure-guard.js";
-import {
-  startEventLoopWatchdog,
-  stopEventLoopWatchdog,
-} from "./event-loop-watchdog.js";
+import { startEventLoopWatchdog } from "./event-loop-watchdog.js";
 import { initializePlugins } from "./external-plugins-bootstrap.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
 import { installAssistantSymlink } from "./install-symlink.js";
@@ -126,7 +123,7 @@ import {
   maybeRebuildMemoryV2Concepts,
   rebuildBm25CorpusStatsAndReseedSkills,
 } from "./memory-v2-startup.js";
-import { startOrphanReaper, stopOrphanReaper } from "./orphan-reaper.js";
+import { startOrphanReaper } from "./orphan-reaper.js";
 import { processMessage } from "./process-message.js";
 import { runProfilerSweep } from "./profiler-run-store.js";
 import {
@@ -1443,11 +1440,10 @@ export async function runDaemon(): Promise<void> {
       "Daemon started",
     );
   } catch (err) {
-    log.error({ err }, "Daemon startup failed — cleaning up");
-    stopDiskPressureGuardForLifecycle();
-    stopOrphanReaper();
-    stopEventLoopWatchdog();
-    cleanupPidFileIfOwner(process.pid);
+    // No cleanup here: the only caller (daemon/main.ts) exits the process when
+    // this rejects, so the unref'd background timers die with it and any PID
+    // file is reclaimed by the stale-PID guard on the next start.
+    log.error({ err }, "Daemon startup failed");
     throw err;
   }
 }
