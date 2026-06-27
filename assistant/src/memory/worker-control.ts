@@ -14,15 +14,11 @@ import {
   openSync,
   readFileSync,
   unlinkSync,
-  writeFileSync,
 } from "node:fs";
 import { dirname } from "node:path";
 
 import { getCurrentLogFilePath } from "../util/logger.js";
-import {
-  getMemorySyncRunnerMarkerPath,
-  getMemoryWorkerPidPath,
-} from "../util/platform.js";
+import { getMemoryWorkerPidPath } from "../util/platform.js";
 
 export interface MemoryWorkerStatus {
   status: "running" | "not_running";
@@ -42,8 +38,8 @@ function isEsrchError(err: unknown): boolean {
 /**
  * Read a PID file and report liveness. A missing or malformed file reports
  * not_running; a file pointing at a dead process is cleaned up and reported as
- * not_running. Shared by the worker-process PID file and the sync-runner
- * marker so both probe identically.
+ * not_running. Used for the worker-process PID file, whose PID is a normal
+ * spawned child (never PID 1), so `process.kill(pid, 0)` liveness is reliable.
  */
 function probePidFile(path: string): MemoryWorkerStatus {
   if (!existsSync(path)) return { status: "not_running" };
@@ -65,7 +61,10 @@ function probePidFile(path: string): MemoryWorkerStatus {
       }
       return { status: "not_running" };
     }
-    throw err;
+    // Any other error (e.g. EPERM: the process exists but this caller may not
+    // signal it) means the process is alive. Report it running rather than
+    // letting the error escape a status probe.
+    return { status: "running", pid };
   }
 }
 
@@ -76,44 +75,6 @@ function probePidFile(path: string): MemoryWorkerStatus {
  */
 export function probeMemoryWorker(): MemoryWorkerStatus {
   return probePidFile(getMemoryWorkerPidPath());
-}
-
-/**
- * Inspect the sync-runner marker to determine whether the daemon's in-process
- * synchronous runner is currently draining the memory-job queue. The daemon's
- * worker supervisor writes the marker (with its own PID) only while it owns
- * processing, so a live marker means the synchronous runner is going. A stale
- * marker (daemon gone) is cleaned up and reported as not_running.
- */
-export function probeSyncRunner(): MemoryWorkerStatus {
-  return probePidFile(getMemorySyncRunnerMarkerPath());
-}
-
-/**
- * Publish the sync-runner marker recording `pid` (the daemon process). Called
- * by the worker supervisor when its in-process synchronous runner takes over
- * processing. Best-effort: a write failure only affects status reporting, not
- * job processing.
- */
-export function writeSyncRunnerMarker(pid: number): void {
-  try {
-    writeFileSync(getMemorySyncRunnerMarkerPath(), String(pid), { flag: "w" });
-  } catch {
-    // best-effort — the marker is a status hint, not a correctness invariant
-  }
-}
-
-/**
- * Remove the sync-runner marker. Called by the worker supervisor when it stands
- * down for an out-of-process worker, and on daemon shutdown. Best-effort.
- */
-export function removeSyncRunnerMarker(): void {
-  try {
-    const path = getMemorySyncRunnerMarkerPath();
-    if (existsSync(path)) unlinkSync(path);
-  } catch {
-    // best-effort
-  }
 }
 
 export class MemoryWorkerSpawnError extends Error {}
