@@ -17577,6 +17577,8 @@ paths:
                             - channelId
                             - channelTs
                           additionalProperties: false
+                        queued:
+                          type: boolean
                       required:
                         - id
                         - role

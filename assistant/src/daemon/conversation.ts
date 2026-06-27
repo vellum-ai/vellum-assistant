@@ -129,7 +129,10 @@ import {
   drainQueue as drainQueueImpl,
   processMessage as processMessageImpl,
 } from "./conversation-process.js";
-import type { QueueDrainReason } from "./conversation-queue-manager.js";
+import type {
+  QueuedMessage,
+  QueueDrainReason,
+} from "./conversation-queue-manager.js";
 import { MessageQueue } from "./conversation-queue-manager.js";
 import {
   type ChannelCapabilities,
@@ -1464,6 +1467,12 @@ export class Conversation {
 
   hasQueuedMessages(): boolean {
     return !this.queue.isEmpty;
+  }
+
+  /** FIFO snapshot of the messages currently waiting in the in-memory queue.
+   * Read-only — used to surface queued user messages in history responses. */
+  snapshotQueuedMessages(): QueuedMessage[] {
+    return this.queue.snapshot();
   }
 
   removeQueuedMessage(requestId: string): boolean {
