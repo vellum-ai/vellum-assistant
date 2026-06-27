@@ -186,7 +186,7 @@ export interface MemoryJobsWorker {
  *
  * This dispatcher must not be used as the standalone worker process's entry —
  * that would recurse and fork-bomb, and the flag-on worker process would stand
- * itself down. `worker-process.ts` calls {@link startInProcessMemoryJobsWorker}
+ * itself down. `worker.ts` calls {@link startInProcessMemoryJobsWorker}
  * directly with no options.
  */
 export function startMemoryJobsWorker(): MemoryJobsWorker {

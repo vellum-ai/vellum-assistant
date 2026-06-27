@@ -19,15 +19,24 @@ describe("deriveName", () => {
     expect(deriveName("qdrant")).toBe("qdrant");
   });
 
-  test("prefers the script basename for interpreter invocations", () => {
-    expect(deriveName("bun run /home/u/app/worker-process.ts")).toBe(
-      "worker-process.ts",
+  test("summarizes the script path as <parent>-<file> for interpreter invocations", () => {
+    expect(deriveName("bun run /home/u/app/memory/worker.ts")).toBe(
+      "memory-worker",
+    );
+    expect(deriveName("bun run /home/u/app/daemon/main.ts")).toBe(
+      "daemon-main",
     );
     expect(deriveName("bun --smol /opt/embed/embed-worker.ts model dir")).toBe(
-      "embed-worker.ts",
+      "embed-embed-worker",
     );
-    expect(deriveName("node /srv/index.js --port 3000")).toBe("index.js");
-    expect(deriveName("python3 /x/y/server.py")).toBe("server.py");
+    expect(deriveName("node /srv/http/index.js --port 3000")).toBe(
+      "http-index",
+    );
+    expect(deriveName("python3 /x/y/server.py")).toBe("y-server");
+  });
+
+  test("falls back to the bare filename for a script at the filesystem root", () => {
+    expect(deriveName("bun run /worker.ts")).toBe("worker");
   });
 
   test("falls back to the interpreter when there is no script arg", () => {
@@ -42,9 +51,9 @@ describe("deriveName", () => {
 
 describe("buildProcessTree", () => {
   const procs: ProcInfo[] = [
-    { pid: 100, ppid: 1, command: "bun run /app/assistant.ts" },
+    { pid: 100, ppid: 1, command: "bun run /app/daemon/main.ts" },
     { pid: 200, ppid: 100, command: "/usr/bin/qdrant" },
-    { pid: 300, ppid: 100, command: "bun run /app/memory/worker-process.ts" },
+    { pid: 300, ppid: 100, command: "bun run /app/memory/worker.ts" },
     { pid: 400, ppid: 300, command: "/usr/bin/embed-helper" },
     { pid: 999, ppid: 1, command: "unrelated" },
   ];
@@ -53,7 +62,7 @@ describe("buildProcessTree", () => {
     const tree = buildProcessTree(procs, 100);
 
     expect(tree.pid).toBe(100);
-    expect(tree.name).toBe("assistant.ts");
+    expect(tree.name).toBe("daemon-main");
     expect(tree.children.map((c) => c.pid)).toEqual([200, 300]);
   });
 
@@ -61,7 +70,7 @@ describe("buildProcessTree", () => {
     const tree = buildProcessTree(procs, 100);
     const worker = tree.children.find((c) => c.pid === 300)!;
 
-    expect(worker.name).toBe("worker-process.ts");
+    expect(worker.name).toBe("memory-worker");
     expect(worker.children.map((c) => c.pid)).toEqual([400]);
     expect(worker.children[0].name).toBe("embed-helper");
   });
