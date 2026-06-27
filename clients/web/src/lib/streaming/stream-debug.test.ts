@@ -237,7 +237,7 @@ describe("pushSseEvent", () => {
     const events = getSseEvents();
     const last = events[events.length - 1];
     expect(last.clientId).toBe(id);
-    expect(last.event).toEqual(event);
+    expect(last.message as AssistantEvent).toEqual(event);
     expect(last.receivedAt).toBe(new Date(last.receivedAt).toISOString());
     const receivedMs = new Date(last.receivedAt).getTime();
     expect(receivedMs).toBeGreaterThanOrEqual(before);
@@ -285,16 +285,33 @@ describe("getSseEnvelopesSince", () => {
     pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("a7"), { seq: 7, conversationId: "A" }));
 
     const tail = getSseEnvelopesSince("A", 3);
-    expect(tail.map((e) => e.seq)).toEqual([7, 9]); // > 3, A only, seq-ordered
-    expect(tail[0]!.message as AssistantEvent).toEqual(makeTextDeltaEvent("a7"));
-    expect(tail[0]!.emittedAt).toBe(new Date(1000).toISOString());
+    expect(tail?.map((e) => e.seq)).toEqual([7, 9]); // > 3, A only, seq-ordered
+    expect(tail![0]!.message as AssistantEvent).toEqual(makeTextDeltaEvent("a7"));
+    expect(tail![0]!.emittedAt).toBe(new Date(1000).toISOString());
   });
 
-  test("returns [] without a version anchor (snapshot must stand alone)", () => {
+  test("returns null when the ring no longer covers the cursor (eviction gap)", () => {
+    const ctrl = new AbortController();
+    const id = registerSseClient(ctrl.signal);
+    // Oldest retained seq (50) is well past sinceSeq+1 — seqs 4..49 were
+    // evicted, so a replay would be a partial tail. Signal a gap instead.
+    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("a50"), { seq: 50, conversationId: "A" }));
+    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("a60"), { seq: 60, conversationId: "A" }));
+    expect(getSseEnvelopesSince("A", 3)).toBeNull();
+  });
+
+  test("returns null without a version anchor (snapshot must stand alone)", () => {
     const ctrl = new AbortController();
     const id = registerSseClient(ctrl.signal);
     pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("x"), { seq: 5, conversationId: "A" }));
-    expect(getSseEnvelopesSince("A", null)).toEqual([]);
+    expect(getSseEnvelopesSince("A", null)).toBeNull();
+  });
+
+  test("returns [] when covered but the conversation has no newer events", () => {
+    const ctrl = new AbortController();
+    const id = registerSseClient(ctrl.signal);
+    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("b6"), { seq: 6, conversationId: "B" }));
+    expect(getSseEnvelopesSince("A", 5)).toEqual([]); // oldest 6 <= 5+1, covered
   });
 
   test("skips entries with no seq (can't be ordered or gated)", () => {
@@ -308,7 +325,7 @@ describe("getSseEnvelopesSince", () => {
       message: makeTextDeltaEvent("x"),
     } as AssistantEventEnvelope);
     pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("y"), { seq: 6, conversationId: "A" }));
-    expect(getSseEnvelopesSince("A", 0).map((e) => e.seq)).toEqual([6]);
+    expect(getSseEnvelopesSince("A", 5)?.map((e) => e.seq)).toEqual([6]);
   });
 });
 
