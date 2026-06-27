@@ -3,9 +3,10 @@
  *
  * Messages enqueued while the agent is mid-turn live only in the live
  * conversation's in-memory queue until the queue drains and persists them.
- * The messages snapshot appends them (flagged `queued: true`) to the newest
- * page so a cold reload restores the queued rows that the `message_queued`
- * SSE events would otherwise be the only source of.
+ * The messages snapshot appends them (carrying `queueStatus: "queued"` and a
+ * 1-based `queuePosition`, mirroring the client `DisplayMessage` shape) to the
+ * newest page so a cold reload restores the queued rows that the
+ * `message_queued` SSE events would otherwise be the only source of.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -52,7 +53,8 @@ interface MessagePayload {
   role: string;
   content?: string;
   clientMessageId?: string;
-  queued?: boolean;
+  queueStatus?: "queued" | "processing";
+  queuePosition?: number;
   attachments?: Array<{ id: string; filename: string; kind: string }>;
 }
 
@@ -84,8 +86,8 @@ function makeQueued(overrides: Partial<QueuedMessage>): QueuedMessage {
 describe("handleListMessages in-memory queue", () => {
   beforeEach(resetTables);
 
-  test("appends queued messages flagged queued:true after persisted history", async () => {
-    // GIVEN a persisted user turn and a message still waiting in the queue
+  test("appends queued rows in FIFO order with 1-based queuePosition", async () => {
+    // GIVEN a persisted user turn and two messages still waiting in the queue
     const conv = createConversation();
     await addMessage(
       conv.id,
@@ -95,10 +97,11 @@ describe("handleListMessages in-memory queue", () => {
     );
     registerLiveConversation(conv.id, [
       makeQueued({
-        requestId: "req-queued",
+        requestId: "req-queued-1",
         content: "please also do this",
         clientMessageId: "nonce-queued",
       }),
+      makeQueued({ requestId: "req-queued-2", content: "and then this" }),
     ]);
 
     // WHEN the messages snapshot is built for the newest page
@@ -107,16 +110,23 @@ describe("handleListMessages in-memory queue", () => {
     });
     const body = response as { messages: MessagePayload[] };
 
-    // THEN the queued message is appended after the persisted row, flagged and
-    // keyed by its requestId for the delete/steer endpoints
-    expect(body.messages).toHaveLength(2);
-    expect(body.messages[0].queued).toBeUndefined();
-    const queuedRow = body.messages[1];
-    expect(queuedRow.queued).toBe(true);
-    expect(queuedRow.role).toBe("user");
-    expect(queuedRow.id).toBe("req-queued");
-    expect(queuedRow.content).toBe("please also do this");
-    expect(queuedRow.clientMessageId).toBe("nonce-queued");
+    // THEN the queued messages are appended after the persisted row, carrying
+    // queue state and keyed by their requestId for the delete/steer endpoints
+    expect(body.messages).toHaveLength(3);
+    expect(body.messages[0].queueStatus).toBeUndefined();
+
+    const first = body.messages[1];
+    expect(first.queueStatus).toBe("queued");
+    expect(first.queuePosition).toBe(1);
+    expect(first.role).toBe("user");
+    expect(first.id).toBe("req-queued-1");
+    expect(first.content).toBe("please also do this");
+    expect(first.clientMessageId).toBe("nonce-queued");
+
+    const second = body.messages[2];
+    expect(second.queueStatus).toBe("queued");
+    expect(second.queuePosition).toBe(2);
+    expect(second.id).toBe("req-queued-2");
   });
 
   test("prefers displayContent over the model-facing content", async () => {
@@ -186,7 +196,7 @@ describe("handleListMessages in-memory queue", () => {
     const body = response as { messages: MessagePayload[] };
 
     // THEN the queued message is not mixed into the older page
-    expect(body.messages.every((m) => m.queued !== true)).toBe(true);
+    expect(body.messages.every((m) => m.queueStatus == null)).toBe(true);
   });
 
   test("returns only persisted rows when the conversation is not live", async () => {
@@ -205,6 +215,6 @@ describe("handleListMessages in-memory queue", () => {
     const body = response as { messages: MessagePayload[] };
 
     expect(body.messages).toHaveLength(1);
-    expect(body.messages[0].queued).toBeUndefined();
+    expect(body.messages[0].queueStatus).toBeUndefined();
   });
 });

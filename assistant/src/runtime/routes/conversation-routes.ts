@@ -611,9 +611,10 @@ async function tryConsumeCanonicalGuardianReply(params: {
  * Messages enqueued while the agent is mid-turn live only in memory until the
  * queue drains and persists them, so they never reach the DB-sourced history
  * list. The live path surfaces them via `message_queued` SSE events; a cold
- * reload (no event replay) would otherwise drop them. Each queued row is
- * flagged `queued: true` and ordered FIFO so it appends to the newest page in
- * send order, mirroring how the agent will drain them.
+ * reload (no event replay) would otherwise drop them. Each queued row carries
+ * `queueStatus: "queued"` with its 1-based `queuePosition` (mirroring the
+ * client `DisplayMessage` queue fields) and is ordered FIFO so it appends to
+ * the newest page in send order, mirroring how the agent will drain them.
  *
  * Returns an empty array when the conversation is not live in memory (cold, or
  * aged out of the registry) — there is no queue to read in that case.
@@ -624,7 +625,7 @@ function buildQueuedMessagePayloads(
   const conversation = findConversation(conversationId);
   if (!conversation) return [];
 
-  return conversation.snapshotQueuedMessages().map((item) => {
+  return conversation.snapshotQueuedMessages().map((item, index) => {
     const text = item.displayContent ?? item.content;
     const attachments: RuntimeAttachmentMetadata[] = item.attachments.map(
       (a, idx) => ({
@@ -657,7 +658,8 @@ function buildQueuedMessagePayloads(
       ...(item.clientMessageId
         ? { clientMessageId: item.clientMessageId }
         : {}),
-      queued: true,
+      queueStatus: "queued" as const,
+      queuePosition: index + 1,
     };
   });
 }

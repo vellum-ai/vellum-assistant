@@ -523,14 +523,17 @@ export const ConversationMessageSchema = z.object({
   subagentNotification: ConversationSubagentNotificationSchema.optional(),
   slackMessage: ConversationSlackMessageSchema.optional(),
   /**
-   * True for a user message that is still waiting in the daemon's in-memory
-   * queue (enqueued while the agent was mid-turn, not yet drained or persisted
-   * to the database). Derived at render time from the live conversation's
-   * queue, so it appears only while the message is genuinely pending and lets a
-   * cold reload restore the queued rows the live `message_queued` SSE events
-   * would otherwise be the only source of. Absent (rather than `false`) for
-   * already-persisted rows.
+   * Queue state for a user message that is still waiting in the daemon's
+   * in-memory queue (enqueued while the agent was mid-turn, not yet drained or
+   * persisted to the database). Derived at render time from the live
+   * conversation's queue, so it is present only while the message is genuinely
+   * pending and lets a cold reload restore the queued rows the live
+   * `message_queued` SSE events would otherwise be the only source of. Absent
+   * on already-persisted rows. Mirrors the client `DisplayMessage` fields so
+   * the wire and display shapes converge.
    */
-  queued: z.boolean().optional(),
+  queueStatus: z.enum(["queued", "processing"]).optional(),
+  /** 1-based position in the queue, mirroring the `message_queued` SSE event. */
+  queuePosition: z.number().optional(),
 });
 export type ConversationMessage = z.infer<typeof ConversationMessageSchema>;
