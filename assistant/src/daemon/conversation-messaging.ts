@@ -412,10 +412,13 @@ export async function persistUserMessage(
 
   const reqId = options.requestId ?? uuid();
   ctx.currentRequestId = reqId;
-  ctx.setProcessing(true);
   ctx.abortController = new AbortController();
 
   try {
+    // `setProcessing(true)` persists the flag and can throw (e.g.
+    // SQLITE_BUSY). Keeping it inside the try ensures a failure here unwinds
+    // the request-id/abort bookkeeping below rather than stranding it.
+    ctx.setProcessing(true);
     const result = await persistQueuedMessageBody(ctx, {
       ...options,
       attachments,
@@ -428,7 +431,18 @@ export async function persistUserMessage(
     }
     return result;
   } catch (err) {
-    ctx.setProcessing(false);
+    // Clear the flag, but never let a clear failure mask the original error
+    // or skip the bookkeeping reset. `setProcessing` reverts its own
+    // in-memory flag when its persist throws, so the conversation is left
+    // consistent either way.
+    try {
+      ctx.setProcessing(false);
+    } catch (clearErr) {
+      log.error(
+        { err: clearErr, conversationId: ctx.conversationId },
+        "Failed to clear processing flag after persistUserMessage failure",
+      );
+    }
     ctx.abortController = null;
     ctx.currentRequestId = undefined;
     throw err;
