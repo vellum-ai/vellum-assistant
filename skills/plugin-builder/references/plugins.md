@@ -36,11 +36,11 @@ Loader rules:
 
 Three entries at the plugin root are runtime-owned state, not part of the plugin's source tree. They are excluded from fingerprinting, drift detection, and upgrades, so user edits and runtime data never show as drift and survive re-installs:
 
-| Entry         | Purpose                                                                                                      |
-| ------------- | ----------------------------------------------------------------------------------------------------------- |
+| Entry         | Purpose                                                                                                                             |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | `config.json` | User-editable plugin config. Read by the `init` hook via `InitContext.config`. Ship a default in your repo; users edit it in place. |
-| `data/`       | Runtime data directory. The `init` hook receives its path via `InitContext.pluginStorageDir`. Write whatever you want here. |
-| `.disabled`   | Sentinel file created by `assistant plugins disable`. Presence skips the plugin entirely (no hooks, no tools). |
+| `data/`       | Runtime data directory. The `init` hook receives its path via `InitContext.pluginStorageDir`. Write whatever you want here.         |
+| `.disabled`   | Sentinel file created by `assistant plugins disable`. Presence skips the plugin entirely (no hooks, no tools).                      |
 
 Uninstalling a plugin (`assistant plugins uninstall`) removes the entire plugin directory, so `config.json`, `data/`, and `.disabled` go with it. No orphaned state is left behind.
 
