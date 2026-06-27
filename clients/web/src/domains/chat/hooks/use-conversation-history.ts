@@ -42,6 +42,8 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { reconcileSubagentStoreFromNotifications } from "@/domains/chat/hooks/reconcile-subagent-hydration";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { messageMatchKeys } from "@/domains/chat/utils/message-identity";
+import { mergeAdjacentAssistantMessages } from "@/domains/chat/utils/message-merge";
+import { pruneShadowedReattachRows } from "@/domains/chat/utils/reattach-shadow";
 
 import {
   parsePendingSecretState,
@@ -348,6 +350,35 @@ export function useConversationHistory({
     // `isFetchingOlderPages`) would re-run these side effects on older-page loads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pagination.dataUpdatedAt, assistantId, activeConversationId]);
+
+  // -------------------------------------------------------------------------
+  // Seed-race heal. A client that re-attaches to an in-flight turn can open a
+  // prefix-less live bubble when the first replayed delta beats the initial
+  // `/messages` fetch — `resolveHistoryTwin` finds no twin to seed from, so a
+  // suffix-only bubble is opened under the streamed call's id. Once the
+  // snapshot lands, that bubble would shadow the full persisted answer in the
+  // overlay (the "messages disappearing on refresh" bug). Drop it here, keyed
+  // on `dataUpdatedAt` so it runs exactly when a fresh snapshot arrives; the
+  // next delta re-seeds the live row from its now-cached twin. See
+  // `pruneShadowedReattachRows` for the full rationale.
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    if (!assistantId || !activeConversationId) return;
+    if (useChatSessionStore.getState().liveTurn.length === 0) return;
+
+    const data = queryClient.getQueryData<HistoryCache>(
+      conversationHistoryQueryKey(assistantId, activeConversationId),
+    );
+    if (!data) return;
+    // Fold page-boundary-straddling turns the same way the transcript does, so
+    // an alias the daemon recorded on the merged row is visible to the heal.
+    const history = mergeAdjacentAssistantMessages(
+      [...data.pages].reverse().flatMap((page) => page.messages),
+    );
+    useChatSessionStore
+      .getState()
+      .setLiveTurn((prev) => pruneShadowedReattachRows(prev, history));
+  }, [pagination.dataUpdatedAt, assistantId, activeConversationId, queryClient]);
 
   // -------------------------------------------------------------------------
   // Live-turn → history handoff. On the sending→idle transition the finished
