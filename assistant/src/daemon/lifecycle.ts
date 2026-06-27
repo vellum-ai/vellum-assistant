@@ -86,10 +86,7 @@ import {
   setCesClient,
   setCesReconnect,
 } from "../security/secure-keys.js";
-import {
-  setUsageTelemetryReporter,
-  UsageTelemetryReporter,
-} from "../telemetry/usage-telemetry-reporter.js";
+import { startUsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { syncFlagGatedTools } from "../tools/registry.js";
 import { registerBuiltinTtsProviders } from "../tts/providers/register-builtins.js";
 import { getDeviceId } from "../util/device-id.js";
@@ -666,29 +663,6 @@ export async function runDaemon(): Promise<void> {
     await closeSentry();
   }
 
-  // Construct and start the reporter even when usage collection is disabled:
-  // flush() re-checks the platform share_analytics consent each cycle and,
-  // when opted out, sends nothing but advances all watermarks (including the
-  // final flush in stop()). New opted-out tool_invocations rows are already
-  // unreportable by construction — the audit listener persists NULL telemetry
-  // columns for them, which the tool_executed projection filters out — so the
-  // opted-out
-  // flushes are defense in depth there (covering rows recorded under builds
-  // that predate that write-time gate) and remain the primary guard for the
-  // always-on tables without a write-time gate (llm_usage, turn events).
-  // Deliberately NOT gated on dbReady: getDb()
-  // can still work when initializeDb() failed mid-migration, in which case
-  // the audit listener keeps writing rows that the opt-out branch must keep
-  // covered. The reporter is degraded-mode safe — its constructor and
-  // flush() treat DB errors as non-fatal.
-  let telemetryReporter: UsageTelemetryReporter | null = null;
-  if (!isDevMode) {
-    telemetryReporter = new UsageTelemetryReporter();
-    setUsageTelemetryReporter(telemetryReporter);
-    telemetryReporter.start();
-    log.info("Usage telemetry reporter started");
-  }
-
   // Refresh the consent cache regardless of dev mode so record-time telemetry
   // writes (gated on getCachedShareAnalytics()) work in dev too. The reporter
   // flush stays dev-gated above, so dev still never sends telemetry to the
@@ -815,6 +789,7 @@ export async function runDaemon(): Promise<void> {
     log.warn({ err }, "Guardian principal cache warm failed — continuing"),
   );
 
+  startUsageTelemetryReporter();
   startDiskPressureGuardForLifecycle();
   startOrphanReaper();
   startEventLoopWatchdog();
@@ -1417,7 +1392,6 @@ export async function runDaemon(): Promise<void> {
     getMemoryWorker: () => bgRefs.memoryWorker,
     getQdrantManager: () => bgRefs.qdrantManager,
     mcpManager,
-    telemetryReporter,
   });
 
   log.info(

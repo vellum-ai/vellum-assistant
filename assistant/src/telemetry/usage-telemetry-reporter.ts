@@ -122,10 +122,42 @@ export function getUsageTelemetryReporter(): UsageTelemetryReporter | null {
   return _instance;
 }
 
-export function setUsageTelemetryReporter(
-  reporter: UsageTelemetryReporter | null,
-): void {
-  _instance = reporter;
+/**
+ * Construct and start the singleton usage telemetry reporter. No-op in dev mode
+ * (VELLUM_DEV=1) and idempotent if already started.
+ *
+ * Started even when share_analytics consent is opted out: flush() re-checks
+ * consent each cycle and, when opted out, sends nothing but advances all
+ * watermarks (including the final flush in stop()). New opted-out
+ * tool_invocations rows are already unreportable by construction — the audit
+ * listener persists NULL telemetry columns for them, which the tool_executed
+ * projection filters out — so the opted-out flushes are defense in depth there
+ * (covering rows recorded under builds that predate that write-time gate) and
+ * remain the primary guard for the always-on tables without a write-time gate
+ * (llm_usage, turn events). Not gated on DB readiness: getDb() can still work
+ * when initializeDb() failed mid-migration, in which case the audit listener
+ * keeps writing rows the opt-out branch must keep covered. The reporter is
+ * degraded-mode safe — its constructor and flush() treat DB errors as non-fatal.
+ */
+export function startUsageTelemetryReporter(): void {
+  if (process.env.VELLUM_DEV === "1") return;
+  if (_instance) return;
+  _instance = new UsageTelemetryReporter();
+  _instance.start();
+  log.info("Usage telemetry reporter started");
+}
+
+/**
+ * Stop the singleton usage telemetry reporter (final flush + timer teardown)
+ * and clear it. No-op when the reporter was never started (e.g. dev mode).
+ */
+export async function stopUsageTelemetryReporter(): Promise<void> {
+  if (!_instance) return;
+  try {
+    await _instance.stop();
+  } finally {
+    _instance = null;
+  }
 }
 
 // ---------------------------------------------------------------------------
