@@ -182,6 +182,11 @@ export interface UserPromptSubmitContext {
    * attach turn-scoped metadata to the originating message (e.g. recording an
    * injected memory block so it survives a conversation reload) key off this
    * row id rather than the in-memory message arrays, whose entries carry no id.
+   *
+   * @deprecated This field is identical to {@link requestId}. Use
+   *   `requestId` instead. The two values are now the same UUID — the
+   *   message row is persisted with the request's correlation ID — and
+   *   this field will be removed in a future API version.
    */
   readonly userMessageId: string;
   /**
@@ -189,6 +194,10 @@ export interface UserPromptSubmitContext {
    * runtime injection forward it onto the injector turn context so the
    * assembled blocks are attributed to the originating request; it is fixed
    * for the turn and cannot be recovered from the message arrays.
+   *
+   * As of the requestId/userMessageId merge, this value is also the
+   * persisted row ID of the user message, so hooks that previously
+   * keyed off {@link userMessageId} can use `requestId` directly.
    */
   readonly requestId: string;
   /**
