@@ -1,3 +1,4 @@
+import { getConfig } from "../../config/loader.js";
 import { getLogger } from "../../util/logger.js";
 import { getDbPath } from "../../util/platform.js";
 import { runAsyncSqlite } from "../db-async-query.js";
@@ -124,6 +125,19 @@ function windowSql(lo: number, hi: number): string {
 export async function migrateStripThinkingFromConsolidated(
   database: DrizzleDb,
 ): Promise<void> {
+  // Gated on the async migration worker. This sweep proved too expensive for
+  // the synchronous startup migration runner — on a large `messages` table it
+  // can hold the daemon for minutes and trip the startup probe into a restart
+  // loop. While `migrations.worker.enabled` is false, skip the work and let the
+  // step pass so startup is never blocked; performing the sweep is deferred to
+  // the new async migration runner once it takes shape.
+  if (!getConfig().migrations.worker.enabled) {
+    log.info(
+      "Migration 209: skipped — migrations.worker.enabled is false; deferring the strip-thinking sweep to the async migration runner",
+    );
+    return;
+  }
+
   const raw = getSqliteFrom(database);
   const dbPath = getDbPath();
 
