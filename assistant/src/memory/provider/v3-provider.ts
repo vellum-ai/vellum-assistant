@@ -28,6 +28,7 @@ import {
 import type { InjectionBlock, TurnContext } from "../../plugins/types.js";
 import { ROUTES as MEMORY_V3_ROUTES } from "../../runtime/routes/memory-v3-routes.js";
 import type { RouteDefinition } from "../../runtime/routes/types.js";
+import { recallTool, rememberTool } from "../../tools/memory/register.js";
 import type { ToolDefinition } from "../../tools/types.js";
 import type { MemoryProvider, MemoryProviderContext } from "./types.js";
 
@@ -48,9 +49,9 @@ function toTurnContext(ctx: MemoryProviderContext): TurnContext {
 
 /**
  * v3 implementation of {@link MemoryProvider}. Delegates all retrieval to the
- * shadow injectors; contributes no model-visible tools (v3 is a
- * retrieval/injection system with no `remember`-style tool surface) and the v3
- * maintenance routes. `onTurnCommit`, `init`, and `shutdown` are no-ops: v3's
+ * shadow injectors; contributes the shared `remember`/`recall` tools (their
+ * handlers write to the concept-page corpus that v3 consolidation consumes) and
+ * the v3 maintenance routes. `onTurnCommit`, `init`, and `shutdown` are no-ops: v3's
  * everInjected write and prune-valve schedule are driven by the injector's
  * commit callback at runtime assembly, and its consolidation enqueue rides the
  * v2 consolidation job — neither is a per-turn provider hook.
@@ -84,7 +85,7 @@ export const V3MemoryProvider = {
   },
 
   provideTools(): ToolDefinition[] {
-    return [];
+    return [rememberTool, recallTool];
   },
 
   provideRoutes(): RouteDefinition[] {
