@@ -115,10 +115,12 @@ import { initializeDb } from "../memory/db-init.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import { runMemoryJobsOnce } from "../memory/jobs-worker.js";
 import { _resetQdrantBreaker } from "../memory/qdrant-circuit-breaker.js";
+import { registerMemoryJobHandlers } from "../memory/register-job-handlers.js";
 import { memoryJobs } from "../memory/schema.js";
 
 describe("memory jobs worker lane scheduling", () => {
   beforeAll(async () => {
+    registerMemoryJobHandlers();
     await initializeDb();
   });
 
