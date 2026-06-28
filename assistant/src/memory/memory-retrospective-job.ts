@@ -42,6 +42,7 @@ import {
   isInteractiveInterface,
   parseInterfaceId,
 } from "../channels/types.js";
+import { isProcToSkillsActive } from "../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../config/types.js";
 import { getGuardianDelivery } from "../contacts/guardian-delivery-reader.js";
 import { extractTurnContextTimestamp } from "../context/compactor.js";
@@ -75,6 +76,7 @@ import {
   MEMORY_RETROSPECTIVE_FORK_SOURCE,
   MEMORY_RETROSPECTIVE_GROUP_ID,
   MEMORY_RETROSPECTIVE_INSTRUCTION_KIND,
+  MEMORY_RETROSPECTIVE_ORIGIN,
   MEMORY_RETROSPECTIVE_SOURCE,
 } from "./memory-retrospective-constants.js";
 import { loadRetrospectiveRunMessages } from "./memory-retrospective-fork-boundary.js";
@@ -242,12 +244,14 @@ export async function runForkBasedRetrospective(
   }
   const forkId = forkConversationRow.id;
 
+  const procToSkillsActive = isProcToSkillsActive(config);
   const instruction = buildForkInstruction({
     windowStartTimestamp,
     windowAnchorKind: turnContextTimestamp ? "turn_context" : "created_at",
     priorRemembers,
     timeZone: timezoneContext.effectiveTimezone,
     isFirstPass: lastProcessedMessageId == null,
+    procToSkillsActive,
   });
   try {
     await addMessage(
@@ -312,16 +316,29 @@ export async function runForkBasedRetrospective(
       source: MEMORY_RETROSPECTIVE_SOURCE,
       trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
       callSite: "memoryRetrospective",
-      allowedTools: ["remember"],
+      // `remember` saves ordinary facts; the skill-authoring trio
+      // (`scaffold_managed_skill` / `skill_load` / `find_similar_skills`) lets a
+      // pass author or refine a managed skill from an observed procedure. The
+      // allowlist is gated on the same `procToSkillsActive` predicate as the
+      // fork instruction and the checker's origin-scoped grant, so an inactive
+      // install is remember-only — the authoring trio is not even named on the
+      // allowlist. Any tool outside the active set is rejected at execution time.
+      allowedTools: procToSkillsActive
+        ? [
+            "remember",
+            "scaffold_managed_skill",
+            "skill_load",
+            "find_similar_skills",
+          ]
+        : ["remember"],
       // Always keep the source's full tool surface on the wire and resolve it
       // under the source's client context (`toolContextPin`). The wire tool
       // block is the first tier of the provider cache prefix
-      // (tools → system → messages), so a `remember`-only wire filter busts
-      // cache parity with the source's live turns — re-creating the cached
-      // prefix instead of reading it. The allowlist still holds at execution
-      // time: non-`remember` calls are rejected before any executor or side
-      // effect runs. See {@link SubagentToolGateMode} and
-      // {@link WakeToolContextPin}.
+      // (tools → system → messages), so a wire filter busts cache parity with
+      // the source's live turns — re-creating the cached prefix instead of
+      // reading it. The allowlist still holds at execution time: non-allowlisted
+      // calls are rejected before any executor or side effect runs. See
+      // {@link SubagentToolGateMode} and {@link WakeToolContextPin}.
       toolGateMode: "execution" as const,
       toolContextPin,
       // Message-tier cache-prefix parity — reproducing the source's
@@ -486,7 +503,15 @@ function resolveSourceParityPins(
       };
   return {
     personaOverride,
-    toolContextPin: { hasNoClient, transportInterface },
+    // Pin the retrospective origin so the wake's tool calls resolve under it
+    // (`buildPolicyContext` → the checker's origin-scoped skill-authoring
+    // grant). The grant is independently gated on proc-to-skills being active,
+    // so stamping the origin unconditionally is inert when the feature is off.
+    toolContextPin: {
+      hasNoClient,
+      transportInterface,
+      requestOrigin: MEMORY_RETROSPECTIVE_ORIGIN,
+    },
   };
 }
 
@@ -833,6 +858,13 @@ interface ForkInstructionArgs {
   timeZone: string;
   /** True when this is the first retrospective pass over the source conversation. */
   isFirstPass: boolean;
+  /**
+   * Whether procedural-memory-as-skills is active (flag on AND memory-v3 live).
+   * Gates the skill-authoring section of the instruction: when false the pass
+   * keeps its remember-only behavior, matching the permission checker's grant
+   * gate so the directives never appear when the tools would be denied anyway.
+   */
+  procToSkillsActive: boolean;
 }
 
 /**
@@ -849,6 +881,7 @@ function buildForkInstruction({
   priorRemembers,
   timeZone,
   isFirstPass,
+  procToSkillsActive,
 }: ForkInstructionArgs): string {
   const renderedPrior =
     priorRemembers.length === 0
@@ -863,7 +896,11 @@ function buildForkInstruction({
     ? "Your review window is the full conversation above, ending just before this instruction message."
     : `Your review window starts at ${anchorDescription} and ends just before this instruction message. If you cannot locate that anchoring turn in your visible history (for example, it is behind the compaction summary), fail closed: review only the most recent visible messages after the summary, not the whole conversation.`;
 
-  return `This is an automated background memory pass over the conversation above — not a message from the user. Do not reply conversationally; just perform the review described here. Only the \`remember\` tool is available for this pass — any other tool call will be rejected, so don't attempt one.
+  const availableToolsLine = procToSkillsActive
+    ? "Only `remember`, `find_similar_skills`, `scaffold_managed_skill`, and `skill_load skill-management` are available for this pass — any other tool call will be rejected, so don't attempt one."
+    : "Only the `remember` tool is available for this pass — any other tool call will be rejected, so don't attempt one.";
+
+  return `This is an automated background memory pass over the conversation above — not a message from the user. Do not reply conversationally; just perform the review described here. ${availableToolsLine}
 
 ${windowAnchor}
 
@@ -880,5 +917,30 @@ Two dedup sources to skip:
 2. Anything you already called \`remember\` on inline within your review window — those appear as \`tool_use\` blocks with \`name: "remember"\` in your history.
 
 For everything else in your review window, use the \`remember\` tool on facts, plans, decisions, preferences, names, dates, felt moments, corrections, commitments, or anything else concrete and worth carrying forward. When several facts are worth saving, pass them all as an array to a single \`remember\` call rather than calling it once per fact. If nothing new is worth saving, say "Nothing new to save." and stop.
+${procToSkillsActive ? buildSkillAuthoringSection() : ""}`;
+}
+
+/**
+ * Skill-authoring addendum appended to the fork instruction when
+ * procedural-memory-as-skills is active. Directs the pass to capture a
+ * genuinely-executed, reusable procedure as a managed skill — preferring to
+ * refine an existing assistant-authored sibling over spawning a new one, and
+ * never folder-rewriting a user-authored skill.
+ */
+function buildSkillAuthoringSection(): string {
+  return `
+---
+
+If your review window contains a PROCEDURE you actually carried out — a sequence of real \`tool_use\` steps you executed (not merely discussed or planned) that is plausibly worth reusing later — also consider capturing it as a managed skill. Keep this bar low: when in doubt and the procedure looks reusable, author it. If the window contains no executed, reusable procedure, skip this entirely and just \`remember\` as above.
+
+When you do capture a procedure:
+
+1. Deduplicate against existing skills first. Call \`find_similar_skills\` with a short description of the procedure's goal. If a returned skill is the SAME procedure (not just an adjacent one), UPDATE it rather than creating a sibling: call \`scaffold_managed_skill\` with that skill's existing \`skill_id\` and \`overwrite: true\`, rewriting the body from what you actually observed in the trace. Otherwise CREATE a new skill with a fresh \`skill_id\`. Bias strongly toward reusing or refining over spawning near-duplicates.
+
+2. Capture procedure-scoped knowledge alongside the body. Failure modes, gotchas, and cached values you observed in the trace (error signatures and how you recovered, preconditions, IDs/paths/endpoints that held steady) belong in companion files passed via \`scaffold_managed_skill\`'s \`files\` input (for example \`references/failure-modes.md\`), and the SKILL.md body should reference them so a future load surfaces them.
+
+3. Never folder-rewrite a user-authored skill. If \`find_similar_skills\` returns a skill a person wrote or installed, do not \`overwrite\` it or write companion \`files\` into it — refine conservatively or skip. Companion-file capture and overwrites apply only to skills you authored.
+
+Ordinary facts still go through \`remember\` (unlinked) exactly as above — skills are for executed, reusable procedures, not for facts.
 `;
 }

@@ -623,40 +623,56 @@ describe("Permission Checker (gateway IPC)", () => {
       expect(result.decision).toBe("prompt");
     });
 
-    // ── Memory-consolidation skill-authoring auto-grant ─────────────────────
-    // The background consolidation guardian session (sourceChannel "vellum",
-    // trustClass "guardian", origin "memory_consolidation") cannot answer
-    // interactive prompts, so `scaffold_managed_skill` and
-    // `skill_load skill-management` resolve to allow without prompting. The
-    // grant is scoped to that origin + those two tools, and ONLY fires when the
+    // ── Memory-retrospective skill-authoring auto-grant ─────────────────────
+    // The background retrospective guardian session (sourceChannel "vellum",
+    // trustClass "guardian", origin "memory_retrospective") cannot answer
+    // interactive prompts, so `scaffold_managed_skill`, `find_similar_skills`,
+    // and `skill_load skill-management` resolve to allow without prompting. The
+    // grant is scoped to that origin + those tools, and ONLY fires when the
     // feature is active (`procToSkillsActive: true`).
 
-    const consolidationContext = {
-      requestOrigin: "memory_consolidation",
+    const retrospectiveContext = {
+      requestOrigin: "memory_retrospective",
       trustClass: "guardian",
       sourceChannel: "vellum",
       executionContext: "background" as const,
       procToSkillsActive: true,
     };
 
-    test("allows scaffold_managed_skill for the consolidation origin without prompting", async () => {
+    test("allows scaffold_managed_skill for the retrospective origin without prompting", async () => {
       // High risk would normally force a prompt — the grant short-circuits
       // before classification, so no IPC result is needed.
       const result = await check(
         "scaffold_managed_skill",
         { skill_id: "deploy-preview" },
         "/home/user/project",
-        consolidationContext,
+        retrospectiveContext,
       );
       expect(result.decision).toBe("allow");
     });
 
-    test("allows skill_load skill-management for the consolidation origin without prompting", async () => {
+    test("allows find_similar_skills for the retrospective origin without prompting", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Skill discovery",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      const result = await check(
+        "find_similar_skills",
+        { goal: "deploy a preview" },
+        "/home/user/project",
+        retrospectiveContext,
+      );
+      expect(result.decision).toBe("allow");
+    });
+
+    test("allows skill_load skill-management for the retrospective origin without prompting", async () => {
       const result = await check(
         "skill_load",
         { skill: "skill-management" },
         "/home/user/project",
-        consolidationContext,
+        retrospectiveContext,
       );
       expect(result.decision).toBe("allow");
     });
@@ -672,12 +688,12 @@ describe("Permission Checker (gateway IPC)", () => {
         "skill_load",
         { skill: "some-other-skill" },
         "/home/user/project",
-        consolidationContext,
+        retrospectiveContext,
       );
       expect(result.decision).toBe("prompt");
     });
 
-    test("does not grant for tools outside the scaffold/skill_load pair", async () => {
+    test("does not grant for tools outside the scaffold/find/skill_load set", async () => {
       mockIpcClassifyRiskResult = {
         risk: "high",
         reason: "Managed skill delete",
@@ -688,7 +704,7 @@ describe("Permission Checker (gateway IPC)", () => {
         "delete_managed_skill",
         { skill_id: "deploy-preview" },
         "/home/user/project",
-        consolidationContext,
+        retrospectiveContext,
       );
       expect(result.decision).toBe("prompt");
     });
@@ -700,12 +716,37 @@ describe("Permission Checker (gateway IPC)", () => {
         matchType: "registry",
         scopeOptions: [],
       };
-      // A normal interactive turn carries no consolidation origin signals.
+      // A normal interactive turn carries no retrospective origin signals.
       const result = await check(
         "scaffold_managed_skill",
         { skill_id: "deploy-preview" },
         "/home/user/project",
         { executionContext: "conversation" },
+      );
+      expect(result.decision).toBe("prompt");
+    });
+
+    test("the old memory_consolidation origin no longer grants skill authoring", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Skill scaffold",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      // Same guardian/vellum background trust and active feature, but the
+      // consolidation origin — which previously held the grant — must no longer
+      // authorize skill authoring now that it re-points to the retrospective.
+      const result = await check(
+        "scaffold_managed_skill",
+        { skill_id: "deploy-preview" },
+        "/home/user/project",
+        {
+          requestOrigin: "memory_consolidation",
+          trustClass: "guardian",
+          sourceChannel: "vellum",
+          executionContext: "background",
+          procToSkillsActive: true,
+        },
       );
       expect(result.decision).toBe("prompt");
     });
@@ -718,7 +759,7 @@ describe("Permission Checker (gateway IPC)", () => {
         scopeOptions: [],
       };
       // Same guardian/vellum background trust, but a different origin (e.g.
-      // the memory sweep job) must not inherit the consolidation grant.
+      // the memory sweep job) must not inherit the retrospective grant.
       const result = await check(
         "scaffold_managed_skill",
         { skill_id: "deploy-preview" },
@@ -728,6 +769,7 @@ describe("Permission Checker (gateway IPC)", () => {
           trustClass: "guardian",
           sourceChannel: "vellum",
           executionContext: "background",
+          procToSkillsActive: true,
         },
       );
       expect(result.decision).toBe("prompt");
@@ -745,10 +787,11 @@ describe("Permission Checker (gateway IPC)", () => {
         { skill_id: "deploy-preview" },
         "/home/user/project",
         {
-          requestOrigin: "memory_consolidation",
+          requestOrigin: "memory_retrospective",
           trustClass: "unknown",
           sourceChannel: "vellum",
           executionContext: "background",
+          procToSkillsActive: true,
         },
       );
       expect(result.decision).toBe("prompt");
@@ -761,14 +804,14 @@ describe("Permission Checker (gateway IPC)", () => {
         matchType: "registry",
         scopeOptions: [],
       };
-      // The exact consolidation origin/trust/channel, but the feature is
+      // The exact retrospective origin/trust/channel, but the feature is
       // inactive — `procToSkillsActive` is not true — so the grant must NOT
       // fire and the high-risk tool prompts.
       const result = await check(
         "scaffold_managed_skill",
         { skill_id: "deploy-preview" },
         "/home/user/project",
-        { ...consolidationContext, procToSkillsActive: false },
+        { ...retrospectiveContext, procToSkillsActive: false },
       );
       expect(result.decision).toBe("prompt");
     });
@@ -778,25 +821,25 @@ describe("Permission Checker (gateway IPC)", () => {
     // exercise the WIRING: a `ToolContext` (the shape the agent loop actually
     // builds — see conversation-tool-setup.ts) is run through the real
     // `buildPolicyContext`, and only then handed to `check`. Without the
-    // origin/trust/channel threading added here, `buildPolicyContext` would
-    // drop those fields and the grant would be dead code (Codex #35987).
+    // origin/trust/channel threading, `buildPolicyContext` would drop those
+    // fields and the grant would be dead code.
 
     /** A bare core tool — `buildPolicyContext` reads only `tool.name`/owner. */
     const scaffoldTool = {
       name: "scaffold_managed_skill",
     } as unknown as Tool;
 
-    /** The ToolContext a memory-consolidation distillation turn produces. */
-    const consolidationToolContext: ToolContext = {
-      conversationId: "conv-distill",
+    /** The ToolContext a memory-retrospective pass produces. */
+    const retrospectiveToolContext: ToolContext = {
+      conversationId: "conv-retro",
       workingDir: "/home/user/project",
       trustClass: "guardian",
       executionChannel: "vellum",
-      requestOrigin: "memory_consolidation",
+      requestOrigin: "memory_retrospective",
       isInteractive: false,
     };
 
-    test("grant fires through the real buildPolicyContext path for the consolidation turn", async () => {
+    test("grant fires through the real buildPolicyContext path for the retrospective turn", async () => {
       // High risk would normally force a prompt; the grant short-circuits it.
       mockIpcClassifyRiskResult = {
         risk: "high",
@@ -806,11 +849,11 @@ describe("Permission Checker (gateway IPC)", () => {
       };
       const policyContext = buildPolicyContext(
         scaffoldTool,
-        consolidationToolContext,
+        retrospectiveToolContext,
       );
       // Prove the threading: buildPolicyContext copied the ToolContext signals
       // and stamped the active proc-to-skills gate.
-      expect(policyContext.requestOrigin).toBe("memory_consolidation");
+      expect(policyContext.requestOrigin).toBe("memory_retrospective");
       expect(policyContext.trustClass).toBe("guardian");
       expect(policyContext.sourceChannel).toBe("vellum");
       expect(policyContext.procToSkillsActive).toBe(true);
@@ -831,7 +874,7 @@ describe("Permission Checker (gateway IPC)", () => {
         matchType: "registry",
         scopeOptions: [],
       };
-      // A normal interactive turn: a guardian on the desktop, no consolidation
+      // A normal interactive turn: a guardian on the desktop, no retrospective
       // origin. buildPolicyContext leaves `requestOrigin` unset, so the grant
       // must not fire and the high-risk tool prompts.
       const interactiveContext: ToolContext = {
@@ -856,8 +899,8 @@ describe("Permission Checker (gateway IPC)", () => {
       expect(result.decision).toBe("prompt");
     });
 
-    test("grant does NOT fire when proc-to-skills is inactive, even for the consolidation turn", async () => {
-      // Same consolidation ToolContext, but the feature is inactive (flag off
+    test("grant does NOT fire when proc-to-skills is inactive, even for the retrospective turn", async () => {
+      // Same retrospective ToolContext, but the feature is inactive (flag off
       // or v3 not live). buildPolicyContext stamps `procToSkillsActive: false`,
       // so the grant is dead and the high-risk scaffold prompts.
       mockProcToSkillsActive = false;
@@ -869,10 +912,10 @@ describe("Permission Checker (gateway IPC)", () => {
       };
       const policyContext = buildPolicyContext(
         scaffoldTool,
-        consolidationToolContext,
+        retrospectiveToolContext,
       );
       expect(policyContext.procToSkillsActive).toBe(false);
-      expect(policyContext.requestOrigin).toBe("memory_consolidation");
+      expect(policyContext.requestOrigin).toBe("memory_retrospective");
 
       const result = await check(
         "scaffold_managed_skill",

@@ -76,7 +76,7 @@ export interface PolicyContext {
   conversationId?: string;
   /**
    * Origin tag of the turn driving this permission check (the conversation's
-   * `TitleOrigin`, e.g. "memory_consolidation"). Background jobs cannot answer
+   * `TitleOrigin`, e.g. "memory_retrospective"). Background jobs cannot answer
    * interactive approval prompts, so the checker uses this — together with
    * {@link trustClass} / {@link sourceChannel} — to scope narrow non-interactive
    * auto-grants to a specific internal origin without broadening any other
@@ -90,7 +90,7 @@ export interface PolicyContext {
   /**
    * Whether procedural-memory-as-skills is active for this assistant (the
    * `procedural-memory-as-skills` flag is on AND memory-v3 is live). Precomputed
-   * in {@link buildPolicyContext} so the checker can gate the memory-consolidation
+   * in {@link buildPolicyContext} so the checker can gate the memory-retrospective
    * skill-authoring auto-grant on the feature without reading config itself.
    * Undefined/false when the feature is inactive — the grant then never fires.
    */

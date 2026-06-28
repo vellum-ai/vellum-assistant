@@ -35,7 +35,7 @@ export function buildPolicyContext(
   const conversationId = context?.conversationId;
 
   // Origin/trust/channel signals the checker uses to scope narrow
-  // non-interactive auto-grants (e.g. the memory-consolidation skill-authoring
+  // non-interactive auto-grants (e.g. the memory-retrospective skill-authoring
   // grant) to a specific internal origin. Background-job turns populate
   // `requestOrigin`; `trustClass`/`executionChannel` come from the turn's
   // resolved trust context. Undefined for normal interactive turns, so no
@@ -46,7 +46,7 @@ export function buildPolicyContext(
     sourceChannel: context?.executionChannel,
     // Precompute the proc-to-skills gate (flag on AND v3 live) here so the
     // permission checker — a leaf module that must not read config — can deny
-    // the memory-consolidation skill-authoring grant whenever the feature is
+    // the memory-retrospective skill-authoring grant whenever the feature is
     // inactive, just by reading this boolean.
     procToSkillsActive: isProcToSkillsActive(getConfig()),
   };

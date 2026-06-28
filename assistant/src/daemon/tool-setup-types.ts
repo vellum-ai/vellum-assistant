@@ -54,6 +54,15 @@ export interface WakeToolContextPin {
   hasNoClient: boolean;
   /** The interface the source's live turns ran on (e.g. `"macos"`). */
   transportInterface?: InterfaceId;
+  /**
+   * Origin tag stamped onto `ToolContext.requestOrigin` for the duration of
+   * the wake (e.g. `"memory_retrospective"`). Wakes bypass `runAgentLoopImpl`,
+   * which is what normally sets `currentTurnRequestOrigin`, so the pin carries
+   * the origin through to `buildPolicyContext` → the permission checker's
+   * origin-scoped auto-grants. Applied and restored alongside the allowlist by
+   * `scopeWakeAllowedTools`. Unset for wakes that need no origin-scoped grant.
+   */
+  requestOrigin?: string;
 }
 
 /**

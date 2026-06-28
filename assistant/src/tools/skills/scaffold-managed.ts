@@ -1,6 +1,17 @@
 import { refreshSkillCapabilityMemories } from "../../daemon/skill-memory-refresh.js";
-import { createManagedSkill } from "../../skills/managed-store.js";
+import { readInstallMeta } from "../../skills/install-meta.js";
+import {
+  createManagedSkill,
+  getManagedSkillDir,
+} from "../../skills/managed-store.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
+
+/**
+ * Origin tag the memory-retrospective wake stamps onto `ToolContext`. Scaffolds
+ * under this origin are tagged `author: "assistant"` and may not folder-rewrite
+ * a `author: "user"` skill (see the backstop in `executeScaffoldManagedSkill`).
+ */
+const MEMORY_RETROSPECTIVE_ORIGIN = "memory_retrospective";
 
 /** Strip embedded newlines/carriage returns to prevent YAML frontmatter injection. */
 function sanitizeFrontmatterValue(value: string): string {
@@ -13,7 +24,7 @@ function sanitizeFrontmatterValue(value: string): string {
  */
 export async function executeScaffoldManagedSkill(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const skillId = input.skill_id;
   if (typeof skillId !== "string" || !skillId.trim()) {
@@ -122,6 +133,30 @@ export async function executeScaffoldManagedSkill(
     }
   }
 
+  const fromRetrospective =
+    context.requestOrigin === MEMORY_RETROSPECTIVE_ORIGIN;
+  const author = fromRetrospective ? "assistant" : "user";
+
+  // Backstop: a retrospective pass may only overwrite or write companion files
+  // into a skill IT authored. Refuse an overwrite OR companion-file write that
+  // targets an EXISTING skill that is not `author: "assistant"` — i.e. both
+  // `author: "user"` AND untagged/legacy skills (e.g. those created via the
+  // `createSkill` API route, whose install-meta carries no author) are
+  // protected, matching the prune side where untagged skills are never pruned.
+  // The prompt already directs the model to refine such skills conservatively or
+  // author a new one; this is the enforcement layer behind that judgement call.
+  // `readInstallMeta` returns null for a not-yet-existing skill, so a fresh
+  // create falls through.
+  if (fromRetrospective && (input.overwrite === true || files !== undefined)) {
+    const existingMeta = readInstallMeta(getManagedSkillDir(skillId.trim()));
+    if (existingMeta !== null && existingMeta.author !== "assistant") {
+      return {
+        content: `Error: skill "${skillId.trim()}" is not assistant-authored; the retrospective may not overwrite it or write companion files into it. Author a new skill instead.`,
+        isError: true,
+      };
+    }
+  }
+
   const result = createManagedSkill({
     id: skillId.trim(),
     name: sanitizeFrontmatterValue(name),
@@ -134,6 +169,7 @@ export async function executeScaffoldManagedSkill(
     overwrite: input.overwrite === true,
     includes,
     files,
+    author,
   });
 
   if (!result.created) {
