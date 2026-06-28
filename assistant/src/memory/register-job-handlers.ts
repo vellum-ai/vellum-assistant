@@ -36,6 +36,7 @@ import { buildConversationSummaryJob } from "./job-handlers/summarization.js";
 import { embedConceptPageJob } from "./jobs/embed-concept-page.js";
 import { embedPkbFileJob } from "./jobs/embed-pkb-file.js";
 import { memoryRetrospectiveJob } from "./memory-retrospective-job.js";
+import { resolveMemoryProviderId } from "./provider/provider-id.js";
 import {
   memoryV2ActivationRecomputeJob,
   memoryV2MigrateJob,
@@ -131,10 +132,14 @@ export function registerMemoryJobHandlers(): void {
     pruneOldTraceEventsJob(job, config),
   );
   registerJobHandler("build_conversation_summary", async (job, config) => {
-    // Stale rows enqueued before v2 was enabled must not consume the
-    // `conversationSummarization` LLM budget — v2 readers do not consume
-    // `memorySummaries`, mirroring the `graph_extract` gate below.
-    if (config.memory.v2.enabled) return;
+    // Conversation summaries feed only the v1 graph read path
+    // (`fetchRecentSummaries`, v1 semantic search); the v2/v3 readers (concept
+    // pages, activation pipeline) do not consume `memorySummaries`. So this is a
+    // v1 graph job gated exactly like `graph_extract` below: run it only when
+    // the resolved provider is the graph system, otherwise the
+    // `conversationSummarization` LLM budget is spent producing rows nothing
+    // reads.
+    if (resolveMemoryProviderId(config) !== "graph") return;
     await buildConversationSummaryJob(job, config);
   });
   registerJobHandler("backfill", (job, config) => backfillJob(job, config));
@@ -159,9 +164,15 @@ export function registerMemoryJobHandlers(): void {
     embedGraphTriggerJob(job, config),
   );
   registerJobHandler("graph_extract", async (job, config) => {
-    // Stale rows enqueued before v2 was enabled (or by any unguarded v1
-    // path) must not consume embedding/extraction budget when v2 is on.
-    if (config.memory.v2.enabled) return;
+    // `graph_extract` writes the v1 graph, so run it only when the resolved
+    // provider is the graph system. Gating on the resolved provider id (not the
+    // raw `v2.enabled` flag) lets an explicit `memory.provider: "graph"` pin
+    // keep extracting even while `v2.enabled` sits at its schema default, while
+    // stale rows enqueued before v2 was enabled (or by any unguarded v1 path)
+    // still skip extraction budget under v2/v3/none. Under the default
+    // `provider: "auto"` the resolution derives from `v2.enabled`, so migrated
+    // setups are unaffected.
+    if (resolveMemoryProviderId(config) !== "graph") return;
     await graphExtractJob(job, config);
   });
   registerJobHandler("conversation_analyze", (job, config) =>
