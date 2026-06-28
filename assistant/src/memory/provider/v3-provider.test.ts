@@ -160,15 +160,6 @@ describe("V3MemoryProvider", () => {
     expect(blocks[0]!.id).toBe(MEMORY_V3_SPOTLIGHT_BLOCK_ID);
   });
 
-  test("retrieveForTurn contributes nothing without turn fields (no call-site wiring yet)", async () => {
-    cardsBlock = freshCardsBlock();
-    const blocks = await V3MemoryProvider.retrieveForTurn(
-      ctx({ turnIndex: undefined, trust: undefined }),
-    );
-    expect(blocks).toEqual([]);
-    expect(cardsContexts).toHaveLength(0);
-  });
-
   test("provideTools is empty; provideRoutes returns the v3 maintenance routes", () => {
     expect(V3MemoryProvider.provideTools()).toEqual([]);
     expect(V3MemoryProvider.provideRoutes()).toBe(MEMORY_V3_ROUTES);

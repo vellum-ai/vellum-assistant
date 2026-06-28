@@ -2,7 +2,6 @@ import { join } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
-import { isMemoryV3Live } from "../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../config/types.js";
 import {
   checkDiskPressureBackgroundGate,
@@ -23,6 +22,7 @@ import {
   recordBillingBlock,
 } from "../memory/embedding-billing-breaker.js";
 import { sweepOrphanMemoryRetrospectiveConversations } from "../memory/memory-retrospective-startup-cleanup.js";
+import { resolveMemoryProviderId } from "../memory/provider/provider-id.js";
 import { QdrantCircuitOpenError } from "../memory/qdrant-circuit-breaker.js";
 import { countBufferLines } from "../memory/v2/consolidation-job.js";
 import { spawnMemoryWorkerProcess } from "../memory/worker-control.js";
@@ -759,7 +759,7 @@ export function maybeEnqueueGraphMaintenanceJobs(
   // this guard is belt-and-suspenders that also avoids a wasted enqueue.
   if (
     isAssistantFeatureFlagEnabled("memory-v3-shadow", config) ||
-    isMemoryV3Live(config)
+    resolveMemoryProviderId(config) === "v3"
   ) {
     schedule.push({
       key: GRAPH_MAINTENANCE_CHECKPOINTS.memoryV3Maintain,

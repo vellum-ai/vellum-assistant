@@ -21,13 +21,13 @@ const FLAG_SHADOW = "memory-v3-shadow";
 
 // The shadow flag resolver ignores the passed config and reads the override
 // cache; the config arg only satisfies the signature. Shadow is driven via
-// `setOverridesForTesting`; v3-live (now config-gated) is driven through the
-// `isMemoryV3Live` mock slot below.
+// `setOverridesForTesting`; v3-live (resolved from `memory.provider`) is driven
+// through the `resolveMemoryProviderId` mock slot below.
 const CONFIG = {} as AssistantConfig;
 
 let memoryV3LiveSlot = false;
-mock.module("../../../../config/memory-v3-gate.js", () => ({
-  isMemoryV3Live: () => memoryV3LiveSlot,
+mock.module("../../../../memory/provider/provider-id.js", () => ({
+  resolveMemoryProviderId: () => (memoryV3LiveSlot ? "v3" : "v2"),
 }));
 
 function makeSection(article: Slug, ordinal: number): Section {

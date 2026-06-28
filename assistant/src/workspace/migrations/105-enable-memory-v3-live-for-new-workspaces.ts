@@ -9,8 +9,9 @@ import type { MigrationRunContext, WorkspaceMigration } from "./types.js";
  *
  * The schema default is `false`, so existing assistants keep running v2 on
  * upgrade — this migration writes the value only for freshly-created
- * workspaces. The value gates v3 via `isMemoryV3Live`; existing assistants are
- * switched on deliberately, never automatically. Covers every surface (local,
+ * workspaces. The value selects v3 through the `memory.provider: "auto"`
+ * resolution; existing assistants are switched on deliberately, never
+ * automatically. Covers every surface (local,
  * Docker, managed) uniformly because all run workspace migrations on first boot.
  */
 export const enableMemoryV3LiveForNewWorkspacesMigration: WorkspaceMigration = {

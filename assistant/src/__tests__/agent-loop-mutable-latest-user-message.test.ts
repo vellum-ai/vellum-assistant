@@ -19,11 +19,11 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
 }));
 
-// AgentLoop reads the v3-live gate (`config.memory.v3.live`) via
-// `isMemoryV3Live` to decide the cache-anchor signal; drive it per-test.
+// AgentLoop resolves the active memory provider via `resolveMemoryProviderId`
+// to decide the cache-anchor signal; drive the v3-live branch per-test.
 let memoryV3LiveSlot = false;
-mock.module("../config/memory-v3-gate.js", () => ({
-  isMemoryV3Live: () => memoryV3LiveSlot,
+mock.module("../memory/provider/provider-id.js", () => ({
+  resolveMemoryProviderId: () => (memoryV3LiveSlot ? "v3" : "v2"),
 }));
 
 import { AgentLoop } from "../agent/loop.js";

@@ -52,20 +52,20 @@
  */
 
 import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
-import { isMemoryV3Live } from "../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../config/types.js";
 import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
 } from "../../../memory/checkpoints.js";
+import { resolveMemoryProviderId } from "../../../memory/provider/provider-id.js";
+import { getPageIndex } from "../../../memory/v2/page-index.js";
+import { readPage } from "../../../memory/v2/page-store.js";
 import {
   EmbeddingBackendUnavailableError,
   embedWithBackend,
 } from "../../../persistence/embeddings/embedding-backend.js";
 import { EmbeddingBillingBlockError } from "../../../persistence/embeddings/embedding-billing-breaker.js";
 import type { MemoryJob } from "../../../persistence/jobs-store.js";
-import { getPageIndex } from "../../../memory/v2/page-index.js";
-import { readPage } from "../../../memory/v2/page-store.js";
 import { getLogger } from "../../../util/logger.js";
 import { getWorkspaceDir } from "../../../util/platform.js";
 import { capabilityOrDiskBody, isCapabilitySlug } from "./capabilities.js";
@@ -658,7 +658,7 @@ export async function maintainJob(
 
   const enabled =
     isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config) ||
-    isMemoryV3Live(config);
+    resolveMemoryProviderId(config) === "v3";
   if (!enabled) {
     outcome.disabled = true;
     return outcome;

@@ -84,6 +84,8 @@ function makeCtx(v2Enabled: boolean): MemoryProviderContext {
     requestId: "req-1",
     messages,
     config: makeMemoryConfig(v2Enabled),
+    turnIndex: 0,
+    trust: { sourceChannel: "vellum", trustClass: "guardian" },
   };
 }
 

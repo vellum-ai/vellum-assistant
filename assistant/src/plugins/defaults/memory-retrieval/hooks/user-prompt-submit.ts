@@ -33,7 +33,6 @@ import type {
 } from "@vellumai/plugin-api";
 
 import { getConfig } from "../../../../config/loader.js";
-import { isMemoryV3Live } from "../../../../config/memory-v3-gate.js";
 import { findConversationOrSubagent } from "../../../../daemon/conversation-registry.js";
 import {
   applyRuntimeInjections,
@@ -43,8 +42,9 @@ import {
 } from "../../../../daemon/conversation-runtime-assembly.js";
 import type { MemoryRecalled } from "../../../../daemon/message-types/memory.js";
 import { resolveTrustClass } from "../../../../daemon/trust-context.js";
-import { updateMessageMetadata } from "../../../../persistence/conversation-crud.js";
 import { recordMemoryRecallLog } from "../../../../memory/memory-recall-log-store.js";
+import { resolveMemoryProviderId } from "../../../../memory/provider/provider-id.js";
+import { updateMessageMetadata } from "../../../../persistence/conversation-crud.js";
 import { broadcastMessage } from "../../../../runtime/assistant-event-hub.js";
 import type { GraphMemoryResult } from "../../../types.js";
 import { MEMORY_V3_INJECTED_BLOCK_METADATA_KEY } from "../../memory-v3-shadow/ever-injected-store.js";
@@ -286,7 +286,7 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
   // presence checks stay inline so the block below narrows. NOTE: this removes
   // the v2 fallback — under v3-live, a v3 empty/failed selection yields no NEW
   // injected memory that turn (prior turns' frozen v3 cards still ride history).
-  const memoryV3Live = isMemoryV3Live(config);
+  const memoryV3Live = resolveMemoryProviderId(config) === "v3";
   let v2BlockPersisted = false;
   if (
     shouldRunV2Retrieval({ isTrustedActor, memoryV3Live }) &&

@@ -19,8 +19,8 @@
  * gate alone: a v3 failure (`produce()` → null) leaves v2's block intact
  * (fallback-to-v2). The v3-off path must be byte-for-byte identical to
  * today — that is the load-bearing regression guard. `applyRuntimeInjections`
- * reads the v3-live gate itself, so these tests drive it through the
- * `isMemoryV3Live` mock slot.
+ * resolves the active memory provider itself, so these tests drive it through
+ * the `resolveMemoryProviderId` mock slot.
  *
  * The strip discriminates v2's dynamic block by IDENTITY, not by prefix: v2's
  * `INJECTION_HEADER` and v3's `V3_CARDS_INJECTION_HEADER` are deliberately
@@ -52,11 +52,12 @@ mock.module("../plugins/defaults/memory-retrieval/injector-chain.js", () => ({
   getInjectorChain: () => injectorChainSlot,
 }));
 
-// `applyRuntimeInjections` reads the v3-live gate (`config.memory.v3.live`)
-// via `isMemoryV3Live`; drive it directly through this slot per-test.
+// `applyRuntimeInjections` resolves the active memory provider via
+// `resolveMemoryProviderId`; drive the v3-live branch directly through this
+// slot per-test.
 let memoryV3LiveSlot = false;
-mock.module("../config/memory-v3-gate.js", () => ({
-  isMemoryV3Live: () => memoryV3LiveSlot,
+mock.module("../memory/provider/provider-id.js", () => ({
+  resolveMemoryProviderId: () => (memoryV3LiveSlot ? "v3" : "v2"),
 }));
 
 const { applyRuntimeInjections } =

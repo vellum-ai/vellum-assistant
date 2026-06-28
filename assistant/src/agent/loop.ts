@@ -1,7 +1,6 @@
 import * as Sentry from "@sentry/node";
 
 import { getConfig } from "../config/loader.js";
-import { isMemoryV3Live } from "../config/memory-v3-gate.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import {
@@ -15,6 +14,7 @@ import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.
 import { parseActualTokensFromError } from "../daemon/parse-actual-tokens-from-error.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { stripHistoricalWebSearchResults } from "../daemon/web-search-history.js";
+import { resolveMemoryProviderId } from "../memory/provider/provider-id.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type {
   AgentLoopExitReason,
@@ -1406,7 +1406,7 @@ export class AgentLoop {
         // volatile latest one. Read here alongside the rest of the provider
         // config; only set when true so the wire/config stays byte-identical
         // when off.
-        if (isMemoryV3Live(getConfig())) {
+        if (resolveMemoryProviderId(getConfig()) === "v3") {
           providerConfig.mutableLatestUserMessage = true;
         }
 

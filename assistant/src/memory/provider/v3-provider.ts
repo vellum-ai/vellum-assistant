@@ -21,7 +21,6 @@
  * already import from the same shadow tree, and no boundary guard forbids it.
  */
 
-import type { TrustContext } from "../../daemon/trust-context.js";
 import {
   memoryV3Injector,
   memoryV3SpotlightInjector,
@@ -33,35 +32,12 @@ import type { ToolDefinition } from "../../tools/types.js";
 import type { MemoryProvider, MemoryProviderContext } from "./types.js";
 
 /**
- * The turn-level fields the v3 injectors require beyond the base
- * {@link MemoryProviderContext}: the 0-based `turnIndex` (the orchestration
- * memo key and shadow-turn `turnNumber`) and the {@link TrustContext} that
- * drives the personal-memory trust gate. Call sites that wire the provider in
- * (a later PR) pass these through alongside the base context; until then the
- * adapter reads them off the context when present and otherwise contributes
- * nothing (the injectors no-op without a routable turn).
- */
-export interface V3MemoryProviderContext extends MemoryProviderContext {
-  /** 0-based turn index within the conversation. */
-  readonly turnIndex: number;
-  /** Trust classification and channel identity for the inbound actor. */
-  readonly trust: TrustContext;
-}
-
-function hasTurnFields(
-  ctx: MemoryProviderContext,
-): ctx is V3MemoryProviderContext {
-  const c = ctx as Partial<V3MemoryProviderContext>;
-  return typeof c.turnIndex === "number" && c.trust != null;
-}
-
-/**
  * Build the {@link TurnContext} the v3 injectors consume from the provider
  * context. Only the fields the injectors read (`requestId`, `conversationId`,
  * `turnIndex`, `trust`) are populated; every other `TurnContext` field is an
  * optional per-turn injection input the v3 injectors ignore.
  */
-function toTurnContext(ctx: V3MemoryProviderContext): TurnContext {
+function toTurnContext(ctx: MemoryProviderContext): TurnContext {
   return {
     requestId: ctx.requestId,
     conversationId: ctx.conversationId,
@@ -90,7 +66,6 @@ export const V3MemoryProvider = {
   },
 
   async retrieveForTurn(ctx: MemoryProviderContext): Promise<InjectionBlock[]> {
-    if (!hasTurnFields(ctx)) return [];
     const turnCtx = toTurnContext(ctx);
     // Cards first, then spotlight — the injectors' own order (1000 then 1001),
     // preserved so the spotlight block splices immediately after the cards
