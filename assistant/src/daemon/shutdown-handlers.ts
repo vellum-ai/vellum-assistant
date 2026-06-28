@@ -9,6 +9,7 @@ import { stopMemoryJobsWorker } from "../memory/jobs-worker.js";
 import { stopQdrantManager } from "../memory/qdrant-manager.js";
 import { stopMemoryWorkerProcess } from "../memory/worker-control.js";
 import type { RuntimeHttpServer } from "../runtime/http-server.js";
+import { stopScheduler } from "../schedule/scheduler.js";
 import { stopUsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { browserManager } from "../tools/browser/browser-manager.js";
 import { cleanupShellOutputTempFiles } from "../tools/shared/shell-output.js";
@@ -43,7 +44,6 @@ export interface ShutdownDeps {
   heartbeat: HeartbeatService;
   filing: FilingService | null;
   runtimeHttp: RuntimeHttpServer | null;
-  scheduler: { stop(): void };
 }
 
 export function installShutdownHandlers(deps: ShutdownDeps): void {
@@ -127,7 +127,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     if (deps.runtimeHttp) await deps.runtimeHttp.stop();
     await browserManager.closeAllPages();
     cleanupShellOutputTempFiles();
-    deps.scheduler.stop();
+    stopScheduler();
 
     // Stop the in-process memory worker supervisor if it was started on the
     // daemon's event loop (memory.worker.enabled = false).

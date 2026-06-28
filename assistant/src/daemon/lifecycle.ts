@@ -1401,7 +1401,6 @@ export async function runDaemon(): Promise<void> {
     heartbeat,
     filing,
     runtimeHttp,
-    scheduler,
   });
 
   log.info(
