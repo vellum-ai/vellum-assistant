@@ -137,17 +137,21 @@ export async function executeScaffoldManagedSkill(
     context.requestOrigin === MEMORY_RETROSPECTIVE_ORIGIN;
   const author = fromRetrospective ? "assistant" : "user";
 
-  // Backstop: a retrospective pass must never folder-rewrite a user-authored
-  // skill. Refuse an overwrite OR a companion-file write that targets an
-  // existing skill whose install metadata is `author: "user"`. The prompt
-  // already directs the model to refine such skills conservatively; this is the
-  // enforcement layer behind that judgement call. `readInstallMeta` returns
-  // null for a not-yet-existing skill, so a fresh create falls through.
+  // Backstop: a retrospective pass may only overwrite or write companion files
+  // into a skill IT authored. Refuse an overwrite OR companion-file write that
+  // targets an EXISTING skill that is not `author: "assistant"` — i.e. both
+  // `author: "user"` AND untagged/legacy skills (e.g. those created via the
+  // `createSkill` API route, whose install-meta carries no author) are
+  // protected, matching the prune side where untagged skills are never pruned.
+  // The prompt already directs the model to refine such skills conservatively or
+  // author a new one; this is the enforcement layer behind that judgement call.
+  // `readInstallMeta` returns null for a not-yet-existing skill, so a fresh
+  // create falls through.
   if (fromRetrospective && (input.overwrite === true || files !== undefined)) {
     const existingMeta = readInstallMeta(getManagedSkillDir(skillId.trim()));
-    if (existingMeta?.author === "user") {
+    if (existingMeta !== null && existingMeta.author !== "assistant") {
       return {
-        content: `Error: skill "${skillId.trim()}" is user-authored; the retrospective may not overwrite it or write companion files into it. Author a new skill instead.`,
+        content: `Error: skill "${skillId.trim()}" is not assistant-authored; the retrospective may not overwrite it or write companion files into it. Author a new skill instead.`,
         isError: true,
       };
     }

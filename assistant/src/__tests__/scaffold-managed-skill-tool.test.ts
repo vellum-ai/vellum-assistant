@@ -17,7 +17,7 @@ mock.module("../daemon/skill-memory-refresh.js", () => ({
 }));
 
 import { loadSkillCatalog } from "../config/skills.js";
-import { readInstallMeta } from "../skills/install-meta.js";
+import { readInstallMeta, writeInstallMeta } from "../skills/install-meta.js";
 import { executeScaffoldManagedSkill } from "../tools/skills/scaffold-managed.js";
 import type { ToolContext } from "../tools/types.js";
 
@@ -493,7 +493,7 @@ describe("scaffold_managed_skill tool", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("user-authored");
+    expect(result.content).toContain("not assistant-authored");
     // The original body and authorship are untouched.
     const skillFile = join(TEST_DIR, "skills", "protected", "SKILL.md");
     expect(readFileSync(skillFile, "utf-8")).toContain("Original body.");
@@ -524,12 +524,50 @@ describe("scaffold_managed_skill tool", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("user-authored");
+    expect(result.content).toContain("not assistant-authored");
     expect(
       existsSync(
         join(TEST_DIR, "skills", "protected-files", "references", "notes.md"),
       ),
     ).toBe(false);
+  });
+
+  test("retrospective refuses to overwrite an untagged (no-author) skill", async () => {
+    // Simulate a skill created via a path that does not tag author (e.g. the
+    // createSkill API route): install-meta with no author field.
+    await executeScaffoldManagedSkill(
+      {
+        skill_id: "untagged",
+        name: "Untagged",
+        description: "No author",
+        body_markdown: "Original body.",
+      },
+      makeContext(),
+    );
+    const dir = join(TEST_DIR, "skills", "untagged");
+    writeInstallMeta(dir, {
+      origin: "custom",
+      installedAt: new Date().toISOString(),
+    });
+    expect(installMetaFor("untagged")?.author).toBeUndefined();
+
+    // The retrospective must not overwrite a skill it does not own.
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "untagged",
+        name: "Untagged",
+        description: "Rewritten by retrospective",
+        body_markdown: "Rewritten body.",
+        overwrite: true,
+      },
+      makeRetrospectiveContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("not assistant-authored");
+    expect(readFileSync(join(dir, "SKILL.md"), "utf-8")).toContain(
+      "Original body.",
+    );
   });
 
   test("retrospective MAY overwrite its own author:assistant skill", async () => {
