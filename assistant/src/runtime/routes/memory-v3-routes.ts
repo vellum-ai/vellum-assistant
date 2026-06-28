@@ -23,6 +23,7 @@ import { backfillAllSections } from "../../plugins/defaults/memory-v3-shadow/mai
 import { invalidateLanes } from "../../plugins/defaults/memory-v3-shadow/shadow-plugin.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS, type RoutePolicy } from "../auth/route-policy.js";
+import { requireActiveMemoryProvider } from "./memory-provider-gate.js";
 import type { RouteDefinition } from "./types.js";
 
 const log = getLogger("memory-v3-routes");
@@ -44,6 +45,7 @@ export type MemoryV3RebuildIndexResult = z.infer<
  * process's cached lanes (an in-CLI call would invalidate nothing).
  */
 export async function handleMemoryV3RebuildIndex(): Promise<MemoryV3RebuildIndexResult> {
+  requireActiveMemoryProvider("v3");
   invalidateLanes();
   log.info("memory-v3 lanes invalidated (rebuild-index)");
   return { ok: true };
@@ -78,6 +80,7 @@ export type MemoryV3BackfillSectionsResult = z.infer<
 export async function handleMemoryV3BackfillSections(
   config: AssistantConfig = getConfig(),
 ): Promise<MemoryV3BackfillSectionsResult> {
+  requireActiveMemoryProvider("v3", config);
   const outcome = await backfillAllSections(config);
   log.info(outcome, "memory-v3 section backfill complete (route)");
   return outcome;
