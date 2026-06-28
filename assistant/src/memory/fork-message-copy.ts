@@ -33,16 +33,34 @@
 //      `client_message_id` is intentionally NOT copied, matching the
 //      in-process fork (a forked row is not a client-submitted message).
 
-import { type AsyncSqliteResult, runAsyncSqlite } from "./db-async-query.js";
+import { setTimeout as sleep } from "node:timers/promises";
+
+import {
+  type AsyncSqliteBackend,
+  type AsyncSqliteResult,
+  runAsyncSqlite,
+} from "./db-async-query.js";
 
 /**
  * Default batch size for the chunked copy. Each batch is one `INSERT … SELECT`
  * that auto-commits, so this bounds how long the subprocess holds the write
- * lock before releasing it to in-process writers. Small enough to keep the
- * lock-hold window short on a bloated database; large enough that per-batch
- * statement overhead stays negligible against the row copy.
+ * lock before releasing it to in-process writers. Kept small so the worst-case
+ * wait for a contending foreground write is one short batch, even on a bloated
+ * database; per-batch statement overhead stays negligible against the row copy
+ * and fork latency doesn't matter (nobody waits on a background fork).
  */
-export const DEFAULT_FORK_COPY_BATCH_SIZE = 500;
+export const DEFAULT_FORK_COPY_BATCH_SIZE = 50;
+
+/**
+ * Pause inserted between batch subprocess calls. Without it the copy releases
+ * the write lock on each batch's auto-commit but greedily re-acquires it
+ * microseconds later, so a concurrent in-process writer (a live user turn
+ * persisting a message) can lose every race. A brief yield lets foreground
+ * writes reliably slip in between batches. The extra fork latency is free —
+ * nothing waits on a background fork — so we trade copy speed for foreground
+ * fairness.
+ */
+export const DEFAULT_FORK_COPY_INTER_BATCH_DELAY_MS = 25;
 
 /**
  * A single source→fork message-id mapping. `oldId` is an existing source
@@ -143,9 +161,13 @@ FROM messages m JOIN _fork_id_map map ON map.old_id = m.id;`,
 
 /**
  * Copy the message rows for a fork off the event loop, in lock-friendly
- * batches. Resolves once every batch has committed (or rejects via the
- * returned result's `ok: false` on subprocess failure — the caller is
- * responsible for cleaning up the partially-built fork).
+ * batches. Each batch runs as its own subprocess call with a brief yield in
+ * between (see {@link DEFAULT_FORK_COPY_INTER_BATCH_DELAY_MS}) so foreground
+ * writers reliably acquire the write lock between batches instead of losing
+ * every race to the copy's greedy lock re-acquisition. Resolves once every
+ * batch has committed (or returns the failing batch's `ok: false` result on
+ * subprocess failure — the caller is responsible for cleaning up the
+ * partially-built fork).
  *
  * No-op (returns a synthetic ok result) when there is nothing to copy.
  */
@@ -161,10 +183,39 @@ export async function copyForkMessagesViaSubprocess(
     };
   }
 
-  const sql = buildForkCopyScript(options);
-  return runAsyncSqlite(sql, {
-    ...(options.forceInProcess
-      ? { forceBackend: "in-process-blocking" as const }
-      : {}),
-  });
+  const batchSize = Math.max(
+    1,
+    options.batchSize ?? DEFAULT_FORK_COPY_BATCH_SIZE,
+  );
+  const runOptions = options.forceInProcess
+    ? { forceBackend: "in-process-blocking" as const }
+    : {};
+
+  let totalElapsedMs = 0;
+  let backend: AsyncSqliteBackend = "in-process-blocking";
+
+  for (let i = 0; i < options.idPairs.length; i += batchSize) {
+    const batch = options.idPairs.slice(i, i + batchSize);
+    // One subprocess call per batch. Each generated script is self-contained
+    // (it creates and drops its own staging table), so splitting execution
+    // across calls is safe — and it's what lets us yield between batches below.
+    const sql = buildForkCopyScript({
+      forkConversationId: options.forkConversationId,
+      idPairs: batch,
+      batchSize,
+    });
+    const result = await runAsyncSqlite(sql, runOptions);
+    totalElapsedMs += result.elapsedMs;
+    backend = result.backend;
+    if (!result.ok) {
+      return { ...result, elapsedMs: totalElapsedMs };
+    }
+
+    const isLastBatch = i + batchSize >= options.idPairs.length;
+    if (!isLastBatch) {
+      await sleep(DEFAULT_FORK_COPY_INTER_BATCH_DELAY_MS);
+    }
+  }
+
+  return { ok: true, backend, error: null, elapsedMs: totalElapsedMs };
 }
