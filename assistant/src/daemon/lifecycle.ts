@@ -12,8 +12,6 @@ import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import {
   getPlatformAssistantId,
-  getRuntimeHttpHost,
-  getRuntimeHttpPort,
   setIngressPublicBaseUrl,
   validateEnv,
 } from "../config/env.js";
@@ -73,7 +71,7 @@ import {
   initAuthSigningKey,
   resolveSigningKey,
 } from "../runtime/auth/token-service.js";
-import { RuntimeHttpServer } from "../runtime/http-server.js";
+import { startRuntimeHttpServer } from "../runtime/http-server.js";
 import { warmLocalGuardianPrincipalCache } from "../runtime/local-actor-identity.js";
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
 import { registerSecretsDeps } from "../runtime/routes/secrets-deps.js";
@@ -330,34 +328,9 @@ export async function runDaemon(): Promise<void> {
   const signingKey = resolveSigningKey();
   initAuthSigningKey(signingKey);
 
-  // Start the runtime HTTP server early so /healthz answers ASAP.
-  let runtimeHttp: RuntimeHttpServer | null = null;
-  const httpPort = getRuntimeHttpPort();
-  const httpHostname = getRuntimeHttpHost();
-  log.info({ httpPort }, "Daemon startup: starting runtime HTTP server");
-
-  runtimeHttp = new RuntimeHttpServer({
-    port: httpPort,
-    hostname: httpHostname,
-  });
-
-  // Isolated try/catch around start() — a bind failure (port in use,
-  // permission denied, fd exhaustion) must not tear down the rest of
-  // daemon startup. The daemon falls back to IPC-only operation when
-  // runtimeHttp is null.
-  try {
-    await runtimeHttp.start();
-    log.info(
-      { port: httpPort, hostname: httpHostname },
-      "Daemon startup: runtime HTTP server listening",
-    );
-  } catch (err) {
-    log.warn(
-      { err, port: httpPort },
-      "Failed to start runtime HTTP server, continuing without it",
-    );
-    runtimeHttp = null;
-  }
+  // Start the runtime HTTP server early so /healthz answers ASAP. A bind
+  // failure is non-fatal — the daemon falls back to IPC-only operation.
+  await startRuntimeHttpServer();
 
   // Pre-populate feature flag overrides so subsequent sync
   // isAssistantFeatureFlagEnabled() calls have data. Fired non-blocking
@@ -1108,7 +1081,7 @@ export async function runDaemon(): Promise<void> {
   });
 
   // Fire-and-forget: Qdrant init and memory worker startup run concurrently
-  // with the rest of daemon boot. Must run AFTER `new RuntimeHttpServer(...)`
+  // with the rest of daemon boot. Must run AFTER `startRuntimeHttpServer()`
   // so the analyze-deps singleton (populated inside `buildRouteTable()`) is
   // available before the memory worker can claim leftover
   // `conversation_analyze` jobs from a prior run. See the daemon-startup
@@ -1278,7 +1251,6 @@ export async function runDaemon(): Promise<void> {
       { err },
       "Failed to wire runtime HTTP server deps, continuing without them",
     );
-    runtimeHttp = null;
   }
 
   // Register built-in TTS providers so the provider abstraction can resolve
@@ -1400,7 +1372,6 @@ export async function runDaemon(): Promise<void> {
     workspaceHeartbeat,
     heartbeat,
     filing,
-    runtimeHttp,
   });
 
   log.info(
