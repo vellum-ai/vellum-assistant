@@ -4,6 +4,7 @@ import {
   mkdirSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, normalize, relative, sep } from "node:path";
@@ -232,6 +233,16 @@ export function createManagedSkill(
         created: false,
         path: skillFilePath,
         error: error ?? "invalid companion file path",
+      };
+    }
+    // Reject a companion path that resolves to an existing directory before any
+    // write: the atomic rename would throw mid-loop (after SKILL.md is already
+    // rewritten on overwrite), leaving a half-updated skill.
+    if (existsSync(resolvedPath) && statSync(resolvedPath).isDirectory()) {
+      return {
+        created: false,
+        path: skillFilePath,
+        error: `companion file path resolves to an existing directory: "${file.path}"`,
       };
     }
     companionWrites.push({ resolvedPath, content: file.content });

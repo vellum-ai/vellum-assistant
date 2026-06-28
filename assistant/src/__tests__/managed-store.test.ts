@@ -436,6 +436,34 @@ describe("createManagedSkill companion files", () => {
     );
   });
 
+  test("rejects a companion path colliding with an existing directory on overwrite, leaving SKILL.md intact", () => {
+    const first = createManagedSkill({
+      id: "dir-collide",
+      name: "Dir Collide",
+      description: "v1",
+      bodyMarkdown: "Body v1.",
+      files: [{ path: "references/note.md", content: "note" }],
+    });
+    expect(first.created).toBe(true);
+    const skillMd = join(TEST_DIR, "skills", "dir-collide", "SKILL.md");
+    const before = readFileSync(skillMd, "utf-8");
+
+    // Overwrite with a companion path that names the existing references/ dir.
+    const second = createManagedSkill({
+      id: "dir-collide",
+      name: "Dir Collide",
+      description: "v2",
+      bodyMarkdown: "Body v2.",
+      overwrite: true,
+      files: [{ path: "references", content: "clobber" }],
+    });
+
+    expect(second.created).toBe(false);
+    expect(second.error).toContain("existing directory");
+    // The pre-flight runs before any write, so SKILL.md is untouched.
+    expect(readFileSync(skillMd, "utf-8")).toBe(before);
+  });
+
   test("rejects path traversal and writes nothing", () => {
     const result = createManagedSkill({
       id: "traversal",
