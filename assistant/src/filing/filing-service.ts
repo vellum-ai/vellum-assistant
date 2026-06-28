@@ -417,6 +417,26 @@ export class FilingService {
   }
 }
 
+/**
+ * Construct and start the filing service singleton. Skipped under memory v2 —
+ * the v2 consolidation job owns periodic background memory processing, so
+ * running filing too would be redundant.
+ */
+export function startFilingService(): void {
+  if (getConfig().memory.v2.enabled) {
+    log.info(
+      "Filing service skipped — memory v2 consolidation is the active background memory job",
+    );
+    return;
+  }
+  new FilingService().start();
+}
+
+/** Stop the filing service singleton if one is running; no-op otherwise. */
+export async function stopFilingService(): Promise<void> {
+  await FilingService.getInstance()?.stop();
+}
+
 function isWithinActiveHours(
   hour: number,
   start: number,

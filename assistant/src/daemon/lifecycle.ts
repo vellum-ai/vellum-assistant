@@ -32,7 +32,7 @@ import {
   DEFAULT_CES_STARTUP_TIMEOUT_MS,
   injectCesClientWhenReady,
 } from "../credential-execution/startup-timeout.js";
-import { FilingService } from "../filing/filing-service.js";
+import { startFilingService } from "../filing/filing-service.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
@@ -1344,34 +1344,16 @@ export async function runDaemon(): Promise<void> {
     "Heartbeat service configured",
   );
 
-  // Filing yields to the memory v2 consolidation job when v2 is enabled —
-  // both serve the same role (periodic background memory processing) and
-  // running both is redundant. The consolidation job runs through the
-  // memory jobs worker (see `maybeEnqueueGraphMaintenanceJobs`).
-  const memoryV2Enabled = config.memory.v2.enabled;
-  let filing: FilingService | null = null;
-  if (!memoryV2Enabled) {
-    const filingConfig = config.filing;
-    filing = new FilingService();
-    filing.start();
-    log.info(
-      {
-        enabled: filingConfig.enabled,
-        intervalMs: filingConfig.intervalMs,
-      },
-      "Filing service configured",
-    );
-  } else {
-    log.info(
-      "Filing service skipped — memory v2 consolidation is the active background memory job",
-    );
-  }
+  // Filing yields to the memory v2 consolidation job when v2 is enabled — both
+  // serve the same role (periodic background memory processing) and running both
+  // is redundant. The consolidation job runs through the memory jobs worker
+  // (see `maybeEnqueueGraphMaintenanceJobs`).
+  startFilingService();
 
   installShutdownHandlers({
     server,
     workspaceHeartbeat,
     heartbeat,
-    filing,
   });
 
   log.info(
