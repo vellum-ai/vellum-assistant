@@ -170,7 +170,6 @@ function InlineConfirmationCard({
       {/* Row 1: title + risk badge */}
       <div className="flex items-center gap-2">
         {/* typography: off-scale — semibold to match macOS bodyMediumEmphasised */}
-        {}
         <span className="text-body-medium-default font-semibold text-[var(--content-default)]">
           {confirmation.title ?? "Confirmation required"}
         </span>

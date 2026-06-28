@@ -913,6 +913,14 @@ export function handleToolUse(
   // fetched mid-tool (refresh / reconnect) carries it and clients can render a
   // running timer without having seen the live `tool_use_start` event.
   recordToolStartOnPersistedMessage(state, event.id, startedAt);
+  // Mirror the first-byte preview timestamp onto the same durable block so a
+  // mid-tool snapshot keeps the perceived-start anchor instead of falling back
+  // to execution start. The block exists now (message_complete wrote it before
+  // this tool event), unlike at `tool_use_preview_start` time.
+  const previewStartedAt = state.toolPreviewStartedAt.get(event.id);
+  if (previewStartedAt != null) {
+    recordToolPreviewStartOnPersistedMessage(state, event.id, previewStartedAt);
+  }
   const statusText = computeToolUseStatusText(event.name, event.input);
   deps.ctx.emitActivityState("tool_running", "tool_use_start", {
     requestId: deps.reqId,
@@ -949,15 +957,13 @@ export function handleToolUsePreviewStart(
   // latency timer anchors here, so clients can start rendering the tool card
   // and ticking elapsed time the moment the call is recognized — well before
   // its input finishes streaming (which can lag many seconds on a large input).
+  //
+  // We only record it in state here, not onto the persisted assistant row: the
+  // tool_use block does not exist yet (message_complete writes it after the
+  // stream ends, which is after this preview event). `handleToolUse` mirrors
+  // this timestamp onto the durable block once it exists.
   const previewStartedAt = Date.now();
   state.toolPreviewStartedAt.set(event.toolUseId, previewStartedAt);
-  // Mirror it onto the durable tool_use block so a snapshot fetched mid-preview
-  // (refresh / reconnect) carries the perceived-start anchor.
-  recordToolPreviewStartOnPersistedMessage(
-    state,
-    event.toolUseId,
-    previewStartedAt,
-  );
   deps.onEvent({
     type: "tool_use_preview_start",
     toolUseId: event.toolUseId,
@@ -1503,13 +1509,14 @@ function recordToolStartOnPersistedMessage(
 }
 
 /**
- * Stamp `_previewStartedAt` onto the in-flight tool_use block the moment the
- * tool call is recognized (before its input finishes streaming), mirroring
- * `recordToolStartOnPersistedMessage`. The block is already durable
- * (message_complete precedes tool events), so without this a `/messages`
- * snapshot fetched mid-tool would lose the perceived-start anchor and clients
- * would fall back to execution start — hiding the input-streaming gap the user
- * actually waited through.
+ * Stamp `_previewStartedAt` (the first-byte timestamp) onto the durable
+ * tool_use block, mirroring `recordToolStartOnPersistedMessage`. Called from
+ * `handleToolUse` rather than `handleToolUsePreviewStart`: the block only exists
+ * once message_complete has written it, which happens after the preview event
+ * but before the tool event. Without this a `/messages` snapshot fetched
+ * mid-tool would lose the perceived-start anchor and clients would fall back to
+ * execution start — hiding the input-streaming gap the user actually waited
+ * through.
  */
 function recordToolPreviewStartOnPersistedMessage(
   state: EventHandlerState,

@@ -16670,6 +16670,8 @@ paths:
                                   type: string
                               startedAt:
                                 type: number
+                              previewStartedAt:
+                                type: number
                               completedAt:
                                 type: number
                               confirmationDecision:
@@ -17099,6 +17101,8 @@ paths:
                                         items:
                                           type: string
                                       startedAt:
+                                        type: number
+                                      previewStartedAt:
                                         type: number
                                       completedAt:
                                         type: number
