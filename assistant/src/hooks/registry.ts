@@ -18,6 +18,10 @@
  */
 
 import { isPluginDisabled } from "../plugins/disabled-state.js";
+import {
+  isBuiltinMemoryPlugin,
+  shouldBuiltinMemoryYield,
+} from "../plugins/memory-capability.js";
 import { getUserHooksFor } from "../plugins/mtime-cache.js";
 import type { HookFunction } from "../plugins/types.js";
 
@@ -93,19 +97,30 @@ export function unregisterPluginHooks(pluginName: string): void {
 export async function getHooksFor<TCtx = unknown>(
   name: string,
 ): Promise<HookFunction<TCtx>[]> {
+  // User-land hooks from the mtime cache (async, may re-import). Fetched first
+  // because the same call refreshes plugin discovery — including the
+  // memory-capability set the built-in-yield check below reads — so an external
+  // memory plugin installed/removed this turn is reflected immediately.
+  const userHooks = await getUserHooksFor<TCtx>(name);
+
+  // When an external `provides: "memory"` plugin is active, the built-in memory
+  // plugins yield: their hooks are dropped here so injection and turn-commit are
+  // driven solely by the external plugin (read-time, like the `.disabled`
+  // sentinel). Two active external memory plugins fail safe (built-in stays
+  // active); `assertSingleMemoryPlugin` surfaces that misconfiguration.
+  const builtinMemoryYields = shouldBuiltinMemoryYield();
+
   // First-party defaults from the hook registry, filtered by the `.disabled`
   // sentinel at read time. This is what makes `assistant plugins disable
   // default-*` take effect immediately in a running assistant: the hooks stay
   // registered but are filtered out on the next turn.
   const defaultHooks: HookFunction<TCtx>[] = [];
   for (const entry of hookRegistry.get(name) ?? []) {
-    if (!isPluginDisabled(entry.pluginName)) {
-      defaultHooks.push(entry.fn as HookFunction<TCtx>);
-    }
+    if (isPluginDisabled(entry.pluginName)) continue;
+    if (builtinMemoryYields && isBuiltinMemoryPlugin(entry.pluginName))
+      continue;
+    defaultHooks.push(entry.fn as HookFunction<TCtx>);
   }
-
-  // User-land hooks from the mtime cache (async, may re-import).
-  const userHooks = await getUserHooksFor<TCtx>(name);
 
   return [...defaultHooks, ...userHooks];
 }

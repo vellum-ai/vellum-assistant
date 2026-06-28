@@ -85,6 +85,17 @@ const PluginPackageJsonSchema = z
     name: z.string().min(1, "package.json `name` must be a non-empty string"),
     version: z.string().optional(),
     peerDependencies: z.record(z.string(), z.string()).optional(),
+    /**
+     * Vellum-specific manifest metadata namespaced under `vellum` so it does
+     * not collide with standard npm fields. `provides` declares a host
+     * capability the plugin satisfies (today only `"memory"`).
+     */
+    vellum: z
+      .object({
+        provides: z.literal("memory").optional(),
+      })
+      .passthrough()
+      .optional(),
   })
   .passthrough();
 
@@ -275,6 +286,9 @@ async function buildPluginFromDir(pluginDir: string): Promise<Plugin> {
   }
 
   const manifest: PluginManifest = { name, version };
+  if (pkg.vellum?.provides !== undefined) {
+    manifest.provides = pkg.vellum.provides;
+  }
   const plugin: Plugin = { manifest };
 
   const hooks = await loadHooks(pluginDir, name);
@@ -389,7 +403,7 @@ export async function loadExternalPlugin(
  */
 export async function parsePluginManifest(
   pluginDir: string,
-): Promise<{ name: string; version: string } | undefined> {
+): Promise<{ name: string; version: string; provides?: "memory" } | undefined> {
   const pkgPath = join(pluginDir, "package.json");
   let rawPkg: unknown;
   try {
@@ -413,5 +427,8 @@ export async function parsePluginManifest(
   const pkg: PluginPackageJson = parsed.data;
   const name = stripScope(pkg.name);
   const version = pkg.version && pkg.version.length > 0 ? pkg.version : "0.0.0";
-  return { name, version };
+  const provides = pkg.vellum?.provides;
+  return provides !== undefined
+    ? { name, version, provides }
+    : { name, version };
 }

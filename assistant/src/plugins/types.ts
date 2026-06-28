@@ -28,18 +28,32 @@ import { AssistantError, ErrorCode } from "../util/errors.js";
 // ─── Manifest ────────────────────────────────────────────────────────────────
 
 /**
+ * A capability a plugin can declare it satisfies via `manifest.provides`.
+ *
+ * `"memory"` marks a plugin as the conversation's memory system — the producer
+ * of per-turn `<memory>` injection and the post-turn consolidation enqueue. At
+ * most one memory-capability plugin may be active at a time: when an external
+ * `provides: "memory"` plugin is enabled, the built-in memory plugins yield (see
+ * `plugins/memory-capability.ts`).
+ */
+export type PluginCapability = "memory";
+
+/**
  * Static metadata describing a plugin — declared at module load time and
  * validated by the registry (duplicate-name check, API-version compatibility).
- *
- * `provides` and `requires` are capability → semantic-version maps. The
- * registry checks each entry in `requires` against the assistant's exposed
- * capability table and refuses to register plugins that ask for a version the
- * assistant does not expose. `provides` is currently declared-but-unused —
- * see the field docstring below.
  */
 export interface PluginManifest {
   /** Unique plugin identifier (kebab-case). Duplicate names fail registration. */
   name: string;
+  /**
+   * Capability this plugin declares it satisfies. Currently only `"memory"` is
+   * recognized — it marks the plugin as the active memory system. The
+   * single-active-memory-plugin rule is enforced at bootstrap and at hook
+   * read time (see `plugins/memory-capability.ts`). External plugins declare
+   * this via `package.json` `vellum.provides`; built-in memory plugins are
+   * recognized by name, not by this field.
+   */
+  provides?: PluginCapability;
   /**
    * Plugin version (semver). Informational. Host-compat negotiation lives
    * in the plugin's `package.json` `peerDependencies["@vellumai/plugin-api"]`
