@@ -8,8 +8,8 @@ import {
   activationStepIndex,
   type ActivationStepName,
 } from "../telemetry/activation-funnel.js";
-import { getDb } from "./db-connection.js";
-import { onboardingEvents } from "./schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { onboardingEvents } from "../persistence/schema/index.js";
 
 export interface OnboardingEvent {
   id: string;

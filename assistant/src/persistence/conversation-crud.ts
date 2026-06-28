@@ -32,13 +32,13 @@ import { clearAllConversationIds } from "../home/feed-writer.js";
 import {
   deleteOrphanAttachments,
   linkAttachmentToMessage,
-} from "../memory/attachments-store.js";
+} from "./attachments-store.js";
 import { AUTO_ANALYSIS_SOURCE } from "../memory/auto-analysis-constants.js";
 import {
   appendCompactionEvent,
   forkCompactionLedger,
   getLatestCompactionEventAtOrBefore,
-} from "../memory/compaction-ledger-store.js";
+} from "./compaction-ledger-store.js";
 import {
   projectAssistantMessage,
   seedForkedConversationAttention,
@@ -61,7 +61,7 @@ import {
   rawLogsRun,
   rawMemoryRun,
   rawRun,
-} from "../memory/raw-query.js";
+} from "./raw-query.js";
 import { cancelPendingJobsForConversation } from "../memory/task-memory-cleanup.js";
 import {
   forkActivationState,

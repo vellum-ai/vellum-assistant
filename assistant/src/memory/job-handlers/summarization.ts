@@ -10,10 +10,10 @@ import {
   userMessage,
 } from "../../providers/provider-send-message.js";
 import { getLogger } from "../../util/logger.js";
-import { getDb } from "../db-connection.js";
-import { asString, truncate } from "../job-utils.js";
-import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
-import { memorySegments, memorySummaries } from "../schema.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { asString, truncate } from "../../persistence/job-utils.js";
+import { enqueueMemoryJob, type MemoryJob } from "../../persistence/jobs-store.js";
+import { memorySegments, memorySummaries } from "../../persistence/schema/index.js";
 
 const log = getLogger("memory-jobs-worker");
 

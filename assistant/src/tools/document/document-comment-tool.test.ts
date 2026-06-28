@@ -12,7 +12,7 @@ import {
   listComments,
 } from "../../documents/document-comments-store.js";
 import { initializeDb } from "../../persistence/db-init.js";
-import { rawRun, resetTestTables } from "../../memory/raw-query.js";
+import { rawRun, resetTestTables } from "../../persistence/raw-query.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 import {
   executeCommentList,

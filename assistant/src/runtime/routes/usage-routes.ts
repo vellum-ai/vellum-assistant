@@ -9,7 +9,7 @@
 
 import { z } from "zod";
 
-import { validateTimezone } from "../../memory/usage-buckets.js";
+import { validateTimezone } from "../../persistence/usage-buckets.js";
 import {
   getUsageDayBuckets,
   getUsageGroupBreakdown,

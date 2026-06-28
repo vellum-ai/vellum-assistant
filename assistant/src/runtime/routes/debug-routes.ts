@@ -8,7 +8,7 @@ import { z } from "zod";
 
 import { resolveCallSiteConfig } from "../../config/llm-resolver.js";
 import { getConfig } from "../../config/loader.js";
-import { rawAll } from "../../memory/raw-query.js";
+import { rawAll } from "../../persistence/raw-query.js";
 import { countConversations } from "../../persistence/conversation-queries.js";
 import { getMemoryJobCounts } from "../../persistence/jobs-store.js";
 import {

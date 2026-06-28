@@ -5,7 +5,7 @@
  * background jobs (e.g. proactive artifact generation) can persist documents
  * without going through the HTTP layer.
  */
-import { rawAll, rawGet, rawRun } from "../memory/raw-query.js";
+import { rawAll, rawGet, rawRun } from "../persistence/raw-query.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("document-store");

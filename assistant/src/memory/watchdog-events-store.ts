@@ -2,8 +2,8 @@ import { and, asc, eq, gt, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getCachedShareAnalytics } from "../platform/consent-cache.js";
-import { getTelemetryDb } from "./db-connection.js";
-import { watchdogEvents } from "./schema.js";
+import { getTelemetryDb } from "../persistence/db-connection.js";
+import { watchdogEvents } from "../persistence/schema/index.js";
 
 /**
  * Input for one `watchdog` telemetry event. Metadata only — never conversation

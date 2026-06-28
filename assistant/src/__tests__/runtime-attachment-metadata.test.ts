@@ -53,7 +53,7 @@ import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import * as deliveryChannels from "../persistence/delivery-channels.js";
-import { resetTestTables } from "../memory/raw-query.js";
+import { resetTestTables } from "../persistence/raw-query.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { resetDbForTesting } from "./db-test-helpers.js";

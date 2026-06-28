@@ -20,12 +20,12 @@ import type {
 } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
-import { getDb } from "../db-connection.js";
-import { embedWithRetry } from "../embed.js";
-import { generateSparseEmbedding } from "../embedding-backend.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { embedWithRetry } from "../../persistence/embeddings/embed.js";
+import { generateSparseEmbedding } from "../../persistence/embeddings/embedding-backend.js";
 import { wrapMemoryBlock } from "../memory-marker.js";
-import type { QdrantSparseVector } from "../qdrant-client.js";
-import { memorySummaries } from "../schema.js";
+import type { QdrantSparseVector } from "../../persistence/embeddings/qdrant-client.js";
+import { memorySummaries } from "../../persistence/schema/index.js";
 import { conversations } from "../schema/conversations.js";
 import {
   clearEverInjected as clearV2EverInjected,

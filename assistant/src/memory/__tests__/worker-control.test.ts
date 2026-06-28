@@ -45,7 +45,7 @@ mock.module("../../util/logger.js", () => ({
 }));
 
 const { spawnMemoryWorkerProcess, MemoryWorkerSpawnError, probeMemoryWorker } =
-  await import("../worker-control.js");
+  await import("../../persistence/worker-control.js");
 
 /**
  * Replace process.kill with a stub. `signal 0` (liveness) resolves for

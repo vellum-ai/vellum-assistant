@@ -75,7 +75,7 @@ import {
   enqueueMemoryJob,
   type MemoryJob,
   type MemoryJobType,
-} from "../jobs-store.js";
+} from "../../persistence/jobs-store.js";
 import { resolveMemoryProviderId } from "../provider/provider-id.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./constants.js";
 import { resolveConsolidationPrompt } from "./prompts/consolidation.js";

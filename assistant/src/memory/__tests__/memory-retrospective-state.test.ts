@@ -19,9 +19,9 @@ mock.module("../../config/loader.js", () => ({
   }),
 }));
 
-import { createConversation } from "../conversation-crud.js";
-import { getDb } from "../db-connection.js";
-import { initializeDb } from "../db-init.js";
+import { createConversation } from "../../persistence/conversation-crud.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
 import {
   appendToRememberedLog,
   bumpRetrospectiveLastRunAt,
@@ -31,7 +31,7 @@ import {
   REMEMBERED_LOG_MAX_ENTRIES,
   upsertRetrospectiveState,
 } from "../memory-retrospective-state.js";
-import { memoryRetrospectiveState } from "../schema.js";
+import { memoryRetrospectiveState } from "../../persistence/schema/index.js";
 
 await initializeDb();
 

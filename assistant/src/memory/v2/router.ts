@@ -50,7 +50,7 @@ import type {
   ToolDefinition,
 } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
-import type { DrizzleDb } from "../db-connection.js";
+import type { DrizzleDb } from "../../persistence/db-connection.js";
 import { computeInjectionScores } from "./injection-events.js";
 import type { PageIndex } from "./page-index.js";
 import {

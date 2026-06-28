@@ -16,7 +16,7 @@
 import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
-import { getMemoryCheckpoint } from "../../memory/checkpoints.js";
+import { getMemoryCheckpoint } from "../../persistence/checkpoints.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
 import {
   getMessageRoleStatsByConversation,

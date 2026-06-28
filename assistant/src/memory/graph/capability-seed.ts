@@ -22,9 +22,9 @@ import {
   type SkillCapabilityInput,
 } from "../../skills/skill-memory.js";
 import { getLogger } from "../../util/logger.js";
-import { getDb } from "../db-connection.js";
-import { enqueueMemoryJob, isMemoryEnabled } from "../jobs-store.js";
-import { memoryGraphNodes } from "../schema.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { enqueueMemoryJob, isMemoryEnabled } from "../../persistence/jobs-store.js";
+import { memoryGraphNodes } from "../../persistence/schema/index.js";
 import { createNode } from "./store.js";
 
 const log = getLogger("graph-capability-seed");

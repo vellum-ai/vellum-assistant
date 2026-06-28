@@ -10,7 +10,7 @@ import { join } from "node:path";
 
 import { asc, eq } from "drizzle-orm";
 
-import { resolveConversationDirectoryPaths } from "../../memory/conversation-directories.js";
+import { resolveConversationDirectoryPaths } from "../../persistence/conversation-directories.js";
 import {
   initConversationDir,
   syncMessageToDisk,

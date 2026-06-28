@@ -7,15 +7,15 @@ import {
   embedWithBackend,
   generateSparseEmbedding,
   getMemoryBackendStatus,
-} from "../memory/embedding-backend.js";
-import type { EmbeddingInput } from "../memory/embedding-types.js";
+} from "./embeddings/embedding-backend.js";
+import type { EmbeddingInput } from "./embeddings/embedding-types.js";
 import {
   embeddingInputContentHash,
   normalizeEmbeddingInput,
-} from "../memory/embedding-types.js";
-import { withQdrantBreaker } from "../memory/qdrant-circuit-breaker.js";
-import { getQdrantClient } from "../memory/qdrant-client.js";
-import { memoryEmbeddings } from "../memory/schema.js";
+} from "./embeddings/embedding-types.js";
+import { withQdrantBreaker } from "./embeddings/qdrant-circuit-breaker.js";
+import { getQdrantClient } from "./embeddings/qdrant-client.js";
+import { memoryEmbeddings } from "./schema/index.js";
 import { BackendUnavailableError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { getDb } from "./db-connection.js";

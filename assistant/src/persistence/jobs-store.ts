@@ -5,13 +5,13 @@ import { getConfig } from "../config/loader.js";
 import {
   isEmbeddingBillingBreakerOpen,
   shouldAllowBillingProbe,
-} from "../memory/embedding-billing-breaker.js";
+} from "./embeddings/embedding-billing-breaker.js";
 import {
   isQdrantBreakerOpen,
   shouldAllowQdrantProbe,
-} from "../memory/qdrant-circuit-breaker.js";
-import { rawMemoryAll, rawMemoryChanges } from "../memory/raw-query.js";
-import { memoryJobs } from "../memory/schema.js";
+} from "./embeddings/qdrant-circuit-breaker.js";
+import { rawMemoryAll, rawMemoryChanges } from "./raw-query.js";
+import { memoryJobs } from "./schema/index.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
 import { type DrizzleDb, getMemoryDb } from "./db-connection.js";

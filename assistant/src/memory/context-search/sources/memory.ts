@@ -1,6 +1,6 @@
 import { getLogger } from "../../../util/logger.js";
-import { embedWithRetry } from "../../embed.js";
-import { generateSparseEmbedding } from "../../embedding-backend.js";
+import { embedWithRetry } from "../../../persistence/embeddings/embed.js";
+import { generateSparseEmbedding } from "../../../persistence/embeddings/embedding-backend.js";
 import { searchGraphNodes } from "../../graph/graph-search.js";
 import { getNodesByIds } from "../../graph/store.js";
 import type { MemoryNode, MemoryType } from "../../graph/types.js";

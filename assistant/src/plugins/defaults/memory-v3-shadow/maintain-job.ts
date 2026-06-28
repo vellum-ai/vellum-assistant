@@ -56,7 +56,7 @@ import type { AssistantConfig } from "../../../config/types.js";
 import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
-} from "../../../memory/checkpoints.js";
+} from "../../../persistence/checkpoints.js";
 import { resolveMemoryProviderId } from "../../../memory/provider/provider-id.js";
 import { getPageIndex } from "../../../memory/v2/page-index.js";
 import { readPage } from "../../../memory/v2/page-store.js";

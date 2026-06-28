@@ -7,8 +7,8 @@ import type {
   TurnTraceToolCall,
 } from "../telemetry/types.js";
 import { getLogger } from "../util/logger.js";
-import { getDb } from "./db-connection.js";
-import { messages, toolInvocations } from "./schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { messages, toolInvocations } from "../persistence/schema/index.js";
 
 const log = getLogger("turn-trace-store");
 

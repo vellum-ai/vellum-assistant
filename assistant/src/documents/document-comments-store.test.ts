@@ -7,7 +7,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import { initializeDb } from "../persistence/db-init.js";
-import { rawRun, resetTestTables } from "../memory/raw-query.js";
+import { rawRun, resetTestTables } from "../persistence/raw-query.js";
 import {
   createComment,
   deleteComment,

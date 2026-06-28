@@ -8,9 +8,9 @@
 
 import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
-import { getMemoryCheckpoint, setMemoryCheckpoint } from "../checkpoints.js";
-import { asString } from "../job-utils.js";
-import type { MemoryJob } from "../jobs-store.js";
+import { getMemoryCheckpoint, setMemoryCheckpoint } from "../../persistence/checkpoints.js";
+import { asString } from "../../persistence/job-utils.js";
+import type { MemoryJob } from "../../persistence/jobs-store.js";
 import { runGraphExtraction } from "./extraction.js";
 
 const log = getLogger("graph-extraction-job");

@@ -8,8 +8,8 @@ mock.module("../../util/logger.js", () => ({
 }));
 
 import { ensureGroupMigration } from "../conversation-group-migration.js";
-import { initializeDb } from "../db-init.js";
-import { rawAll, rawExec, rawGet, rawRun } from "../raw-query.js";
+import { initializeDb } from "../../persistence/db-init.js";
+import { rawAll, rawExec, rawGet, rawRun } from "../../persistence/raw-query.js";
 await initializeDb();
 
 // Simulate a legacy install that has the `system:reflections` system group

@@ -23,7 +23,7 @@ import {
   getMessages,
   type MessageRow,
   updateConversationTitle,
-} from "./conversation-crud.js";
+} from "../persistence/conversation-crud.js";
 
 const log = getLogger("conversation-title-service");
 

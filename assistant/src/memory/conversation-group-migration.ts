@@ -10,7 +10,7 @@
 
 import { getLogger } from "../util/logger.js";
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
-import { rawExec, rawGet, rawRun } from "./raw-query.js";
+import { rawExec, rawGet, rawRun } from "../persistence/raw-query.js";
 const log = getLogger("conversation-store");
 
 function isDuplicateColumnError(err: unknown): boolean {

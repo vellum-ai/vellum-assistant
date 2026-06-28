@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { tokenize, tokenizeStemmed } from "../sparse-tokenize.js";
+import { tokenize, tokenizeStemmed } from "../../persistence/sparse-tokenize.js";
 
 describe("tokenize", () => {
   test("lowercases and splits on non-alphanumeric runs", () => {

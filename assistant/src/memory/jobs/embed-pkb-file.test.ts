@@ -33,14 +33,14 @@ mock.module("../../config/loader.js", () => ({
 
 import { DEFAULT_CONFIG } from "../../config/defaults.js";
 import type { AssistantConfig } from "../../config/types.js";
-import { getMemoryDb } from "../db-connection.js";
-import { initializeDb } from "../db-init.js";
+import { getMemoryDb } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
 import {
   claimMemoryJobs,
   type MemoryJob,
   type MemoryJobType,
-} from "../jobs-store.js";
-import { memoryJobs } from "../schema.js";
+} from "../../persistence/jobs-store.js";
+import { memoryJobs } from "../../persistence/schema/index.js";
 import { embedPkbFileJob, enqueuePkbIndexJob } from "./embed-pkb-file.js";
 
 const TEST_CONFIG: AssistantConfig = DEFAULT_CONFIG;

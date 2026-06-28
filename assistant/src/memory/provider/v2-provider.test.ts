@@ -37,8 +37,8 @@ mock.module("../v2/now-text.js", () => ({
   loadNowText: async () => "NOW",
 }));
 
-const realDbConnection = await import("../db-connection.js");
-mock.module("../db-connection.js", () => ({
+const realDbConnection = await import("../../persistence/db-connection.js");
+mock.module("../../persistence/db-connection.js", () => ({
   ...realDbConnection,
   getDb: () => ({}) as unknown,
 }));

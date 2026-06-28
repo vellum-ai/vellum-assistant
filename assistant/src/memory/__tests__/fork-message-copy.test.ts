@@ -21,15 +21,15 @@ import {
   addMessage,
   createConversation,
   getMessages,
-} from "../conversation-crud.js";
-import { getDb, getSqlite } from "../db-connection.js";
-import { initializeDb } from "../db-init.js";
+} from "../../persistence/conversation-crud.js";
+import { getDb, getSqlite } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
 import {
   buildForkCopyScript,
   copyForkMessagesViaSubprocess,
   type ForkIdPair,
-} from "../fork-message-copy.js";
-import { messages as messagesTable } from "../schema.js";
+} from "../../persistence/fork-message-copy.js";
+import { messages as messagesTable } from "../../persistence/schema/index.js";
 
 await initializeDb();
 

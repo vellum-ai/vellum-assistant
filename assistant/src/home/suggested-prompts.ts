@@ -21,7 +21,7 @@ import {
   deleteMemoryCheckpoint,
   getMemoryCheckpoint,
   setMemoryCheckpoint,
-} from "../memory/checkpoints.js";
+} from "../persistence/checkpoints.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import { getConfiguredProvider } from "../providers/provider-send-message.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";

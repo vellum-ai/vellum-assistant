@@ -203,7 +203,7 @@ mock.module("../persistence/db-maintenance.js", () => ({
   maybeRunDbMaintenance: mockMaybeRunDbMaintenance,
 }));
 
-mock.module("../memory/cleanup-schedule-state.js", () => ({
+mock.module("../persistence/cleanup-schedule-state.js", () => ({
   getLastScheduledCleanupEnqueueMs: () => 0,
   markScheduledCleanupEnqueued: mock(() => {}),
 }));

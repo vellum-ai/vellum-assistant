@@ -35,7 +35,7 @@ let memoryEnabled = true;
 // Mocks
 // ---------------------------------------------------------------------------
 
-mock.module("../../../memory/worker-control.js", () => ({
+mock.module("../../../persistence/worker-control.js", () => ({
   MemoryWorkerSpawnError: FakeSpawnError,
   spawnMemoryWorkerProcess: async (opts: {
     detached?: boolean;

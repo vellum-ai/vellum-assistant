@@ -21,12 +21,12 @@
 import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
-import { getMessages } from "../conversation-crud.js";
-import { listConversations } from "../conversation-queries.js";
-import { getDb } from "../db-connection.js";
+import { getMessages } from "../../persistence/conversation-crud.js";
+import { listConversations } from "../../persistence/conversation-queries.js";
+import { getDb } from "../../persistence/db-connection.js";
 import { enqueueEmbedConceptPageJob } from "../jobs/embed-concept-page.js";
-import type { MemoryJob } from "../jobs-store.js";
-import { stringifyMessageContent } from "../message-content.js";
+import type { MemoryJob } from "../../persistence/jobs-store.js";
+import { stringifyMessageContent } from "../../persistence/message-content.js";
 import {
   computeOwnActivation,
   selectCandidates,

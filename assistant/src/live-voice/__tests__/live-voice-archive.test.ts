@@ -19,7 +19,7 @@ import {
 } from "../../persistence/conversation-crud.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
-import { rawAll, rawGet, rawRun } from "../../memory/raw-query.js";
+import { rawAll, rawGet, rawRun } from "../../persistence/raw-query.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import type { LiveVoiceAudioArtifactMetadata } from "../live-voice-archive.js";
 import {

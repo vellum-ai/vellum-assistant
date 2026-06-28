@@ -36,7 +36,7 @@ import { applyCorrectionIfCalibrated } from "../anisotropy.js";
 import {
   embedWithBackend,
   generateSparseEmbedding,
-} from "../embedding-backend.js";
+} from "../../persistence/embeddings/embedding-backend.js";
 import { invalidatePageIndex } from "./page-index.js";
 import {
   backfillKindOnPointsWithPrefix,

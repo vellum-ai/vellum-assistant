@@ -63,7 +63,7 @@ import {
 } from "../memory/conversation-disk-view.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { rawRun } from "../memory/raw-query.js";
+import { rawRun } from "../persistence/raw-query.js";
 await initializeDb();
 
 function resetTables() {

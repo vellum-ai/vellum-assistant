@@ -26,7 +26,7 @@ import { applyCorrectionIfCalibrated } from "../anisotropy.js";
 import {
   embedWithBackend,
   generateSparseEmbedding,
-} from "../embedding-backend.js";
+} from "../../persistence/embeddings/embedding-backend.js";
 import { buildCliCommandContent } from "./cli-command-content.js";
 import { invalidatePageIndex } from "./page-index.js";
 import {

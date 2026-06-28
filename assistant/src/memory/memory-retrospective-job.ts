@@ -65,12 +65,12 @@ import {
   getMessagesAfter,
   isConversationProcessing,
   resolveOverrideProfile,
-} from "./conversation-crud.js";
+} from "../persistence/conversation-crud.js";
 import {
   enqueueMemoryJob,
   type MemoryJob,
   type MemoryJobType,
-} from "./jobs-store.js";
+} from "../persistence/jobs-store.js";
 import {
   MEMORY_RETROSPECTIVE_FORK_SOURCE,
   MEMORY_RETROSPECTIVE_GROUP_ID,

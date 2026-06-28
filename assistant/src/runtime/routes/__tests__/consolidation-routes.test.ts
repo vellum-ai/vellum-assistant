@@ -37,7 +37,7 @@ mock.module("../../../util/logger.js", () => ({
 }));
 
 import { invalidateConfigCache } from "../../../config/loader.js";
-import { rawRun } from "../../../memory/raw-query.js";
+import { rawRun } from "../../../persistence/raw-query.js";
 import { createConversation } from "../../../persistence/conversation-crud.js";
 import { getDb, getMemorySqlite } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";

@@ -11,21 +11,21 @@ import {
 import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
-} from "../memory/checkpoints.js";
+} from "./checkpoints.js";
 import {
   getLastScheduledCleanupEnqueueMs,
   markScheduledCleanupEnqueued,
-} from "../memory/cleanup-schedule-state.js";
+} from "./cleanup-schedule-state.js";
 import {
   EmbeddingBillingBlockError,
   extractHttpStatus,
   recordBillingBlock,
-} from "../memory/embedding-billing-breaker.js";
+} from "./embeddings/embedding-billing-breaker.js";
 import { sweepOrphanMemoryRetrospectiveConversations } from "../memory/memory-retrospective-startup-cleanup.js";
 import { resolveMemoryProviderId } from "../memory/provider/provider-id.js";
-import { QdrantCircuitOpenError } from "../memory/qdrant-circuit-breaker.js";
+import { QdrantCircuitOpenError } from "./embeddings/qdrant-circuit-breaker.js";
 import { countBufferLines } from "../memory/v2/consolidation-job.js";
-import { spawnMemoryWorkerProcess } from "../memory/worker-control.js";
+import { spawnMemoryWorkerProcess } from "./worker-control.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { maybeRunDbMaintenance } from "./db-maintenance.js";

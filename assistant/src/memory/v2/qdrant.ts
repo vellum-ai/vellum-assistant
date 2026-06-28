@@ -28,8 +28,8 @@ import { v5 as uuidv5 } from "uuid";
 import { getConfig } from "../../config/loader.js";
 import { getLogger } from "../../util/logger.js";
 import { getDataDir } from "../../util/platform.js";
-import type { SparseEmbedding } from "../embedding-types.js";
-import { resolveQdrantUrl } from "../qdrant-client.js";
+import type { SparseEmbedding } from "../../persistence/embeddings/embedding-types.js";
+import { resolveQdrantUrl } from "../../persistence/embeddings/qdrant-client.js";
 
 const log = getLogger("memory-v2-qdrant");
 
