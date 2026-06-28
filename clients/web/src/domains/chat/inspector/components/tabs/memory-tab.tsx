@@ -19,7 +19,8 @@ import { conceptPageQueryOptions } from "../../concept-page-api";
  * Memory tab rendering V1 recall, V2 activation, and/or the V3 selection.
  * When more than one is present a pill switcher lets the user toggle between
  * them; when only one is present it renders directly. The V3 section shows
- * what the v3 retriever selected and injected into context this turn.
+ * what the v3 retriever selected — injected into context when v3 is the
+ * assistant's live memory source, otherwise logged but not injected.
  */
 type MemoryView = "recall" | "v2" | "v3";
 
@@ -490,11 +491,25 @@ function MemoryV3Section({
   ).length;
   const pinnedCount = selection.selections.filter((s) => s.pinned).length;
 
+  // `selection.live` reflects whether v3 is the assistant's CURRENT live memory
+  // source, not per-turn history. Persisted `memory_v3_selections` rows can be
+  // inspected on an assistant that is on v2 (no v3 rows are written there, but
+  // older rows survive), where the selection was logged but never injected.
+  const live = selection.live;
+
   return (
     <div className="flex flex-col gap-4 p-4">
       <ScopeBanner
-        title="Memory V3 — live injection"
-        body="v3 is the live memory source this turn — the block below was injected into context (v2 suppressed)."
+        title={
+          live
+            ? "Memory V3 — live injection"
+            : "Memory V3 — logged selection (not injected)"
+        }
+        body={
+          live
+            ? "v3 is the live memory source this turn — the block below was injected into context (v2 suppressed)."
+            : "v3 is not the live memory source for this assistant — these selections were logged but not injected this turn; the turn's memory came from v2."
+        }
       />
 
       <div className="flex flex-wrap gap-2">
@@ -527,7 +542,12 @@ function MemoryV3Section({
 
       {selection.injectedText !== "" && (
         <SectionCard
-          title="Injected memory context"
+          title={live ? "Injected memory context" : "Logged memory selection"}
+          subtitle={
+            live
+              ? undefined
+              : "Rendered from the v3 selection — not injected this turn."
+          }
           copyText={selection.injectedText}
         >
           <CodeBlock text={selection.injectedText} />
