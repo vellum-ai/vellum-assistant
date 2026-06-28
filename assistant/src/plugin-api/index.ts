@@ -55,6 +55,8 @@
  * - {@link PostModelCallContext} — passed to `post-model-call` hook, fired at
  *   every model-call outcome (a finalized reply or a provider rejection) to
  *   transform content and decide whether to retry
+ * - {@link TurnCommitContext} — passed to `turn-commit` hook, fired after the
+ *   turn's messages are persisted to enqueue post-turn consolidation work
  * - {@link HookFunction} — signature every lifecycle hook implements
  * - {@link PluginLogger} — pino-compatible logger shape on the contexts
  * - {@link ToolDefinition} — author-facing tool spec (default-export shape
@@ -112,6 +114,7 @@ export type {
   ToolContext,
   ToolDefinition,
   ToolExecutionResult,
+  TurnCommitContext,
   UserPromptSubmitContext,
 } from "./types.js";
 export { RiskLevel } from "./types.js";
