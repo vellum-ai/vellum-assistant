@@ -13,7 +13,6 @@ import {
   type ConceptFrequencyResponse,
   getConceptFrequencySummary,
 } from "../../memory/memory-v2-concept-frequency.js";
-import { resolveMemoryProviderId } from "../../memory/provider/provider-id.js";
 import {
   getEdgeIndex,
   totalEdgeCount,
@@ -50,28 +49,28 @@ import type { RouteHandlerArgs } from "./types.js";
 const log = getLogger("memory-v2-routes");
 
 /**
- * Wire-format error code emitted when v2 routes reject a request because the
- * active memory provider is not v2. Exported so tests and the macOS/web client
+ * Wire-format error code emitted when v2 routes reject a request because
+ * `memory.v2.enabled` is false. Exported so tests and the macOS/web client
  * reference the same string without drift.
  */
 export const MEMORY_V2_DISABLED_CODE = "MEMORY_V2_DISABLED";
 
 /**
- * Reject the request when the v2 concept-page system is not the active memory
- * provider. The v2 maintenance verbs operate on the live v2 corpus, so running
- * one while a different provider (graph/v3/none) is active would act on a
- * system the assistant isn't using.
+ * Reject the request when memory v2 is not enabled.
+ *
+ * Gated on `memory.v2.enabled` (the corpus exists and is maintained), not on
+ * the active memory provider. A v3-live install still maintains its live v2
+ * concept-page corpus (`v2.enabled` stays true; v3 only suppresses v2
+ * injection), so its v2 maintenance/read verbs must keep working.
  *
  * Returns 409 + `MEMORY_V2_DISABLED` (rather than serving a partial response)
  * — the desktop Memories panel reads this code to render an explicit "disabled
- * in config" empty state. Under the default `"auto"` selector this fires
- * exactly when v2 is not the derived provider, so existing installs are
- * unaffected.
+ * in config" empty state.
  */
-function requireMemoryV2Active(): void {
-  if (resolveMemoryProviderId(loadConfig()) !== "v2") {
+function requireMemoryV2Enabled(): void {
+  if (!loadConfig().memory.v2.enabled) {
     throw new RouteError(
-      "Memory v2 is not the active memory provider — select the v2 memory system to use this command.",
+      "Memory v2 is not enabled — set memory.v2.enabled to true to use this command.",
       MEMORY_V2_DISABLED_CODE,
       409,
     );
@@ -102,7 +101,7 @@ const OP_TO_JOB_TYPE: Record<MemoryV2BackfillOp, MemoryJobType> = {
 async function handleBackfill({
   body = {},
 }: RouteHandlerArgs): Promise<MemoryV2BackfillResult> {
-  requireMemoryV2Active();
+  requireMemoryV2Enabled();
   const { op, force } = MemoryV2BackfillParams.parse(body);
   const payload: Record<string, unknown> =
     op === "migrate" && force === true ? { force: true } : {};
@@ -190,7 +189,7 @@ export type MemoryV2GetConceptPageResult = {
 async function handleGetConceptPage({
   body = {},
 }: RouteHandlerArgs): Promise<MemoryV2GetConceptPageResult> {
-  requireMemoryV2Active();
+  requireMemoryV2Enabled();
   const { slug } = MemoryV2GetConceptPageParams.parse(body);
   const workspaceDir = getWorkspaceDir();
   let page;
@@ -235,7 +234,7 @@ export type MemoryV2ListConceptPagesResult = z.infer<
 async function handleListConceptPages({
   body = {},
 }: RouteHandlerArgs): Promise<MemoryV2ListConceptPagesResult> {
-  requireMemoryV2Active();
+  requireMemoryV2Enabled();
   MemoryV2ListConceptPagesParams.parse(body);
 
   const workspaceDir = getWorkspaceDir();
@@ -283,7 +282,7 @@ export type MemoryV2ReembedSkillsResult = {
 async function handleReembedSkills({
   body = {},
 }: RouteHandlerArgs): Promise<MemoryV2ReembedSkillsResult> {
-  requireMemoryV2Active();
+  requireMemoryV2Enabled();
   MemoryV2ReembedSkillsParams.parse(body);
 
   // Unlike the queued backfill jobs above, this is a CLI-driven sync
@@ -308,7 +307,7 @@ const MemoryV2ConceptFrequencyParams = z
 async function handleConceptFrequency({
   body = {},
 }: RouteHandlerArgs): Promise<ConceptFrequencyResponse> {
-  requireMemoryV2Active();
+  requireMemoryV2Enabled();
   const { conversationId, sinceMs } =
     MemoryV2ConceptFrequencyParams.parse(body);
   const workspaceDir = getWorkspaceDir();
@@ -488,7 +487,7 @@ function applySimulateOverrides(
 export async function handleSimulateRouter({
   body = {},
 }: RouteHandlerArgs): Promise<MemoryV2SimulateRouterResult> {
-  requireMemoryV2Active();
+  requireMemoryV2Enabled();
   const {
     recentTurnPairs,
     nowText: rawNowText,
@@ -612,7 +611,7 @@ export type MemoryV2RouterPromptTemplateResult = z.infer<
 >;
 
 async function handleGetRouterPromptTemplate(): Promise<MemoryV2RouterPromptTemplateResult> {
-  requireMemoryV2Active();
+  requireMemoryV2Enabled();
   return { template: ROUTER_PROMPT };
 }
 
@@ -626,7 +625,7 @@ export const MemoryV2NowTextResultSchema = z.object({
 export type MemoryV2NowTextResult = z.infer<typeof MemoryV2NowTextResultSchema>;
 
 async function handleGetNowText(): Promise<MemoryV2NowTextResult> {
-  requireMemoryV2Active();
+  requireMemoryV2Enabled();
   const workspaceDir = getWorkspaceDir();
   const nowText = await loadNowText(workspaceDir);
   return { nowText };
@@ -655,7 +654,7 @@ export async function handleCompareRetrievers({
   body = {},
   abortSignal,
 }: RouteHandlerArgs): Promise<ComparisonReport> {
-  requireMemoryV2Active();
+  requireMemoryV2Enabled();
   const { limit, strategy, conversationIds, ks, includeNotInjected } =
     MemoryV2CompareRetrieversParams.parse(body);
 

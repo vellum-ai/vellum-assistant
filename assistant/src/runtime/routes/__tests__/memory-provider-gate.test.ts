@@ -1,12 +1,19 @@
 /**
- * Tests that the memory v2/v3 maintenance routes are gated on the active
- * memory provider (PR 21).
+ * Tests for the memory v2/v3 maintenance-route gating.
  *
  * The v2/v3 route modules live in the shared ROUTES array and are always
- * registered, but a route that drives one memory system must report
- * not-applicable when a different provider is active rather than execute
- * against the inactive system. The active provider is derived from a per-test
- * workspace `config.json` via the real `loadConfig`.
+ * registered. The gating split:
+ *
+ *  - v3 routes gate on the *active provider* — they report not-applicable
+ *    (404) when v3 is not the derived provider.
+ *  - v2 routes gate on `memory.v2.enabled` (the corpus exists and is
+ *    maintained), NOT on the active provider. A v3-live install still
+ *    maintains its live v2 concept-page corpus (`v2.enabled` stays true), so
+ *    its v2 maintenance/read verbs must keep working. The 409 +
+ *    `MEMORY_V2_DISABLED` fires only when v2 is genuinely disabled.
+ *
+ * The active provider / `v2.enabled` are derived from a per-test workspace
+ * `config.json` via the real `loadConfig`.
  *
  * The v3 `backfill-sections` body is heavy (embeds every page), so its one
  * underlying call is stubbed (preserving the module's other exports) — the
@@ -70,9 +77,14 @@ function findRoute(
   return route;
 }
 
-/** Provider-pinned config helpers. */
+/** Provider-pinned config helpers. `v2.enabled` defaults to true. */
 const asV2 = () => writeWorkspaceConfig({ memory: { provider: "v2" } });
 const asV3 = () => writeWorkspaceConfig({ memory: { provider: "v3" } });
+/** v3 active with the v2 corpus explicitly disabled. */
+const asV3WithV2Disabled = () =>
+  writeWorkspaceConfig({
+    memory: { provider: "v3", v2: { enabled: false } },
+  });
 
 beforeEach(() => {
   backfillCalls = 0;
@@ -159,8 +171,25 @@ describe("with provider = v3", () => {
     expect(backfillCalls).toBe(1);
   });
 
-  test("v2 routes report disabled (409 + MEMORY_V2_DISABLED)", async () => {
+  test("v2 maintenance routes still execute (v2.enabled stays true under v3)", async () => {
     asV3();
+    // The v2 corpus is still maintained on a v3-live install, so its
+    // read/maintenance verbs must keep working. list-concept-pages reads the
+    // on-disk workspace (no DB); a passing gate yields the empty-workspace
+    // listing rather than a disabled error.
+    const route = findRoute(memoryV2Routes, "memory_v2_list_concept_pages");
+    const result = (await route.handler({ body: {} })) as {
+      pages: unknown[];
+    };
+    expect(result.pages).toEqual([]);
+  });
+});
+
+// ─── v2 corpus disabled ───────────────────────────────────────────────────────
+
+describe("with memory.v2.enabled = false", () => {
+  test("v2 routes report disabled (409 + MEMORY_V2_DISABLED)", async () => {
+    asV3WithV2Disabled();
     const route = findRoute(memoryV2Routes, "memory_v2_backfill");
     try {
       await route.handler({ body: { op: "migrate" } });
