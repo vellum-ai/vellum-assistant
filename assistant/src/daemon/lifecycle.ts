@@ -53,6 +53,7 @@ import { enqueueMemoryJob, isMemoryEnabled } from "../memory/jobs-store.js";
 import { startMemoryJobsWorker } from "../memory/jobs-worker.js";
 import { initQdrantClient, resolveQdrantUrl } from "../memory/qdrant-client.js";
 import { QdrantManager } from "../memory/qdrant-manager.js";
+import { registerMemoryJobHandlers } from "../memory/register-job-handlers.js";
 import { rotateToolInvocations } from "../memory/tool-usage-store.js";
 import { sweepConceptPageFrontmatter } from "../memory/v2/frontmatter-sweep.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
@@ -963,6 +964,7 @@ export async function runDaemon(): Promise<void> {
     // `memory.worker.enabled` is set. Shutdown stops whichever worker is
     // actually running — see shutdown-handlers.ts.
     log.info("Daemon startup: starting memory worker");
+    registerMemoryJobHandlers();
     bgRefs.memoryWorker = startMemoryJobsWorker();
 
     // Seed capability graph nodes (new memory graph system)

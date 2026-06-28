@@ -72,10 +72,12 @@ import { initializeDb } from "../db-init.js";
 import { enqueueMemoryJob } from "../jobs-store.js";
 import { runMemoryJobsOnce } from "../jobs-worker.js";
 import { _resetQdrantBreaker } from "../qdrant-circuit-breaker.js";
+import { registerMemoryJobHandlers } from "../register-job-handlers.js";
 import { memoryJobs } from "../schema.js";
 
 describe("graph_trigger_embed under memory v2", () => {
   beforeAll(async () => {
+    registerMemoryJobHandlers();
     await initializeDb();
   });
 
