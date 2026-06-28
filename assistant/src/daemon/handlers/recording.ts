@@ -4,8 +4,11 @@ import * as path from "node:path";
 import { v4 as uuid } from "uuid";
 
 import { attachFileBackedAttachmentToMessage } from "../../memory/attachments-store.js";
-import { addMessage, getConversation } from "../../memory/conversation-crud.js";
 import { syncMessageToDisk } from "../../memory/conversation-disk-view.js";
+import {
+  addMessage,
+  getConversation,
+} from "../../persistence/conversation-crud.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import type { RecordingOptions, RecordingStatus } from "../message-protocol.js";
 import { log } from "./shared.js";

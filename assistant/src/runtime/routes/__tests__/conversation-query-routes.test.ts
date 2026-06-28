@@ -56,7 +56,6 @@ mock.module("../../../memory/embedding-backend.js", () => ({
   },
 }));
 
-import type { ConversationCreateType } from "../../../memory/conversation-crud.js";
 import { getDb, getLogsDb } from "../../../memory/db-connection.js";
 import { initializeDb } from "../../../memory/db-init.js";
 import {
@@ -72,6 +71,7 @@ import {
   memoryV2ActivationLogs,
   messages,
 } from "../../../memory/schema.js";
+import type { ConversationCreateType } from "../../../persistence/conversation-crud.js";
 import {
   createConnection,
   getConnection,

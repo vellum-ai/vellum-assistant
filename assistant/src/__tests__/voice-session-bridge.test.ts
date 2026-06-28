@@ -38,12 +38,12 @@ import {
   setVoiceBridgeDeps,
   startVoiceTurn,
 } from "../calls/voice-session-bridge.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import {
   createConversation,
   getMessages,
-} from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../persistence/conversation-crud.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 

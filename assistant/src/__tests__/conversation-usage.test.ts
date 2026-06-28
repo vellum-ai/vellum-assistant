@@ -22,9 +22,9 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   updateConversationUsage: (
     conversationId: string,
     inputTokens: number,

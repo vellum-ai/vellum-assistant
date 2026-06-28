@@ -35,7 +35,7 @@ const addMessageCalls: Array<{
   content: string;
 }> = [];
 
-mock.module("../../memory/conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   addMessage: async (conversationId: string, role: string, content: string) => {
     addMessageCalls.push({ conversationId, role, content });
     return { id: `msg-${addMessageCalls.length}` };

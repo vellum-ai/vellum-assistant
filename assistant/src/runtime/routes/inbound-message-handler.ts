@@ -50,14 +50,6 @@ import {
   type SignalType,
 } from "../../memory/conversation-attention-store.js";
 import {
-  addMessage,
-  getMessageById,
-  getMessages,
-  selectSlackMetaCandidateMetadata,
-  updateMessageContent,
-  updateMessageMetadata,
-} from "../../memory/conversation-crud.js";
-import {
   clearPayload,
   findMessageBySourceId,
   recordInbound,
@@ -85,6 +77,14 @@ import {
   writeSlackMetadata,
 } from "../../messaging/providers/slack/message-metadata.js";
 import { MESSAGE_PREVIEW_MAX_LENGTH } from "../../notifications/notification-utils.js";
+import {
+  addMessage,
+  getMessageById,
+  getMessages,
+  selectSlackMetaCandidateMetadata,
+  updateMessageContent,
+  updateMessageMetadata,
+} from "../../persistence/conversation-crud.js";
 import type { ContentBlock } from "../../providers/types.js";
 import { wrapUntrustedContent } from "../../security/untrusted-content.js";
 import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";

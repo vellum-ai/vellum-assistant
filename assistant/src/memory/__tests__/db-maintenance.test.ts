@@ -23,7 +23,8 @@ const { initializeDb } = await import("../db-init.js");
 const { deleteMemoryCheckpoint, getMemoryCheckpoint } =
   await import("../checkpoints.js");
 const { maybeRunDbMaintenance } = await import("../db-maintenance.js");
-const { getLastUserMessageTimestamp } = await import("../conversation-crud.js");
+const { getLastUserMessageTimestamp } =
+  await import("../../persistence/conversation-crud.js");
 const { getDbPath } = await import("../../util/platform.js");
 
 await initializeDb();

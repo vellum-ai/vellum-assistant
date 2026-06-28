@@ -30,7 +30,6 @@ mock.module("../config/loader.js", () => ({
 
 import { eq } from "drizzle-orm";
 
-import { createConversation } from "../memory/conversation-crud.js";
 import { getDb, getLogsDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
@@ -39,6 +38,7 @@ import {
   recordRequestLog,
 } from "../memory/llm-request-log-store.js";
 import { llmRequestLogs } from "../memory/schema.js";
+import { createConversation } from "../persistence/conversation-crud.js";
 
 await initializeDb();
 

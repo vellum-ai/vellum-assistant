@@ -30,14 +30,14 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
+import { rawRun } from "../memory/raw-query.js";
 import {
   batchSetDisplayOrders,
   createConversation,
   updateConversationTitle,
-} from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { rawRun } from "../memory/raw-query.js";
+} from "../persistence/conversation-crud.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 

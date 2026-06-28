@@ -14,9 +14,12 @@ import {
   linkAttachmentToMessage,
   uploadAttachment,
 } from "../memory/attachments-store.js";
-import { addMessage, createConversation } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
+import {
+  addMessage,
+  createConversation,
+} from "../persistence/conversation-crud.js";
 await initializeDb();
 
 describe("renderHistoryContent", () => {

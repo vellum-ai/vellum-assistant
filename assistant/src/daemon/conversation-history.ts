@@ -1,17 +1,17 @@
 import { v4 as uuid } from "uuid";
 
+import { isLastUserMessageToolResult } from "../memory/conversation-queries.js";
+import { enqueueMemoryJob } from "../memory/jobs-store.js";
+import { relinkLlmRequestLogs } from "../memory/llm-request-log-store.js";
+import { withQdrantBreaker } from "../memory/qdrant-circuit-breaker.js";
+import { getQdrantClient } from "../memory/qdrant-client.js";
 import {
   deleteLastExchange,
   deleteMessageById,
   getMessages,
   relinkAttachments,
   updateMessageContent,
-} from "../memory/conversation-crud.js";
-import { isLastUserMessageToolResult } from "../memory/conversation-queries.js";
-import { enqueueMemoryJob } from "../memory/jobs-store.js";
-import { relinkLlmRequestLogs } from "../memory/llm-request-log-store.js";
-import { withQdrantBreaker } from "../memory/qdrant-circuit-breaker.js";
-import { getQdrantClient } from "../memory/qdrant-client.js";
+} from "../persistence/conversation-crud.js";
 import { getSummaryFromContextMessage } from "../plugins/defaults/compaction/window-manager.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";

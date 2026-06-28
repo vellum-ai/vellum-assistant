@@ -52,9 +52,9 @@ import {
   type CompactionLogEvent,
   getCompactionLogStore,
 } from "../../memory/compaction-log-store-clickhouse.js";
-import { getConversation } from "../../memory/conversation-crud.js";
 import { getLlmRequestLogSource } from "../../memory/llm-request-log-source.js";
 import type { CompactionAgentLogRow } from "../../memory/llm-request-log-store.js";
+import { getConversation } from "../../persistence/conversation-crud.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError } from "./errors.js";

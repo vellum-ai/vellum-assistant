@@ -9,7 +9,7 @@ mock.module("../../util/logger.js", () => ({
     }),
 }));
 
-import { createConversation } from "../conversation-crud.js";
+import { createConversation } from "../../persistence/conversation-crud.js";
 import {
   buildExcerpt,
   buildRecallEvidenceExcerpt,

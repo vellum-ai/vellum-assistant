@@ -130,7 +130,7 @@ mock.module("../memory-retrospective-state.js", () => ({
   ],
 }));
 
-mock.module("../conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   getMessagesAfter: (_id: string, _afterId: string | null) => newMessages,
   getMessages: (id: string) => {
     if (messagesByConversationId[id]) return messagesByConversationId[id];

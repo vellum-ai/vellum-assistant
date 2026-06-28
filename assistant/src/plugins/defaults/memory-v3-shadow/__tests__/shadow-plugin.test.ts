@@ -61,7 +61,7 @@ const realPageStore = {
   ...(await import("../../../../memory/v2/page-store.js")),
 };
 const realConversationCrud = {
-  ...(await import("../../../../memory/conversation-crud.js")),
+  ...(await import("../../../../persistence/conversation-crud.js")),
 };
 const realSkillStore = {
   ...(await import("../../../../memory/v2/skill-store.js")),
@@ -227,7 +227,7 @@ mock.module("../hot-set.js", () => ({
 
 // Spread the real module so every export the live path transitively imports
 // stays present; only `getMessages` is overridden.
-mock.module("../../../../memory/conversation-crud.js", () => ({
+mock.module("../../../../persistence/conversation-crud.js", () => ({
   ...realConversationCrud,
   getMessages: () => messages.map((m, i) => ({ ...m, id: `m${i}` })),
 }));
@@ -705,10 +705,7 @@ describe("memory-v3 engine", () => {
 
     invalidateLanes();
 
-    await Promise.all([
-      observeTurn("conv-1", 1),
-      observeTurn("conv-1", 2),
-    ]);
+    await Promise.all([observeTurn("conv-1", 1), observeTurn("conv-1", 2)]);
     expect(sectionBuilds).toBe(2);
     expect(needleBuilds).toBe(2);
   });

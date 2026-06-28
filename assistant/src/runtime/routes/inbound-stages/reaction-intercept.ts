@@ -21,7 +21,6 @@ import type { ChannelId, InterfaceId } from "../../../channels/types.js";
 import { getGuardianDeliveryFresh } from "../../../contacts/guardian-delivery-reader.js";
 import { getDiskPressureStatus } from "../../../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../../../daemon/disk-pressure-policy.js";
-import { addMessage } from "../../../memory/conversation-crud.js";
 import {
   clearPayload,
   linkMessage,
@@ -33,6 +32,7 @@ import {
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../../../messaging/providers/slack/message-metadata.js";
+import { addMessage } from "../../../persistence/conversation-crud.js";
 import { getLogger } from "../../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
 import type { ApprovalConversationGenerator } from "../../http-types.js";

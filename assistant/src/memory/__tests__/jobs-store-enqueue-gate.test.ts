@@ -52,7 +52,7 @@ mock.module("../../config/assistant-feature-flags.js", () => ({
 // retrospective and auto-analysis paths fall through to the enqueue.
 // `getConversation` returning null keeps `isLowYieldRetrospectiveSource`
 // false, so the retrospective is enqueued rather than skipped.
-mock.module("../conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   getConversation: () => null,
   getConversationSource: () => null,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),

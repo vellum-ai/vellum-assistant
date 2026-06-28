@@ -73,9 +73,9 @@ let mockDbMessages: Array<{
 let mockConversation: Record<string, unknown> | null = null;
 let nextMockMessageId = 1;
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
   updateConversationTitle: () => {},

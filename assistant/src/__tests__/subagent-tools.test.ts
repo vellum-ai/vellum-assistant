@@ -50,7 +50,7 @@ mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (conversationId: string) =>
     mockFindConversation(conversationId),
 }));
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
@@ -80,10 +80,7 @@ mock.module("../memory/conversation-crud.js", () => ({
 }));
 
 import { getSubagentManager } from "../subagent/index.js";
-import {
-  SubagentAbortedError,
-  SubagentManager,
-} from "../subagent/manager.js";
+import { SubagentAbortedError, SubagentManager } from "../subagent/manager.js";
 import type { SubagentState } from "../subagent/types.js";
 import { executeSubagentAbort } from "../tools/subagent/abort.js";
 import { executeSubagentMessage } from "../tools/subagent/message.js";

@@ -12,7 +12,7 @@ mock.module("../../util/logger.js", () => ({
 import {
   createConversation,
   findMostRecentRetrospectiveFor,
-} from "../conversation-crud.js";
+} from "../../persistence/conversation-crud.js";
 import { getDb } from "../db-connection.js";
 import { initializeDb } from "../db-init.js";
 import { MEMORY_RETROSPECTIVE_SOURCE } from "../memory-retrospective-constants.js";

@@ -6,12 +6,12 @@ import { z } from "zod";
 
 import { destroyActiveConversation } from "../../daemon/conversation-store.js";
 import { stripConversationIds } from "../../home/feed-writer.js";
+import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import {
   countConversationsByScheduleJobId,
   getConversation,
   wipeConversation,
-} from "../../memory/conversation-crud.js";
-import { enqueueMemoryJob } from "../../memory/jobs-store.js";
+} from "../../persistence/conversation-crud.js";
 import { deleteSchedule } from "../../schedule/schedule-store.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { NotFoundError } from "./errors.js";

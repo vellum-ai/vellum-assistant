@@ -41,11 +41,6 @@ import {
   getSourcePathsForAttachments,
 } from "../memory/attachments-store.js";
 import { expireAllPendingCanonicalRequests } from "../memory/canonical-guardian-store.js";
-import {
-  clearStaleProcessingFlags,
-  deleteMessageById,
-  getMessages,
-} from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { selectEmbeddingBackend } from "../memory/embedding-backend.js";
@@ -58,6 +53,11 @@ import { sweepConceptPageFrontmatter } from "../memory/v2/frontmatter-sweep.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
+import {
+  clearStaleProcessingFlags,
+  deleteMessageById,
+  getMessages,
+} from "../persistence/conversation-crud.js";
 import {
   startConsentRefresh,
   stopConsentRefresh,

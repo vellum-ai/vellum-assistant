@@ -89,19 +89,6 @@ import {
   resolveCanonicalGuardianRequest,
 } from "../../memory/canonical-guardian-store.js";
 import {
-  addMessage,
-  extractImageSourcePaths,
-  getConversation,
-  getConversationPersistedSeq,
-  getMessages,
-  getMessagesPaginated,
-  hasMessages,
-  isConversationProcessing,
-  type MessageRow,
-  provenanceFromTrustContext,
-  setConversationInferenceProfile,
-} from "../../memory/conversation-crud.js";
-import {
   getConversationByKey,
   getOrCreateConversation,
 } from "../../memory/conversation-key-store.js";
@@ -113,6 +100,19 @@ import {
   readSlackMetadataFromMessageMetadata,
   type SlackMessageMetadata,
 } from "../../messaging/providers/slack/message-metadata.js";
+import {
+  addMessage,
+  extractImageSourcePaths,
+  getConversation,
+  getConversationPersistedSeq,
+  getMessages,
+  getMessagesPaginated,
+  hasMessages,
+  isConversationProcessing,
+  type MessageRow,
+  provenanceFromTrustContext,
+  setConversationInferenceProfile,
+} from "../../persistence/conversation-crud.js";
 import { normalizeOnboardingContext } from "../../prompts/normalize-onboarding.js";
 import { writeOnboardingSection } from "../../prompts/persona-resolver.js";
 import { getConfiguredProvider } from "../../providers/provider-send-message.js";

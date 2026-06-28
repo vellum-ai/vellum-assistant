@@ -44,13 +44,6 @@ import {
   uploadAttachment,
 } from "../memory/attachments-store.js";
 import {
-  addMessage,
-  createConversation,
-  deleteMessageById,
-  relinkAttachments,
-  updateMessageContent,
-} from "../memory/conversation-crud.js";
-import {
   flattenContentBlocks,
   getConversationDirName,
   getConversationDirPath,
@@ -64,6 +57,13 @@ import {
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { rawRun } from "../memory/raw-query.js";
+import {
+  addMessage,
+  createConversation,
+  deleteMessageById,
+  relinkAttachments,
+  updateMessageContent,
+} from "../persistence/conversation-crud.js";
 await initializeDb();
 
 function resetTables() {

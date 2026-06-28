@@ -9,8 +9,8 @@ import { and, eq, isNotNull, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { readSlackMetadataFromMessageMetadata } from "../messaging/providers/slack/message-metadata.js";
+import { selectSlackMetaCandidateMetadata } from "../persistence/conversation-crud.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import { selectSlackMetaCandidateMetadata } from "./conversation-crud.js";
 import {
   getConversationByKey,
   getOrCreateConversation,

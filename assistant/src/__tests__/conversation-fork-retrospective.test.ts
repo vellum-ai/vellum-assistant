@@ -24,13 +24,6 @@ import {
   linkAttachmentToMessage,
   uploadAttachment,
 } from "../memory/attachments-store.js";
-import {
-  addMessage,
-  createConversation,
-  forkConversation,
-  forkConversationForRetrospective,
-  getMessages,
-} from "../memory/conversation-crud.js";
 import { getConversationDirPath } from "../memory/conversation-disk-view.js";
 import {
   getDb,
@@ -54,6 +47,13 @@ import {
   memoryRetrospectiveState,
   toolInvocations,
 } from "../memory/schema.js";
+import {
+  addMessage,
+  createConversation,
+  forkConversation,
+  forkConversationForRetrospective,
+  getMessages,
+} from "../persistence/conversation-crud.js";
 
 await initializeDb();
 

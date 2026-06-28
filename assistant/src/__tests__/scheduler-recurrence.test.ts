@@ -27,7 +27,7 @@ let runBackgroundJobShouldFail = false;
 mock.module("../runtime/background-job-runner.js", () => ({
   runBackgroundJob: async (opts: { prompt: string; groupId?: string }) => {
     const { createConversation } =
-      await import("../memory/conversation-crud.js");
+      await import("../persistence/conversation-crud.js");
     const conv = createConversation({
       title: "(test stub)",
       conversationType: "background",

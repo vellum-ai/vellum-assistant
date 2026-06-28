@@ -74,7 +74,7 @@ const BASELINE: Record<string, readonly string[]> = {
   "image-recovery": [
     "../../../agent/image-optimize.js",
     "../../../context/image-dimensions.js",
-    "../../../memory/conversation-crud.js",
+    "../../../persistence/conversation-crud.js",
     "../../../util/logger.js",
   ],
   "max-tokens-continue": ["../../../../agent/loop.js"],
@@ -85,7 +85,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../../daemon/conversation-runtime-assembly.js",
     "../../../../daemon/message-types/memory.js",
     "../../../../daemon/trust-context.js",
-    "../../../../memory/conversation-crud.js",
+    "../../../../persistence/conversation-crud.js",
     "../../../../memory/graph/conversation-graph-memory.js",
     "../../../../memory/memory-recall-log-store.js",
     "../../../../runtime/assistant-event-hub.js",
@@ -127,7 +127,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../daemon/conversation-registry.js",
     "../../../daemon/trust-context.js",
     "../../../memory/checkpoints.js",
-    "../../../memory/conversation-crud.js",
+    "../../../persistence/conversation-crud.js",
     "../../../memory/db-connection.js",
     "../../../memory/embedding-backend.js",
     "../../../memory/embedding-billing-breaker.js",
@@ -167,7 +167,7 @@ const BASELINE: Record<string, readonly string[]> = {
   ],
   "title-generate": [
     "../../../../config/loader.js",
-    "../../../../memory/conversation-crud.js",
+    "../../../../persistence/conversation-crud.js",
     "../../../../memory/conversation-title-service.js",
   ],
 };

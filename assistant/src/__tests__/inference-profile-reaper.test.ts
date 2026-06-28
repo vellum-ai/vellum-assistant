@@ -12,13 +12,13 @@ import {
   deleteConversation,
   setConversation,
 } from "../daemon/conversation-registry.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import {
   createConversation,
   getConversation,
   setConversationInferenceProfileSession,
-} from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../persistence/conversation-crud.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import {
   startInferenceProfileSessionReaper,

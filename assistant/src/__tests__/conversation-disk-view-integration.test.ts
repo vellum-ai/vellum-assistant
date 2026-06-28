@@ -49,18 +49,18 @@ import {
   uploadAttachment,
 } from "../memory/attachments-store.js";
 import {
-  addMessage,
-  clearAll,
-  createConversation,
-  deleteConversation,
-  updateConversationTitle,
-} from "../memory/conversation-crud.js";
-import {
   getConversationDirPath,
   syncMessageToDisk,
 } from "../memory/conversation-disk-view.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
+import {
+  addMessage,
+  clearAll,
+  createConversation,
+  deleteConversation,
+  updateConversationTitle,
+} from "../persistence/conversation-crud.js";
 await initializeDb();
 
 function resetTables() {

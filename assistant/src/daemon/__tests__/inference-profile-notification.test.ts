@@ -25,7 +25,7 @@ const setLastNotifiedInferenceProfile = mock(
   (_conversationId: string, _profileKey: string) => {},
 );
 
-mock.module("../../memory/conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   deleteMessageById: () => {},
   getConversation: () => null,
   getMessageById: () => null,

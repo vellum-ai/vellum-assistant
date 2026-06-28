@@ -101,7 +101,7 @@ mock.module("../../../memory/compaction-log-store-clickhouse.js", () => ({
         },
 }));
 
-mock.module("../../../memory/conversation-crud.js", () => ({
+mock.module("../../../persistence/conversation-crud.js", () => ({
   getConversation: (id: string) =>
     state.conversation && state.conversation.id === id
       ? state.conversation

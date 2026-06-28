@@ -15,15 +15,15 @@ import {
   getAttentionStateByConversationIds,
   type SignalType,
 } from "../../memory/conversation-attention-store.js";
+import type { ExternalConversationBinding } from "../../memory/external-conversation-store.js";
+import { getBindingsForConversations } from "../../memory/external-conversation-store.js";
+import { buildChannelBindingMetadata } from "../../messaging/channel-binding-metadata.js";
 import {
   type ConversationRow,
   getConversation,
   getDisplayMetaForConversations,
   isConversationProcessing,
-} from "../../memory/conversation-crud.js";
-import type { ExternalConversationBinding } from "../../memory/external-conversation-store.js";
-import { getBindingsForConversations } from "../../memory/external-conversation-store.js";
-import { buildChannelBindingMetadata } from "../../messaging/channel-binding-metadata.js";
+} from "../../persistence/conversation-crud.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
