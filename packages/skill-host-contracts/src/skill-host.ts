@@ -228,6 +228,87 @@ export interface MemoryFacet {
 }
 
 // ---------------------------------------------------------------------------
+// History (read-only)
+// ---------------------------------------------------------------------------
+
+/**
+ * A single conversation turn as seen through the read-only history facet.
+ * Mirrors the daemon's `MessageRow` (in
+ * `assistant/src/persistence/conversation-crud.ts`) but narrowed to the fields
+ * a consolidation/retrieval plugin needs: only renderable `user`/`assistant`
+ * turns reach the facet, so agent-context `system` scaffolding and rows flagged
+ * `hidden` in metadata are never surfaced. `content` is the raw stored content
+ * string (a JSON content-block array or plain text); `metadata` is the raw
+ * stored metadata string, or `null`.
+ */
+export interface HistoryMessage {
+  id: string;
+  conversationId: string;
+  role: MessageRole;
+  content: string;
+  createdAt: number;
+  metadata: string | null;
+}
+
+/**
+ * A conversation header as seen through the read-only history facet. A narrow
+ * projection of the daemon's `ConversationRow` — identity and provenance
+ * fields a plugin needs to scope work, without the per-turn token/cost
+ * accounting columns.
+ */
+export interface HistoryConversation {
+  id: string;
+  title: string | null;
+  conversationType: string;
+  source: string;
+  createdAt: number;
+  updatedAt: number;
+  lastMessageAt: number | null;
+  archivedAt: number | null;
+}
+
+/** Result of a paginated history read, oldest→newest within the page. */
+export interface HistoryPage {
+  messages: HistoryMessage[];
+  /** True when older messages exist before `messages[0]`. */
+  hasMore: boolean;
+  /**
+   * Cursor for the next (older) page: pass as `beforeTimestamp` to
+   * {@link HistoryFacet.getMessages}. `undefined` when there is nothing older.
+   */
+  nextCursor?: number;
+}
+
+/**
+ * Read-only access to conversation and message history, applying the same
+ * trust/visibility filtering the UI-facing history loads use (hidden rows and
+ * non-`user`/`assistant` roles are dropped). A plugin reaches this for
+ * post-turn consolidation/retrieval without importing `persistence/` or
+ * `memory/`. Writes are NOT exposed here — they go through
+ * {@link MemoryFacet.addMessage}.
+ */
+export interface HistoryFacet {
+  /** The conversation header, or `null` if no such conversation exists. */
+  getConversation(conversationId: string): Promise<HistoryConversation | null>;
+  /**
+   * The most recent `n` visible messages for a conversation, oldest→newest.
+   */
+  getRecentMessages(
+    conversationId: string,
+    n: number
+  ): Promise<HistoryMessage[]>;
+  /**
+   * A page of visible messages, oldest→newest. With no `beforeTimestamp` the
+   * newest `limit` messages are returned; pass {@link HistoryPage.nextCursor}
+   * to walk older pages.
+   */
+  getMessages(
+    conversationId: string,
+    options?: { limit?: number; beforeTimestamp?: number }
+  ): Promise<HistoryPage>;
+}
+
+// ---------------------------------------------------------------------------
 // Events
 // ---------------------------------------------------------------------------
 
@@ -399,6 +480,7 @@ export interface SkillHost {
   platform: PlatformFacet;
   providers: ProvidersFacet;
   memory: MemoryFacet;
+  history: HistoryFacet;
   events: EventsFacet;
   registries: RegistriesFacet;
   speakers: SpeakersFacet;

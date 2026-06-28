@@ -90,6 +90,7 @@ import {
   buildConfigFacet,
   buildEmbeddingsFacet,
   buildEventsFacet,
+  buildHistoryFacet,
   buildIdentityFacet,
   buildLoggerFacet,
   buildMemoryFacet,
@@ -167,6 +168,7 @@ function buildPluginHost(pluginName: string): PluginHost {
   return {
     providers: buildProvidersFacet(),
     memory: buildMemoryFacet(),
+    history: buildHistoryFacet(),
     events: buildEventsFacet(),
     config: buildConfigFacet(),
     identity: buildIdentityFacet(),

@@ -107,6 +107,10 @@ import type {
   EventsFacet,
   EmbeddingsFacet,
   Filter,
+  HistoryConversation,
+  HistoryFacet,
+  HistoryMessage,
+  HistoryPage,
   IdentityFacet,
   InsertMessageFn,
   LlmProvidersFacet,
@@ -276,6 +280,7 @@ export class SkillHostClient implements SkillHost {
   readonly platform: PlatformFacet;
   readonly providers: ProvidersFacet;
   readonly memory: MemoryFacet;
+  readonly history: HistoryFacet;
   readonly events: EventsFacet;
   readonly registries: RegistriesFacet;
   readonly speakers: SpeakersFacet;
@@ -367,6 +372,7 @@ export class SkillHostClient implements SkillHost {
     this.platform = this.buildPlatformFacet();
     this.providers = this.buildProvidersFacet();
     this.memory = this.buildMemoryFacet();
+    this.history = this.buildHistoryFacet();
     this.events = this.buildEventsFacet();
     this.registries = this.buildRegistriesFacet();
     this.speakers = this.buildSpeakersFacet();
@@ -997,6 +1003,26 @@ export class SkillHostClient implements SkillHost {
           ...(req as Record<string, unknown>),
         });
       },
+    };
+  }
+
+  private buildHistoryFacet(): HistoryFacet {
+    return {
+      getConversation: async (conversationId) =>
+        this.call<HistoryConversation | null>("host.history.getConversation", {
+          conversationId,
+        }),
+      getRecentMessages: async (conversationId, n) =>
+        this.call<HistoryMessage[]>("host.history.getRecentMessages", {
+          conversationId,
+          n,
+        }),
+      getMessages: async (conversationId, options) =>
+        this.call<HistoryPage>("host.history.getMessages", {
+          conversationId,
+          limit: options?.limit,
+          beforeTimestamp: options?.beforeTimestamp,
+        }),
     };
   }
 
