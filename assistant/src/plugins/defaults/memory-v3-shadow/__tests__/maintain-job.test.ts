@@ -330,10 +330,8 @@ describe("maintainJob", () => {
     const outcome = await maintainJob(JOB, CONFIG, d);
     expect(outcome.danglingCoreSlugs).toEqual([]);
     // The reconcile and prune stages each read the index once; the empty core
-    // stage adds no further read. The skill-link stage always reads the index to
-    // derive the indexed `skills/<id>` capability set (its valid-skill source of
-    // truth), so it adds one read even when the local catalog is empty.
-    expect(indexReads).toBe(3);
+    // stage adds no further read.
+    expect(indexReads).toBe(2);
   });
 
   test("a thrown core-validation stage is contained and does not abort lane invalidation", async () => {
