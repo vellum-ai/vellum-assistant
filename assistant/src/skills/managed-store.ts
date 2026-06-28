@@ -79,8 +79,23 @@ export function validateCompanionPath(
       error: `companion file path must resolve under the skill directory: "${filePath}"`,
     };
   }
+  // A companion write must never clobber a top-level store-owned file: SKILL.md
+  // is the discovery entry point (generated from name/description/body), and the
+  // metadata files carry provenance the store owns.
+  if (RESERVED_COMPANION_NAMES.has(rel.replaceAll(sep, "/"))) {
+    return {
+      error: `companion file path must not overwrite the store-owned file: "${filePath}"`,
+    };
+  }
   return { resolvedPath };
 }
+
+/** Top-level files owned by the store; companion writes may never target them. */
+const RESERVED_COMPANION_NAMES = new Set([
+  "SKILL.md",
+  "install-meta.json",
+  "version.json",
+]);
 
 // ─── SKILL.md generation ─────────────────────────────────────────────────────
 

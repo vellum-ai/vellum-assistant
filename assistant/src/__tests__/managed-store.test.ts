@@ -393,6 +393,18 @@ describe("validateCompanionPath", () => {
   test("rejects path resolving to the skill dir itself", () => {
     expect(validateCompanionPath(skillDir, ".").error).not.toBeUndefined();
   });
+
+  test("rejects store-owned top-level files", () => {
+    for (const reserved of ["SKILL.md", "install-meta.json", "version.json"]) {
+      expect(validateCompanionPath(skillDir, reserved).error).toContain(
+        "store-owned",
+      );
+    }
+    // The same name nested under a subdirectory is allowed (only top-level reserved).
+    expect(
+      validateCompanionPath(skillDir, "references/SKILL.md").error,
+    ).toBeUndefined();
+  });
 });
 
 describe("createManagedSkill companion files", () => {
