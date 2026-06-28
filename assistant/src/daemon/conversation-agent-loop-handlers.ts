@@ -214,6 +214,15 @@ export interface EventHandlerState {
     string,
     { startedAt: number; completedAt?: number }
   >;
+  /**
+   * Tracks tool_use_id → the `tool_use_preview_start` timestamp (Unix ms), the
+   * first byte of the tool call. Stamped before execution begins, so it lives
+   * in its own map rather than `toolCallTimestamps` (whose record requires an
+   * execution `startedAt`). Read when emitting `tool_use_start` and when
+   * annotating the persisted block so the user-perceived latency survives a
+   * refresh.
+   */
+  readonly toolPreviewStartedAt: Map<string, number>;
   /** The tool_use_id of the currently executing tool (set in handleToolUse, cleared in handleToolResult). */
   currentToolUseId: string | undefined;
   /** Maps confirmation requestId → tool_use_id for linking decisions to tools. */
@@ -362,6 +371,7 @@ export function createEventHandlerState(): EventHandlerState {
     firstThinkingDeltaEmitted: false,
     lastCompletedToolName: undefined,
     toolCallTimestamps: new Map(),
+    toolPreviewStartedAt: new Map(),
     currentToolUseId: undefined,
     requestIdToToolUseId: new Map(),
     toolConfirmationOutcomes: new Map(),
@@ -916,6 +926,9 @@ export function handleToolUse(
     toolUseId: event.id,
     messageId: state.lastAssistantMessageId,
     startedAt,
+    // Carry the first-byte timestamp through so a client that connected after
+    // the preview event still anchors the perceived-latency timer to it.
+    previewStartedAt: state.toolPreviewStartedAt.get(event.id),
   });
   // `message_complete` always precedes tool events (see handleMessageComplete),
   // so this tool_use block is already durable in the assistant row. The
@@ -932,12 +945,26 @@ export function handleToolUsePreviewStart(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "tool_use_preview_start" }>,
 ): void {
+  // Stamp the first-byte timestamp on the server clock. The user-perceived
+  // latency timer anchors here, so clients can start rendering the tool card
+  // and ticking elapsed time the moment the call is recognized — well before
+  // its input finishes streaming (which can lag many seconds on a large input).
+  const previewStartedAt = Date.now();
+  state.toolPreviewStartedAt.set(event.toolUseId, previewStartedAt);
+  // Mirror it onto the durable tool_use block so a snapshot fetched mid-preview
+  // (refresh / reconnect) carries the perceived-start anchor.
+  recordToolPreviewStartOnPersistedMessage(
+    state,
+    event.toolUseId,
+    previewStartedAt,
+  );
   deps.onEvent({
     type: "tool_use_preview_start",
     toolUseId: event.toolUseId,
     toolName: event.toolName,
     conversationId: deps.ctx.conversationId,
     messageId: state.lastAssistantMessageId,
+    previewStartedAt,
   });
   const statusText = `Preparing ${friendlyToolName(event.toolName)}...`;
   deps.ctx.emitActivityState("tool_running", "preview_start", {
@@ -1476,6 +1503,44 @@ function recordToolStartOnPersistedMessage(
 }
 
 /**
+ * Stamp `_previewStartedAt` onto the in-flight tool_use block the moment the
+ * tool call is recognized (before its input finishes streaming), mirroring
+ * `recordToolStartOnPersistedMessage`. The block is already durable
+ * (message_complete precedes tool events), so without this a `/messages`
+ * snapshot fetched mid-tool would lose the perceived-start anchor and clients
+ * would fall back to execution start — hiding the input-streaming gap the user
+ * actually waited through.
+ */
+function recordToolPreviewStartOnPersistedMessage(
+  state: EventHandlerState,
+  toolUseId: string,
+  previewStartedAt: number,
+): void {
+  const messageId = state.lastAssistantMessageId;
+  if (!messageId) return;
+
+  const row = getMessageById(messageId);
+  if (!row) return;
+
+  let content: ContentBlock[];
+  try {
+    content = JSON.parse(row.content) as ContentBlock[];
+  } catch {
+    return;
+  }
+
+  for (const block of content) {
+    if (block.type !== "tool_use") continue;
+    const rec = block as unknown as Record<string, unknown>;
+    if (rec.id !== toolUseId) continue;
+    if (rec._previewStartedAt === previewStartedAt) return;
+    rec._previewStartedAt = previewStartedAt;
+    updateMessageContent(messageId, JSON.stringify(content));
+    return;
+  }
+}
+
+/**
  * After all tools for the current turn complete, fetch the persisted assistant
  * message, annotate its tool_use blocks with timing and confirmation metadata,
  * and update the DB. This runs post-tool-execution so the metadata maps are
@@ -1511,6 +1576,11 @@ function annotatePersistedAssistantMessage(
         if (ts.completedAt != null) {
           rec._completedAt = ts.completedAt;
         }
+        modified = true;
+      }
+      const previewStartedAt = state.toolPreviewStartedAt.get(id);
+      if (previewStartedAt != null) {
+        rec._previewStartedAt = previewStartedAt;
         modified = true;
       }
       const confirmation = state.toolConfirmationOutcomes.get(id);
