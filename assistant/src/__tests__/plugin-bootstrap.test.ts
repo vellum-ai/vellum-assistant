@@ -7,7 +7,9 @@
  * - Version-mismatch registration fails with an error that names the plugin
  *   (the registry enforces this at `registerPlugin` time, so bootstrap never
  *   sees the malformed plugin).
- * - Shutdown hook walks plugins in reverse registration order.
+ * - The shutdown-registry hook walks plugins in reverse registration order to
+ *   unregister their surfaces; the plugins' `shutdown` hooks then fire through
+ *   the unified `runHook(HOOKS.SHUTDOWN, …)` pipeline.
  *
  * `resetPluginRegistryForTests()` isolates registry state between cases.
  */
@@ -22,7 +24,9 @@ import { clearFeatureFlagOverridesCache } from "../config/assistant-feature-flag
 import { bootstrapPlugins } from "../daemon/external-plugins-bootstrap.js";
 import { runShutdownHooks } from "../daemon/shutdown-registry.js";
 import { RiskLevel } from "../permissions/types.js";
+import { HOOKS } from "../plugin-api/constants.js";
 import { registerDefaultPlugins } from "../plugins/defaults/index.js";
+import { runHook } from "../plugins/pipeline.js";
 import {
   closeRegistration,
   getRegisteredPlugins,
@@ -233,7 +237,7 @@ describe("plugin bootstrap", () => {
     expect(names).toContain("default-title-generate");
   });
 
-  test("shutdown order: onShutdown fires in reverse registration order", async () => {
+  test("shutdown: onShutdown fires through the runHook pipeline in registration order", async () => {
     const callOrder: string[] = [];
     registerPlugin(
       buildPlugin("first-registered", {
@@ -251,12 +255,15 @@ describe("plugin bootstrap", () => {
     );
 
     await bootstrapPlugins();
+    // Surface teardown (reverse order) runs first; these plugins contribute no
+    // tools/routes, so it is a no-op here.
     await runShutdownHooks("test-shutdown");
+    // The plugins' `shutdown` hooks fire through the unified pipeline — the
+    // same dispatch path (and registration order) as every other lifecycle
+    // hook, so the first plugin to register runs first.
+    await runHook(HOOKS.SHUTDOWN, { assistantVersion: APP_VERSION });
 
-    // The last plugin to register must shut down first; the first to register
-    // shuts down last. Symmetric tear-down around registration order is the
-    // whole point of the reverse walk.
-    expect(callOrder).toEqual(["second-registered", "first-registered"]);
+    expect(callOrder).toEqual(["first-registered", "second-registered"]);
   });
 
   test("empty registry: bootstrap seeds the first-party defaults without throwing", async () => {
@@ -464,10 +471,12 @@ describe("plugin bootstrap", () => {
 
     await bootstrapPlugins();
     await runShutdownHooks("test-shutdown");
+    await runHook(HOOKS.SHUTDOWN, { assistantVersion: APP_VERSION });
 
-    // The shutdown hook is a single registered callback that walks a
-    // snapshot taken at bootstrap. A skipped plugin should never appear in
-    // that snapshot, so its `onShutdown` must never fire.
+    // A flag-gated plugin is dropped from the registry at bootstrap
+    // (`unregisterPlugin`), so it appears neither in the surface-teardown
+    // snapshot nor in the `getHooksFor("shutdown")` the pipeline dispatches —
+    // its `onShutdown` must never fire.
     expect(shutdownFired).toBe(false);
   });
 
@@ -547,7 +556,11 @@ describe("plugin bootstrap", () => {
 
     await bootstrapPlugins();
     await runShutdownHooks("test-shutdown");
+    await runHook(HOOKS.SHUTDOWN, { assistantVersion: APP_VERSION });
 
+    // A `.disabled` plugin keeps its hooks registered but they are filtered out
+    // at read time by `isPluginDisabled` inside `getHooksFor`, so the pipeline
+    // dispatch skips its `onShutdown` too.
     expect(shutdownFired).toBe(false);
 
     await rm(sentinelDir, { recursive: true, force: true });

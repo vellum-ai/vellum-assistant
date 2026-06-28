@@ -31,6 +31,7 @@ import {
   _inspectToolCacheForTests,
   getCachedUserTools,
   getUserHooksFor,
+  markShuttingDown,
   populateCacheAtBoot,
   resetPluginCacheForTests,
 } from "../plugins/mtime-cache.js";
@@ -626,6 +627,46 @@ describe("plugin runtime activation", () => {
     expect(getPluginToolDefinitions().some((t) => t.name === "temp-tool")).toBe(
       false,
     );
+    expect(existsSync(shutdownMarker)).toBe(true);
+  });
+
+  test("markShuttingDown suppresses activating a plugin that appears during shutdown", async () => {
+    // The daemon shutdown handler calls markShuttingDown() before dispatching
+    // shutdown hooks via runHook, whose getHooksFor read triggers a scan. A
+    // plugin whose files land during that window must NOT be brought up — and
+    // must not run its init hook — mid-shutdown.
+    await populateCacheAtBoot(); // empty plugins dir
+    markShuttingDown();
+
+    const dir = freshPluginDir("shutdown-race-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "shutdown-race-plugin" });
+    writeTool(dir, "shutdown-race-tool", TOOL_SRC("shutdown-race-tool"));
+    const initMarker = join(ROOT, "shutdown-race-init.log");
+    writeMarkerHook(dir, "init", initMarker, "init");
+
+    await triggerScan();
+
+    // Not activated: no tool registered and init never ran.
+    expect(getToolOwner("shutdown-race-tool")).toBeUndefined();
+    expect(existsSync(initMarker)).toBe(false);
+  });
+
+  test("a user plugin's shutdown hook is surfaced through the unified hook lookup", async () => {
+    // Plugin `shutdown` hooks fire at daemon shutdown through the same
+    // getHooksFor/runHook pipeline as every other lifecycle hook. Prove the
+    // user-land side is discoverable that way: the plugin's shutdown hook is
+    // returned by the unified per-name lookup and runs when invoked.
+    const dir = freshPluginDir("shutdown-hook-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "shutdown-hook-plugin" });
+    const shutdownMarker = join(ROOT, "user-shutdown.log");
+    writeMarkerHook(dir, "shutdown", shutdownMarker, "bye");
+
+    await populateCacheAtBoot();
+
+    const shutdownHooks = await getUserHooksFor("shutdown");
+    expect(shutdownHooks).toHaveLength(1);
+
+    await shutdownHooks[0]!({ assistantVersion: "test" });
     expect(existsSync(shutdownMarker)).toBe(true);
   });
 

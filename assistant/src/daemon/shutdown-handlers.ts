@@ -7,11 +7,15 @@ import { stopMcpServerManager } from "../mcp/manager.js";
 import { getSqlite, resetDb } from "../memory/db-connection.js";
 import type { QdrantManager } from "../memory/qdrant-manager.js";
 import { stopMemoryWorkerProcess } from "../memory/worker-control.js";
+import { HOOKS } from "../plugin-api/constants.js";
+import { markShuttingDown } from "../plugins/mtime-cache.js";
+import { runHook } from "../plugins/pipeline.js";
 import type { RuntimeHttpServer } from "../runtime/http-server.js";
 import { stopUsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { browserManager } from "../tools/browser/browser-manager.js";
 import { cleanupShellOutputTempFiles } from "../tools/shared/shell-output.js";
 import { getLogger } from "../util/logger.js";
+import { APP_VERSION } from "../version.js";
 import { getEnrichmentService } from "../workspace/commit-message-enrichment-service.js";
 import type { WorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
 import { cleanupPidFile } from "./daemon-control.js";
@@ -76,13 +80,28 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     await deps.heartbeat.stop();
     if (deps.filing) await deps.filing.stop();
 
-    // Run registered skill shutdown hooks (e.g. meet-join session teardown)
+    // Run registered shutdown-registry hooks (e.g. meet-join session teardown,
+    // plus the plugin layer's reverse-order tool/route surface unregistration)
     // before stopping the server so any HTTP round-trips and SSE emissions
     // still have live transports.
     try {
       await runShutdownHooks("daemon-shutdown");
     } catch (err) {
       log.warn({ err }, "Skill shutdown hooks failed (non-fatal)");
+    }
+
+    // Fire plugin `shutdown` hooks through the unified hook pipeline — the same
+    // dispatch path every other lifecycle hook uses. This runs after
+    // `runShutdownHooks` has unregistered all plugin tools and routes (so no
+    // traffic reaches a plugin handler while its `shutdown` hook executes) and
+    // before the server stops (so transports stay live for any teardown work).
+    // `markShuttingDown()` first, so the `getHooksFor` scan this triggers can't
+    // activate a plugin whose files appear mid-shutdown.
+    markShuttingDown();
+    try {
+      await runHook(HOOKS.SHUTDOWN, { assistantVersion: APP_VERSION });
+    } catch (err) {
+      log.warn({ err }, "Plugin shutdown hooks failed (non-fatal)");
     }
 
     // Commit any uncommitted workspace changes before stopping the server.

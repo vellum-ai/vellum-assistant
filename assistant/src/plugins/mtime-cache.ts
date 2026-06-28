@@ -441,6 +441,26 @@ const shutdownContext: ShutdownContext = {
 };
 
 /**
+ * Set once the daemon enters shutdown. Read by {@link activatePlugin} to
+ * suppress activating a plugin whose files happen to appear during the
+ * shutdown sequence: the daemon shutdown handler dispatches `shutdown` hooks
+ * through `runHook(HOOKS.SHUTDOWN, …)`, whose `getHooksFor` read triggers a
+ * `scanPlugins()`. Without this guard a late-appearing plugin could run its
+ * `init` hook mid-shutdown.
+ */
+let shuttingDown = false;
+
+/**
+ * Mark the process as shutting down so no further plugins are activated. Called
+ * by the daemon shutdown handler immediately before it dispatches `shutdown`
+ * hooks via the unified `runHook` pipeline. Already-activated owners stay in
+ * the cache, so their `shutdown` hooks are still collected by `getHooksFor`.
+ */
+export function markShuttingDown(): void {
+  shuttingDown = true;
+}
+
+/**
  * Activate a single discovered plugin: pre-import its hooks, register its tools
  * into the global tool registry, and run its `init` hook. Idempotent — a plugin
  * already activated (or mid-activation) is skipped. Never throws; per-surface
@@ -455,6 +475,10 @@ async function activatePlugin(
   pluginDir: string,
   pluginName: string,
 ): Promise<void> {
+  // Never bring a plugin up once shutdown has begun — a `getHooksFor` read on
+  // the shutdown path triggers a scan, and activating (and `init`-ing) a plugin
+  // mid-shutdown is never what we want.
+  if (shuttingDown) return;
   if (activatedNames.has(pluginName)) return;
   // Reserve synchronously, before any await, so a re-entrant or concurrent
   // scan observes this plugin as already handled.
@@ -556,19 +580,24 @@ export async function populateCacheAtBoot(
     activatedPlugins.push({ name: WORKSPACE_HOOKS_OWNER });
   }
 
-  // Register a single shutdown hook that walks all activated owners in reverse
-  // order, unregistering tools and running shutdown hooks. It reads the live
+  // Register a single shutdown-registry hook that walks all activated owners
+  // in reverse order, unregistering their tools so the model-visible surface
+  // is clean before any `shutdown` hook runs. It reads the live
   // `activatedPlugins` array at teardown time, so plugins activated after boot
   // (runtime installs) are torn down too.
+  //
+  // The owners' `shutdown` hooks are NOT invoked here. They fire through the
+  // unified `runHook(HOOKS.SHUTDOWN, …)` pipeline that the daemon shutdown
+  // handler runs after this surface teardown completes — the same dispatch
+  // path every other lifecycle hook uses, and the same path that surfaces user
+  // and workspace hooks during a normal turn.
   registerShutdownHook("user-plugins", async (reason) => {
     for (let i = activatedPlugins.length - 1; i >= 0; i--) {
       const entry = activatedPlugins[i];
       if (entry === undefined) continue;
       const { name } = entry;
 
-      // Unregister tools before running shutdown so onShutdown sees a
-      // clean model-visible surface. (No-op for the workspace-hooks owner,
-      // which registers no tools.)
+      // (No-op for the workspace-hooks owner, which registers no tools.)
       try {
         unregisterPluginTools(name);
       } catch (err) {
@@ -577,9 +606,6 @@ export async function populateCacheAtBoot(
           "user plugin tool unregister failed (continuing)",
         );
       }
-
-      // Run the `shutdown` hook if present.
-      await runShutdownHook(name, shutdownContext, reason);
     }
   });
 }
@@ -605,6 +631,7 @@ export function resetPluginCacheForTests(): void {
   activatedPlugins.length = 0;
   activatedNames.clear();
   disabledPluginDirs.clear();
+  shuttingDown = false;
 }
 
 /**
