@@ -46,9 +46,13 @@
  * ignores the decision — so the hook returns early for both.
  */
 
-import type { HookFunction, PostModelCallContext } from "@vellumai/plugin-api";
+import type {
+  ContentBlock,
+  HookFunction,
+  Message,
+  PostModelCallContext,
+} from "@vellumai/plugin-api";
 
-import type { ContentBlock, Message } from "../../../../providers/types.js";
 import {
   isEmptyResponseNudged,
   markEmptyResponseNudged,

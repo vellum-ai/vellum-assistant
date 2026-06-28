@@ -47,6 +47,8 @@
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 
+import type { Message } from "@vellumai/plugin-api";
+
 import { getConfig } from "../../../config/loader.js";
 import type { InjectionMatcher } from "../../../context/strip-injections.js";
 import { findConversationOrSubagent } from "../../../daemon/conversation-registry.js";
@@ -65,7 +67,6 @@ import { readPkbContext } from "../../../memory/pkb/context.js";
 import { searchPkbFiles } from "../../../memory/pkb/pkb-search.js";
 import { getPkbRoot, PKB_WORKSPACE_SCOPE } from "../../../memory/pkb/types.js";
 import { readMemoryV2StaticContent } from "../../../memory/v2/static-context.js";
-import type { Message } from "../../../providers/types.js";
 import { getLogger } from "../../../util/logger.js";
 import {
   getConfigQuarantineNoticePath,

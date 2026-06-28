@@ -18,7 +18,7 @@ import type {
   ServerToolUseContent,
   ToolResultContent,
   ToolUseContent,
-} from "../../../providers/types.js";
+} from "@vellumai/plugin-api";
 
 interface RepairStats {
   assistantToolResultsMigrated: number;

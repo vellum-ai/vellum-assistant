@@ -22,9 +22,11 @@
  * result for the tool resets its streak.
  */
 
-import type { HookFunction, PostToolUseContext } from "@vellumai/plugin-api";
-
-import type { Message } from "../../../../providers/types.js";
+import type {
+  HookFunction,
+  Message,
+  PostToolUseContext,
+} from "@vellumai/plugin-api";
 
 /**
  * Canonical tool-error coaching text. Kept as a module-level constant so tests

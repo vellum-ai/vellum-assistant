@@ -18,7 +18,7 @@
  * stateless and means a mid-run array rewrite (compaction) can't invalidate it.
  */
 
-import type { HookFunction, StopContext } from "@vellumai/plugin-api";
+import type { HookFunction, Message, StopContext } from "@vellumai/plugin-api";
 
 import { getConfig } from "../../../../config/loader.js";
 import { getConversation } from "../../../../memory/conversation-crud.js";
@@ -27,7 +27,6 @@ import {
   isReplaceableTitle,
   queueRegenerateConversationTitle,
 } from "../../../../memory/conversation-title-service.js";
-import type { Message } from "../../../../providers/types.js";
 
 /**
  * User turn at which the second title pass fires. Matches the
