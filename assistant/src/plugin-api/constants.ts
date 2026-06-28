@@ -30,6 +30,14 @@ export const HOOKS = {
   POST_MODEL_CALL: "post-model-call",
   /** Fires after the loop successfully compacts a conversation mid-turn. */
   POST_COMPACT: "post-compact",
+  /**
+   * Fires once per turn AFTER the turn's user + assistant messages are
+   * persisted — the seam for memory consolidation enqueue. NO synchronous LLM
+   * work may run in this hook (enqueue only): it runs on the turn-commit path,
+   * and spending on generation here would charge the user before they have
+   * asked for anything (the no-LLM-at-boot/turn-cost rule).
+   */
+  TURN_COMMIT: "turn-commit",
 } as const;
 
 /** Union of every hook name declared in {@link HOOKS}. */

@@ -66,7 +66,10 @@ import {
 } from "../memory/llm-request-log-store.js";
 import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
 import { HOOKS } from "../plugin-api/constants.js";
-import type { UserPromptSubmitContext } from "../plugin-api/types.js";
+import type {
+  TurnCommitContext,
+  UserPromptSubmitContext,
+} from "../plugin-api/types.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
@@ -1537,6 +1540,23 @@ export async function runAgentLoopImpl(
       // here so a regression in the writer can never bubble out of the
       // agent loop and reject an otherwise-complete turn.
       void writeRelationshipState().catch(() => {});
+
+      // Fire the post-persistence turn-commit hook (fire-and-forget). This
+      // turn's messages are already persisted; it is the seam where a memory
+      // plugin enqueues consolidation for the turn that just landed. The hook
+      // runner already contains thrown hooks; the catch() additionally guards
+      // hook-discovery failure so neither can reject an otherwise-complete turn.
+      const turnCommitCtx: TurnCommitContext = {
+        conversationId: ctx.conversationId,
+        userMessageId,
+        messages: lastRunNewMessages,
+        turnCount: ctx.turnCount,
+        isNonInteractive,
+        logger: rlog,
+      };
+      void runHook(HOOKS.TURN_COMMIT, turnCommitCtx).catch((err) => {
+        rlog.error({ err }, "turn-commit hook failed");
+      });
     }
 
     ctx.profiler.emitSummary(ctx.traceEmitter, reqId);
