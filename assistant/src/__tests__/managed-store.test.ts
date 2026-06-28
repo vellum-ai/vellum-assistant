@@ -34,6 +34,7 @@ import {
   buildSkillMarkdown,
   createManagedSkill,
   deleteManagedSkill,
+  validateCompanionPath,
   validateManagedSkillId,
 } from "../skills/managed-store.js";
 
@@ -350,6 +351,230 @@ describe("createManagedSkill", () => {
     const skill = catalog.find((s) => s.id === "discovered-skill");
     expect(skill).toBeDefined();
     expect(skill!.name).toBe("Discovered");
+  });
+});
+
+describe("validateCompanionPath", () => {
+  const skillDir = "/workspace/skills/my-skill";
+
+  test("accepts a nested relative path", () => {
+    const result = validateCompanionPath(
+      skillDir,
+      "references/failure-modes.md",
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.resolvedPath).toBe(
+      join(skillDir, "references", "failure-modes.md"),
+    );
+  });
+
+  test("rejects absolute paths", () => {
+    expect(validateCompanionPath(skillDir, "/etc/passwd").error).toContain(
+      "relative",
+    );
+  });
+
+  test("rejects traversal with leading ..", () => {
+    expect(
+      validateCompanionPath(skillDir, "../sibling/evil.md").error,
+    ).toContain("..");
+  });
+
+  test("rejects traversal in a middle segment", () => {
+    expect(
+      validateCompanionPath(skillDir, "references/../../escape.md").error,
+    ).toContain("..");
+  });
+
+  test("rejects empty path", () => {
+    expect(validateCompanionPath(skillDir, "").error).not.toBeUndefined();
+  });
+
+  test("rejects path resolving to the skill dir itself", () => {
+    expect(validateCompanionPath(skillDir, ".").error).not.toBeUndefined();
+  });
+
+  test("rejects store-owned top-level files", () => {
+    for (const reserved of ["SKILL.md", "install-meta.json", "version.json"]) {
+      expect(validateCompanionPath(skillDir, reserved).error).toContain(
+        "store-owned",
+      );
+    }
+    // The same name nested under a subdirectory is allowed (only top-level reserved).
+    expect(
+      validateCompanionPath(skillDir, "references/SKILL.md").error,
+    ).toBeUndefined();
+  });
+});
+
+describe("createManagedSkill companion files", () => {
+  test("writes companion files under the skill dir and round-trips on disk", () => {
+    const result = createManagedSkill({
+      id: "with-files",
+      name: "With Files",
+      description: "Has companion files",
+      bodyMarkdown: "See references/failure-modes.md.",
+      files: [
+        {
+          path: "references/failure-modes.md",
+          content: "# Failure modes\n\nThings that break.\n",
+        },
+      ],
+    });
+
+    expect(result.created).toBe(true);
+    const companionPath = join(
+      TEST_DIR,
+      "skills",
+      "with-files",
+      "references",
+      "failure-modes.md",
+    );
+    expect(existsSync(companionPath)).toBe(true);
+    expect(readFileSync(companionPath, "utf-8")).toBe(
+      "# Failure modes\n\nThings that break.\n",
+    );
+  });
+
+  test("rejects a companion path colliding with an existing directory on overwrite, leaving SKILL.md intact", () => {
+    const first = createManagedSkill({
+      id: "dir-collide",
+      name: "Dir Collide",
+      description: "v1",
+      bodyMarkdown: "Body v1.",
+      files: [{ path: "references/note.md", content: "note" }],
+    });
+    expect(first.created).toBe(true);
+    const skillMd = join(TEST_DIR, "skills", "dir-collide", "SKILL.md");
+    const before = readFileSync(skillMd, "utf-8");
+
+    // Overwrite with a companion path that names the existing references/ dir.
+    const second = createManagedSkill({
+      id: "dir-collide",
+      name: "Dir Collide",
+      description: "v2",
+      bodyMarkdown: "Body v2.",
+      overwrite: true,
+      files: [{ path: "references", content: "clobber" }],
+    });
+
+    expect(second.created).toBe(false);
+    expect(second.error).toContain("existing directory");
+    // The pre-flight runs before any write, so SKILL.md is untouched.
+    expect(readFileSync(skillMd, "utf-8")).toBe(before);
+  });
+
+  test("rejects path traversal and writes nothing", () => {
+    const result = createManagedSkill({
+      id: "traversal",
+      name: "Traversal",
+      description: "Bad companion path",
+      bodyMarkdown: "Body.",
+      files: [{ path: "../escape.md", content: "owned" }],
+    });
+
+    expect(result.created).toBe(false);
+    expect(result.error).toContain("..");
+    // No SKILL.md written, no escaped file written.
+    expect(existsSync(join(TEST_DIR, "skills", "traversal", "SKILL.md"))).toBe(
+      false,
+    );
+    expect(existsSync(join(TEST_DIR, "skills", "escape.md"))).toBe(false);
+  });
+
+  test("rejects absolute companion paths and writes nothing", () => {
+    const result = createManagedSkill({
+      id: "abs-path",
+      name: "Absolute",
+      description: "Absolute companion path",
+      bodyMarkdown: "Body.",
+      files: [{ path: "/tmp/evil.md", content: "owned" }],
+    });
+
+    expect(result.created).toBe(false);
+    expect(result.error).toContain("relative");
+    expect(existsSync(join(TEST_DIR, "skills", "abs-path", "SKILL.md"))).toBe(
+      false,
+    );
+  });
+
+  test("rejects a path resolving outside the skill dir and writes nothing", () => {
+    const result = createManagedSkill({
+      id: "outside",
+      name: "Outside",
+      description: "Resolves outside",
+      bodyMarkdown: "Body.",
+      files: [
+        { path: "ok.md", content: "ok" },
+        { path: "nested/../../sneaky.md", content: "owned" },
+      ],
+    });
+
+    expect(result.created).toBe(false);
+    expect(result.error).not.toBeUndefined();
+    // First file must not be written because validation runs before any write.
+    expect(existsSync(join(TEST_DIR, "skills", "outside", "ok.md"))).toBe(
+      false,
+    );
+    expect(existsSync(join(TEST_DIR, "skills", "outside", "SKILL.md"))).toBe(
+      false,
+    );
+  });
+
+  test("does not write companion files when create errors on an existing skill", () => {
+    createManagedSkill({
+      id: "exists-files",
+      name: "Exists",
+      description: "Already here",
+      bodyMarkdown: "Body.",
+    });
+
+    const result = createManagedSkill({
+      id: "exists-files",
+      name: "Exists Again",
+      description: "Should not write",
+      bodyMarkdown: "Body.",
+      files: [{ path: "references/new.md", content: "new" }],
+    });
+
+    expect(result.created).toBe(false);
+    expect(result.error).toContain("already exists");
+    expect(
+      existsSync(
+        join(TEST_DIR, "skills", "exists-files", "references", "new.md"),
+      ),
+    ).toBe(false);
+  });
+
+  test("overwrite re-writes companion files", () => {
+    createManagedSkill({
+      id: "overwrite-files",
+      name: "V1",
+      description: "First",
+      bodyMarkdown: "Body.",
+      files: [{ path: "references/notes.md", content: "v1 notes" }],
+    });
+
+    const companionPath = join(
+      TEST_DIR,
+      "skills",
+      "overwrite-files",
+      "references",
+      "notes.md",
+    );
+    expect(readFileSync(companionPath, "utf-8")).toBe("v1 notes");
+
+    const result = createManagedSkill({
+      id: "overwrite-files",
+      name: "V2",
+      description: "Second",
+      bodyMarkdown: "Body.",
+      overwrite: true,
+      files: [{ path: "references/notes.md", content: "v2 notes" }],
+    });
+
+    expect(result.created).toBe(true);
+    expect(readFileSync(companionPath, "utf-8")).toBe("v2 notes");
   });
 });
 

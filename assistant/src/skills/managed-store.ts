@@ -4,9 +4,10 @@ import {
   mkdirSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, normalize, relative, sep } from "node:path";
 
 import { stringify as stringifyYaml } from "yaml";
 
@@ -41,6 +42,61 @@ function getManagedSkillsDir(): string {
 function getManagedSkillDir(id: string): string {
   return join(getManagedSkillsDir(), id);
 }
+
+interface ResolvedCompanionPath {
+  resolvedPath?: string;
+  error?: string;
+}
+
+/**
+ * Validate a companion file path and resolve it under the skill directory.
+ * Rejects absolute paths, `..` segments, and any path that resolves outside
+ * the skill dir. Returns the resolved absolute path or an error.
+ */
+export function validateCompanionPath(
+  skillDir: string,
+  filePath: string,
+): ResolvedCompanionPath {
+  if (!filePath || typeof filePath !== "string") {
+    return { error: "companion file path is required" };
+  }
+  if (isAbsolute(filePath)) {
+    return { error: `companion file path must be relative: "${filePath}"` };
+  }
+  const normalized = normalize(filePath);
+  if (
+    normalized === ".." ||
+    normalized.startsWith(`..${sep}`) ||
+    normalized.split(sep).includes("..")
+  ) {
+    return {
+      error: `companion file path must not contain ".." segments: "${filePath}"`,
+    };
+  }
+  const resolvedPath = join(skillDir, normalized);
+  const rel = relative(skillDir, resolvedPath);
+  if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) {
+    return {
+      error: `companion file path must resolve under the skill directory: "${filePath}"`,
+    };
+  }
+  // A companion write must never clobber a top-level store-owned file: SKILL.md
+  // is the discovery entry point (generated from name/description/body), and the
+  // metadata files carry provenance the store owns.
+  if (RESERVED_COMPANION_NAMES.has(rel.replaceAll(sep, "/"))) {
+    return {
+      error: `companion file path must not overwrite the store-owned file: "${filePath}"`,
+    };
+  }
+  return { resolvedPath };
+}
+
+/** Top-level files owned by the store; companion writes may never target them. */
+const RESERVED_COMPANION_NAMES = new Set([
+  "SKILL.md",
+  "install-meta.json",
+  "version.json",
+]);
 
 // ─── SKILL.md generation ─────────────────────────────────────────────────────
 
@@ -120,6 +176,7 @@ interface CreateManagedSkillParams {
   version?: string;
   contactId?: string;
   author?: "assistant" | "user";
+  files?: Array<{ path: string; content: string }>;
 }
 
 interface CreateManagedSkillResult {
@@ -166,6 +223,31 @@ export function createManagedSkill(
     };
   }
 
+  // Resolve and validate every companion path before any write so an invalid
+  // path leaves no partial files behind.
+  const companionWrites: Array<{ resolvedPath: string; content: string }> = [];
+  for (const file of params.files ?? []) {
+    const { resolvedPath, error } = validateCompanionPath(skillDir, file.path);
+    if (error || !resolvedPath) {
+      return {
+        created: false,
+        path: skillFilePath,
+        error: error ?? "invalid companion file path",
+      };
+    }
+    // Reject a companion path that resolves to an existing directory before any
+    // write: the atomic rename would throw mid-loop (after SKILL.md is already
+    // rewritten on overwrite), leaving a half-updated skill.
+    if (existsSync(resolvedPath) && statSync(resolvedPath).isDirectory()) {
+      return {
+        created: false,
+        path: skillFilePath,
+        error: `companion file path resolves to an existing directory: "${file.path}"`,
+      };
+    }
+    companionWrites.push({ resolvedPath, content: file.content });
+  }
+
   const content = buildSkillMarkdown({
     name: params.name,
     description: params.description,
@@ -176,6 +258,11 @@ export function createManagedSkill(
 
   mkdirSync(skillDir, { recursive: true });
   atomicWriteFile(skillFilePath, content);
+
+  for (const { resolvedPath, content: fileContent } of companionWrites) {
+    mkdirSync(dirname(resolvedPath), { recursive: true });
+    atomicWriteFile(resolvedPath, fileContent);
+  }
 
   // Write install metadata
   writeInstallMeta(skillDir, {

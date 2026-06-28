@@ -309,6 +309,82 @@ describe("scaffold_managed_skill tool", () => {
     expect(result.content).toContain("traversal");
   });
 
+  test("writes companion files under the skill dir", async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "files-skill",
+        name: "Files Skill",
+        description: "Has companion files",
+        body_markdown: "See references/failure-modes.md.",
+        files: [
+          {
+            path: "references/failure-modes.md",
+            content: "# Failure modes\n",
+          },
+        ],
+      },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    const companionPath = join(
+      TEST_DIR,
+      "skills",
+      "files-skill",
+      "references",
+      "failure-modes.md",
+    );
+    expect(existsSync(companionPath)).toBe(true);
+    expect(readFileSync(companionPath, "utf-8")).toBe("# Failure modes\n");
+    expect(mockRefreshSkillCapabilityMemories).toHaveBeenCalledTimes(1);
+  });
+
+  test("rejects companion file path traversal with no partial writes", async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "files-traversal",
+        name: "Traversal",
+        description: "Bad path",
+        body_markdown: "Body.",
+        files: [{ path: "../escape.md", content: "owned" }],
+      },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("..");
+    expect(
+      existsSync(join(TEST_DIR, "skills", "files-traversal", "SKILL.md")),
+    ).toBe(false);
+    expect(existsSync(join(TEST_DIR, "skills", "escape.md"))).toBe(false);
+    expect(mockRefreshSkillCapabilityMemories).not.toHaveBeenCalled();
+  });
+
+  test("rejects malformed files input", async () => {
+    const cases: unknown[] = [
+      "not-an-array",
+      [{ content: "missing path" }],
+      [{ path: "ok.md" }],
+      [{ path: 42, content: "bad path type" }],
+      [{ path: "ok.md", content: 7 }],
+      ["just-a-string"],
+    ];
+
+    for (const files of cases) {
+      const result = await executeScaffoldManagedSkill(
+        {
+          skill_id: "bad-files",
+          name: "Bad",
+          description: "Bad files",
+          body_markdown: "Body.",
+          files,
+        },
+        makeContext(),
+      );
+      expect(result.isError).toBe(true);
+    }
+  });
+
   test("e2e: scaffold child then parent with includes, verify file discovery", async () => {
     const childResult = await executeScaffoldManagedSkill(
       {
