@@ -69,6 +69,7 @@ import {
   getDb,
   getLogsDb,
   getSqliteFrom,
+  SQLITE_BUSY_TIMEOUT_MS,
 } from "./db-connection.js";
 import {
   copyForkMessagesViaSubprocess,
@@ -105,6 +106,32 @@ import {
 import { extractInjectedConceptSlugs } from "./v2/injected-block-slugs.js";
 
 const log = getLogger("conversation-store");
+
+/**
+ * A synchronous main-connection write that takes at least this long almost
+ * certainly spent the time blocked inside `busy_timeout` waiting for the write
+ * lock (a live insert does single-digit-ms of real work), so crossing it is
+ * logged as direct contention evidence rather than inferring it from the event
+ * loop watchdog's `blockedMs`. Kept well under {@link SQLITE_BUSY_TIMEOUT_MS}
+ * so a genuinely contended write surfaces before it fails with `SQLITE_BUSY`.
+ */
+const LOCK_WAIT_LOG_THRESHOLD_MS = 1000;
+
+/**
+ * Log when a main-thread write spent long enough that the time was almost
+ * certainly lock-wait inside `busy_timeout` (see
+ * {@link LOCK_WAIT_LOG_THRESHOLD_MS}). No-op below the threshold.
+ */
+function logIfLockWait(
+  elapsedMs: number,
+  fields: Record<string, unknown>,
+): void {
+  if (elapsedMs < LOCK_WAIT_LOG_THRESHOLD_MS) return;
+  log.warn(
+    { ...fields, elapsedMs, busyTimeoutMs: SQLITE_BUSY_TIMEOUT_MS },
+    "main-thread DB write exceeded lock-wait threshold (likely busy_timeout contention)",
+  );
+}
 
 /**
  * The logs connection (`assistant-logs.db`), where `llm_request_logs` lives.
@@ -459,6 +486,7 @@ async function insertMessageCore(
   let now!: number;
   for (let attempt = 0; ; attempt++) {
     now = monotonicNow();
+    const writeStartMs = Date.now();
     try {
       const values = {
         id: messageId,
@@ -545,6 +573,11 @@ async function insertMessageCore(
             .run();
         });
       }
+      logIfLockWait(Date.now() - writeStartMs, {
+        conversationId,
+        messageId,
+        attempt,
+      });
       break;
     } catch (err) {
       const errCode = (err as { code?: string }).code ?? "";
@@ -1454,6 +1487,16 @@ export async function forkConversationForRetrospective(params: {
         `fork message copy failed (${copy.backend}): ${copy.error ?? "unknown"}`,
       );
     }
+    log.info(
+      {
+        forkConversationId: fork.id,
+        sourceConversationId: sourceConversation.id,
+        rowCount: idPairs.length,
+        elapsedMs: copy.elapsedMs,
+        backend: copy.backend,
+      },
+      "fork message-copy completed",
+    );
 
     // Phase 3 (in-process): attachments + memory-state seeding, reusing the
     // same helper as the synchronous fork. Disk-view projection is skipped.

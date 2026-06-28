@@ -33,7 +33,14 @@
 //      `client_message_id` is intentionally NOT copied, matching the
 //      in-process fork (a forked row is not a client-submitted message).
 
-import { type AsyncSqliteResult, runAsyncSqlite } from "./db-async-query.js";
+import { getLogger } from "../util/logger.js";
+import {
+  type AsyncSqliteBackend,
+  type AsyncSqliteResult,
+  runAsyncSqlite,
+} from "./db-async-query.js";
+
+const log = getLogger("fork-message-copy");
 
 /**
  * Default batch size for the chunked copy. Each batch is one `INSERT … SELECT`
@@ -92,67 +99,61 @@ const METADATA_CLONE_EXPR = `CASE
 END`;
 
 /**
- * Build the multi-statement SQL script that copies the given id pairs into the
- * fork conversation in lock-friendly batches. Exported for unit testing the
- * generated SQL without spawning a subprocess.
+ * Build the self-contained SQL script that copies a single batch of id pairs
+ * into the fork conversation. Each batch runs as its own {@link runAsyncSqlite}
+ * call (its own subprocess/connection), so the staging table is created and
+ * dropped within the batch rather than shared across batches. The batch is one
+ * implicit auto-committing transaction, so the write lock is released once the
+ * script returns — letting in-process writers slip in before the next batch.
+ *
+ * Exported for unit testing the generated SQL without spawning a subprocess.
  */
-export function buildForkCopyScript(options: CopyForkMessagesOptions): string {
-  const { forkConversationId, idPairs } = options;
+export function buildForkCopyBatchScript(
+  forkConversationId: string,
+  batch: readonly ForkIdPair[],
+): string {
   assertSafeId(forkConversationId);
-  const batchSize = Math.max(
-    1,
-    options.batchSize ?? DEFAULT_FORK_COPY_BATCH_SIZE,
-  );
+  const values = batch
+    .map(({ oldId, newId }) => {
+      assertSafeId(oldId);
+      assertSafeId(newId);
+      return `('${oldId}','${newId}')`;
+    })
+    .join(",");
 
-  const statements: string[] = [
-    // Connection-scoped staging table holding the current batch's id map. The
+  return [
+    // Connection-scoped staging table holding this batch's id map. The
     // unqualified `messages` reference in the SELECT resolves to the main DB.
     `CREATE TEMP TABLE IF NOT EXISTS _fork_id_map (old_id TEXT PRIMARY KEY, new_id TEXT NOT NULL);`,
-  ];
-
-  for (let i = 0; i < idPairs.length; i += batchSize) {
-    const batch = idPairs.slice(i, i + batchSize);
-    const values = batch
-      .map(({ oldId, newId }) => {
-        assertSafeId(oldId);
-        assertSafeId(newId);
-        return `('${oldId}','${newId}')`;
-      })
-      .join(",");
-
-    // Each batch auto-commits (no surrounding BEGIN), so the write lock is
-    // released between batches for in-process writers.
-    statements.push(`DELETE FROM _fork_id_map;`);
-    statements.push(
-      `INSERT INTO _fork_id_map (old_id, new_id) VALUES ${values};`,
-    );
-    statements.push(
-      `INSERT INTO messages (id, conversation_id, role, content, created_at, metadata)
+    `DELETE FROM _fork_id_map;`,
+    `INSERT INTO _fork_id_map (old_id, new_id) VALUES ${values};`,
+    `INSERT INTO messages (id, conversation_id, role, content, created_at, metadata)
 SELECT map.new_id, '${forkConversationId}', m.role, m.content, m.created_at, ${METADATA_CLONE_EXPR}
 FROM messages m JOIN _fork_id_map map ON map.old_id = m.id;`,
-    );
-  }
-
-  // Drop the staging table so the in-process fallback (which runs on the shared
-  // daemon connection) does not leave it lingering; harmless for the subprocess
-  // backend, whose connection is discarded on exit.
-  statements.push(`DROP TABLE IF EXISTS _fork_id_map;`);
-
-  return statements.join("\n");
+    // Drop the staging table so the in-process fallback (which runs on the
+    // shared daemon connection) does not leave it lingering; harmless for the
+    // subprocess backend, whose connection is discarded on exit.
+    `DROP TABLE IF EXISTS _fork_id_map;`,
+  ].join("\n");
 }
 
 /**
  * Copy the message rows for a fork off the event loop, in lock-friendly
- * batches. Resolves once every batch has committed (or rejects via the
- * returned result's `ok: false` on subprocess failure — the caller is
- * responsible for cleaning up the partially-built fork).
+ * batches. Each batch is a separate {@link runAsyncSqlite} call: the `await`
+ * between batches yields the event loop (the hook for an inter-batch
+ * throttle/yield), and each batch's `elapsedMs` is logged so lock-wait is
+ * visible at batch granularity. Resolves once every batch has committed (or
+ * returns an `ok: false` result on the first batch failure — the caller is
+ * responsible for cleaning up the partially-built fork). The returned
+ * `elapsedMs` is the sum across batches.
  *
  * No-op (returns a synthetic ok result) when there is nothing to copy.
  */
 export async function copyForkMessagesViaSubprocess(
   options: CopyForkMessagesOptions,
 ): Promise<AsyncSqliteResult> {
-  if (options.idPairs.length === 0) {
+  const { forkConversationId, idPairs } = options;
+  if (idPairs.length === 0) {
     return {
       ok: true,
       backend: "in-process-blocking",
@@ -161,10 +162,47 @@ export async function copyForkMessagesViaSubprocess(
     };
   }
 
-  const sql = buildForkCopyScript(options);
-  return runAsyncSqlite(sql, {
-    ...(options.forceInProcess
-      ? { forceBackend: "in-process-blocking" as const }
-      : {}),
-  });
+  const batchSize = Math.max(
+    1,
+    options.batchSize ?? DEFAULT_FORK_COPY_BATCH_SIZE,
+  );
+  const forceOpts = options.forceInProcess
+    ? { forceBackend: "in-process-blocking" as const }
+    : {};
+  const batchCount = Math.ceil(idPairs.length / batchSize);
+
+  let totalElapsedMs = 0;
+  let backend: AsyncSqliteBackend = "in-process-blocking";
+
+  for (let i = 0, batchIndex = 0; i < idPairs.length; i += batchSize) {
+    const batch = idPairs.slice(i, i + batchSize);
+    const sql = buildForkCopyBatchScript(forkConversationId, batch);
+    const result = await runAsyncSqlite(sql, forceOpts);
+    totalElapsedMs += result.elapsedMs;
+    backend = result.backend;
+
+    log.info(
+      {
+        forkConversationId,
+        batchIndex,
+        batchCount,
+        batchRows: batch.length,
+        elapsedMs: result.elapsedMs,
+        backend: result.backend,
+      },
+      "fork message-copy batch committed",
+    );
+
+    if (!result.ok) {
+      return { ...result, elapsedMs: totalElapsedMs };
+    }
+    batchIndex++;
+  }
+
+  return {
+    ok: true,
+    backend,
+    error: null,
+    elapsedMs: totalElapsedMs,
+  };
 }
