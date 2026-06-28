@@ -10,7 +10,6 @@ import type { AssistantDomainEvents } from "../events/domain-events.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";
 import { enqueueAutoAnalysisIfEnabled } from "../memory/auto-analysis-enqueue.js";
 import { isAutoAnalysisConversation } from "../memory/auto-analysis-guard.js";
-import { enqueueMemoryRetrospectiveIfEnabled } from "../memory/memory-retrospective-enqueue.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import {
@@ -186,23 +185,6 @@ export function disposeConversation(ctx: DisposeContext): void {
         } catch {
           // Best-effort — don't block conversation disposal
         }
-      }
-
-      try {
-        // Memory-retrospective lifecycle safety-net. The periodic triggers
-        // (interval / message_count / pre-compaction) handle the common
-        // path; lifecycle catches the gap between the last interval fire
-        // and conversation eviction. The job's `no_new_messages` early
-        // return makes this a cheap no-op when the periodic path already
-        // covered things. Lives inside the `!isAutoAnalysis` guard so
-        // auto-analysis conversations don't trigger retrospective enqueues
-        // on disposal — mirrors the indexer-time gate in `indexer.ts`.
-        enqueueMemoryRetrospectiveIfEnabled({
-          conversationId: ctx.conversationId,
-          trigger: "lifecycle",
-        });
-      } catch {
-        // Best-effort — don't block conversation disposal
       }
     }
 
