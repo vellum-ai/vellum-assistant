@@ -1,6 +1,6 @@
 import * as Sentry from "@sentry/node";
 
-import type { FilingService } from "../filing/filing-service.js";
+import { stopFilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { stopGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
 import { stopMcpServerManager } from "../mcp/manager.js";
@@ -42,7 +42,6 @@ export interface ShutdownDeps {
   server: DaemonServer;
   workspaceHeartbeat: WorkspaceHeartbeatService;
   heartbeat: HeartbeatService;
-  filing: FilingService | null;
 }
 
 export function installShutdownHandlers(deps: ShutdownDeps): void {
@@ -72,7 +71,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
 
     await deps.workspaceHeartbeat.stop();
     await deps.heartbeat.stop();
-    if (deps.filing) await deps.filing.stop();
+    await stopFilingService();
 
     // Run registered skill shutdown hooks (e.g. meet-join session teardown)
     // before stopping the server so any HTTP round-trips and SSE emissions
