@@ -3,7 +3,7 @@ import * as Sentry from "@sentry/node";
 import type { FilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { stopGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
-import type { McpServerManager } from "../mcp/manager.js";
+import { stopMcpServerManager } from "../mcp/manager.js";
 import { getSqlite, resetDb } from "../memory/db-connection.js";
 import type { QdrantManager } from "../memory/qdrant-manager.js";
 import { stopMemoryWorkerProcess } from "../memory/worker-control.js";
@@ -45,7 +45,6 @@ export interface ShutdownDeps {
   scheduler: { stop(): void };
   getMemoryWorker: () => { stop(): void } | null;
   getQdrantManager: () => QdrantManager | null;
-  mcpManager: McpServerManager | null;
 }
 
 export function installShutdownHandlers(deps: ShutdownDeps): void {
@@ -151,12 +150,10 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
       log.warn({ err }, "Failed to stop memory worker process (non-fatal)");
     }
 
-    if (deps.mcpManager) {
-      try {
-        await deps.mcpManager.stop();
-      } catch (err) {
-        log.warn({ err }, "MCP server manager shutdown failed (non-fatal)");
-      }
+    try {
+      await stopMcpServerManager();
+    } catch (err) {
+      log.warn({ err }, "MCP server manager shutdown failed (non-fatal)");
     }
 
     await deps.getQdrantManager()?.stop();

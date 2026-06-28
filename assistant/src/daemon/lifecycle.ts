@@ -39,7 +39,6 @@ import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
-import { getMcpServerManager } from "../mcp/manager.js";
 import {
   getAttachmentsByIds,
   getSourcePathsForAttachments,
@@ -1375,13 +1374,6 @@ export async function runDaemon(): Promise<void> {
     );
   }
 
-  // Retrieve the MCP manager if MCP servers were configured.
-  // The manager is a singleton created during initializeProvidersAndTools().
-  const mcpManager =
-    config.mcp?.servers && Object.keys(config.mcp.servers).length > 0
-      ? getMcpServerManager()
-      : null;
-
   installShutdownHandlers({
     server,
     workspaceHeartbeat,
@@ -1391,7 +1383,6 @@ export async function runDaemon(): Promise<void> {
     scheduler,
     getMemoryWorker: () => bgRefs.memoryWorker,
     getQdrantManager: () => bgRefs.qdrantManager,
-    mcpManager,
   });
 
   log.info(
