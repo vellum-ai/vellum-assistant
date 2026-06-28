@@ -44,7 +44,11 @@ import {
   extractToolUse,
   getConfiguredProvider,
 } from "../../providers/provider-send-message.js";
-import type { Message, ToolDefinition } from "../../providers/types.js";
+import type {
+  ContentBlock,
+  Message,
+  ToolDefinition,
+} from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import type { DrizzleDb } from "../db-connection.js";
 import { computeInjectionScores } from "./injection-events.js";
@@ -167,6 +171,58 @@ function emptyBatchResult(
 export interface RouterTurnPair {
   assistantMessage: string;
   userMessage: string;
+}
+
+/**
+ * Structural message shape `extractRecentTurnPairs` reads. Both the
+ * production `Message` and the harness's reconstructed rows satisfy it.
+ */
+interface TurnPairMessage {
+  role: string;
+  content: ContentBlock[];
+}
+
+/**
+ * Walk `messages` newest-first, pairing each user message with the
+ * assistant reply that preceded it, and return the last `k` pairs oldest
+ * first. A leading user message with no prior assistant reply is emitted
+ * with an empty `assistantMessage`; an empty/text-less window yields a
+ * single empty pair so the router contract's non-empty-array invariant
+ * holds.
+ */
+export function extractRecentTurnPairs(
+  messages: readonly TurnPairMessage[],
+  k: number,
+): RouterTurnPair[] {
+  const messageText = (msg: TurnPairMessage): string =>
+    msg.content
+      .filter(
+        (b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text",
+      )
+      .map((b) => b.text)
+      .join(" ");
+
+  const pairs: RouterTurnPair[] = [];
+  let pendingUser: string | null = null;
+  for (let i = messages.length - 1; i >= 0 && pairs.length < k; i--) {
+    const msg = messages[i]!;
+    if (msg.role === "user" && pendingUser === null) {
+      pendingUser = messageText(msg);
+    } else if (msg.role === "assistant" && pendingUser !== null) {
+      pairs.unshift({
+        assistantMessage: messageText(msg),
+        userMessage: pendingUser,
+      });
+      pendingUser = null;
+    }
+  }
+  if (pendingUser !== null && pairs.length < k) {
+    pairs.unshift({ assistantMessage: "", userMessage: pendingUser });
+  }
+  if (pairs.length === 0) {
+    pairs.push({ assistantMessage: "", userMessage: "" });
+  }
+  return pairs;
 }
 
 interface RunRouterParams {
