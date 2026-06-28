@@ -448,6 +448,79 @@ export interface VectorCollection {
 }
 
 // ---------------------------------------------------------------------------
+// Durable structured store
+//
+// A plugin-owned set of relational tables in the shared assistant database.
+// Tables are namespaced by the plugin id under a fixed `plugin_<id>_` prefix,
+// so two plugins declaring the same logical table name never collide and one
+// plugin can never read or write another plugin's (or the core's) tables. The
+// plugin declares its tables as append-only, checkpointed migrations the host
+// applies idempotently; thereafter it runs typed `query`/`exec` against ITS OWN
+// tables only — the facet rejects any statement that touches a table outside
+// its prefix.
+//
+// Co-locating plugin tables in the shared DB (rather than a private SQLite
+// file) lets a plugin join its rows against the read-only history facet's
+// conversation/message views without crossing a process or file boundary.
+// ---------------------------------------------------------------------------
+
+/**
+ * One append-only schema migration a plugin declares for its durable store.
+ * The host runs each migration at most once per database, checkpointed under a
+ * plugin-scoped namespace separate from the core migration ledger.
+ *
+ * `name` is the stable checkpoint key (must be non-empty and unique within the
+ * plugin) — renaming it re-runs the migration, so treat the list as
+ * append-only: add new entries, never reorder or rename existing ones. `up` is
+ * the forward DDL; it MUST be idempotent (e.g. `CREATE TABLE IF NOT EXISTS`)
+ * and may only create/alter tables under the plugin's `plugin_<id>_` prefix.
+ */
+export interface StoreMigration {
+  /** Stable, non-empty checkpoint key, unique within the plugin. */
+  name: string;
+  /**
+   * Forward DDL applied once per database. Receives a {@link StoreExec} scoped
+   * to the plugin's tables; statements touching a table outside the plugin's
+   * prefix are rejected. Must be idempotent.
+   */
+  up: (exec: StoreExec) => void;
+}
+
+/**
+ * Execute a write/DDL statement (no rows returned) against the plugin's own
+ * tables. Rejects any statement referencing a table outside the plugin's
+ * `plugin_<id>_` namespace.
+ */
+export type StoreExec = (sql: string, params?: unknown[]) => void;
+
+/**
+ * The durable structured store handed to a plugin on {@link SkillHost.store}.
+ * All access is scoped to the plugin's `plugin_<id>_`-prefixed tables; the
+ * facet validates the target of every statement and throws on cross-namespace
+ * access (another plugin's tables or the core schema).
+ */
+export interface StoreFacet {
+  /**
+   * Apply the plugin's declared migrations idempotently, in order. Each is run
+   * at most once per database, checkpointed under a plugin-scoped namespace
+   * (separate from the core migration ledger). Safe to call on every boot —
+   * already-applied migrations are skipped. The list is append-only: add new
+   * migrations to the end, never reorder or rename existing ones.
+   */
+  migrate(migrations: StoreMigration[]): void;
+  /**
+   * Run a read query against the plugin's own tables and return the rows.
+   * Rejects any statement referencing a table outside the plugin's prefix.
+   */
+  query<T = Record<string, unknown>>(sql: string, params?: unknown[]): T[];
+  /**
+   * Run a write/DDL statement (INSERT/UPDATE/DELETE/CREATE/…) against the
+   * plugin's own tables. Rejects cross-namespace access.
+   */
+  exec(sql: string, params?: unknown[]): void;
+}
+
+// ---------------------------------------------------------------------------
 // Speakers
 // ---------------------------------------------------------------------------
 
@@ -486,4 +559,5 @@ export interface SkillHost {
   speakers: SpeakersFacet;
   embeddings: EmbeddingsFacet;
   vectorStore: VectorStoreFacet;
+  store: StoreFacet;
 }

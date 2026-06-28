@@ -97,6 +97,7 @@ import {
   buildPlatformFacet,
   buildProvidersFacet,
   buildRegistriesFacet,
+  buildStoreFacet,
   buildVectorStoreFacet,
 } from "./skill-host-facets.js";
 
@@ -177,6 +178,7 @@ function buildPluginHost(pluginName: string): PluginHost {
     registries: buildRegistriesFacet(pluginName),
     embeddings: buildEmbeddingsFacet(),
     vectorStore: buildVectorStoreFacet(pluginName),
+    store: buildStoreFacet(pluginName),
   };
 }
 

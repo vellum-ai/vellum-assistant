@@ -125,8 +125,13 @@ export const STEP_CHECKPOINT_PREFIX = "step:";
  * The runner records its own checkpoints, so it must not depend on an earlier
  * step having created the ledger. This is the single place `memory_checkpoints`
  * is created; `IF NOT EXISTS` makes it a no-op on an already-migrated database.
+ * The plugin-store runner shares this ledger (under its own
+ * `plugin-step:` namespace), so it calls this same helper rather than
+ * re-declaring the table shape.
  */
-function ensureCheckpointsTable(raw: ReturnType<typeof getSqliteFrom>): void {
+export function ensureCheckpointsTable(
+  raw: ReturnType<typeof getSqliteFrom>,
+): void {
   raw.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS memory_checkpoints (
       key TEXT PRIMARY KEY,
