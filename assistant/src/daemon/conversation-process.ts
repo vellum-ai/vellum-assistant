@@ -19,14 +19,14 @@ import {
 } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { listPendingRequestsByConversationScope } from "../memory/canonical-guardian-store.js";
+import { extractPreferences } from "../notifications/preference-extractor.js";
+import { createPreference } from "../notifications/preferences-store.js";
 import {
   addMessage,
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
-} from "../memory/conversation-crud.js";
-import { extractPreferences } from "../notifications/preference-extractor.js";
-import { createPreference } from "../notifications/preferences-store.js";
+} from "../persistence/conversation-crud.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import {
   type GuardianPendingScope,

@@ -2,7 +2,7 @@
  * Trust context resolved during inbound message processing.
  *
  * Extracted from conversation-runtime-assembly.ts to break circular
- * imports (memory/conversation-crud → daemon/conversation-runtime-assembly).
+ * imports (persistence/conversation-crud → daemon/conversation-runtime-assembly).
  */
 import type { ChannelId } from "../channels/types.js";
 import { isHttpAuthDisabled } from "../config/env.js";

@@ -4,7 +4,7 @@
  * Consolidation is the v2 counterpart to filing: an interval-based background
  * pass that routes accumulated `memory/buffer.md` entries into concept pages.
  * The job itself is enqueued by the memory jobs worker (see
- * `maybeEnqueueGraphMaintenanceJobs` in `memory/jobs-worker.ts`); these routes
+ * `maybeEnqueueGraphMaintenanceJobs` in `persistence/jobs-worker.ts`); these routes
  * only surface its config and provide an on-demand trigger for the Settings UI.
  *
  * `available` mirrors the filing route's `available` field: it reflects which
@@ -17,18 +17,18 @@ import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
 import { getMemoryCheckpoint } from "../../memory/checkpoints.js";
+import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
 import {
   getMessageRoleStatsByConversation,
   listConversationsBySource,
-} from "../../memory/conversation-queries.js";
+} from "../../persistence/conversation-queries.js";
 import {
   enqueueMemoryJob,
   hasActiveJobOfType,
   MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS,
-} from "../../memory/jobs-store.js";
-import { GRAPH_MAINTENANCE_CHECKPOINTS } from "../../memory/jobs-worker.js";
-import { getUsageCostForConversationWindow } from "../../memory/llm-usage-store.js";
-import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
+} from "../../persistence/jobs-store.js";
+import { GRAPH_MAINTENANCE_CHECKPOINTS } from "../../persistence/jobs-worker.js";
+import { getUsageCostForConversationWindow } from "../../persistence/llm-usage-store.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import {

@@ -35,7 +35,7 @@ mock.module("../../../util/logger.js", () => ({
     }),
 }));
 
-mock.module("../../../memory/delivery-channels.js", () => ({
+mock.module("../../../persistence/delivery-channels.js", () => ({
   addSlackDmLiveDeliveredTextResponseIndex: (
     eventId: string,
     responseIndex: number,
@@ -52,14 +52,14 @@ mock.module("../../../memory/delivery-channels.js", () => ({
   },
 }));
 
-mock.module("../../../memory/delivery-crud.js", () => ({
+mock.module("../../../persistence/delivery-crud.js", () => ({
   linkMessage: () => {},
   storeReplyMessageId: (eventId: string, replyMessageId: string) => {
     storedReplyMessageIds.push({ eventId, replyMessageId });
   },
 }));
 
-mock.module("../../../memory/delivery-status.js", () => ({
+mock.module("../../../persistence/delivery-status.js", () => ({
   markDeliveryDelivered: (eventId: string) => {
     deliveredEvents.push(eventId);
   },

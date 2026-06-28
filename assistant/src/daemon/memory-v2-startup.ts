@@ -186,7 +186,7 @@ export async function maybeReseedCapabilitiesAfterManagedCredential(
   const enqueueMaintain = async (): Promise<void> => {
     if (!v3Live) return;
     try {
-      const { enqueueMemoryJob } = await import("../memory/jobs-store.js");
+      const { enqueueMemoryJob } = await import("../persistence/jobs-store.js");
       enqueueMemoryJob("memory_v3_maintain", {});
     } catch (err) {
       log.warn(
@@ -313,7 +313,7 @@ export async function maybeRebuildMemoryV2Concepts(
       clearReembedSentinel,
     } = await import("../memory/v2/qdrant.js");
     const { hasConceptPages } = await import("../memory/v2/page-store.js");
-    const { enqueueMemoryJob } = await import("../memory/jobs-store.js");
+    const { enqueueMemoryJob } = await import("../persistence/jobs-store.js");
 
     const { migrated } = await ensureConceptPageCollection();
 

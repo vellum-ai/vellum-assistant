@@ -9,7 +9,7 @@
 
 import { z } from "zod";
 
-import { getDb } from "../../memory/db-connection.js";
+import { getDb } from "../../persistence/db-connection.js";
 import { getMaxRollbackVersion } from "../../persistence/migrations/run-migrations.js";
 import { rollbackMemoryMigration } from "../../persistence/migrations/validate-migration-state.js";
 import { migrationSteps } from "../../persistence/steps.js";

@@ -62,19 +62,19 @@ import {
   CONFIG_RELOAD_DEBOUNCE_MS,
   log,
 } from "../../daemon/handlers/shared.js";
+import { getConversationByKey } from "../../memory/conversation-key-store.js";
+import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
+import { getMemoryV2ActivationLogByMessageIds } from "../../memory/memory-v2-activation-log-store.js";
+import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
 import {
   getAssistantMessageIdsInTurn,
   getConversation,
   getMessageById,
-} from "../../memory/conversation-crud.js";
-import { getConversationByKey } from "../../memory/conversation-key-store.js";
-import { getDb } from "../../memory/db-connection.js";
-import { clearEmbeddingBackendCache } from "../../memory/embedding-backend.js";
-import { getLlmRequestLogSource } from "../../memory/llm-request-log-source.js";
-import { type LogRow } from "../../memory/llm-request-log-store.js";
-import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
-import { getMemoryV2ActivationLogByMessageIds } from "../../memory/memory-v2-activation-log-store.js";
-import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
+} from "../../persistence/conversation-crud.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { clearEmbeddingBackendCache } from "../../persistence/embeddings/embedding-backend.js";
+import { getLlmRequestLogSource } from "../../persistence/llm-request-log-source.js";
+import { type LogRow } from "../../persistence/llm-request-log-store.js";
 import { getMemoryV3SelectionForInspectorByMessageIds } from "../../plugins/defaults/memory-v3-shadow/selection-log-store.js";
 import {
   createConnection,
@@ -1260,7 +1260,7 @@ async function handleGetLlmContext({
     : "user";
   // Running total of estimated USD cost across every priced LLM call in
   // the conversation. Maintained by `updateConversationUsage` whenever a
-  // turn finishes — see `assistant/src/memory/conversation-crud.ts`.
+  // turn finishes — see `assistant/src/persistence/conversation-crud.ts`.
   const conversationTotalEstimatedCostUsd =
     conversation?.totalEstimatedCost ?? null;
   // v3 selections are keyed to the turn's message ids (stamped by the turn-end

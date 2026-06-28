@@ -34,11 +34,11 @@ mock.module("../../../config/loader.js", () => ({
 // Source + conversation-crud module mocks
 // ---------------------------------------------------------------------
 
-import type { CompactionLogEvent } from "../../../memory/compaction-log-store-clickhouse.js";
+import type { CompactionLogEvent } from "../../../persistence/compaction-log-store-clickhouse.js";
 import type {
   CompactionAgentLogRow,
   LogMetaRow,
-} from "../../../memory/llm-request-log-store.js";
+} from "../../../persistence/llm-request-log-store.js";
 
 interface FakeSourceState {
   conversation: { id: string } | null;
@@ -80,7 +80,7 @@ const sourceCalls = {
   }>,
 };
 
-mock.module("../../../memory/compaction-log-store-clickhouse.js", () => ({
+mock.module("../../../persistence/compaction-log-store-clickhouse.js", () => ({
   getCompactionLogStore: () =>
     state.compactionStoreEvents === null && state.compactionStoreError === null
       ? null
@@ -101,7 +101,7 @@ mock.module("../../../memory/compaction-log-store-clickhouse.js", () => ({
         },
 }));
 
-mock.module("../../../memory/conversation-crud.js", () => ({
+mock.module("../../../persistence/conversation-crud.js", () => ({
   getConversation: (id: string) =>
     state.conversation && state.conversation.id === id
       ? state.conversation
@@ -109,7 +109,7 @@ mock.module("../../../memory/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../../../memory/llm-request-log-source.js", () => ({
+mock.module("../../../persistence/llm-request-log-source.js", () => ({
   getLlmRequestLogSource: async () => ({
     getRequestLogById: async () => null,
     getRequestLogMetaById: async (id: string) => {
