@@ -521,6 +521,71 @@ export interface StoreFacet {
 }
 
 // ---------------------------------------------------------------------------
+// Background jobs
+//
+// A plugin-namespaced view onto the assistant's durable background-job queue.
+// Both the enqueued job `type` and the `type` a handler registers for are
+// prefixed with `plugin:<id>:` by the host, so a plugin can only enqueue and
+// handle ITS OWN job types — it can neither dispatch a core (e.g. memory) job
+// nor claim one. Jobs run on the worker loop (on the daemon's poll cadence or
+// the out-of-process worker), never synchronously at enqueue time and never
+// unconditionally at boot.
+// ---------------------------------------------------------------------------
+
+/** A claimed background job handed to a plugin's handler. */
+export interface PluginJob<T = Record<string, unknown>> {
+  /**
+   * The job type WITHOUT the `plugin:<id>:` prefix — the same string the plugin
+   * passed to {@link JobsFacet.enqueue} / {@link JobsFacet.registerHandler}. The
+   * host strips its namespace before dispatch so plugin code sees only its own
+   * vocabulary.
+   */
+  type: string;
+  /** The payload the job was enqueued with. */
+  payload: T;
+  /** Number of prior delivery attempts for this job. */
+  attempts: number;
+}
+
+/** Optional controls for {@link JobsFacet.enqueue}. */
+export interface EnqueueJobOptions {
+  /**
+   * Earliest epoch-ms the job may be claimed. Defaults to now (claimable on the
+   * next worker poll). Use a future value to schedule deferred work.
+   */
+  runAfter?: number;
+}
+
+/**
+ * A plugin-namespaced handle onto the background-job queue. The host prefixes
+ * every `type` with `plugin:<id>:` so a plugin's jobs are isolated from core
+ * jobs and from other plugins' jobs. A handler thrown error is retried with
+ * backoff by the worker (it owns the retry policy); the handler must be
+ * idempotent.
+ */
+export interface JobsFacet {
+  /**
+   * Enqueue a durable background job of `type` (namespaced to this plugin). The
+   * job is persisted and claimed by the worker loop on a later poll — this call
+   * does no work synchronously. Returns the enqueued job's id.
+   */
+  enqueue(
+    type: string,
+    payload: Record<string, unknown>,
+    opts?: EnqueueJobOptions
+  ): string;
+  /**
+   * Register a handler for this plugin's `type`. The worker dispatches each
+   * claimed job of the namespaced type to `handler`. A later registration for
+   * the same `type` replaces the earlier one.
+   */
+  registerHandler(
+    type: string,
+    handler: (job: PluginJob) => void | Promise<void>
+  ): void;
+}
+
+// ---------------------------------------------------------------------------
 // Speakers
 // ---------------------------------------------------------------------------
 
@@ -560,4 +625,5 @@ export interface SkillHost {
   embeddings: EmbeddingsFacet;
   vectorStore: VectorStoreFacet;
   store: StoreFacet;
+  jobs: JobsFacet;
 }

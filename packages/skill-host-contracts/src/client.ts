@@ -113,6 +113,7 @@ import type {
   HistoryPage,
   IdentityFacet,
   InsertMessageFn,
+  JobsFacet,
   LlmProvidersFacet,
   Logger,
   LoggerFacet,
@@ -288,6 +289,7 @@ export class SkillHostClient implements SkillHost {
   readonly embeddings: EmbeddingsFacet;
   readonly vectorStore: VectorStoreFacet;
   readonly store: StoreFacet;
+  readonly jobs: JobsFacet;
 
   private readonly options: Required<
     Pick<
@@ -381,6 +383,7 @@ export class SkillHostClient implements SkillHost {
     this.embeddings = this.buildEmbeddingsFacet();
     this.vectorStore = this.buildVectorStoreFacet();
     this.store = this.buildStoreFacet();
+    this.jobs = this.buildJobsFacet();
   }
 
   // ── Public lifecycle ────────────────────────────────────────────────────
@@ -1388,6 +1391,27 @@ export class SkillHostClient implements SkillHost {
       migrate: unavailable,
       query: unavailable,
       exec: unavailable,
+    };
+  }
+
+  /**
+   * Background jobs are an in-process facet: a registered handler runs on the
+   * daemon's worker loop, and a callback cannot cross the skill IPC socket.
+   * `enqueue` likewise writes synchronously to the shared work queue. An
+   * out-of-process skill that needs deferred work uses its own scheduling; this
+   * facet is therefore unavailable on the IPC client and every method throws a
+   * clear error rather than silently no-op'ing.
+   */
+  private buildJobsFacet(): JobsFacet {
+    const unavailable = (): never => {
+      throw new Error(
+        "SkillHostClient: the background-job queue is not available out-of-process; " +
+          "register job handlers from an in-process plugin instead",
+      );
+    };
+    return {
+      enqueue: unavailable,
+      registerHandler: unavailable,
     };
   }
 

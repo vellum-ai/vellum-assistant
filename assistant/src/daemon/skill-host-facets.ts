@@ -33,11 +33,13 @@ import type {
   HistoryMessage,
   HistoryPage,
   IdentityFacet,
+  JobsFacet,
   LlmProvidersFacet,
   Logger,
   LoggerFacet,
   MemoryFacet,
   PlatformFacet,
+  PluginJob,
   Provider,
   ProvidersFacet,
   RegistriesFacet,
@@ -73,6 +75,8 @@ import {
 import { getDb } from "../persistence/db-connection.js";
 import { embedWithBackend } from "../persistence/embeddings/embedding-backend.js";
 import { openPluginVectorCollection } from "../persistence/embeddings/plugin-vector-store.js";
+import { enqueuePluginJob } from "../persistence/jobs-store.js";
+import { registerJobHandler } from "../persistence/jobs-worker.js";
 import { createStoreFacet } from "../persistence/plugin-store/index.js";
 import {
   createTimeout,
@@ -373,6 +377,30 @@ export function buildStoreFacet(hostId: string): StoreFacet {
   // Namespacing and checkpointing are enforced inside `createStoreFacet`,
   // scoped to `hostId`.
   return createStoreFacet(getDb, hostId);
+}
+
+export function buildJobsFacet(hostId: string): JobsFacet {
+  // Every job `type` — enqueued or handled — is prefixed with this host's
+  // namespace so a plugin can only enqueue/claim its own job types. A plugin
+  // can neither dispatch a core (e.g. memory) job nor register a handler that
+  // would intercept one: the prefix is applied here, not supplied by the
+  // plugin, so the namespace cannot be escaped from plugin code.
+  const prefix = `plugin:${hostId}:`;
+  return {
+    enqueue: (type, payload, opts) =>
+      enqueuePluginJob(`${prefix}${type}`, payload, opts?.runAfter),
+    registerHandler: (type, handler) => {
+      registerJobHandler(`${prefix}${type}`, async (job) => {
+        const pluginJob: PluginJob = {
+          // Strip the namespace so the plugin sees only its own vocabulary.
+          type,
+          payload: job.payload,
+          attempts: job.attempts,
+        };
+        await handler(pluginJob);
+      });
+    },
+  };
 }
 
 export function buildVectorStoreFacet(hostId: string): VectorStoreFacet {

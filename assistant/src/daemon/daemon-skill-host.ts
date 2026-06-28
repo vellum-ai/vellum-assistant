@@ -4,7 +4,7 @@
  *
  * `createDaemonSkillHost(skillId)` returns a plain object whose facets
  * (`logger`, `config`, `identity`, `platform`, `providers`, `memory`,
- * `events`, `registries`, `speakers`) delegate to the daemon's existing
+ * `events`, `registries`, `speakers`, `jobs`, …) delegate to the daemon's existing
  * singleton modules. First-party skills that live in-process receive this
  * host via the bootstrap path instead of reaching into `assistant/` with
  * relative imports.
@@ -22,6 +22,7 @@ import {
   buildEventsFacet,
   buildHistoryFacet,
   buildIdentityFacet,
+  buildJobsFacet,
   buildLoggerFacet,
   buildMemoryFacet,
   buildPlatformFacet,
@@ -54,5 +55,6 @@ export function createDaemonSkillHost(skillId: string): SkillHost {
     embeddings: buildEmbeddingsFacet(),
     vectorStore: buildVectorStoreFacet(skillId),
     store: buildStoreFacet(skillId),
+    jobs: buildJobsFacet(skillId),
   };
 }
