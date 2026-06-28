@@ -14,6 +14,7 @@ import { QdrantClient as QdrantRestClient } from "@qdrant/js-client-rest";
 
 import { getConfig } from "../../config/loader.js";
 import { getLogger } from "../../util/logger.js";
+import { pluginNamespacePrefix } from "../plugin-namespace.js";
 import { resolveQdrantUrl } from "./qdrant-client.js";
 
 const log = getLogger("plugin-vector-store");
@@ -33,11 +34,17 @@ export interface PluginVectorSearchResult {
 }
 
 /**
- * Build the Qdrant collection name for a plugin-owned vector store. Namespaced
- * by `hostId` so two plugins using the same logical `name` never collide.
+ * Build the Qdrant collection name for a plugin-owned vector store. The
+ * per-plugin part comes from the shared injective {@link pluginNamespacePrefix}
+ * (the same derivation the SQL plugin store uses), so distinct `(hostId, name)`
+ * pairs always map to distinct collections: the prefix terminates in a fixed
+ * `_` after a digest of the raw host id, so plugin `foo` with collection
+ * `bar_baz` and plugin `foo_bar` with collection `baz` resolve to different
+ * collections rather than colliding on `plugin_foo_bar_baz`. One plugin can
+ * therefore never address another's points.
  */
 export function pluginCollectionName(hostId: string, name: string): string {
-  return `plugin_${hostId}_${name}`;
+  return `${pluginNamespacePrefix(hostId)}${name}`;
 }
 
 /**

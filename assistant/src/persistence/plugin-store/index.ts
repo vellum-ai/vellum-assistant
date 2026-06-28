@@ -7,5 +7,4 @@ export {
   assertScopedToPlugin,
   PluginStoreNamespaceError,
   pluginTablePrefix,
-  sanitizeHostId,
 } from "./table-namespace.js";

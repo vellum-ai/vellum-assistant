@@ -106,11 +106,12 @@ export const MIN_BUFFER_LINES_FOR_CONSOLIDATION = 10;
 
 /**
  * V1 job types that read or write the v1 Qdrant collection via
- * `getQdrantClient()`. When `memory.v2.enabled` is true, the v1 client is
- * intentionally left uninitialized in `lifecycle.ts`, so these handlers would
- * throw `BackendUnavailableError` and accumulate as a deferred backlog. Stale
- * rows from indexer.ts and other unguarded enqueue sites must short-circuit
- * here for the same reason `graph_extract` does below.
+ * `getQdrantClient()`. The v1 client is only initialized in `lifecycle.ts` when
+ * the graph provider is the resolved memory system; under v2/v3/none it is left
+ * uninitialized, so these handlers would throw `BackendUnavailableError` and
+ * accumulate as a deferred backlog. Stale rows from indexer.ts and other
+ * unguarded enqueue sites are short-circuited in `processJob` unless the
+ * resolved provider is `"graph"`, for the same reason `graph_extract` skips.
  */
 const V1_QDRANT_JOB_TYPES = new Set<MemoryJobType>([
   "embed_segment",
@@ -669,7 +670,16 @@ async function processJob(
   job: MemoryJob,
   config: AssistantConfig,
 ): Promise<void> {
-  if (config.memory.v2.enabled && V1_QDRANT_JOB_TYPES.has(job.type)) {
+  // Gate v1 Qdrant jobs on the resolved provider (not the raw `v2.enabled`
+  // flag), matching every other call site: an explicit `memory.provider:
+  // "graph"` pin then keeps maintaining its backing data even with `v2.enabled`
+  // at its schema default, while v2/v3/none still skip these jobs. Under the
+  // default `provider: "auto"` the resolution derives from `v2.enabled`, so
+  // migrated setups are unaffected.
+  if (
+    resolveMemoryProviderId(config) !== "graph" &&
+    V1_QDRANT_JOB_TYPES.has(job.type)
+  ) {
     return;
   }
 

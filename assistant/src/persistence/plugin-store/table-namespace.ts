@@ -4,50 +4,20 @@
  * Every plugin gets a fixed table-name prefix derived from its host id; the
  * store facet rejects any statement that references a table outside that
  * prefix, so one plugin can never read or write another plugin's tables or the
- * core schema. This module owns the prefix derivation and the statement
- * validation.
+ * core schema. This module owns the statement validation; the prefix itself
+ * comes from the shared {@link pluginNamespacePrefix}.
  */
 
-import { createHash } from "node:crypto";
+import { pluginNamespacePrefix } from "../plugin-namespace.js";
 
 /**
- * Fixed prefix for every plugin-owned table. A plugin's tables all live under
- * `plugin_<sanitized>_<hash>_…` in the shared database, where `<sanitized>` is
- * the host id reduced to the SQL-identifier alphabet and `<hash>` is a short
- * digest of the UNSANITIZED id.
- *
- * The hash makes the prefix injective: sanitizing alone is lossy (`foo-bar`,
- * `foo_bar`, and `foo.bar` all reduce to `foo_bar`), so two distinct plugins
- * with colliding sanitized names would otherwise share a prefix — and since
- * {@link assertScopedToPlugin} authorizes solely by prefix, they could read and
- * write each other's tables. Folding the raw id into the prefix keeps distinct
- * plugins in distinct namespaces even when their sanitized forms collide.
+ * Fixed prefix for every plugin-owned table — the shared injective
+ * {@link pluginNamespacePrefix}. Distinct plugins always get distinct prefixes,
+ * so {@link assertScopedToPlugin}, which authorizes solely by prefix, cannot let
+ * one plugin reach another's tables.
  */
 export function pluginTablePrefix(hostId: string): string {
-  return `plugin_${sanitizeHostId(hostId)}_${hostIdHash(hostId)}_`;
-}
-
-/**
- * Reduce a host id to the `[a-z0-9_]` alphabet so it can sit inside a SQL
- * identifier without quoting. Plugin ids are kebab/dot-cased package names
- * (`vellum-memory`, `@scope/pkg`); collapse every other character to `_`.
- *
- * Lossy by design (distinct ids can share a sanitized form) — injectivity of
- * the table prefix is restored by {@link hostIdHash}, not by this function.
- */
-export function sanitizeHostId(hostId: string): string {
-  return hostId.toLowerCase().replace(/[^a-z0-9]+/g, "_");
-}
-
-/**
- * Short, stable hex digest of the raw (unsanitized) host id. Appended to the
- * table prefix so distinct raw ids yield distinct prefixes even when their
- * sanitized forms collide. Hex is already within the SQL-identifier alphabet,
- * so the prefix stays unquoted-safe. Twelve hex chars (48 bits) make an
- * accidental collision across a handful of co-installed plugins negligible.
- */
-function hostIdHash(hostId: string): string {
-  return createHash("sha256").update(hostId).digest("hex").slice(0, 12);
+  return pluginNamespacePrefix(hostId);
 }
 
 /**
