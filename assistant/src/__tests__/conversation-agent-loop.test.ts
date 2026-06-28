@@ -15,10 +15,19 @@ import {
   resetConversationNoticesForTests,
 } from "../daemon/conversation-notices.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import type { UserPromptSubmitContext } from "../plugin-api/types.js";
+import { HOOKS } from "../plugin-api/constants.js";
+import type {
+  TurnCommitContext,
+  UserPromptSubmitContext,
+} from "../plugin-api/types.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import { registerPlugin } from "../plugins/registry.js";
-import type { Message, Provider, ToolDefinition } from "../providers/types.js";
+import type {
+  ContentBlock,
+  Message,
+  Provider,
+  ToolDefinition,
+} from "../providers/types.js";
 import { ContextOverflowError } from "../providers/types.js";
 
 const conversationCrudRealSnapshot = {
@@ -951,6 +960,79 @@ describe("session-agent-loop", () => {
       expect(
         events.find((event) => event.type === "message_complete"),
       ).toBeDefined();
+    });
+  });
+
+  describe("turn-commit hook context", () => {
+    // The loop fires the turn-commit hook fire-and-forget (`void runHook`), so
+    // a captured-context test resolves a deferred the hook settles and awaits
+    // it (bounded) rather than racing the un-awaited microtask.
+    function captureTurnCommit(pluginName: string): Promise<TurnCommitContext> {
+      let resolveCtx!: (ctx: TurnCommitContext) => void;
+      const fired = new Promise<TurnCommitContext>((resolve) => {
+        resolveCtx = resolve;
+      });
+      registerPlugin({
+        manifest: { name: pluginName, version: "1.0.0" },
+        hooks: {
+          [HOOKS.TURN_COMMIT]: async (ctx: TurnCommitContext) => {
+            resolveCtx(ctx);
+          },
+        },
+      });
+      return fired;
+    }
+
+    test("messages start with the originating user prompt, then the run output", async () => {
+      // The persisted user-message row the fire site reads back to prepend the
+      // originating prompt onto the run's assistant/tool output.
+      mockMessageById = {
+        id: "msg-user-turn-commit",
+        conversationId: "test-conv",
+        createdAt: 111,
+        role: "user",
+        content: JSON.stringify([
+          { type: "text", text: "what is the weather?" },
+        ]),
+        metadata: null,
+      };
+
+      const fired = captureTurnCommit("test-turn-commit-capture");
+      const ctx = makeCtx({
+        providerResponses: [textResponse("it is sunny")],
+      });
+      await runAgentLoopImpl(ctx, "what is the weather?", "msg-1", () => {});
+      const committed = (await fired).messages;
+
+      // First message is the originating user prompt (read from its row),
+      // matching the documented `TurnCommitContext.messages` contract.
+      expect(committed[0]).toEqual({
+        role: "user",
+        content: [{ type: "text", text: "what is the weather?" }],
+      });
+      // The assistant reply (the run's new output) follows the user prompt.
+      const assistantText = committed
+        .slice(1)
+        .flatMap((m) => (m.role === "assistant" ? m.content : []))
+        .filter((b: ContentBlock) => b.type === "text")
+        .map((b) => (b as { text: string }).text)
+        .join("");
+      expect(assistantText).toContain("it is sunny");
+    });
+
+    test("falls back to run output alone when the user row is unavailable", async () => {
+      // No persisted row resolves (mockMessageById stays null) — the hook still
+      // fires with the run's assistant output and the turn commits unaffected.
+      mockMessageById = null;
+
+      const fired = captureTurnCommit("test-turn-commit-fallback");
+      const ctx = makeCtx({ providerResponses: [textResponse("reply")] });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+      const committed = (await fired).messages;
+
+      // Without a user row to prepend, every message is run output — none is a
+      // user-role message synthesized from a missing row.
+      expect(committed.every((m) => m.role === "assistant")).toBe(true);
     });
   });
 

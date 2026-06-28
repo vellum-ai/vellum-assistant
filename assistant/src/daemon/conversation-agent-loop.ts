@@ -43,7 +43,6 @@ import {
 } from "../instrument.js";
 import { commitAppTurnChanges } from "../memory/app-git-service.js";
 import { enqueueAutoAnalysisOnCompaction } from "../memory/auto-analysis-enqueue.js";
-import { getResolvedConversationDirPath } from "../persistence/conversation-directories.js";
 import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
 import { isReplaceableTitle } from "../memory/conversation-title-service.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
@@ -61,6 +60,7 @@ import {
   updateConversationContextWindow,
   updateConversationSlackContextWatermark,
 } from "../persistence/conversation-crud.js";
+import { getResolvedConversationDirPath } from "../persistence/conversation-directories.js";
 import {
   backfillMessageIdOnLogs,
   recordSyntheticAgentErrorMessageLog,
@@ -1546,10 +1546,25 @@ export async function runAgentLoopImpl(
       // plugin enqueues consolidation for the turn that just landed. The hook
       // runner already contains thrown hooks; the catch() additionally guards
       // hook-discovery failure so neither can reject an otherwise-complete turn.
+      //
+      // `TurnCommitContext.messages` is contracted as the committed turn: the
+      // originating user prompt followed by the run's assistant reply and tool
+      // results. `lastRunNewMessages` is the loop's `newMessages` slice measured
+      // from the input history, so it carries only the assistant/tool output —
+      // the user message sits in the input history that preceded the run.
+      // Prepend it so a consolidating plugin sees the user's request alongside
+      // the reply.
+      const userMessage = buildOriginatingUserMessage(
+        userMessageId,
+        ctx.conversationId,
+      );
+      const committedMessages = userMessage
+        ? [userMessage, ...lastRunNewMessages]
+        : lastRunNewMessages;
       const turnCommitCtx: TurnCommitContext = {
         conversationId: ctx.conversationId,
         userMessageId,
-        messages: lastRunNewMessages,
+        messages: committedMessages,
         turnCount: ctx.turnCount,
         isNonInteractive,
         logger: rlog,
@@ -1604,6 +1619,26 @@ export async function runAgentLoopImpl(
 }
 
 // ── Helper ───────────────────────────────────────────────────────────
+
+/**
+ * Reconstruct the originating user message as a provider {@link Message} from
+ * its persisted row, for the `turn-commit` hook context. The row stores its
+ * content as a JSON-serialized content-block array; returns `null` when the row
+ * is missing or its content can't be parsed so callers fall back gracefully.
+ */
+function buildOriginatingUserMessage(
+  userMessageId: string,
+  conversationId: string,
+): Message | null {
+  const row = getMessageById(userMessageId, conversationId);
+  if (!row) return null;
+  try {
+    const content = JSON.parse(row.content) as ContentBlock[];
+    return { role: "user", content };
+  } catch {
+    return null;
+  }
+}
 
 function emitUsage(
   ctx: Pick<Conversation, "conversationId" | "provider" | "usageStats">,
