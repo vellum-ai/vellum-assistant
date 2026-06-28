@@ -235,10 +235,11 @@ describe("background wake intent publisher hooks", () => {
       "utf-8",
     );
 
-    // Match the three calls in order, tolerant of indentation, so the
-    // assertion survives reformatting/re-indentation of lifecycle.ts.
+    // The wake intent is published once, immediately after the scheduler and
+    // heartbeat are wired into the background-wake runtime. Tolerant of
+    // indentation so the assertion survives reformatting of lifecycle.ts.
     expect(lifecycleSource).toMatch(
-      /heartbeat\.start\(\);\n[ \t]*registerBackgroundWakeRuntime\(\{ scheduler, heartbeat \}\);\n[ \t]*refreshBackgroundWakeIntent\("daemon-startup"\);/,
+      /registerBackgroundWakeRuntime\(\{ scheduler, heartbeat \}\);\n[ \t]*refreshBackgroundWakeIntent\("daemon-startup"\);/,
     );
   });
 

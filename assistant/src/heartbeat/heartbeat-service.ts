@@ -919,6 +919,22 @@ This is one of your first heartbeats. Your user hasn't heard from you yet and ma
   }
 }
 
+/**
+ * Construct and start the heartbeat service singleton, returning it so callers
+ * can wire it into the background-wake runtime. start() self-gates on
+ * `heartbeat.enabled` and logs its own status.
+ */
+export function startHeartbeatService(deps: HeartbeatDeps): HeartbeatService {
+  const service = new HeartbeatService(deps);
+  service.start();
+  return service;
+}
+
+/** Stop the heartbeat service singleton if one is running; no-op otherwise. */
+export async function stopHeartbeatService(): Promise<void> {
+  await HeartbeatService.getInstance()?.stop();
+}
+
 function isDiskPressureBackgroundLocked(logKey: string): boolean {
   const diskPressureGate = checkDiskPressureBackgroundGate("background-work");
   if (diskPressureGate.action === "allow") return false;
