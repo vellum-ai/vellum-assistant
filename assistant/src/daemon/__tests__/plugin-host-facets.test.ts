@@ -158,6 +158,7 @@ import type {
 import { createDaemonSkillHost } from "../daemon-skill-host.js";
 import {
   buildConfigFacet,
+  buildEmbeddingsFacet,
   buildEventsFacet,
   buildIdentityFacet,
   buildLoggerFacet,
@@ -165,6 +166,7 @@ import {
   buildPlatformFacet,
   buildProvidersFacet,
   buildRegistriesFacet,
+  buildVectorStoreFacet,
 } from "../skill-host-facets.js";
 
 /**
@@ -182,6 +184,8 @@ function buildPluginHost(pluginName: string): PluginHost {
     platform: buildPlatformFacet(),
     logger: buildLoggerFacet(pluginName),
     registries: buildRegistriesFacet(pluginName),
+    embeddings: buildEmbeddingsFacet(),
+    vectorStore: buildVectorStoreFacet(pluginName),
   };
 }
 
@@ -231,7 +235,7 @@ describe("external-plugin host bundle", () => {
     expect(getConfiguredProviderSpy).toHaveBeenCalled();
   });
 
-  test("host bundle exposes the eight facets that exist today", () => {
+  test("host bundle exposes the facets that exist today", () => {
     const host = buildPluginHost("example-plugin");
     for (const key of [
       "providers",
@@ -242,6 +246,8 @@ describe("external-plugin host bundle", () => {
       "platform",
       "logger",
       "registries",
+      "embeddings",
+      "vectorStore",
     ] as const) {
       expect(host[key]).toBeDefined();
     }
@@ -263,6 +269,8 @@ describe("external-plugin host bundle", () => {
       "platform",
       "logger",
       "registries",
+      "embeddings",
+      "vectorStore",
     ] as const;
 
     for (const facet of facets) {

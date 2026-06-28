@@ -6,6 +6,7 @@
 
 import type {
   ConfigFacet,
+  EmbeddingsFacet,
   EventsFacet,
   IdentityFacet,
   LoggerFacet,
@@ -13,6 +14,7 @@ import type {
   PlatformFacet,
   ProvidersFacet,
   RegistriesFacet,
+  VectorStoreFacet,
 } from "@vellumai/skill-host-contracts";
 
 import type { LLMCallSite } from "../config/schemas/llm.js";
@@ -41,9 +43,9 @@ export { RiskLevel } from "../tools/types.js";
  * {@link InitContext.host}.
  *
  * Direct `assistant/` source imports remain forbidden for external plugins:
- * this bundle is the only supported path to those subsystems. Embeddings,
- * history, store, and jobs facets are added by later PRs; this surface
- * exposes the facets that exist today.
+ * this bundle is the only supported path to those subsystems. History, store,
+ * and jobs facets are added by later PRs; this surface exposes the facets that
+ * exist today.
  */
 export interface PluginHost {
   /** Resolve LLM/STT/TTS providers and secure keys for the workspace. */
@@ -62,10 +64,15 @@ export interface PluginHost {
   logger: LoggerFacet;
   /** Register tools, skill routes, and shutdown hooks. */
   registries: RegistriesFacet;
+  /** Embed text into dense vectors via the host's configured backend. */
+  embeddings: EmbeddingsFacet;
+  /** Upsert/search/delete dense vectors in a plugin-namespaced collection. */
+  vectorStore: VectorStoreFacet;
 }
 
 export type {
   ConfigFacet,
+  EmbeddingsFacet,
   EventsFacet,
   IdentityFacet,
   LoggerFacet,
@@ -73,6 +80,7 @@ export type {
   PlatformFacet,
   ProvidersFacet,
   RegistriesFacet,
+  VectorStoreFacet,
 } from "@vellumai/skill-host-contracts";
 
 // ─── Logger ──────────────────────────────────────────────────────────────────

@@ -105,6 +105,7 @@ import type {
   AssistantEventCallback,
   ConfigFacet,
   EventsFacet,
+  EmbeddingsFacet,
   Filter,
   IdentityFacet,
   InsertMessageFn,
@@ -128,6 +129,10 @@ import type {
   TtsProvider,
   TtsProvidersFacet,
   UserMessage,
+  VectorCollection,
+  VectorPoint,
+  VectorSearchResult,
+  VectorStoreFacet,
 } from "./skill-host.js";
 import type { Tool, ToolContext } from "./tool-types.js";
 
@@ -274,6 +279,8 @@ export class SkillHostClient implements SkillHost {
   readonly events: EventsFacet;
   readonly registries: RegistriesFacet;
   readonly speakers: SpeakersFacet;
+  readonly embeddings: EmbeddingsFacet;
+  readonly vectorStore: VectorStoreFacet;
 
   private readonly options: Required<
     Pick<
@@ -363,6 +370,8 @@ export class SkillHostClient implements SkillHost {
     this.events = this.buildEventsFacet();
     this.registries = this.buildRegistriesFacet();
     this.speakers = this.buildSpeakersFacet();
+    this.embeddings = this.buildEmbeddingsFacet();
+    this.vectorStore = this.buildVectorStoreFacet();
   }
 
   // ── Public lifecycle ────────────────────────────────────────────────────
@@ -1328,6 +1337,43 @@ export class SkillHostClient implements SkillHost {
         ({
           __vellumSkillHostClientHandle: "speaker-tracker",
         }) as unknown,
+    };
+  }
+
+  private buildEmbeddingsFacet(): EmbeddingsFacet {
+    return {
+      // `signal` is local to this process; only the texts cross the wire. The
+      // daemon resolves the active embedding backend from config.
+      embed: async (texts) =>
+        this.call<number[][]>("host.embeddings.embed", { texts }),
+    };
+  }
+
+  private buildVectorStoreFacet(): VectorStoreFacet {
+    const call = this.call.bind(this);
+    return {
+      collection: async (name, options): Promise<VectorCollection> => {
+        // Round-trip once so the daemon can provision the namespaced
+        // collection; subsequent ops carry the same `name`.
+        await call("host.vectorStore.ensure", {
+          name,
+          vectorSize: options.vectorSize,
+        });
+        return {
+          upsert: async (points: VectorPoint[]) => {
+            await call("host.vectorStore.upsert", { name, points });
+          },
+          search: async (vector: number[], limit: number) =>
+            call<VectorSearchResult[]>("host.vectorStore.search", {
+              name,
+              vector,
+              limit,
+            }),
+          delete: async (ids: string[]) => {
+            await call("host.vectorStore.delete", { name, ids });
+          },
+        };
+      },
     };
   }
 

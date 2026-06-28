@@ -163,7 +163,7 @@ export interface SttProvidersFacet {
    * the daemon's resolver reads credentials and pings the provider catalog.
    */
   resolveStreamingTranscriber(
-    spec: SttSpec,
+    spec: SttSpec
   ): Promise<StreamingTranscriber | null>;
 }
 
@@ -216,7 +216,7 @@ export type InsertMessageFn = (
   conversationId: string,
   role: MessageRole,
   content: string,
-  options?: InsertMessageOptions,
+  options?: InsertMessageOptions
 ) => Promise<unknown>;
 
 /** Opaque payload passed to `memory.wakeAgentForOpportunity`. */
@@ -239,7 +239,7 @@ export interface Filter {
 
 /** Callback invoked for each event that matches a subscriber's filter. */
 export type AssistantEventCallback = (
-  event: AssistantEvent,
+  event: AssistantEvent
 ) => void | Promise<void>;
 
 /** Opaque handle returned by `events.subscribe`. Calling `dispose()` unsubscribes. */
@@ -290,8 +290,80 @@ export interface RegistriesFacet {
    */
   registerShutdownHook(
     name: string,
-    hook: (reason: string) => Promise<void>,
+    hook: (reason: string) => Promise<void>
   ): void;
+}
+
+// ---------------------------------------------------------------------------
+// Embeddings
+//
+// A thin wrapper over the host's configured embedding backend. The host
+// resolves which backend serves the request (local / remote / managed) from
+// the assistant's config; the plugin only sees vectors out. Provider-agnostic
+// by design — no backend identity leaks across this surface.
+// ---------------------------------------------------------------------------
+
+export interface EmbedOptions {
+  /** Abort the in-flight embed request when this signal fires. */
+  signal?: AbortSignal;
+}
+
+export interface EmbeddingsFacet {
+  /**
+   * Embed a batch of texts into dense vectors. Returns one vector per input,
+   * in input order. The host selects the active embedding backend from the
+   * assistant's config; the vector dimensionality matches that backend's
+   * configured size. Rejects when no embedding backend is available.
+   */
+  embed(texts: string[], opts?: EmbedOptions): Promise<number[][]>;
+}
+
+// ---------------------------------------------------------------------------
+// Vector store
+//
+// A plugin-namespaced dense-vector collection. The host names the underlying
+// collection by the plugin's id so two plugins using the same logical name
+// (e.g. "pages") never collide. The plugin supplies its own point ids and an
+// opaque metadata payload; the store round-trips both.
+// ---------------------------------------------------------------------------
+
+/** A single dense-vector point to upsert. */
+export interface VectorPoint {
+  /** Caller-stable id; re-upserting the same id overwrites the point. */
+  id: string;
+  /** Dense embedding for this point. */
+  vector: number[];
+  /** Opaque metadata round-tripped on search results. */
+  payload?: Record<string, unknown>;
+}
+
+/** A search hit, ordered most-similar first. */
+export interface VectorSearchResult {
+  id: string;
+  score: number;
+  payload: Record<string, unknown>;
+}
+
+export interface VectorStoreFacet {
+  /**
+   * Obtain a handle to a plugin-owned collection. `name` is namespaced by the
+   * plugin id under the hood, so the same `name` from two different plugins
+   * refers to two distinct collections. `vectorSize` fixes the dimensionality
+   * of the collection (must match the embeddings the plugin will write).
+   */
+  collection(
+    name: string,
+    options: { vectorSize: number }
+  ): Promise<VectorCollection>;
+}
+
+export interface VectorCollection {
+  /** Upsert one or more points (overwrites by id). */
+  upsert(points: VectorPoint[]): Promise<void>;
+  /** Nearest-neighbour search; returns up to `limit` hits, best first. */
+  search(vector: number[], limit: number): Promise<VectorSearchResult[]>;
+  /** Delete points by id. Unknown ids are ignored. */
+  delete(ids: string[]): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -330,4 +402,6 @@ export interface SkillHost {
   events: EventsFacet;
   registries: RegistriesFacet;
   speakers: SpeakersFacet;
+  embeddings: EmbeddingsFacet;
+  vectorStore: VectorStoreFacet;
 }
