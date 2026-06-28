@@ -17,7 +17,7 @@ import {
 import type { DrizzleDb } from "../memory/db-connection.js";
 import { getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-import { migrateNormalizeUserFileByPrincipal } from "../memory/migrations/220-normalize-user-file-by-principal.js";
+import { migrateNormalizeUserFileByPrincipal } from "../persistence/migrations/220-normalize-user-file-by-principal.js";
 import * as schema from "../memory/schema.js";
 
 await initializeDb();

@@ -31,8 +31,8 @@ import {
   getTelemetrySqlite,
   resetDb,
 } from "../../memory/db-connection.js";
-import { validateMigrationState } from "../../memory/migrations/validate-migration-state.js";
-import { migrationSteps } from "../../memory/steps.js";
+import { validateMigrationState } from "../../persistence/migrations/validate-migration-state.js";
+import { migrationSteps } from "../../persistence/steps.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
   bulkSetSecureKeysAsync,

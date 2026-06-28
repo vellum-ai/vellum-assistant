@@ -4,8 +4,8 @@ import { describe, expect, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { getSqliteFrom } from "../memory/db-connection.js";
-import { migrate230AcpSessionHistory } from "../memory/migrations/230-acp-session-history.js";
-import { migrateAcpSessionHistoryCwd } from "../memory/migrations/272-acp-session-history-cwd.js";
+import { migrate230AcpSessionHistory } from "../persistence/migrations/230-acp-session-history.js";
+import { migrateAcpSessionHistoryCwd } from "../persistence/migrations/272-acp-session-history-cwd.js";
 import * as schema from "../memory/schema.js";
 
 function createTestDb() {

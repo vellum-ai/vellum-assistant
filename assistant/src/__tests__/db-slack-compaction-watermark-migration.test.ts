@@ -7,7 +7,7 @@ import { getSqliteFrom } from "../memory/db-connection.js";
 import {
   downSlackCompactionWatermark,
   migrateSlackCompactionWatermark,
-} from "../memory/migrations/235-slack-compaction-watermark.js";
+} from "../persistence/migrations/235-slack-compaction-watermark.js";
 import * as schema from "../memory/schema.js";
 
 interface ColumnRow {

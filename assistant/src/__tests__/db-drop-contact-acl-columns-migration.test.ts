@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { getSqliteFrom } from "../memory/db-connection.js";
-import { migrateDropContactAclColumns } from "../memory/migrations/305-drop-contact-acl-columns.js";
+import { migrateDropContactAclColumns } from "../persistence/migrations/305-drop-contact-acl-columns.js";
 import * as schema from "../memory/schema.js";
 
 const DROPPED_CONTACT_COLUMNS = ["role", "principal_id"] as const;

@@ -22,9 +22,9 @@ import {
   getSqlite,
   getTelemetrySqlite,
 } from "./db-connection.js";
-import { runMigrationSteps } from "../memory/migrations/run-migrations.js";
-import { validateMigrationState } from "../memory/migrations/validate-migration-state.js";
-import { migrationSteps } from "../memory/steps.js";
+import { runMigrationSteps } from "./migrations/run-migrations.js";
+import { validateMigrationState } from "./migrations/validate-migration-state.js";
+import { migrationSteps } from "./steps.js";
 
 // ---------------------------------------------------------------------------
 // Test DB template — run migrations once, reuse across test files
@@ -32,13 +32,15 @@ import { migrationSteps } from "../memory/steps.js";
 
 function getTemplateDbPath(): string {
   // Hash this file + all migration files + bootstrap migration so the template
-  // auto-invalidates when any migration changes. The migration steps, bootstrap
-  // migration, and steps array live under the sibling `memory/` directory.
+  // auto-invalidates when any migration changes. The migration steps and steps
+  // array live in this `persistence/` directory; the bootstrap migration lives
+  // under the sibling `memory/` directory.
   const thisFile = new URL(import.meta.url).pathname;
-  const memoryDir = join(dirname(thisFile), "..", "memory");
+  const persistenceDir = dirname(thisFile);
+  const memoryDir = join(persistenceDir, "..", "memory");
   const hash = createHash("md5");
   hash.update(readFileSync(thisFile, "utf-8"));
-  const migrationsDir = join(memoryDir, "migrations");
+  const migrationsDir = join(persistenceDir, "migrations");
   for (const name of readdirSync(migrationsDir).sort()) {
     if (name.endsWith(".ts")) {
       hash.update(readFileSync(join(migrationsDir, name), "utf-8"));
@@ -50,9 +52,9 @@ function getTemplateDbPath(): string {
   if (existsSync(bootstrapFile)) {
     hash.update(readFileSync(bootstrapFile, "utf-8"));
   }
-  // Include steps.ts which defines the migration step array (now separate
-  // from this file) so template invalidates when steps change.
-  const stepsFile = join(memoryDir, "steps.ts");
+  // Include steps.ts which defines the migration step array (separate from this
+  // file) so template invalidates when steps change.
+  const stepsFile = join(persistenceDir, "steps.ts");
   if (existsSync(stepsFile)) {
     hash.update(readFileSync(stepsFile, "utf-8"));
   }

@@ -21,7 +21,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import { getSqliteFrom } from "../memory/db-connection.js";
-import { migrateLlmRequestLogProvider } from "../memory/migrations/184-llm-request-log-provider.js";
+import { migrateLlmRequestLogProvider } from "../persistence/migrations/184-llm-request-log-provider.js";
 import * as schema from "../memory/schema.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 

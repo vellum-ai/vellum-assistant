@@ -30,7 +30,7 @@ import {
   getRequestLogById,
   recordRequestLog,
 } from "../memory/llm-request-log-store.js";
-import { migrateLlmRequestLogCallSite } from "../memory/migrations/264-llm-request-log-call-site.js";
+import { migrateLlmRequestLogCallSite } from "../persistence/migrations/264-llm-request-log-call-site.js";
 import { llmRequestLogs } from "../memory/schema.js";
 
 await initializeDb();

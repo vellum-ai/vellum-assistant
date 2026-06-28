@@ -10,7 +10,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import { getSqliteFrom } from "../memory/db-connection.js";
-import { migrateRenameInferenceProfileSnakeCase } from "../memory/migrations/228-rename-inference-profile-snake-case.js";
+import { migrateRenameInferenceProfileSnakeCase } from "../persistence/migrations/228-rename-inference-profile-snake-case.js";
 import * as schema from "../memory/schema.js";
 
 function createTestDb() {

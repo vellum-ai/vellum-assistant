@@ -7,7 +7,7 @@ import { getSqliteFrom } from "../memory/db-connection.js";
 import {
   downActivationState,
   migrateActivationState,
-} from "../memory/migrations/232-activation-state.js";
+} from "../persistence/migrations/232-activation-state.js";
 import * as schema from "../memory/schema.js";
 
 interface TableRow {

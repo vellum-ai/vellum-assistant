@@ -31,9 +31,9 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { unwrapMemoryBlock } from "../../../../memory/memory-marker.js";
-import { migrateAddMemoryV3Selections } from "../../../../memory/migrations/268-add-memory-v3-selections.js";
-import { migrateAddMemoryV3EverInjected } from "../../../../memory/migrations/277-add-memory-v3-ever-injected.js";
-import { migrateMemoryV3SelectionsMessageIdAndSections } from "../../../../memory/migrations/283-memory-v3-selections-message-id-and-sections.js";
+import { migrateAddMemoryV3Selections } from "../../../../persistence/migrations/268-add-memory-v3-selections.js";
+import { migrateAddMemoryV3EverInjected } from "../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
+import { migrateMemoryV3SelectionsMessageIdAndSections } from "../../../../persistence/migrations/283-memory-v3-selections-message-id-and-sections.js";
 import * as schema from "../../../../memory/schema.js";
 import type { InjectionBlock } from "../../../types.js";
 import type { OrchestrateResult } from "../orchestrate.js";

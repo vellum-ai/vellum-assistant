@@ -4,8 +4,8 @@ import { describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { migrateScheduleDescription } from "../memory/migrations/270-schedule-description.js";
-import { migrateScheduleSourceConversation } from "../memory/migrations/270-schedule-source-conversation.js";
+import { migrateScheduleDescription } from "../persistence/migrations/270-schedule-description.js";
+import { migrateScheduleSourceConversation } from "../persistence/migrations/270-schedule-source-conversation.js";
 import * as schema from "../memory/schema.js";
 import { scheduleJobs } from "../memory/schema.js";
 
