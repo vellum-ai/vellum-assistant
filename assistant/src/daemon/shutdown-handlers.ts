@@ -8,7 +8,7 @@ import { getSqlite, resetDb } from "../memory/db-connection.js";
 import { stopMemoryJobsWorker } from "../memory/jobs-worker.js";
 import { stopQdrantManager } from "../memory/qdrant-manager.js";
 import { stopMemoryWorkerProcess } from "../memory/worker-control.js";
-import type { RuntimeHttpServer } from "../runtime/http-server.js";
+import { stopRuntimeHttpServer } from "../runtime/http-server.js";
 import { stopScheduler } from "../schedule/scheduler.js";
 import { stopUsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { browserManager } from "../tools/browser/browser-manager.js";
@@ -43,7 +43,6 @@ export interface ShutdownDeps {
   workspaceHeartbeat: WorkspaceHeartbeatService;
   heartbeat: HeartbeatService;
   filing: FilingService | null;
-  runtimeHttp: RuntimeHttpServer | null;
 }
 
 export function installShutdownHandlers(deps: ShutdownDeps): void {
@@ -124,7 +123,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
       log.warn({ err }, "Telemetry reporter shutdown failed (non-fatal)");
     }
 
-    if (deps.runtimeHttp) await deps.runtimeHttp.stop();
+    await stopRuntimeHttpServer();
     await browserManager.closeAllPages();
     cleanupShellOutputTempFiles();
     stopScheduler();
