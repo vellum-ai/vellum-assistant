@@ -74,6 +74,7 @@ import { EmbeddingBillingBlockError } from "../../../memory/embedding-billing-br
 import type { MemoryJob } from "../../../memory/jobs-store.js";
 import { getPageIndex } from "../../../memory/v2/page-index.js";
 import { readPage } from "../../../memory/v2/page-store.js";
+import { skillSlugFor } from "../../../memory/v2/skill-store.js";
 import {
   readInstallMeta,
   type SkillInstallMeta,
@@ -625,6 +626,23 @@ async function pruneStaleSkills(deps: MaintainJobDeps): Promise<{
           skillId: skill.id,
           error: err instanceof Error ? err.message : String(err),
         });
+        continue;
+      }
+      // Best-effort: clear the deleted skill's capability sections this pass.
+      // The deleted-page prune already ran earlier in the job, and the dense
+      // lane queries Qdrant without filtering on the live page index, so the
+      // `skills/<id>` article could otherwise surface until a later pass. The
+      // next pass's deleted-page prune is the backstop if this throws.
+      try {
+        await deps.deleteSectionsForArticle(
+          deps.config,
+          skillSlugFor(skill.id),
+        );
+      } catch (err) {
+        log.warn(
+          { err, skillId: skill.id },
+          "memory-v3 maintain: skill section prune failed (non-fatal)",
+        );
       }
     }
   }

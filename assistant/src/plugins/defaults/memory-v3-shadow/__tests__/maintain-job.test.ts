@@ -6,6 +6,7 @@ import type { AssistantConfig } from "../../../../config/types.js";
 import { EmbeddingBackendUnavailableError } from "../../../../memory/embedding-backend.js";
 import { EmbeddingBillingBlockError } from "../../../../memory/embedding-billing-breaker.js";
 import type { MemoryJob } from "../../../../memory/jobs-store.js";
+import { skillSlugFor } from "../../../../memory/v2/skill-store.js";
 import type { SkillInstallMeta } from "../../../../skills/install-meta.js";
 import { renderCapabilityContent } from "../capabilities.js";
 import {
@@ -476,15 +477,22 @@ describe("maintainJob skill usage-prune", () => {
     metas: Record<string, SkillInstallMeta | null>,
     skillPruneDays: number | null,
     overrides: Partial<MaintainJobDeps> = {},
-  ): { deps: MaintainJobDeps; deletedSkills: string[] } {
+  ): {
+    deps: MaintainJobDeps;
+    deletedSkills: string[];
+    sectionDeletes: string[];
+  } {
     const deletedSkills: string[] = [];
+    const sectionDeletes: string[] = [];
     const d: MaintainJobDeps = {
       config: makeConfig(skillPruneDays),
       selectChangedPages: async () => [],
       buildSectionIndex: async (slugs) => makeIndex(slugs),
       readPageBody: async (s) => `body for ${s}`,
       readCapabilityBody: async (s) => `capability body for ${s}`,
-      deleteSectionsForArticle: async () => {},
+      deleteSectionsForArticle: async (_config, article) => {
+        sectionDeletes.push(article);
+      },
       upsertSections: async () => {},
       commitEmbedHighWater: () => {},
       listSectionArticles: async () => [],
@@ -502,7 +510,7 @@ describe("maintainJob skill usage-prune", () => {
       nowMs: () => NOW,
       ...overrides,
     };
-    return { deps: d, deletedSkills };
+    return { deps: d, deletedSkills, sectionDeletes };
   }
 
   describe("default (skillPruneDays: null) — observe-only, deletes nothing", () => {
@@ -554,7 +562,11 @@ describe("maintainJob skill usage-prune", () => {
   describe("enabled (skillPruneDays: 30) — deletes via executeDeleteManagedSkill", () => {
     test("prunes a stale assistant skill via deleteSkill", async () => {
       setOverridesForTesting({ [FLAG_SHADOW]: true });
-      const { deps: d, deletedSkills } = pruneDeps(
+      const {
+        deps: d,
+        deletedSkills,
+        sectionDeletes,
+      } = pruneDeps(
         [skill("stale-assistant")],
         { "stale-assistant": meta("assistant", "lastUsedAt", 45) },
         30,
@@ -565,6 +577,8 @@ describe("maintainJob skill usage-prune", () => {
       expect(outcome.prunedSkills).toEqual(["stale-assistant"]);
       expect(outcome.prunableSkills).toEqual(["stale-assistant"]);
       expect(outcome.skillPruneFailures).toEqual([]);
+      // The pruned skill's v3 capability sections are cleared the same pass.
+      expect(sectionDeletes).toContain(skillSlugFor("stale-assistant"));
     });
 
     test("never prunes author:user or untagged skills", async () => {
