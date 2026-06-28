@@ -116,6 +116,10 @@ mock.module("../memory/conversation-crud.js", () => ({
   deleteMessageById: mock(() => {}),
   clearAll: mock(async () => ({ conversations: 0, messages: 0 })),
   deleteConversation: mock(() => ({ memoryIds: [] })),
+  deleteConversationGently: mock(async () => ({
+    segmentIds: [],
+    deletedSummaryIds: [],
+  })),
   deleteLastExchange: mock(() => 0),
   findAnalysisConversationFor: mock(() => null),
   findMostRecentRetrospectiveFor: mock(() => null),

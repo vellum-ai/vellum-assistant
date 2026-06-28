@@ -134,6 +134,11 @@ mock.module("../conversation-crud.js", () => ({
     deletedIds.push(id);
     mockConversations = mockConversations.filter((c) => c.id !== id);
   },
+  deleteConversationGently: async (id: string) => {
+    deletedIds.push(id);
+    mockConversations = mockConversations.filter((c) => c.id !== id);
+    return { segmentIds: [], deletedSummaryIds: [] };
+  },
   getMessages: (conversationId: string) => mockMessages[conversationId] ?? [],
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
