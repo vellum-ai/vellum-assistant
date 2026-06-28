@@ -28,7 +28,7 @@ import type { DrizzleDb } from "../../db-connection.js";
 import type { MemoryV2ConceptRowRecord } from "../../memory-v2-activation-log-store.js";
 import { memoryV2ActivationLogs, messages } from "../../schema.js";
 import { loadNowText } from "../now-text.js";
-import type { RouterTurnPair } from "../router.js";
+import { extractRecentTurnPairs } from "../router.js";
 import type { EverInjectedEntry } from "../types.js";
 import type { OracleTurn } from "./oracle.js";
 import type { RetrievalInput } from "./retriever.js";
@@ -57,47 +57,6 @@ export interface ReconstructedInput {
 interface PlainMessage {
   role: string;
   content: ContentBlock[];
-}
-
-/**
- * Mirror of production `extractRecentTurnPairs`: walk messages newest-first,
- * pair each user message with the preceding assistant reply, keep the last `k`
- * pairs (oldest first). A leading user message with no prior assistant reply is
- * emitted with an empty `assistantMessage`.
- */
-function extractRecentTurnPairs(
-  msgs: readonly PlainMessage[],
-  k: number,
-): RouterTurnPair[] {
-  const messageText = (msg: PlainMessage): string =>
-    msg.content
-      .filter(
-        (b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text",
-      )
-      .map((b) => b.text)
-      .join(" ");
-
-  const pairs: RouterTurnPair[] = [];
-  let pendingUser: string | null = null;
-  for (let i = msgs.length - 1; i >= 0 && pairs.length < k; i--) {
-    const msg = msgs[i]!;
-    if (msg.role === "user" && pendingUser === null) {
-      pendingUser = messageText(msg);
-    } else if (msg.role === "assistant" && pendingUser !== null) {
-      pairs.unshift({
-        assistantMessage: messageText(msg),
-        userMessage: pendingUser,
-      });
-      pendingUser = null;
-    }
-  }
-  if (pendingUser !== null && pairs.length < k) {
-    pairs.unshift({ assistantMessage: "", userMessage: pendingUser });
-  }
-  if (pairs.length === 0) {
-    pairs.push({ assistantMessage: "", userMessage: "" });
-  }
-  return pairs;
 }
 
 function parseContent(raw: string): ContentBlock[] {
