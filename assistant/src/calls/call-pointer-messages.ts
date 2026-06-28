@@ -13,7 +13,7 @@ import {
   addMessage,
   getConversationOriginChannel,
   getConversationRecentProvenanceTrustClass,
-} from "../memory/conversation-crud.js";
+} from "../persistence/conversation-crud.js";
 import { getLogger } from "../util/logger.js";
 import {
   buildPointerInstruction,

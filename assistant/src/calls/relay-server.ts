@@ -20,7 +20,7 @@ import { getAssistantName } from "../daemon/identity-helpers.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
-import { addMessage } from "../memory/conversation-crud.js";
+import { addMessage } from "../persistence/conversation-crud.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
 import { resolveGuardianName } from "../prompts/user-reference.js";
 import { notifyGuardianOfAccessRequest } from "../runtime/access-request-helper.js";

@@ -7,7 +7,7 @@
  * Tests must run `initializeDb()` themselves before calling these.
  */
 
-import { getSqlite } from "../../../memory/db-connection.js";
+import { getSqlite } from "../../../persistence/db-connection.js";
 
 /** Raw column snapshot of an `acp_session_history` row. */
 export interface HistoryRow {

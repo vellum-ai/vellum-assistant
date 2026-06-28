@@ -86,7 +86,7 @@ mock.module("../daemon/disk-pressure-guard.js", () => ({
   getDiskPressureStatus: () => diskPressureStatus,
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
     setConversationProcessingStartedAt: () => {},
     isConversationProcessing: () => false,
   getConversation: () => ({

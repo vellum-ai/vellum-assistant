@@ -1,4 +1,4 @@
-import type { DrizzleDb } from "../memory/db-connection.js";
+import type { DrizzleDb } from "../persistence/db-connection.js";
 import {
   createConnection,
   getConnection,

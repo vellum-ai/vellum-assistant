@@ -16,7 +16,7 @@
 // forward regardless, so a dense outage narrows recall but never breaks a turn.
 
 import type { AssistantConfig } from "../../../config/types.js";
-import { embedWithBackend } from "../../../memory/embedding-backend.js";
+import { embedWithBackend } from "../../../persistence/embeddings/embedding-backend.js";
 import { getLogger } from "../../../util/logger.js";
 import {
   getSectionDenseClient,

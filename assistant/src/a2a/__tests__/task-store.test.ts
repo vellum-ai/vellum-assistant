@@ -9,8 +9,8 @@ mock.module("../../util/logger.js", () => ({
   truncateForLog: (value: string) => value,
 }));
 
-import { getDb, getSqliteFrom } from "../../memory/db-connection.js";
-import { initializeDb } from "../../memory/db-init.js";
+import { getDb, getSqliteFrom } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
 import type { A2AMessage, Artifact } from "../protocol-types.js";
 import {
   completeWithArtifacts,

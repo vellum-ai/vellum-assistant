@@ -2,9 +2,9 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { setOverridesForTesting } from "../../../../__tests__/feature-flag-test-helpers.js";
 import type { AssistantConfig } from "../../../../config/types.js";
-import { EmbeddingBackendUnavailableError } from "../../../../memory/embedding-backend.js";
-import { EmbeddingBillingBlockError } from "../../../../memory/embedding-billing-breaker.js";
-import type { MemoryJob } from "../../../../memory/jobs-store.js";
+import { EmbeddingBackendUnavailableError } from "../../../../persistence/embeddings/embedding-backend.js";
+import { EmbeddingBillingBlockError } from "../../../../persistence/embeddings/embedding-billing-breaker.js";
+import type { MemoryJob } from "../../../../persistence/jobs-store.js";
 import { renderCapabilityContent } from "../capabilities.js";
 import {
   backfillAllSections,

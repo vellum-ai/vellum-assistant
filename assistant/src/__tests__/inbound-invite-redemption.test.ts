@@ -156,9 +156,9 @@ import {
   getContact,
   upsertContact,
 } from "../contacts/contact-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { createInvite, revokeInvite } from "../memory/invite-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { createInvite, revokeInvite } from "../persistence/invite-store.js";
 import {
   handleChannelInbound,
   seedContactChannel,

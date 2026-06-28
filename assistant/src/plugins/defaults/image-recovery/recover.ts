@@ -18,7 +18,7 @@ import { parseImageDimensions } from "../../../context/image-dimensions.js";
 import {
   getMessages,
   updateMessageContent,
-} from "../../../memory/conversation-crud.js";
+} from "../../../persistence/conversation-crud.js";
 import type { ContentBlock, Message } from "../../../providers/types.js";
 import { getLogger } from "../../../util/logger.js";
 

@@ -13,7 +13,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrateCreateProviderConnections } from "../../../persistence/migrations/243-provider-connections.js";
 import { migrateProviderConnectionStatusLabel } from "../../../persistence/migrations/244-provider-connection-status-label.js";
 import { migrateProviderConnectionBaseUrlAndModels } from "../../../persistence/migrations/250-provider-connection-base-url-and-models.js";
-import * as schema from "../../../memory/schema.js";
+import * as schema from "../../../persistence/schema/index.js";
 
 function createTestDb() {
   const sqlite = new Database(":memory:");
@@ -32,7 +32,7 @@ function bootDb() {
 // Create and hold a test DB; the mock returns it from getDb().
 const testDb = bootDb();
 
-mock.module("../../../memory/db-connection.js", () => ({
+mock.module("../../../persistence/db-connection.js", () => ({
   getDb: () => testDb,
 }));
 

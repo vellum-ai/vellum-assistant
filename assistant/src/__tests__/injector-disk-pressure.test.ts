@@ -23,9 +23,9 @@ import {
   applyRuntimeInjections,
   stripInjectionsForCompaction,
 } from "../daemon/conversation-runtime-assembly.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { conversations, messages } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { conversations, messages } from "../persistence/schema/index.js";
 import {
   type SlackMessageMetadata,
   writeSlackMetadata,

@@ -29,8 +29,8 @@ import {
   upsertContactChannel,
 } from "../contacts/contacts-write.js";
 import type { ChannelStatus } from "../contacts/types.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
 import {
   createOutboundSession,

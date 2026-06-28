@@ -90,7 +90,7 @@ mock.module("../runtime/pending-interactions.js", () => ({
   resolve: resolveMock,
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
   addMessage: mock(async () => ({ id: "persisted-message-id" })),
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));

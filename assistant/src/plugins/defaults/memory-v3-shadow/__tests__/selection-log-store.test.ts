@@ -26,13 +26,13 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { migrateAddMemoryV3Selections } from "../../../../persistence/migrations/268-add-memory-v3-selections.js";
 import { migrateMemoryV3SelectionsMessageIdAndSections } from "../../../../persistence/migrations/283-memory-v3-selections-message-id-and-sections.js";
-import * as schema from "../../../../memory/schema.js";
+import * as schema from "../../../../persistence/schema/index.js";
 
 const realFlags = {
   ...(await import("../../../../config/assistant-feature-flags.js")),
 };
 const realLoader = { ...(await import("../../../../config/loader.js")) };
-const realDb = { ...(await import("../../../../memory/db-connection.js")) };
+const realDb = { ...(await import("../../../../persistence/db-connection.js")) };
 const realPageContent = { ...(await import("../page-content.js")) };
 
 let storeMockActive = false;
@@ -120,7 +120,7 @@ mock.module("../../../../config/loader.js", () => ({
       : realLoader.getConfig(),
 }));
 
-mock.module("../../../../memory/db-connection.js", () => ({
+mock.module("../../../../persistence/db-connection.js", () => ({
   ...realDb,
   getDb: () => (storeMockActive ? testDb : realDb.getDb()),
   getSqliteFrom: (db: unknown) =>

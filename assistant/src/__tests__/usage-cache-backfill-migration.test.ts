@@ -22,8 +22,8 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-import { getDb, getSqlite } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb, getSqlite } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { migrateBackfillUsageCacheAccounting } from "../persistence/migrations/140-backfill-usage-cache-accounting.js";
 import { rawGet, rawRun } from "../memory/raw-query.js";
 import type { PricingUsage } from "../usage/types.js";

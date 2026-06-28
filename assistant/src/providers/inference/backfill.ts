@@ -18,7 +18,7 @@
  */
 
 import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
-import type { DrizzleDb } from "../../memory/db-connection.js";
+import type { DrizzleDb } from "../../persistence/db-connection.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { getLogger } from "../../util/logger.js";
 import {

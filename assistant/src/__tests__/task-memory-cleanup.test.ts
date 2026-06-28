@@ -11,7 +11,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-mock.module("../memory/qdrant-client.js", () => ({
+mock.module("../persistence/embeddings/qdrant-client.js", () => ({
   getQdrantClient: () => ({
     searchWithFilter: async () => [],
     upsertPoints: async () => {},
@@ -40,9 +40,9 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-import { getDb, getMemoryDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { enqueueMemoryJob } from "../memory/jobs-store.js";
+import { getDb, getMemoryDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { enqueueMemoryJob } from "../persistence/jobs-store.js";
 import {
   conversations,
   cronJobs,
@@ -52,7 +52,7 @@ import {
   messages,
   taskRuns,
   tasks,
-} from "../memory/schema.js";
+} from "../persistence/schema/index.js";
 import {
   invalidateAssistantInferredItemsForConversation,
   isConversationFailed,

@@ -23,10 +23,10 @@ mock.module("../config/env.js", () => ({
 
 import { eq } from "drizzle-orm";
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { linkMessage, recordInbound } from "../memory/delivery-crud.js";
-import { messages } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { linkMessage, recordInbound } from "../persistence/delivery-crud.js";
+import { messages } from "../persistence/schema/index.js";
 import {
   readSlackMetadata,
   writeSlackMetadata,

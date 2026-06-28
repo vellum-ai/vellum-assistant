@@ -9,9 +9,9 @@ mock.module("../util/logger.js", () => ({
   truncateForLog: (value: string) => value,
 }));
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { sequenceEnrollments, sequences } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { sequenceEnrollments, sequences } from "../persistence/schema/index.js";
 import {
   advanceEnrollment,
   claimDueEnrollments,

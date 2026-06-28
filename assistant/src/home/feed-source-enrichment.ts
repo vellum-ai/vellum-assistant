@@ -28,7 +28,7 @@ import {
   type FeedItemSourceType,
 } from "../api/responses/home.js";
 import { AUTO_ANALYSIS_SOURCE } from "../memory/auto-analysis-constants.js";
-import { getConversation } from "../memory/conversation-crud.js";
+import { getConversation } from "../persistence/conversation-crud.js";
 import {
   MEMORY_RETROSPECTIVE_FORK_SOURCE,
   MEMORY_RETROSPECTIVE_SOURCE,

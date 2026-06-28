@@ -35,8 +35,8 @@ import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature
 import { getConfig } from "../../../config/loader.js";
 import type { AssistantConfig } from "../../../config/schema.js";
 import { loadSkillCatalog } from "../../../config/skills.js";
-import { getMessages } from "../../../memory/conversation-crud.js";
-import { getDb, getSqliteFrom } from "../../../memory/db-connection.js";
+import { getMessages } from "../../../persistence/conversation-crud.js";
+import { getDb, getSqliteFrom } from "../../../persistence/db-connection.js";
 import { stringifyMessageContent } from "../../../memory/message-content.js";
 import { getPageIndex } from "../../../memory/v2/page-index.js";
 import { readPage, renderPageContent } from "../../../memory/v2/page-store.js";
