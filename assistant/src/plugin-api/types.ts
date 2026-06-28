@@ -8,6 +8,7 @@ import type {
   ConfigFacet,
   EmbeddingsFacet,
   EventsFacet,
+  HistoryFacet,
   IdentityFacet,
   LoggerFacet,
   MemoryFacet,
@@ -52,6 +53,12 @@ export interface PluginHost {
   providers: ProvidersFacet;
   /** Persist messages and wake the agent for opportunities. */
   memory: MemoryFacet;
+  /**
+   * Read-only conversation/message history, trust/visibility filtered the
+   * same way the UI-facing history loads are. Writes go through
+   * {@link MemoryFacet.addMessage}.
+   */
+  history: HistoryFacet;
   /** Publish/subscribe to runtime events and build event envelopes. */
   events: EventsFacet;
   /** Read assistant feature flags and typed config sections. */
@@ -74,6 +81,10 @@ export type {
   ConfigFacet,
   EmbeddingsFacet,
   EventsFacet,
+  HistoryConversation,
+  HistoryFacet,
+  HistoryMessage,
+  HistoryPage,
   IdentityFacet,
   LoggerFacet,
   MemoryFacet,

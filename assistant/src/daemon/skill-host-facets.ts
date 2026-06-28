@@ -28,6 +28,10 @@ import type {
   EmbeddingsFacet,
   EventsFacet,
   Filter,
+  HistoryConversation,
+  HistoryFacet,
+  HistoryMessage,
+  HistoryPage,
   IdentityFacet,
   LlmProvidersFacet,
   Logger,
@@ -58,7 +62,13 @@ import { SpeakerIdentityTracker } from "../calls/speaker-identification.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig, getNestedValue } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import { addMessage } from "../persistence/conversation-crud.js";
+import {
+  addMessage,
+  type ConversationRow,
+  getConversation,
+  getMessagesPaginated,
+  type MessageRow,
+} from "../persistence/conversation-crud.js";
 import { embedWithBackend } from "../persistence/embeddings/embedding-backend.js";
 import { openPluginVectorCollection } from "../persistence/embeddings/plugin-vector-store.js";
 import {
@@ -196,6 +206,99 @@ export function buildMemoryFacet(): MemoryFacet {
       // Contract returns `void`; daemon returns a `WakeResult` that
       // in-process callers don't need through the host surface.
       await wakeAgentForOpportunity(req as never);
+    },
+  };
+}
+
+/**
+ * Whether a message row is flagged `hidden` in its metadata (internal
+ * scaffolding such as retrospective instructions). Mirrors the UI-facing
+ * history loader's visibility rule so the facet never surfaces a row the
+ * displayed transcript would suppress.
+ */
+function isHiddenHistoryMessage(metadata: string | null): boolean {
+  if (!metadata) return false;
+  try {
+    const meta = JSON.parse(metadata) as { hidden?: unknown };
+    return meta?.hidden === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The same visibility predicate the UI history loads apply: drop rows flagged
+ * hidden, and keep only renderable `user`/`assistant` turns (agent-context
+ * `system` scaffolding never reaches a plugin).
+ */
+function isVisibleHistoryMessage(row: MessageRow): boolean {
+  return (
+    !isHiddenHistoryMessage(row.metadata) &&
+    (row.role === "user" || row.role === "assistant")
+  );
+}
+
+function toHistoryMessage(row: MessageRow): HistoryMessage {
+  return {
+    id: row.id,
+    conversationId: row.conversationId,
+    // Narrowed by `isVisibleHistoryMessage` to the renderable union.
+    role: row.role === "assistant" ? "assistant" : "user",
+    content: row.content,
+    createdAt: row.createdAt,
+    metadata: row.metadata,
+  };
+}
+
+function toHistoryConversation(row: ConversationRow): HistoryConversation {
+  return {
+    id: row.id,
+    title: row.title,
+    conversationType: row.conversationType,
+    source: row.source,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    lastMessageAt: row.lastMessageAt,
+    archivedAt: row.archivedAt,
+  };
+}
+
+export function buildHistoryFacet(): HistoryFacet {
+  return {
+    getConversation: async (conversationId) => {
+      const row = getConversation(conversationId);
+      return row ? toHistoryConversation(row) : null;
+    },
+    getRecentMessages: async (conversationId, n) => {
+      // Newest `n` visible rows, then re-ordered oldest→newest to match the
+      // natural read order a consolidation pass expects.
+      const { messages } = getMessagesPaginated(
+        conversationId,
+        Math.max(0, n),
+        undefined,
+        isVisibleHistoryMessage,
+      );
+      return messages.map(toHistoryMessage);
+    },
+    getMessages: async (conversationId, options): Promise<HistoryPage> => {
+      const { messages, hasMore, nextCursor } = getMessagesPaginated(
+        conversationId,
+        options?.limit,
+        options?.beforeTimestamp,
+        isVisibleHistoryMessage,
+      );
+      // The next (older) page anchors on this page's oldest visible row; the
+      // store-supplied `nextCursor` only fires on a scan-cap-truncated empty
+      // page, so fall back to it when there is no oldest row to anchor on.
+      const oldest = messages[0];
+      const resumeCursor = hasMore
+        ? (oldest?.createdAt ?? nextCursor?.createdAt)
+        : undefined;
+      return {
+        messages: messages.map(toHistoryMessage),
+        hasMore,
+        ...(resumeCursor !== undefined ? { nextCursor: resumeCursor } : {}),
+      };
     },
   };
 }

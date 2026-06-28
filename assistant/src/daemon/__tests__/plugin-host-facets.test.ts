@@ -160,6 +160,7 @@ import {
   buildConfigFacet,
   buildEmbeddingsFacet,
   buildEventsFacet,
+  buildHistoryFacet,
   buildIdentityFacet,
   buildLoggerFacet,
   buildMemoryFacet,
@@ -178,6 +179,7 @@ function buildPluginHost(pluginName: string): PluginHost {
   return {
     providers: buildProvidersFacet(),
     memory: buildMemoryFacet(),
+    history: buildHistoryFacet(),
     events: buildEventsFacet(),
     config: buildConfigFacet(),
     identity: buildIdentityFacet(),
@@ -240,6 +242,7 @@ describe("external-plugin host bundle", () => {
     for (const key of [
       "providers",
       "memory",
+      "history",
       "events",
       "config",
       "identity",
@@ -263,6 +266,7 @@ describe("external-plugin host bundle", () => {
     const facets = [
       "providers",
       "memory",
+      "history",
       "events",
       "config",
       "identity",
