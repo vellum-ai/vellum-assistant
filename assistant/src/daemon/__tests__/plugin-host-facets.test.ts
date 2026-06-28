@@ -162,6 +162,7 @@ import {
   buildEventsFacet,
   buildHistoryFacet,
   buildIdentityFacet,
+  buildJobsFacet,
   buildLoggerFacet,
   buildMemoryFacet,
   buildPlatformFacet,
@@ -190,6 +191,7 @@ function buildPluginHost(pluginName: string): PluginHost {
     embeddings: buildEmbeddingsFacet(),
     vectorStore: buildVectorStoreFacet(pluginName),
     store: buildStoreFacet(pluginName),
+    jobs: buildJobsFacet(pluginName),
   };
 }
 

@@ -10,6 +10,7 @@ import type {
   EventsFacet,
   HistoryFacet,
   IdentityFacet,
+  JobsFacet,
   LoggerFacet,
   MemoryFacet,
   PlatformFacet,
@@ -45,9 +46,7 @@ export { RiskLevel } from "../tools/types.js";
  * {@link InitContext.host}.
  *
  * Direct `assistant/` source imports remain forbidden for external plugins:
- * this bundle is the only supported path to those subsystems. History, store,
- * and jobs facets are added by later PRs; this surface exposes the facets that
- * exist today.
+ * this bundle is the only supported path to those subsystems.
  */
 export interface PluginHost {
   /** Resolve LLM/STT/TTS providers and secure keys for the workspace. */
@@ -82,20 +81,30 @@ export interface PluginHost {
    * confined to the plugin's own tables.
    */
   store: StoreFacet;
+  /**
+   * Enqueue and handle the plugin's own background jobs on the assistant's
+   * durable worker queue. Job types are `plugin:<id>:`-namespaced, so a plugin
+   * can neither dispatch nor claim a core or another plugin's job. Jobs run on
+   * the worker loop / on demand, never synchronously or at boot.
+   */
+  jobs: JobsFacet;
 }
 
 export type {
   ConfigFacet,
   EmbeddingsFacet,
+  EnqueueJobOptions,
   EventsFacet,
   HistoryConversation,
   HistoryFacet,
   HistoryMessage,
   HistoryPage,
   IdentityFacet,
+  JobsFacet,
   LoggerFacet,
   MemoryFacet,
   PlatformFacet,
+  PluginJob,
   ProvidersFacet,
   RegistriesFacet,
   StoreExec,

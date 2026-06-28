@@ -2,6 +2,9 @@ import { and, asc, eq, inArray, lte, notInArray, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../config/loader.js";
+import { getLogger } from "../util/logger.js";
+import { truncate } from "../util/truncate.js";
+import { type DrizzleDb, getMemoryDb } from "./db-connection.js";
 import {
   isEmbeddingBillingBreakerOpen,
   shouldAllowBillingProbe,
@@ -12,9 +15,6 @@ import {
 } from "./embeddings/qdrant-circuit-breaker.js";
 import { rawMemoryAll, rawMemoryChanges } from "./raw-query.js";
 import { memoryJobs } from "./schema/index.js";
-import { getLogger } from "../util/logger.js";
-import { truncate } from "../util/truncate.js";
-import { type DrizzleDb, getMemoryDb } from "./db-connection.js";
 
 const log = getLogger("memory-jobs-store");
 
@@ -151,6 +151,23 @@ export function enqueueMemoryJob(
     })
     .run();
   return id;
+}
+
+/**
+ * Enqueue a background job under an arbitrary string `type` outside the
+ * built-in {@link MemoryJobType} union — the path plugin jobs take. Plugin
+ * job types are `plugin:<id>:<name>`-namespaced strings the host assigns; they
+ * are not part of the core union and never collide with it. The row is
+ * otherwise identical to {@link enqueueMemoryJob}, so the same worker claim/
+ * dispatch path picks it up (the type lands in the fast lane since it is in
+ * neither the slow nor embed set). Returns the enqueued job's id.
+ */
+export function enqueuePluginJob(
+  type: string,
+  payload: Record<string, unknown>,
+  runAfter = Date.now(),
+): string {
+  return enqueueMemoryJob(type as MemoryJobType, payload, runAfter);
 }
 
 /**
