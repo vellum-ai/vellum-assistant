@@ -50,6 +50,7 @@ interface TestInstallMeta {
   version?: string;
   installedAt?: string;
   installedBy?: string;
+  author?: string;
 }
 
 function readInstallMetaFile(skillId: string): TestInstallMeta {
@@ -587,6 +588,29 @@ describe("version metadata", () => {
     const meta = readInstallMetaFile("with-contact");
     expect(meta.origin).toBe("custom");
     expect(meta.installedBy).toBe("contact-uuid-456");
+  });
+
+  test("install-meta.json forwards author when provided", () => {
+    createManagedSkill({
+      id: "with-author",
+      name: "With Author",
+      description: "Has author",
+      bodyMarkdown: "Body.",
+      author: "user",
+    });
+
+    expect(readInstallMetaFile("with-author").author).toBe("user");
+  });
+
+  test("install-meta.json omits author when not provided", () => {
+    createManagedSkill({
+      id: "no-author",
+      name: "No Author",
+      description: "No author",
+      bodyMarkdown: "Body.",
+    });
+
+    expect(readInstallMetaFile("no-author").author).toBeUndefined();
   });
 
   test("overwrite updates install-meta.json", () => {

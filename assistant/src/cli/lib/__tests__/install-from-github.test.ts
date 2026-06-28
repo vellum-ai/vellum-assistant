@@ -321,6 +321,7 @@ describe("installPlugin — install lifecycle", () => {
     expect(meta?.source.ref).toBe(OLD_SHA);
     expect(meta?.source.repo).toBe("caveman");
     expect(meta?.source.owner).toBe("JuliusBrussee");
+    expect(meta?.author).toBe("user");
   });
 
   test("--force preserves the existing install when the clone fails", async () => {

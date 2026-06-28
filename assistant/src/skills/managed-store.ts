@@ -119,6 +119,7 @@ interface CreateManagedSkillParams {
   includes?: string[];
   version?: string;
   contactId?: string;
+  author?: "assistant" | "user";
 }
 
 interface CreateManagedSkillResult {
@@ -182,6 +183,7 @@ export function createManagedSkill(
     installedAt: new Date().toISOString(),
     ...(params.version ? { version: params.version } : {}),
     ...(params.contactId ? { installedBy: params.contactId } : {}),
+    ...(params.author ? { author: params.author } : {}),
   });
 
   // Clean up legacy version.json if present (superseded by install-meta.json)
