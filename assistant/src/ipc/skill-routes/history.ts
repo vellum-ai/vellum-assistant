@@ -25,9 +25,17 @@ const HistoryGetRecentMessagesParams = z.object({
   n: z.number().int(),
 });
 
+const HistoryCursorSchema = z.object({
+  beforeTimestamp: z.number(),
+  beforeId: z.string().min(1),
+});
+
 const HistoryGetMessagesParams = z.object({
   conversationId: z.string().min(1),
   limit: z.number().int().optional(),
+  // Composite cursor (preferred) plus the legacy timestamp-only param; the
+  // facet resolves `before` ahead of `beforeTimestamp`.
+  before: HistoryCursorSchema.optional(),
   beforeTimestamp: z.number().optional(),
 });
 
@@ -44,10 +52,11 @@ async function handleGetRecentMessages(params?: Record<string, unknown>) {
 }
 
 async function handleGetMessages(params?: Record<string, unknown>) {
-  const { conversationId, limit, beforeTimestamp } =
+  const { conversationId, limit, before, beforeTimestamp } =
     HistoryGetMessagesParams.parse(params);
   return buildHistoryFacet().getMessages(conversationId, {
     limit,
+    before,
     beforeTimestamp,
   });
 }

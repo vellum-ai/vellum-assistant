@@ -203,16 +203,57 @@ describe("single-active-memory-plugin rule", () => {
     expect(() => assertSingleMemoryPlugin()).toThrow(/memory-b/);
   });
 
-  test("two active memory plugins fail safe: the built-in stays active", async () => {
+  test("two active memory plugins fail safe: the built-in stays active and BOTH conflicting externals are suppressed", async () => {
     enableMemoryPluginProviderFlag();
     registerBuiltinMemoryHooks();
     await createExternalPlugin("memory-a", { provides: "memory" });
     await createExternalPlugin("memory-b", { provides: "memory" });
 
-    // With two external memory plugins, the built-in does NOT yield (fail safe).
-    // Hooks: 2 built-in memory + 2 external plugin hooks.
+    // With two external memory plugins the built-in does NOT yield (fail safe);
+    // the conflicting externals' hooks are also suppressed so only the built-in
+    // memory runs. Hooks: 2 built-in memory + 0 external = 2.
     const hooks = await getHooksFor("user-prompt-submit");
-    expect(hooks).toHaveLength(4);
+    expect(hooks).toHaveLength(2);
+    // Specifically, BOTH built-ins fire and NEITHER external memory hook does.
+    expect(await firedBuiltinMemoryHooks()).toEqual([
+      "memory-retrieval",
+      "memory-v3-shadow",
+    ]);
+  });
+
+  test("a non-memory plugin is unaffected by a memory-plugin conflict", async () => {
+    enableMemoryPluginProviderFlag();
+    registerBuiltinMemoryHooks();
+    await createExternalPlugin("memory-a", { provides: "memory" });
+    await createExternalPlugin("memory-b", { provides: "memory" });
+    // A regular (non-memory) plugin contributes its own hook.
+    await createExternalPlugin("regular-plugin");
+
+    // Conflict suppresses the two memory externals but leaves the non-memory
+    // plugin's hook in place: 2 built-in memory + 1 non-memory = 3.
+    const hooks = await getHooksFor("user-prompt-submit");
+    expect(hooks).toHaveLength(3);
+  });
+
+  test("dropping back to a single external memory plugin: that plugin's hooks run and the built-in yields", async () => {
+    enableMemoryPluginProviderFlag();
+    registerBuiltinMemoryHooks();
+    await createExternalPlugin("memory-a", { provides: "memory" });
+    await createExternalPlugin("memory-b", { provides: "memory" });
+
+    // Conflict: only the 2 built-ins run.
+    expect(await getHooksFor("user-prompt-submit")).toHaveLength(2);
+
+    // Remove one external — exactly one remains, so it OWNS memory: its hook
+    // runs and the pure-memory built-in yields. Hooks: `memory-retrieval`
+    // (survives, drives non-memory assembly) + the surviving external = 2.
+    await rm(join(TEST_WORKSPACE_DIR, "plugins", "memory-b"), {
+      recursive: true,
+      force: true,
+    });
+    const hooks = await getHooksFor("user-prompt-submit");
+    expect(hooks).toHaveLength(2);
+    expect(await firedBuiltinMemoryHooks()).toEqual(["memory-retrieval"]);
   });
 
   test("no external memory plugin: assertSingleMemoryPlugin does not throw", async () => {

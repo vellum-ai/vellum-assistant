@@ -22,6 +22,13 @@
  * The hook is observational and fire-and-forget — the turn is already
  * committed, so mutating the context has no effect and a throw is contained by
  * the loop.
+ *
+ * When the built-in memory injection is suppressed
+ * ({@link isBuiltinMemoryInjectionSuppressed}: an external `provides: "memory"`
+ * plugin owns memory, or the resolved provider is `"none"`), the built-in's
+ * post-turn write is skipped too — the external plugin's own `turn-commit` hook
+ * owns consolidation, so enqueuing here as well would double-write. This is the
+ * write-side counterpart of the read-side injection yield.
  */
 
 import type { HookFunction, TurnCommitContext } from "@vellumai/plugin-api";
@@ -32,6 +39,7 @@ import { FALLBACK_TURN_TRUST } from "../../../../daemon/trust-context.js";
 import { isAutoAnalysisConversation } from "../../../../memory/auto-analysis-guard.js";
 import { resolveMemoryProvider } from "../../../../memory/provider/resolve.js";
 import type { MemoryProviderContext } from "../../../../memory/provider/types.js";
+import { isBuiltinMemoryInjectionSuppressed } from "../../../../plugins/memory-capability.js";
 import { resolveCapabilities } from "../../../../runtime/capabilities.js";
 
 const turnCommitMemoryConsolidation: HookFunction<TurnCommitContext> = async (
@@ -39,6 +47,15 @@ const turnCommitMemoryConsolidation: HookFunction<TurnCommitContext> = async (
 ) => {
   const { conversationId } = ctx;
   const config = getConfig();
+
+  // Write-side yield: when an external memory plugin owns memory (or the
+  // provider is "none"), it owns post-turn consolidation. Skip the built-in
+  // enqueue so the two don't double-write — the same predicate the read-side
+  // `<memory>` injection yield consults.
+  if (isBuiltinMemoryInjectionSuppressed(config)) {
+    return;
+  }
+
   const conversation = findConversationOrSubagent(conversationId);
 
   // Trust gate: only conversations whose actor can access memory drive

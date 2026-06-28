@@ -1027,6 +1027,9 @@ export class SkillHostClient implements SkillHost {
         this.call<HistoryPage>("host.history.getMessages", {
           conversationId,
           limit: options?.limit,
+          // Composite cursor (preferred) plus the legacy timestamp-only param;
+          // the daemon facet resolves `before` ahead of `beforeTimestamp`.
+          before: options?.before,
           beforeTimestamp: options?.beforeTimestamp,
         }),
     };

@@ -19,6 +19,7 @@
 
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import {
+  getSuppressedConflictingMemoryPlugins,
   isFullyYieldableBuiltinMemoryPlugin,
   shouldBuiltinMemoryYield,
 } from "../plugins/memory-capability.js";
@@ -101,7 +102,17 @@ export async function getHooksFor<TCtx = unknown>(
   // because the same call refreshes plugin discovery — including the
   // memory-capability set the built-in-yield check below reads — so an external
   // memory plugin installed/removed this turn is reflected immediately.
-  const userHooks = await getUserHooksFor<TCtx>(name);
+  //
+  // In the conflict state (≥2 active external memory plugins) the built-in
+  // cannot yield to either, so it stays active — and the conflicting externals'
+  // hooks are suppressed here so they don't mutate prompts / enqueue work
+  // alongside it. The exclusion set is a thunk so it's read AFTER the discovery
+  // scan `getUserHooksFor` runs. Single-external takeover suppresses nothing —
+  // that plugin owns memory and its hooks must run.
+  const userHooks = await getUserHooksFor<TCtx>(
+    name,
+    getSuppressedConflictingMemoryPlugins,
+  );
 
   // When an external `provides: "memory"` plugin is active, the built-in memory
   // system yields. The drop here is MEMORY-SPECIFIC: only PURE-memory plugins

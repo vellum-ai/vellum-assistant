@@ -31,7 +31,11 @@
  * built-in cannot yield to both. {@link assertSingleMemoryPlugin} throws a clear
  * error so bootstrap can surface it loudly; the read-time guards fail safe by
  * leaving the built-in active rather than silently routing to an arbitrary
- * external plugin.
+ * external plugin. In that conflict state the conflicting externals' own hooks
+ * are also suppressed ({@link getSuppressedConflictingMemoryPlugins}, consumed
+ * by `getHooksFor`) so only the built-in memory runs until exactly one external
+ * plugin remains — otherwise both conflicting plugins would still mutate
+ * prompts and enqueue consolidation alongside the active built-in.
  */
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
@@ -107,6 +111,27 @@ export function getActiveExternalMemoryPlugins(): string[] {
  */
 export function shouldBuiltinMemoryYield(): boolean {
   return getActiveExternalMemoryPlugins().length === 1;
+}
+
+/**
+ * External memory-capability plugins whose own hooks must be suppressed this
+ * read. Non-empty only in the CONFLICT state (≥2 active external memory
+ * plugins): there, the built-in cannot yield to either, so it stays active
+ * ({@link shouldBuiltinMemoryYield} is false) — but the conflicting externals'
+ * `user-prompt-submit` / `turn-commit` / `post-compact` hooks would otherwise
+ * still run, mutating prompts and enqueuing consolidation alongside the active
+ * built-in. Suppressing them keeps the fail-safe clean: only the built-in
+ * memory runs until exactly one external plugin remains.
+ *
+ * Empty in the single-external (takeover) state — that plugin OWNS memory, so
+ * its hooks must run; the built-in yields its injection instead. Empty too when
+ * the rollout flag is off or nothing is installed. Non-memory user plugins are
+ * never included (the set is scoped to `provides: "memory"` plugins), so only
+ * memory hooks are affected.
+ */
+export function getSuppressedConflictingMemoryPlugins(): ReadonlySet<string> {
+  const active = getActiveExternalMemoryPlugins();
+  return active.length > 1 ? new Set(active) : new Set();
 }
 
 /**

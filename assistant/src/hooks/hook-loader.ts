@@ -145,14 +145,22 @@ async function resolveCachedHook<TCtx>(
  * Added and removed hook files are picked up live (discovery is by directory
  * listing). A content edit to an existing file is only reflected after a
  * process restart, since Bun caches dynamic imports by resolved path.
+ *
+ * `excludePlugins` drops hooks contributed by the named plugins. The
+ * memory-capability arbiter passes the conflicting external memory plugins here
+ * so that, in the ≥2-active fail-safe state, neither conflicting plugin's hooks
+ * run alongside the still-active built-in. The standalone workspace hook is
+ * never excluded — it has no plugin name.
  */
 export async function collectUserHooks<TCtx = unknown>(
   hookName: string,
   pluginDirs: Iterable<readonly [string, string]>,
+  excludePlugins: ReadonlySet<string> = new Set(),
 ): Promise<HookFunction<TCtx>[]> {
   const out: HookFunction<TCtx>[] = [];
 
   for (const [pluginDir, pluginName] of pluginDirs) {
+    if (excludePlugins.has(pluginName)) continue;
     const hookFile = listSurfaceDir(join(pluginDir, "hooks")).find(
       (f) => f.name === hookName,
     );

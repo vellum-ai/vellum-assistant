@@ -267,16 +267,45 @@ export interface HistoryConversation {
   archivedAt: number | null;
 }
 
+/**
+ * Composite pagination cursor: a `(createdAt, id)` pair. The `id` tie-breaker
+ * makes the cursor stable across a page boundary that splits messages sharing
+ * the same `createdAt` millisecond (imported / forked / same-ms rows) — a
+ * timestamp-only cursor would skip the older same-ms rows. Pass the previous
+ * page's {@link HistoryPage.nextCursor} back as {@link HistoryFacet}
+ * `getMessages` `before`.
+ */
+export interface HistoryCursor {
+  /** Resume strictly before this `createdAt` (with the `id` tie-breaker). */
+  beforeTimestamp: number;
+  /** Resume strictly before this message `id` among same-`createdAt` rows. */
+  beforeId: string;
+}
+
 /** Result of a paginated history read, oldest→newest within the page. */
 export interface HistoryPage {
   messages: HistoryMessage[];
   /** True when older messages exist before `messages[0]`. */
   hasMore: boolean;
   /**
-   * Cursor for the next (older) page: pass as `beforeTimestamp` to
-   * {@link HistoryFacet.getMessages}. `undefined` when there is nothing older.
+   * Cursor for the next (older) page: pass back as {@link HistoryFacet}
+   * `getMessages` `before`. `undefined` when there is nothing older.
    */
-  nextCursor?: number;
+  nextCursor?: HistoryCursor;
+}
+
+/**
+ * Options for {@link HistoryFacet.getMessages}. `before` is the composite
+ * cursor — pass the previous page's {@link HistoryPage.nextCursor}. The legacy
+ * `beforeTimestamp` (timestamp-only) is still accepted for simple callers;
+ * when both are given `before` wins. With neither, the newest `limit` messages
+ * are returned.
+ */
+export interface HistoryGetMessagesOptions {
+  limit?: number;
+  before?: HistoryCursor;
+  /** @deprecated Pass {@link HistoryGetMessagesOptions.before} instead. */
+  beforeTimestamp?: number;
 }
 
 /**
@@ -298,13 +327,13 @@ export interface HistoryFacet {
     n: number
   ): Promise<HistoryMessage[]>;
   /**
-   * A page of visible messages, oldest→newest. With no `beforeTimestamp` the
-   * newest `limit` messages are returned; pass {@link HistoryPage.nextCursor}
-   * to walk older pages.
+   * A page of visible messages, oldest→newest. With no cursor the newest
+   * `limit` messages are returned; pass {@link HistoryPage.nextCursor} as
+   * `before` to walk older pages.
    */
   getMessages(
     conversationId: string,
-    options?: { limit?: number; beforeTimestamp?: number }
+    options?: HistoryGetMessagesOptions
   ): Promise<HistoryPage>;
 }
 

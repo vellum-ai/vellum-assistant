@@ -29,6 +29,7 @@ import type {
   EventsFacet,
   Filter,
   HistoryConversation,
+  HistoryCursor,
   HistoryFacet,
   HistoryMessage,
   HistoryPage,
@@ -292,19 +293,32 @@ export function buildHistoryFacet(): HistoryFacet {
       return messages.map(toHistoryMessage);
     },
     getMessages: async (conversationId, options): Promise<HistoryPage> => {
+      // Composite cursor: `before` (the previous page's `nextCursor`) wins over
+      // the legacy timestamp-only `beforeTimestamp`. Both seed the
+      // `(createdAt, id)` predicate so same-millisecond rows split across a page
+      // boundary are never skipped.
+      const cursorTimestamp =
+        options?.before?.beforeTimestamp ?? options?.beforeTimestamp;
+      const cursorId = options?.before?.beforeId;
       const { messages, hasMore, nextCursor } = getMessagesPaginated(
         conversationId,
         options?.limit,
-        options?.beforeTimestamp,
+        cursorTimestamp,
         isVisibleHistoryMessage,
+        cursorId,
       );
-      // The next (older) page anchors on this page's oldest visible row; the
-      // store-supplied `nextCursor` only fires on a scan-cap-truncated empty
-      // page, so fall back to it when there is no oldest row to anchor on.
+      // The next (older) page anchors on this page's oldest visible row,
+      // carrying its `id` as the tie-breaker; the store-supplied `nextCursor`
+      // only fires on a scan-cap-truncated empty page, so fall back to it when
+      // there is no oldest row to anchor on.
       const oldest = messages[0];
-      const resumeCursor = hasMore
-        ? (oldest?.createdAt ?? nextCursor?.createdAt)
-        : undefined;
+      const resumeCursor: HistoryCursor | undefined = !hasMore
+        ? undefined
+        : oldest
+          ? { beforeTimestamp: oldest.createdAt, beforeId: oldest.id }
+          : nextCursor
+            ? { beforeTimestamp: nextCursor.createdAt, beforeId: nextCursor.id }
+            : undefined;
       return {
         messages: messages.map(toHistoryMessage),
         hasMore,

@@ -101,23 +101,35 @@ const getConversationSpy = mock((id: string) =>
 
 // Faithful-enough stand-in for `getMessagesPaginated`: applies the caller's
 // `filter` callback (the facet's visibility predicate) and returns the newest
-// `limit` matches oldest→newest, mirroring the real ordering contract.
+// `limit` matches oldest→newest, mirroring the real ordering contract. Honors
+// the composite `(beforeTimestamp, beforeId)` cursor the same way the real
+// query does — `created_at < ts OR (created_at = ts AND id < beforeId)` — so
+// same-millisecond rows split across a page boundary are not skipped.
 const getMessagesPaginatedSpy = mock(
   (
     conversationId: string,
     limit: number | undefined,
     beforeTimestamp: number | undefined,
     filter?: (row: SeedRow) => boolean,
+    beforeId?: string,
   ) => {
     let rows = SEED_ROWS.filter((r) => r.conversationId === conversationId);
     if (beforeTimestamp !== undefined) {
-      rows = rows.filter((r) => r.createdAt < beforeTimestamp);
+      rows = rows.filter((r) =>
+        beforeId === undefined
+          ? r.createdAt < beforeTimestamp
+          : r.createdAt < beforeTimestamp ||
+            (r.createdAt === beforeTimestamp && r.id < beforeId),
+      );
     }
+    // Newest→oldest by `(createdAt, id)`, the order the real query scans in.
+    rows.sort((a, b) => b.createdAt - a.createdAt || b.id.localeCompare(a.id));
     const visible = filter ? rows.filter(filter) : rows;
     if (limit === undefined) {
+      visible.reverse();
       return { messages: visible, hasMore: false };
     }
-    const page = visible.slice(Math.max(0, visible.length - limit));
+    const page = visible.slice(0, limit).reverse();
     const hasMore = visible.length > limit;
     return { messages: page, hasMore };
   },
@@ -212,15 +224,131 @@ describe("history facet", () => {
     const page = await history.getMessages("conv-1", { limit: 2 });
     expect(page.messages.map((m) => m.id)).toEqual(["m2", "m5"]);
     expect(page.hasMore).toBe(true);
-    // Cursor anchors on the page's oldest visible row.
-    expect(page.nextCursor).toBe(2000);
+    // Composite cursor anchors on the page's oldest visible row — timestamp
+    // plus the `id` tie-breaker.
+    expect(page.nextCursor).toEqual({ beforeTimestamp: 2000, beforeId: "m2" });
 
     const older = await history.getMessages("conv-1", {
       limit: 2,
-      beforeTimestamp: page.nextCursor,
+      before: page.nextCursor,
     });
     expect(older.messages.map((m) => m.id)).toEqual(["m1"]);
     expect(older.hasMore).toBe(false);
     expect(older.nextCursor).toBeUndefined();
+  });
+
+  test("legacy beforeTimestamp-only cursor still walks older pages", async () => {
+    const history = buildHistoryFacet();
+    // A simple caller that passes only the timestamp (no id) keeps working.
+    const older = await history.getMessages("conv-1", {
+      limit: 2,
+      beforeTimestamp: 2000,
+    });
+    expect(older.messages.map((m) => m.id)).toEqual(["m1"]);
+    expect(older.hasMore).toBe(false);
+  });
+});
+
+/**
+ * Regression: a page boundary that splits messages sharing the same
+ * `createdAt` millisecond (imported / forked / rapid same-ms rows) must return
+ * ALL rows across the boundary — none skipped, none duplicated. A
+ * timestamp-only cursor resumed at `created_at < ts` would drop the older
+ * same-ms rows; the composite `(createdAt, id)` cursor fixes this.
+ */
+describe("history facet — same-millisecond pagination boundary", () => {
+  // Three visible rows all at createdAt=7000 plus one older row, so a limit-2
+  // page necessarily splits the 7000-ms cluster.
+  const SAME_MS_ROWS: SeedRow[] = [
+    {
+      id: "a-older",
+      conversationId: "conv-ms",
+      role: "user",
+      content: "older",
+      createdAt: 6000,
+      metadata: null,
+      clientMessageId: null,
+    },
+    {
+      id: "b",
+      conversationId: "conv-ms",
+      role: "user",
+      content: "same-ms b",
+      createdAt: 7000,
+      metadata: null,
+      clientMessageId: null,
+    },
+    {
+      id: "c",
+      conversationId: "conv-ms",
+      role: "assistant",
+      content: "same-ms c",
+      createdAt: 7000,
+      metadata: null,
+      clientMessageId: null,
+    },
+    {
+      id: "d",
+      conversationId: "conv-ms",
+      role: "user",
+      content: "same-ms d",
+      createdAt: 7000,
+      metadata: null,
+      clientMessageId: null,
+    },
+  ];
+
+  test("paginating across a same-ms boundary returns every row exactly once", async () => {
+    // Faithful composite-cursor stub scoped to the same-ms fixture.
+    getMessagesPaginatedSpy.mockImplementation(
+      (
+        _conversationId: string,
+        limit: number | undefined,
+        beforeTimestamp: number | undefined,
+        filter?: (row: SeedRow) => boolean,
+        beforeId?: string,
+      ) => {
+        let rows = SAME_MS_ROWS.slice();
+        if (beforeTimestamp !== undefined) {
+          rows = rows.filter((r) =>
+            beforeId === undefined
+              ? r.createdAt < beforeTimestamp
+              : r.createdAt < beforeTimestamp ||
+                (r.createdAt === beforeTimestamp && r.id < beforeId),
+          );
+        }
+        rows.sort(
+          (a, b) => b.createdAt - a.createdAt || b.id.localeCompare(a.id),
+        );
+        const visible = filter ? rows.filter(filter) : rows;
+        if (limit === undefined) {
+          visible.reverse();
+          return { messages: visible, hasMore: false };
+        }
+        const page = visible.slice(0, limit).reverse();
+        return { messages: page, hasMore: visible.length > limit };
+      },
+    );
+
+    const history = buildHistoryFacet();
+    const seen: string[] = [];
+    let cursor = undefined as
+      | { beforeTimestamp: number; beforeId: string }
+      | undefined;
+    // Drain the whole conversation two rows at a time.
+    for (let i = 0; i < 10; i++) {
+      const page = await history.getMessages("conv-ms", {
+        limit: 2,
+        before: cursor,
+      });
+      for (const m of page.messages) seen.push(m.id);
+      if (!page.hasMore || !page.nextCursor) break;
+      cursor = page.nextCursor;
+    }
+
+    // All four rows returned exactly once (no same-ms row skipped or
+    // duplicated), in oldest→newest order.
+    expect(seen.sort()).toEqual(["a-older", "b", "c", "d"]);
+    expect(new Set(seen).size).toBe(seen.length);
   });
 });

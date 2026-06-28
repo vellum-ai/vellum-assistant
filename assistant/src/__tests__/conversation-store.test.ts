@@ -21,6 +21,7 @@ import {
   deleteLastExchange,
   getConversation,
   getMessages,
+  getMessagesPaginated,
 } from "../persistence/conversation-crud.js";
 import { isLastUserMessageToolResult } from "../persistence/conversation-queries.js";
 import { getDb } from "../persistence/db-connection.js";
@@ -625,5 +626,101 @@ describe("attachment reuse across conversation lifecycles", () => {
     const second = uploadAttachment("photo.png", "image/png", "DEDUPCROSS");
 
     expect(second.id).not.toBe(first.id);
+  });
+});
+
+describe("getMessagesPaginated composite cursor", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run(`DELETE FROM messages`);
+    db.run(`DELETE FROM conversations`);
+  });
+
+  /**
+   * Seed rows where several share one `createdAt` millisecond, so a page
+   * boundary necessarily splits the same-ms cluster. `addMessage` can't be
+   * used — its `monotonicNow()` guarantees strictly increasing timestamps —
+   * so the rows are inserted directly with identical `created_at`.
+   */
+  function seedSameMsRows(conversationId: string): void {
+    const db = getDb();
+    const older = 6000;
+    const sameMs = 7000;
+    const rows: Array<[string, string, number]> = [
+      ["a-older", "older", older],
+      ["b", "same-ms b", sameMs],
+      ["c", "same-ms c", sameMs],
+      ["d", "same-ms d", sameMs],
+    ];
+    for (const [id, content, createdAt] of rows) {
+      db.run(
+        `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('${id}', '${conversationId}', 'user', '${content}', ${createdAt})`,
+      );
+    }
+  }
+
+  test("draining a same-ms boundary returns every row exactly once", () => {
+    const conv = createConversation("same-ms");
+    seedSameMsRows(conv.id);
+
+    const seen: string[] = [];
+    let cursorTs: number | undefined;
+    let cursorId: string | undefined;
+    // Two rows per page forces a split inside the 7000-ms cluster.
+    for (let i = 0; i < 10; i++) {
+      const page = getMessagesPaginated(
+        conv.id,
+        2,
+        cursorTs,
+        undefined,
+        cursorId,
+      );
+      for (const m of page.messages) seen.push(m.id);
+      if (!page.hasMore) break;
+      // Resume from the page's oldest row, carrying its id as the tie-breaker.
+      const oldest = page.messages[0];
+      if (!oldest) break;
+      cursorTs = oldest.createdAt;
+      cursorId = oldest.id;
+    }
+
+    // All four rows, none skipped (the timestamp-only-cursor bug dropped the
+    // older same-ms rows) and none duplicated.
+    expect(seen.sort()).toEqual(["a-older", "b", "c", "d"]);
+    expect(new Set(seen).size).toBe(seen.length);
+  });
+
+  test("a timestamp-only resume at the same-ms boundary still skips same-ms rows (documents the gap the id tie-breaker closes)", () => {
+    const conv = createConversation("same-ms-legacy");
+    seedSameMsRows(conv.id);
+
+    // First page (newest 2): the 7000-ms cluster's last two by (createdAt, id).
+    const first = getMessagesPaginated(conv.id, 2, undefined, undefined);
+    const firstOldest = first.messages[0]!;
+    expect(firstOldest.createdAt).toBe(7000);
+
+    // Resume with ONLY the timestamp (no id): `created_at < 7000` skips the
+    // remaining 7000-ms sibling entirely — the bug the composite cursor fixes.
+    const legacy = getMessagesPaginated(
+      conv.id,
+      2,
+      firstOldest.createdAt,
+      undefined,
+    );
+    expect(legacy.messages.every((m) => m.createdAt < 7000)).toBe(true);
+
+    // The composite cursor (timestamp + id) recovers that skipped sibling.
+    const composite = getMessagesPaginated(
+      conv.id,
+      2,
+      firstOldest.createdAt,
+      undefined,
+      firstOldest.id,
+    );
+    expect(
+      composite.messages.some(
+        (m) => m.createdAt === 7000 && m.id < firstOldest.id,
+      ),
+    ).toBe(true);
   });
 });

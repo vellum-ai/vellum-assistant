@@ -48,12 +48,20 @@ async function loadHookWithMocks(opts: {
   trustClass?: string;
   canAccessMemory?: boolean;
   isAutoAnalysis?: boolean;
+  /**
+   * Whether the built-in memory injection (and now its write side) is
+   * suppressed because an external memory plugin owns memory or the provider is
+   * `"none"`. Mocked at the `memory-capability` boundary so the hook test does
+   * not need a live plugin discovery scan.
+   */
+  builtinMemorySuppressed?: boolean;
   resolvedOnTurnCommit?: (ctx: MemoryProviderContext) => Promise<void>;
 }) {
   const {
     trustClass = "guardian",
     canAccessMemory = true,
     isAutoAnalysis = false,
+    builtinMemorySuppressed = false,
     resolvedOnTurnCommit,
   } = opts;
 
@@ -61,6 +69,9 @@ async function loadHookWithMocks(opts: {
   mock.module("../../../../../config/loader.js", () => ({
     ...loaderActual,
     getConfig: () => ({ memory: { providerSlice: true } }) as never,
+  }));
+  mock.module("../../../../../plugins/memory-capability.js", () => ({
+    isBuiltinMemoryInjectionSuppressed: () => builtinMemorySuppressed,
   }));
   mock.module("../../../../../daemon/conversation-registry.js", () => ({
     findConversationOrSubagent: () => ({
@@ -122,6 +133,28 @@ describe("memory-retrieval turn-commit hook", () => {
     await hook(turnCommitCtx());
 
     expect(onTurnCommit).not.toHaveBeenCalled();
+  });
+
+  test("skips the built-in onTurnCommit when memory injection is suppressed (external memory plugin / provider none owns post-turn writes)", async () => {
+    const { hook, onTurnCommit } = await loadHookWithMocks({
+      builtinMemorySuppressed: true,
+    });
+
+    await hook(turnCommitCtx());
+
+    // The external memory plugin's own turn-commit hook owns consolidation, so
+    // the built-in must not also enqueue — that would double-write.
+    expect(onTurnCommit).not.toHaveBeenCalled();
+  });
+
+  test("still delegates when memory injection is NOT suppressed (no external memory plugin active)", async () => {
+    const { hook, onTurnCommit } = await loadHookWithMocks({
+      builtinMemorySuppressed: false,
+    });
+
+    await hook(turnCommitCtx());
+
+    expect(onTurnCommit).toHaveBeenCalledTimes(1);
   });
 
   test("trigger parity: a committed turn enqueues a retrospective on the lifecycle trigger via the real graph provider", async () => {

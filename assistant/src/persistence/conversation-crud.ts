@@ -29,16 +29,7 @@ import { findConversation } from "../daemon/conversation-registry.js";
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
-import {
-  deleteOrphanAttachments,
-  linkAttachmentToMessage,
-} from "./attachments-store.js";
 import { AUTO_ANALYSIS_SOURCE } from "../memory/auto-analysis-constants.js";
-import {
-  appendCompactionEvent,
-  forkCompactionLedger,
-  getLatestCompactionEventAtOrBefore,
-} from "./compaction-ledger-store.js";
 import {
   projectAssistantMessage,
   seedForkedConversationAttention,
@@ -55,13 +46,6 @@ import { forkGraphMemoryState } from "../memory/graph/graph-memory-state-store.j
 import { indexMessageNow } from "../memory/indexer.js";
 import { MEMORY_RETROSPECTIVE_SOURCES } from "../memory/memory-retrospective-constants.js";
 import { forkRetrospectiveState } from "../memory/memory-retrospective-state.js";
-import {
-  rawExec,
-  rawGet,
-  rawLogsRun,
-  rawMemoryRun,
-  rawRun,
-} from "./raw-query.js";
 import { cancelPendingJobsForConversation } from "../memory/task-memory-cleanup.js";
 import {
   forkActivationState,
@@ -80,6 +64,15 @@ import { safeParseRecord } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
 import { getConversationsDir } from "../util/platform.js";
 import { createRowMapper } from "../util/row-mapper.js";
+import {
+  deleteOrphanAttachments,
+  linkAttachmentToMessage,
+} from "./attachments-store.js";
+import {
+  appendCompactionEvent,
+  forkCompactionLedger,
+  getLatestCompactionEventAtOrBefore,
+} from "./compaction-ledger-store.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import {
   type DrizzleDb,
@@ -91,6 +84,13 @@ import {
   copyForkMessagesViaSubprocess,
   type ForkIdPair,
 } from "./fork-message-copy.js";
+import {
+  rawExec,
+  rawGet,
+  rawLogsRun,
+  rawMemoryRun,
+  rawRun,
+} from "./raw-query.js";
 import {
   channelInboundEvents,
   conversations,
@@ -1935,19 +1935,37 @@ export function getMessagesPaginated(
   limit: number | undefined,
   beforeTimestamp?: number,
   filter?: (row: MessageRow) => boolean,
+  beforeId?: string,
 ): PaginatedMessagesResult {
   const db = getDb();
 
+  // Composite cursor predicate: rows strictly older than `(beforeTimestamp,
+  // beforeId)`. With only `beforeTimestamp` it degrades to `created_at < ts`
+  // (the simple legacy case); with both it adds the same-`createdAt` tie-break
+  // (`created_at = ts AND id < beforeId`) so a page boundary that splits rows
+  // sharing one millisecond never skips the older same-ms rows. Returns
+  // `undefined` when there is no cursor (newest page).
+  const cursorBefore = (
+    ts: number | undefined,
+    id: string | undefined,
+  ): ReturnType<typeof lt> | undefined => {
+    if (ts === undefined) return undefined;
+    if (id === undefined) return lt(messages.createdAt, ts);
+    return or(
+      lt(messages.createdAt, ts),
+      and(eq(messages.createdAt, ts), lt(messages.id, id)),
+    );
+  };
+
   if (limit === undefined) {
     const conditions = [eq(messages.conversationId, conversationId)];
-    if (beforeTimestamp !== undefined) {
-      conditions.push(lt(messages.createdAt, beforeTimestamp));
-    }
+    const cursor = cursorBefore(beforeTimestamp, beforeId);
+    if (cursor !== undefined) conditions.push(cursor);
     const rows = db
       .select()
       .from(messages)
       .where(and(...conditions))
-      .orderBy(asc(messages.createdAt))
+      .orderBy(asc(messages.createdAt), asc(messages.id))
       .all()
       .map(parseMessage);
     return {
@@ -1963,7 +1981,7 @@ export function getMessagesPaginated(
   // a fully-hidden page returns `{ messages: [], hasMore: true }` with no
   // cursor, which stalls the web client's older-page fetch.
   let cursorCreatedAt = beforeTimestamp;
-  let cursorMessageId: string | undefined;
+  let cursorMessageId: string | undefined = beforeId;
   const visible: MessageRow[] = [];
   const chunkSize = Math.max(limit + 1, PAGINATION_CHUNK_MIN);
   // Bound the work a single request can do when `filter` rejects nearly every
@@ -1983,18 +2001,7 @@ export function getMessagesPaginated(
       scanCapTruncated = true;
       break;
     }
-    const cursorPredicate =
-      cursorCreatedAt === undefined
-        ? undefined
-        : cursorMessageId === undefined
-          ? lt(messages.createdAt, cursorCreatedAt)
-          : or(
-              lt(messages.createdAt, cursorCreatedAt),
-              and(
-                eq(messages.createdAt, cursorCreatedAt),
-                lt(messages.id, cursorMessageId),
-              ),
-            );
+    const cursorPredicate = cursorBefore(cursorCreatedAt, cursorMessageId);
 
     const chunk = db
       .select()

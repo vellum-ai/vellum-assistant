@@ -214,12 +214,21 @@ export function getDiscoveredMemoryCapabilityPlugins(): string[] {
  * workspace hooks. Refreshes plugin discovery first, then delegates the actual
  * hook resolution to the hook loader. Plugin hooks run in install-date order,
  * the workspace hook runs last.
+ *
+ * `excludePlugins` drops hooks from the named plugins — used by the
+ * memory-capability arbiter to suppress conflicting external memory plugins'
+ * hooks in the ≥2-active fail-safe state. It may be a set, or a thunk resolved
+ * AFTER the discovery scan so the caller can read the just-refreshed
+ * memory-capability set (the exclusion is recomputed live each turn).
  */
 export async function getUserHooksFor<TCtx = unknown>(
   hookName: string,
+  excludePlugins: ReadonlySet<string> | (() => ReadonlySet<string>) = new Set(),
 ): Promise<HookFunction<TCtx>[]> {
   await scanPlugins();
-  return collectUserHooks<TCtx>(hookName, discoveredPluginDirs);
+  const exclude =
+    typeof excludePlugins === "function" ? excludePlugins() : excludePlugins;
+  return collectUserHooks<TCtx>(hookName, discoveredPluginDirs, exclude);
 }
 
 // ─── Tool cache ──────────────────────────────────────────────────────────────
