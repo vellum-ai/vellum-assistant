@@ -253,6 +253,7 @@ import { migrateCanonicalGuardianDeliveriesConversationIndex } from "./migration
 import { migrateAddProcessingStartedAt } from "./migrations/300-add-processing-started-at.js";
 import { createWatchdogEventsTable } from "./migrations/301-create-watchdog-events.js";
 import { createProcCandidatesTable } from "./migrations/302-create-proc-candidates.js";
+import { dropProcCandidatesTable } from "./migrations/303-drop-proc-candidates.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -571,5 +572,6 @@ export const migrationSteps: MigrationStep[] = [
     migrateCanonicalGuardianDeliveriesConversationIndex,
     migrateAddProcessingStartedAt,
     createWatchdogEventsTable,
-    createProcCandidatesTable
+    createProcCandidatesTable,
+    dropProcCandidatesTable
 ];

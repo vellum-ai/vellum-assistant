@@ -583,49 +583,6 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     );
   });
 
-  test("includes the proc-to-skills routing section and enqueues memory_proc_distill only when the flag is on AND v3 is live", async () => {
-    const PROC_MARKER = "## 11. Route procedures and procedural knowledge";
-
-    // Flag on but v3 NOT live → feature inactive: the v2 template renders (no
-    // proc-to-skills placeholder), and the distill follow-up must NOT enqueue.
-    flagStates = {
-      "procedural-memory-as-skills": true,
-      "memory-v3-live": false,
-    };
-    await memoryV2ConsolidateJob(makeJob(), CONFIG);
-    expect(runnerLastArgs?.prompt as string).not.toContain(PROC_MARKER);
-    expect(enqueuedJobs.map((j) => j.type)).not.toContain(
-      "memory_proc_distill",
-    );
-
-    // Flag on AND v3 live → feature active: the v3 template renders the section
-    // and the distill follow-up enqueues.
-    enqueuedJobs.length = 0;
-    flagStates = {
-      "procedural-memory-as-skills": true,
-      "memory-v3-live": true,
-    };
-    await memoryV2ConsolidateJob(makeJob(), CONFIG);
-    expect(runnerLastArgs?.prompt as string).toContain(PROC_MARKER);
-    expect(enqueuedJobs.map((j) => j.type)).toContain("memory_proc_distill");
-  });
-
-  test("v3 live but proc-to-skills flag off → no routing section, no distill follow-up", async () => {
-    // v3-live alone selects the v3 template but must NOT pull in the
-    // proc-to-skills section or its follow-up — that needs the feature flag too.
-    flagStates = {
-      "procedural-memory-as-skills": false,
-      "memory-v3-live": true,
-    };
-    await memoryV2ConsolidateJob(makeJob(), CONFIG);
-    expect(runnerLastArgs?.prompt as string).not.toContain(
-      "## 11. Route procedures and procedural knowledge",
-    );
-    expect(enqueuedJobs.map((j) => j.type)).not.toContain(
-      "memory_proc_distill",
-    );
-  });
-
   test("returns run_failed and skips follow-ups when the runner reports failure", async () => {
     runnerImpl = async () => ({
       conversationId: "conv-1",
