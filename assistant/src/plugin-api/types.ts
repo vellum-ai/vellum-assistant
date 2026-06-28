@@ -64,6 +64,7 @@ export interface PluginLogger {
  *   - `post-tool-use` — {@link PostToolUseContext}
  *   - `stop` — {@link StopContext}
  *   - `post-model-call` — {@link PostModelCallContext}
+ *   - `turn-commit` — {@link TurnCommitContext}
  */
 export type HookFunction<TCtx = unknown> = (
   ctx: TCtx,
@@ -615,5 +616,56 @@ export interface PostModelCallContext {
    */
   decision: PostModelCallDecision;
   /** Logger scoped to the current turn (tag structured fields with `{ plugin }`). */
+  readonly logger: PluginLogger;
+}
+
+// ─── Turn-commit hook context ────────────────────────────────────────────────
+
+/**
+ * Context passed to the `turn-commit` hook. Fires once per turn AFTER the
+ * turn's user + assistant messages have been persisted — the post-persistence
+ * seam where a memory system enqueues consolidation work for the turn that just
+ * landed.
+ *
+ * The hook is fired-and-forget: the loop does not await it and contains any
+ * throw, so a hook failure can never fail or delay the turn's commit. It runs
+ * on the turn-commit path, so it must do **no synchronous LLM work** — enqueue
+ * a background job and return. Spending on generation here would charge the
+ * user on every turn before they have asked for anything.
+ *
+ * Multiple plugins' hooks chain in registration order over the same context;
+ * the hook is observational (consolidation enqueue is a side effect), so
+ * mutating the context has no effect on the committed turn.
+ */
+export interface TurnCommitContext {
+  /** Conversation ID the committed turn belongs to. */
+  readonly conversationId: string;
+  /**
+   * Persisted ID of the user message that triggered this turn. Mirrors
+   * {@link UserPromptSubmitContext.userMessageId}: hooks that key turn-scoped
+   * consolidation off the originating message row use this rather than the
+   * message array, whose entries carry no id.
+   */
+  readonly userMessageId: string;
+  /**
+   * The messages this turn appended and persisted — the user prompt followed by
+   * the assistant's reply (and any tool-result messages). Provided for
+   * inspection; the turn is already committed, so mutating it has no effect.
+   */
+  readonly messages: ReadonlyArray<Message>;
+  /** The turn number that just committed (incremented at the commit boundary). */
+  readonly turnCount: number;
+  /**
+   * Whether the turn had no human present (e.g. a scheduled, background, or
+   * headless run). Mirrors the field of the same name on
+   * {@link UserPromptSubmitContext}: resolved once at turn start so consolidation
+   * reflects the turn's interactivity rather than mutable client-presence state.
+   */
+  readonly isNonInteractive: boolean;
+  /**
+   * Logger scoped to the current turn. The same instance is shared by every
+   * hook in the chain, so plugins should tag their structured log fields (e.g.
+   * `{ plugin: "<name>" }`) for attribution.
+   */
   readonly logger: PluginLogger;
 }
