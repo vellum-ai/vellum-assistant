@@ -2237,6 +2237,19 @@ export function setConversationProcessingStartedAt(
 }
 
 /**
+ * Clear the persisted processing flag on every conversation that still has one
+ * set, returning the number of rows cleared. Called at daemon startup to reset
+ * conversations whose `processing_started_at` was left non-NULL because the
+ * previous process shut down mid-turn — the in-memory agent loop driving that
+ * turn is gone, so the flag is stale.
+ */
+export function clearStaleProcessingFlags(): number {
+  return rawRun(
+    "UPDATE conversations SET processing_started_at = NULL WHERE processing_started_at IS NOT NULL",
+  );
+}
+
+/**
  * Read whether a conversation is currently processing. Checks the in-memory
  * `Conversation._processing` flag first (hot path for resident conversations),
  * falling back to the persisted `processing_started_at` column for cold
