@@ -232,10 +232,56 @@ describe("plugin store facet", () => {
       facet.exec(`CREATE INDEX ${ACME_NOTES}_id_idx ON ${ACME_NOTES} (id)`);
     });
 
+    test("rejects ALTER TABLE … RENAME TO an unprefixed core table", () => {
+      // The RENAME DESTINATION names a second table the keyword walk does not
+      // reach. Without validating it, a plugin could rename its own table onto a
+      // core name and escape isolation; the guard must capture and reject it.
+      const facet = createStoreFacet(() => db, "acme");
+      expect(() =>
+        facet.exec(`ALTER TABLE ${ACME_NOTES} RENAME TO messages`),
+      ).toThrow(PluginStoreNamespaceError);
+    });
+
+    test("rejects ALTER TABLE … RENAME TO another plugin's namespace", () => {
+      const otherTable = `${pluginTablePrefix("other")}stolen`;
+      const facet = createStoreFacet(() => db, "acme");
+      expect(() =>
+        facet.exec(`ALTER TABLE ${ACME_NOTES} RENAME TO ${otherTable}`),
+      ).toThrow(PluginStoreNamespaceError);
+    });
+
+    test("allows ALTER TABLE … RENAME TO another table in its own namespace", () => {
+      const facet = createStoreFacet(() => db, "acme");
+      const renamed = `${pluginTablePrefix("acme")}notes_renamed`;
+      facet.exec(`ALTER TABLE ${ACME_NOTES} RENAME TO ${renamed}`);
+      // The table really moved — the new name is queryable, the old one is gone.
+      expect(facet.query(`SELECT id FROM ${renamed}`)).toEqual([]);
+      expect(() => facet.query(`SELECT id FROM ${ACME_NOTES}`)).toThrow();
+    });
+
+    test("ALTER TABLE … RENAME COLUMN does not treat the column as a table", () => {
+      // `RENAME COLUMN <old> TO <new>` renames a COLUMN — the `TO` introduces a
+      // new column name, not a table. The guard must not reject the (unprefixed)
+      // column name as an out-of-namespace table. (ADD COLUMN passes the guard
+      // too — neither form names a second table.)
+      const facet = createStoreFacet(() => db, "acme");
+      facet.exec(`ALTER TABLE ${ACME_NOTES} ADD COLUMN body TEXT`);
+      facet.exec(`ALTER TABLE ${ACME_NOTES} RENAME COLUMN body TO body_text`);
+      facet.exec(`INSERT INTO ${ACME_NOTES} (id, body_text) VALUES (?, ?)`, [
+        "n1",
+        "hi",
+      ]);
+      expect(
+        facet.query<{ id: string; body_text: string }>(
+          `SELECT id, body_text FROM ${ACME_NOTES}`,
+        ),
+      ).toEqual([{ id: "n1", body_text: "hi" }]);
+    });
+
     test("rejects a table-operating statement whose shape captures no table", () => {
-      // `ALTER TABLE … RENAME` reaches a table but the guard does not parse its
-      // shape into a captured table — fail-closed rejects it rather than letting
-      // an unhandled DDL form bypass the namespace check.
+      // `ALTER TABLE RENAME …` with no source table: the keyword walk captures
+      // the `RENAME` bareword as a (bogus) unprefixed table, so the unhandled
+      // shape is rejected fail-closed rather than bypassing the namespace check.
       const facet = createStoreFacet(() => db, "acme");
       expect(() =>
         facet.exec(`ALTER TABLE RENAME TO plugin_acme_renamed`),

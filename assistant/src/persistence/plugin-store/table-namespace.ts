@@ -395,9 +395,45 @@ function statementCreatesTable(tokens: SqlToken[]): boolean {
 }
 
 /**
+ * `ALTER TABLE <src> RENAME TO <dst>` names a SECOND table after `RENAME TO` —
+ * the rename DESTINATION — which the keyword walk does not capture (`to` is not
+ * a table-introducing keyword, and the walk stops at `rename`). Without
+ * validating it, a plugin could rename its own table to an unprefixed core name
+ * (`RENAME TO messages`) or into another plugin's namespace, escaping isolation.
+ *
+ * Given `tokens` starting at the leading `alter`, return the captured
+ * destination table name, or `null` when the statement is not an
+ * `ALTER TABLE … RENAME TO <table>`. Precise about the SQLite ALTER forms:
+ *
+ *  - `RENAME TO <table>` → the token after `to` is the new TABLE name (captured).
+ *  - `RENAME [COLUMN] <old> TO <new>` → the `to` introduces a new COLUMN name,
+ *    NOT a table; the `to` is preceded by the old column identifier (or
+ *    `COLUMN <old>`), so it is never the first token after `rename`. Skipped.
+ *  - `ADD [COLUMN] …` / `DROP [COLUMN] …` → no `RENAME`, so nothing captured.
+ *
+ * A quoted/bracketed destination (`RENAME TO "messages"`) resolves through
+ * {@link captureTableAt}, so it validates exactly like the bareword form.
+ */
+function captureAlterRenameTarget(tokens: SqlToken[]): string | null {
+  if (keywordAt(tokens, 0) !== "alter") return null;
+  if (keywordAt(tokens, 1) !== "table") return null;
+  for (let i = 2; i < tokens.length; i++) {
+    if (keywordAt(tokens, i) !== "rename") continue;
+    // Only `RENAME TO <table>` names a table. `RENAME COLUMN …`/`RENAME <col>
+    // TO <col>` rename a column — the token directly after `rename` is then
+    // `column` or the old column name, never the `to` keyword.
+    if (keywordAt(tokens, i + 1) !== "to") return null;
+    const captured = captureTableAt(tokens, i + 2);
+    return captured ? captured.name : null;
+  }
+  return null;
+}
+
+/**
  * Collect the table identifiers a statement references via a recognized
  * table-introducing keyword (and the commas continuing a multi-table list),
- * plus the `ON <table>` target of a CREATE INDEX/TRIGGER.
+ * plus the `ON <table>` target of a CREATE INDEX/TRIGGER and the `RENAME TO
+ * <table>` destination of an ALTER TABLE.
  */
 function referencedTables(tokens: SqlToken[]): string[] {
   const tables: string[] = [];
@@ -408,6 +444,12 @@ function referencedTables(tokens: SqlToken[]): string[] {
     const target = captureCreateIndexOrTriggerTarget(tokens);
     if (target !== null) tables.push(target);
   }
+
+  // ALTER TABLE … RENAME TO <dst> names a second (destination) table the
+  // keyword walk does not reach; capture it so a rename cannot escape the
+  // namespace.
+  const renameTarget = captureAlterRenameTarget(tokens);
+  if (renameTarget !== null) tables.push(renameTarget);
 
   let i = 0;
   while (i < tokens.length) {

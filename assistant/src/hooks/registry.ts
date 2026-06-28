@@ -19,7 +19,7 @@
 
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import {
-  isBuiltinMemoryPlugin,
+  isFullyYieldableBuiltinMemoryPlugin,
   shouldBuiltinMemoryYield,
 } from "../plugins/memory-capability.js";
 import { getUserHooksFor } from "../plugins/mtime-cache.js";
@@ -104,9 +104,13 @@ export async function getHooksFor<TCtx = unknown>(
   const userHooks = await getUserHooksFor<TCtx>(name);
 
   // When an external `provides: "memory"` plugin is active, the built-in memory
-  // plugins yield: their hooks are dropped here so injection and turn-commit are
-  // driven solely by the external plugin (read-time, like the `.disabled`
-  // sentinel). Two active external memory plugins fail safe (built-in stays
+  // system yields. The drop here is MEMORY-SPECIFIC: only PURE-memory plugins
+  // (`memory-v3-shadow`) have their hooks dropped wholesale. `memory-retrieval`
+  // keeps running — it also drives general runtime assembly, so dropping it
+  // would lose the non-memory `<turn_context>` / workspace / PKB / NOW / channel
+  // blocks every turn; it instead suppresses only its memory portion downstream
+  // (`isBuiltinMemoryInjectionSuppressed`). Read-time, like the `.disabled`
+  // sentinel. Two active external memory plugins fail safe (built-in stays
   // active); `assertSingleMemoryPlugin` surfaces that misconfiguration.
   const builtinMemoryYields = shouldBuiltinMemoryYield();
 
@@ -117,7 +121,10 @@ export async function getHooksFor<TCtx = unknown>(
   const defaultHooks: HookFunction<TCtx>[] = [];
   for (const entry of hookRegistry.get(name) ?? []) {
     if (isPluginDisabled(entry.pluginName)) continue;
-    if (builtinMemoryYields && isBuiltinMemoryPlugin(entry.pluginName))
+    if (
+      builtinMemoryYields &&
+      isFullyYieldableBuiltinMemoryPlugin(entry.pluginName)
+    )
       continue;
     defaultHooks.push(entry.fn as HookFunction<TCtx>);
   }

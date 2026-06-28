@@ -39,7 +39,10 @@ const MEMORY_V2_STATIC_BLOCKS: readonly MemoryV2StaticBlock[] = [
  * Build the v2 static memory block, gated on `config.memory.enabled`,
  * `config.memory.v2.enabled`, and the resolved provider not being `"none"`.
  * Empty/missing files are skipped; returns `null` when any gate is off or every
- * file is empty.
+ * file is empty. The injector layer additionally yields this block (like the
+ * `<memory>` block) when an active external memory plugin owns memory — kept
+ * THERE, not here, so this foundational reader stays free of the plugin/mtime
+ * import graph that `trust-context` (a transitive importer) must not pull in.
  *
  * `excludeBuffer` drops the `## Buffer` section. The consolidation run sets
  * it: the agent's contract there is the `memory/buffer.md` FILE — it reads,

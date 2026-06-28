@@ -71,6 +71,7 @@ import {
   getConfigQuarantineNoticePath,
   getSandboxWorkingDir,
 } from "../../../util/platform.js";
+import { isBuiltinMemoryInjectionSuppressed } from "../../memory-capability.js";
 import {
   type InjectionBlock,
   type Injector,
@@ -751,6 +752,11 @@ const memoryV2StaticInjector: Injector = {
   ): Promise<InjectionBlock | null> {
     const mode = ctx.mode ?? "full";
     if (mode !== "full") return null;
+    // The `<info>` static block is a built-in memory injection, so it yields
+    // (like the `<memory>` block) when the built-in memory layer is suppressed —
+    // an active external memory plugin owning memory. (`provider: "none"` is
+    // already handled inside `readGatedMemoryV2Static`.)
+    if (isBuiltinMemoryInjectionSuppressed(getConfig())) return null;
     // The consolidation agent reads and rewrites memory/buffer.md through
     // file tools; injecting the buffer section here would duplicate the
     // entire backlog into its context (and go stale as it edits the file).

@@ -836,10 +836,31 @@ export function resetRunningJobsToPending(
 /**
  * Fail running jobs whose `startedAt` is older than `timeoutMs` ago.
  * Returns the number of jobs that were timed out.
+ *
+ * `claimMode` scopes the sweep to the slice this drainer owns — the same
+ * `plugin:`-prefix predicate the claim ({@link claimMemoryJobs}) and reset
+ * ({@link resetRunningJobsToPending}) paths use. In split-worker mode (the
+ * daemon's plugin lane running alongside the out-of-process core worker) each
+ * process must only time out the jobs IT runs, or one would fail the other's
+ * legitimately in-flight job after the timeout. `"all"` (the default) sweeps the
+ * whole queue, matching the single-drainer case.
  */
-export function failStalledJobs(timeoutMs: number): number {
+export function failStalledJobs(
+  timeoutMs: number,
+  claimMode: JobClaimMode = "all",
+): number {
   const now = Date.now();
   const cutoff = now - timeoutMs;
+  // Mirror `jobTypeScope` as raw SQL (the SELECT is hand-written): `LIKE` in
+  // `"plugin"` mode, `NOT LIKE` in `"core"` mode, no restriction in `"all"`.
+  const typePredicate =
+    claimMode === "plugin"
+      ? "AND type LIKE ?"
+      : claimMode === "core"
+        ? "AND type NOT LIKE ?"
+        : "";
+  const params: Array<number | string> =
+    claimMode === "all" ? [cutoff] : [cutoff, PLUGIN_JOB_TYPE_LIKE];
   const stalled = rawMemoryAll<{ id: string; type: string }>(
     `
     SELECT id, type
@@ -847,8 +868,9 @@ export function failStalledJobs(timeoutMs: number): number {
     WHERE status = 'running'
       AND started_at IS NOT NULL
       AND started_at < ?
+      ${typePredicate}
   `,
-    cutoff,
+    ...params,
   );
   if (stalled.length === 0) return 0;
 

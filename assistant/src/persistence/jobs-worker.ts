@@ -382,8 +382,14 @@ export async function runMemoryJobsOnce(
     return 0;
   }
 
-  // Fail jobs that have been running longer than the configured timeout
-  const timedOut = failStalledJobs(config.memory.jobs.stalledJobTimeoutMs);
+  // Fail jobs that have been running longer than the configured timeout, scoped
+  // to the slice this drainer owns. In split-worker mode the daemon's plugin
+  // lane and the out-of-process core worker each sweep only their own jobs, so
+  // neither times out the other's legitimately in-flight work.
+  const timedOut = failStalledJobs(
+    config.memory.jobs.stalledJobTimeoutMs,
+    claimMode,
+  );
   if (timedOut > 0) {
     log.warn({ timedOut }, "Timed out stalled memory jobs");
   }

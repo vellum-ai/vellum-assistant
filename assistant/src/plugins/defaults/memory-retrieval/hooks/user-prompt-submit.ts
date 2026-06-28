@@ -46,6 +46,7 @@ import { recordMemoryRecallLog } from "../../../../memory/memory-recall-log-stor
 import { resolveMemoryProviderId } from "../../../../memory/provider/provider-id.js";
 import { updateMessageMetadata } from "../../../../persistence/conversation-crud.js";
 import { broadcastMessage } from "../../../../runtime/assistant-event-hub.js";
+import { isBuiltinMemoryInjectionSuppressed } from "../../../memory-capability.js";
 import type { GraphMemoryResult } from "../../../types.js";
 import { MEMORY_V3_INJECTED_BLOCK_METADATA_KEY } from "../../memory-v3-shadow/ever-injected-store.js";
 
@@ -55,19 +56,23 @@ import { MEMORY_V3_INJECTED_BLOCK_METADATA_KEY } from "../../memory-v3-shadow/ev
  * runtime assembly strips any v2 `<memory>` block, so running v2's retrieval
  * (embedding + hybrid search + the `memoryRetrieval` LLM router) only to
  * discard the result is pure per-turn waste. Untrusted actors never run it
- * either, and `memory.provider: "none"` disables memory entirely — retrieval
- * (and the `<memory>` injection it produces) is suppressed the same way the
- * `none` provider suppresses tools and turn-commit work. The caller
- * additionally requires the live conversation and its abort signal to be
- * present (kept inline at the call site for type narrowing).
+ * either, and `memoryInjectionSuppressed` covers the cases where the built-in
+ * memory layer must produce no retrieval / `<memory>` injection at all —
+ * `memory.provider: "none"` OR an active external memory plugin — suppressed the
+ * same way the `none` provider suppresses tools and turn-commit work, while the
+ * non-memory runtime blocks this hook also assembles still fire. The caller
+ * additionally requires the live conversation and its abort signal to be present
+ * (kept inline at the call site for type narrowing).
  */
 export function shouldRunV2Retrieval(params: {
   isTrustedActor: boolean;
   memoryV3Live: boolean;
-  memoryDisabled: boolean;
+  memoryInjectionSuppressed: boolean;
 }): boolean {
   return (
-    params.isTrustedActor && !params.memoryV3Live && !params.memoryDisabled
+    params.isTrustedActor &&
+    !params.memoryV3Live &&
+    !params.memoryInjectionSuppressed
   );
 }
 
@@ -288,17 +293,22 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
 
   // v2 graph retrieval is the deprecated path: `shouldRunV2Retrieval` skips it
   // under memory-v3-live (v3 owns the `<memory>` layer and assembly strips any
-  // v2 block), for untrusted actors, and when `memory.provider: "none"`
-  // disables memory entirely. The `conversation && abortSignal` presence checks
-  // stay inline so the block below narrows. NOTE: this removes the v2 fallback
-  // — under v3-live, a v3 empty/failed selection yields no NEW injected memory
-  // that turn (prior turns' frozen v3 cards still ride history).
+  // v2 block), for untrusted actors, and when the built-in memory layer is
+  // suppressed (`memory.provider: "none"` or an active external memory plugin).
+  // The `conversation && abortSignal` presence checks stay inline so the block
+  // below narrows. NOTE: this removes the v2 fallback — under v3-live, a v3
+  // empty/failed selection yields no NEW injected memory that turn (prior turns'
+  // frozen v3 cards still ride history).
   const resolvedProvider = resolveMemoryProviderId(config);
   const memoryV3Live = resolvedProvider === "v3";
-  const memoryDisabled = resolvedProvider === "none";
+  const memoryInjectionSuppressed = isBuiltinMemoryInjectionSuppressed(config);
   let v2BlockPersisted = false;
   if (
-    shouldRunV2Retrieval({ isTrustedActor, memoryV3Live, memoryDisabled }) &&
+    shouldRunV2Retrieval({
+      isTrustedActor,
+      memoryV3Live,
+      memoryInjectionSuppressed,
+    }) &&
     conversation &&
     abortSignal
   ) {

@@ -73,6 +73,7 @@ import {
 } from "../../../memory/memory-marker.js";
 import { resolveMemoryProviderId } from "../../../memory/provider/provider-id.js";
 import { getLogger } from "../../../util/logger.js";
+import { isBuiltinMemoryInjectionSuppressed } from "../../memory-capability.js";
 import {
   type InjectionBlock,
   type Injector,
@@ -261,11 +262,12 @@ export const memoryV3Injector: Injector = {
     const config = getConfig();
     if (config.memory.enabled === false) return null;
     const provider = resolveMemoryProviderId(config);
-    // `memory.provider: "none"` disables memory entirely — suppress even the
-    // shadow path so the v3 selector never runs (and logs nothing) when memory
-    // is off, matching how `none` suppresses tools, turn-commit, and v2
-    // retrieval/injection.
-    if (provider === "none") return null;
+    // The built-in memory layer is suppressed entirely — `memory.provider:
+    // "none"` disables memory, or an active external memory plugin owns the
+    // `<memory>` layer. Suppress even the shadow path so the v3 selector never
+    // runs (and logs nothing), matching how `none` suppresses tools,
+    // turn-commit, and v2 retrieval/injection.
+    if (isBuiltinMemoryInjectionSuppressed(config)) return null;
     const live = provider === "v3";
     const shadow = isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config);
     if (!live && !shadow) return null;
@@ -402,6 +404,10 @@ export const memoryV3SpotlightInjector: Injector = {
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
     const config = getConfig();
     if (config.memory.enabled === false) return null;
+    // The built-in memory layer is suppressed when an external memory plugin is
+    // active (it owns the `<memory>` layer) even if the provider still resolves
+    // to v3, so check that before the live gate.
+    if (isBuiltinMemoryInjectionSuppressed(config)) return null;
     // Live-only: shadow mode logs spotlight refs from the cards injector and
     // must keep the turn untouched (no ring state either, so a later
     // live-flag flip starts from a clean window).

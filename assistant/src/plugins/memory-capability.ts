@@ -6,11 +6,21 @@
  * memory plugins (`memory-retrieval`, `memory-v3-shadow`) provide it by default.
  * An external plugin can take over by declaring `vellum.provides === "memory"`
  * in its `package.json`; when such a plugin is installed and enabled — and the
- * `memory-plugin-provider` rollout flag is on — the built-in memory plugins
- * yield, their hooks filtered out at read time so they contribute neither
- * injection nor turn-commit work. The flag is off by default, so the built-in
- * memory system stays active regardless of installed plugins until a deployment
- * opts in.
+ * `memory-plugin-provider` rollout flag is on — the built-in memory system
+ * yields. The flag is off by default, so the built-in memory system stays
+ * active regardless of installed plugins until a deployment opts in.
+ *
+ * The yield is MEMORY-SPECIFIC, not a wholesale hook drop. `memory-v3-shadow` is
+ * a pure-memory plugin (no runtime-assembly responsibility), so its hooks are
+ * filtered out entirely at read time ({@link isFullyYieldableBuiltinMemoryPlugin}).
+ * `memory-retrieval`, by contrast, also drives general runtime assembly — its
+ * `user-prompt-submit` / `post-compact` hooks run `applyRuntimeInjections`, which
+ * emits the NON-memory `<turn_context>` / workspace / PKB / NOW / channel /
+ * non-interactive blocks every turn. Those hooks keep running; only the memory
+ * portion they own (v2 retrieval + the `<memory>` injection) is suppressed, via
+ * {@link isBuiltinMemoryInjectionSuppressed} — the same mechanism the
+ * `memory.provider: "none"` path uses to skip retrieval and `<memory>` injection
+ * while leaving the non-memory blocks intact.
  *
  * "Active" is read from the live mtime-cache discovery set
  * ({@link getDiscoveredMemoryCapabilityPlugins}), so installing, disabling, or
@@ -26,6 +36,8 @@
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfigReadOnly } from "../config/loader.js";
+import type { AssistantConfig } from "../config/schema.js";
+import { resolveMemoryProviderId } from "../memory/provider/provider-id.js";
 import { getDiscoveredMemoryCapabilityPlugins } from "./mtime-cache.js";
 import { PluginExecutionError } from "./types.js";
 
@@ -52,21 +64,27 @@ function isMemoryPluginProviderEnabled(): boolean {
 }
 
 /**
- * Built-in plugin names that provide the memory system. These yield when an
- * external `provides: "memory"` plugin is active. Recognized by name (not by a
+ * Built-in memory plugins whose hooks are dropped WHOLESALE when an external
+ * memory plugin is active. Limited to PURE-memory plugins — those with no
+ * runtime-assembly responsibility — so a wholesale drop suppresses only memory
+ * work and nothing else. `memory-v3-shadow` qualifies; `memory-retrieval` does
+ * NOT (it also drives `applyRuntimeInjections`, which emits the non-memory
+ * prompt blocks), so it keeps running and yields only its memory portion via
+ * {@link isBuiltinMemoryInjectionSuppressed}. Recognized by name (not by a
  * manifest `provides` field) because they are first-party defaults.
  */
-const BUILTIN_MEMORY_PLUGIN_NAMES: ReadonlySet<string> = new Set([
-  "memory-retrieval",
-  "memory-v3-shadow",
-]);
+const FULLY_YIELDABLE_BUILTIN_MEMORY_PLUGIN_NAMES: ReadonlySet<string> =
+  new Set(["memory-v3-shadow"]);
 
 /**
- * Whether `pluginName` is one of the built-in memory plugins that must yield to
- * an active external memory-capability plugin.
+ * Whether `pluginName` is a built-in memory plugin whose hooks may be dropped
+ * wholesale when an external memory-capability plugin is active (a pure-memory
+ * plugin with no runtime-assembly side effects).
  */
-export function isBuiltinMemoryPlugin(pluginName: string): boolean {
-  return BUILTIN_MEMORY_PLUGIN_NAMES.has(pluginName);
+export function isFullyYieldableBuiltinMemoryPlugin(
+  pluginName: string,
+): boolean {
+  return FULLY_YIELDABLE_BUILTIN_MEMORY_PLUGIN_NAMES.has(pluginName);
 }
 
 /**
@@ -89,6 +107,25 @@ export function getActiveExternalMemoryPlugins(): string[] {
  */
 export function shouldBuiltinMemoryYield(): boolean {
   return getActiveExternalMemoryPlugins().length === 1;
+}
+
+/**
+ * Whether the built-in memory system must suppress its own retrieval and
+ * `<memory>` injection for the turn — true when the resolved provider is
+ * `"none"` OR an external memory-capability plugin is active. The single
+ * predicate every built-in memory-production site consults (v2 retrieval in the
+ * `user-prompt-submit` hook, and the v3 cards / spotlight injectors) so the
+ * "skip memory but keep the non-memory runtime blocks" behavior matches the
+ * `memory.provider: "none"` path exactly. NON-memory blocks
+ * (`<turn_context>` / workspace / PKB / NOW / channel) are unaffected — they are
+ * produced by hooks/injectors that do not gate on this.
+ */
+export function isBuiltinMemoryInjectionSuppressed(
+  config: AssistantConfig,
+): boolean {
+  return (
+    resolveMemoryProviderId(config) === "none" || shouldBuiltinMemoryYield()
+  );
 }
 
 /**
