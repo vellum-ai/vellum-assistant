@@ -51,7 +51,7 @@ import { selectEmbeddingBackend } from "../memory/embedding-backend.js";
 import { enqueueMemoryJob, isMemoryEnabled } from "../memory/jobs-store.js";
 import { startMemoryJobsWorker } from "../memory/jobs-worker.js";
 import { initQdrantClient, resolveQdrantUrl } from "../memory/qdrant-client.js";
-import { QdrantManager } from "../memory/qdrant-manager.js";
+import { createQdrantManager } from "../memory/qdrant-manager.js";
 import { rotateToolInvocations } from "../memory/tool-usage-store.js";
 import { sweepConceptPageFrontmatter } from "../memory/v2/frontmatter-sweep.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
@@ -793,20 +793,18 @@ export async function runDaemon(): Promise<void> {
   startOrphanReaper();
   startEventLoopWatchdog();
 
-  // Mutable refs for Qdrant and memory worker so background
-  // init can assign them and the shutdown handler always sees the latest value.
+  // Mutable ref for the memory worker so background init can assign it and the
+  // shutdown handler always sees the latest value.
   const bgRefs: {
-    qdrantManager: QdrantManager | null;
     memoryWorker: { stop(): void } | null;
-  } = { qdrantManager: null, memoryWorker: null };
+  } = { memoryWorker: null };
 
   // Initialize Qdrant vector store and memory worker in the background so the
   // RuntimeHttpServer can start accepting requests without waiting for Qdrant.
   async function initializeQdrantAndMemory(): Promise<void> {
     const qdrantUrl = resolveQdrantUrl(config);
     log.info({ qdrantUrl }, "Daemon startup: initializing Qdrant");
-    const manager = new QdrantManager({ url: qdrantUrl });
-    bgRefs.qdrantManager = manager;
+    const manager = createQdrantManager({ url: qdrantUrl });
     const QDRANT_START_MAX_ATTEMPTS = 3;
     let qdrantStarted = false;
     for (let attempt = 1; attempt <= QDRANT_START_MAX_ATTEMPTS; attempt++) {
@@ -1382,7 +1380,6 @@ export async function runDaemon(): Promise<void> {
     runtimeHttp,
     scheduler,
     getMemoryWorker: () => bgRefs.memoryWorker,
-    getQdrantManager: () => bgRefs.qdrantManager,
   });
 
   log.info(

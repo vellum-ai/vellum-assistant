@@ -420,3 +420,31 @@ export class QdrantManager {
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Singleton
+// ---------------------------------------------------------------------------
+
+let instance: QdrantManager | null = null;
+
+/**
+ * Construct the singleton Qdrant manager and store it so shutdown can reach it.
+ * The caller (daemon startup) owns starting it — start() carries
+ * lifecycle-specific retry orchestration — but the module holds the reference
+ * so it need not be threaded through call arguments.
+ */
+export function createQdrantManager(
+  config: QdrantManagerConfig,
+): QdrantManager {
+  instance = new QdrantManager(config);
+  return instance;
+}
+
+/**
+ * Stop the singleton Qdrant manager if one was created. No-op when Qdrant init
+ * never ran (e.g. shutdown before background init started).
+ */
+export async function stopQdrantManager(): Promise<void> {
+  if (!instance) return;
+  await instance.stop();
+}

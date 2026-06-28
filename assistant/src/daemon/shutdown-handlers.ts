@@ -5,7 +5,7 @@ import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { stopGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
 import { stopMcpServerManager } from "../mcp/manager.js";
 import { getSqlite, resetDb } from "../memory/db-connection.js";
-import type { QdrantManager } from "../memory/qdrant-manager.js";
+import { stopQdrantManager } from "../memory/qdrant-manager.js";
 import { stopMemoryWorkerProcess } from "../memory/worker-control.js";
 import type { RuntimeHttpServer } from "../runtime/http-server.js";
 import { stopUsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
@@ -44,7 +44,6 @@ export interface ShutdownDeps {
   runtimeHttp: RuntimeHttpServer | null;
   scheduler: { stop(): void };
   getMemoryWorker: () => { stop(): void } | null;
-  getQdrantManager: () => QdrantManager | null;
 }
 
 export function installShutdownHandlers(deps: ShutdownDeps): void {
@@ -156,7 +155,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
       log.warn({ err }, "MCP server manager shutdown failed (non-fatal)");
     }
 
-    await deps.getQdrantManager()?.stop();
+    await stopQdrantManager();
 
     // Optimize query planner statistics before closing so they persist for
     // the next session. Checkpoint WAL and close SQLite so no writes are
