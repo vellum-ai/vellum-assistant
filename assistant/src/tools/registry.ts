@@ -939,6 +939,7 @@ export async function initializeTools(): Promise<void> {
     eagerModuleToolNames,
     explicitTools,
     getCesToolsIfEnabled,
+    getMemoryToolsForActiveProvider,
     cesTools,
   } = await import("./tool-manifest.js");
 
@@ -986,6 +987,14 @@ export async function initializeTools(): Promise<void> {
     registerTool(tool);
   }
 
+  // Memory tools (`remember`/`recall`) are owned by the active memory
+  // provider: the resolved provider's `provideTools()` decides which tools
+  // exist. A `memory.provider: "none"` install registers nothing here.
+  const activeMemoryTools = getMemoryToolsForActiveProvider();
+  for (const tool of activeMemoryTools) {
+    registerTool(tool);
+  }
+
   registerUiSurfaceTools();
   registerAppTools();
   registerSystemTools();
@@ -1008,6 +1017,7 @@ export async function initializeTools(): Promise<void> {
       ...extEntries.map(({ tool }) => tool.name),
       ...hostTools.map((t) => t.name!),
       ...cesTools.map((t) => t.name!),
+      ...activeMemoryTools.map((t) => t.name!),
       ...allUiSurfaceTools.map((t) => t.name!),
       ...coreAppProxyTools.map((t) => t.name!),
     ]);

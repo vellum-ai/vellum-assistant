@@ -11,6 +11,7 @@ import {
   isCesSecureInstallEnabled,
   isCesToolsEnabled,
 } from "../credential-execution/feature-gates.js";
+import { resolveMemoryProvider } from "../memory/provider/resolve.js";
 import { askQuestionTool } from "./ask-question/ask-question-tool.js";
 import { makeAuthenticatedRequestTool } from "./credential-execution/make-authenticated-request.js";
 import { manageSecureCommandTool } from "./credential-execution/manage-secure-command-tool.js";
@@ -20,7 +21,6 @@ import { fileListTool } from "./filesystem/list.js";
 import { fileReadTool } from "./filesystem/read.js";
 import { codeSearchTool } from "./filesystem/search.js";
 import { fileWriteTool } from "./filesystem/write.js";
-import { recallTool, rememberTool } from "./memory/register.js";
 import { webFetchTool } from "./network/web-fetch.js";
 import { webSearchTool } from "./network/web-search.js";
 import { skillExecuteTool } from "./skills/execute.js";
@@ -90,8 +90,6 @@ export const explicitTools: ToolDefinition[] = [
   skillLoadTool,
   requestSystemPermissionTool,
   // Always-explicit tools
-  rememberTool,
-  recallTool,
   notifyParentTool,
   askQuestionTool,
   // NOTE: external skill tools (registered via registerExternalTools in
@@ -135,4 +133,26 @@ export function getCesToolsIfEnabled(): ToolDefinition[] {
     // Config not yet loaded (e.g. during test setup) - CES tools stay off.
   }
   return [];
+}
+
+// ── Memory tools (active-provider owned) ────────────────────────────
+// The `remember`/`recall` tools are owned by the active memory provider:
+// `initializeTools()` registers the tools the resolved provider contributes
+// via `provideTools()`. The graph and v2 providers expose `remember`/`recall`;
+// v3 and `none` expose nothing, so a `memory.provider: "none"` install
+// registers no memory tools.
+
+/**
+ * Return the memory tools the active provider contributes, resolved from the
+ * current config. Returns an empty array when the provider exposes no tools
+ * (v3 / `none`) or when config is not yet loaded (e.g. test setup) so callers
+ * can unconditionally iterate the result.
+ */
+export function getMemoryToolsForActiveProvider(): ToolDefinition[] {
+  try {
+    return resolveMemoryProvider(getConfig()).provideTools();
+  } catch {
+    // Config not yet loaded (e.g. during test setup) - no memory tools.
+    return [];
+  }
 }
