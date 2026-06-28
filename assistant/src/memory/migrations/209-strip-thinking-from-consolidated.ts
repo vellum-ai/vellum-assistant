@@ -160,10 +160,14 @@ export async function migrateStripThinkingFromConsolidated(
   while (lo < maxRow) {
     const hi = Math.min(lo + ROWID_WINDOW, maxRow);
 
-    const res = await runAsyncSqlite(windowSql(lo, hi), {
-      dbPath,
-      timeoutMs: WINDOW_TIMEOUT_MS,
-    });
+    const res = await runAsyncSqlite(
+      windowSql(lo, hi),
+      `migration-209:strip-thinking-window:(${lo},${hi}]`,
+      {
+        dbPath,
+        timeoutMs: WINDOW_TIMEOUT_MS,
+      },
+    );
     if (!res.ok) {
       // Leave the watermark at the last completed window; throwing reports the
       // step failed so the runner retries it (from the watermark) next boot
@@ -179,7 +183,11 @@ export async function migrateStripThinkingFromConsolidated(
 
   // Bound WAL growth left by the windowed rewrites, then drop the watermark so
   // a future re-run (e.g. after a rollback) starts clean.
-  await runAsyncSqlite(`PRAGMA wal_checkpoint(TRUNCATE);`, { dbPath });
+  await runAsyncSqlite(
+    `PRAGMA wal_checkpoint(TRUNCATE);`,
+    "migration-209:wal-checkpoint-truncate",
+    { dbPath },
+  );
   raw.query(`DELETE FROM memory_checkpoints WHERE key = ?`).run(WATERMARK_KEY);
 
   log.info(

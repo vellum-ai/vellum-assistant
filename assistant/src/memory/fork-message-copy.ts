@@ -204,7 +204,11 @@ export async function copyForkMessagesViaSubprocess(
       idPairs: batch,
       batchSize,
     });
-    const result = await runAsyncSqlite(sql, runOptions);
+    const result = await runAsyncSqlite(
+      sql,
+      `fork-message-copy:copy-batch:${options.forkConversationId}`,
+      runOptions,
+    );
     totalElapsedMs += result.elapsedMs;
     backend = result.backend;
     if (!result.ok) {

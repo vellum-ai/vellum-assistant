@@ -43,6 +43,14 @@ const log = getLogger("db-async-query");
  */
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
 
+/**
+ * A successful async statement that runs longer than this is logged at WARN.
+ * These dispatches are meant to be heavy-but-bounded; crossing this threshold
+ * is a signal worth surfacing (lock contention, an unexpectedly large sweep,
+ * a degraded disk) even when the statement ultimately succeeds.
+ */
+const SLOW_WRITE_WARN_MS = 2000;
+
 export type AsyncSqliteBackend = "sqlite3-cli" | "in-process-blocking";
 
 export interface AsyncSqliteResult {
@@ -95,12 +103,14 @@ let warnedAboutFallback = false;
 
 export async function runAsyncSqlite(
   sql: string,
+  label: string,
   options: RunAsyncSqliteOptions = {},
 ): Promise<AsyncSqliteResult> {
   const forced = options.forceBackend;
   const sqlite3Path =
     forced === "in-process-blocking" ? undefined : findSqlite3();
 
+  let result: AsyncSqliteResult;
   if (sqlite3Path && forced !== "in-process-blocking") {
     const attachPrefix = (options.attach ?? [])
       .map(
@@ -108,23 +118,32 @@ export async function runAsyncSqlite(
           `ATTACH DATABASE '${a.path.replace(/'/g, "''")}' AS ${a.alias};\n`,
       )
       .join("");
-    return runViaCli(
+    result = await runViaCli(
       sqlite3Path,
       attachPrefix + sql,
       options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       options.dbPath ?? getDbPath(),
+      label,
     );
+  } else {
+    if (!warnedAboutFallback) {
+      warnedAboutFallback = true;
+      log.warn(
+        "No sqlite3 CLI found on host — falling back to in-process blocking " +
+          "execution for slow SQLite statements. Install sqlite3 to keep the " +
+          "event loop responsive during VACUUM and other long operations.",
+      );
+    }
+    result = await runInProcessBlocking(sql, options);
   }
 
-  if (!warnedAboutFallback) {
-    warnedAboutFallback = true;
+  if (result.ok && result.elapsedMs > SLOW_WRITE_WARN_MS) {
     log.warn(
-      "No sqlite3 CLI found on host — falling back to in-process blocking " +
-        "execution for slow SQLite statements. Install sqlite3 to keep the " +
-        "event loop responsive during VACUUM and other long operations.",
+      { label, elapsedMs: result.elapsedMs, backend: result.backend },
+      "Async SQL completed but exceeded slow-write threshold",
     );
   }
-  return runInProcessBlocking(sql, options);
+  return result;
 }
 
 /** For tests: reset the once-only fallback warning. */
@@ -155,11 +174,12 @@ async function runViaCli(
   sql: string,
   timeoutMs: number,
   dbPath: string,
+  label: string,
 ): Promise<AsyncSqliteResult> {
   const startMs = Date.now();
 
   log.info(
-    { sqlite3Path, dbPath, timeoutMs, sqlPreview: sql.slice(0, 80) },
+    { label, sqlite3Path, dbPath, timeoutMs, sqlPreview: sql.slice(0, 80) },
     "Running async SQL via sqlite3 CLI subprocess",
   );
 
@@ -203,7 +223,7 @@ async function runViaCli(
 
   if (timedOut) {
     log.error(
-      { timeoutMs, elapsedMs, stderr: stderr.slice(0, 2000) },
+      { label, timeoutMs, elapsedMs, stderr: stderr.slice(0, 2000) },
       "Async SQL subprocess timed out — killed",
     );
     return {
@@ -218,7 +238,7 @@ async function runViaCli(
   }
   if (exitCode !== 0) {
     log.error(
-      { exitCode, elapsedMs, stderr: stderr.slice(0, 2000) },
+      { label, exitCode, elapsedMs, stderr: stderr.slice(0, 2000) },
       "Async SQL subprocess failed",
     );
     return {

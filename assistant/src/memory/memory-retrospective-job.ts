@@ -135,6 +135,9 @@ export async function runForkBasedRetrospective(
   sourceConversationId: string,
   config: AssistantConfig,
 ): Promise<MemoryRetrospectiveOutcome> {
+  // Start stamp for the retrospective's end-to-end wall time, surfaced as
+  // `durationMs` on the "invoked" log (start → invoked).
+  const startedAtMs = Date.now();
   const sourceConversation = getConversation(sourceConversationId);
   if (!sourceConversation) {
     log.warn(
@@ -365,7 +368,11 @@ export async function runForkBasedRetrospective(
       newMessageCount: newMessages.length,
       prior,
       priorRemembers,
-      logFields: { kind: "fork", windowStartTimestamp },
+      logFields: {
+        kind: "fork",
+        windowStartTimestamp,
+        durationMs: Date.now() - startedAtMs,
+      },
     });
   }
 

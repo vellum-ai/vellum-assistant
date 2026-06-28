@@ -74,6 +74,7 @@ describe("logs database connection", () => {
       try {
         const result = await runAsyncSqlite(
           "CREATE TABLE dbpath_probe (x INTEGER); INSERT INTO dbpath_probe VALUES (42); SELECT changes();",
+          "test:logs-attach-dbpath",
           { dbPath: targetPath, forceBackend: "sqlite3-cli" },
         );
         expect(result.ok).toBe(true);

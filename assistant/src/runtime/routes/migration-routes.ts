@@ -171,7 +171,10 @@ const log = getLogger("migration-routes");
  * all the copy needs.
  */
 async function checkpointDbsForExport(): Promise<void> {
-  const mainResult = await runAsyncSqlite("PRAGMA wal_checkpoint(FULL)");
+  const mainResult = await runAsyncSqlite(
+    "PRAGMA wal_checkpoint(FULL)",
+    "export-checkpoint:wal-checkpoint-full",
+  );
   if (!mainResult.ok) {
     log.warn(
       { error: mainResult.error, backend: mainResult.backend, db: "main" },

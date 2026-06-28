@@ -2565,7 +2565,7 @@ export async function clearAll(): Promise<{
     sql: string,
     options?: { dbPath?: string },
   ): Promise<void> => {
-    const result = await runAsyncSqlite(sql, options);
+    const result = await runAsyncSqlite(sql, `clearAll: ${sql}`, options);
     if (!result.ok) {
       throw new Error(
         `clearAll: \`${sql}\` failed (${result.backend}): ${result.error ?? "unknown"}`,
@@ -2597,7 +2597,10 @@ export async function clearAll(): Promise<{
   await runOrThrow("DELETE FROM tool_invocations");
   await runOrThrow("DELETE FROM skill_loaded_events");
   let messagesFtsCorrupted = false;
-  const ftsResult = await runAsyncSqlite("DELETE FROM messages_fts");
+  const ftsResult = await runAsyncSqlite(
+    "DELETE FROM messages_fts",
+    "clearAll:messages-fts",
+  );
   if (!ftsResult.ok) {
     log.warn(
       { error: ftsResult.error, backend: ftsResult.backend },

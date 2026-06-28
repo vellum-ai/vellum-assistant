@@ -97,6 +97,7 @@ export async function rotateToolInvocations(
   // integer (see Math.floor above), so inlining it here is safe.
   const result = await runAsyncSqlite(
     `DELETE FROM tool_invocations WHERE created_at < ${cutoffMs}`,
+    "tool-usage-store:prune-tool-invocations",
   );
   if (!result.ok) {
     log.error(
