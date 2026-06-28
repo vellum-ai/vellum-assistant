@@ -30,9 +30,7 @@ import {
   computeFingerprint,
   PRESERVED_ENTRIES,
 } from "../cli/lib/plugin-fingerprint.js";
-import {
-  resetHookCacheForTests,
-} from "../hooks/hook-loader.js";
+import { resetHookCacheForTests } from "../hooks/hook-loader.js";
 import {
   populateCacheAtBoot,
   resetPluginCacheForTests,
@@ -133,9 +131,9 @@ describe("plugin config/data in plugin directory", () => {
         'import { writeFileSync } from "node:fs";',
         'import type { InitContext } from "../../src/plugin-api/types.js";',
         "export default async (ctx: InitContext) => {",
-        '  writeFileSync(' +
+        "  writeFileSync(" +
           JSON.stringify(sentinel) +
-          ', JSON.stringify(ctx.config));',
+          ", JSON.stringify(ctx.config));",
         "};",
       ].join("\n"),
     );
@@ -158,7 +156,9 @@ describe("plugin config/data in plugin directory", () => {
         'import { writeFileSync } from "node:fs";',
         'import type { InitContext } from "../../src/plugin-api/types.js";',
         "export default async (ctx: InitContext) => {",
-        '  writeFileSync(' + JSON.stringify(sentinel) + ', ctx.pluginStorageDir);',
+        "  writeFileSync(" +
+          JSON.stringify(sentinel) +
+          ", ctx.pluginStorageDir);",
         "};",
       ].join("\n"),
     );
@@ -169,6 +169,69 @@ describe("plugin config/data in plugin directory", () => {
     const storageDir = readFileSync(sentinel, "utf-8");
     expect(storageDir).toBe(join(dir, "data"));
     expect(existsSync(storageDir)).toBe(true);
+  });
+});
+
+describe("plugin host bundle on the mtime/hook-loader init path", () => {
+  test("init hook receives a working ctx.host with every facet", async () => {
+    const dir = freshPluginDir("host-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "host-plugin" });
+
+    // The init hook records the shape of `ctx.host` plus a few live probes
+    // (config/logger/platform are safe to exercise without a DB or network) to
+    // a sentinel so the test can assert the bundle was threaded through the
+    // real `runInitHook` path — the same path installed user plugins take.
+    const sentinel = join(ROOT, "host-sentinel.json");
+    writeInitHook(
+      dir,
+      [
+        'import { writeFileSync } from "node:fs";',
+        'import type { InitContext } from "../../src/plugin-api/types.js";',
+        "export default async (ctx: InitContext) => {",
+        "  const host = ctx.host;",
+        "  const out = {",
+        "    present: host !== undefined,",
+        "    facetKeys: host ? Object.keys(host).sort() : [],",
+        "    workspaceDir: host?.platform.workspaceDir() ?? null,",
+        "    loggerOk: typeof host?.logger.get('probe').info === 'function',",
+        "    configGetSectionOk: typeof host?.config.getSection === 'function',",
+        "    jobsOk: typeof host?.jobs.enqueue === 'function',",
+        "    storeOk: typeof host?.store === 'object',",
+        "  };",
+        "  writeFileSync(" +
+          JSON.stringify(sentinel) +
+          ", JSON.stringify(out));",
+        "};",
+      ].join("\n"),
+    );
+
+    await populateCacheAtBoot();
+
+    expect(existsSync(sentinel)).toBe(true);
+    const received = JSON.parse(readFileSync(sentinel, "utf-8"));
+    expect(received.present).toBe(true);
+    // Every PluginHost facet must be present, scoped to this plugin.
+    expect(received.facetKeys).toEqual([
+      "config",
+      "embeddings",
+      "events",
+      "history",
+      "identity",
+      "jobs",
+      "logger",
+      "memory",
+      "platform",
+      "providers",
+      "registries",
+      "store",
+      "vectorStore",
+    ]);
+    // Live probes succeeded — the facets are wired, not just shaped.
+    expect(received.workspaceDir).toBe(ROOT);
+    expect(received.loggerOk).toBe(true);
+    expect(received.configGetSectionOk).toBe(true);
+    expect(received.jobsOk).toBe(true);
+    expect(received.storeOk).toBe(true);
   });
 });
 
@@ -194,9 +257,9 @@ describe("config migration from global config block", () => {
         'import { writeFileSync } from "node:fs";',
         'import type { InitContext } from "../../src/plugin-api/types.js";',
         "export default async (ctx: InitContext) => {",
-        '  writeFileSync(' +
+        "  writeFileSync(" +
           JSON.stringify(join(ROOT, "migrate-cfg-sentinel.json")) +
-          ', JSON.stringify(ctx.config));',
+          ", JSON.stringify(ctx.config));",
         "};",
       ].join("\n"),
     );
@@ -234,9 +297,9 @@ describe("data migration from plugins-data/", () => {
         'import { writeFileSync } from "node:fs";',
         'import type { InitContext } from "../../src/plugin-api/types.js";',
         "export default async (ctx: InitContext) => {",
-        '  writeFileSync(' +
+        "  writeFileSync(" +
           JSON.stringify(join(ROOT, "migrate-data-sentinel.txt")) +
-          ', ctx.pluginStorageDir);',
+          ", ctx.pluginStorageDir);",
         "};",
       ].join("\n"),
     );

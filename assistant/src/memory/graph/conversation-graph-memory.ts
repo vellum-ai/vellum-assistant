@@ -12,6 +12,11 @@ import { z } from "zod";
 import type { AssistantConfig } from "../../config/types.js";
 import { estimateTextTokens } from "../../context/token-estimator.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { embedWithRetry } from "../../persistence/embeddings/embed.js";
+import { generateSparseEmbedding } from "../../persistence/embeddings/embedding-backend.js";
+import type { QdrantSparseVector } from "../../persistence/embeddings/qdrant-client.js";
+import { memorySummaries } from "../../persistence/schema/index.js";
 import { clearConversation as clearV3EverInjected } from "../../plugins/defaults/memory-v3-shadow/ever-injected-store.js";
 import type {
   ContentBlock,
@@ -20,12 +25,8 @@ import type {
 } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
-import { getDb } from "../../persistence/db-connection.js";
-import { embedWithRetry } from "../../persistence/embeddings/embed.js";
-import { generateSparseEmbedding } from "../../persistence/embeddings/embedding-backend.js";
 import { wrapMemoryBlock } from "../memory-marker.js";
-import type { QdrantSparseVector } from "../../persistence/embeddings/qdrant-client.js";
-import { memorySummaries } from "../../persistence/schema/index.js";
+import { resolveMemoryProviderId } from "../provider/provider-id.js";
 import { conversations } from "../schema/conversations.js";
 import {
   clearEverInjected as clearV2EverInjected,
@@ -576,7 +577,7 @@ export class ConversationGraphMemory {
       };
     }
 
-    // v1 fallback — only reached when the v2 flag or workspace config is off.
+    // v1 fallback — only reached when the resolved provider is not v2.
     const result = await loadContextMemory({
       scopeId: "default",
       recentSummaries,
@@ -698,8 +699,8 @@ export class ConversationGraphMemory {
       if (userLastBlocks.length > 0 && assistantLast) break;
     }
 
-    // v2 path — skip v1 retrieval entirely when v2 is enabled. See the
-    // matching comment in `runContextLoad` for rationale.
+    // v2 path — skip v1 retrieval entirely when the resolved provider is v2.
+    // See the matching comment in `runContextLoad` for rationale.
     const startedAt = Date.now();
     const v2 = await this.maybeRouteV2Injection(
       messages,
@@ -742,7 +743,7 @@ export class ConversationGraphMemory {
       };
     }
 
-    // v1 path (only reached when the v2 flag or workspace config is off).
+    // v1 path (only reached when the resolved provider is not v2).
     const result = await retrieveForTurn({
       assistantLastMessage: assistantLast,
       userLastMessage: userLast,
@@ -846,12 +847,20 @@ export class ConversationGraphMemory {
   }
 
   /**
-   * Run the v2 activation pipeline when the workspace config
-   * (`memory.v2.enabled`) is on.
+   * Run the v2 activation pipeline when the resolved memory provider is `"v2"`.
+   *
+   * The selection is authoritative from {@link resolveMemoryProviderId} — the
+   * same resolution every other call site reads — rather than the raw
+   * `memory.v2.enabled` flag, so an explicit `memory.provider` pin wins: a
+   * `"graph"` pin runs v1 even with `v2.enabled: true`, and a `"v2"` pin runs v2
+   * even with `v2.enabled: false`. Under the default `provider: "auto"` the
+   * resolution derives from `v2.enabled` (when v3 is not live), so behavior is
+   * unchanged for migrated setups. The hook only reaches this method for non-v3,
+   * non-none providers, so `"v2"` vs `"graph"` is the live distinction here.
    *
    * The two outcomes the caller distinguishes via `routed`:
-   *   - `routed: false` — v2 disabled; caller falls through to the legacy v1
-   *                        retrieval path.
+   *   - `routed: false` — provider is not v2; caller falls through to the legacy
+   *                        v1 (graph) retrieval path.
    *   - `routed: true`  — v2 ran. `runMessages` is either the v2-prepended
    *                        message list (block was non-null) or the input
    *                        messages unchanged (cache-stable empty path).
@@ -875,7 +884,7 @@ export class ConversationGraphMemory {
     runMessages: Message[];
     injectedBlockText: string | null;
   }> {
-    if (!config.memory.v2.enabled) {
+    if (resolveMemoryProviderId(config) !== "v2") {
       return { routed: false, runMessages: messages, injectedBlockText: null };
     }
 

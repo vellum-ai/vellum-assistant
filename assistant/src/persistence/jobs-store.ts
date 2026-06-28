@@ -1,4 +1,15 @@
-import { and, asc, eq, inArray, lte, notInArray, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  like,
+  lte,
+  notInArray,
+  notLike,
+  or,
+  sql,
+} from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../config/loader.js";
@@ -154,13 +165,28 @@ export function enqueueMemoryJob(
 }
 
 /**
+ * The namespace every plugin job `type` carries (`plugin:<id>:<name>`),
+ * assigned by the host's jobs facet so plugin code cannot forge a core type.
+ * The claim path keys off this prefix to route plugin jobs to the only process
+ * that registers their handlers (the in-process daemon worker) — see
+ * {@link claimMemoryJobs}'s `claimMode`.
+ */
+export const PLUGIN_JOB_TYPE_PREFIX = "plugin:";
+
+/** SQL `LIKE` pattern matching every {@link PLUGIN_JOB_TYPE_PREFIX} type. */
+const PLUGIN_JOB_TYPE_LIKE = `${PLUGIN_JOB_TYPE_PREFIX}%`;
+
+/**
  * Enqueue a background job under an arbitrary string `type` outside the
  * built-in {@link MemoryJobType} union — the path plugin jobs take. Plugin
  * job types are `plugin:<id>:<name>`-namespaced strings the host assigns; they
  * are not part of the core union and never collide with it. The row is
  * otherwise identical to {@link enqueueMemoryJob}, so the same worker claim/
  * dispatch path picks it up (the type lands in the fast lane since it is in
- * neither the slow nor embed set). Returns the enqueued job's id.
+ * neither the slow nor embed set). Only the in-process daemon worker claims
+ * these, since it is the lone process that runs plugin init and so registers
+ * their handlers — see {@link claimMemoryJobs}'s `claimMode`. Returns the
+ * enqueued job's id.
  */
 export function enqueuePluginJob(
   type: string,
@@ -524,7 +550,39 @@ export interface LaneBudgets {
   embed: number;
 }
 
-export function claimMemoryJobs(limits: LaneBudgets): MemoryJob[] {
+/**
+ * Which slice of the queue {@link claimMemoryJobs} is allowed to claim:
+ *
+ * - `"all"` — every pending job (the daemon's in-process worker when no
+ *   out-of-process worker owns the queue).
+ * - `"core"` — every core (non-`plugin:`-prefixed) job, never plugin jobs. The
+ *   standalone worker process uses this: it runs no plugin init, so it has no
+ *   handler for a `plugin:` type and would hard-fail one with "Unknown memory
+ *   job type". Excluding them at claim time leaves them pending for the daemon.
+ * - `"plugin"` — only `plugin:`-prefixed jobs. The daemon's in-process worker
+ *   uses this while the out-of-process worker owns the core queue, so plugin
+ *   jobs still drain in the one process whose plugin init registered their
+ *   handlers.
+ */
+export type JobClaimMode = "all" | "core" | "plugin";
+
+/**
+ * SQL predicate restricting `memory_jobs.type` to the slice a {@link
+ * JobClaimMode} owns: the `plugin:` prefix in `"plugin"` mode, everything but
+ * that prefix in `"core"` mode, and no restriction (`undefined`) in `"all"`.
+ */
+function jobTypeScope(claimMode: JobClaimMode) {
+  if (claimMode === "plugin")
+    return like(memoryJobs.type, PLUGIN_JOB_TYPE_LIKE);
+  if (claimMode === "core")
+    return notLike(memoryJobs.type, PLUGIN_JOB_TYPE_LIKE);
+  return undefined;
+}
+
+export function claimMemoryJobs(
+  limits: LaneBudgets,
+  claimMode: JobClaimMode = "all",
+): MemoryJob[] {
   if (limits.slowLlm <= 0 && limits.fast <= 0 && limits.embed <= 0) return [];
 
   const db = memoryDb();
@@ -534,9 +592,16 @@ export function claimMemoryJobs(limits: LaneBudgets): MemoryJob[] {
     lte(memoryJobs.runAfter, now),
   );
 
+  // Plugin jobs are core-union-foreign string types, so they fall in neither
+  // the slow nor the embed set — they only ever land in the fast lane. So in
+  // `"plugin"` mode the slow and embed lanes are skipped wholesale, and the
+  // fast lane is restricted to the `plugin:` prefix; in `"core"` mode the fast
+  // lane excludes that prefix; in `"all"` mode no prefix filter applies.
+  const claimSlowEmbed = claimMode !== "plugin";
+
   // Slow lane: long-running LLM jobs (graph extract/consolidate, analysis, etc.).
   const slowCandidates =
-    limits.slowLlm > 0
+    claimSlowEmbed && limits.slowLlm > 0
       ? db
           .select()
           .from(memoryJobs)
@@ -548,7 +613,9 @@ export function claimMemoryJobs(limits: LaneBudgets): MemoryJob[] {
           .all()
       : [];
 
-  // Fast lane: everything that is neither slow-LLM nor embed.
+  // Fast lane: everything that is neither slow-LLM nor embed. The `plugin:`
+  // prefix scope routes plugin jobs to the worker lane that can handle them.
+  const pluginPrefixFilter = jobTypeScope(claimMode);
   const fastCandidates =
     limits.fast > 0
       ? db
@@ -559,6 +626,7 @@ export function claimMemoryJobs(limits: LaneBudgets): MemoryJob[] {
               pendingFilter,
               notInArray(memoryJobs.type, SLOW_LLM_JOB_TYPES),
               notInArray(memoryJobs.type, EMBED_JOB_TYPES),
+              ...(pluginPrefixFilter ? [pluginPrefixFilter] : []),
             ),
           )
           .orderBy(asc(memoryJobs.runAfter), asc(memoryJobs.createdAt))
@@ -595,7 +663,7 @@ export function claimMemoryJobs(limits: LaneBudgets): MemoryJob[] {
   }
 
   const embedCandidates =
-    embedLimit > 0 && !skipEmbedJobs
+    claimSlowEmbed && embedLimit > 0 && !skipEmbedJobs
       ? db
           .select()
           .from(memoryJobs)
@@ -741,11 +809,26 @@ export function failMemoryJob(
     .run();
 }
 
-export function resetRunningJobsToPending(): number {
+/**
+ * Reset `running` jobs back to `pending` so a fresh drainer can re-claim work a
+ * crashed predecessor left mid-flight. `claimMode` scopes the reset to the
+ * slice this drainer owns so two concurrently-active drainers (the daemon's
+ * plugin lane + the out-of-process core worker) don't reset each other's
+ * in-flight jobs at startup: the core worker resets core jobs only, leaving
+ * plugin jobs the daemon may be running untouched.
+ */
+export function resetRunningJobsToPending(
+  claimMode: JobClaimMode = "all",
+): number {
   const db = memoryDb();
+  const scope = jobTypeScope(claimMode);
   db.update(memoryJobs)
     .set({ status: "pending", updatedAt: Date.now() })
-    .where(eq(memoryJobs.status, "running"))
+    .where(
+      scope
+        ? and(eq(memoryJobs.status, "running"), scope)
+        : eq(memoryJobs.status, "running"),
+    )
     .run();
   return rawMemoryChanges();
 }

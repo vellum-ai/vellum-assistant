@@ -8,27 +8,23 @@ import {
   diskPressureBackgroundSkipLogFields,
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
-import {
-  getMemoryCheckpoint,
-  setMemoryCheckpoint,
-} from "./checkpoints.js";
+import { sweepOrphanMemoryRetrospectiveConversations } from "../memory/memory-retrospective-startup-cleanup.js";
+import { resolveMemoryProviderId } from "../memory/provider/provider-id.js";
+import { countBufferLines } from "../memory/v2/consolidation-job.js";
+import { getLogger } from "../util/logger.js";
+import { getWorkspaceDir } from "../util/platform.js";
+import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
 import {
   getLastScheduledCleanupEnqueueMs,
   markScheduledCleanupEnqueued,
 } from "./cleanup-schedule-state.js";
+import { maybeRunDbMaintenance } from "./db-maintenance.js";
 import {
   EmbeddingBillingBlockError,
   extractHttpStatus,
   recordBillingBlock,
 } from "./embeddings/embedding-billing-breaker.js";
-import { sweepOrphanMemoryRetrospectiveConversations } from "../memory/memory-retrospective-startup-cleanup.js";
-import { resolveMemoryProviderId } from "../memory/provider/provider-id.js";
 import { QdrantCircuitOpenError } from "./embeddings/qdrant-circuit-breaker.js";
-import { countBufferLines } from "../memory/v2/consolidation-job.js";
-import { spawnMemoryWorkerProcess } from "./worker-control.js";
-import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir } from "../util/platform.js";
-import { maybeRunDbMaintenance } from "./db-maintenance.js";
 import {
   BackendUnavailableError,
   classifyError,
@@ -47,12 +43,14 @@ import {
   failMemoryJob,
   failStalledJobs,
   hasActiveJobOfType,
+  type JobClaimMode,
   MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS,
   type MemoryJob,
   type MemoryJobType,
   resetRunningJobsToPending,
   SLOW_LLM_JOB_TYPES,
 } from "./jobs-store.js";
+import { spawnMemoryWorkerProcess } from "./worker-control.js";
 
 const log = getLogger("memory-jobs-worker");
 
@@ -146,34 +144,42 @@ export interface MemoryJobsWorker {
  * supervisor owns the synchronous in-process runner and reconciles to
  * `memory.worker.enabled` on every poll, re-reading the flag from disk so a
  * runtime change takes effect without a restart:
- *   - flag off (default): drain the queue in-process (the synchronous runner).
- *   - flag on: stand down (the out-of-process worker owns the queue).
- * Gating on the flag — rather than on the worker process actually being present
- * — keeps exactly one drainer active and avoids a boot race: when the flag is
- * on the supervisor never processes, so it can't claim jobs that the spawning
- * worker's startup recovery would then reset out from under it.
+ *   - flag off (default): drain the whole queue in-process (the synchronous
+ *     runner).
+ *   - flag on: drain only the daemon-handled plugin lane (`plugin:`-prefixed
+ *     jobs); the out-of-process worker owns the core queue.
+ * Plugin jobs always drain here because their handlers are registered by plugin
+ * init, which runs only in the daemon — the out-of-process worker would hard-
+ * fail a `plugin:` job. Gating the CORE drain on the flag keeps exactly one core
+ * drainer active and avoids a boot race: in flag-on mode the supervisor claims
+ * only plugin jobs (a slice the worker never touches), so it can't claim core
+ * jobs that the spawning worker's startup recovery would then reset out from
+ * under it, and the two drainers' startup recovery is slice-scoped so neither
+ * resets the other's in-flight jobs.
  *
  * `memory.worker.enabled` is also the persisted boot preference: when set, the
  * out-of-process worker is spawned here at startup so it is running
  * immediately. The CLI `memory worker start`/`stop` commands flip the flag (and
  * spawn/stop the worker process), so the supervisor switches the running daemon
  * between synchronous and out-of-process modes within one poll. When the flag
- * is on but no worker process is running, neither drainer processes — `status`
- * surfaces this (worker not running, synchronous runner not running).
+ * is on but no worker process is running, no core drainer processes — `status`
+ * surfaces this (worker not running, synchronous runner not running) — but the
+ * daemon still drains the plugin lane.
  *
  * This dispatcher must not be used as the standalone worker process's entry —
- * that would recurse and fork-bomb, and the flag-on worker process would stand
- * itself down. `worker.ts` calls {@link startInProcessMemoryJobsWorker}
- * directly with no options.
+ * that would recurse and fork-bomb. `worker.ts` calls
+ * {@link startInProcessMemoryJobsWorker} directly with no options, which makes
+ * it claim the core slice only (never plugin jobs).
  */
 export function startMemoryJobsWorker(): MemoryJobsWorker {
   if (getConfig().memory.worker?.enabled === true) {
-    // The flag is on, so the supervisor below stands the synchronous runner
-    // down: a worker that comes up late is the desired sole drainer, so do not
-    // terminate it on a slow start (the default). Spawn it as a direct child
-    // (not detached) so the worker the daemon owns shows up in its process tree
-    // (`assistant ps`) and is torn down with the daemon; it is re-spawned on the
-    // next boot, so it need not survive a restart.
+    // The flag is on, so the supervisor below drains only the plugin lane and
+    // leaves the core queue to this worker: a worker that comes up late is the
+    // desired sole core drainer, so do not terminate it on a slow start (the
+    // default). Spawn it as a direct child (not detached) so the worker the
+    // daemon owns shows up in its process tree (`assistant ps`) and is torn down
+    // with the daemon; it is re-spawned on the next boot, so it need not survive
+    // a restart.
     void spawnMemoryWorkerProcess({
       terminateOnTimeout: false,
       detached: false,
@@ -203,17 +209,36 @@ export function startMemoryJobsWorker(): MemoryJobsWorker {
  * called. This is the worker loop itself — used by the daemon supervisor (with
  * `standDownForWorkerProcess`) and by the standalone worker process (without).
  *
- * When `standDownForWorkerProcess` is set the loop acts as the daemon's
- * synchronous-runner supervisor: each tick it skips processing while
- * `memory.worker.enabled` is on, and drains the queue while it is off. The
- * standalone worker process must NOT set this — it runs precisely when the flag
- * is on and would otherwise stand itself down forever.
+ * Plugin-namespaced jobs (`plugin:<id>:`) are dispatched only by handlers that
+ * plugin init registers, and plugin init runs only inside the daemon — never in
+ * the standalone worker process. So plugin jobs always drain in the daemon's
+ * in-process loop:
+ *
+ * - The standalone worker process (no `standDownForWorkerProcess`) claims the
+ *   core slice only (`claimMode: "core"`) — it would hard-fail a `plugin:` job
+ *   with "Unknown memory job type", so it must leave those for the daemon.
+ * - The daemon supervisor (`standDownForWorkerProcess`) drains the whole queue
+ *   while `memory.worker.enabled` is off, and switches to draining the plugin
+ *   slice only (`claimMode: "plugin"`) while the flag is on and the
+ *   out-of-process worker owns the core queue. It no longer fully stands down,
+ *   so plugin jobs keep flowing in worker mode.
  */
 export function startInProcessMemoryJobsWorker(
   opts: { standDownForWorkerProcess?: boolean } = {},
 ): MemoryJobsWorker {
   const standDownForWorkerProcess = opts.standDownForWorkerProcess === true;
-  const recovered = resetRunningJobsToPending();
+
+  // The slice of the queue this loop is allowed to claim on a given tick. The
+  // standalone worker never claims plugin jobs; the daemon supervisor narrows
+  // to plugin-only while the out-of-process worker owns the core queue.
+  const resolveClaimMode = (): JobClaimMode => {
+    if (!standDownForWorkerProcess) return "core";
+    return getConfig().memory.worker?.enabled === true ? "plugin" : "all";
+  };
+
+  // Recover only the slice this loop owns at startup so the standalone worker's
+  // recovery never resets plugin jobs the daemon is running (and vice versa).
+  const recovered = resetRunningJobsToPending(resolveClaimMode());
   if (recovered > 0) {
     log.info({ recovered }, "Recovered stale running memory jobs");
   }
@@ -240,22 +265,14 @@ export function startInProcessMemoryJobsWorker(
     if (stopped || tickRunning) return;
     tickRunning = true;
     try {
-      if (
-        standDownForWorkerProcess &&
-        getConfig().memory.worker?.enabled === true
-      ) {
-        // The out-of-process worker owns the queue — stand the synchronous
-        // runner down so jobs aren't processed twice.
-        //
-        // Switching modes is a rare operator action, so poll at the slow cap
-        // while standing down: it still picks up a `memory worker stop` (which
-        // flips the flag back off) within one interval, without waking every
-        // couple seconds for the whole time the worker owns the queue.
-        currentIntervalMs = POLL_INTERVAL_MAX_MS;
-        return;
-      }
+      const claimMode = resolveClaimMode();
+      // In `"plugin"` mode the out-of-process worker owns the core queue, so
+      // this loop only drains the daemon-handled plugin jobs and skips core
+      // scheduled cleanup (the worker owns it). In `"all"`/`"core"` mode it
+      // drains the queue normally.
       const processed = await runMemoryJobsOnce({
-        enableScheduledCleanup: true,
+        enableScheduledCleanup: claimMode !== "plugin",
+        claimMode,
       });
       if (processed > 0) {
         // Per-tick claim budget equals the lane caps, so when a tick
@@ -264,6 +281,13 @@ export function startInProcessMemoryJobsWorker(
         // sustained throughput at lane-cap jobs per 1.5s and starve large
         // backlogs of short jobs.
         currentIntervalMs = 0;
+      } else if (claimMode === "plugin") {
+        // Standing down for the out-of-process worker: nothing but plugin jobs
+        // to drain, and switching modes is a rare operator action, so poll at
+        // the slow cap. It still picks up a `memory worker stop` (which flips
+        // the flag back off) within one interval without waking every couple
+        // seconds for the whole time the worker owns the core queue.
+        currentIntervalMs = POLL_INTERVAL_MAX_MS;
       } else {
         currentIntervalMs = Math.min(
           Math.max(currentIntervalMs * 2, POLL_INTERVAL_MIN_MS),
@@ -297,7 +321,11 @@ export function startInProcessMemoryJobsWorker(
 
   return {
     async runOnce(): Promise<number> {
-      return runMemoryJobsOnce({ enableScheduledCleanup: true });
+      const claimMode = resolveClaimMode();
+      return runMemoryJobsOnce({
+        enableScheduledCleanup: claimMode !== "plugin",
+        claimMode,
+      });
     },
     stop(): void {
       stopped = true;
@@ -309,11 +337,18 @@ export function startInProcessMemoryJobsWorker(
 type ProcessGroup = (group: MemoryJob[]) => Promise<number>;
 
 export async function runMemoryJobsOnce(
-  options: { enableScheduledCleanup?: boolean } = {},
+  options: { enableScheduledCleanup?: boolean; claimMode?: JobClaimMode } = {},
 ): Promise<number> {
   const config = getConfig();
   if (config.memory.enabled === false) return 0;
   const enableScheduledCleanup = options.enableScheduledCleanup === true;
+  const claimMode = options.claimMode ?? "all";
+  // Core-queue scheduling (cleanup + graph maintenance enqueues, DB
+  // maintenance) belongs to the process draining the core queue. In `"plugin"`
+  // mode this loop is the daemon's plugin-only lane running alongside the
+  // out-of-process worker that owns the core queue, so it must not also enqueue
+  // or run that core work — doing so would double-enqueue against the worker.
+  const runsCoreMaintenance = claimMode !== "plugin";
 
   const diskPressureGate = checkDiskPressureBackgroundGate("background-work");
   if (diskPressureGate.action === "skip") {
@@ -341,19 +376,26 @@ export async function runMemoryJobsOnce(
 
   // Claim per-lane budgets so a backlog of slow LLM jobs cannot starve fast
   // jobs (and vice versa). The Qdrant circuit breaker still gates only the
-  // embed lane inside `claimMemoryJobs`.
-  const claimed = claimMemoryJobs({
-    slowLlm: cfgSlow,
-    fast: cfgFast,
-    embed: cfgEmbed,
-  });
+  // embed lane inside `claimMemoryJobs`. `claimMode` scopes the claim to the
+  // core or plugin slice of the queue so plugin jobs drain only in the process
+  // that registered their handlers.
+  const claimed = claimMemoryJobs(
+    {
+      slowLlm: cfgSlow,
+      fast: cfgFast,
+      embed: cfgEmbed,
+    },
+    claimMode,
+  );
 
   if (claimed.length === 0) {
-    if (enableScheduledCleanup) {
-      maybeEnqueueScheduledCleanupJobs(config);
+    if (runsCoreMaintenance) {
+      if (enableScheduledCleanup) {
+        maybeEnqueueScheduledCleanupJobs(config);
+      }
+      maybeEnqueueGraphMaintenanceJobs(config);
+      await maybeRunDbMaintenance();
     }
-    maybeEnqueueGraphMaintenanceJobs(config);
-    await maybeRunDbMaintenance();
     return 0;
   }
 
@@ -415,11 +457,13 @@ export async function runMemoryJobsOnce(
     runLanePool(embedJobs, cfgEmbed, processGroup),
   ]);
 
-  if (enableScheduledCleanup) {
-    maybeEnqueueScheduledCleanupJobs(config);
+  if (runsCoreMaintenance) {
+    if (enableScheduledCleanup) {
+      maybeEnqueueScheduledCleanupJobs(config);
+    }
+    maybeEnqueueGraphMaintenanceJobs(config);
+    await maybeRunDbMaintenance();
   }
-  maybeEnqueueGraphMaintenanceJobs(config);
-  await maybeRunDbMaintenance();
   return slowProcessed + fastProcessed + embedProcessed;
 }
 

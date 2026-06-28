@@ -78,6 +78,7 @@ import { openPluginVectorCollection } from "../persistence/embeddings/plugin-vec
 import { enqueuePluginJob } from "../persistence/jobs-store.js";
 import { registerJobHandler } from "../persistence/jobs-worker.js";
 import { createStoreFacet } from "../persistence/plugin-store/index.js";
+import type { PluginHost } from "../plugin-api/types.js";
 import {
   createTimeout,
   extractToolUse,
@@ -419,5 +420,37 @@ export function buildVectorStoreFacet(hostId: string): VectorStoreFacet {
         delete: (ids) => handle.delete(ids),
       };
     },
+  };
+}
+
+/**
+ * Build the `host` bundle handed to an external plugin on
+ * {@link InitContext.host}. Composes the facet builders above — the same
+ * source of truth `createDaemonSkillHost` consumes — scoped to the plugin
+ * name (so logger scopes, store/jobs/vector namespaces, and shutdown-hook keys
+ * carry the owning plugin). This bundle is the sanctioned route for external
+ * plugins to reach providers/memory/events/config; direct `assistant/` source
+ * imports remain forbidden for external plugins.
+ *
+ * The registry bootstrap (`external-plugins-bootstrap.ts`) and the
+ * mtime/hook-loader user-plugin init path (`hooks/hook-loader.ts`) both call
+ * this so every plugin — first-party default or installed user plugin —
+ * receives an identical `host`.
+ */
+export function buildPluginHost(pluginName: string): PluginHost {
+  return {
+    providers: buildProvidersFacet(),
+    memory: buildMemoryFacet(),
+    history: buildHistoryFacet(),
+    events: buildEventsFacet(),
+    config: buildConfigFacet(),
+    identity: buildIdentityFacet(),
+    platform: buildPlatformFacet(),
+    logger: buildLoggerFacet(pluginName),
+    registries: buildRegistriesFacet(pluginName),
+    embeddings: buildEmbeddingsFacet(),
+    vectorStore: buildVectorStoreFacet(pluginName),
+    store: buildStoreFacet(pluginName),
+    jobs: buildJobsFacet(pluginName),
   };
 }

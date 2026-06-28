@@ -114,14 +114,16 @@ const generateSparseEmbeddingMock = mock((_text: string) => ({
   indices: [1, 2, 3],
   values: [0.5, 0.5, 0.5] as number[],
 }));
-const realEmbeddingBackend = await import("../../../persistence/embeddings/embedding-backend.js");
+const realEmbeddingBackend =
+  await import("../../../persistence/embeddings/embedding-backend.js");
 mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
   ...realEmbeddingBackend,
   embedWithBackend: embedWithBackendMock,
   generateSparseEmbedding: generateSparseEmbeddingMock,
 }));
 
-const realQdrantClient = await import("../../../persistence/embeddings/qdrant-client.js");
+const realQdrantClient =
+  await import("../../../persistence/embeddings/qdrant-client.js");
 mock.module("../../../persistence/embeddings/qdrant-client.js", () => ({
   ...realQdrantClient,
   resolveQdrantUrl: () => "http://127.0.0.1:6333",
@@ -225,6 +227,23 @@ function makeConfig(v2Enabled: boolean, memoryEnabled = true): AssistantConfig {
   return applyNestedDefaults({
     memory: {
       enabled: memoryEnabled,
+      v2: { enabled: v2Enabled, router: { enabled: false } },
+    },
+  }) as AssistantConfig;
+}
+
+/**
+ * Like {@link makeConfig} but pins an explicit `memory.provider`, so a test can
+ * drive the v2-vs-graph selection independently of the raw `v2.enabled` flag.
+ */
+function makeConfigWithProvider(
+  provider: "graph" | "v2",
+  v2Enabled: boolean,
+): AssistantConfig {
+  return applyNestedDefaults({
+    memory: {
+      enabled: true,
+      provider,
       v2: { enabled: v2Enabled, router: { enabled: false } },
     },
   }) as AssistantConfig;
@@ -567,6 +586,56 @@ describe("ConversationGraphMemory.prepareMemory — memory.enabled gate", () => 
     expect(result.injectedBlockText).toBeNull();
     expect(result.runMessages).toEqual(messages);
     expect(loadContextMemoryMock).not.toHaveBeenCalled();
+    expect(retrieveForTurnMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("ConversationGraphMemory.prepareMemory — explicit provider pin", () => {
+  test('provider:"graph" + v2.enabled:true runs graph (v1), not v2', async () => {
+    // The pin must win over the raw flag: even with `v2.enabled: true`, a
+    // `"graph"` provider routes to the legacy v1 retriever, not the v2
+    // activation pipeline.
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+
+    const memory = makeMemory();
+    const config = makeConfigWithProvider("graph", true);
+    const messages = makeMessages("Tell me about Alice's editor preferences");
+
+    const result = await memory.prepareMemory(
+      messages,
+      config,
+      new AbortController().signal,
+      noopEvent,
+    );
+
+    // v1 per-turn retrieval ran; the v2 block was not produced (the v1 mock
+    // returns zero nodes, so nothing is injected).
+    expect(retrieveForTurnMock).toHaveBeenCalled();
+    expect(result.injectedBlockText).toBeNull();
+    expect(result.runMessages).toEqual(messages);
+  });
+
+  test('provider:"v2" + v2.enabled:false runs v2, not graph', async () => {
+    // The pin must win over the raw flag: even with `v2.enabled: false`, a
+    // `"v2"` provider routes to the v2 activation pipeline and bypasses v1.
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+
+    const memory = makeMemory();
+    const config = makeConfigWithProvider("v2", false);
+    const messages = makeMessages("Tell me about Alice's editor preferences");
+
+    const result = await memory.prepareMemory(
+      messages,
+      config,
+      new AbortController().signal,
+      noopEvent,
+    );
+
+    // v2 produced a block from the concept page; v1 retrieval was bypassed.
+    expect(result.injectedBlockText).not.toBeNull();
+    expect(result.injectedBlockText).toContain(
+      "# memory/concepts/alice-vscode.md",
+    );
     expect(retrieveForTurnMock).not.toHaveBeenCalled();
   });
 });

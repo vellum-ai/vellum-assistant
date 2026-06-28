@@ -61,7 +61,6 @@ import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags
 import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
 import { HOOKS } from "../plugin-api/constants.js";
-import type { PluginHost } from "../plugin-api/types.js";
 import {
   getAllDefaultPlugins,
   registerDefaultPlugins,
@@ -87,21 +86,7 @@ import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir, getWorkspacePluginsDir } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
 import { registerShutdownHook } from "./shutdown-registry.js";
-import {
-  buildConfigFacet,
-  buildEmbeddingsFacet,
-  buildEventsFacet,
-  buildHistoryFacet,
-  buildIdentityFacet,
-  buildJobsFacet,
-  buildLoggerFacet,
-  buildMemoryFacet,
-  buildPlatformFacet,
-  buildProvidersFacet,
-  buildRegistriesFacet,
-  buildStoreFacet,
-  buildVectorStoreFacet,
-} from "./skill-host-facets.js";
+import { buildPluginHost } from "./skill-host-facets.js";
 
 const log = getLogger("plugins-bootstrap");
 
@@ -156,33 +141,6 @@ function ensurePluginStorageDir(pluginName: string): string {
   const dir = join(getWorkspaceDir(), "plugins-data", pluginName);
   mkdirSync(dir, { recursive: true });
   return dir;
-}
-
-/**
- * Build the `host` bundle handed to an external plugin on
- * {@link InitContext.host}. Composes the shared `skill-host-facets` builders
- * — the same source of truth `createDaemonSkillHost` consumes — scoped to the
- * plugin name (so logger scopes and shutdown-hook keys carry the owning
- * plugin). This bundle is the sanctioned route for external plugins to reach
- * providers/memory/events/config; direct `assistant/` source imports remain
- * forbidden for external plugins.
- */
-function buildPluginHost(pluginName: string): PluginHost {
-  return {
-    providers: buildProvidersFacet(),
-    memory: buildMemoryFacet(),
-    history: buildHistoryFacet(),
-    events: buildEventsFacet(),
-    config: buildConfigFacet(),
-    identity: buildIdentityFacet(),
-    platform: buildPlatformFacet(),
-    logger: buildLoggerFacet(pluginName),
-    registries: buildRegistriesFacet(pluginName),
-    embeddings: buildEmbeddingsFacet(),
-    vectorStore: buildVectorStoreFacet(pluginName),
-    store: buildStoreFacet(pluginName),
-    jobs: buildJobsFacet(pluginName),
-  };
 }
 
 function getDisabledPluginFlag(

@@ -30,6 +30,7 @@ import {
 import { join } from "node:path";
 
 import { getConfig } from "../config/loader.js";
+import { buildPluginHost } from "../daemon/skill-host-facets.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type {
   HookFunction,
@@ -263,6 +264,12 @@ export async function runInitHook(
       logger: log.child({ plugin: ownerName }),
       pluginStorageDir: resolvePluginStorageDir(ownerName, pluginDir),
       assistantVersion: APP_VERSION,
+      // The sanctioned route to the assistant's live subsystems, scoped to
+      // this owner so store/jobs/vector namespaces and logger scopes carry
+      // the owning plugin. Identical to the host the registry-bootstrap path
+      // builds, so an installed user plugin loaded through the mtime/hook
+      // loader sees the same `ctx.host` a first-party default does.
+      host: buildPluginHost(ownerName),
     };
     await initHookEntry.hook(initContext);
     log.info({ plugin: ownerName }, "user hooks initialized");
