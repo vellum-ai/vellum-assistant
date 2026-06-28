@@ -117,6 +117,9 @@ function handleExecutionFailure(params: {
   });
 }
 
+/** The running scheduler, retained so shutdown can stop it. */
+let instance: SchedulerHandle | null = null;
+
 export function startScheduler(
   processMessage: ScheduleMessageProcessor,
   notifyScheduleOneShot: ScheduleNotifyModeNotifier,
@@ -149,7 +152,7 @@ export function startScheduler(
   timer.unref();
   void tick();
 
-  return {
+  instance = {
     async runOnce(): Promise<number> {
       return runScheduleOnce(
         processMessage,
@@ -174,6 +177,14 @@ export function startScheduler(
       clearInterval(timer);
     },
   };
+  return instance;
+}
+
+/** Stop the running scheduler if one was started; no-op otherwise. */
+export function stopScheduler(): void {
+  if (!instance) return;
+  instance.stop();
+  instance = null;
 }
 
 export async function runScheduleOnce(
