@@ -5,13 +5,13 @@
  * accessor is the seam that decides which memory tools exist per
  * `memory.provider`:
  *
- * - graph / v2 expose `remember` + `recall` (the executable tools whose
+ * - graph / v2 / v3 expose `remember` + `recall` (the executable tools whose
  *   schemas mirror the canonical graph definitions),
- * - v3 / `none` expose nothing.
+ * - `none` exposes nothing.
  *
  * The provider modules are not mocked — the real graph/v2/v3 providers all
- * resolve to the shared `rememberTool`/`recallTool` (or to empty), and that
- * sharing is exactly what this test pins.
+ * resolve to the shared `rememberTool`/`recallTool`, and `none` resolves to
+ * empty; that sharing is exactly what this test pins.
  */
 
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
@@ -39,7 +39,7 @@ function memoryToolsFor(provider: string) {
 }
 
 describe("getMemoryToolsForActiveProvider", () => {
-  test.each(["graph", "v2"] as const)(
+  test.each(["graph", "v2", "v3"] as const)(
     'provider "%s" exposes remember + recall',
     (provider) => {
       const names = memoryToolsFor(provider)
@@ -49,12 +49,9 @@ describe("getMemoryToolsForActiveProvider", () => {
     },
   );
 
-  test.each(["v3", "none"] as const)(
-    'provider "%s" exposes no memory tools',
-    (provider) => {
-      expect(memoryToolsFor(provider)).toEqual([]);
-    },
-  );
+  test('provider "none" exposes no memory tools', () => {
+    expect(memoryToolsFor("none")).toEqual([]);
+  });
 
   test("registered tool schemas match the canonical graph definitions", () => {
     const tools = memoryToolsFor("graph");
@@ -69,13 +66,15 @@ describe("getMemoryToolsForActiveProvider", () => {
     expect(recall?.input_schema).toEqual(graphRecallDefinition.input_schema);
   });
 
-  test("graph and v2 register the same executable tool instances", () => {
+  test("graph, v2, and v3 register the same executable tool instances", () => {
     const graphTools = memoryToolsFor("graph");
     const v2Tools = memoryToolsFor("v2");
+    const v3Tools = memoryToolsFor("v3");
 
-    // Both providers contribute the shared `rememberTool`/`recallTool`
+    // All three providers contribute the shared `rememberTool`/`recallTool`
     // instances — the same objects carrying the real `execute` handlers.
     expect(graphTools).toEqual(v2Tools);
+    expect(v3Tools).toEqual(v2Tools);
     for (const tool of graphTools) {
       expect(typeof tool.execute).toBe("function");
     }

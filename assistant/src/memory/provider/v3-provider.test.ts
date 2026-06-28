@@ -50,6 +50,8 @@ mock.module("../../plugins/defaults/memory-v3-shadow/injector.js", () => ({
 
 const { V3MemoryProvider } = await import("./v3-provider.js");
 const { MemoryConfigSchema } = await import("../../config/schemas/memory.js");
+const { rememberTool, recallTool } =
+  await import("../../tools/memory/register.js");
 
 // ─── fixtures ────────────────────────────────────────────────────────────────
 
@@ -160,8 +162,12 @@ describe("V3MemoryProvider", () => {
     expect(blocks[0]!.id).toBe(MEMORY_V3_SPOTLIGHT_BLOCK_ID);
   });
 
-  test("provideTools is empty; provideRoutes returns the v3 maintenance routes", () => {
-    expect(V3MemoryProvider.provideTools()).toEqual([]);
+  test("provideTools exposes the shared remember/recall instances (matching v2/graph), preserving base behavior for v3-live installs; provideRoutes returns the v3 maintenance routes", () => {
+    const tools = V3MemoryProvider.provideTools();
+    // Same instances v2/graph return — remember/recall handlers are
+    // provider-agnostic and write to the shared corpus v3 consolidation consumes.
+    expect(tools).toEqual([rememberTool, recallTool]);
+    expect(tools.map((t) => t.name)).toEqual(["remember", "recall"]);
     expect(V3MemoryProvider.provideRoutes()).toBe(MEMORY_V3_ROUTES);
   });
 
