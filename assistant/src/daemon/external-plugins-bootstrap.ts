@@ -66,6 +66,7 @@ import {
   getAllDefaultPlugins,
   registerDefaultPlugins,
 } from "../plugins/defaults/index.js";
+import { assertSingleMemoryPlugin } from "../plugins/memory-capability.js";
 import { getRegisteredPlugins, unregisterPlugin } from "../plugins/registry.js";
 import {
   type Plugin,
@@ -211,6 +212,20 @@ function getDisabledPluginFlag(
 export async function initializePlugins(): Promise<void> {
   registerDefaultPlugins();
   await loadUserPlugins();
+  // Enforce the single-active-memory-plugin rule now that user plugins are
+  // discovered. Two simultaneously-active external memory plugins is a
+  // misconfiguration the built-in cannot yield to; surface it loudly. We log
+  // rather than throw so one misconfigured pair never blocks daemon startup —
+  // the read-time guards fail safe (built-in stays active) until the operator
+  // disables the extras.
+  try {
+    assertSingleMemoryPlugin();
+  } catch (err) {
+    log.error(
+      { err },
+      'memory-capability conflict — multiple plugins declare provides: "memory"; the built-in memory system stays active until only one external memory plugin is enabled',
+    );
+  }
   try {
     await bootstrapPlugins();
   } catch (err) {

@@ -171,6 +171,26 @@ const discoveredPluginDirs = new Map<string, string>();
  */
 const disabledPluginDirs = new Set<string>();
 
+/**
+ * Names of currently-discovered, enabled user plugins that declare
+ * `vellum.provides === "memory"` in their `package.json`. Refreshed on every
+ * `scanPlugins` so the set tracks live install/uninstall/disable transitions.
+ * Read by the memory-capability arbiter (`plugins/memory-capability.ts`) to
+ * decide whether the built-in memory plugins yield. `.disabled` plugins are
+ * excluded — a disabled external memory plugin must not make the built-in yield.
+ */
+const memoryCapabilityPluginNames = new Set<string>();
+
+/**
+ * Names of currently-discovered, enabled user plugins that declare
+ * `vellum.provides === "memory"`. The arbiter in `plugins/memory-capability.ts`
+ * uses this to enforce the single-active-memory-plugin rule and to suppress the
+ * built-in memory hooks when an external memory plugin is installed.
+ */
+export function getDiscoveredMemoryCapabilityPlugins(): string[] {
+  return Array.from(memoryCapabilityPluginNames);
+}
+
 // ─── Hook reads ──────────────────────────────────────────────────────────────
 
 /**
@@ -302,6 +322,10 @@ async function scanPlugins(): Promise<void> {
   }
 
   const currentDirs = new Map<string, string>();
+  // Rebuilt fresh each scan from the enabled plugins discovered below, so a
+  // disabled/removed external memory plugin drops out and the built-in stops
+  // yielding to it.
+  const currentMemoryCapabilityNames = new Set<string>();
 
   for (const entry of entries) {
     const pluginDir = join(pluginsDir, entry);
@@ -339,6 +363,9 @@ async function scanPlugins(): Promise<void> {
 
     currentDirs.set(pluginDir, pluginName);
     disabledPluginDirs.delete(pluginDir);
+    if (manifest.provides === "memory") {
+      currentMemoryCapabilityNames.add(pluginName);
+    }
 
     if (!discoveredPluginDirs.has(pluginDir)) {
       log.info({ plugin: pluginName, pluginDir }, "plugin discovered");
@@ -364,6 +391,13 @@ async function scanPlugins(): Promise<void> {
   );
   for (const [dir, name] of sorted) {
     discoveredPluginDirs.set(dir, name);
+  }
+
+  // Swap in the freshly-computed memory-capability set so a disabled or removed
+  // external memory plugin stops suppressing the built-in memory hooks.
+  memoryCapabilityPluginNames.clear();
+  for (const name of currentMemoryCapabilityNames) {
+    memoryCapabilityPluginNames.add(name);
   }
 
   // Activate any plugin not yet brought up. Idempotent: already-active plugins
@@ -416,6 +450,7 @@ async function evictAll(): Promise<void> {
   discoveredPluginDirs.clear();
   installDateCache.clear();
   disabledPluginDirs.clear();
+  memoryCapabilityPluginNames.clear();
 }
 
 // ─── Activation lifecycle ────────────────────────────────────────────────────
@@ -605,6 +640,7 @@ export function resetPluginCacheForTests(): void {
   activatedPlugins.length = 0;
   activatedNames.clear();
   disabledPluginDirs.clear();
+  memoryCapabilityPluginNames.clear();
 }
 
 /**
