@@ -1322,15 +1322,7 @@ export async function runDaemon(): Promise<void> {
 
   startWorkspaceHeartbeatService();
 
-  const heartbeat = startHeartbeatService({
-    alerter: (alert) => broadcastMessage(alert),
-    onConversationCreated: (info) =>
-      broadcastMessage({
-        type: "heartbeat_conversation_created",
-        conversationId: info.conversationId,
-        title: info.title,
-      }),
-  });
+  const heartbeat = startHeartbeatService();
   registerBackgroundWakeRuntime({ scheduler, heartbeat });
   refreshBackgroundWakeIntent("daemon-startup");
 
