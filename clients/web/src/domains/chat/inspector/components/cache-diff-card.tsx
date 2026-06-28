@@ -12,19 +12,29 @@
  * component owns only fetching and presentation.
  */
 
-import { type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import {
   collapseDiffContext,
   computeCacheDiff,
+  diffLines,
+  MAX_ON_DEMAND_DIFF_LINES,
   type CacheDiffChangedGroups,
   type CacheDiffLine,
   type CacheDiffResult,
+  type LineDiffSource,
 } from "@/domains/chat/inspector/cache-diff";
 import { useLlmCallDetail } from "@/domains/chat/inspector/inspector-detail-api";
 import { formatCount } from "@/domains/chat/inspector/inspector-formatters";
 import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
-import { Card, Notice, type NoticeTone, Tag, type TagTone } from "@vellumai/design-library";
+import {
+  Button,
+  Card,
+  Notice,
+  type NoticeTone,
+  Tag,
+  type TagTone,
+} from "@vellumai/design-library";
 
 export interface CacheDiffCardProps {
   current: LLMRequestLogEntry;
@@ -193,24 +203,139 @@ function diffLineStyle(type: CacheDiffLine["type"]): DiffLineStyle {
   };
 }
 
+type OnDemandDiff =
+  | { status: "idle" }
+  | { status: "tooLarge" }
+  | { status: "ready"; lines: CacheDiffLine[] };
+
+interface DiffPreviewActionsProps {
+  truncated: boolean;
+  onDemand: OnDemandDiff;
+  source: LineDiffSource | null;
+  cappedCount: number;
+  expanded: boolean;
+  onToggleExpanded: () => void;
+  onComputeFull: () => void;
+}
+
+/**
+ * The footnote affordance under a diff: an expand/collapse toggle for the
+ * display cap, or — when the text was too large to diff eagerly — a
+ * "Diff anyway" button (and the still-too-large fallback).
+ */
+function DiffPreviewActions({
+  truncated,
+  onDemand,
+  source,
+  cappedCount,
+  expanded,
+  onToggleExpanded,
+  onComputeFull,
+}: DiffPreviewActionsProps): ReactNode {
+  if (truncated) {
+    if (onDemand.status === "tooLarge") {
+      return (
+        <p
+          className="mt-1 text-label-default"
+          style={{ color: "var(--content-tertiary)" }}
+        >
+          {`Still too large to diff here (over ${formatCount(MAX_ON_DEMAND_DIFF_LINES)} lines) — open the Raw tab for the full payload.`}
+        </p>
+      );
+    }
+    if (!source) {
+      return (
+        <p
+          className="mt-1 text-label-default"
+          style={{ color: "var(--content-tertiary)" }}
+        >
+          The changed text is too large to diff here — open the Raw tab for the
+          full payload.
+        </p>
+      );
+    }
+    const lineCount = Math.max(
+      source.previousText.split("\n").length,
+      source.currentText.split("\n").length,
+    );
+    return (
+      <div className="mt-1 flex flex-col items-start gap-1">
+        <p
+          className="text-label-default"
+          style={{ color: "var(--content-tertiary)" }}
+        >
+          The changed text is large, so it isn't diffed by default.
+        </p>
+        <Button variant="ghost" size="compact" onClick={onComputeFull}>
+          {`Diff anyway (${formatCount(lineCount)} lines)`}
+        </Button>
+      </div>
+    );
+  }
+
+  if (cappedCount > 0) {
+    return (
+      <Button
+        variant="ghost"
+        size="compact"
+        className="mt-1"
+        onClick={onToggleExpanded}
+      >
+        {expanded
+          ? "Show less"
+          : `Show ${formatCount(cappedCount)} more diff line(s)`}
+      </Button>
+    );
+  }
+
+  return null;
+}
+
 interface DiffPreviewProps {
   label: string;
   lines: CacheDiffLine[];
   truncated: boolean;
+  source: LineDiffSource | null;
 }
 
-/** Renders a collapsed, focused line diff with gap markers for context runs. */
-function DiffPreview({ label, lines, truncated }: DiffPreviewProps): ReactNode {
-  const entries = collapseDiffContext(lines);
-  const visible = entries.slice(0, MAX_VISIBLE_DIFF_ENTRIES);
-  const hiddenCount = entries.length - visible.length;
+/**
+ * Renders a collapsed, focused line diff with gap markers for context runs.
+ * The display is capped at {@link MAX_VISIBLE_DIFF_ENTRIES} entries with a
+ * click-to-expand toggle, and an oversized diff that was skipped on the
+ * default render (`truncated`) can be computed on demand from `source`.
+ */
+function DiffPreview({
+  label,
+  lines,
+  truncated,
+  source,
+}: DiffPreviewProps): ReactNode {
+  const [expanded, setExpanded] = useState(false);
+  const [onDemand, setOnDemand] = useState<OnDemandDiff>({ status: "idle" });
 
-  let footnote: string | null = null;
-  if (truncated) {
-    footnote =
-      "The changed text is too large to diff here — open the Raw tab for the full payload.";
-  } else if (hiddenCount > 0) {
-    footnote = `${formatCount(hiddenCount)} more diff line(s) hidden — open the Raw tab for the full diff.`;
+  // Computing an oversized diff on demand swaps in the freshly diffed lines
+  // and clears the truncation, so the display-cap toggle below takes over.
+  const effectiveLines = onDemand.status === "ready" ? onDemand.lines : lines;
+  const effectiveTruncated = onDemand.status === "ready" ? false : truncated;
+
+  const entries = collapseDiffContext(effectiveLines);
+  const cappedCount = Math.max(entries.length - MAX_VISIBLE_DIFF_ENTRIES, 0);
+  const visible = expanded
+    ? entries
+    : entries.slice(0, MAX_VISIBLE_DIFF_ENTRIES);
+
+  function computeFullDiff(): void {
+    if (!source) return;
+    const result = diffLines(
+      source.previousText,
+      source.currentText,
+      MAX_ON_DEMAND_DIFF_LINES,
+    );
+    setOnDemand(
+      result && !result.truncated
+        ? { status: "ready", lines: result.lines }
+        : { status: "tooLarge" },
+    );
   }
 
   return (
@@ -254,14 +379,15 @@ function DiffPreview({ label, lines, truncated }: DiffPreviewProps): ReactNode {
           })}
         </pre>
       ) : null}
-      {footnote ? (
-        <p
-          className="mt-1 text-label-default"
-          style={{ color: "var(--content-tertiary)" }}
-        >
-          {footnote}
-        </p>
-      ) : null}
+      <DiffPreviewActions
+        truncated={effectiveTruncated}
+        onDemand={onDemand}
+        source={source}
+        cappedCount={cappedCount}
+        expanded={expanded}
+        onToggleExpanded={() => setExpanded((value) => !value)}
+        onComputeFull={computeFullDiff}
+      />
     </div>
   );
 }
@@ -372,9 +498,11 @@ export function CacheDiffCard({
 
       {result.lineDiff && result.lineDiffLabel ? (
         <DiffPreview
+          key={current.id}
           label={result.lineDiffLabel}
           lines={result.lineDiff}
           truncated={result.lineDiffTruncated}
+          source={result.lineDiffSource}
         />
       ) : null}
     </Card>
