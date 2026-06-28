@@ -78,13 +78,62 @@ interface StoredPoint {
   payload: Record<string, unknown>;
 }
 
-/** Minimal table store keyed by SQL shape the plugin actually issues. */
+/**
+ * Host-namespace prefix the in-memory store enforces. Stands in for the real
+ * host's `plugin_<id>_<hash>_` scheme — the exact bytes don't matter, only that
+ * the store qualifies names with THIS prefix and rejects any statement that
+ * touches a table outside it. Deliberately NOT `plugin_memoryreference_` so a
+ * regression where the plugin hardcodes the old prefix (instead of deriving it
+ * from `host.store.qualify`) is caught here rather than only against the real
+ * daemon.
+ */
+const TEST_TABLE_PREFIX = "plugin_memref_test_";
+
+/**
+ * Pull the table names a statement references, so the fake store can reject any
+ * outside its namespace — the same boundary the real `assertScopedToPlugin`
+ * enforces, scoped to the handful of SQL shapes this plugin issues
+ * (CREATE TABLE / CREATE INDEX … ON / INSERT INTO / FROM).
+ */
+function referencedTables(sql: string): string[] {
+  const names: string[] = [];
+  const patterns = [
+    /\bcreate\s+table\s+(?:if\s+not\s+exists\s+)?([A-Za-z0-9_]+)/gi,
+    /\bcreate\s+index\s+(?:if\s+not\s+exists\s+)?[A-Za-z0-9_]+\s+on\s+([A-Za-z0-9_]+)/gi,
+    /\binto\s+([A-Za-z0-9_]+)/gi,
+    /\bfrom\s+([A-Za-z0-9_]+)/gi,
+  ];
+  for (const re of patterns) {
+    for (const m of sql.matchAll(re)) {
+      if (m[1]) names.push(m[1].toLowerCase());
+    }
+  }
+  return names;
+}
+
+/**
+ * Minimal table store keyed by the SQL shapes the plugin actually issues, with
+ * namespace enforcement: `qualify` hands back a `TEST_TABLE_PREFIX`-prefixed
+ * name and every statement is rejected if it references a table outside that
+ * prefix — so the test fails if the plugin ever hardcodes a prefix that does
+ * not match what `qualify` returns.
+ */
 function makeStore() {
   const rows = new Map<string, Record<string, unknown>>();
   const applied = new Set<string>();
+  const assertScoped = (sql: string): void => {
+    for (const table of referencedTables(sql)) {
+      if (!table.startsWith(TEST_TABLE_PREFIX)) {
+        throw new Error(
+          `cross-namespace access: "${table}" is outside "${TEST_TABLE_PREFIX}"`,
+        );
+      }
+    }
+  };
   return {
     rows,
     facet: {
+      qualify: (name: string): string => `${TEST_TABLE_PREFIX}${name}`,
       migrate(
         migrations: {
           name: string;
@@ -93,13 +142,14 @@ function makeStore() {
       ) {
         for (const m of migrations) {
           if (applied.has(m.name)) continue;
-          m.up(() => {
-            // DDL only — the in-memory store has no schema to enforce.
-          });
+          // The in-memory store has no schema to build, but it DOES enforce the
+          // namespace on every DDL statement, exactly as the real store does.
+          m.up((sql: string) => assertScoped(sql));
           applied.add(m.name);
         }
       },
       exec(sql: string, params: unknown[] = []) {
+        assertScoped(sql);
         if (/INSERT\s+OR\s+REPLACE\s+INTO/i.test(sql)) {
           const [id, conversation_id, text, created_at] = params as [
             string,
@@ -116,6 +166,7 @@ function makeStore() {
         sql: string,
         params: unknown[] = [],
       ): T[] {
+        assertScoped(sql);
         if (/SELECT[\s\S]+FROM[\s\S]+WHERE\s+id\s+IN/i.test(sql)) {
           return (params as string[])
             .map((id) => rows.get(id))
@@ -294,6 +345,29 @@ describe("memory-reference plugin", () => {
     );
     expect(recalled.isError).toBe(false);
     expect(recalled.content).toContain("dark roast coffee");
+  });
+
+  test("derives its table name from host.store.qualify (no hardcoded prefix)", async () => {
+    // The store enforces `TEST_TABLE_PREFIX` (not `plugin_memoryreference_`), so
+    // init's migration DDL and remember/recall succeed ONLY because the plugin
+    // qualifies its table name through the host. A hardcoded prefix would be
+    // rejected as cross-namespace by the store — the failure mode FIX 3 closes.
+    const h = makeHarness();
+    await init(initCtx(h.host));
+
+    const remembered = await rememberTool.execute(
+      { text: "Namespaced through the host facet." },
+      toolCtx("conv-ns") as never,
+    );
+    expect(remembered.isError).toBe(false);
+    expect(h.store.rows.size).toBe(1);
+
+    const recalled = await recallTool.execute(
+      { query: "namespaced host facet" },
+      toolCtx("conv-ns") as never,
+    );
+    expect(recalled.isError).toBe(false);
+    expect(recalled.content).toContain("Namespaced through the host facet.");
   });
 
   test("recall returns nothing before anything is remembered", async () => {

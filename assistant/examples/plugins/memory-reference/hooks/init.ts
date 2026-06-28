@@ -20,7 +20,6 @@ import {
   embedOne,
   ensureCollection,
   extractText,
-  FACTS_TABLE,
   rememberFact,
   setRuntime,
 } from "../src/state.js";
@@ -47,14 +46,16 @@ export default async function init(ctx: InitContext): Promise<void> {
   const rt = setRuntime(ctx.host);
 
   // 1) Declare the durable fact table. Append-only & idempotent — safe on every
-  // boot. The host namespaces the table under `plugin_<id>_` and rejects DDL
-  // that touches anything outside that prefix.
+  // boot. The table name comes from `host.store.qualify` (resolved into
+  // `rt.factsTable` at setRuntime), so the DDL matches the host's prefix scheme;
+  // the host rejects any statement touching a table outside that prefix.
+  const factsTable = rt.factsTable;
   rt.store.migrate([
     {
       name: "0001-create-facts",
       up: (exec) => {
         exec(
-          `CREATE TABLE IF NOT EXISTS ${FACTS_TABLE} (
+          `CREATE TABLE IF NOT EXISTS ${factsTable} (
              id TEXT PRIMARY KEY,
              conversation_id TEXT NOT NULL,
              text TEXT NOT NULL,
@@ -67,8 +68,8 @@ export default async function init(ctx: InitContext): Promise<void> {
       name: "0002-index-facts-conversation",
       up: (exec) => {
         exec(
-          `CREATE INDEX IF NOT EXISTS ${FACTS_TABLE}_conversation_idx
-             ON ${FACTS_TABLE} (conversation_id)`,
+          `CREATE INDEX IF NOT EXISTS ${factsTable}_conversation_idx
+             ON ${factsTable} (conversation_id)`,
         );
       },
     },

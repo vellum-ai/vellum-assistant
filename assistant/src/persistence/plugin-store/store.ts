@@ -30,7 +30,7 @@ import type {
 import { getLogger } from "../../util/logger.js";
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 import { ensureCheckpointsTable } from "../migrations/run-migrations.js";
-import { assertScopedToPlugin } from "./table-namespace.js";
+import { assertScopedToPlugin, pluginTablePrefix } from "./table-namespace.js";
 
 const log = getLogger("plugin-store");
 
@@ -127,6 +127,7 @@ export function createStoreFacet(
   hostId: string,
 ): StoreFacet {
   return {
+    qualify: (name: string): string => `${pluginTablePrefix(hostId)}${name}`,
     migrate: (migrations) =>
       runPluginMigrations(getDatabase(), hostId, migrations),
     query: <T = Record<string, unknown>>(

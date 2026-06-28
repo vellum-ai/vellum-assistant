@@ -27,7 +27,10 @@ import {
   PLUGIN_STEP_CHECKPOINT_PREFIX,
   pluginStepCheckpointKey,
 } from "../store.js";
-import { PluginStoreNamespaceError } from "../table-namespace.js";
+import {
+  PluginStoreNamespaceError,
+  pluginTablePrefix,
+} from "../table-namespace.js";
 
 function makeDb(): DrizzleDb {
   const sqlite = new Database(":memory:");
@@ -40,12 +43,17 @@ describe("plugin store facet", () => {
     db = makeDb();
   });
 
+  // The acme plugin's own fact table, named via the real (hashed) prefix so the
+  // guard accepts it. Derived rather than hardcoded because the prefix folds in
+  // a digest of the host id — a bare `plugin_acme_notes` no longer matches.
+  const ACME_NOTES = `${pluginTablePrefix("acme")}notes`;
+
   const acmeMigrations = [
     {
       name: "001-create-notes",
       up: (exec: (sql: string, params?: unknown[]) => void) =>
         exec(
-          `CREATE TABLE IF NOT EXISTS plugin_acme_notes (
+          `CREATE TABLE IF NOT EXISTS ${ACME_NOTES} (
              id TEXT PRIMARY KEY,
              body TEXT NOT NULL
            )`,
@@ -57,12 +65,12 @@ describe("plugin store facet", () => {
     const facet = createStoreFacet(() => db, "acme");
     facet.migrate(acmeMigrations);
 
-    facet.exec(`INSERT INTO plugin_acme_notes (id, body) VALUES (?, ?)`, [
+    facet.exec(`INSERT INTO ${ACME_NOTES} (id, body) VALUES (?, ?)`, [
       "n1",
       "hello",
     ]);
     const rows = facet.query<{ id: string; body: string }>(
-      `SELECT id, body FROM plugin_acme_notes`,
+      `SELECT id, body FROM ${ACME_NOTES}`,
     );
     expect(rows).toEqual([{ id: "n1", body: "hello" }]);
 
@@ -84,7 +92,7 @@ describe("plugin store facet", () => {
         up: (exec: (sql: string, params?: unknown[]) => void) => {
           upCalls += 1;
           exec(
-            `CREATE TABLE IF NOT EXISTS plugin_acme_notes (id TEXT PRIMARY KEY)`,
+            `CREATE TABLE IF NOT EXISTS ${ACME_NOTES} (id TEXT PRIMARY KEY)`,
           );
         },
       },
@@ -110,7 +118,7 @@ describe("plugin store facet", () => {
         up: (exec: (sql: string, params?: unknown[]) => void) => {
           secondRan += 1;
           exec(
-            `CREATE INDEX IF NOT EXISTS plugin_acme_notes_body ON plugin_acme_notes (body)`,
+            `CREATE INDEX IF NOT EXISTS ${ACME_NOTES}_body ON ${ACME_NOTES} (body)`,
           );
         },
       },
@@ -143,7 +151,7 @@ describe("plugin store facet", () => {
       // directly (bypassing the facet) so the cross-namespace reads have a real
       // target to be rejected against.
       const raw = getSqliteFrom(db);
-      raw.run(`CREATE TABLE plugin_acme_notes (id TEXT PRIMARY KEY)`);
+      raw.run(`CREATE TABLE ${ACME_NOTES} (id TEXT PRIMARY KEY)`);
       raw.run(`CREATE TABLE plugin_other_secrets (id TEXT PRIMARY KEY)`);
       raw.run(`CREATE TABLE messages (id TEXT PRIMARY KEY, content TEXT)`);
       raw.run(`INSERT INTO plugin_other_secrets (id) VALUES ('s1')`);
@@ -175,7 +183,7 @@ describe("plugin store facet", () => {
       const facet = createStoreFacet(() => db, "acme");
       expect(() =>
         facet.query(
-          `SELECT n.id FROM plugin_acme_notes n JOIN messages m ON m.id = n.id`,
+          `SELECT n.id FROM ${ACME_NOTES} n JOIN messages m ON m.id = n.id`,
         ),
       ).toThrow(PluginStoreNamespaceError);
     });
@@ -221,9 +229,7 @@ describe("plugin store facet", () => {
 
     test("can CREATE INDEX on its own table", () => {
       const facet = createStoreFacet(() => db, "acme");
-      facet.exec(
-        `CREATE INDEX plugin_acme_notes_id_idx ON plugin_acme_notes (id)`,
-      );
+      facet.exec(`CREATE INDEX ${ACME_NOTES}_id_idx ON ${ACME_NOTES} (id)`);
     });
 
     test("rejects a table-operating statement whose shape captures no table", () => {
@@ -253,8 +259,8 @@ describe("plugin store facet", () => {
 
     test("can still read and write its own tables", () => {
       const facet = createStoreFacet(() => db, "acme");
-      facet.exec(`INSERT INTO plugin_acme_notes (id) VALUES ('a1')`);
-      expect(facet.query(`SELECT id FROM plugin_acme_notes`)).toEqual([
+      facet.exec(`INSERT INTO ${ACME_NOTES} (id) VALUES ('a1')`);
+      expect(facet.query(`SELECT id FROM ${ACME_NOTES}`)).toEqual([
         { id: "a1" },
       ]);
     });
@@ -268,9 +274,7 @@ describe("plugin store facet", () => {
   describe("quoted-identifier namespace bypass", () => {
     beforeEach(() => {
       const raw = getSqliteFrom(db);
-      raw.run(
-        `CREATE TABLE plugin_acme_notes (id TEXT PRIMARY KEY, body TEXT)`,
-      );
+      raw.run(`CREATE TABLE ${ACME_NOTES} (id TEXT PRIMARY KEY, body TEXT)`);
       raw.run(`CREATE TABLE plugin_other_secrets (id TEXT PRIMARY KEY)`);
       raw.run(`CREATE TABLE messages (id TEXT PRIMARY KEY, content TEXT)`);
       raw.run(`INSERT INTO messages (id, content) VALUES ('m1', 'secret')`);
@@ -328,7 +332,7 @@ describe("plugin store facet", () => {
         const facet = createStoreFacet(() => db, "acme");
         expect(() =>
           facet.query(
-            `SELECT n.id FROM plugin_acme_notes n JOIN ${core} m ON m.id = n.id`,
+            `SELECT n.id FROM ${ACME_NOTES} n JOIN ${core} m ON m.id = n.id`,
           ),
         ).toThrow(PluginStoreNamespaceError);
       });
@@ -336,13 +340,13 @@ describe("plugin store facet", () => {
       test(`${label}: a multi-table FROM-list comma reaching a core table is rejected`, () => {
         const facet = createStoreFacet(() => db, "acme");
         expect(() =>
-          facet.query(`SELECT * FROM plugin_acme_notes, ${core}`),
+          facet.query(`SELECT * FROM ${ACME_NOTES}, ${core}`),
         ).toThrow(PluginStoreNamespaceError);
       });
 
       test(`${label}: own quoted table is allowed`, () => {
         const facet = createStoreFacet(() => db, "acme");
-        const own = quote("plugin_acme_notes");
+        const own = quote(ACME_NOTES);
         facet.exec(`INSERT INTO ${own} (id, body) VALUES ('q1', 'ok')`);
         expect(facet.query<{ id: string }>(`SELECT id FROM ${own}`)).toEqual([
           { id: "q1" },
@@ -360,7 +364,7 @@ describe("plugin store facet", () => {
 
       test(`${label}: CREATE INDEX ON the own quoted table is allowed`, () => {
         const facet = createStoreFacet(() => db, "acme");
-        const own = quote("plugin_acme_notes");
+        const own = quote(ACME_NOTES);
         const indexName = `idx_${label.replace(/[^a-z0-9]+/g, "_")}`;
         facet.exec(`CREATE INDEX ${indexName} ON ${own} (id)`);
       });
@@ -375,7 +379,7 @@ describe("plugin store facet", () => {
         PluginStoreNamespaceError,
       );
       // The own-prefixed equivalent is allowed.
-      facet.query(`SELECT * FROM main."plugin_acme_notes"`);
+      facet.query(`SELECT * FROM main."${ACME_NOTES}"`);
     });
 
     test("a single-quoted string literal value is not treated as a table", () => {
@@ -384,15 +388,15 @@ describe("plugin store facet", () => {
       // THEN the statement is allowed — only the table reference is namespaced.
       const facet = createStoreFacet(() => db, "acme");
       facet.exec(
-        `INSERT INTO plugin_acme_notes (id, body) VALUES ('n1', 'messages')`,
+        `INSERT INTO ${ACME_NOTES} (id, body) VALUES ('n1', 'messages')`,
       );
       expect(
         facet.query<{ body: string }>(
-          `SELECT body FROM plugin_acme_notes WHERE body = 'plugin_other_secrets'`,
+          `SELECT body FROM ${ACME_NOTES} WHERE body = 'plugin_other_secrets'`,
         ),
       ).toEqual([]);
       expect(
-        facet.query<{ body: string }>(`SELECT body FROM plugin_acme_notes`),
+        facet.query<{ body: string }>(`SELECT body FROM ${ACME_NOTES}`),
       ).toEqual([{ body: "messages" }]);
     });
 
@@ -400,12 +404,63 @@ describe("plugin store facet", () => {
       // A quoted IDENTIFIER that is a column (not after a table keyword) must
       // not be mistaken for a table reference.
       const facet = createStoreFacet(() => db, "acme");
-      facet.exec(`INSERT INTO plugin_acme_notes (id, body) VALUES ('c1', 'v')`);
+      facet.exec(`INSERT INTO ${ACME_NOTES} (id, body) VALUES ('c1', 'v')`);
       expect(
         facet.query<{ id: string }>(
-          `SELECT "id" FROM plugin_acme_notes WHERE "body" = 'v'`,
+          `SELECT "id" FROM ${ACME_NOTES} WHERE "body" = 'v'`,
         ),
       ).toEqual([{ id: "c1" }]);
+    });
+  });
+
+  // Sanitizing a host id to the SQL-identifier alphabet is lossy: `foo-bar`,
+  // `foo_bar`, and `foo.bar` all reduce to `foo_bar`. If the table prefix were
+  // sanitize-only, those three distinct plugins would share a prefix — and since
+  // the namespace guard authorizes solely by prefix, they could read and write
+  // each other's tables. The prefix folds in a digest of the RAW id to stay
+  // injective; these tests pin that distinct raw ids get distinct, isolated
+  // prefixes even when their sanitized forms collide.
+  describe("injective prefix across sanitize-colliding host ids", () => {
+    const collidingIds = ["foo-bar", "foo_bar", "foo.bar"];
+
+    test("distinct raw ids yield distinct table prefixes", () => {
+      const prefixes = collidingIds.map((id) => pluginTablePrefix(id));
+      // All three sanitize to the same middle segment, so a sanitize-only prefix
+      // would make these identical; the hash makes them pairwise distinct.
+      expect(new Set(prefixes).size).toBe(collidingIds.length);
+      // Each prefix is still a bare (unquoted-safe) SQL identifier fragment.
+      for (const prefix of prefixes) {
+        expect(prefix).toMatch(/^plugin_[a-z0-9_]+_$/);
+      }
+    });
+
+    test("the prefix is stable for a given raw id", () => {
+      expect(pluginTablePrefix("foo-bar")).toBe(pluginTablePrefix("foo-bar"));
+    });
+
+    test("colliding-name plugins cannot access each other's tables", () => {
+      const raw = getSqliteFrom(db);
+      // Provision each plugin's own table under its real (hashed) prefix.
+      const tableFor = (id: string) => `${pluginTablePrefix(id)}notes`;
+      for (const id of collidingIds) {
+        raw.run(`CREATE TABLE ${tableFor(id)} (id TEXT PRIMARY KEY)`);
+        raw.run(`INSERT INTO ${tableFor(id)} (id) VALUES ('${id}')`);
+      }
+
+      const [a, b, c] = collidingIds;
+      const facetA = createStoreFacet(() => db, a!);
+
+      // A can read its own table.
+      expect(facetA.query(`SELECT id FROM ${tableFor(a!)}`)).toEqual([
+        { id: a },
+      ]);
+      // But not B's or C's, even though all three sanitize alike.
+      expect(() => facetA.query(`SELECT id FROM ${tableFor(b!)}`)).toThrow(
+        PluginStoreNamespaceError,
+      );
+      expect(() =>
+        facetA.exec(`INSERT INTO ${tableFor(c!)} (id) VALUES ('x')`),
+      ).toThrow(PluginStoreNamespaceError);
     });
   });
 

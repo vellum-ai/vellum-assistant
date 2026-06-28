@@ -52,6 +52,7 @@ import {
   listSurfaceDir,
   parsePluginManifest,
 } from "./external-plugin-loader.js";
+import { shouldBuiltinMemoryYield } from "./memory-capability.js";
 import {
   clearSurfaceImportInflight,
   getMtime,
@@ -182,6 +183,18 @@ const disabledPluginDirs = new Set<string>();
  * excluded — a disabled external memory plugin must not make the built-in yield.
  */
 const memoryCapabilityPluginNames = new Set<string>();
+
+/**
+ * The yield decision (`shouldBuiltinMemoryYield()`) observed at the end of the
+ * previous scan. The built-in `remember`/`recall` tools are reconciled whenever
+ * this flips — not only when the discovered plugin-name set changes. The yield
+ * decision also depends on the `memory-plugin-provider` feature flag, so a
+ * runtime flag flip (with no plugin-set change) must still resync tool
+ * ownership: otherwise the built-in hooks start yielding while the built-in core
+ * tools stay registered, leaving hooks and tools owned by different parties
+ * until a restart. `null` until the first scan establishes a baseline.
+ */
+let previousBuiltinMemoryYield: boolean | null = null;
 
 /**
  * Names of currently-discovered, enabled user plugins that declare
@@ -406,14 +419,26 @@ async function scanPlugins(): Promise<void> {
     memoryCapabilityPluginNames.add(name);
   }
 
-  // When the active memory-capability set changes, resync the built-in
-  // `remember`/`recall` tools BEFORE activating plugins below: if an external
-  // memory plugin just became active, the built-in core tools must be stripped
-  // first so the plugin's same-named tools register cleanly on activation; if
-  // one went away, the built-in tools are re-registered. This makes tool
-  // ownership track the live capability set without a restart, mirroring how the
-  // built-in memory hooks already yield at read time.
-  if (memoryCapabilitySetChanged) {
+  // Resync the built-in `remember`/`recall` tools BEFORE activating plugins
+  // below whenever tool ownership could lag the live yield decision:
+  //
+  // - the discovered memory-capability set changed (an external memory plugin
+  //   was installed/removed/disabled), or
+  // - the yield decision itself flipped without a set change — most notably a
+  //   runtime `memory-plugin-provider` flag flip, which toggles whether an
+  //   already-installed memory plugin's hooks suppress the built-in.
+  //
+  // Reconciling here keeps hooks and tools switching owners together: if an
+  // external memory plugin is (now) active, the built-in core tools are stripped
+  // first so the plugin's same-named tools register cleanly on activation; if it
+  // is no longer active, the built-in tools are re-registered. This mirrors how
+  // the built-in memory hooks already yield at read time, without a restart.
+  const currentBuiltinMemoryYield = shouldBuiltinMemoryYield();
+  const yieldDecisionChanged =
+    previousBuiltinMemoryYield === null ||
+    previousBuiltinMemoryYield !== currentBuiltinMemoryYield;
+  previousBuiltinMemoryYield = currentBuiltinMemoryYield;
+  if (memoryCapabilitySetChanged || yieldDecisionChanged) {
     reconcileBuiltinMemoryTools();
   }
 
@@ -474,12 +499,26 @@ async function evictPlugin(
  * not evict them.
  */
 async function evictAll(): Promise<void> {
+  // If an external memory plugin was active (or the built-in was yielding) and
+  // the entire plugins directory then vanished, the built-in must reclaim the
+  // `remember`/`recall` tools — otherwise its hooks stop yielding (the set is
+  // now empty) while its core tools stay stripped, splitting hook and tool
+  // ownership until a restart. Detect that BEFORE clearing the set.
+  const hadActiveMemoryPlugin = memoryCapabilityPluginNames.size > 0;
+
   clearPluginHooks();
   toolCache.clear();
   discoveredPluginDirs.clear();
   installDateCache.clear();
   disabledPluginDirs.clear();
   memoryCapabilityPluginNames.clear();
+
+  if (hadActiveMemoryPlugin || previousBuiltinMemoryYield === true) {
+    // The set is now empty, so `shouldBuiltinMemoryYield()` is false and this
+    // re-registers the built-in memory tools.
+    reconcileBuiltinMemoryTools();
+  }
+  previousBuiltinMemoryYield = shouldBuiltinMemoryYield();
 }
 
 // ─── Activation lifecycle ────────────────────────────────────────────────────
@@ -683,6 +722,7 @@ export function resetPluginCacheForTests(): void {
   activatedNames.clear();
   disabledPluginDirs.clear();
   memoryCapabilityPluginNames.clear();
+  previousBuiltinMemoryYield = null;
 }
 
 /**

@@ -501,6 +501,18 @@ export type StoreExec = (sql: string, params?: unknown[]) => void;
  */
 export interface StoreFacet {
   /**
+   * Qualify a bare logical table name into the host-namespaced table name the
+   * facet authorizes — e.g. `qualify("facts")` → `plugin_<id>_<hash>_facts`.
+   *
+   * The host owns the prefix scheme (it folds a digest of the plugin id into
+   * the prefix so distinct plugins never collide), so a plugin MUST derive its
+   * table names from this rather than hardcoding `plugin_...`: a hardcoded
+   * prefix that does not match the host's scheme is rejected as a
+   * cross-namespace reference on the first `query`/`exec`/`migrate`. Use the
+   * returned name in every statement (DDL and DML) for that table.
+   */
+  qualify(name: string): string;
+  /**
    * Apply the plugin's declared migrations idempotently, in order. Each is run
    * at most once per database, checkpointed under a plugin-scoped namespace
    * (separate from the core migration ledger). Safe to call on every boot —

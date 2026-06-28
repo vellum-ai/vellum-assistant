@@ -21,11 +21,15 @@ import type {
   VectorStoreFacet,
 } from "@vellumai/plugin-api";
 
-/** Plugin id — also the namespace prefix the host applies to tables/collections/jobs. */
-export const PLUGIN_ID = "memoryreference";
-
-/** The plugin's durable fact table (host-namespaced to `plugin_memoryreference_facts`). */
-export const FACTS_TABLE = `plugin_${PLUGIN_ID}_facts`;
+/**
+ * Bare logical name of the plugin's durable fact table. The host qualifies this
+ * into a namespaced table name via `host.store.qualify(FACTS_TABLE_NAME)` — the
+ * plugin must NOT hardcode the `plugin_<id>_` prefix, because the host owns the
+ * prefix scheme (it folds a digest of the plugin id in) and rejects any
+ * statement whose table name does not match it. The resolved name is stashed on
+ * the runtime as {@link MemoryRuntime.factsTable} at init.
+ */
+export const FACTS_TABLE_NAME = "facts";
 
 /** The plugin's dense-vector collection (host-namespaced under the plugin id). */
 export const VECTOR_COLLECTION = "facts";
@@ -77,6 +81,12 @@ export interface MemoryRuntime {
   vectorStore: VectorStoreFacet;
   history: HistoryFacet;
   jobs: JobsFacet;
+  /**
+   * The host-namespaced fact table name, resolved at init via
+   * `host.store.qualify(FACTS_TABLE_NAME)`. Every store statement targets this
+   * name so it matches the host's prefix scheme exactly.
+   */
+  factsTable: string;
   /** Resolved lazily: the namespaced vector collection. */
   collection: VectorCollectionHandle | null;
   /** Embedding size the collection was (or will be) created with. */
@@ -93,6 +103,7 @@ export function setRuntime(host: PluginHost): MemoryRuntime {
     vectorStore: host.vectorStore,
     history: host.history,
     jobs: host.jobs,
+    factsTable: host.store.qualify(FACTS_TABLE_NAME),
     collection: null,
     vectorSize: DEFAULT_VECTOR_SIZE,
   };
@@ -205,7 +216,7 @@ export async function rememberFact(
   const id = newFactId();
   const createdAt = Date.now();
   rt.store.exec(
-    `INSERT OR REPLACE INTO ${FACTS_TABLE} (id, conversation_id, text, created_at)
+    `INSERT OR REPLACE INTO ${rt.factsTable} (id, conversation_id, text, created_at)
        VALUES (?, ?, ?, ?)`,
     [id, conversationId, trimmed, createdAt],
   );
@@ -243,7 +254,7 @@ export async function recallFacts(
   const placeholders = ids.map(() => "?").join(", ");
   const rows = rt.store.query<FactRow>(
     `SELECT id, conversation_id, text, created_at
-       FROM ${FACTS_TABLE}
+       FROM ${rt.factsTable}
       WHERE id IN (${placeholders})`,
     ids,
   );

@@ -1388,6 +1388,7 @@ export class SkillHostClient implements SkillHost {
       );
     };
     return {
+      qualify: unavailable,
       migrate: unavailable,
       query: unavailable,
       exec: unavailable,

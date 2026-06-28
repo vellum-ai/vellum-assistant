@@ -29,10 +29,10 @@ example only.)
 
 ## How memory is stored
 
-- **Facts** live in a durable, plugin-owned table the host namespaces to
-  `plugin_memoryreference_facts`. The store rejects any statement that touches a
-  table outside the plugin's `plugin_<id>_` prefix, so the plugin can only read
-  and write its own rows.
+- **Facts** live in a durable, plugin-owned table whose name the plugin derives
+  from `host.store.qualify("facts")` (never hardcoded) — the host owns the
+  `plugin_<id>_` prefix scheme and rejects any statement that touches a table
+  outside it, so the plugin can only read and write its own rows.
 - **Embeddings** go into a plugin-namespaced dense-vector collection via
   `host.vectorStore`. The plugin learns the backend's vector dimensionality from
   a probe embed at `init` and sizes the collection to match.
