@@ -50,7 +50,7 @@ export function createDaemonSkillHost(skillId: string): SkillHost {
     memory: buildMemoryFacet(),
     history: buildHistoryFacet(),
     events: buildEventsFacet(),
-    registries: buildRegistriesFacet(skillId),
+    registries: buildRegistriesFacet(skillId, "skill"),
     speakers: buildSpeakersFacet(),
     embeddings: buildEmbeddingsFacet(),
     vectorStore: buildVectorStoreFacet(skillId),

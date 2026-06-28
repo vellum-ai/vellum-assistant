@@ -96,7 +96,10 @@ import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { getDaemonRuntimeMode } from "../runtime/runtime-mode.js";
 import { registerSkillRoute } from "../runtime/skill-route-registry.js";
 import { getProviderKeyAsync } from "../security/secure-keys.js";
-import { registerExternalTools } from "../tools/registry.js";
+import {
+  registerExternalTools,
+  registerPluginTools,
+} from "../tools/registry.js";
 import { getTtsProvider } from "../tts/provider-registry.js";
 import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
 import { getLogger } from "../util/logger.js";
@@ -330,18 +333,43 @@ export function buildEventsFacet(): EventsFacet {
   };
 }
 
-export function buildRegistriesFacet(hostId: string): RegistriesFacet {
+/**
+ * Build the `registries` facet for a host of the given owner kind. The
+ * `registerTools` routing differs by host because the two host types reach the
+ * tool registry at different lifecycle points and project differently into
+ * conversations:
+ *
+ * - `"skill"` ({@link createDaemonSkillHost}) registers via
+ *   {@link registerExternalTools} as skill-owned — consumed at
+ *   `initializeTools()` boot time and projected into conversations only through
+ *   skill sessions (the meet-join model).
+ * - `"plugin"` ({@link buildPluginHost}) registers via
+ *   {@link registerPluginTools} as plugin-owned, into the live registry the
+ *   agent loop reads from. Plugin `init()` runs after `initializeTools()`, so
+ *   the deferred external-tools path would never be consumed; and plugin-owned
+ *   tools (unlike skill-owned) appear in normal conversations and participate
+ *   in plugin disabled/refcount lifecycle — the same treatment `Plugin.tools`
+ *   get via `registerPluginTools`.
+ */
+export function buildRegistriesFacet(
+  hostId: string,
+  ownerKind: "skill" | "plugin",
+): RegistriesFacet {
   return {
     // Contract's `Tool` is structurally independent of the daemon's
     // overlay (`assistant/src/tools/types.ts`); the assistant-side
-    // registry accepts the daemon flavor. Skills construct tools via
+    // registry accepts the daemon flavor. Hosts construct tools via
     // helpers that already produce the daemon shape, so a cast at this
     // boundary is safe. The contract's `registerTools(provider)` stays
-    // single-arg — skill code never needs to know its own id — and this
-    // adapter pairs the provider with the owner derived from the
-    // surrounding {@link buildRegistriesFacet} closure.
-    registerTools: (provider) =>
-      registerExternalTools({ kind: "skill", id: hostId }, provider as never),
+    // single-arg — host code never needs to know its own id — and this
+    // adapter derives the owner from the surrounding closure.
+    registerTools: (provider) => {
+      if (ownerKind === "plugin") {
+        registerPluginTools(hostId, provider() as never);
+        return;
+      }
+      registerExternalTools({ kind: "skill", id: hostId }, provider as never);
+    },
     registerSkillRoute: (route: SkillRoute): SkillRouteHandle =>
       registerSkillRoute(route) as unknown as SkillRouteHandle,
     // Namespace hook names by hostId so two owners using the same label
@@ -447,7 +475,7 @@ export function buildPluginHost(pluginName: string): PluginHost {
     identity: buildIdentityFacet(),
     platform: buildPlatformFacet(),
     logger: buildLoggerFacet(pluginName),
-    registries: buildRegistriesFacet(pluginName),
+    registries: buildRegistriesFacet(pluginName, "plugin"),
     embeddings: buildEmbeddingsFacet(),
     vectorStore: buildVectorStoreFacet(pluginName),
     store: buildStoreFacet(pluginName),

@@ -123,6 +123,37 @@ function makeCapabilityNode(content: string, capId: string): NewNode {
   };
 }
 
+function makeEpisodicNode(content: string, scopeId = "test-scope"): NewNode {
+  const now = Date.now();
+  return {
+    content,
+    type: "episodic",
+    created: now,
+    lastAccessed: now,
+    lastConsolidated: now,
+    eventDate: null,
+    emotionalCharge: {
+      valence: 0,
+      intensity: 0,
+      decayCurve: "linear",
+      decayRate: 0,
+      originalIntensity: 0,
+    },
+    fidelity: "vivid",
+    confidence: 1,
+    significance: 0.5,
+    stability: 14,
+    reinforcementCount: 0,
+    lastReinforced: now,
+    sourceConversations: [],
+    sourceType: "direct",
+    narrativeRole: null,
+    partOfStory: null,
+    imageRefs: null,
+    scopeId,
+  };
+}
+
 describe("loadContextMemory — query/sparse vector surfacing", () => {
   beforeAll(async () => {
     await initializeDb();
@@ -176,6 +207,78 @@ describe("loadContextMemory — query/sparse vector surfacing", () => {
 
     expect(result.queryVector).toBeUndefined();
     expect(result.sparseVector).toBeUndefined();
+  });
+});
+
+describe("loadContextMemory — resolved-provider short-circuit", () => {
+  // A `provider: "graph"` pin must load v1 context nodes regardless of the
+  // legacy `v2.enabled` flag (which sits at its schema default `true`). The
+  // short-circuit keys off the resolved provider id, not the raw flag, so the
+  // graph pin reaches the retrieval pipeline while `provider: "v2"` / the
+  // default `"auto"` + `v2.enabled` short-circuits to the v2 activation path.
+  const GRAPH_PIN_CONFIG: AssistantConfig = {
+    ...DEFAULT_CONFIG,
+    memory: {
+      ...DEFAULT_CONFIG.memory,
+      provider: "graph",
+      v2: { ...DEFAULT_CONFIG.memory.v2, enabled: true },
+    },
+  };
+  const V2_DEFAULT_CONFIG: AssistantConfig = {
+    ...DEFAULT_CONFIG,
+    memory: {
+      ...DEFAULT_CONFIG.memory,
+      provider: "auto",
+      v2: { ...DEFAULT_CONFIG.memory.v2, enabled: true },
+    },
+  };
+
+  let seededNodeId = "";
+
+  beforeAll(async () => {
+    await initializeDb();
+  });
+
+  beforeEach(async () => {
+    embedShouldThrow = false;
+    embedVector = [0.1, 0.2, 0.3];
+    embedCallCount = 0;
+    embedRouter = null;
+    // Route every query vector to the seeded node so the pipeline produces a
+    // real candidate when it is not short-circuited.
+    searchRouter = () => [{ nodeId: seededNodeId, score: 0.9 }];
+    resetDbForTesting();
+    await initializeDb();
+    seededNodeId = createNode(
+      makeEpisodicNode("a memorable fact", "default"),
+    ).id;
+  });
+
+  test('provider:"graph" with v2.enabled:true loads graph context nodes (not empty)', async () => {
+    const result = await loadContextMemory({
+      scopeId: "default",
+      recentSummaries: ["a memorable fact"],
+      config: GRAPH_PIN_CONFIG,
+    });
+
+    // The graph pipeline ran: it embedded the summary and surfaced the seeded
+    // node rather than returning the short-circuit empty result.
+    expect(embedCallCount).toBeGreaterThan(0);
+    expect(result.nodes.length).toBeGreaterThan(0);
+    expect(result.nodes.some((n) => n.node.id === seededNodeId)).toBe(true);
+  });
+
+  test('default "auto" with v2.enabled:true short-circuits to empty (v2 owns the read path)', async () => {
+    const result = await loadContextMemory({
+      scopeId: "default",
+      recentSummaries: ["a memorable fact"],
+      config: V2_DEFAULT_CONFIG,
+    });
+
+    // Short-circuit: no embedding work, no graph candidates — the caller
+    // routes to the v2 activation pipeline.
+    expect(embedCallCount).toBe(0);
+    expect(result.nodes).toEqual([]);
   });
 });
 
@@ -276,37 +379,6 @@ describe("retrieveForTurn — topic-pivot recovery", () => {
     if (a === 1 && b === 0) return [{ nodeId: shirtNodeId, score: 0.9 }];
     if (a === 0 && b === 1) return [{ nodeId: cakeNodeId, score: 0.9 }];
     return [];
-  }
-
-  function makeEpisodicNode(content: string): NewNode {
-    const now = Date.now();
-    return {
-      content,
-      type: "episodic",
-      created: now,
-      lastAccessed: now,
-      lastConsolidated: now,
-      eventDate: null,
-      emotionalCharge: {
-        valence: 0,
-        intensity: 0,
-        decayCurve: "linear",
-        decayRate: 0,
-        originalIntensity: 0,
-      },
-      fidelity: "vivid",
-      confidence: 1,
-      significance: 0.5,
-      stability: 14,
-      reinforcementCount: 0,
-      lastReinforced: now,
-      sourceConversations: [],
-      sourceType: "direct",
-      narrativeRole: null,
-      partOfStory: null,
-      imageRefs: null,
-      scopeId: "test-scope",
-    };
   }
 
   beforeAll(async () => {

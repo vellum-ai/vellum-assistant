@@ -187,7 +187,7 @@ function buildPluginHost(pluginName: string): PluginHost {
     identity: buildIdentityFacet(),
     platform: buildPlatformFacet(),
     logger: buildLoggerFacet(pluginName),
-    registries: buildRegistriesFacet(pluginName),
+    registries: buildRegistriesFacet(pluginName, "plugin"),
     embeddings: buildEmbeddingsFacet(),
     vectorStore: buildVectorStoreFacet(pluginName),
     store: buildStoreFacet(pluginName),

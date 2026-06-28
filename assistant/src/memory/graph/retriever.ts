@@ -7,6 +7,12 @@
 // ---------------------------------------------------------------------------
 
 import type { AssistantConfig } from "../../config/types.js";
+import { embedWithRetry } from "../../persistence/embeddings/embed.js";
+import {
+  generateSparseEmbedding,
+  selectedBackendSupportsMultimodal,
+} from "../../persistence/embeddings/embedding-backend.js";
+import type { QdrantSparseVector } from "../../persistence/embeddings/qdrant-client.js";
 import {
   extractToolUse,
   getConfiguredProvider,
@@ -14,12 +20,7 @@ import {
 } from "../../providers/provider-send-message.js";
 import type { ContentBlock, ImageContent } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
-import { embedWithRetry } from "../../persistence/embeddings/embed.js";
-import {
-  generateSparseEmbedding,
-  selectedBackendSupportsMultimodal,
-} from "../../persistence/embeddings/embedding-backend.js";
-import type { QdrantSparseVector } from "../../persistence/embeddings/qdrant-client.js";
+import { resolveMemoryProviderId } from "../provider/provider-id.js";
 import { searchGraphNodes } from "./graph-search.js";
 import type { InContextTracker } from "./injection.js";
 import {
@@ -419,12 +420,14 @@ interface ContextLoadResult {
 export async function loadContextMemory(
   opts: ContextLoadOpts,
 ): Promise<ContextLoadResult> {
-  // v2 owns the read path when enabled. The v1 collection is in active
-  // retirement and querying it can OOM-crash Qdrant via a corrupted sparse
-  // segment, so we skip the embedding work and downstream searches
-  // entirely. Caller (`runContextLoad`) sees zero nodes and routes to the
-  // v2 activation pipeline.
-  if (opts.config.memory.v2.enabled) {
+  // v2 owns the read path when it is the resolved provider. The v1 collection
+  // is in active retirement and querying it can OOM-crash Qdrant via a
+  // corrupted sparse segment, so we skip the embedding work and downstream
+  // searches entirely. Caller (`runContextLoad`) sees zero nodes and routes to
+  // the v2 activation pipeline. Gating on the resolved provider id (not the raw
+  // `v2.enabled` flag) lets an explicit `memory.provider: "graph"` pin load v1
+  // context nodes even while `v2.enabled` sits at its schema default.
+  if (resolveMemoryProviderId(opts.config) === "v2") {
     return {
       nodes: [],
       serendipityNodes: [],
