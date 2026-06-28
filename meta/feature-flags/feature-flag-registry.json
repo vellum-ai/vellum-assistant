@@ -409,6 +409,14 @@
       "label": "OS Beta",
       "description": "Enable the OS Beta model profile (MiniMax M3 / Together) in the assistant's model profile selection.",
       "defaultEnabled": false
+    },
+    {
+      "id": "memory-plugin-provider",
+      "scope": "both",
+      "key": "memory-plugin-provider",
+      "label": "Memory Plugin Provider",
+      "description": "Allow an external plugin declaring provides: \"memory\" to take over the conversation's memory system from the built-in memory plugins. When off, the built-in memory system stays active even if an external memory plugin is installed.",
+      "defaultEnabled": false
     }
   ]
 }

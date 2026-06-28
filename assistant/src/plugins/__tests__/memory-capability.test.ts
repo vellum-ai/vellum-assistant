@@ -12,6 +12,12 @@
  * refreshes via `getUserHooksFor`, so creating/removing plugin directories at
  * runtime is reflected on the next read — the same semantics as the `.disabled`
  * sentinel.
+ *
+ * The whole behavior is gated behind the `memory-plugin-provider` rollout flag.
+ * With the flag off (the default), external memory plugins never override the
+ * built-in — the built-in memory hooks stay active and no single-plugin
+ * conflict is raised — regardless of what is installed. The yield/override cases
+ * below seed the flag on via the override cache.
  */
 
 import { mkdir, rm, writeFile } from "node:fs/promises";
@@ -25,10 +31,21 @@ const TEST_WORKSPACE_DIR = join(
 );
 process.env.VELLUM_WORKSPACE_DIR = TEST_WORKSPACE_DIR;
 
+import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
+import { clearFeatureFlagOverridesCache } from "../../config/assistant-feature-flags.js";
 import { getHooksFor, registerPluginHooks } from "../../hooks/registry.js";
 import { assertSingleMemoryPlugin } from "../memory-capability.js";
 import { resetPluginCacheForTests } from "../mtime-cache.js";
 import { resetPluginRegistryForTests } from "../registry.js";
+
+/**
+ * Seed the `memory-plugin-provider` rollout flag on so external memory plugins
+ * are permitted to override the built-in. Without this the flag resolves to its
+ * registry default (off) and the built-in never yields.
+ */
+function enableMemoryPluginProviderFlag(): void {
+  setOverridesForTesting({ "memory-plugin-provider": true });
+}
 
 /**
  * Create an external plugin directory with a `package.json`. When `provides` is
@@ -72,6 +89,7 @@ function registerBuiltinMemoryHooks(): void {
 beforeEach(() => {
   resetPluginRegistryForTests();
   resetPluginCacheForTests();
+  clearFeatureFlagOverridesCache();
 });
 
 afterEach(async () => {
@@ -81,10 +99,12 @@ afterEach(async () => {
   });
   resetPluginCacheForTests();
   resetPluginRegistryForTests();
+  clearFeatureFlagOverridesCache();
 });
 
 describe("single-active-memory-plugin rule", () => {
   test("an enabled external memory plugin disables the built-in memory hooks", async () => {
+    enableMemoryPluginProviderFlag();
     registerBuiltinMemoryHooks();
 
     // Baseline: with no external memory plugin, both built-in memory hooks run.
@@ -101,6 +121,7 @@ describe("single-active-memory-plugin rule", () => {
   });
 
   test("removing the external memory plugin restores the built-in memory hooks", async () => {
+    enableMemoryPluginProviderFlag();
     registerBuiltinMemoryHooks();
     await createExternalPlugin("external-memory", { provides: "memory" });
 
@@ -130,6 +151,7 @@ describe("single-active-memory-plugin rule", () => {
   });
 
   test("two active memory-capability plugins are rejected with a clear error", async () => {
+    enableMemoryPluginProviderFlag();
     await createExternalPlugin("memory-a", { provides: "memory" });
     await createExternalPlugin("memory-b", { provides: "memory" });
 
@@ -145,6 +167,7 @@ describe("single-active-memory-plugin rule", () => {
   });
 
   test("two active memory plugins fail safe: the built-in stays active", async () => {
+    enableMemoryPluginProviderFlag();
     registerBuiltinMemoryHooks();
     await createExternalPlugin("memory-a", { provides: "memory" });
     await createExternalPlugin("memory-b", { provides: "memory" });
@@ -158,5 +181,34 @@ describe("single-active-memory-plugin rule", () => {
   test("no external memory plugin: assertSingleMemoryPlugin does not throw", async () => {
     await getHooksFor("user-prompt-submit");
     expect(() => assertSingleMemoryPlugin()).not.toThrow();
+  });
+});
+
+describe("memory-plugin-provider rollout flag gate", () => {
+  test("flag off (default): an external memory plugin does NOT override the built-in", async () => {
+    // No flag seeded — resolves to the registry default (off).
+    registerBuiltinMemoryHooks();
+    await createExternalPlugin("external-memory", { provides: "memory" });
+
+    // The external plugin's own hook still loads, but the built-in memory hooks
+    // are NOT filtered out: 2 built-in + 1 external = 3.
+    const hooks = await getHooksFor("user-prompt-submit");
+    expect(hooks).toHaveLength(3);
+
+    // No single-plugin conflict is raised while the flag is off, even with two
+    // external memory plugins present.
+    await createExternalPlugin("external-memory-2", { provides: "memory" });
+    await getHooksFor("user-prompt-submit");
+    expect(() => assertSingleMemoryPlugin()).not.toThrow();
+  });
+
+  test("flag on: an external memory plugin overrides the built-in", async () => {
+    enableMemoryPluginProviderFlag();
+    registerBuiltinMemoryHooks();
+    await createExternalPlugin("external-memory", { provides: "memory" });
+
+    // Built-in memory hooks yield; only the external memory hook remains.
+    const hooks = await getHooksFor("user-prompt-submit");
+    expect(hooks).toHaveLength(1);
   });
 });
