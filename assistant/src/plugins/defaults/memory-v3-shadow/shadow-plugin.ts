@@ -1,20 +1,12 @@
 /**
- * Memory v3 — flag-gated shadow/live orchestration engine.
+ * Memory v3 — config-gated live orchestration engine.
  *
- * Runs the v3 orchestrator each turn and records its selection set to
- * `memory_v3_selections`. Two flags gate behavior:
+ * When `memory.v3.live` is set, runs the v3 orchestrator each turn and records
+ * its selection set to `memory_v3_selections`. The injector (`memoryV3Injector`
+ * in `./injector.ts`) renders this turn's selections into a `<memory>` block
+ * and returns it at v2's dynamic-memory placement (`after-memory-prefix`).
  *
- *   - `memory-v3-shadow` (live OFF): observation-only. {@link observeTurn}
- *     orchestrates and logs the selection set; no injection is produced, so v2
- *     injection is bit-for-bit identical — the only difference is the
- *     side-effect telemetry write.
- *   - `memory-v3-live`: live injection. The injector (`memoryV3Injector` in
- *     `./injector.ts`) additionally renders this turn's selections into a
- *     `<memory>` block and returns it at v2's dynamic-memory placement
- *     (`after-memory-prefix`). Selections are still logged.
- *   - both OFF: orchestration is skipped entirely.
- *
- * On each turn (either flag on):
+ * On each live turn:
  *   1. Lazy-init the v3 lanes ONCE across the whole process (section index,
  *      section-grain BM25 needle, dense lane config, link-graph edge graph,
  *      curated core set, frecency hot set), memoizing the init promise so
@@ -23,15 +15,13 @@
  *   3. Run {@link orchestrate} and record its selection set to
  *      `memory_v3_selections` with a best-effort lane attribution.
  *
- * {@link observeTurn} wraps everything after the flag read in try/catch — any
- * failure is logged and swallowed so it can never affect the live turn. The
- * injector treats a `null`/empty result as "no v3 injection", so v2 memory
- * remains the fallback rather than dropping all memory.
+ * {@link observeTurn} wraps everything in try/catch — any failure is logged and
+ * swallowed so it can never affect the live turn. The injector treats a
+ * `null`/empty result as "no v3 injection".
  */
 
 import { existsSync, readFileSync } from "node:fs";
 
-import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
 import { getConfig } from "../../../config/loader.js";
 import type { AssistantConfig } from "../../../config/schema.js";
 import { loadSkillCatalog } from "../../../config/skills.js";
@@ -70,8 +60,6 @@ import {
   type SelectionSource,
   type Slug,
 } from "./types.js";
-
-export const MEMORY_V3_SHADOW = "memory-v3-shadow" as const;
 
 const log = getLogger("memory-v3-shadow");
 
@@ -617,27 +605,5 @@ export async function observeTurn(
       "memory-v3 orchestration failed (non-fatal)",
     );
     return null;
-  }
-}
-
-/**
- * Test-facing shadow wrapper: gate on the shadow flag, then run v3
- * orchestration for one turn and log the selection set. Production injection
- * goes through `produce()` → {@link observeTurn} directly (which checks both
- * flags); this wrapper exists so tests can drive shadow observation in
- * isolation. Never throws — all failures are logged and swallowed so the live
- * turn is unaffected.
- */
-export async function runShadowObservation(
-  conversationId: string,
-  turnIndex: number,
-): Promise<void> {
-  const config = getConfig();
-  if (config.memory.enabled === false) return;
-  if (!isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config)) return;
-  try {
-    await observeTurn(conversationId, turnIndex);
-  } catch {
-    // Shadow observation is fire-and-forget and must never fail a turn.
   }
 }

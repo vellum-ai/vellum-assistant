@@ -11,7 +11,7 @@
  *   - the fork fallback: a turn inherited from a fork resolves to the parent's
  *     rows via the message's `forkSourceMessageId` back-pointer;
  *   - source/pinned/section mapping and the rendered `<memory>` block;
- *   - `live` / `shadow` reflect the flag resolver.
+ *   - `live` reflects the config gate.
  *
  * `mock.module` is process-global and leaks into sibling files in a
  * `bun test <dir>` run, so every stub DELEGATES to the real implementation
@@ -37,7 +37,6 @@ const realPageContent = { ...(await import("../page-content.js")) };
 
 let storeMockActive = false;
 let liveEnabled = false;
-let shadowEnabled = false;
 
 let testSqlite: Database;
 let testDb = makeDb();
@@ -101,9 +100,7 @@ mock.module("../../../../config/assistant-feature-flags.js", () => ({
     storeMockActive
       ? key === "memory-v3-live"
         ? liveEnabled
-        : key === "memory-v3-shadow"
-          ? shadowEnabled
-          : false
+        : false
       : realFlags.isAssistantFeatureFlagEnabled(
           key as Parameters<typeof realFlags.isAssistantFeatureFlagEnabled>[0],
           config as Parameters<
@@ -152,7 +149,6 @@ const {
 beforeEach(() => {
   storeMockActive = true;
   liveEnabled = false;
-  shadowEnabled = false;
   testDb = makeDb();
 });
 
@@ -222,18 +218,15 @@ describe("getMemoryV3SelectionForInspector", () => {
     expect(log?.injectedText).toContain("body for domain-b/page-2");
   });
 
-  test("live/shadow reflect the flag resolver", async () => {
+  test("live reflects the config gate", async () => {
     seed("conv-5", 1, [{ slug: "domain-a/page-1", source: "needle" }]);
 
     const off = await getMemoryV3SelectionForInspector("conv-5", 1);
     expect(off?.live).toBe(false);
-    expect(off?.shadow).toBe(false);
 
     liveEnabled = true;
-    shadowEnabled = true;
     const on = await getMemoryV3SelectionForInspector("conv-5", 1);
     expect(on?.live).toBe(true);
-    expect(on?.shadow).toBe(true);
   });
 });
 

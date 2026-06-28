@@ -17,7 +17,6 @@
  */
 
 import type { MemoryV3SelectionLog } from "../../../api/responses/memory-v3-selection-log.js";
-import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
 import { getConfig } from "../../../config/loader.js";
 import { isMemoryV3Live } from "../../../config/memory-v3-gate.js";
 import { getDb, getSqliteFrom } from "../../../memory/db-connection.js";
@@ -34,8 +33,6 @@ import {
   type SelectionSource,
   type Slug,
 } from "./types.js";
-
-const MEMORY_V3_SHADOW = "memory-v3-shadow" as const;
 
 interface SelectionRow {
   turn: number;
@@ -180,7 +177,6 @@ async function buildSelectionLog(
   return {
     turn: rows[0]!.turn,
     live: isMemoryV3Live(config),
-    shadow: isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config),
     selections,
     injectedText,
   };

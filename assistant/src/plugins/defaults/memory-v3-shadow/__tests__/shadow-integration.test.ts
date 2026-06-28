@@ -1,28 +1,27 @@
 /**
- * Shadow-mode end-to-end integration test for the memory-v3 section-lane
- * pipeline.
+ * End-to-end integration test for the memory-v3 section-lane pipeline.
  *
- * SCOPE / ALTITUDE. A full daemon-assembly run (plugin registry → flag read →
+ * SCOPE / ALTITUDE. A full daemon-assembly run (plugin registry → config read →
  * runtime assembly → provider call → DB write) is too heavy and too
- * mock-fragile for a unit test. Instead this composes the REAL shadow units
+ * mock-fragile for a unit test. Instead this composes the REAL engine units
  * with a mocked select provider, a stubbed dense lane, an in-memory selections
  * DB, and synthetic fixtures, driving them over a MULTI-TURN sequence:
  *
  *   orchestrate (cache-ordered pool: core + hot stable prefix, then
  *     needle ∪ dense ∪ edge finder candidates → ONE selectPool call)
- *       → attribute selections to lane sources (the shadow plugin's REAL
+ *       → attribute selections to lane sources (the plugin's REAL
  *         `attributeSelections`, reading `result.lanes`)
- *       → write to `memory_v3_selections` (the shadow plugin's REAL
+ *       → write to `memory_v3_selections` (the plugin's REAL
  *         `writeSelections`)
  *       → summarizeSelections (the offline A/B readout)
  *
- * This is exactly the side-effect contract shadow mode observes each turn: the
+ * This is exactly the selection contract the engine records each turn: the
  * candidate pool is the cache-ordered union of the lanes — synthetic capability
  * pages are indexed like any other page, so they enter through the needle lane
  * rather than being always-added — a SINGLE select runs per turn, the result is
- * this turn's selections only, and each selection is
- * logged tagged with its lane source. None of this changes live injection —
- * shadow mode is observation-only; cutover is the `memory-v3-live` flag flip.
+ * this turn's selections only, and each selection is logged tagged with its
+ * lane source. Selection logging runs on the live path
+ * (`memory.v3.live`); injection is exercised in the injector tests.
  *
  * Slugs are generic placeholders (`page-a`, `topic-x`, `page-b`, …) — this is a
  * public repo.
@@ -342,7 +341,7 @@ afterAll(() => {
 // their content — not by always being appended.
 // ---------------------------------------------------------------------------
 
-describe("memory-v3 shadow integration — candidate pool", () => {
+describe("memory-v3 integration — candidate pool", () => {
   test("pool unions needle ∪ dense ∪ edge; one select per turn", async () => {
     const lanes = await buildLanes();
     // "apple" hits page-a (needle). Dense returns page-b. page-a links to
@@ -372,7 +371,7 @@ describe("memory-v3 shadow integration — candidate pool", () => {
 // source tags. Selections are current-turn only — nothing carries.
 // ---------------------------------------------------------------------------
 
-describe("memory-v3 shadow integration — core + hot stable prefix", () => {
+describe("memory-v3 integration — core + hot stable prefix", () => {
   test("core and hot head the pool every turn and log lane-correct sources", async () => {
     const lanes = await buildLanes();
     const prefix = { core: ["topic-x"], hot: ["page-b"] };
@@ -422,7 +421,7 @@ describe("memory-v3 shadow integration — core + hot stable prefix", () => {
 // matched section and is attributed `needle` — exactly like a concept page.
 // ---------------------------------------------------------------------------
 
-describe("memory-v3 shadow integration — lane-source attribution", () => {
+describe("memory-v3 integration — lane-source attribution", () => {
   test("a needle-ranked capability selection is logged with the needle source", async () => {
     const lanes = await buildLanes();
     // "durian" matches the capability page's content section, so selecting it
@@ -437,11 +436,11 @@ describe("memory-v3 shadow integration — lane-source attribution", () => {
 });
 
 // ---------------------------------------------------------------------------
-// A/B readout: summarizeSelections aggregates the logged shadow run by lane
+// A/B readout: summarizeSelections aggregates the logged run by lane
 // source, and reports turn count + distinct-slug selection footprint.
 // ---------------------------------------------------------------------------
 
-describe("memory-v3 shadow integration — selection-log readout", () => {
+describe("memory-v3 integration — selection-log readout", () => {
   test("summarizeSelections aggregates a multi-turn run by source", async () => {
     const lanes = await buildLanes();
     const prefix = { hot: ["topic-x"] };
