@@ -3,14 +3,14 @@ import { describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
+import type { DrizzleDb } from "../../persistence/db-connection.js";
+import { getSqliteFrom } from "../../persistence/db-connection.js";
+import { migrateMessageBookmarks } from "../../persistence/migrations/242-message-bookmarks.js";
 import {
   createBookmark,
   deleteBookmarkByMessageId,
   listBookmarks,
 } from "../bookmark-crud.js";
-import type { DrizzleDb } from "../db-connection.js";
-import { getSqliteFrom } from "../db-connection.js";
-import { migrateMessageBookmarks } from "../migrations/242-message-bookmarks.js";
 import * as schema from "../schema.js";
 
 /**

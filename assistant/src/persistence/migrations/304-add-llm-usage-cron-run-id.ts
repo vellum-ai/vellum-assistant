@@ -21,7 +21,9 @@ const COLUMN_DEFINITION = "cron_run_id TEXT";
  */
 export function migrateAddLlmUsageCronRunId(database: DrizzleDb): void {
   if (!tableHasColumn(database, "llm_usage_events", COLUMN_NAME)) {
-    database.run(`ALTER TABLE llm_usage_events ADD COLUMN ${COLUMN_DEFINITION}`);
+    database.run(
+      `ALTER TABLE llm_usage_events ADD COLUMN ${COLUMN_DEFINITION}`,
+    );
   }
   database.run(
     `CREATE INDEX IF NOT EXISTS idx_llm_usage_events_cron_run_id ON llm_usage_events(cron_run_id)`,

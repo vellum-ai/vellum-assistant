@@ -84,8 +84,7 @@ export function validateMigrationState(
   const completedStepNames = new Set(
     rows
       .filter(
-        (r) =>
-          r.key.startsWith(STEP_CHECKPOINT_PREFIX) && r.value === "1",
+        (r) => r.key.startsWith(STEP_CHECKPOINT_PREFIX) && r.value === "1",
       )
       .map((r) => r.key.slice(STEP_CHECKPOINT_PREFIX.length)),
   );
@@ -205,8 +204,7 @@ export function rollbackMemoryMigration(
   const completedStepNames = new Set(
     rows
       .filter(
-        (r) =>
-          r.key.startsWith(STEP_CHECKPOINT_PREFIX) && r.value === "1",
+        (r) => r.key.startsWith(STEP_CHECKPOINT_PREFIX) && r.value === "1",
       )
       .map((r) => r.key.slice(STEP_CHECKPOINT_PREFIX.length)),
   );
@@ -261,7 +259,11 @@ export function rollbackMemoryMigration(
     item.down(database);
 
     log.info(
-      { step: item.stepName, version: item.version, description: item.description },
+      {
+        step: item.stepName,
+        version: item.version,
+        description: item.description,
+      },
       `Rolled back migration "${item.stepName}" (version ${item.version})`,
     );
   }

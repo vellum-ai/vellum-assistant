@@ -7,13 +7,13 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { getSqlite } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
 import {
   getUsageCostForConversationWindow,
   getUsageCostForRun,
   recordUsageEvent,
 } from "../memory/llm-usage-store.js";
+import { getSqlite } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { BadRequestError } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/usage-routes.js";
 

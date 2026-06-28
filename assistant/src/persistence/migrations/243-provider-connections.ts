@@ -54,9 +54,21 @@ export function migrateCreateProviderConnections(database: DrizzleDb): void {
   // Seed canonical connections — idempotent via INSERT OR IGNORE.
   const now = Date.now();
   const canonicals = [
-    { name: "anthropic-managed", provider: "anthropic", auth: JSON.stringify({ type: "platform" }) },
-    { name: "openai-managed",    provider: "openai",    auth: JSON.stringify({ type: "platform" }) },
-    { name: "gemini-managed",    provider: "gemini",    auth: JSON.stringify({ type: "platform" }) },
+    {
+      name: "anthropic-managed",
+      provider: "anthropic",
+      auth: JSON.stringify({ type: "platform" }),
+    },
+    {
+      name: "openai-managed",
+      provider: "openai",
+      auth: JSON.stringify({ type: "platform" }),
+    },
+    {
+      name: "gemini-managed",
+      provider: "gemini",
+      auth: JSON.stringify({ type: "platform" }),
+    },
   ];
 
   for (const { name, provider, auth } of canonicals) {

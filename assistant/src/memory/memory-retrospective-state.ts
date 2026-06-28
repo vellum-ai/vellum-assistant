@@ -22,7 +22,7 @@
 
 import { eq } from "drizzle-orm";
 
-import { type DrizzleDb, getDb } from "./db-connection.js";
+import { type DrizzleDb, getDb } from "../persistence/db-connection.js";
 import { memoryRetrospectiveState } from "./schema.js";
 
 export interface MemoryRetrospectiveState {

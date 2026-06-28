@@ -217,10 +217,7 @@ export function migrateBackfillGuardianPrincipalId(database: DrizzleDb): void {
 
         const externalToP = new Map<string, string>();
         for (const b of activeBindings) {
-          externalToP.set(
-            b.guardian_external_user_id,
-            b.guardian_principal_id,
-          );
+          externalToP.set(b.guardian_external_user_id, b.guardian_principal_id);
         }
 
         const updateStmt = raw.prepare(

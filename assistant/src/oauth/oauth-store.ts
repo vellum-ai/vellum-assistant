@@ -19,13 +19,13 @@ import {
 import { and, desc, eq, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb } from "../memory/db-connection.js";
 import { rawChanges } from "../memory/raw-query.js";
 import {
   oauthApps,
   oauthConnections,
   oauthProviders,
 } from "../memory/schema/oauth.js";
+import { getDb } from "../persistence/db-connection.js";
 import {
   deleteSecureKeyAsync,
   getSecureKeyAsync,

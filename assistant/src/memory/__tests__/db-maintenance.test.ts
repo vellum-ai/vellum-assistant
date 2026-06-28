@@ -18,11 +18,12 @@
 import { existsSync, statSync } from "node:fs";
 import { beforeEach, describe, expect, test } from "bun:test";
 
-const { getSqlite } = await import("../db-connection.js");
-const { initializeDb } = await import("../db-init.js");
+const { getSqlite } = await import("../../persistence/db-connection.js");
+const { initializeDb } = await import("../../persistence/db-init.js");
 const { deleteMemoryCheckpoint, getMemoryCheckpoint } =
   await import("../checkpoints.js");
-const { maybeRunDbMaintenance } = await import("../db-maintenance.js");
+const { maybeRunDbMaintenance } =
+  await import("../../persistence/db-maintenance.js");
 const { getLastUserMessageTimestamp } =
   await import("../../persistence/conversation-crud.js");
 const { getDbPath } = await import("../../util/platform.js");

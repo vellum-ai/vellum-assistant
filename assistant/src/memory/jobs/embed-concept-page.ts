@@ -21,11 +21,11 @@ import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../config/types.js";
+import { getDb } from "../../persistence/db-connection.js";
 import { BackendUnavailableError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { applyCorrectionIfCalibrated } from "../anisotropy.js";
-import { getDb } from "../db-connection.js";
 import {
   embedWithBackend,
   generateSparseEmbedding,

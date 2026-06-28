@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { and, asc, desc, eq, gt } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../config/types.js";
+import { getDb } from "../../persistence/db-connection.js";
 import { buildCoreIdentityContext } from "../../prompts/system-prompt.js";
 import {
   extractToolUse,
@@ -26,7 +27,6 @@ import type {
 import { BackendUnavailableError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { getConversationDirPath } from "../conversation-disk-view.js";
-import { getDb } from "../db-connection.js";
 import { conversations, messages } from "../schema.js";
 import {
   enqueueGraphNodeEmbed,

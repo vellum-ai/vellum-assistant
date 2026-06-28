@@ -12,6 +12,7 @@ import { z } from "zod";
 import type { AssistantConfig } from "../../config/types.js";
 import { estimateTextTokens } from "../../context/token-estimator.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
+import { getDb } from "../../persistence/db-connection.js";
 import { clearConversation as clearV3EverInjected } from "../../plugins/defaults/memory-v3-shadow/ever-injected-store.js";
 import type {
   ContentBlock,
@@ -20,7 +21,6 @@ import type {
 } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
-import { getDb } from "../db-connection.js";
 import { embedWithRetry } from "../embed.js";
 import { generateSparseEmbedding } from "../embedding-backend.js";
 import { wrapMemoryBlock } from "../memory-marker.js";

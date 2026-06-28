@@ -17,5 +17,7 @@ export function downToolInvocationsMatchedRuleId(database: DrizzleDb): void {
   if (!tableHasColumn(database, "tool_invocations", "matched_trust_rule_id")) {
     return;
   }
-  database.run(`ALTER TABLE tool_invocations DROP COLUMN matched_trust_rule_id`);
+  database.run(
+    `ALTER TABLE tool_invocations DROP COLUMN matched_trust_rule_id`,
+  );
 }

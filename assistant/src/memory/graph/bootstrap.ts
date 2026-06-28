@@ -16,10 +16,10 @@ import { and, asc, ne, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../../config/loader.js";
+import { getDb } from "../../persistence/db-connection.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "../checkpoints.js";
-import { getDb } from "../db-connection.js";
 import {
   enqueueMemoryJob,
   hasActiveJobOfType,

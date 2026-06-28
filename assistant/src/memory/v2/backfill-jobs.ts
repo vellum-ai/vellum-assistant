@@ -20,10 +20,10 @@
 
 import type { AssistantConfig } from "../../config/types.js";
 import { getMessages } from "../../persistence/conversation-crud.js";
+import { getDb } from "../../persistence/db-connection.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { listConversations } from "../conversation-queries.js";
-import { getDb } from "../db-connection.js";
 import { enqueueEmbedConceptPageJob } from "../jobs/embed-concept-page.js";
 import type { MemoryJob } from "../jobs-store.js";
 import { stringifyMessageContent } from "../message-content.js";

@@ -1,6 +1,6 @@
 import { and, asc, eq, gt, isNotNull, ne, or } from "drizzle-orm";
 
-import { getDb } from "./db-connection.js";
+import { getDb } from "../persistence/db-connection.js";
 import { toolInvocations } from "./schema.js";
 
 /**

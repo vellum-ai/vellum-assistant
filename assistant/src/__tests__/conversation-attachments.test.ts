@@ -50,12 +50,12 @@ mock.module("../permissions/types.js", () => ({
 
 import type { AssistantAttachmentDraft } from "../daemon/assistant-attachments.js";
 import { getFilePathForAttachment } from "../memory/attachments-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
 import {
   addMessage,
   createConversation,
 } from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 await initializeDb();
 
 function resetTables() {

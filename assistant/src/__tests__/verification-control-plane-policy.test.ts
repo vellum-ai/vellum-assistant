@@ -224,7 +224,7 @@ function makePrompter(): PermissionPrompter {
   } as unknown as PermissionPrompter;
 }
 
-import { initializeDb } from "../memory/db-init.js";
+import { initializeDb } from "../persistence/db-init.js";
 
 beforeAll(async () => {
   await initializeDb();

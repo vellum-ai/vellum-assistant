@@ -7,8 +7,6 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { getDb, getLogsDb, getMemoryDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import {
   addMessage,
@@ -17,6 +15,8 @@ import {
   getMessages,
   wipeConversation,
 } from "../persistence/conversation-crud.js";
+import { getDb, getLogsDb, getMemoryDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 
 // Initialize db once before all tests
 await initializeDb();

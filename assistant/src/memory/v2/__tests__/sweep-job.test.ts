@@ -101,10 +101,10 @@ afterAll(() => {
   rmSync(tmpWorkspace, { recursive: true, force: true });
 });
 
-const { getDb } = await import("../../db-connection.js");
+const { getDb } = await import("../../../persistence/db-connection.js");
 const { resetDbForTesting } =
   await import("../../../__tests__/db-test-helpers.js");
-const { initializeDb } = await import("../../db-init.js");
+const { initializeDb } = await import("../../../persistence/db-init.js");
 const { messages, conversations } = await import("../../schema.js");
 const { memoryV2SweepJob } = await import("../sweep-job.js");
 

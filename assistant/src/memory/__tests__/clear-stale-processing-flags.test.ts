@@ -13,8 +13,8 @@ import {
   isConversationProcessing,
   setConversationProcessingStartedAt,
 } from "../../persistence/conversation-crud.js";
-import { getDb } from "../db-connection.js";
-import { initializeDb } from "../db-init.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
 
 await initializeDb();
 

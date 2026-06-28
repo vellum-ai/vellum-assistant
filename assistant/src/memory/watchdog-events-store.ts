@@ -1,8 +1,8 @@
 import { and, asc, eq, gt, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { getTelemetryDb } from "../persistence/db-connection.js";
 import { getCachedShareAnalytics } from "../platform/consent-cache.js";
-import { getTelemetryDb } from "./db-connection.js";
 import { watchdogEvents } from "./schema.js";
 
 /**

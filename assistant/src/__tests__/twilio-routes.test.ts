@@ -369,9 +369,9 @@ import {
   handleVoiceWebhook,
 } from "../calls/twilio-routes.js";
 import { DEFAULT_ELEVENLABS_VOICE_ID } from "../config/schemas/elevenlabs.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
 import { conversations } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   handleAssignTwilioNumber,
   handleClearTwilioCredentials,

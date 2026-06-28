@@ -1,7 +1,9 @@
 import type { DrizzleDb } from "../db-connection.js";
 import { getSqliteFrom } from "../db-connection.js";
 
-export function migrateOAuthProvidersDisplayMetadata(database: DrizzleDb): void {
+export function migrateOAuthProvidersDisplayMetadata(
+  database: DrizzleDb,
+): void {
   const raw = getSqliteFrom(database);
   const columns = [
     "display_name TEXT",

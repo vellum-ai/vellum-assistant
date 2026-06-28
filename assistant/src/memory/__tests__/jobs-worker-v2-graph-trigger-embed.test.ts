@@ -57,7 +57,7 @@ mock.module("../graph/graph-search.js", () => ({
   enqueueGraphTriggerEmbed: () => {},
 }));
 
-mock.module("../db-maintenance.js", () => ({
+mock.module("../../persistence/db-maintenance.js", () => ({
   maybeRunDbMaintenance: () => {},
 }));
 
@@ -67,8 +67,8 @@ const tmpWorkspace = mkdtempSync(
 const previousWorkspaceEnv = process.env.VELLUM_WORKSPACE_DIR;
 process.env.VELLUM_WORKSPACE_DIR = tmpWorkspace;
 
-import { getMemoryDb } from "../db-connection.js";
-import { initializeDb } from "../db-init.js";
+import { getMemoryDb } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
 import { enqueueMemoryJob } from "../jobs-store.js";
 import { runMemoryJobsOnce } from "../jobs-worker.js";
 import { _resetQdrantBreaker } from "../qdrant-circuit-breaker.js";

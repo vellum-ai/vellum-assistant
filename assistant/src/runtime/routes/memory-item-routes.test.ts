@@ -66,13 +66,13 @@ mock.module("../../memory/qdrant-circuit-breaker.js", () => ({
 
 import { eq } from "drizzle-orm";
 
+import { memoryGraphNodes, memoryJobs } from "../../memory/schema.js";
 import {
   getDb,
   getMemoryDb,
   getMemorySqlite,
-} from "../../memory/db-connection.js";
-import { initializeDb } from "../../memory/db-init.js";
-import { memoryGraphNodes, memoryJobs } from "../../memory/schema.js";
+} from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
 import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
 import { ROUTES } from "./memory-item-routes.js";
 import type { RouteDefinition } from "./types.js";

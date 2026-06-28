@@ -1,7 +1,7 @@
 import { and, desc, eq, lte } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { type DrizzleDb, getDb } from "./db-connection.js";
+import { type DrizzleDb, getDb } from "../persistence/db-connection.js";
 import { conversationCompactionEvents } from "./schema.js";
 
 export interface CompactionEvent {

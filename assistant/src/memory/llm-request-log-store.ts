@@ -23,8 +23,12 @@ import {
   getTurnTimeBounds,
   messageMetadataSchema,
 } from "../persistence/conversation-crud.js";
+import {
+  type DrizzleDb,
+  getDb,
+  getLogsDb,
+} from "../persistence/db-connection.js";
 import { AssistantError, ProviderError } from "../util/errors.js";
-import { type DrizzleDb, getDb, getLogsDb } from "./db-connection.js";
 import { llmRequestLogs, messages } from "./schema.js";
 
 /**

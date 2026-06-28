@@ -8,6 +8,7 @@ import {
   diskPressureBackgroundSkipLogFields,
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
+import { maybeRunDbMaintenance } from "../persistence/db-maintenance.js";
 import { maintainJob as memoryV3MaintainJob } from "../plugins/defaults/memory-v3-shadow/maintain-job.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
@@ -17,7 +18,6 @@ import {
   markScheduledCleanupEnqueued,
 } from "./cleanup-schedule-state.js";
 import { conversationAnalyzeJob } from "./conversation-analyze-job.js";
-import { maybeRunDbMaintenance } from "./db-maintenance.js";
 import {
   EmbeddingBillingBlockError,
   extractHttpStatus,

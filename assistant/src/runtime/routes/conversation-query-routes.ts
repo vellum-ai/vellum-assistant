@@ -63,7 +63,6 @@ import {
   log,
 } from "../../daemon/handlers/shared.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
-import { getDb } from "../../memory/db-connection.js";
 import { clearEmbeddingBackendCache } from "../../memory/embedding-backend.js";
 import { getLlmRequestLogSource } from "../../memory/llm-request-log-source.js";
 import { type LogRow } from "../../memory/llm-request-log-store.js";
@@ -75,6 +74,7 @@ import {
   getConversation,
   getMessageById,
 } from "../../persistence/conversation-crud.js";
+import { getDb } from "../../persistence/db-connection.js";
 import { getMemoryV3SelectionForInspectorByMessageIds } from "../../plugins/defaults/memory-v3-shadow/selection-log-store.js";
 import {
   createConnection,

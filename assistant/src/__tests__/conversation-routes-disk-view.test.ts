@@ -13,13 +13,13 @@ import {
   getConversationByKey,
   getOrCreateConversation as getOrCreateConversationMapping,
 } from "../memory/conversation-key-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
 import {
   addMessage,
   getConversation,
   provenanceFromTrustContext,
 } from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";

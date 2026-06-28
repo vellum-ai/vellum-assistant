@@ -1,7 +1,7 @@
 import { inArray } from "drizzle-orm";
 
 import { getConfig } from "../../config/loader.js";
-import { getDb } from "../db-connection.js";
+import { getDb } from "../../persistence/db-connection.js";
 import { withQdrantBreaker } from "../qdrant-circuit-breaker.js";
 import type {
   QdrantSearchResult,

@@ -128,7 +128,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../daemon/trust-context.js",
     "../../../memory/checkpoints.js",
     "../../../persistence/conversation-crud.js",
-    "../../../memory/db-connection.js",
+    "../../../persistence/db-connection.js",
     "../../../memory/embedding-backend.js",
     "../../../memory/embedding-billing-breaker.js",
     "../../../memory/embedding-cache.js",

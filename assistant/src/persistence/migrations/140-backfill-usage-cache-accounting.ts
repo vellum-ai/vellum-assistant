@@ -279,8 +279,7 @@ export function migrateBackfillUsageCacheAccounting(database: DrizzleDb): void {
         directInputTokens += reconstructedUsage.directInputTokens;
         outputTokens += reconstructedUsage.outputTokens;
         cacheReadInputTokens += reconstructedUsage.cacheReadInputTokens;
-        cacheCreationInputTokens +=
-          reconstructedUsage.cacheCreationInputTokens;
+        cacheCreationInputTokens += reconstructedUsage.cacheCreationInputTokens;
         cacheCreation5mInputTokens +=
           reconstructedUsage.anthropicCacheCreation
             ?.ephemeral_5m_input_tokens ?? 0;

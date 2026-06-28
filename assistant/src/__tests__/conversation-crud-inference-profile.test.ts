@@ -6,8 +6,6 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
 }));
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
 import {
   createConversation,
   getConversation,
@@ -15,6 +13,8 @@ import {
   setConversationInferenceProfile,
   setConversationInferenceProfileSession,
 } from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 await initializeDb();
 
 describe("setConversationInferenceProfile", () => {

@@ -9,8 +9,6 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import type { AssistantConfig } from "../config/schema.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
 import { pruneOldConversationsJob } from "../memory/job-handlers/cleanup.js";
 import type { MemoryJob } from "../memory/jobs-store.js";
 import {
@@ -18,6 +16,8 @@ import {
   skillLoadedEvents,
   toolInvocations,
 } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 
 await initializeDb();
 

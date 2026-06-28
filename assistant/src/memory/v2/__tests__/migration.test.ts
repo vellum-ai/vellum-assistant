@@ -91,8 +91,8 @@ import { Database } from "bun:sqlite";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import type { DrizzleDb } from "../../db-connection.js";
-import { getSqliteFrom } from "../../db-connection.js";
+import type { DrizzleDb } from "../../../persistence/db-connection.js";
+import { getSqliteFrom } from "../../../persistence/db-connection.js";
 import * as schema from "../../schema.js";
 // Type-only imports are erased at runtime so they don't evaluate the module —
 // safe to declare alongside the dynamic value import below.

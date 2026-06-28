@@ -8,13 +8,13 @@ mock.module("../../util/logger.js", () => ({
 }));
 
 import { createConversation } from "../../persistence/conversation-crud.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
 import {
   AUTO_ANALYSIS_GROUP_ID,
   AUTO_ANALYSIS_SOURCE,
   isAutoAnalysisConversation,
 } from "../auto-analysis-guard.js";
-import { getDb } from "../db-connection.js";
-import { initializeDb } from "../db-init.js";
 await initializeDb();
 
 function resetTables(): void {

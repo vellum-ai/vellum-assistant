@@ -27,7 +27,7 @@ import {
   type DrizzleDb,
   getDb,
   getSqliteFrom,
-} from "../../../memory/db-connection.js";
+} from "../../../persistence/db-connection.js";
 
 /**
  * Message-metadata key the v3 injector persists each turn's card block under

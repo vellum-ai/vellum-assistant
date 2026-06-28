@@ -143,9 +143,9 @@ mock.module("../providers/provider-send-message.js", () => ({
 // Module under test (after mocks).
 // ---------------------------------------------------------------------------
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
 import { conversations } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { runLeaf, WorkflowUnknownProfileError } from "./leaf-runner.js";

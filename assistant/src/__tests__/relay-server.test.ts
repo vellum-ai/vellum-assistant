@@ -417,12 +417,12 @@ import {
   createInboundSession,
   createVerificationSession,
 } from "../memory/channel-verification-sessions.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
 import { createInvite } from "../memory/invite-store.js";
 import { resetTestTables } from "../memory/raw-query.js";
 import { conversations } from "../memory/schema.js";
 import { addMessage, getMessages } from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   createOutboundSession,
   getGuardianBinding,

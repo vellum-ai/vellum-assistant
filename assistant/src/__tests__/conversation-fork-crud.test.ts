@@ -32,8 +32,6 @@ import {
   markConversationUnread,
 } from "../memory/conversation-attention-store.js";
 import { getConversationDirPath } from "../memory/conversation-disk-view.js";
-import { getDb, getLogsDb, getMemoryDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
 import {
   loadGraphMemoryState,
   saveGraphMemoryState,
@@ -65,6 +63,8 @@ import {
   forkConversation,
   getMessages,
 } from "../persistence/conversation-crud.js";
+import { getDb, getLogsDb, getMemoryDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   getInjected as getV3Injected,
   markPruned as markV3Pruned,

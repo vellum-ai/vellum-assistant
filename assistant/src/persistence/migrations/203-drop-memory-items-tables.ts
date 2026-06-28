@@ -26,9 +26,7 @@ export function migrateDropMemoryItemsTables(database: DrizzleDb): void {
     if (row && row.cnt > 0) {
       // Tables have active rows — only drop if the migration checkpoint exists.
       const checkpoint = raw
-        .prepare(
-          /*sql*/ `SELECT value FROM memory_checkpoints WHERE key = ?`,
-        )
+        .prepare(/*sql*/ `SELECT value FROM memory_checkpoints WHERE key = ?`)
         .get("graph_bootstrap:migrated_tool_items") as
         | { value: string }
         | undefined;

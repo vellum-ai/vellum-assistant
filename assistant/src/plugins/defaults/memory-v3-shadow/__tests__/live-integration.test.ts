@@ -26,9 +26,9 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { wrapMemoryBlock } from "../../../../memory/memory-marker.js";
-import { migrateAddMemoryV3EverInjected } from "../../../../memory/migrations/277-add-memory-v3-ever-injected.js";
 import * as schema from "../../../../memory/schema.js";
 import type { PageIndexEntry } from "../../../../memory/v2/page-index.js";
+import { migrateAddMemoryV3EverInjected } from "../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
 import type {
   ContentBlock,
   Message,
@@ -76,7 +76,7 @@ mock.module("../dense.js", () => ({
 // In-memory everInjected store backing the net-new dedup, swapped in only
 // while this file's tests run.
 const realDbConnection = {
-  ...(await import("../../../../memory/db-connection.js")),
+  ...(await import("../../../../persistence/db-connection.js")),
 };
 let testSqlite: Database;
 let testDb = makeDb();
@@ -86,7 +86,7 @@ function makeDb() {
   migrateAddMemoryV3EverInjected(db);
   return db;
 }
-mock.module("../../../../memory/db-connection.js", () => ({
+mock.module("../../../../persistence/db-connection.js", () => ({
   ...realDbConnection,
   getDb: () => (denseMockActive ? testDb : realDbConnection.getDb()),
   getSqliteFrom: (db: unknown) =>

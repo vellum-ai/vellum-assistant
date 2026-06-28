@@ -17,7 +17,7 @@
 
 import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 
-import type { DrizzleDb } from "../../db-connection.js";
+import type { DrizzleDb } from "../../../persistence/db-connection.js";
 import type {
   MemoryV2ConceptRowRecord,
   MemoryV2ConfigSnapshot,

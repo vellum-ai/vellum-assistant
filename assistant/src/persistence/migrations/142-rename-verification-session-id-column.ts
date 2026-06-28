@@ -38,9 +38,9 @@ export function migrateRenameVerificationSessionIdColumn(
   // Check the old column exists and the new column doesn't before attempting the rename.
   // Both checks are needed for crash recovery: if the rename succeeded but the checkpoint
   // didn't commit, the old column is gone and the new one already exists.
-  const columns = raw
-    .query(`PRAGMA table_info(call_sessions)`)
-    .all() as Array<{ name: string }>;
+  const columns = raw.query(`PRAGMA table_info(call_sessions)`).all() as Array<{
+    name: string;
+  }>;
   const hasOldColumn = columns.some(
     (c) => c.name === "guardian_verification_session_id",
   );

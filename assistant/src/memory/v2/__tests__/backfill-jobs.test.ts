@@ -203,10 +203,10 @@ afterAll(() => {
 });
 
 const { getDb, getMemoryDb, getMemorySqlite } =
-  await import("../../db-connection.js");
+  await import("../../../persistence/db-connection.js");
 const { resetDbForTesting } =
   await import("../../../__tests__/db-test-helpers.js");
-const { initializeDb } = await import("../../db-init.js");
+const { initializeDb } = await import("../../../persistence/db-init.js");
 const { rawExec } = await import("../../raw-query.js");
 const { conversations, memoryJobs, messages } = await import("../../schema.js");
 const { writePage } = await import("../page-store.js");

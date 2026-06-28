@@ -25,7 +25,7 @@ mock.module("../config/env.js", () => ({
   getAssistantDomain: () => "vellum.me",
 }));
 
-import { initializeDb } from "../memory/db-init.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   attachmentMetadataSchema,
   ROUTES,

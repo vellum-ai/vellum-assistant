@@ -41,7 +41,7 @@
 import {
   type DrizzleDb,
   getSqliteFrom,
-} from "../../../memory/db-connection.js";
+} from "../../../persistence/db-connection.js";
 import type { EdgeGraph } from "./edge.js";
 import type { Slug } from "./types.js";
 

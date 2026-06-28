@@ -1,9 +1,9 @@
 import { count, desc, lt } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { runAsyncSqlite } from "../persistence/db-async-query.js";
+import { getDb } from "../persistence/db-connection.js";
 import { getLogger } from "../util/logger.js";
-import { runAsyncSqlite } from "./db-async-query.js";
-import { getDb } from "./db-connection.js";
 import { toolInvocations } from "./schema.js";
 
 export interface ToolInvocationRecord {

@@ -6,9 +6,7 @@ import { tableHasColumn } from "./schema-introspection.js";
 export function migrateChannelInboundDeliveryAttempts(
   database: DrizzleDb,
 ): void {
-  if (
-    tableHasColumn(database, "channel_inbound_events", "delivery_attempts")
-  ) {
+  if (tableHasColumn(database, "channel_inbound_events", "delivery_attempts")) {
     return;
   }
   const raw = getSqliteFrom(database);

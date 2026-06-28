@@ -14,13 +14,13 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
 import {
   addMessage,
   createConversation,
   getMessages,
 } from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   oversizedImageReplacement,
   persistUnsendableImageDowngrades,

@@ -15,8 +15,6 @@ mock.module("../config/loader.js", () => ({
 
 import { eq } from "drizzle-orm";
 
-import { getMemoryDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
 import {
   claimMemoryJobs,
   enqueueMemoryJob,
@@ -27,6 +25,8 @@ import {
   withQdrantBreaker,
 } from "../memory/qdrant-circuit-breaker.js";
 import { memoryJobs } from "../memory/schema.js";
+import { getMemoryDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 
 describe("claimMemoryJobs with Qdrant circuit breaker", () => {
   beforeAll(async () => {

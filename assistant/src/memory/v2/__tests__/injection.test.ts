@@ -392,14 +392,14 @@ afterAll(() => {
 
 // Static `import type` is fine — types erase, so they don't run module-init
 // code that would race the mocks above.
-import type { DrizzleDb } from "../../db-connection.js";
+import type { DrizzleDb } from "../../../persistence/db-connection.js";
 import type { SkillEntry } from "../types.js";
 
-const { getSqliteFrom } = await import("../../db-connection.js");
+const { getSqliteFrom } = await import("../../../persistence/db-connection.js");
 const { migrateActivationState } =
-  await import("../../migrations/232-activation-state.js");
+  await import("../../../persistence/migrations/232-activation-state.js");
 const { migrateMemoryV2InjectionEvents } =
-  await import("../../migrations/256-memory-v2-injection-events.js");
+  await import("../../../persistence/migrations/256-memory-v2-injection-events.js");
 const schema = await import("../../schema.js");
 const { clearEverInjected, hydrate, save } =
   await import("../activation-store.js");

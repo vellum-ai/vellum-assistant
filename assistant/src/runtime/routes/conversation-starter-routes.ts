@@ -21,9 +21,9 @@ import {
   buildConversationStarterValidationContext,
   isValidConversationStarterText,
 } from "../../memory/conversation-starter-validation.js";
-import { getDb, getMemoryDb } from "../../memory/db-connection.js";
 import { enqueueMemoryJob, isMemoryEnabled } from "../../memory/jobs-store.js";
 import { conversationStarters, memoryJobs } from "../../memory/schema.js";
+import { getDb, getMemoryDb } from "../../persistence/db-connection.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";

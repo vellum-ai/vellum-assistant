@@ -10,13 +10,13 @@ import { v4 as uuid } from "uuid";
 
 import { readSlackMetadataFromMessageMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { selectSlackMetaCandidateMetadata } from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import {
   getConversationByKey,
   getOrCreateConversation,
   setConversationKeyIfAbsent,
 } from "./conversation-key-store.js";
-import { getDb } from "./db-connection.js";
 import { channelInboundEvents, conversations } from "./schema.js";
 
 export interface InboundResult {

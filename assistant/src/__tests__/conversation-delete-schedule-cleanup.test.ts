@@ -32,15 +32,15 @@ mock.module("../daemon/handlers/conversations.js", () => ({
 import type { Database } from "bun:sqlite";
 
 import {
-  getDb,
-  getLogsSqlite,
-  getMemorySqlite,
-} from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import {
   createConversation,
   getConversation,
 } from "../persistence/conversation-crud.js";
+import {
+  getDb,
+  getLogsSqlite,
+  getMemorySqlite,
+} from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { ROUTES } from "../runtime/routes/conversation-management-routes.js";
 import { createSchedule, getSchedule } from "../schedule/schedule-store.js";
 

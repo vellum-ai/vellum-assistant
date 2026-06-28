@@ -19,12 +19,12 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import { getConversationByKey } from "../memory/conversation-key-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
 import { linkMessage, recordInbound } from "../memory/delivery-crud.js";
 import { messages } from "../memory/schema.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { addMessage } from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { handleEditIntercept } from "../runtime/routes/inbound-stages/edit-intercept.js";
 
 await initializeDb();

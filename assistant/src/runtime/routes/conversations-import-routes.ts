@@ -6,7 +6,6 @@ import {
   getConversationByKey,
   setConversationKey,
 } from "../../memory/conversation-key-store.js";
-import { getDb } from "../../memory/db-connection.js";
 import { indexMessageNow } from "../../memory/indexer.js";
 import {
   conversations as conversationsTable,
@@ -17,6 +16,7 @@ import {
   createConversation,
   type MessageRole,
 } from "../../persistence/conversation-crud.js";
+import { getDb } from "../../persistence/db-connection.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";

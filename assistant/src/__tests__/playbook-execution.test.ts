@@ -26,9 +26,9 @@ import { executePlaybookCreate } from "../config/bundled-skills/playbooks/tools/
 import { executePlaybookDelete } from "../config/bundled-skills/playbooks/tools/playbook-delete.js";
 import { executePlaybookList } from "../config/bundled-skills/playbooks/tools/playbook-list.js";
 import { executePlaybookUpdate } from "../config/bundled-skills/playbooks/tools/playbook-update.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
 import { getNode } from "../memory/graph/store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { compilePlaybooks } from "../playbooks/playbook-compiler.js";
 import { parsePlaybookStatement } from "../playbooks/types.js";
 import type { ToolContext } from "../tools/types.js";

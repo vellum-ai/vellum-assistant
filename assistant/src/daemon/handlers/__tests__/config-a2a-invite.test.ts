@@ -21,9 +21,9 @@ import {
   setNestedValue,
 } from "../../../config/loader.js";
 import { getContact } from "../../../contacts/contact-store.js";
-import { getSqlite } from "../../../memory/db-connection.js";
-import { initializeDb } from "../../../memory/db-init.js";
 import { findById } from "../../../memory/invite-store.js";
+import { getSqlite } from "../../../persistence/db-connection.js";
+import { initializeDb } from "../../../persistence/db-init.js";
 import { createA2AInvite, getA2AConfig } from "../config-a2a.js";
 
 await initializeDb();
