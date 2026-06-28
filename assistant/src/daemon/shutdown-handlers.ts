@@ -8,6 +8,7 @@ import { getSqlite, resetDb } from "../memory/db-connection.js";
 import type { QdrantManager } from "../memory/qdrant-manager.js";
 import { stopMemoryWorkerProcess } from "../memory/worker-control.js";
 import type { RuntimeHttpServer } from "../runtime/http-server.js";
+import { stopUsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { browserManager } from "../tools/browser/browser-manager.js";
 import { cleanupShellOutputTempFiles } from "../tools/shared/shell-output.js";
 import { getLogger } from "../util/logger.js";
@@ -45,7 +46,6 @@ export interface ShutdownDeps {
   getMemoryWorker: () => { stop(): void } | null;
   getQdrantManager: () => QdrantManager | null;
   mcpManager: McpServerManager | null;
-  telemetryReporter: { stop(): Promise<void> } | null;
 }
 
 export function installShutdownHandlers(deps: ShutdownDeps): void {
@@ -117,18 +117,13 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
       log.warn({ err }, "Enrichment service shutdown failed (non-fatal)");
     }
 
-    if (deps.telemetryReporter) {
-      try {
-        const timeout = new Promise<void>((_, reject) =>
-          setTimeout(
-            () => reject(new Error("Telemetry flush timed out")),
-            3_000,
-          ),
-        );
-        await Promise.race([deps.telemetryReporter.stop(), timeout]);
-      } catch (err) {
-        log.warn({ err }, "Telemetry reporter shutdown failed (non-fatal)");
-      }
+    try {
+      const timeout = new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error("Telemetry flush timed out")), 3_000),
+      );
+      await Promise.race([stopUsageTelemetryReporter(), timeout]);
+    } catch (err) {
+      log.warn({ err }, "Telemetry reporter shutdown failed (non-fatal)");
     }
 
     if (deps.runtimeHttp) await deps.runtimeHttp.stop();
