@@ -39,7 +39,8 @@ function getManagedSkillsDir(): string {
   return getWorkspaceSkillsDir();
 }
 
-function getManagedSkillDir(id: string): string {
+/** Absolute path of a managed skill's directory (whether or not it exists). */
+export function getManagedSkillDir(id: string): string {
   return join(getManagedSkillsDir(), id);
 }
 

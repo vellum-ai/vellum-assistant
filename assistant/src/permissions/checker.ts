@@ -671,38 +671,41 @@ export async function classifyRisk(
   return result;
 }
 
-// ── Background memory-consolidation skill-authoring auto-grant ────────────────
-// Skill scaffolding (`scaffold_managed_skill`, risk: high + allowlist-gated) and
-// loading the `skill-management` skill (`skill_load skill-management`, which
-// exposes that tool) require an interactive approval. The memory-consolidation
+// ── Background memory-retrospective skill-authoring auto-grant ────────────────
+// Skill scaffolding (`scaffold_managed_skill`, risk: high + allowlist-gated),
+// finding similar skills (`find_similar_skills`), and loading the
+// `skill-management` skill (`skill_load skill-management`, which exposes the
+// scaffold tool) require an interactive approval. The memory-retrospective
 // background job runs without any connected client, so it can never answer that
-// prompt. The grant resolves these two tools to ALLOW non-interactively, and
-// ONLY when all of these hold:
+// prompt. The grant resolves these tools to ALLOW non-interactively, and ONLY
+// when all of these hold:
 //   - procedural-memory-as-skills is active (`policyContext.procToSkillsActive`,
 //     precomputed by buildPolicyContext: the flag is on AND memory-v3 is live),
-//   - the turn is the consolidation background source — guardian trust, `vellum`
-//     source channel, `memory_consolidation` origin (set in consolidation-job.ts).
+//   - the turn is the retrospective background source — guardian trust, `vellum`
+//     source channel, `memory_retrospective` origin (set in
+//     memory-retrospective-job.ts).
 //
-// The grant is intentionally narrow: it matches exactly these two tools AND the
-// consolidation origin under the active flag, so no interactive session, other
+// The grant is intentionally narrow: it matches exactly these tools AND the
+// retrospective origin under the active flag, so no interactive session, other
 // origin, or feature-off install is affected.
-const MEMORY_CONSOLIDATION_ORIGIN = "memory_consolidation";
+const MEMORY_RETROSPECTIVE_ORIGIN = "memory_retrospective";
 const SKILL_MANAGEMENT_SKILL_ID = "skill-management";
 
-function isMemoryConsolidationSkillAuthoringGrant(
+function isRetrospectiveSkillAuthoringGrant(
   toolName: string,
   input: Record<string, unknown>,
   policyContext?: PolicyContext,
 ): boolean {
   if (
     policyContext?.procToSkillsActive !== true ||
-    policyContext.requestOrigin !== MEMORY_CONSOLIDATION_ORIGIN ||
+    policyContext.requestOrigin !== MEMORY_RETROSPECTIVE_ORIGIN ||
     policyContext.trustClass !== "guardian" ||
     policyContext.sourceChannel !== "vellum"
   ) {
     return false;
   }
   if (toolName === "scaffold_managed_skill") return true;
+  if (toolName === "find_similar_skills") return true;
   if (toolName === "skill_load") {
     return (
       getStringField(input, "skill", "skill_id").trim() ===
@@ -722,13 +725,11 @@ export async function check(
 ): Promise<PermissionCheckResult> {
   signal?.throwIfAborted();
 
-  if (
-    isMemoryConsolidationSkillAuthoringGrant(toolName, input, policyContext)
-  ) {
+  if (isRetrospectiveSkillAuthoringGrant(toolName, input, policyContext)) {
     return {
       decision: "allow",
       reason:
-        "Memory consolidation background session: skill authoring auto-approved",
+        "Memory retrospective background session: skill authoring auto-approved",
     };
   }
 

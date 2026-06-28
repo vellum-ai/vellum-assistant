@@ -17,15 +17,26 @@ mock.module("../daemon/skill-memory-refresh.js", () => ({
 }));
 
 import { loadSkillCatalog } from "../config/skills.js";
+import { readInstallMeta } from "../skills/install-meta.js";
 import { executeScaffoldManagedSkill } from "../tools/skills/scaffold-managed.js";
 import type { ToolContext } from "../tools/types.js";
 
-function makeContext(): ToolContext {
+function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
     workingDir: "/tmp",
     conversationId: "test-conversation",
     trustClass: "guardian",
+    ...overrides,
   };
+}
+
+/** A retrospective-pass tool context (assistant-authored scaffolds). */
+function makeRetrospectiveContext(): ToolContext {
+  return makeContext({ requestOrigin: "memory_retrospective" });
+}
+
+function installMetaFor(skillId: string) {
+  return readInstallMeta(join(TEST_DIR, "skills", skillId));
 }
 
 beforeEach(() => {
@@ -422,5 +433,144 @@ describe("scaffold_managed_skill tool", () => {
     const parent = catalog.find((s) => s.id === "e2e-parent");
     expect(parent).toBeDefined();
     expect(parent!.includes).toEqual(["e2e-child"]);
+  });
+
+  // ── Authorship tagging + user-skill protection ────────────────────────────
+
+  test('tags author "assistant" under the retrospective origin', async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "retro-skill",
+        name: "Retro Skill",
+        description: "Authored by a retrospective pass",
+        body_markdown: "Do the procedure.",
+      },
+      makeRetrospectiveContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(installMetaFor("retro-skill")?.author).toBe("assistant");
+  });
+
+  test('tags author "user" for a normal (non-retrospective) scaffold', async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "user-skill",
+        name: "User Skill",
+        description: "Authored interactively",
+        body_markdown: "Do the thing.",
+      },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(installMetaFor("user-skill")?.author).toBe("user");
+  });
+
+  test("retrospective refuses to overwrite an author:user skill", async () => {
+    // A user authors the skill first.
+    await executeScaffoldManagedSkill(
+      {
+        skill_id: "protected",
+        name: "Protected",
+        description: "User authored",
+        body_markdown: "Original body.",
+      },
+      makeContext(),
+    );
+    expect(installMetaFor("protected")?.author).toBe("user");
+
+    // The retrospective tries to overwrite it — refused.
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "protected",
+        name: "Protected",
+        description: "Rewritten by retrospective",
+        body_markdown: "Rewritten body.",
+        overwrite: true,
+      },
+      makeRetrospectiveContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("user-authored");
+    // The original body and authorship are untouched.
+    const skillFile = join(TEST_DIR, "skills", "protected", "SKILL.md");
+    expect(readFileSync(skillFile, "utf-8")).toContain("Original body.");
+    expect(installMetaFor("protected")?.author).toBe("user");
+  });
+
+  test("retrospective refuses to write companion files into an author:user skill", async () => {
+    await executeScaffoldManagedSkill(
+      {
+        skill_id: "protected-files",
+        name: "Protected Files",
+        description: "User authored",
+        body_markdown: "Original body.",
+      },
+      makeContext(),
+    );
+
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "protected-files",
+        name: "Protected Files",
+        description: "Refine attempt",
+        body_markdown: "Original body.",
+        overwrite: true,
+        files: [{ path: "references/notes.md", content: "gotchas" }],
+      },
+      makeRetrospectiveContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("user-authored");
+    expect(
+      existsSync(
+        join(TEST_DIR, "skills", "protected-files", "references", "notes.md"),
+      ),
+    ).toBe(false);
+  });
+
+  test("retrospective MAY overwrite its own author:assistant skill", async () => {
+    // The retrospective authors a skill, then refines it later.
+    await executeScaffoldManagedSkill(
+      {
+        skill_id: "assistant-owned",
+        name: "Assistant Owned",
+        description: "First pass",
+        body_markdown: "V1 procedure.",
+      },
+      makeRetrospectiveContext(),
+    );
+    expect(installMetaFor("assistant-owned")?.author).toBe("assistant");
+
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "assistant-owned",
+        name: "Assistant Owned",
+        description: "Refined",
+        body_markdown: "V2 procedure.",
+        overwrite: true,
+        files: [{ path: "references/failure-modes.md", content: "gotchas" }],
+      },
+      makeRetrospectiveContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    const skillFile = join(TEST_DIR, "skills", "assistant-owned", "SKILL.md");
+    expect(readFileSync(skillFile, "utf-8")).toContain("V2 procedure.");
+    expect(installMetaFor("assistant-owned")?.author).toBe("assistant");
+    expect(
+      existsSync(
+        join(
+          TEST_DIR,
+          "skills",
+          "assistant-owned",
+          "references",
+          "failure-modes.md",
+        ),
+      ),
+    ).toBe(true);
   });
 });
