@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { config as dotenvConfig } from "dotenv";
 
 import { refreshBackgroundWakeIntent } from "../background-wake/publisher.js";
-import { registerBackgroundWakeRuntime } from "../background-wake/runtime-registry.js";
 import { setPointerMessageProcessor } from "../calls/call-pointer-messages.js";
 import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { setRelayBroadcast } from "../calls/relay-server.js";
@@ -988,7 +987,7 @@ export async function runDaemon(): Promise<void> {
     );
   }
 
-  const scheduler = startScheduler(
+  startScheduler(
     async (conversationId, message, options) => {
       await processMessage(
         conversationId,
@@ -1322,8 +1321,7 @@ export async function runDaemon(): Promise<void> {
 
   startWorkspaceHeartbeatService();
 
-  const heartbeat = startHeartbeatService();
-  registerBackgroundWakeRuntime({ scheduler, heartbeat });
+  startHeartbeatService();
   refreshBackgroundWakeIntent("daemon-startup");
 
   // Filing yields to the memory v2 consolidation job when v2 is enabled — both

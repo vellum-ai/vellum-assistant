@@ -932,6 +932,11 @@ export async function stopHeartbeatService(): Promise<void> {
   await HeartbeatService.getInstance()?.stop();
 }
 
+/** The running heartbeat service, or null if one was never started. */
+export function getHeartbeatService(): HeartbeatService | null {
+  return HeartbeatService.getInstance() ?? null;
+}
+
 function isDiskPressureBackgroundLocked(logKey: string): boolean {
   const diskPressureGate = checkDiskPressureBackgroundGate("background-work");
   if (diskPressureGate.action === "allow") return false;
