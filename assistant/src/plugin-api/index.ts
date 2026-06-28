@@ -107,6 +107,7 @@ export type { LLMCallSite } from "../config/schemas/llm.js";
 export type {
   AgentLoopExitReason,
   ConfigFacet,
+  EmbeddingsFacet,
   EventsFacet,
   HookFunction,
   IdentityFacet,
@@ -131,6 +132,7 @@ export type {
   ToolExecutionResult,
   TurnCommitContext,
   UserPromptSubmitContext,
+  VectorStoreFacet,
 } from "./types.js";
 export { RiskLevel } from "./types.js";
 

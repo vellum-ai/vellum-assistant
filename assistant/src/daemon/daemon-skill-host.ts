@@ -18,6 +18,7 @@ import type { SkillHost } from "@vellumai/skill-host-contracts";
 
 import {
   buildConfigFacet,
+  buildEmbeddingsFacet,
   buildEventsFacet,
   buildIdentityFacet,
   buildLoggerFacet,
@@ -26,6 +27,7 @@ import {
   buildProvidersFacet,
   buildRegistriesFacet,
   buildSpeakersFacet,
+  buildVectorStoreFacet,
 } from "./skill-host-facets.js";
 
 /**
@@ -46,5 +48,7 @@ export function createDaemonSkillHost(skillId: string): SkillHost {
     events: buildEventsFacet(),
     registries: buildRegistriesFacet(skillId),
     speakers: buildSpeakersFacet(),
+    embeddings: buildEmbeddingsFacet(),
+    vectorStore: buildVectorStoreFacet(skillId),
   };
 }

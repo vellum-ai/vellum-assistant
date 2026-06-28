@@ -88,6 +88,7 @@ import { APP_VERSION } from "../version.js";
 import { registerShutdownHook } from "./shutdown-registry.js";
 import {
   buildConfigFacet,
+  buildEmbeddingsFacet,
   buildEventsFacet,
   buildIdentityFacet,
   buildLoggerFacet,
@@ -95,6 +96,7 @@ import {
   buildPlatformFacet,
   buildProvidersFacet,
   buildRegistriesFacet,
+  buildVectorStoreFacet,
 } from "./skill-host-facets.js";
 
 const log = getLogger("plugins-bootstrap");
@@ -171,6 +173,8 @@ function buildPluginHost(pluginName: string): PluginHost {
     platform: buildPlatformFacet(),
     logger: buildLoggerFacet(pluginName),
     registries: buildRegistriesFacet(pluginName),
+    embeddings: buildEmbeddingsFacet(),
+    vectorStore: buildVectorStoreFacet(pluginName),
   };
 }
 

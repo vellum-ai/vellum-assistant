@@ -25,6 +25,7 @@ import type {
   AssistantEvent,
   AssistantEventCallback,
   ConfigFacet,
+  EmbeddingsFacet,
   EventsFacet,
   Filter,
   IdentityFacet,
@@ -49,6 +50,8 @@ import type {
   TtsProvider,
   TtsProvidersFacet,
   UserMessage,
+  VectorCollection,
+  VectorStoreFacet,
 } from "@vellumai/skill-host-contracts";
 
 import { SpeakerIdentityTracker } from "../calls/speaker-identification.js";
@@ -56,6 +59,8 @@ import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags
 import { getConfig, getNestedValue } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { addMessage } from "../persistence/conversation-crud.js";
+import { embedWithBackend } from "../persistence/embeddings/embedding-backend.js";
+import { openPluginVectorCollection } from "../persistence/embeddings/plugin-vector-store.js";
 import {
   createTimeout,
   extractToolUse,
@@ -239,5 +244,37 @@ export function buildRegistriesFacet(hostId: string): RegistriesFacet {
 export function buildSpeakersFacet(): SpeakersFacet {
   return {
     createTracker: () => new SpeakerIdentityTracker(),
+  };
+}
+
+export function buildEmbeddingsFacet(): EmbeddingsFacet {
+  return {
+    embed: async (texts, opts) => {
+      // The host resolves the active embedding backend from config; the
+      // plugin only ever sees vectors out, never the backend identity.
+      const { vectors } = await embedWithBackend(getConfig(), texts, {
+        signal: opts?.signal,
+      });
+      return vectors;
+    },
+  };
+}
+
+export function buildVectorStoreFacet(hostId: string): VectorStoreFacet {
+  return {
+    collection: async (name, options): Promise<VectorCollection> => {
+      // Namespacing by hostId happens inside `openPluginVectorCollection`,
+      // so two hosts asking for the same `name` get distinct collections.
+      const handle = openPluginVectorCollection(
+        hostId,
+        name,
+        options.vectorSize,
+      );
+      return {
+        upsert: (points) => handle.upsert(points),
+        search: (vector, limit) => handle.search(vector, limit),
+        delete: (ids) => handle.delete(ids),
+      };
+    },
   };
 }
