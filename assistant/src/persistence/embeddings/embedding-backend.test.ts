@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { AssistantConfig } from "../config/types.js";
+import type { AssistantConfig } from "../../config/types.js";
 import {
   clearEmbeddingBackendCache,
   embedWithBackend,
@@ -11,7 +11,7 @@ import {
 const getProviderKeyAsyncMock = mock(
   async (_provider: string): Promise<string | undefined> => undefined,
 );
-mock.module("../security/secure-keys.js", () => ({
+mock.module("../../security/secure-keys.js", () => ({
   getProviderKeyAsync: getProviderKeyAsyncMock,
 }));
 
@@ -21,7 +21,7 @@ const DISABLED_PROXY_CONTEXT = {
   assistantApiKey: "",
 };
 const resolveManagedProxyContextMock = mock(async () => DISABLED_PROXY_CONTEXT);
-mock.module("../providers/platform-proxy/context.js", () => ({
+mock.module("../../providers/platform-proxy/context.js", () => ({
   resolveManagedProxyContext: resolveManagedProxyContextMock,
   hasManagedProxyPrereqs: mock(async () => false),
   buildManagedBaseUrl: mock(async () => undefined),

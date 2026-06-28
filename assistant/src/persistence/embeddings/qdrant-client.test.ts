@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { applyNestedDefaults } from "../config/loader.js";
-import type { AssistantConfig } from "../config/types.js";
+import { applyNestedDefaults } from "../../config/loader.js";
+import type { AssistantConfig } from "../../config/types.js";
 import { resolveQdrantUrl } from "./qdrant-client.js";
 
 const DEFAULT_CONFIG: AssistantConfig = applyNestedDefaults({});
