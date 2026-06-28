@@ -1,17 +1,16 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
+import type { SkillSource } from "../../config/skills.js";
+import { loadSkillCatalog } from "../../config/skills.js";
 import { refreshSkillCapabilityMemories } from "../../daemon/skill-memory-refresh.js";
+import { MEMORY_RETROSPECTIVE_ORIGIN } from "../../memory/memory-retrospective-constants.js";
 import { readInstallMeta } from "../../skills/install-meta.js";
 import {
   createManagedSkill,
   getManagedSkillDir,
 } from "../../skills/managed-store.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
-
-/**
- * Origin tag the memory-retrospective wake stamps onto `ToolContext`. Scaffolds
- * under this origin are tagged `author: "assistant"` and may not folder-rewrite
- * a `author: "user"` skill (see the backstop in `executeScaffoldManagedSkill`).
- */
-const MEMORY_RETROSPECTIVE_ORIGIN = "memory_retrospective";
 
 /** Strip embedded newlines/carriage returns to prevent YAML frontmatter injection. */
 function sanitizeFrontmatterValue(value: string): string {
@@ -21,10 +20,15 @@ function sanitizeFrontmatterValue(value: string): string {
 /**
  * Core execution logic for scaffold_managed_skill.
  * Exported so bundled-skill executors and tests can call it directly.
+ *
+ * `deps` injects the catalog seam so the ownership backstop's non-managed
+ * collision check can be exercised without standing up a real bundled/plugin
+ * catalog.
  */
 export async function executeScaffoldManagedSkill(
   input: Record<string, unknown>,
   context: ToolContext,
+  deps: { loadCatalog?: () => { id: string; source: SkillSource }[] } = {},
 ): Promise<ToolExecutionResult> {
   const skillId = input.skill_id;
   if (typeof skillId !== "string" || !skillId.trim()) {
@@ -133,32 +137,54 @@ export async function executeScaffoldManagedSkill(
     }
   }
 
+  const id = skillId.trim();
   const fromRetrospective =
     context.requestOrigin === MEMORY_RETROSPECTIVE_ORIGIN;
   const author = fromRetrospective ? "assistant" : "user";
 
-  // Backstop: a retrospective pass may only overwrite or write companion files
-  // into a skill IT authored. Refuse an overwrite OR companion-file write that
-  // targets an EXISTING skill that is not `author: "assistant"` — i.e. both
-  // `author: "user"` AND untagged/legacy skills (e.g. those created via the
-  // `createSkill` API route, whose install-meta carries no author) are
-  // protected, matching the prune side where untagged skills are never pruned.
-  // The prompt already directs the model to refine such skills conservatively or
-  // author a new one; this is the enforcement layer behind that judgement call.
-  // `readInstallMeta` returns null for a not-yet-existing skill, so a fresh
-  // create falls through.
-  if (fromRetrospective && (input.overwrite === true || files !== undefined)) {
-    const existingMeta = readInstallMeta(getManagedSkillDir(skillId.trim()));
-    if (existingMeta !== null && existingMeta.author !== "assistant") {
+  // Ownership backstop (retrospective origin only): the retrospective may author
+  // a skill ONLY if it owns it. Fail closed on either of two collisions.
+  if (fromRetrospective) {
+    // (1) A non-managed catalog entry (bundled, plugin, workspace, extra) owns
+    // this id. Creating a managed skill with that id SHADOWS the catalog entry,
+    // and an overwrite under the managed dir would never touch it — either way
+    // the retrospective must not stand on a skill it did not author. This covers
+    // create AND overwrite. The prompt directs the model to skip when an
+    // existing skill of any source already covers the procedure; this enforces
+    // it.
+    const loadCatalog = deps.loadCatalog ?? (() => loadSkillCatalog());
+    const nonManagedOwner = loadCatalog().find(
+      (s) => s.id === id && s.source !== "managed",
+    );
+    if (nonManagedOwner) {
       return {
-        content: `Error: skill "${skillId.trim()}" is not assistant-authored; the retrospective may not overwrite it or write companion files into it. Author a new skill instead.`,
+        content: `Error: skill "${id}" is owned by a ${nonManagedOwner.source} skill; the retrospective may not create, overwrite, or shadow it. The procedure is already covered — skip it.`,
+        isError: true,
+      };
+    }
+
+    // (2) A managed skill already exists on disk but is not VERIFIABLY
+    // assistant-authored. `readInstallMeta` returns null for a fresh create AND
+    // for an existing skill whose install-meta/version.json is missing or
+    // corrupt — so gate on the SKILL.md existing and the author tag reading
+    // exactly "assistant". This fails closed on user-authored, untagged, and
+    // unverifiable (missing/corrupt meta) managed skills alike, matching the
+    // prune side where such skills are never pruned.
+    const managedDir = getManagedSkillDir(id);
+    const managedSkillExists = existsSync(join(managedDir, "SKILL.md"));
+    if (
+      managedSkillExists &&
+      readInstallMeta(managedDir)?.author !== "assistant"
+    ) {
+      return {
+        content: `Error: skill "${id}" is not verifiably assistant-authored; the retrospective may not overwrite it or write companion files into it. Author a new skill instead.`,
         isError: true,
       };
     }
   }
 
   const result = createManagedSkill({
-    id: skillId.trim(),
+    id,
     name: sanitizeFrontmatterValue(name),
     description: sanitizeFrontmatterValue(description),
     bodyMarkdown: bodyMarkdown,
@@ -181,7 +207,7 @@ export async function executeScaffoldManagedSkill(
   return {
     content: JSON.stringify({
       created: true,
-      skill_id: skillId.trim(),
+      skill_id: id,
       path: result.path,
     }),
     isError: false,

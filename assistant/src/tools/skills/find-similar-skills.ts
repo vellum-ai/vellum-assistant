@@ -1,12 +1,19 @@
+import type { SkillSource } from "../../config/skills.js";
 import { loadSkillCatalog } from "../../config/skills.js";
 import { nearestExistingSkills } from "../../plugins/defaults/memory-v3-shadow/candidate-match.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
-/** A shortlisted skill enriched with its catalog name and description. */
+/**
+ * A shortlisted skill enriched with its catalog name, description, and source.
+ * `source` lets the caller see whether an existing skill of ANY origin already
+ * covers the goal — a bundled/plugin/workspace match (or a person-authored
+ * managed one) is not the retrospective's to overwrite or duplicate.
+ */
 interface EnrichedHit {
   skill_id: string;
   name: string;
   description: string;
+  source: SkillSource;
   score: number;
 }
 
@@ -23,7 +30,12 @@ export async function executeFindSimilarSkills(
   _context: ToolContext,
   deps: {
     nearestExistingSkills?: typeof nearestExistingSkills;
-    loadCatalog?: () => { id: string; name: string; description: string }[];
+    loadCatalog?: () => {
+      id: string;
+      name: string;
+      description: string;
+      source: SkillSource;
+    }[];
   } = {},
 ): Promise<ToolExecutionResult> {
   const goal = input.goal;
@@ -65,6 +77,7 @@ export async function executeFindSimilarSkills(
       skill_id: hit.skillId,
       name: skill.name,
       description: skill.description,
+      source: skill.source,
       score: hit.score,
     });
   }

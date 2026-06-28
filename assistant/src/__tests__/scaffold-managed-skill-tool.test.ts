@@ -1,6 +1,14 @@
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+
+import type { SkillSource } from "../config/skills.js";
 
 const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 const mockRefreshSkillCapabilityMemories = mock(() => {});
@@ -15,6 +23,17 @@ mock.module("../util/logger.js", () => ({
 mock.module("../daemon/skill-memory-refresh.js", () => ({
   refreshSkillCapabilityMemories: mockRefreshSkillCapabilityMemories,
 }));
+
+/**
+ * Build the injected catalog seam for the ownership-backstop tests. Seeds the
+ * given non-managed (bundled / plugin / workspace) or managed entry so the
+ * backstop's collision check runs without standing up a real catalog. Injecting
+ * via `deps` keeps the mock local — it never leaks `loadSkillCatalog` into other
+ * suites the way a process-global module mock would.
+ */
+function catalogSeam(...entries: { id: string; source: SkillSource }[]) {
+  return { loadCatalog: () => entries };
+}
 
 import { loadSkillCatalog } from "../config/skills.js";
 import { readInstallMeta, writeInstallMeta } from "../skills/install-meta.js";
@@ -493,7 +512,7 @@ describe("scaffold_managed_skill tool", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("not assistant-authored");
+    expect(result.content).toContain("not verifiably assistant-authored");
     // The original body and authorship are untouched.
     const skillFile = join(TEST_DIR, "skills", "protected", "SKILL.md");
     expect(readFileSync(skillFile, "utf-8")).toContain("Original body.");
@@ -524,7 +543,7 @@ describe("scaffold_managed_skill tool", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("not assistant-authored");
+    expect(result.content).toContain("not verifiably assistant-authored");
     expect(
       existsSync(
         join(TEST_DIR, "skills", "protected-files", "references", "notes.md"),
@@ -564,7 +583,7 @@ describe("scaffold_managed_skill tool", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("not assistant-authored");
+    expect(result.content).toContain("not verifiably assistant-authored");
     expect(readFileSync(join(dir, "SKILL.md"), "utf-8")).toContain(
       "Original body.",
     );
@@ -610,5 +629,151 @@ describe("scaffold_managed_skill tool", () => {
         ),
       ),
     ).toBe(true);
+  });
+
+  // ── Ownership backstop: never shadow/overwrite a non-managed skill ─────────
+
+  test("retrospective refuses to CREATE a skill whose id is owned by a bundled skill", async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "deep-research",
+        name: "Deep Research",
+        description: "Shadow attempt",
+        body_markdown: "Body.",
+      },
+      makeRetrospectiveContext(),
+      catalogSeam({ id: "deep-research", source: "bundled" }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("owned by a bundled skill");
+    // No managed skill was written under that id.
+    expect(
+      existsSync(join(TEST_DIR, "skills", "deep-research", "SKILL.md")),
+    ).toBe(false);
+    expect(mockRefreshSkillCapabilityMemories).not.toHaveBeenCalled();
+  });
+
+  test("retrospective refuses to OVERWRITE a skill whose id is owned by a bundled skill", async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "blitz",
+        name: "Blitz",
+        description: "Shadow-overwrite attempt",
+        body_markdown: "Body.",
+        overwrite: true,
+      },
+      makeRetrospectiveContext(),
+      catalogSeam({ id: "blitz", source: "bundled" }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("owned by a bundled skill");
+    expect(mockRefreshSkillCapabilityMemories).not.toHaveBeenCalled();
+  });
+
+  test("retrospective refuses an id owned by a plugin or workspace skill", async () => {
+    for (const source of ["plugin", "workspace"] as const) {
+      const result = await executeScaffoldManagedSkill(
+        {
+          skill_id: "covered-proc",
+          name: "Covered",
+          description: "Shadow attempt",
+          body_markdown: "Body.",
+        },
+        makeRetrospectiveContext(),
+        catalogSeam({ id: "covered-proc", source }),
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain(`owned by a ${source} skill`);
+    }
+  });
+
+  test("retrospective fails closed on an existing managed skill with missing install-meta", async () => {
+    // Seed a managed skill on disk, then strip its install metadata so author
+    // is unverifiable. The seam keeps it managed (no non-managed collision), so
+    // the disk fail-closed branch is what must refuse.
+    await executeScaffoldManagedSkill(
+      {
+        skill_id: "no-meta",
+        name: "No Meta",
+        description: "Lost provenance",
+        body_markdown: "Original body.",
+      },
+      makeContext(),
+    );
+    const dir = join(TEST_DIR, "skills", "no-meta");
+    rmSync(join(dir, "install-meta.json"));
+    expect(installMetaFor("no-meta")).toBeNull();
+
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "no-meta",
+        name: "No Meta",
+        description: "Rewrite attempt",
+        body_markdown: "Rewritten body.",
+        overwrite: true,
+      },
+      makeRetrospectiveContext(),
+      catalogSeam({ id: "no-meta", source: "managed" }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("not verifiably assistant-authored");
+    expect(readFileSync(join(dir, "SKILL.md"), "utf-8")).toContain(
+      "Original body.",
+    );
+  });
+
+  test("retrospective fails closed on an existing managed skill with corrupt install-meta", async () => {
+    await executeScaffoldManagedSkill(
+      {
+        skill_id: "corrupt-meta",
+        name: "Corrupt Meta",
+        description: "Bad provenance",
+        body_markdown: "Original body.",
+      },
+      makeContext(),
+    );
+    const dir = join(TEST_DIR, "skills", "corrupt-meta");
+    writeFileSync(join(dir, "install-meta.json"), "{not valid json");
+
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "corrupt-meta",
+        name: "Corrupt Meta",
+        description: "Rewrite attempt",
+        body_markdown: "Rewritten body.",
+        overwrite: true,
+      },
+      makeRetrospectiveContext(),
+      catalogSeam({ id: "corrupt-meta", source: "managed" }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("not verifiably assistant-authored");
+    expect(readFileSync(join(dir, "SKILL.md"), "utf-8")).toContain(
+      "Original body.",
+    );
+  });
+
+  test("retrospective MAY create a fresh skill whose id is free of any catalog collision", async () => {
+    // Catalog holds only an unrelated bundled skill — no collision on the id.
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "fresh-proc",
+        name: "Fresh Proc",
+        description: "Newly observed procedure",
+        body_markdown: "Do the procedure.",
+      },
+      makeRetrospectiveContext(),
+      catalogSeam({ id: "something-else", source: "bundled" }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(installMetaFor("fresh-proc")?.author).toBe("assistant");
+    expect(existsSync(join(TEST_DIR, "skills", "fresh-proc", "SKILL.md"))).toBe(
+      true,
+    );
   });
 });

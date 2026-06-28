@@ -1727,6 +1727,7 @@ export async function createSkill(
       bodyMarkdown: params.bodyMarkdown,
       overwrite: params.overwrite,
       contactId: params.contactId,
+      author: "user",
     });
 
     if (!result.created) {
