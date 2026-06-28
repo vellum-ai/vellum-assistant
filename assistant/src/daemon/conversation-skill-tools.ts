@@ -203,8 +203,15 @@ function recordSkillLoadedTelemetry(
  */
 function stampManagedSkillUsage(skill: SkillSummary): void {
   if (skill.source !== "managed") return;
-  const today = new Date().toLocaleDateString("en-CA");
-  touchSkillLastUsed(skill.directoryPath, today);
+  try {
+    const today = new Date().toLocaleDateString("en-CA");
+    touchSkillLastUsed(skill.directoryPath, today);
+  } catch (err) {
+    log.warn(
+      { err, skillId: skill.id },
+      "Failed to stamp managed-skill lastUsedAt (non-fatal)",
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
