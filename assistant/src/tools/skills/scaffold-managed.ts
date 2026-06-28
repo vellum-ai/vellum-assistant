@@ -84,6 +84,44 @@ export async function executeScaffoldManagedSkill(
     }
   }
 
+  // Validate and normalize companion files
+  let files: Array<{ path: string; content: string }> | undefined;
+  if (input.files !== undefined) {
+    if (!Array.isArray(input.files)) {
+      return {
+        content: "Error: files must be an array of { path, content } objects",
+        isError: true,
+      };
+    }
+    const collected: Array<{ path: string; content: string }> = [];
+    for (const item of input.files) {
+      if (typeof item !== "object" || item === null) {
+        return {
+          content:
+            "Error: each element in files must be a { path, content } object",
+          isError: true,
+        };
+      }
+      const { path, content } = item as Record<string, unknown>;
+      if (typeof path !== "string" || !path.trim()) {
+        return {
+          content: "Error: each file must have a non-empty string path",
+          isError: true,
+        };
+      }
+      if (typeof content !== "string") {
+        return {
+          content: "Error: each file must have a string content",
+          isError: true,
+        };
+      }
+      collected.push({ path: path.trim(), content });
+    }
+    if (collected.length > 0) {
+      files = collected;
+    }
+  }
+
   const result = createManagedSkill({
     id: skillId.trim(),
     name: sanitizeFrontmatterValue(name),
@@ -95,6 +133,7 @@ export async function executeScaffoldManagedSkill(
         : undefined,
     overwrite: input.overwrite === true,
     includes,
+    files,
   });
 
   if (!result.created) {

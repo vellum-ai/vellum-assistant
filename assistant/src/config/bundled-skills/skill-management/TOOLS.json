@@ -38,6 +38,24 @@
             "items": { "type": "string" },
             "description": "Optional list of child skill IDs that this skill includes (metadata only, no auto-activation)."
           },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Path relative to the skill directory (e.g. \"references/failure-modes.md\"). Absolute paths and \"..\" segments are rejected."
+                },
+                "content": {
+                  "type": "string",
+                  "description": "File contents."
+                }
+              },
+              "required": ["path", "content"]
+            },
+            "description": "Optional companion files written under the skill directory (e.g. references/*.md referenced from SKILL.md). Paths must resolve inside the skill folder."
+          },
           "add_to_index": {
             "type": "boolean",
             "description": "Deprecated no-op compatibility field. Skills are discovered from top-level SKILL.md files."
