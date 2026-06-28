@@ -238,7 +238,10 @@ export function ChatLayout() {
     navigate(1);
   }, [navigate]);
 
-  const isHomeActive = location.pathname === routes.home;
+  const isHomeActive =
+    location.pathname === routes.home ||
+    location.pathname === routes.schedules.root ||
+    location.pathname.startsWith(`${routes.schedules.root}/`);
   const isIdentityActive =
     location.pathname === routes.identity ||
     location.pathname === routes.skills ||
