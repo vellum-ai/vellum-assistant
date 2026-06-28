@@ -45,7 +45,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../memory/db-connection.js";
 import { getSqliteFrom } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-import { migrateOAuthProvidersTokenAuthMethodDefault } from "../memory/migrations/216-oauth-providers-token-auth-method.js";
+import { migrateOAuthProvidersTokenAuthMethodDefault } from "../persistence/migrations/216-oauth-providers-token-auth-method.js";
 import { resetTestTables } from "../memory/raw-query.js";
 import { oauthProviders } from "../memory/schema/oauth.js";
 import {

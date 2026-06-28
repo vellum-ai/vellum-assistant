@@ -31,11 +31,11 @@ mock.module("../../../util/logger.js", () => ({
 
 import type { DrizzleDb } from "../../db-connection.js";
 import { getSqliteFrom } from "../../db-connection.js";
-import { migrateMemoryV2ActivationLogs } from "../../migrations/234-memory-v2-activation-logs.js";
+import { migrateMemoryV2ActivationLogs } from "../../../persistence/migrations/234-memory-v2-activation-logs.js";
 import {
   downMemoryV2InjectionEvents,
   migrateMemoryV2InjectionEvents,
-} from "../../migrations/256-memory-v2-injection-events.js";
+} from "../../../persistence/migrations/256-memory-v2-injection-events.js";
 import * as schema from "../../schema.js";
 import {
   computeInjectionScore,

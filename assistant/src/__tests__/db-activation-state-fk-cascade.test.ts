@@ -4,8 +4,8 @@ import { describe, expect, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { getSqliteFrom } from "../memory/db-connection.js";
-import { migrateActivationState } from "../memory/migrations/232-activation-state.js";
-import { migrateActivationStateFkCascade } from "../memory/migrations/241-activation-state-fk-cascade.js";
+import { migrateActivationState } from "../persistence/migrations/232-activation-state.js";
+import { migrateActivationStateFkCascade } from "../persistence/migrations/241-activation-state-fk-cascade.js";
 import * as schema from "../memory/schema.js";
 
 function createTestDb() {

@@ -7,7 +7,7 @@ import { getSqliteFrom } from "../memory/db-connection.js";
 import {
   migrate231RepairMemoryGraphEventDates,
   repairMemoryGraphEventDate,
-} from "../memory/migrations/231-repair-memory-graph-event-dates.js";
+} from "../persistence/migrations/231-repair-memory-graph-event-dates.js";
 import * as schema from "../memory/schema.js";
 
 function createTestDb() {

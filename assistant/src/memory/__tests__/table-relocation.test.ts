@@ -22,9 +22,9 @@ import { describe, expect, test } from "bun:test";
 const { getSqlite, getMemorySqlite } = await import("../db-connection.js");
 const { initializeDb } = await import("../db-init.js");
 const { drainStagedTable, stageTableForRelocation } =
-  await import("../migrations/helpers/relocation.js");
+  await import("../../persistence/migrations/helpers/relocation.js");
 const { MEMORY_JOBS_RELOCATION } =
-  await import("../migrations/298-move-memory-jobs-to-memory-db.js");
+  await import("../../persistence/migrations/298-move-memory-jobs-to-memory-db.js");
 
 await initializeDb();
 

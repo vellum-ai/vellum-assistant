@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { migrateDropCapabilityCardState } from "../memory/migrations/176-drop-capability-card-state.js";
+import { migrateDropCapabilityCardState } from "../persistence/migrations/176-drop-capability-card-state.js";
 import * as schema from "../memory/schema.js";
 
 function createTestDb() {
@@ -116,9 +116,7 @@ describe("migrateDropCapabilityCardState", () => {
     const checkpointKeys = raw
       .query(`SELECT key FROM memory_checkpoints ORDER BY key`)
       .all() as Array<{ key: string }>;
-    expect(checkpointKeys.map((row) => row.key)).toEqual([
-      "other_checkpoint",
-    ]);
+    expect(checkpointKeys.map((row) => row.key)).toEqual(["other_checkpoint"]);
 
     const legacyTable = raw
       .query(

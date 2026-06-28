@@ -10,9 +10,9 @@ import { describe, expect, mock, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { migrateCreateProviderConnections } from "../../../memory/migrations/243-provider-connections.js";
-import { migrateProviderConnectionStatusLabel } from "../../../memory/migrations/244-provider-connection-status-label.js";
-import { migrateProviderConnectionBaseUrlAndModels } from "../../../memory/migrations/250-provider-connection-base-url-and-models.js";
+import { migrateCreateProviderConnections } from "../../../persistence/migrations/243-provider-connections.js";
+import { migrateProviderConnectionStatusLabel } from "../../../persistence/migrations/244-provider-connection-status-label.js";
+import { migrateProviderConnectionBaseUrlAndModels } from "../../../persistence/migrations/250-provider-connection-base-url-and-models.js";
 import * as schema from "../../../memory/schema.js";
 
 function createTestDb() {
@@ -103,9 +103,8 @@ mock.module("../../../tools/network/url-safety.js", () => ({
   },
 }));
 
-const { ROUTES } = await import(
-  "../../../runtime/routes/inference-provider-connection-routes.js"
-);
+const { ROUTES } =
+  await import("../../../runtime/routes/inference-provider-connection-routes.js");
 
 const handleCreate = ROUTES.find(
   (r) => r.operationId === "inference_provider_connections_create",

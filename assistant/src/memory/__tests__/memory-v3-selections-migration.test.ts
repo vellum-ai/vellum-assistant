@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { getSqliteFrom } from "../db-connection.js";
-import { migrateAddMemoryV3Selections } from "../migrations/268-add-memory-v3-selections.js";
+import { migrateAddMemoryV3Selections } from "../../persistence/migrations/268-add-memory-v3-selections.js";
 import * as schema from "../schema.js";
 
 interface ColumnRow {

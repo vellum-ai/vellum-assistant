@@ -31,8 +31,8 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { wrapMemoryBlock } from "../../../memory/memory-marker.js";
-import { migrateAddMemoryV3Selections } from "../../../memory/migrations/268-add-memory-v3-selections.js";
-import { migrateAddMemoryV3EverInjected } from "../../../memory/migrations/277-add-memory-v3-ever-injected.js";
+import { migrateAddMemoryV3Selections } from "../../../persistence/migrations/268-add-memory-v3-selections.js";
+import { migrateAddMemoryV3EverInjected } from "../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
 import * as schema from "../../../memory/schema.js";
 import type { Message } from "../../../providers/types.js";
 

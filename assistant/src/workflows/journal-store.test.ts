@@ -10,7 +10,7 @@ mock.module("../util/logger.js", () => ({
 
 import { getDb, getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-import { migrateWorkflowRuns } from "../memory/migrations/284-workflow-runs.js";
+import { migrateWorkflowRuns } from "../persistence/migrations/284-workflow-runs.js";
 import {
   appendJournalEntry,
   createRun,

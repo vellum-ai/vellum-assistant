@@ -27,7 +27,7 @@ mock.module("../db-connection.js", () => ({
     (db as unknown as { $client: Database }).$client,
 }));
 
-import { createWatchdogEventsTable } from "../migrations/301-create-watchdog-events.js";
+import { createWatchdogEventsTable } from "../../persistence/migrations/301-create-watchdog-events.js";
 import * as schema from "../schema.js";
 
 function createTestDb() {
