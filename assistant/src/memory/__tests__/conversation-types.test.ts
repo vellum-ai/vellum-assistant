@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { isBackgroundConversationType } from "../conversation-types.js";
+import { isBackgroundConversationType } from "../../persistence/conversation-types.js";
 
 describe("isBackgroundConversationType", () => {
   test("returns true for background", () => {

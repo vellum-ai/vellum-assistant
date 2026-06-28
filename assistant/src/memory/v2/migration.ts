@@ -29,8 +29,8 @@ import {
 } from "../../providers/provider-send-message.js";
 import type { Provider } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
-import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
-import { enqueueMemoryJob } from "../jobs-store.js";
+import { type DrizzleDb, getSqliteFrom } from "../../persistence/db-connection.js";
+import { enqueueMemoryJob } from "../../persistence/jobs-store.js";
 import { deletePage, listPages, slugify, writePage } from "./page-store.js";
 import type { ConceptPage } from "./types.js";
 

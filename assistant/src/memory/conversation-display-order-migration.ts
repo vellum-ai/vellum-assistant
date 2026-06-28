@@ -6,7 +6,7 @@
  */
 
 import { getLogger } from "../util/logger.js";
-import { rawRun } from "./raw-query.js";
+import { rawRun } from "../persistence/raw-query.js";
 const log = getLogger("conversation-store");
 
 function isDuplicateColumnError(err: unknown): boolean {

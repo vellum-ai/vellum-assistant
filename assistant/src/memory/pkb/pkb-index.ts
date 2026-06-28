@@ -16,9 +16,9 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
 
 import { getConfig } from "../../config/loader.js";
-import { embedAndUpsert } from "../job-utils.js";
-import { withQdrantBreaker } from "../qdrant-circuit-breaker.js";
-import { getQdrantClient } from "../qdrant-client.js";
+import { embedAndUpsert } from "../../persistence/job-utils.js";
+import { withQdrantBreaker } from "../../persistence/embeddings/qdrant-circuit-breaker.js";
+import { getQdrantClient } from "../../persistence/embeddings/qdrant-client.js";
 import type { PkbIndexEntry } from "./types.js";
 import { PKB_TARGET_TYPE } from "./types.js";
 

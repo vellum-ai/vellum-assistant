@@ -11,7 +11,7 @@ import { and, asc, eq, lte, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../persistence/db-connection.js";
-import { rawChanges } from "../memory/raw-query.js";
+import { rawChanges } from "../persistence/raw-query.js";
 import { sequenceEnrollments, sequences } from "../persistence/schema/index.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import {

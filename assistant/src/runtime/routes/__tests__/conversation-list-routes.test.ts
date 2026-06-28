@@ -24,7 +24,7 @@ mock.module("../../assistant-event-hub.js", () => ({
 }));
 
 import { findConversation } from "../../../daemon/conversation-registry.js";
-import { rawRun } from "../../../memory/raw-query.js";
+import { rawRun } from "../../../persistence/raw-query.js";
 import { createConversation } from "../../../persistence/conversation-crud.js";
 import { getDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";

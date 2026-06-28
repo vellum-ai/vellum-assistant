@@ -4,7 +4,7 @@ import { searchConversationSource } from "../memory/context-search/sources/conve
 import type { RecallSearchContext } from "../memory/context-search/types.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { rawRun } from "../memory/raw-query.js";
+import { rawRun } from "../persistence/raw-query.js";
 import { writeSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 await initializeDb();
 

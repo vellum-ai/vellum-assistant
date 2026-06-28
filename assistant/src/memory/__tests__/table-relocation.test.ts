@@ -19,8 +19,8 @@
  */
 import { describe, expect, test } from "bun:test";
 
-const { getSqlite, getMemorySqlite } = await import("../db-connection.js");
-const { initializeDb } = await import("../db-init.js");
+const { getSqlite, getMemorySqlite } = await import("../../persistence/db-connection.js");
+const { initializeDb } = await import("../../persistence/db-init.js");
 const { drainStagedTable, stageTableForRelocation } =
   await import("../../persistence/migrations/helpers/relocation.js");
 const { MEMORY_JOBS_RELOCATION } =

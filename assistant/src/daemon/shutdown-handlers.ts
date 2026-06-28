@@ -4,7 +4,7 @@ import type { FilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { stopGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
 import type { McpServerManager } from "../mcp/manager.js";
-import { stopMemoryWorkerProcess } from "../memory/worker-control.js";
+import { stopMemoryWorkerProcess } from "../persistence/worker-control.js";
 import { getSqlite, resetDb } from "../persistence/db-connection.js";
 import type { QdrantManager } from "../persistence/embeddings/qdrant-manager.js";
 import type { RuntimeHttpServer } from "../runtime/http-server.js";

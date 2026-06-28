@@ -43,7 +43,7 @@ import {
   setNestedValue,
 } from "../../config/loader.js";
 import type { BackupConfig, BackupDestination } from "../../config/schema.js";
-import { getMemoryCheckpoint } from "../../memory/checkpoints.js";
+import { getMemoryCheckpoint } from "../../persistence/checkpoints.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir, getWorkspaceHooksDir } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";

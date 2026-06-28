@@ -3,8 +3,8 @@ import { v4 as uuid } from "uuid";
 
 import { getCachedShareAnalytics } from "../platform/consent-cache.js";
 import type { UsageAttributionColumns } from "../usage/attribution.js";
-import { getDb } from "./db-connection.js";
-import { skillLoadedEvents } from "./schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { skillLoadedEvents } from "../persistence/schema/index.js";
 
 /**
  * Input for one `skill_loaded` telemetry event. Metadata only — never skill

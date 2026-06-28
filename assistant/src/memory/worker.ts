@@ -15,7 +15,7 @@ import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { getConfig } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
 import { getMemoryWorkerPidPath } from "../util/platform.js";
-import { startInProcessMemoryJobsWorker } from "./jobs-worker.js";
+import { startInProcessMemoryJobsWorker } from "../persistence/jobs-worker.js";
 import { registerMemoryJobHandlers } from "./register-job-handlers.js";
 
 const log = getLogger("memory-worker-process");

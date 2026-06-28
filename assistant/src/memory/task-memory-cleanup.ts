@@ -1,5 +1,5 @@
 import { getLogger } from "../util/logger.js";
-import { rawAll, rawGet, rawMemoryRun, rawRun } from "./raw-query.js";
+import { rawAll, rawGet, rawMemoryRun, rawRun } from "../persistence/raw-query.js";
 
 const log = getLogger("task-memory-cleanup");
 

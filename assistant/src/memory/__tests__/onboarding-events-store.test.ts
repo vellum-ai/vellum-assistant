@@ -14,13 +14,13 @@ mock.module("../../platform/consent-cache.js", () => ({
   getCachedShareAnalytics: () => shareAnalytics,
 }));
 
-import { getDb } from "../db-connection.js";
-import { initializeDb } from "../db-init.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
 import {
   queryUnreportedOnboardingEvents,
   recordActivationEvent,
 } from "../onboarding-events-store.js";
-import { onboardingEvents } from "../schema.js";
+import { onboardingEvents } from "../../persistence/schema/index.js";
 
 await initializeDb();
 

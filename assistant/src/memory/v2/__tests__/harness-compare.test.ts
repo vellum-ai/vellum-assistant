@@ -10,14 +10,14 @@ mock.module("../../../config/loader.js", () => ({
 }));
 
 import type { AssistantConfig } from "../../../config/types.js";
-import { getDb } from "../../db-connection.js";
-import { initializeDb } from "../../db-init.js";
+import { getDb } from "../../../persistence/db-connection.js";
+import { initializeDb } from "../../../persistence/db-init.js";
 import type { MemoryV2ConceptRowRecord } from "../../memory-v2-activation-log-store.js";
 import {
   conversations,
   memoryV2ActivationLogs,
   messages,
-} from "../../schema.js";
+} from "../../../persistence/schema/index.js";
 import { runComparisonOverHistory } from "../harness/compare.js";
 import type { RetrievalOutput, Retriever } from "../harness/retriever.js";
 

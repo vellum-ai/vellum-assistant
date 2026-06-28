@@ -39,10 +39,10 @@ import {
   FRONTMATTER_REGEX,
   parseFrontmatterFields,
 } from "../../skills/frontmatter.js";
-import type { getDb } from "../db-connection.js";
-import { embedWithRetry } from "../embed.js";
-import { stringifyMessageContent } from "../message-content.js";
-import { conversations, messages } from "../schema.js";
+import type { getDb } from "../../persistence/db-connection.js";
+import { embedWithRetry } from "../../persistence/embeddings/embed.js";
+import { stringifyMessageContent } from "../../persistence/message-content.js";
+import { conversations, messages } from "../../persistence/schema/index.js";
 import { injectedConceptHeader } from "../v2/injected-block-slugs.js";
 import { slugFromConceptPath } from "../v2/page-store.js";
 

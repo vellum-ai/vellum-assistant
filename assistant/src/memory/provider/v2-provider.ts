@@ -19,7 +19,7 @@ import type { InjectionBlock } from "../../plugins/types.js";
 import { recallTool, rememberTool } from "../../tools/memory/register.js";
 import type { ToolDefinition } from "../../tools/types.js";
 import { getWorkspaceDir } from "../../util/platform.js";
-import { getDb } from "../db-connection.js";
+import { getDb } from "../../persistence/db-connection.js";
 import { enqueueMemoryRetrospectiveIfEnabled } from "../memory-retrospective-enqueue.js";
 import {
   injectMemoryV2Block,

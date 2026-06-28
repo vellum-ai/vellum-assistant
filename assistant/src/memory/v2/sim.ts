@@ -34,7 +34,7 @@
 
 import type { AssistantConfig } from "../../config/types.js";
 import { applyCorrectionIfCalibrated } from "../anisotropy.js";
-import { embedWithBackend } from "../embedding-backend.js";
+import { embedWithBackend } from "../../persistence/embeddings/embedding-backend.js";
 import { clampUnitInterval } from "../validation.js";
 import { hybridQueryConceptPages } from "./qdrant.js";
 import { generateBm25QueryEmbedding } from "./sparse-bm25.js";

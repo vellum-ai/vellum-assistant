@@ -4,8 +4,8 @@ import { getConfig } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
 import { getDbPath } from "../util/platform.js";
 import { pruneRuns } from "../workflows/journal-store.js";
-import { getMemoryCheckpoint, setMemoryCheckpoint } from "../memory/checkpoints.js";
-import { getLastUserMessageTimestamp } from "../memory/conversation-crud.js";
+import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
+import { getLastUserMessageTimestamp } from "./conversation-crud.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import { getSqlite } from "./db-connection.js";
 

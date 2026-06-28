@@ -9,7 +9,7 @@
 // have to import the job handler's full dependency graph.
 
 import { getLogger } from "../util/logger.js";
-import { getMessages } from "./conversation-crud.js";
+import { getMessages } from "../persistence/conversation-crud.js";
 import { MEMORY_RETROSPECTIVE_FORK_SOURCE } from "./memory-retrospective-constants.js";
 
 const log = getLogger("memory-retrospective-fork-boundary");

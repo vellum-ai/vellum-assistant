@@ -1,5 +1,5 @@
 import { AUTO_ANALYSIS_SOURCE } from "./auto-analysis-constants.js";
-import { getConversationSource } from "./conversation-crud.js";
+import { getConversationSource } from "../persistence/conversation-crud.js";
 export {
   AUTO_ANALYSIS_GROUP_ID,
   AUTO_ANALYSIS_SOURCE,

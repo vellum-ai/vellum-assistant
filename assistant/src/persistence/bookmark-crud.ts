@@ -1,7 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { stringifyMessageContent } from "../memory/message-content.js";
+import { stringifyMessageContent } from "./message-content.js";
 import type { DrizzleDb } from "./db-connection.js";
 import { conversations, messageBookmarks, messages } from "./schema.js";
 

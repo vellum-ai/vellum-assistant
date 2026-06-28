@@ -11,12 +11,12 @@ import { and, desc, eq, inArray, isNotNull, lt, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { IntegrityError } from "../util/errors.js";
-import { getDb } from "./db-connection.js";
-import { rawChanges } from "./raw-query.js";
+import { getDb } from "../persistence/db-connection.js";
+import { rawChanges } from "../persistence/raw-query.js";
 import {
   canonicalGuardianDeliveries,
   canonicalGuardianRequests,
-} from "./schema.js";
+} from "../persistence/schema/index.js";
 
 // ---------------------------------------------------------------------------
 // Expiry helpers

@@ -33,11 +33,11 @@ import {
   buildConversationStarterValidationContext,
   isValidConversationStarterText,
 } from "../conversation-starter-validation.js";
-import { getDb } from "../db-connection.js";
-import { asString } from "../job-utils.js";
-import type { MemoryJob } from "../jobs-store.js";
-import { rawAll } from "../raw-query.js";
-import { conversationStarters, memoryGraphNodes } from "../schema.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { asString } from "../../persistence/job-utils.js";
+import type { MemoryJob } from "../../persistence/jobs-store.js";
+import { rawAll } from "../../persistence/raw-query.js";
+import { conversationStarters, memoryGraphNodes } from "../../persistence/schema/index.js";
 
 const log = getLogger("conversation-starters-gen");
 

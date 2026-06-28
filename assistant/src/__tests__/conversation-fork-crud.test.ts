@@ -50,7 +50,7 @@ import {
   getRetrospectiveState,
   upsertRetrospectiveState,
 } from "../memory/memory-retrospective-state.js";
-import { rawGet, rawRun } from "../memory/raw-query.js";
+import { rawGet, rawRun } from "../persistence/raw-query.js";
 import {
   activationState,
   channelInboundEvents,

@@ -7,8 +7,8 @@ import { AUTO_ANALYSIS_SOURCE } from "../../auto-analysis-guard.js";
 import {
   buildFtsMatchQuery,
   buildRecallEvidenceExcerpt,
-} from "../../conversation-queries.js";
-import { rawAll } from "../../raw-query.js";
+} from "../../../persistence/conversation-queries.js";
+import { rawAll } from "../../../persistence/raw-query.js";
 import type { RecallSearchContext, RecallSearchResult } from "../types.js";
 
 const SUBAGENT_SOURCE = "subagent";

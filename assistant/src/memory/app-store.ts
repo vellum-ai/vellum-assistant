@@ -38,7 +38,7 @@ import type { EditEngineResult } from "../tools/shared/filesystem/edit-engine.js
 import { applyEdit } from "../tools/shared/filesystem/edit-engine.js";
 import { getLogger } from "../util/logger.js";
 import { getDataDir } from "../util/platform.js";
-import { rawAll } from "./raw-query.js";
+import { rawAll } from "../persistence/raw-query.js";
 
 export interface AppDefinition {
   id: string;

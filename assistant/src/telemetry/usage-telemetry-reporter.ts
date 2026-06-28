@@ -17,7 +17,7 @@ import { queryUnreportedAuthFallbackEvents } from "../memory/auth-fallback-event
 import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
-} from "../memory/checkpoints.js";
+} from "../persistence/checkpoints.js";
 import { queryUnreportedLifecycleEvents } from "../persistence/lifecycle-events-store.js";
 import { queryUnreportedUsageEvents } from "../persistence/llm-usage-store.js";
 import { queryUnreportedOnboardingEvents } from "../memory/onboarding-events-store.js";

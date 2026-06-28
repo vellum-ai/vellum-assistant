@@ -39,14 +39,14 @@ import {
 import type { ToolDefinition } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
-import { getDb } from "../db-connection.js";
+import { getDb } from "../../persistence/db-connection.js";
 import {
   appendBufferAndArchive,
   formatRememberEntry,
 } from "../graph/tool-handlers.js";
-import type { MemoryJob } from "../jobs-store.js";
-import { stringifyMessageContent } from "../message-content.js";
-import { conversations, messages } from "../schema.js";
+import type { MemoryJob } from "../../persistence/jobs-store.js";
+import { stringifyMessageContent } from "../../persistence/message-content.js";
+import { conversations, messages } from "../../persistence/schema/index.js";
 import { renderSweepPrompt } from "./prompts/sweep.js";
 
 const log = getLogger("memory-v2-sweep");

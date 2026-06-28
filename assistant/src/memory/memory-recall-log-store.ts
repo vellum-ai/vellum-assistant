@@ -1,8 +1,8 @@
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb } from "./db-connection.js";
-import { memoryRecallLogs } from "./schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { memoryRecallLogs } from "../persistence/schema/index.js";
 
 export interface RecordMemoryRecallLogParams {
   conversationId: string;

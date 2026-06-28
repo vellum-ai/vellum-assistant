@@ -25,17 +25,17 @@ import { BackendUnavailableError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { applyCorrectionIfCalibrated } from "../anisotropy.js";
-import { getDb } from "../db-connection.js";
+import { getDb } from "../../persistence/db-connection.js";
 import {
   embedWithBackend,
   generateSparseEmbedding,
   getMemoryBackendStatus,
-} from "../embedding-backend.js";
-import { embeddingInputContentHash } from "../embedding-types.js";
-import { asString, blobToVector, vectorToBlob } from "../job-utils.js";
-import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
-import { withQdrantBreaker } from "../qdrant-circuit-breaker.js";
-import { memoryEmbeddings } from "../schema.js";
+} from "../../persistence/embeddings/embedding-backend.js";
+import { embeddingInputContentHash } from "../../persistence/embeddings/embedding-types.js";
+import { asString, blobToVector, vectorToBlob } from "../../persistence/job-utils.js";
+import { enqueueMemoryJob, type MemoryJob } from "../../persistence/jobs-store.js";
+import { withQdrantBreaker } from "../../persistence/embeddings/qdrant-circuit-breaker.js";
+import { memoryEmbeddings } from "../../persistence/schema/index.js";
 import { readPage } from "../v2/page-store.js";
 import {
   deleteConceptPageEmbedding,

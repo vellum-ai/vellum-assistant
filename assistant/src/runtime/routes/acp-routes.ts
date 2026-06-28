@@ -16,7 +16,7 @@ import { formatResolveFailure } from "../../acp/resolve-agent.js";
 import { AcpResumeError } from "../../acp/session-manager.js";
 import type { AcpSessionState } from "../../acp/types.js";
 import { getConfig } from "../../config/loader.js";
-import { rawChanges } from "../../memory/raw-query.js";
+import { rawChanges } from "../../persistence/raw-query.js";
 import type { UserDecision } from "../../permissions/types.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { acpSessionHistory } from "../../persistence/schema/index.js";

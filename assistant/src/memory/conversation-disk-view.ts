@@ -24,18 +24,18 @@ import {
   getAttachmentContent,
   getAttachmentMetadataForMessage,
   getFilePathForAttachment,
-} from "./attachments-store.js";
+} from "../persistence/attachments-store.js";
 import {
   getConversation,
   getMessageById,
   getMessages,
-} from "./conversation-crud.js";
+} from "../persistence/conversation-crud.js";
 import {
   getConversationDirName,
   getConversationDirPath,
   getLegacyConversationDirPath,
   getResolvedConversationDirPath,
-} from "./conversation-directories.js";
+} from "../persistence/conversation-directories.js";
 
 const log = getLogger("conversation-disk-view");
 

@@ -15,7 +15,7 @@ import { getConfig } from "../../config/loader.js";
 import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
-} from "../../memory/checkpoints.js";
+} from "../../persistence/checkpoints.js";
 
 const CHECKPOINT_KEY_TEXT = "empty_state:greeting:text";
 const CHECKPOINT_KEY_TIMESTAMP = "empty_state:greeting:cached_at";

@@ -18,10 +18,10 @@
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 
-const { getSqlite } = await import("../db-connection.js");
-const { initializeDb } = await import("../db-init.js");
+const { getSqlite } = await import("../../persistence/db-connection.js");
+const { initializeDb } = await import("../../persistence/db-init.js");
 const { runAsyncSqlite, _resetFallbackWarning } =
-  await import("../db-async-query.js");
+  await import("../../persistence/db-async-query.js");
 const { findSqlite3 } = await import("../../util/sqlite3-runtime.js");
 
 await initializeDb();

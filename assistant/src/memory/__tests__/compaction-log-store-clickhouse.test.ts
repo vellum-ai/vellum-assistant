@@ -14,7 +14,7 @@ import {
   ClickHouseCompactionLogStore,
   type CompactionEndEvent,
   type CompactionStartEvent,
-} from "../compaction-log-store-clickhouse.js";
+} from "../../persistence/compaction-log-store-clickhouse.js";
 
 interface CapturedRequest {
   url: URL;

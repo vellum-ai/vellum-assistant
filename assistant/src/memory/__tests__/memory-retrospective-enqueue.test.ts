@@ -19,7 +19,7 @@ const upsertCalls: Array<{
   runAfter: number;
 }> = [];
 
-mock.module("../conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   getConversationSource: (_id: string) => sourceTag,
   getConversation: (_id: string) => ({
     conversationType: convType,
@@ -28,7 +28,7 @@ mock.module("../conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../jobs-store.js", () => ({
+mock.module("../../persistence/jobs-store.js", () => ({
   upsertMemoryRetrospectiveJob: (
     payload: { conversationId: string },
     runAfter: number,

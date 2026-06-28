@@ -44,8 +44,8 @@ mock.module("../../../config/loader.js", () => ({
   loadConfig: () => STUB_QDRANT_CONFIG,
 }));
 
-const realQdrantClient = await import("../../qdrant-client.js");
-mock.module("../../qdrant-client.js", () => ({
+const realQdrantClient = await import("../../../persistence/embeddings/qdrant-client.js");
+mock.module("../../../persistence/embeddings/qdrant-client.js", () => ({
   ...realQdrantClient,
   resolveQdrantUrl: () => "http://127.0.0.1:6333",
 }));
@@ -74,8 +74,8 @@ const state = {
   }>,
 };
 
-const realEmbeddingBackend = await import("../../embedding-backend.js");
-mock.module("../../embedding-backend.js", () => ({
+const realEmbeddingBackend = await import("../../../persistence/embeddings/embedding-backend.js");
+mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
   ...realEmbeddingBackend,
   embedWithBackend: async (_config: AssistantConfig, inputs: unknown[]) => {
     state.embedCalls.push({ inputs });

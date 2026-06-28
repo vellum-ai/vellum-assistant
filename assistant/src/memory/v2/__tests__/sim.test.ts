@@ -50,8 +50,8 @@ mock.module("../../../config/loader.js", () => ({
 // Same partial-mock pattern as for the embedding backend: re-export the
 // real symbols and override only `resolveQdrantUrl` so the v2 qdrant
 // client picks up our test URL.
-const realQdrantClient = await import("../../qdrant-client.js");
-mock.module("../../qdrant-client.js", () => ({
+const realQdrantClient = await import("../../../persistence/embeddings/qdrant-client.js");
+mock.module("../../../persistence/embeddings/qdrant-client.js", () => ({
   ...realQdrantClient,
   resolveQdrantUrl: () => "http://127.0.0.1:6333",
 }));
@@ -82,8 +82,8 @@ const state = {
 // only the one we control. Bun's `mock.module` replacement is process-wide,
 // so a partial mock here would break sibling test files that import other
 // exports from the same module (`selectEmbeddingBackend`, etc.).
-const realEmbeddingBackend = await import("../../embedding-backend.js");
-mock.module("../../embedding-backend.js", () => ({
+const realEmbeddingBackend = await import("../../../persistence/embeddings/embedding-backend.js");
+mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
   ...realEmbeddingBackend,
   embedWithBackend: async (_config: AssistantConfig, inputs: unknown[]) => {
     state.embedCalls.push({ inputs });

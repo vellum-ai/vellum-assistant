@@ -4,7 +4,7 @@ import {
   EMBED_JOB_TYPES,
   type MemoryJobType,
   SLOW_LLM_JOB_TYPES,
-} from "../jobs-store.js";
+} from "../../persistence/jobs-store.js";
 
 describe("memory v3 job types", () => {
   test("the v3 job-type literals are members of MemoryJobType", () => {

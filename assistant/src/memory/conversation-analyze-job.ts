@@ -14,7 +14,7 @@ import type { AssistantConfig } from "../config/types.js";
 import { analyzeConversation } from "../runtime/services/analyze-conversation.js";
 import { getLogger } from "../util/logger.js";
 import { enqueueAutoAnalysisIfEnabled } from "./auto-analysis-enqueue.js";
-import type { MemoryJob } from "./jobs-store.js";
+import type { MemoryJob } from "../persistence/jobs-store.js";
 
 const log = getLogger("conversation-analyze-job");
 

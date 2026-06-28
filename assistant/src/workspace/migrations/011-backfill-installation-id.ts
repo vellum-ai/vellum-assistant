@@ -6,7 +6,7 @@ import { join } from "node:path";
 import {
   deleteMemoryCheckpoint,
   getMemoryCheckpoint,
-} from "../../memory/checkpoints.js";
+} from "../../persistence/checkpoints.js";
 import { getExternalAssistantId } from "../../runtime/auth/external-assistant-id.js";
 import type { WorkspaceMigration } from "./types.js";
 

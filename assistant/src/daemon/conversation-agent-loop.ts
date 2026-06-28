@@ -43,7 +43,7 @@ import {
 } from "../instrument.js";
 import { commitAppTurnChanges } from "../memory/app-git-service.js";
 import { enqueueAutoAnalysisOnCompaction } from "../memory/auto-analysis-enqueue.js";
-import { getResolvedConversationDirPath } from "../memory/conversation-directories.js";
+import { getResolvedConversationDirPath } from "../persistence/conversation-directories.js";
 import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
 import { isReplaceableTitle } from "../memory/conversation-title-service.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
