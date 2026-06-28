@@ -6,7 +6,7 @@ import {
   acknowledgeDelivery,
   getDeadLetterEvents,
   replayDeadLetters,
-} from "../../memory/delivery-status.js";
+} from "../../persistence/delivery-status.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteHandlerArgs } from "./types.js";
 

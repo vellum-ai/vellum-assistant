@@ -1,8 +1,8 @@
-import { getMessageById } from "../../memory/conversation-crud.js";
+import { getMessageById } from "../../persistence/conversation-crud.js";
 import {
   listConversations,
   searchConversations,
-} from "../../memory/conversation-queries.js";
+} from "../../persistence/conversation-queries.js";
 import { renderHistoryContent } from "./shared.js";
 
 // ---------------------------------------------------------------------------

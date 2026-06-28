@@ -21,8 +21,6 @@
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { processMessage } from "../daemon/process-message.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
-import { addMessage } from "../memory/conversation-crud.js";
 import type { TitleOrigin } from "../memory/conversation-title-service.js";
 import {
   commitDeferredConversation,
@@ -31,6 +29,8 @@ import {
 } from "../notifications/deferred-emit.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import type { AttentionHints } from "../notifications/signal.js";
+import { bootstrapConversation } from "../persistence/conversation-bootstrap.js";
+import { addMessage } from "../persistence/conversation-crud.js";
 import { getLogger } from "../util/logger.js";
 import { hasReceivedUserMessage } from "./pre-first-message-gate.js";
 

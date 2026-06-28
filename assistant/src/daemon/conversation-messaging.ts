@@ -18,21 +18,6 @@ import type {
 } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import {
-  attachInlineAttachmentToMessage,
-  attachmentExists,
-  AttachmentUploadError,
-  linkAttachmentToMessage,
-  validateAttachmentUpload,
-} from "../memory/attachments-store.js";
-import {
-  addMessage,
-  extractImageSourcePaths,
-  getConversation,
-  provenanceFromTrustContext,
-  setConversationOriginChannelIfUnset,
-  setConversationOriginInterfaceIfUnset,
-} from "../memory/conversation-crud.js";
-import {
   syncMessageToDisk,
   updateMetaFile,
 } from "../memory/conversation-disk-view.js";
@@ -42,6 +27,21 @@ import {
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
+import {
+  attachInlineAttachmentToMessage,
+  attachmentExists,
+  AttachmentUploadError,
+  linkAttachmentToMessage,
+  validateAttachmentUpload,
+} from "../persistence/attachments-store.js";
+import {
+  addMessage,
+  extractImageSourcePaths,
+  getConversation,
+  provenanceFromTrustContext,
+  setConversationOriginChannelIfUnset,
+  setConversationOriginInterfaceIfUnset,
+} from "../persistence/conversation-crud.js";
 import type { Message } from "../providers/types.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import { getLogger } from "../util/logger.js";

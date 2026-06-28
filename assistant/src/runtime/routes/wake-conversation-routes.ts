@@ -6,7 +6,7 @@
 
 import { z } from "zod";
 
-import { getConversation } from "../../memory/conversation-crud.js";
+import { getConversation } from "../../persistence/conversation-crud.js";
 import { wakeAgentForOpportunity } from "../agent-wake.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { NotFoundError } from "./errors.js";

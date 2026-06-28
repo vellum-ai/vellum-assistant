@@ -13,7 +13,7 @@ import {
 import {
   getConversation,
   getMessageById,
-} from "../../memory/conversation-crud.js";
+} from "../../persistence/conversation-crud.js";
 import { truncate } from "../../util/truncate.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";

@@ -23,14 +23,14 @@ import { z } from "zod";
 import { getPlatformAssistantId } from "../../config/env.js";
 import { invalidateConfigCache } from "../../config/loader.js";
 import { getAssistantName } from "../../daemon/identity-helpers.js";
-import { runAsyncSqlite } from "../../memory/db-async-query.js";
+import { runAsyncSqlite } from "../../persistence/db-async-query.js";
 import {
   getDb,
   getLogsSqlite,
   getMemorySqlite,
   getTelemetrySqlite,
   resetDb,
-} from "../../memory/db-connection.js";
+} from "../../persistence/db-connection.js";
 import { validateMigrationState } from "../../persistence/migrations/validate-migration-state.js";
 import { migrationSteps } from "../../persistence/steps.js";
 import { credentialKey } from "../../security/credential-key.js";

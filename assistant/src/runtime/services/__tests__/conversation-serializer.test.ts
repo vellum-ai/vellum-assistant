@@ -12,7 +12,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import type { ConversationRow } from "../../../memory/conversation-crud.js";
+import type { ConversationRow } from "../../../persistence/conversation-crud.js";
 import { serializeConversationSummary } from "../conversation-serializer.js";
 
 function makeConversationRow(
