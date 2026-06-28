@@ -13,9 +13,10 @@ export function isMemoryV3Live(config: AssistantConfig): boolean {
 
 /**
  * Whether the procedural-memory-as-skills behavior is enabled. Gated by the
- * `procedural-memory-as-skills` assistant feature flag (default off). Routes
- * procedures to candidate notes and procedural knowledge to skill-linked facts,
- * and distills recurring procedures into managed skills.
+ * `procedural-memory-as-skills` assistant feature flag (default off). When on,
+ * the retrospective background task may author and update managed skills (with
+ * procedure-scoped companion files), and the observe-first usage-prune stage may
+ * retire assistant-authored skills that have gone stale.
  */
 export function isProcToSkillsEnabled(config: AssistantConfig): boolean {
   return isAssistantFeatureFlagEnabled("procedural-memory-as-skills", config);
@@ -23,13 +24,13 @@ export function isProcToSkillsEnabled(config: AssistantConfig): boolean {
 
 /**
  * Whether procedural-memory-as-skills is ACTIVE: the flag is on AND memory-v3 is
- * the live injected source. The feature requires v3-live because the only place
- * the consolidation pass captures candidate notes is the
- * `{{PROC_TO_SKILLS_SECTION}}` of the v3 prompt template — the v2 template has no
- * such placeholder, so with the flag on but v3 not live the pass writes no
- * candidate notes. Gating the whole feature (prompt section, distill follow-up
- * enqueue, distill job, and the skill-authoring permission grant) on this
- * combined predicate keeps it coherently inert unless both are on.
+ * the live injected source. The feature requires v3-live because the
+ * usage-prune backstop — which retires stale assistant-authored skills — runs
+ * only in the v3 maintain job. Enabling eager retrospective authoring without
+ * that backstop would let assistant-authored skills accumulate unbounded, so
+ * the feature is scoped to v3-live assistants. Gating the whole feature (the
+ * retrospective skill-authoring step and its skill-authoring permission grant)
+ * on this combined predicate keeps it coherently inert unless both are on.
  */
 export function isProcToSkillsActive(config: AssistantConfig): boolean {
   return isProcToSkillsEnabled(config) && isMemoryV3Live(config);
