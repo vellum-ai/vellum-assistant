@@ -1,0 +1,22 @@
+{
+  "name": "@vellumai/plugin-memory-reference-example",
+  "version": "0.1.0",
+  "description": "Reference memory plugin built entirely on the public @vellumai/plugin-api host facets (store / embeddings / vectorStore / history / jobs). Implements remember/recall tools, per-turn <memory> injection, and post-turn consolidation — proving a third party can build a long-term memory system against the public contract alone.",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20.12.0"
+  },
+  "peerDependencies": {
+    "@vellumai/plugin-api": "^0.8.0"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.10",
+    "@types/node": "25.5.0",
+    "typescript": "5.9.3"
+  },
+  "vellum": {
+    "provides": "memory"
+  }
+}
