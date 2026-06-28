@@ -78,6 +78,16 @@ export function assertTestDbIsIsolated(): void {
 }
 
 /**
+ * How long a SQLite connection waits to acquire a lock held by another
+ * writer before giving up with `SQLITE_BUSY`. Every connection that touches
+ * an assistant database — the main/dedicated daemon connections here and the
+ * out-of-process / transient connections in `db-async-query.ts` — must set
+ * the same value, so a writer that grabs the lock can finish without a
+ * concurrent writer failing immediately instead of waiting its turn.
+ */
+export const SQLITE_BUSY_TIMEOUT_MS = 5000;
+
+/**
  * Apply the connection-wide PRAGMAs every assistant SQLite connection runs
  * with. These are per-connection settings, so the dedicated logs/memory
  * connections set them independently of the main connection.
@@ -85,7 +95,7 @@ export function assertTestDbIsIsolated(): void {
 function applyConnectionPragmas(sqlite: Database): void {
   sqlite.exec("PRAGMA journal_mode=WAL");
   sqlite.exec("PRAGMA synchronous=FULL");
-  sqlite.exec("PRAGMA busy_timeout=5000");
+  sqlite.exec(`PRAGMA busy_timeout=${SQLITE_BUSY_TIMEOUT_MS}`);
   sqlite.exec("PRAGMA foreign_keys = ON");
   sqlite.exec("PRAGMA cache_size=-256000");
   sqlite.exec("PRAGMA temp_store=MEMORY");

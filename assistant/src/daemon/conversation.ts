@@ -129,7 +129,10 @@ import {
   drainQueue as drainQueueImpl,
   processMessage as processMessageImpl,
 } from "./conversation-process.js";
-import type { QueueDrainReason } from "./conversation-queue-manager.js";
+import type {
+  QueuedMessage,
+  QueueDrainReason,
+} from "./conversation-queue-manager.js";
 import { MessageQueue } from "./conversation-queue-manager.js";
 import {
   type ChannelCapabilities,
@@ -243,6 +246,14 @@ export interface ConversationConstructorOptions {
   speedOverride?: Speed;
   cacheTtl?: "5m" | "1h";
   modelOverride?: string;
+  /**
+   * Give this conversation's LLM calls provider-native (server-side) web
+   * search when the resolved provider supports it (see
+   * {@link AgentLoopConfig.enableNativeWebSearch}). Set by the subagent manager
+   * for the tool-less advisor consult so it can ground guidance with live web
+   * access; non-native providers get nothing. Defaults to false.
+   */
+  enableNativeWebSearch?: boolean;
 }
 
 export class Conversation {
@@ -593,6 +604,7 @@ export class Conversation {
     options?: ConversationConstructorOptions,
   ) {
     const { maxTokens, speedOverride, cacheTtl, modelOverride } = options ?? {};
+    const enableNativeWebSearch = options?.enableNativeWebSearch ?? false;
     this.conversationId = conversationId;
     this.systemPrompt = systemPrompt;
     this.provider = provider;
@@ -691,6 +703,7 @@ export class Conversation {
         ? { speed: resolvedSpeed }
         : {}),
       ...(cacheTtl ? { cacheTtl } : {}),
+      ...(enableNativeWebSearch ? { enableNativeWebSearch: true } : {}),
     };
     if (configuredMaxTokens !== undefined) {
       agentLoopConfig.maxTokens = configuredMaxTokens;
@@ -1343,11 +1356,20 @@ export class Conversation {
     this._processing = value;
     // Persist the cross-process source of truth so out-of-process callers
     // (retrospective CLI, future detached workers) can detect mid-turn state
-    // by reading the conversations row directly.
-    setConversationProcessingStartedAt(
-      this.conversationId,
-      value ? Date.now() : null,
-    );
+    // by reading the conversations row directly. If the write fails (e.g.
+    // SQLITE_BUSY), the persisted column keeps its prior value, so revert the
+    // in-memory flag to match rather than stranding `processing = true` in
+    // memory against a NULL column. Re-throw so callers' existing failure
+    // handling still runs.
+    try {
+      setConversationProcessingStartedAt(
+        this.conversationId,
+        value ? Date.now() : null,
+      );
+    } catch (err) {
+      this._processing = wasProcessing;
+      throw err;
+    }
     if (wasProcessing && !value) {
       void publishSyncInvalidation([
         conversationMetadataSyncTag(this.conversationId),
@@ -1446,6 +1468,12 @@ export class Conversation {
 
   hasQueuedMessages(): boolean {
     return !this.queue.isEmpty;
+  }
+
+  /** FIFO snapshot of the messages currently waiting in the in-memory queue.
+   * Read-only — used to surface queued user messages in history responses. */
+  snapshotQueuedMessages(): QueuedMessage[] {
+    return this.queue.snapshot();
   }
 
   removeQueuedMessage(requestId: string): boolean {
@@ -2004,6 +2032,11 @@ export class Conversation {
       overrideProfile?: string;
       /** Float `overrideProfile` above call-site layers for this run. */
       forceOverrideProfile?: boolean;
+      /**
+       * Firing's `cron_runs.id` stamped onto this turn's usage rows. Per-turn:
+       * forwarded into {@link runAgentLoopImpl} and threaded to `recordUsage`.
+       */
+      cronRunId?: string | null;
     },
   ): Promise<void> {
     const { onEvent, ...rest } = options ?? {};

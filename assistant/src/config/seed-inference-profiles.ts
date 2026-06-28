@@ -42,51 +42,36 @@ type ManagedProfileTemplate = Omit<
  * (`preserveProfileNames`) take precedence when present.
  */
 const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
-  // Served by MiniMax M3 on Together AI via managed platform inference: a strong
-  // open model at a lower price point than the managed Anthropic route.
-  balanced: {
-    intent: "balanced",
-    provider: "together",
-    connectionName: "together-managed",
-    source: "managed",
-    label: "Balanced",
-    description: "Good balance of quality, cost, and speed",
-    maxTokens: 32000,
-    effort: "medium",
-    thinking: { enabled: true, streamThinking: true },
-    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-    topP: 0.95,
-  },
   // Served by GLM 5.2 on Fireworks via managed platform inference: a leading
-  // open model. `model` is pinned explicitly rather than resolved via the
-  // `quality-optimized` intent (which still maps to Anthropic Opus for the
-  // `frontier` profile below).
-  "quality-optimized": {
+  // open model at a balanced price point. `model` is pinned explicitly rather
+  // than resolved via the `balanced` intent (which still maps to MiniMax M3 on
+  // Together for `custom-balanced` and OS beta).
+  balanced: {
     model: "accounts/fireworks/models/glm-5p2",
     provider: "fireworks",
     connectionName: "fireworks-managed",
     source: "managed",
-    label: "Quality",
-    description: "High-quality results with a leading open model (GLM 5.2)",
+    label: "Balanced",
+    description: "Good balance of quality, cost, and speed",
     maxTokens: 32000,
     effort: "high",
     thinking: { enabled: true, streamThinking: true },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
   },
-  frontier: {
+  // Served by Anthropic Opus via managed platform inference — the most capable
+  // managed profile. The `quality-optimized` intent resolves to Opus for the
+  // `anthropic` provider.
+  "quality-optimized": {
     intent: "quality-optimized",
     provider: "anthropic",
     connectionName: "anthropic-managed",
     source: "managed",
-    label: "Frontier",
-    description: "Best results with the most capable model",
+    label: "Quality",
+    description: "High-quality results with the most capable model",
     maxTokens: 32000,
     effort: "high",
     thinking: { enabled: true, streamThinking: true },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-    // This is the advisor's own (strongest) profile: when it's also the chat
-    // profile there's nothing stronger to consult, so the advisor defaults off.
-    advisorEnabled: false,
   },
   // Served by DeepSeek V4 Flash on Fireworks via managed platform inference: a
   // fast, low-cost open model. `model` is pinned explicitly rather than
@@ -191,15 +176,6 @@ export const MANAGED_PROFILE_NAMES = new Set([
   OS_BETA_PROFILE_KEY,
 ]);
 
-// Managed names introduced after profile-ownership metadata existed, so any
-// pre-existing same-named entry must have been user-created. The seed loop
-// protects these from being clobbered: a user may already own a profile under
-// such a name (the settings UI saves custom profiles without a `source`), so an
-// entry that isn't explicitly `source: "managed"` is treated as theirs. The
-// original canonical names (`balanced`/`quality-optimized`/`cost-optimized`)
-// predate ownership metadata — migration 052 seeded them source-less — so they
-// are NOT listed here and always reseed, even when source is absent.
-const NEWLY_RESERVED_MANAGED_NAMES = new Set(["frontier"]);
 const MIX_MIN_ARMS = 2;
 
 export type SeedInferenceProfilesOptions = {
@@ -224,11 +200,9 @@ export type SeedInferenceProfilesOptions = {
  *    `cost-optimized`): reconciled from the code templates on every boot —
  *    on-platform and off-platform alike — so Vellum can push model/config
  *    updates to customers in a release without a workspace migration. The
- *    templates own all profile content; `label`, `status`, `advisorEnabled`,
- *    and `topP` are user overrides that survive reseeds. Of those, only
- *    `label`, `status`, and `topP` are editable through the managed PUT route
- *    allowlist; `advisorEnabled` is edited via the generic config path but is
- *    still preserved here so it survives reboots.
+ *    templates own all profile content; `label`, `status`, and `topP` are user
+ *    overrides that survive reseeds and are editable through the managed PUT
+ *    route allowlist.
  *    Platform overlays (`preserveProfileNames`) take precedence for the boot
  *    they are supplied.
  *
@@ -283,14 +257,11 @@ export function seedInferenceProfiles(
   //    as usual.
   //
   //    A whitelist of user-editable fields survives the reconcile: `label`
-  //    (display rename), `status` (active/disabled toggle), `advisorEnabled`
-  //    (per-profile advisor toggle), and `topP` (sampling override) — the only
-  //    fields a user may override. The managed PUT route
-  //    `/v1/config/llm/profiles/:name` lets users patch `label`, `status`, and
-  //    `topP` on managed profiles without duplicating (its editable allowlist,
-  //    `MANAGED_PROFILE_EDITABLE_KEYS`, deliberately excludes `advisorEnabled`,
-  //    which is set through the generic config path). We honor every one of
-  //    these overrides across reseeds or they'd silently revert on every boot.
+  //    (display rename), `status` (active/disabled toggle), and `topP`
+  //    (sampling override) — the only fields a user may override. The managed
+  //    PUT route `/v1/config/llm/profiles/:name` lets users patch these on
+  //    managed profiles without duplicating. We honor every one of these
+  //    overrides across reseeds or they'd silently revert on every boot.
   //    Carry by key-presence rather than truthiness so an explicit `null` (user
   //    cleared the field) survives too.
   //
@@ -318,21 +289,6 @@ export function seedInferenceProfiles(
     if (preservedProfileNames.has(name)) continue;
 
     const previous = readObject(profiles[name]);
-    // Never clobber a custom profile that happens to share a *newly reserved*
-    // managed name (e.g. `frontier`): reseeding would change its provider/model
-    // and mark it managed. Treat anything not explicitly `source: "managed"` as
-    // the user's, since the settings UI saves custom profiles without a `source`
-    // and the source backfill below skips managed names. The original canonical
-    // names are excluded from this guard — they may be source-less *managed*
-    // entries from migration 052, so they must keep reseeding to receive
-    // template updates (see NEWLY_RESERVED_MANAGED_NAMES).
-    if (
-      NEWLY_RESERVED_MANAGED_NAMES.has(name) &&
-      previous &&
-      previous.source !== "managed"
-    ) {
-      continue;
-    }
     const effectiveTemplate: ManagedProfileTemplate = isByokMode
       ? { ...template, label: `${template.label} (Managed)` }
       : template;
@@ -362,12 +318,6 @@ export function seedInferenceProfiles(
             : previous.label;
       }
       if ("status" in previous) next.status = previous.status;
-      // The per-profile advisor toggle is a user override — preserve it across
-      // reseeds so a user's choice survives reboots (the template value only
-      // seeds the initial default, e.g. off for quality-optimized).
-      if ("advisorEnabled" in previous) {
-        next.advisorEnabled = previous.advisorEnabled;
-      }
       // `topP` is user-editable on managed profiles (see the managed-profile
       // editable allowlist on the PUT route) — preserve a user override across
       // reseeds, including an explicit `null` clear, or it would silently revert
@@ -440,19 +390,32 @@ export function seedInferenceProfiles(
     }
   }
 
-  // Advisor profile: default to the strongest managed profile when unset, so
-  // the advisor consults `frontier` (Anthropic Opus) out of the box, falling
-  // back to `quality-optimized` if `frontier` is unavailable. The `frontier`
-  // arm requires managed ownership: the seed loop above leaves a user-owned
-  // profile named `frontier` in place, and pointing the advisor at that would
-  // consult an arbitrary user model. Guarded on existence so it never names a
-  // missing profile (superRefine rejects that); off-platform/BYOK installs can
-  // repoint it at one of their own profiles.
-  if (readString(llm.advisorProfile) === undefined) {
-    if (readObject(profiles["frontier"])?.source === "managed") {
-      llm.advisorProfile = "frontier";
-    } else if (readObject(profiles["quality-optimized"]) !== null) {
-      llm.advisorProfile = "quality-optimized";
+  // Advisor profile: BYOK hatches default to the strongest personal profile
+  // backed by the entered provider key. Managed-profile hatches and registered
+  // platform installs default to the strongest active managed profile.
+  const requestedAdvisorProfile = readString(llm.advisorProfile);
+  const requestedAdvisorEntry =
+    requestedAdvisorProfile !== undefined
+      ? readObject(profiles[requestedAdvisorProfile])
+      : null;
+  const requestedAdvisorIsDisabledManaged =
+    requestedAdvisorEntry?.source === "managed" &&
+    requestedAdvisorEntry.status === "disabled";
+  const preferPersonalAdvisor =
+    userConnectionName !== undefined &&
+    hatchSelectedManagedConnection === undefined;
+  if (
+    requestedAdvisorProfile === undefined ||
+    requestedAdvisorIsDisabledManaged
+  ) {
+    const defaultAdvisorProfile = selectDefaultAdvisorProfile(
+      profiles,
+      preferPersonalAdvisor,
+    );
+    if (defaultAdvisorProfile) {
+      llm.advisorProfile = defaultAdvisorProfile;
+    } else if (requestedAdvisorIsDisabledManaged) {
+      delete llm.advisorProfile;
     }
   }
 
@@ -590,6 +553,47 @@ function pruneRemovedProfileReferences(
 
 function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function selectDefaultAdvisorProfile(
+  profiles: Record<string, Record<string, unknown>>,
+  preferPersonalProfile: boolean,
+): string | undefined {
+  const personal = firstActiveProfile(profiles, [
+    "custom-quality-optimized",
+    "custom-balanced",
+    "custom-cost-optimized",
+  ]);
+  const managed = firstActiveManagedProfile(profiles, [
+    "quality-optimized",
+    "balanced",
+    "cost-optimized",
+  ]);
+  return preferPersonalProfile ? (personal ?? managed) : (managed ?? personal);
+}
+
+function firstActiveProfile(
+  profiles: Record<string, Record<string, unknown>>,
+  names: string[],
+): string | undefined {
+  for (const name of names) {
+    const profile = readObject(profiles[name]);
+    if (profile && profile.status !== "disabled") return name;
+  }
+  return undefined;
+}
+
+function firstActiveManagedProfile(
+  profiles: Record<string, Record<string, unknown>>,
+  names: string[],
+): string | undefined {
+  for (const name of names) {
+    const profile = readObject(profiles[name]);
+    if (profile?.source === "managed" && profile.status !== "disabled") {
+      return name;
+    }
+  }
+  return undefined;
 }
 
 function getHatchSelectedManagedConnection(

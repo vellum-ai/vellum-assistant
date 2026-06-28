@@ -8,13 +8,91 @@
  */
 
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { createElement, type ReactElement, type ReactNode } from "react";
+
+// Mock `motion/react` so the dropdown mounts/unmounts synchronously. The real
+// AnimatePresence exit runs ~1.8s in happy-dom; under full-suite load that
+// overran the per-test timeout and flaked the drill-in/dismissal assertions
+// (which wait for the panel to leave the DOM). This strips motion-only props
+// and forwards className/style/children so the layout assertions still hold.
+mock.module("motion/react", () => {
+  const MOTION_ONLY_PROPS = new Set([
+    "initial",
+    "animate",
+    "exit",
+    "transition",
+    "variants",
+    "whileHover",
+    "whileTap",
+    "whileFocus",
+    "whileInView",
+    "whileDrag",
+    "layout",
+    "layoutId",
+    "drag",
+    "custom",
+    "onAnimationStart",
+    "onAnimationComplete",
+  ]);
+  return {
+    motion: new Proxy(
+      {} as Record<string, (props: Record<string, unknown>) => ReactElement>,
+      {
+        get: (_target, tag) => (props: Record<string, unknown>) => {
+          const domProps: Record<string, unknown> = {};
+          for (const key in props) {
+            if (!MOTION_ONLY_PROPS.has(key)) domProps[key] = props[key];
+          }
+          return createElement(String(tag), domProps);
+        },
+      },
+    ),
+    // Render children immediately and drop them synchronously on unmount (no
+    // exit hold) so close-on-drill-in / Escape / outside-click assertions don't
+    // depend on real animation timing.
+    AnimatePresence: ({ children }: { children?: ReactNode }) => children,
+    useReducedMotion: () => true,
+  };
+});
 
 mock.module(
   "@/domains/chat/components/workflow-inline-progress-card/workflow-inline-progress-card",
   () => ({
-    WorkflowInlineProgressCard: ({ runId }: { runId: string }) => (
-      <div data-testid="wf-card" data-run-id={runId} />
+    // Mirrors the real card's affordances (open present only when clickable,
+    // stop present only when stoppable) so the overlay's drill-in/stop wiring
+    // can be exercised without hydrating the workflow store.
+    WorkflowInlineProgressCard: ({
+      runId,
+      onWorkflowClick,
+      onStopWorkflow,
+    }: {
+      runId: string;
+      onWorkflowClick?: (runId: string) => void;
+      onStopWorkflow?: (runId: string) => void;
+    }) => (
+      <div data-testid="wf-card" data-run-id={runId}>
+        {onWorkflowClick ? (
+          <button
+            type="button"
+            aria-label="Open workflow"
+            onClick={() => onWorkflowClick(runId)}
+          />
+        ) : null}
+        {onStopWorkflow ? (
+          <button
+            type="button"
+            aria-label="Stop workflow"
+            onClick={() => onStopWorkflow(runId)}
+          />
+        ) : null}
+      </div>
     ),
   }),
 );
@@ -88,6 +166,12 @@ describe("ActiveWorkflowsOverlay — expanded", () => {
     const panel = title.parentElement;
     expect(panel?.className).toContain("absolute");
     expect(panel?.className).toContain("pointer-events-auto");
+
+    // Width is driven by the measured-column fallback (happy-dom has no layout),
+    // so it must resolve to a finite, positive px value — not 0 or NaN.
+    const fittedWidth = Number.parseFloat(panel?.style.width ?? "");
+    expect(Number.isFinite(fittedWidth)).toBe(true);
+    expect(fittedWidth).toBeGreaterThan(0);
   });
 
   test("uses the singular noun when exactly one workflow is active", () => {
@@ -101,8 +185,57 @@ describe("ActiveWorkflowsOverlay — expanded", () => {
   });
 });
 
+describe("ActiveWorkflowsOverlay — drill-in", () => {
+  test("opening a row fires onWorkflowClick and closes the dropdown", async () => {
+    const ids = makeIds(2);
+    const opened: string[] = [];
+    const { queryByText } = render(
+      <ActiveWorkflowsOverlay
+        workflowRunIds={ids}
+        onWorkflowClick={(id) => opened.push(id)}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /active workflows/i }));
+    expect(queryByText("2 Active Workflows")).toBeTruthy();
+
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /open workflow/i })[0],
+    );
+
+    // The detail panel still opens (existing behavior).
+    expect(opened).toEqual(["wf-0"]);
+    // ...and the dropdown then closes so the two layers stop competing. It
+    // animates out via AnimatePresence (~1.8s in happy-dom), so wait it out.
+    await waitFor(
+      () => expect(queryByText("2 Active Workflows")).toBeNull(),
+      { timeout: 4000 },
+    );
+  });
+
+  test("stopping a row does NOT close the dropdown", () => {
+    const ids = makeIds(2);
+    const stopped: string[] = [];
+    const { queryByText } = render(
+      <ActiveWorkflowsOverlay
+        workflowRunIds={ids}
+        onStopWorkflow={(id) => stopped.push(id)}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /active workflows/i }));
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /stop workflow/i })[0],
+    );
+
+    expect(stopped).toEqual(["wf-0"]);
+    // Stopping keeps the list open so you can stop another / keep watching.
+    expect(queryByText("2 Active Workflows")).toBeTruthy();
+  });
+});
+
 describe("ActiveWorkflowsOverlay — dismissal", () => {
-  test("Escape collapses the open panel", () => {
+  test("Escape collapses the open panel", async () => {
     const ids = makeIds(2);
     const { queryByText } = render(
       <ActiveWorkflowsOverlay workflowRunIds={ids} />,
@@ -116,11 +249,16 @@ describe("ActiveWorkflowsOverlay — dismissal", () => {
     // ChatContentLayout's window keydown handler bails on defaultPrevented.
     // fireEvent returns false when the event was canceled.
     const notCanceled = fireEvent.keyDown(document, { key: "Escape" });
-    expect(queryByText("2 Active Workflows")).toBeNull();
     expect(notCanceled).toBe(false);
+    // The dropdown animates out via AnimatePresence, so it lingers for the
+    // exit animation before unmounting.
+    await waitFor(
+      () => expect(queryByText("2 Active Workflows")).toBeNull(),
+      { timeout: 4000 },
+    );
   });
 
-  test("pointerdown outside the container collapses the open panel", () => {
+  test("pointerdown outside the container collapses the open panel", async () => {
     const ids = makeIds(2);
     const { queryByText } = render(
       <ActiveWorkflowsOverlay workflowRunIds={ids} />,
@@ -130,6 +268,9 @@ describe("ActiveWorkflowsOverlay — dismissal", () => {
     expect(queryByText("2 Active Workflows")).toBeTruthy();
 
     fireEvent.pointerDown(document.body);
-    expect(queryByText("2 Active Workflows")).toBeNull();
+    await waitFor(
+      () => expect(queryByText("2 Active Workflows")).toBeNull(),
+      { timeout: 4000 },
+    );
   });
 });

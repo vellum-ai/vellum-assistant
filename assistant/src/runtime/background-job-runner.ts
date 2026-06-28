@@ -73,6 +73,12 @@ export interface RunBackgroundJobOptions {
    * profile; omitted = the call site's default resolution.
    */
   overrideProfile?: string;
+  /**
+   * Firing's `cron_runs.id`, threaded into the turn's usage rows so a scheduled
+   * execute job attributes its LLM spend to that firing. Omitted for
+   * non-scheduled background jobs.
+   */
+  cronRunId?: string | null;
   /** Hard timeout for `processMessage` in milliseconds. */
   timeoutMs: number;
   /**
@@ -287,6 +293,7 @@ export async function runBackgroundJob(
         ? { overrideProfile: opts.overrideProfile }
         : {}),
       ...(opts.requestOrigin ? { requestOrigin: opts.requestOrigin } : {}),
+      ...(opts.cronRunId ? { cronRunId: opts.cronRunId } : {}),
     });
     // Absorb late rejections: if the timeout wins the race, `work` keeps
     // running and may eventually reject — swallow so it doesn't surface as

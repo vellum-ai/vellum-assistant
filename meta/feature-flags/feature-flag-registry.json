@@ -267,14 +267,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "external-plugins",
-      "scope": "assistant",
-      "key": "external-plugins",
-      "label": "External Plugins",
-      "description": "Enable the external-plugin install path: the `assistant plugins` CLI subcommand and the declarative external-plugin loader convention (`<workspaceDir>/plugins/<name>/` directories containing `package.json` plus interface dirs). Gates an unstable surface that may change shape before stabilizing.",
-      "defaultEnabled": false
-    },
-    {
       "id": "velvet-theme",
       "scope": "client",
       "key": "velvet-theme",

@@ -21,6 +21,7 @@ import {
   mergeContacts,
   searchContacts,
 } from "../../contacts/contact-store.js";
+import { getGuardianContactIds } from "../../contacts/guardian-contact-reader.js";
 import type { ContactRole, ContactType } from "../../contacts/types.js";
 import { ipcCallPersistent } from "../../ipc/gateway-client.js";
 import { resolveGuardianName } from "../../prompts/user-reference.js";
@@ -54,10 +55,8 @@ function rethrowGatewayError(err: unknown): never {
 }
 
 function withGuardianNameOverride<
-  T extends { role?: string; displayName: string },
+  T extends { role: string; displayName: string },
 >(contact: T): T {
-  // `role` is gateway-owned: only the gateway-relayed read carries it. Daemon-
-  // native reads (search/contactType-filtered) omit it and skip the override.
   if (contact.role === "guardian") {
     return {
       ...contact,
@@ -65,6 +64,26 @@ function withGuardianNameOverride<
     };
   }
   return contact;
+}
+
+/**
+ * Stamp `role` from the gateway guardian id set on DAEMON-NATIVE reads, whose
+ * `role` is the neutral `"contact"` default (search / contactType-filtered).
+ * Fail-soft: empty set → everyone is `"contact"`.
+ *
+ * NOT applied to gateway-relayed reads (`contacts_list_rich`/`_get_rich`),
+ * which already carry a gateway-sourced `role`. Re-deriving there would let a
+ * stale/empty 30s id-set cache DOWNGRADE a freshly-rebound guardian to
+ * `"contact"` during a rebind.
+ */
+function withGatewayRole<T extends { id: string; role: string }>(
+  contact: T,
+  guardianIds: ReadonlySet<string>,
+): T {
+  return {
+    ...contact,
+    role: guardianIds.has(contact.id) ? "guardian" : "contact",
+  };
 }
 
 /** Adds `externalUserId` (= `address`) to each channel for older macOS clients. */
@@ -80,15 +99,36 @@ function withChannelCompat<T extends { channels: { address: string }[] }>(
   };
 }
 
-/** Compose both response transforms (guardian display name + channel compat). */
+/** Compose the response transforms, then apply the guardian display-name
+ * override (keyed off the role that's correct for this path) and the channel
+ * compat field. Also coerces nullable gateway-sourced fields to their DB
+ * defaults so the response satisfies the strict enum schema even in degraded
+ * mode (assistant DB unreachable → gateway soft-fail join produces nulls).
+ *
+ * `guardianIds` controls where `role` comes from:
+ *   - omitted (gateway-relayed reads): TRUST the gateway-sourced `role` already
+ *     on the `ContactRead`. Never re-derive — a stale/empty id-set cache must
+ *     not downgrade a relayed guardian to `"contact"`.
+ *   - provided (daemon-native reads): role is the neutral `"contact"` default,
+ *     so derive it from the gateway guardian id set.
+ */
 function prepareContactResponse<
   T extends {
-    role?: string;
+    id: string;
+    role: string;
     displayName: string;
+    contactType?: string | null;
     channels: { address: string }[];
   },
->(contact: T): T {
-  return withChannelCompat(withGuardianNameOverride(contact));
+>(contact: T, guardianIds?: ReadonlySet<string>): T {
+  const coerced =
+    contact.contactType == null
+      ? { ...contact, contactType: "human" as T["contactType"] }
+      : contact;
+  const withRole = guardianIds
+    ? withGatewayRole(coerced, guardianIds)
+    : coerced;
+  return withChannelCompat(withGuardianNameOverride(withRole));
 }
 
 const VALID_CONTACT_TYPES: readonly ContactType[] = ["human", "assistant"];
@@ -101,10 +141,13 @@ function isContactType(value: string): value is ContactType {
 // Response schemas (drive OpenAPI spec → codegen → typed SDK)
 // ---------------------------------------------------------------------------
 
-// ACL fields (status/policy/verifiedAt/verifiedVia/revokedReason/blockedReason
-// + contact `role`) are gateway-owned and present ONLY on gateway-relayed reads
+// Channel ACL fields (status/policy/verifiedAt/verifiedVia/revokedReason/
+// blockedReason) are gateway-owned and present ONLY on gateway-relayed reads
 // (`contacts_list_rich`/`contacts_get_rich`). Daemon-native filtered reads
-// (search / contactType) omit them, so they are `.optional()`. INFO telemetry
+// (search / contactType) omit them, so they are `.optional()`. Contact-level
+// `role` is gateway-sourced: relayed reads trust the role on the `ContactRead`,
+// while daemon-native reads derive it from the gateway guardian id set at the
+// serve layer (see prepareContactResponse). INFO telemetry
 // (lastSeenAt/interactionCount/lastInteraction) is locally hydrated on every
 // read path and stays required.
 const contactChannelSchema = z.object({
@@ -129,9 +172,9 @@ const contactChannelSchema = z.object({
 const contactSchema = z.object({
   id: z.string(),
   displayName: z.string(),
-  role: z.string().optional(),
+  role: z.enum(["guardian", "contact"]),
   notes: z.string().nullable().optional(),
-  contactType: z.string().nullable().optional(),
+  contactType: z.enum(["human", "assistant"]),
   lastInteraction: z.number().nullable().optional(),
   interactionCount: z.number(),
   createdAt: z.number(),
@@ -150,19 +193,18 @@ const contactSchema = z.object({
  * a relay failure surfaces as an error rather than reading ACL from the
  * assistant DB.
  */
-async function relayListContacts(
-  limit: number,
-  role: ContactRole | undefined,
-) {
+async function relayListContacts(limit: number, role: ContactRole | undefined) {
   try {
     const result = await ipcCallPersistent("contacts_list_rich", {
       limit,
       ...(role ? { role } : {}),
     });
     const { contacts } = ListContactsIpcResponseSchema.parse(result);
+    // Relayed reads carry a gateway-sourced role — trust it (omit guardianIds),
+    // so the guardian id set is not consulted here.
     return {
       ok: true,
-      contacts: contacts.map(prepareContactResponse),
+      contacts: contacts.map((c) => prepareContactResponse(c)),
     };
   } catch (err) {
     rethrowGatewayError(err);
@@ -199,9 +241,11 @@ export async function handleListContacts(queryParams: Record<string, string>) {
       contactType,
       limit,
     });
+    // Daemon-native read: role is the neutral default, so derive it.
+    const guardianIds = await getGuardianContactIds();
     return {
       ok: true,
-      contacts: contacts.map(prepareContactResponse),
+      contacts: contacts.map((c) => prepareContactResponse(c, guardianIds)),
     };
   }
 
@@ -214,9 +258,11 @@ export async function handleListContacts(queryParams: Record<string, string>) {
       "handleListContacts: contactType-filtered read served daemon-native (gateway-native contactType filtering is design-blocked, pending ACL classification)",
     );
     const contacts = listContacts(limit, contactType);
+    // Daemon-native read: role is the neutral default, so derive it.
+    const guardianIds = await getGuardianContactIds();
     return {
       ok: true,
-      contacts: contacts.map(prepareContactResponse),
+      contacts: contacts.map((c) => prepareContactResponse(c, guardianIds)),
     };
   }
 
@@ -232,6 +278,7 @@ export async function handleGetContact(contactId: string) {
     }
     const { contact, assistantMetadata } =
       GetContactIpcResponseSchema.parse(result);
+    // Relayed read: trust the gateway-sourced role (omit guardianIds).
     return {
       ok: true,
       contact: prepareContactResponse(contact),
@@ -261,7 +308,9 @@ export async function handleGetContact(contactId: string) {
 // ~5s fallback plus IPC overhead on both nested hops. (List/revoke keep the default.)
 const INVITE_CREATE_RELAY_TIMEOUT_MS = 30_000;
 
-export async function handleListInvites({ queryParams = {} }: RouteHandlerArgs) {
+export async function handleListInvites({
+  queryParams = {},
+}: RouteHandlerArgs) {
   try {
     const result = (await ipcCallPersistent("invites_list", {
       ...(queryParams.sourceChannel
@@ -301,7 +350,9 @@ export async function handleCreateInvite({ body = {} }: RouteHandlerArgs) {
   }
 }
 
-export async function handleRevokeInvite({ pathParams = {} }: RouteHandlerArgs) {
+export async function handleRevokeInvite({
+  pathParams = {},
+}: RouteHandlerArgs) {
   try {
     const result = (await ipcCallPersistent("invites_revoke", {
       id: pathParams.id,
@@ -319,9 +370,7 @@ export async function handleRevokeInvite({ pathParams = {} }: RouteHandlerArgs) 
  * `invites_redeem_voice` method. Wraps the identity-bound
  * `redeemVoiceInviteCode` path.
  */
-export async function handleRedeemVoiceInvite({
-  body = {},
-}: RouteHandlerArgs) {
+export async function handleRedeemVoiceInvite({ body = {} }: RouteHandlerArgs) {
   const callerExternalUserId = body.callerExternalUserId as string | undefined;
   const code = body.code as string | undefined;
 
@@ -355,9 +404,7 @@ export async function handleRedeemVoiceInvite({
  * `invites_redeem_token` method. Wraps the generic `redeemIngressInvite`
  * token path.
  */
-export async function handleRedeemTokenInvite({
-  body = {},
-}: RouteHandlerArgs) {
+export async function handleRedeemTokenInvite({ body = {} }: RouteHandlerArgs) {
   const result = await redeemIngressInvite({
     token: body.token as string | undefined,
     externalUserId: body.externalUserId as string | undefined,
@@ -648,7 +695,10 @@ export const ROUTES: RouteDefinition[] = [
       // No-filter "search" is a list read — relay to the gateway so it returns
       // the same source-of-truth data as `contacts list`.
       if (!hasFilter) {
-        const { contacts } = await relayListContacts(parsed.limit ?? 50, undefined);
+        const { contacts } = await relayListContacts(
+          parsed.limit ?? 50,
+          undefined,
+        );
         return contacts;
       }
 
@@ -656,7 +706,11 @@ export const ROUTES: RouteDefinition[] = [
       log.debug(
         "search_contacts: search served daemon-native (gateway-native search is design-blocked)",
       );
-      return searchContacts(parsed).map(prepareContactResponse);
+      // Daemon-native read: role is the neutral default, so derive it.
+      const guardianIds = await getGuardianContactIds();
+      return searchContacts(parsed).map((c) =>
+        prepareContactResponse(c, guardianIds),
+      );
     },
   },
 
@@ -741,7 +795,7 @@ export const ROUTES: RouteDefinition[] = [
 // Transport-agnostic handlers (moved from HTTP-only)
 // ---------------------------------------------------------------------------
 
-function handleMergeContactsRoute(args: RouteHandlerArgs) {
+async function handleMergeContactsRoute(args: RouteHandlerArgs) {
   const { body } = args;
   const keepId = body?.keepId as string | undefined;
   const mergeId = body?.mergeId as string | undefined;
@@ -752,7 +806,12 @@ function handleMergeContactsRoute(args: RouteHandlerArgs) {
 
   try {
     const contact = mergeContacts(keepId, mergeId);
-    return { ok: true, contact: prepareContactResponse(contact) };
+    // Daemon-native read (assistant DB): role is the neutral default, derive it.
+    const guardianIds = await getGuardianContactIds();
+    return {
+      ok: true,
+      contact: prepareContactResponse(contact, guardianIds),
+    };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new BadRequestError(message);

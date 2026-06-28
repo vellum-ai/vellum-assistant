@@ -13,7 +13,7 @@
 
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act } from "react";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 
 mock.module("@/domains/chat/components/chat-markdown-message", () => ({
   ChatMarkdownMessage: ({ content }: { content: string }) => (
@@ -88,14 +88,24 @@ const noop = () => {};
  * summary; clicking each "Details" toggle reveals the rows. A group already
  * expanded (e.g. across a rerender that preserves state) has no toggle and is
  * left untouched, so the helper is safe to re-run.
+ *
+ * The spawn group crossfades collapsed ↔ expanded with `AnimatePresence
+ * mode="wait"`, which defers mounting the expanded rows until the collapsed
+ * view finishes its exit animation. So after clicking we await the rows
+ * appearing rather than asserting synchronously.
  */
-function expandSubagentSummary(container: HTMLElement) {
+async function expandSubagentSummary(container: HTMLElement) {
   const toggles = container.querySelectorAll<HTMLButtonElement>(
     '[data-testid="subagent-avatar-row-details"]',
   );
-  act(() => {
-    toggles.forEach((toggle) => fireEvent.click(toggle));
-  });
+  if (toggles.length === 0) return; // already expanded — nothing to wait for
+  toggles.forEach((toggle) => fireEvent.click(toggle));
+  // mode="wait" defers mounting the expanded cards until the collapse exit completes
+  await waitFor(() =>
+    expect(
+      within(container).queryAllByTestId("subagent-inline-card").length,
+    ).toBeGreaterThan(0),
+  );
 }
 
 /**
@@ -261,7 +271,7 @@ describe("Transcript — collapsible subagent spawn group", () => {
     expect(queryAllByTestId("subagent-inline-card").length).toBe(0);
   });
 
-  test("expanding the summary renders one inline row per spawn, in spawn order", () => {
+  test("expanding the summary renders one inline row per spawn, in spawn order", async () => {
     const items: TranscriptItem[] = [
       userMessage("u1", "spawn two agents"),
       assistantMessageWithSpawn("a1", ["sa-1", "sa-2"]),
@@ -277,7 +287,7 @@ describe("Transcript — collapsible subagent spawn group", () => {
     );
 
     expect(queryAllByTestId("subagent-inline-card").length).toBe(0);
-    expandSubagentSummary(container);
+    await expandSubagentSummary(container);
 
     const cards = getAllByTestId("subagent-inline-card");
     expect(cards.length).toBe(2);
@@ -287,7 +297,7 @@ describe("Transcript — collapsible subagent spawn group", () => {
     ]);
   });
 
-  test("row open + stop fire the transcript callbacks end-to-end after expansion", () => {
+  test("row open + stop fire the transcript callbacks end-to-end after expansion", async () => {
     const opened: string[] = [];
     const stopped: string[] = [];
 
@@ -306,7 +316,7 @@ describe("Transcript — collapsible subagent spawn group", () => {
       />,
     );
 
-    expandSubagentSummary(container);
+    await expandSubagentSummary(container);
 
     act(() => {
       fireEvent.click(getByTestId("subagent-inline-card-open"));
@@ -366,7 +376,7 @@ describe("Transcript — collapsible subagent spawn group", () => {
 });
 
 describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
-  test("renders inline card for a running spawn (no result) when store entry exists via parentMessageStableId", () => {
+  test("renders inline card for a running spawn (no result) when store entry exists via parentMessageStableId", async () => {
     useSubagentStore.getState().spawnSubagent({
       subagentId: "sa-running-1",
       label: "agent-0",
@@ -390,13 +400,13 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
       />,
     );
 
-    expandSubagentSummary(container);
+    await expandSubagentSummary(container);
     const cards = getAllByTestId("subagent-inline-card");
     expect(cards.length).toBe(1);
     expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-running-1");
   });
 
-  test("renders both cards for a mixed running + completed spawn group, preserving spawn order", () => {
+  test("renders both cards for a mixed running + completed spawn group, preserving spawn order", async () => {
     // Running spawn was emitted first; the store entry exists by the time
     // the message renders even though its tool_result hasn't arrived.
     useSubagentStore.getState().spawnSubagent({
@@ -425,7 +435,7 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
       />,
     );
 
-    expandSubagentSummary(container);
+    await expandSubagentSummary(container);
     const cards = getAllByTestId("subagent-inline-card");
     expect(cards.map((c) => c.getAttribute("data-subagent-id"))).toEqual([
       "sa-running",
@@ -433,7 +443,7 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
     ]);
   });
 
-  test("renders inline card after reload via parentMessageId match", () => {
+  test("renders inline card after reload via parentMessageId match", async () => {
     // Simulates `use-conversation-history.ts` reconstructing the store from
     // history notifications, where the entry is keyed by `parentMessageId`.
     // Under single-id semantics that parent id is just the message's `id`.
@@ -474,7 +484,7 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
       />,
     );
 
-    expandSubagentSummary(container);
+    await expandSubagentSummary(container);
     const cards = getAllByTestId("subagent-inline-card");
     expect(cards.length).toBe(1);
     expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-reloaded");
@@ -502,7 +512,7 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
 });
 
 describe("Transcript — toolUseId anchor (PR 3)", () => {
-  test("renders inline card via byToolUseId match with no result and a mismatched message id", () => {
+  test("renders inline card via byToolUseId match with no result and a mismatched message id", async () => {
     // Live + orphaned window: the spawn tool call has no result yet, and the
     // store entry is keyed under a stable id that does NOT match the rendered
     // message's id — so neither the result branch nor the positional byParent
@@ -554,7 +564,7 @@ describe("Transcript — toolUseId anchor (PR 3)", () => {
       container.querySelector('[data-testid="multi-activity-group"]'),
     ).toBeNull();
 
-    expandSubagentSummary(container);
+    await expandSubagentSummary(container);
     const cards = getAllByTestId("subagent-inline-card");
     expect(cards.length).toBe(1);
     expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-anchored");
@@ -562,7 +572,7 @@ describe("Transcript — toolUseId anchor (PR 3)", () => {
 });
 
 describe("Transcript — cross-group claimed-set (fix-r1-c)", () => {
-  test("two non-consecutive running spawns in one message map 1:1 to distinct subagentIds without duplicates", () => {
+  test("two non-consecutive running spawns in one message map 1:1 to distinct subagentIds without duplicates", async () => {
     // Two store entries linked to the same parent message, neither with a
     // `result` on its tool call yet. Without the message-scope `claimed`
     // set, both tool-call groups would fall back positionally and resolve
@@ -630,7 +640,7 @@ describe("Transcript — cross-group claimed-set (fix-r1-c)", () => {
       container.querySelectorAll('[data-testid="subagent-avatar-row-details"]')
         .length,
     ).toBe(2);
-    expandSubagentSummary(container);
+    await expandSubagentSummary(container);
 
     const cards = getAllByTestId("subagent-inline-card");
     expect(cards.length).toBe(2);
@@ -678,7 +688,7 @@ describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
     );
   }
 
-  test("card survives optimistic→server id transition via the toolUseId anchor", () => {
+  test("card survives optimistic→server id transition via the toolUseId anchor", async () => {
     // Live: spawn under the optimistic bubble id "optimistic-1", anchored by
     // the spawning toolUseId "tu-1".
     useSubagentStore.getState().spawnSubagent({
@@ -702,7 +712,7 @@ describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
     // generic progress card for the spawn-only group (zero renderable steps
     // once the spawn is filtered out).
     expect(queryByTestId("multi-activity-group")).toBeNull();
-    expandSubagentSummary(container);
+    await expandSubagentSummary(container);
     let cards = getAllByTestId("subagent-inline-card");
     expect(cards.length).toBe(1);
     expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-lifecycle");
@@ -723,14 +733,14 @@ describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
       ]),
     );
 
-    expandSubagentSummary(container);
+    await expandSubagentSummary(container);
     cards = getAllByTestId("subagent-inline-card");
     expect(cards.length).toBe(1);
     expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-lifecycle");
     expect(queryByTestId("multi-activity-group")).toBeNull();
   });
 
-  test("card survives reconcile via the byParent re-anchor when parentToolUseId is absent (older daemon)", () => {
+  test("card survives reconcile via the byParent re-anchor when parentToolUseId is absent (older daemon)", async () => {
     // Older daemon: no `parentToolUseId`, so the toolUseId anchor can't fire.
     // The card resolves positionally via the byParent bucket, and the
     // message-id re-anchor is what keeps that bucket reachable after the
@@ -751,7 +761,7 @@ describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
       ]),
     );
 
-    expandSubagentSummary(container);
+    await expandSubagentSummary(container);
     let cards = getAllByTestId("subagent-inline-card");
     expect(cards.length).toBe(1);
     expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-byparent");
@@ -769,7 +779,7 @@ describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
       ]),
     );
 
-    expandSubagentSummary(container);
+    await expandSubagentSummary(container);
     cards = getAllByTestId("subagent-inline-card");
     expect(cards.length).toBe(1);
     expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-byparent");

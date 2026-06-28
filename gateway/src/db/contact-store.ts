@@ -35,31 +35,6 @@ export type Contact = typeof contacts.$inferSelect;
 export type ContactChannel = typeof contactChannels.$inferSelect;
 export type IngressInviteRow = typeof ingressInvites.$inferSelect;
 
-/** ACL fields of an adopted assistant channel, carried through the create-heal
- * path so syncChannels' INSERT preserves them instead of defaulting. `id` is the
- * assistant channel's own id, adopted so the gateway row shares one canonical
- * channel id (verify-by-id can't split). */
-type AdoptedChannelAcl = {
-  id: string;
-  type: string;
-  address: string;
-  isPrimary: boolean;
-  externalChatId: string | null;
-  status: string;
-  policy: string;
-  verifiedAt: number | null;
-  verifiedVia: string | null;
-  inviteId: string | null;
-  revokedReason: string | null;
-  blockedReason: string | null;
-};
-
-/** Canonical (type,address) key for matching adopted channels, COLLATE
- * NOCASE-equivalent — same logical key the gateway uses to dedupe channels. */
-function adoptedChannelKey(type: string, address: string): string {
-  return `${type}\n${address.toLowerCase()}`;
-}
-
 export class ContactStore {
   private injectedDb?: GatewayDb;
 
@@ -85,6 +60,19 @@ export class ContactStore {
       .from(contacts)
       .orderBy(desc(contacts.createdAt))
       .all();
+  }
+
+  /**
+   * Guardian contact ids from the gateway DB (source of truth). Singular per
+   * workspace, but returns a list to be safe.
+   */
+  listGuardianContactIds(): string[] {
+    return this.db
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(eq(contacts.role, "guardian"))
+      .all()
+      .map((r) => r.id);
   }
 
   getContactByChannel(
@@ -186,7 +174,7 @@ export class ContactStore {
         sql`${contacts.role} = 'guardian' DESC`,
         desc(contacts.updatedAt),
         // Primary channel first, then by creation time — mirrors the daemon
-        // (assistant/src/contacts/contact-store.ts:141) and readAssistantContact.
+        // (assistant/src/contacts/contact-store.ts:141).
         sql`${contactChannels.isPrimary} DESC`,
         contactChannels.createdAt,
       )
@@ -207,7 +195,7 @@ export class ContactStore {
       .where(eq(contacts.id, contactId))
       .orderBy(
         // Primary channel first, then by creation time — mirrors the daemon
-        // (assistant/src/contacts/contact-store.ts:141) and readAssistantContact.
+        // (assistant/src/contacts/contact-store.ts:141).
         sql`${contactChannels.isPrimary} DESC`,
         contactChannels.createdAt,
       )
@@ -478,10 +466,8 @@ export class ContactStore {
    *   - any other status → both reasons cleared to null
    *   - status unchanged → reasons left untouched (pass undefined)
    *
-   * Channel ID resolution: the caller may pass an assistant-side channel ID
-   * (the UI gets these from `readAssistantContact`). If the ID isn't found
-   * in the gateway DB, we resolve it from the assistant DB by
-   * (contactId, type, address) and then find the matching gateway channel.
+   * Gateway DB is the source of truth; a channel absent from the gateway
+   * returns null.
    */
   async updateChannelStatus(
     channelId: string,
@@ -491,27 +477,10 @@ export class ContactStore {
       reason?: string | null;
     },
   ): Promise<ContactChannel | null> {
-    let gwChannel = await this.resolveGatewayChannel(channelId);
+    const gwChannel = await this.resolveGatewayChannel(channelId);
 
-    // Still absent → legacy assistant-only channel. Mirror it (plus its parent
-    // contact) into the gateway DB so the status write resolves instead of
-    // 404ing — matching the verify path. The mirror reuses the assistant-side
-    // id; soft-fails to null when the assistant DB is unreachable.
-    if (!gwChannel) {
-      const mirrored = await this.mirrorChannelFromAssistantIfMissing(
-        channelId,
-      ).catch((err) => {
-        log.warn(
-          { channelId, err },
-          "updateChannelStatus: assistant-only backfill failed (best-effort)",
-        );
-        return false;
-      });
-      if (mirrored) {
-        gwChannel = await this.resolveGatewayChannel(channelId);
-      }
-    }
-
+    // Gateway DB is the source of truth; a channel absent from the gateway
+    // has no status to update.
     if (!gwChannel) return null;
 
     // Guard: cannot revoke a blocked channel.
@@ -554,84 +523,6 @@ export class ContactStore {
   }
 
   /**
-   * Best-effort dual-write of a channel status/policy update to the
-   * assistant DB. The gateway DB is the source of truth; the assistant
-   * copy is a best-effort mirror. Failures are logged, not thrown.
-   */
-  async dualWriteChannelStatusToAssistantDb(
-    channelId: string,
-    params: {
-      status?: string;
-      policy?: string;
-      revokedReason?: string | null;
-      blockedReason?: string | null;
-      verifiedAt?: number | null;
-      verifiedVia?: string | null;
-    },
-  ): Promise<boolean> {
-    const setClauses: string[] = [];
-    const bind: (string | number | null)[] = [];
-
-    if (params.status !== undefined) {
-      setClauses.push("status = ?");
-      bind.push(params.status);
-    }
-    if (params.policy !== undefined) {
-      setClauses.push("policy = ?");
-      bind.push(params.policy);
-    }
-    if (params.revokedReason !== undefined) {
-      setClauses.push("revoked_reason = ?");
-      bind.push(params.revokedReason);
-    }
-    if (params.blockedReason !== undefined) {
-      setClauses.push("blocked_reason = ?");
-      bind.push(params.blockedReason);
-    }
-    if (params.verifiedAt !== undefined) {
-      setClauses.push("verified_at = ?");
-      bind.push(params.verifiedAt);
-    }
-    if (params.verifiedVia !== undefined) {
-      setClauses.push("verified_via = ?");
-      bind.push(params.verifiedVia);
-    }
-
-    if (setClauses.length === 0) return false;
-
-    setClauses.push("updated_at = ?");
-    bind.push(String(Date.now()));
-    bind.push(channelId);
-
-    const result = await assistantDbRun(
-      `UPDATE contact_channels SET ${setClauses.join(", ")} WHERE id = ?`,
-      bind,
-    );
-    if (result.changes > 0) return true;
-
-    // Legacy channels may have a different assistant-side ID. If the ID-keyed
-    // update touched zero rows, resolve by the unique (type, address) key and
-    // retry so the assistant mirror stays consistent. The assistant row may sit
-    // under a different contact than the gateway row (m0006 reconcile), so
-    // contactId is excluded.
-    const gwChannel = this.db
-      .select()
-      .from(contactChannels)
-      .where(eq(contactChannels.id, channelId))
-      .get();
-    if (!gwChannel) return false;
-
-    const logicalBind = bind.slice(0, -1); // drop the channelId
-    logicalBind.push(gwChannel.type, gwChannel.address);
-    const retry = await assistantDbRun(
-      `UPDATE contact_channels SET ${setClauses.join(", ")}
-         WHERE type = ? AND address = ? COLLATE NOCASE`,
-      logicalBind,
-    );
-    return retry.changes > 0;
-  }
-
-  /**
    * Increment interaction count and set lastInteraction timestamp
    * (gateway DB only).
    */
@@ -646,135 +537,6 @@ export class ContactStore {
       })
       .where(eq(contactChannels.id, channelId))
       .run();
-  }
-
-  /**
-   * Migration-window backfill: ensure a channel exists in the gateway DB
-   * by mirroring it (plus its parent contact) from the assistant DB when
-   * absent. Returns `true` when the channel is present in the gateway DB
-   * after the call (pre-existing or just mirrored), `false` when neither
-   * side has it.
-   *
-   * Why this exists: during the gateway-security-migration the assistant
-   * DB is the present-day source of truth for contacts. The gateway DB is
-   * back-filled lazily as contacts are touched. Without this hop, any
-   * channel created before the dual-write was wired would 404 from
-   * gateway-native channel mutators even though the user sees it in the
-   * assistant UI.
-   *
-   * Idempotent — both INSERTs are `INSERT ... ON CONFLICT DO NOTHING`, so
-   * concurrent mirrors converge without conflict.
-   */
-  private async mirrorChannelFromAssistantIfMissing(
-    channelId: string,
-  ): Promise<boolean> {
-    const existing = this.db
-      .select({ id: contactChannels.id })
-      .from(contactChannels)
-      .where(eq(contactChannels.id, channelId))
-      .get();
-    if (existing) return true;
-
-    type ChannelRow = {
-      id: string;
-      contact_id: string;
-      type: string;
-      address: string;
-      is_primary: number;
-      external_chat_id: string | null;
-      status: string;
-      policy: string;
-      verified_at: number | null;
-      verified_via: string | null;
-      invite_id: string | null;
-      revoked_reason: string | null;
-      blocked_reason: string | null;
-      last_seen_at: number | null;
-      interaction_count: number;
-      last_interaction: number | null;
-      created_at: number;
-      updated_at: number | null;
-    };
-    const channelRows = await assistantDbQuery<ChannelRow>(
-      `SELECT id, contact_id, type, address, is_primary,
-              external_chat_id, status, policy, verified_at, verified_via,
-              invite_id, revoked_reason, blocked_reason, last_seen_at,
-              interaction_count, last_interaction, created_at, updated_at
-         FROM contact_channels WHERE id = ?`,
-      [channelId],
-    );
-    if (channelRows.length === 0) return false;
-    const channelRow = channelRows[0]!;
-
-    type ContactRow = {
-      id: string;
-      display_name: string;
-      role: string | null;
-      principal_id: string | null;
-      created_at: number;
-      updated_at: number | null;
-    };
-    const contactRows = await assistantDbQuery<ContactRow>(
-      `SELECT id, display_name, role, principal_id, created_at, updated_at
-         FROM contacts WHERE id = ?`,
-      [channelRow.contact_id],
-    );
-    if (contactRows.length === 0) {
-      log.warn(
-        { channelId, contactId: channelRow.contact_id },
-        "mirrorChannelFromAssistantIfMissing: assistant channel references missing contact — refusing to mirror",
-      );
-      return false;
-    }
-    const contactRow = contactRows[0]!;
-
-    // Parent contact first so the channel's FK lands. Both INSERTs are
-    // conflict-tolerant: contact may already exist (e.g. a sibling channel
-    // mirrored earlier), and a concurrent mirror of this channel by another
-    // request must not collide.
-    this.db
-      .insert(contacts)
-      .values({
-        id: contactRow.id,
-        displayName: contactRow.display_name,
-        role: contactRow.role ?? "contact",
-        principalId: contactRow.principal_id,
-        createdAt: contactRow.created_at,
-        updatedAt: contactRow.updated_at ?? contactRow.created_at,
-      })
-      .onConflictDoNothing()
-      .run();
-
-    this.db
-      .insert(contactChannels)
-      .values({
-        id: channelRow.id,
-        contactId: channelRow.contact_id,
-        type: channelRow.type,
-        address: channelRow.address,
-        isPrimary: Boolean(channelRow.is_primary),
-        externalChatId: channelRow.external_chat_id,
-        status: channelRow.status,
-        policy: channelRow.policy,
-        verifiedAt: channelRow.verified_at,
-        verifiedVia: channelRow.verified_via,
-        inviteId: channelRow.invite_id,
-        revokedReason: channelRow.revoked_reason,
-        blockedReason: channelRow.blocked_reason,
-        lastSeenAt: channelRow.last_seen_at,
-        interactionCount: channelRow.interaction_count,
-        lastInteraction: channelRow.last_interaction,
-        createdAt: channelRow.created_at,
-        updatedAt: channelRow.updated_at,
-      })
-      .onConflictDoNothing()
-      .run();
-
-    log.info(
-      { channelId, contactId: channelRow.contact_id },
-      "mirrorChannelFromAssistantIfMissing: mirrored channel + parent contact from assistant DB",
-    );
-    return true;
   }
 
   /**
@@ -831,12 +593,8 @@ export class ContactStore {
    * and the other will see `changes=0`. Both still return the post-state
    * row.
    *
-   * Returns the channel after the write, or `null` if neither the gateway
-   * DB nor the assistant DB has a channel with that id.
-   *
-   * Gateway DB (source of truth) + best-effort assistant DB dual-write.
-   * When the channel is missing on the gateway but present on the assistant,
-   * it (plus its parent contact) is mirrored into the gateway first.
+   * Gateway DB is the source of truth; a channel absent from the gateway
+   * returns `null`.
    */
   async markChannelVerified(
     channelId: string,
@@ -845,17 +603,10 @@ export class ContactStore {
     channel: ContactChannel;
     didWrite: boolean;
   } | null> {
-    // Migration-window backfill: if the gateway DB has never seen this
-    // channel, but the assistant DB has it, mirror channel + parent contact
-    // into the gateway DB before attempting the verify write. Without this,
-    // any contact channel created before the dual-write was wired would
-    // 404 here even though the user can see the channel in their UI.
-    const mirrored = await this.mirrorChannelFromAssistantIfMissing(channelId);
-    if (!mirrored) return null;
-
     // Legacy channels may live under a different gateway id than the assistant
     // channel id passed in; resolve the gateway row (by id, then by logical
-    // (type,address) key) before keying writes on it.
+    // (type,address) key) before keying writes on it. Gateway DB is the source
+    // of truth; a channel absent from the gateway returns null.
     const gwChannel = await this.resolveGatewayChannel(channelId);
     if (!gwChannel) return null;
     const gwChannelId = gwChannel.id;
@@ -880,58 +631,29 @@ export class ContactStore {
     if (!after) return null;
     const didWrite = result.changes > 0;
 
-    // Mirror the write to the assistant DB only when the gateway actually
-    // wrote (best-effort dual-write). Skipping the no-op case prevents
-    // spurious verified_at/updated_at drift in the assistant DB on idempotent
-    // calls. The gateway DB remains source of truth.
-    //
-    // Key the mirror by the ORIGINAL assistant channel id, not the resolved
-    // gateway `gwChannelId`: on the split-id path they differ and the assistant
-    // row is keyed by the original id, so mirroring by the gateway id would
-    // no-op. The dual-write's logical (type, address) fallback covers rows
-    // keyed differently from the id.
-    if (didWrite) {
-      try {
-        await this.dualWriteChannelStatusToAssistantDb(channelId, {
-          status: "active",
-          verifiedAt: now,
-          verifiedVia,
-        });
-      } catch (err) {
-        log.warn(
-          { channelId, gwChannelId, err },
-          "markChannelVerified: assistant DB dual-write failed (best-effort)",
-        );
-      }
-    }
-
     return { channel: after, didWrite };
   }
 
   /**
-   * Downgrade a channel to `revoked` (verification-revoke outcome), then
-   * best-effort dual-write to the assistant DB. Gateway DB is source of truth.
+   * Downgrade a channel to `revoked` (verification-revoke outcome).
+   * Gateway DB is source of truth.
    *
    * Guardian guard (invariant 4): a guardian contact's channel may only be
    * downgraded via the sanctioned guardian-binding teardown
    * (`reason="guardian_binding_revoked"`). Any other reason on a guardian
    * channel is rejected here at the boundary rather than silently applied.
    *
-   * Mirrors `markChannelVerified`: when the channel is missing on the gateway
-   * but present on the assistant, it (plus its parent contact) is mirrored in
-   * first so a UI-visible channel id doesn't 404.
-   *
-   * Returns the channel after the write, or `null` if neither DB has the id.
+   * Gateway DB is the source of truth; a channel absent from the gateway
+   * returns `null`.
    */
   async markChannelRevoked(
     channelId: string,
     reason?: string,
   ): Promise<{ channel: ContactChannel; didWrite: boolean } | null> {
-    const mirrored = await this.mirrorChannelFromAssistantIfMissing(channelId);
-    if (!mirrored) return null;
-
     // Legacy channels may live under a different gateway id than the assistant
     // channel id passed in; resolve the gateway row before keying writes on it.
+    // Gateway DB is the source of truth; a channel absent from the gateway
+    // returns null.
     const channel = await this.resolveGatewayChannel(channelId);
     if (!channel) return null;
     const gwChannelId = channel.id;
@@ -982,19 +704,6 @@ export class ContactStore {
       .where(eq(contactChannels.id, gwChannelId))
       .get();
     if (!after) return null;
-
-    try {
-      await this.dualWriteChannelStatusToAssistantDb(gwChannelId, {
-        status: "revoked",
-        revokedReason: reason ?? null,
-        blockedReason: null,
-      });
-    } catch (err) {
-      log.warn(
-        { channelId, err },
-        "markChannelRevoked: assistant DB dual-write failed (best-effort)",
-      );
-    }
 
     return { channel: after, didWrite: true };
   }
@@ -1206,7 +915,7 @@ export class ContactStore {
       revokedReason?: string | null;
       blockedReason?: string | null;
     }>;
-  }): Promise<{ contact: ContactWithChannels; created: boolean }> {
+  }): Promise<{ contact: ContactWithInfo; created: boolean }> {
     const now = Date.now();
     let contactId = params.id;
     let created = false;
@@ -1287,80 +996,26 @@ export class ContactStore {
     }
 
     // ── 3. Create new ─────────────────────────────────────────────────
-    // Create-only canonical-id adoption: before minting a fresh id, check the
-    // assistant DB for an existing contact owning one of these channels (by
-    // (type, address)). Adopting that id keeps both DBs keyed by ONE canonical
-    // id — the gateway INSERT, syncChannels, and the assistant mirror all use
-    // it, so a "healed" assistant-only contact's info reads back via the
-    // join-by-id read path. Soft-fails to a minted id if the lookup throws
-    // (daemon down / tests) — the assistant-mirror best-effort invariant.
-    let adoptedChannelAcls: Map<string, AdoptedChannelAcl> | undefined;
-    let crossOwnedKeys: Set<string> | undefined;
     if (!contactId) {
-      const adopted = await this.adoptAssistantContactId(canonicalChannels);
-      contactId = adopted?.contactId ?? crypto.randomUUID();
-      adoptedChannelAcls = adopted?.channelAcls;
-      crossOwnedKeys = adopted?.crossOwnedKeys;
-      // An adopted id may already exist as a gateway row (different channels);
-      // preserve it (name omit-to-preserve) instead of a conflicting INSERT.
-      const existing = adopted
-        ? this.db
-            .select({ id: contacts.id })
-            .from(contacts)
-            .where(eq(contacts.id, contactId))
-            .get()
-        : undefined;
-      if (existing) {
-        updateContactName(contactId);
-      } else {
-        // No displayName supplied → preserve the adopted assistant contact's
-        // existing name (a migrated custom name) so the gateway row doesn't
-        // get renamed to the bare channel address on the next refetch.
-        this.db
-          .insert(contacts)
-          .values({
-            id: contactId,
-            displayName:
-              params.displayName ??
-              adopted?.displayName ??
-              canonicalChannels?.[0]?.address ??
-              "Unknown",
-            role: "contact",
-            principalId: null,
-            createdAt: now,
-            updatedAt: now,
-          })
-          .run();
-        created = true;
-      }
+      contactId = crypto.randomUUID();
+      this.db
+        .insert(contacts)
+        .values({
+          id: contactId,
+          displayName:
+            params.displayName ?? canonicalChannels?.[0]?.address ?? "Unknown",
+          role: "contact",
+          principalId: null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+      created = true;
     }
 
     // ── 4. Sync channels (gateway DB) ─────────────────────────────────
-    // Drop any requested channel owned by a DIFFERENT assistant contact: the
-    // gateway must not insert it under the adopted contact, because the
-    // assistant mirror skips it as a cross-contact conflict — claiming it
-    // gateway-side would diverge ACL ownership and risk routing the wrong
-    // contact. Genuinely-unowned channels stay and insert as new.
-    const healChannels = crossOwnedKeys?.size
-      ? canonicalChannels?.filter((ch) => {
-          const owned = crossOwnedKeys!.has(adoptedChannelKey(ch.type, ch.address));
-          if (owned) {
-            log.warn(
-              { contactId, type: ch.type, address: ch.address },
-              "upsertContact: skipping create-heal channel owned by another assistant contact (keeping gateway/assistant ownership in sync)",
-            );
-          }
-          return !owned;
-        })
-      : canonicalChannels;
-
-    // Carry the adopted assistant channel's ACL state into the heal INSERT so
-    // an active/verified contact isn't downgraded to unverified/allow.
-    const channelsToSync = adoptedChannelAcls?.size
-      ? this.mergeAdoptedChannelAcl(healChannels, adoptedChannelAcls)
-      : healChannels;
-    if (channelsToSync?.length) {
-      this.syncChannels(contactId, channelsToSync, now);
+    if (canonicalChannels?.length) {
+      this.syncChannels(contactId, canonicalChannels, now);
     }
 
     // ── 5. Dual-write to assistant DB (best-effort) ───────────────────
@@ -1377,15 +1032,17 @@ export class ContactStore {
     }
 
     // ── 6. Read back full contact shape (best-effort) ─────────────────
-    const fullContact = await this.readAssistantContact(contactId).catch(
-      (err) => {
-        log.warn(
-          { contactId, err },
-          "upsertContact: assistant DB read-back failed; returning gateway fallback",
-        );
-        return null;
-      },
-    );
+    // Source ACL (role/principalId, channel status/policy/verified_*) from the
+    // gateway DB — the just-written source of truth — and overlay assistant-
+    // owned info. The assistant mirror would report stale unverified/allow/
+    // contact defaults for fresh creates.
+    const fullContact = await this.getContactWithInfo(contactId).catch((err) => {
+      log.warn(
+        { contactId, err },
+        "upsertContact: gateway read-back failed; returning gateway fallback",
+      );
+      return null;
+    });
 
     if (fullContact) {
       return { contact: fullContact, created };
@@ -1411,6 +1068,7 @@ export class ContactStore {
         interactionCount: 0,
         lastInteraction: null,
         channels: [],
+        assistantMetadata: null,
       },
       created,
     };
@@ -1512,7 +1170,6 @@ export class ContactStore {
         keepId,
         mergeId,
         keep.displayName,
-        keep.role,
         keep.principalId,
       );
     } catch (err) {
@@ -1570,7 +1227,6 @@ export class ContactStore {
     keepId: string,
     mergeId: string,
     keepDisplayName: string,
-    keepRole: string,
     keepPrincipalId: string | null,
   ): Promise<void> {
     const now = Date.now();
@@ -1593,21 +1249,17 @@ export class ContactStore {
 
     if (updateResult.changes === 0) {
       // Survivor row missing from assistant DB — create it with combined notes.
-      // Use the gateway survivor's role/principalId so a guardian survivor
-      // isn't downgraded to role=contact in the assistant mirror.
       const userFile = await this.resolveAssistantUserFileSlug(
         keepDisplayName,
         keepPrincipalId,
       );
       await assistantDbRun(
-        `INSERT INTO contacts (id, display_name, notes, role, contact_type, principal_id, user_file, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'human', ?, ?, ?, ?)`,
+        `INSERT INTO contacts (id, display_name, notes, contact_type, user_file, created_at, updated_at)
+         VALUES (?, ?, ?, 'human', ?, ?, ?)`,
         [
           keepId,
           keepDisplayName,
           combined,
-          keepRole,
-          keepPrincipalId,
           userFile,
           String(now),
           String(now),
@@ -1746,39 +1398,6 @@ export class ContactStore {
     }
   }
 
-  /**
-   * Merge adopted assistant channels' ACL fields into the matching
-   * (type,address) channels of a create-heal upsert, omit-to-preserve so any
-   * field the caller explicitly supplied still wins. Each enriched channel
-   * carries the assistant row's real status/policy/verification into
-   * syncChannels' INSERT — without this, the heal would default an active
-   * channel to unverified/allow and downgrade a trusted contact. Requested
-   * channels with no assistant match stay genuinely-new (fresh id later).
-   */
-  private mergeAdoptedChannelAcl(
-    channels: Parameters<ContactStore["upsertContact"]>[0]["channels"],
-    acls: Map<string, AdoptedChannelAcl>,
-  ): Parameters<ContactStore["upsertContact"]>[0]["channels"] {
-    return channels?.map((ch) => {
-      const acl = acls.get(adoptedChannelKey(ch.type, ch.address));
-      if (!acl) return ch;
-      return {
-        ...ch,
-        // Adopt the assistant channel id so syncChannels' INSERT shares it.
-        id: ch.id ?? acl.id,
-        isPrimary: ch.isPrimary ?? acl.isPrimary,
-        externalChatId: ch.externalChatId ?? acl.externalChatId,
-        status: ch.status ?? acl.status,
-        policy: ch.policy ?? acl.policy,
-        verifiedAt: ch.verifiedAt ?? acl.verifiedAt,
-        verifiedVia: ch.verifiedVia ?? acl.verifiedVia,
-        inviteId: ch.inviteId ?? acl.inviteId,
-        revokedReason: ch.revokedReason ?? acl.revokedReason,
-        blockedReason: ch.blockedReason ?? acl.blockedReason,
-      };
-    });
-  }
-
   // ---------------------------------------------------------------------------
   // Assistant DB dual-write
   // ---------------------------------------------------------------------------
@@ -1849,16 +1468,14 @@ export class ContactStore {
       );
       await assistantDbRun(
         `INSERT INTO contacts
-           (id, display_name, notes, role, contact_type, principal_id,
+           (id, display_name, notes, contact_type,
             user_file, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [
           contactId,
           displayName,
           params.notes ?? null,
-          "contact",
           params.contactType ?? "human",
-          null,
           userFile,
           now,
           now,
@@ -1886,13 +1503,12 @@ export class ContactStore {
 
     // Sync channels to the assistant DB.
     for (const ch of params.channels ?? []) {
-      const existingCh = await assistantDbQuery<{ id: string; status: string }>(
-        "SELECT id, status FROM contact_channels WHERE contact_id = ? AND type = ? AND address = ? COLLATE NOCASE",
+      const existingCh = await assistantDbQuery<{ id: string }>(
+        "SELECT id FROM contact_channels WHERE contact_id = ? AND type = ? AND address = ? COLLATE NOCASE",
         [contactId, ch.type, ch.address],
       );
 
       if (existingCh.length) {
-        const isBlocked = existingCh[0].status === "blocked";
         // Omit-to-preserve: only overwrite external_chat_id when the caller
         // supplied one, mirroring syncChannels (gateway DB). A sparse upsert
         // (no externalChatId) must not clear an existing delivery chat id.
@@ -1901,16 +1517,6 @@ export class ContactStore {
         if (ch.externalChatId !== undefined) {
           setParts.push("external_chat_id = ?");
           setParams.push(ch.externalChatId);
-        }
-        if (!isBlocked) {
-          if (ch.status !== undefined) {
-            setParts.push("status = ?");
-            setParams.push(ch.status);
-          }
-          if (ch.policy !== undefined) {
-            setParts.push("policy = ?");
-            setParams.push(ch.policy);
-          }
         }
         setParams.push(existingCh[0].id);
         await assistantDbRun(
@@ -1944,8 +1550,8 @@ export class ContactStore {
           `INSERT INTO contact_channels
              (id, contact_id, type, address, is_primary,
               external_chat_id,
-              status, policy, interaction_count, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+              interaction_count, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
           [
             channelId,
             contactId,
@@ -1953,147 +1559,12 @@ export class ContactStore {
             ch.address,
             ch.isPrimary ? 1 : 0,
             ch.externalChatId ?? null,
-            ch.status ?? "unverified",
-            ch.policy ?? "allow",
             now,
             now,
           ],
         );
       }
     }
-  }
-
-  /**
-   * Create-only canonical-id adoption.
-   *
-   * When creating a contact (no explicit id, no gateway (type, address) match),
-   * look up an existing contact in the ASSISTANT DB owning one of the provided
-   * channels (by the same logical key the gateway uses). If found, return its
-   * id + existing display_name so the gateway INSERT + channels + mirror all
-   * share ONE canonical id — healing a legacy assistant-only contact instead of
-   * forking the two DBs onto different ids. The display_name lets the create
-   * path preserve a migrated custom name when the caller omits displayName.
-   * Returns null when there's no match or the lookup soft-fails (daemon down /
-   * tests), so the caller falls back to a freshly minted id.
-   *
-   * Every adopted channel's ACL fields (status/policy/verification) ride along
-   * keyed by canonical (type,address) so the create path can carry them into
-   * syncChannels' INSERT — without them the new gateway rows would default to
-   * unverified/allow, DOWNGRADING already active/trusted assistant channels
-   * below the trusted_contacts admission floor. Multi-channel heals must adopt
-   * EVERY matched channel, not just the first one the contact id resolved on.
-   *
-   * Never called on the explicit-id update path — an edit must not retarget
-   * another contact (the gateway syncChannels skips cross-contact channels).
-   */
-  private async adoptAssistantContactId(
-    channels: Parameters<ContactStore["upsertContact"]>[0]["channels"],
-  ): Promise<{
-    contactId: string;
-    displayName: string | null;
-    channelAcls: Map<string, AdoptedChannelAcl>;
-    // (type,address) keys of requested channels owned by a DIFFERENT assistant
-    // contact than the adopted one. The gateway must not insert these under the
-    // adopted contact — the assistant mirror skips them as cross-contact
-    // conflicts, so claiming them gateway-side diverges ownership.
-    crossOwnedKeys: Set<string>;
-  } | null> {
-    try {
-      for (const ch of channels ?? []) {
-        const rows = await assistantDbQuery<{
-          contactId: string;
-          displayName: string | null;
-        }>(
-          `SELECT cc.contact_id  AS contactId,
-                  c.display_name AS displayName
-             FROM contact_channels cc
-             JOIN contacts c ON c.id = cc.contact_id
-            WHERE cc.type = ? AND cc.address = ? COLLATE NOCASE
-            LIMIT 1`,
-          [ch.type, ch.address],
-        );
-        if (!rows.length) continue;
-
-        // Contact id resolved on the first match. Now fetch ALL of that
-        // contact's channels in one query so a multi-channel heal adopts each
-        // requested channel's id + ACL, not just the one that matched first.
-        const { contactId, displayName } = rows[0];
-        const aclRows = await assistantDbQuery<{
-          id: string;
-          type: string;
-          address: string;
-          isPrimary: number;
-          externalChatId: string | null;
-          status: string;
-          policy: string;
-          verifiedAt: number | null;
-          verifiedVia: string | null;
-          inviteId: string | null;
-          revokedReason: string | null;
-          blockedReason: string | null;
-        }>(
-          `SELECT cc.id,
-                  cc.type,
-                  cc.address,
-                  cc.is_primary      AS isPrimary,
-                  cc.external_chat_id AS externalChatId,
-                  cc.status,
-                  cc.policy,
-                  cc.verified_at     AS verifiedAt,
-                  cc.verified_via    AS verifiedVia,
-                  cc.invite_id       AS inviteId,
-                  cc.revoked_reason  AS revokedReason,
-                  cc.blocked_reason  AS blockedReason
-             FROM contact_channels cc
-            WHERE cc.contact_id = ?`,
-          [contactId],
-        );
-
-        const channelAcls = new Map<string, AdoptedChannelAcl>();
-        for (const r of aclRows) {
-          channelAcls.set(adoptedChannelKey(r.type, r.address), {
-            id: r.id,
-            type: r.type,
-            address: r.address,
-            isPrimary: Boolean(r.isPrimary),
-            externalChatId: r.externalChatId,
-            status: r.status,
-            policy: r.policy,
-            verifiedAt: r.verifiedAt,
-            verifiedVia: r.verifiedVia,
-            inviteId: r.inviteId,
-            revokedReason: r.revokedReason,
-            blockedReason: r.blockedReason,
-          });
-        }
-
-        // For requested channels NOT owned by the adopted contact, flag any
-        // already owned by a DIFFERENT assistant contact so the create-heal
-        // path skips inserting them under the adopted gateway contact (the
-        // assistant mirror skips them too — keep ownership symmetric).
-        const crossOwnedKeys = new Set<string>();
-        for (const reqCh of channels ?? []) {
-          const key = adoptedChannelKey(reqCh.type, reqCh.address);
-          if (channelAcls.has(key)) continue;
-          const owner = await assistantDbQuery<{ contactId: string }>(
-            `SELECT contact_id AS contactId FROM contact_channels
-              WHERE type = ? AND address = ? COLLATE NOCASE LIMIT 1`,
-            [reqCh.type, reqCh.address],
-          );
-          if (owner.length && owner[0].contactId !== contactId) {
-            crossOwnedKeys.add(key);
-          }
-        }
-
-        return { contactId, displayName, channelAcls, crossOwnedKeys };
-      }
-    } catch (err) {
-      log.warn(
-        { err },
-        "adoptAssistantContactId: assistant DB lookup failed; minting a new id",
-      );
-    }
-    return null;
   }
 
   /**
@@ -2111,16 +1582,28 @@ export class ContactStore {
     principalId: string | null,
   ): Promise<string> {
     if (principalId) {
-      const sibling = await assistantDbQuery<{ userFile: string | null }>(
-        `SELECT user_file AS userFile
-           FROM contacts
-          WHERE principal_id = ?
-            AND user_file IS NOT NULL
-          LIMIT 1`,
-        [principalId],
-      );
-      if (sibling.length && sibling[0].userFile) {
-        return sibling[0].userFile;
+      // principalId is gateway-owned: resolve sibling contact ids from the
+      // gateway DB (source of truth), then read the assistant-owned user_file
+      // for those ids from the assistant DB.
+      const siblingIds = getGatewayDb()
+        .select({ id: contacts.id })
+        .from(contacts)
+        .where(eq(contacts.principalId, principalId))
+        .all()
+        .map((r) => r.id);
+      if (siblingIds.length) {
+        const placeholders = siblingIds.map(() => "?").join(", ");
+        const sibling = await assistantDbQuery<{ userFile: string | null }>(
+          `SELECT user_file AS userFile
+             FROM contacts
+            WHERE id IN (${placeholders})
+              AND user_file IS NOT NULL
+            LIMIT 1`,
+          siblingIds,
+        );
+        if (sibling.length && sibling[0].userFile) {
+          return sibling[0].userFile;
+        }
       }
     }
 
@@ -2149,97 +1632,6 @@ export class ContactStore {
     return `${slug}-${crypto.randomUUID().slice(0, 8)}.md`;
   }
 
-  /**
-   * Read a contact + channels from the assistant DB and return the full
-   * `ContactWithChannels` shape used in API responses. Returns null if the
-   * contact is not found in the assistant DB.
-   */
-  private async readAssistantContact(
-    contactId: string,
-  ): Promise<ContactWithChannels | null> {
-    const rows = await assistantDbQuery<AssistantContactRow>(
-      `SELECT c.id,
-              c.display_name      AS displayName,
-              c.notes,
-              c.role,
-              c.contact_type      AS contactType,
-              c.principal_id      AS principalId,
-              c.user_file         AS userFile,
-              c.created_at        AS createdAt,
-              c.updated_at        AS updatedAt,
-              cc.id               AS channelId,
-              cc.type             AS channelType,
-              cc.address,
-              cc.is_primary       AS isPrimary,
-              cc.external_chat_id AS externalChatId,
-              cc.status           AS channelStatus,
-              cc.policy           AS channelPolicy,
-              cc.verified_at      AS verifiedAt,
-              cc.verified_via     AS verifiedVia,
-              cc.invite_id        AS inviteId,
-              cc.revoked_reason   AS revokedReason,
-              cc.blocked_reason   AS blockedReason,
-              cc.last_seen_at     AS lastSeenAt,
-              cc.interaction_count AS interactionCount,
-              cc.last_interaction  AS lastInteraction,
-              cc.created_at       AS channelCreatedAt,
-              cc.updated_at       AS channelUpdatedAt
-         FROM contacts c
-         LEFT JOIN contact_channels cc ON cc.contact_id = c.id
-        WHERE c.id = ?
-        ORDER BY cc.is_primary DESC, cc.created_at ASC`,
-      [contactId],
-    );
-
-    if (!rows.length) return null;
-
-    const first = rows[0];
-    const channels = rows
-      .filter((r) => r.channelId !== null)
-      .map((r) => ({
-        id: r.channelId!,
-        contactId,
-        type: r.channelType!,
-        address: r.address!,
-        isPrimary: Boolean(r.isPrimary),
-        externalChatId: r.externalChatId,
-        status: r.channelStatus,
-        policy: r.channelPolicy,
-        verifiedAt: r.verifiedAt,
-        verifiedVia: r.verifiedVia,
-        inviteId: r.inviteId,
-        revokedReason: r.revokedReason,
-        blockedReason: r.blockedReason,
-        lastSeenAt: r.lastSeenAt,
-        interactionCount: r.interactionCount ?? 0,
-        lastInteraction: r.lastInteraction,
-        createdAt: r.channelCreatedAt,
-        updatedAt: r.channelUpdatedAt,
-      }));
-
-    const interactionCount = channels.reduce(
-      (sum, ch) => sum + (ch.interactionCount ?? 0),
-      0,
-    );
-    const lastInteraction =
-      channels.reduce((max, ch) => Math.max(max, ch.lastInteraction ?? 0), 0) ||
-      null;
-
-    return {
-      id: first.id,
-      displayName: first.displayName,
-      notes: first.notes,
-      role: first.role,
-      contactType: first.contactType,
-      principalId: first.principalId,
-      userFile: first.userFile,
-      createdAt: first.createdAt,
-      updatedAt: first.updatedAt,
-      interactionCount,
-      lastInteraction,
-      channels,
-    };
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2265,21 +1657,6 @@ export interface ContactChannelShape {
   lastInteraction: number | null;
   createdAt: number | null;
   updatedAt: number | null;
-}
-
-export interface ContactWithChannels {
-  id: string;
-  displayName: string;
-  notes: string | null;
-  role: string;
-  contactType: string;
-  principalId: string | null;
-  userFile: string | null;
-  createdAt: number;
-  updatedAt: number;
-  interactionCount: number;
-  lastInteraction: number | null;
-  channels: ContactChannelShape[];
 }
 
 /**
@@ -2309,35 +1686,6 @@ export interface ContactWithInfo {
     species: string;
     metadata: Record<string, unknown> | null;
   } | null;
-}
-
-interface AssistantContactRow {
-  id: string;
-  displayName: string;
-  notes: string | null;
-  role: string;
-  contactType: string;
-  principalId: string | null;
-  userFile: string | null;
-  createdAt: number;
-  updatedAt: number;
-  channelId: string | null;
-  channelType: string | null;
-  address: string | null;
-  isPrimary: number | null;
-  externalChatId: string | null;
-  channelStatus: string | null;
-  channelPolicy: string | null;
-  verifiedAt: number | null;
-  verifiedVia: string | null;
-  inviteId: string | null;
-  revokedReason: string | null;
-  blockedReason: string | null;
-  lastSeenAt: number | null;
-  interactionCount: number | null;
-  lastInteraction: number | null;
-  channelCreatedAt: number | null;
-  channelUpdatedAt: number | null;
 }
 
 /**

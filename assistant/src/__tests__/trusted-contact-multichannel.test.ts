@@ -73,7 +73,7 @@ mock.module("../runtime/approval-message-composer.js", () => ({
 }));
 
 import { findContactChannel } from "../contacts/contact-store.js";
-import { getDb, getSqlite } from "../memory/db-connection.js";
+import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
   createOutboundSession,
@@ -84,6 +84,10 @@ import {
   seedContactChannel,
 } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import {
+  gatewayAclByChannelId,
+  resetGatewayAclStore,
+} from "./helpers/gateway-acl-store.js";
 
 await initializeDb();
 
@@ -102,6 +106,7 @@ function resetState(): void {
   db.run("DELETE FROM notification_events");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
+  resetGatewayAclStore();
   emitSignalCalls.length = 0;
   notifyGuardianCalls.length = 0;
   deliverReplyCalls.length = 0;
@@ -271,13 +276,8 @@ for (const config of CHANNEL_CONFIGS) {
       });
 
       expect(contactResult).not.toBeNull();
-      // Assert the gateway dual-write landed in the local ACL columns.
-      const acl = getSqlite()
-        .query("SELECT status, policy FROM contact_channels WHERE id = ?")
-        .get(contactResult!.channel.id) as {
-        status: string;
-        policy: string;
-      } | null;
+      // Assert the gateway-resolved ACL landed in the gateway ACL store.
+      const acl = gatewayAclByChannelId(contactResult!.channel.id);
       expect(acl!.status).toBe("active");
       expect(acl!.policy).toBe("allow");
       expect(contactResult!.channel.type).toBe(config.channel);

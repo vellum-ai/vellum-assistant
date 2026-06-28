@@ -66,7 +66,13 @@ export function buildCheckinTitle({
  * (`uuid`) pre-seeded with the first-week prompt.
  */
 export function buildCheckinDescription(uuid: string): string {
-  const href = `https://www.vellum.ai/assistant/conversations/${uuid}?prompt=${CTA_ENCODED_PROMPT}&utm_source=onboarding&utm_medium=calendar_event`;
+  // `vref` is an app-owned attribution param, NOT a marketing `utm_*`: the
+  // marketing-site UTM capture only runs on the marketing sites and never sees
+  // `/assistant/*` app routes, so a `utm_*` here would be dropped. The web app
+  // reads this param on landing and emits the research-onboarding check-in
+  // funnel step. Keep the value in sync with RESEARCH_CHECKIN_CALENDAR_ATTRIBUTION
+  // in clients/web/src/domains/onboarding/funnel-events.ts.
+  const href = `https://www.vellum.ai/assistant/conversations/${uuid}?prompt=${CTA_ENCODED_PROMPT}&vref=research_checkin`;
   return [
     "<p>👋 <strong>Hi, it was great to meet you properly.</strong></p>",
     "<p>You just set me up, and I've already started learning <strong>what you're working on</strong>. This 15 minutes is the natural place to put that to work. I'll walk you through one thing I'd like to do for you this week.</p>",

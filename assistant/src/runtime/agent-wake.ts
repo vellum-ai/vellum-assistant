@@ -317,6 +317,12 @@ export interface WakeOptions {
    * framing outside the fence.
    */
   untrustedOutput?: WakeUntrustedOutput;
+  /**
+   * Schedule-run id to stamp on the usage rows this wake records. Set when the
+   * wake is triggered by a script-mode schedule (the firing's run id), so the
+   * woken turn's cost is attributed to that firing.
+   */
+  cronRunId?: string;
 }
 
 /**
@@ -929,6 +935,7 @@ export async function wakeAgentForOpportunity(
               forceOverrideProfile,
               selectionSeed: conversationId,
             },
+            opts.cronRunId ?? null,
           );
         } catch (err) {
           log.warn(

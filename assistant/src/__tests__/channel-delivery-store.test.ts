@@ -493,6 +493,34 @@ describe("channel-delivery-store", () => {
     });
   });
 
+  test("conversation detail omits Slack metadata for non-Slack channels", () => {
+    const result = recordInbound("telegram", "tg-chat-1", "msg-1", {
+      sourceThreadId: "9001",
+    });
+
+    upsertBinding({
+      conversationId: result.conversationId,
+      sourceChannel: "telegram",
+      externalChatId: "tg-chat-1",
+      externalChatName: "Family",
+      externalThreadId: "9001",
+    });
+
+    const detail = buildConversationDetailResponse(result.conversationId);
+    const binding = detail?.conversation.channelBinding;
+
+    // The channel-neutral fields pass through for any source channel...
+    expect(binding).toMatchObject({
+      sourceChannel: "telegram",
+      externalChatId: "tg-chat-1",
+      externalChatName: "Family",
+      externalThreadId: "9001",
+    });
+    // ...but Slack-only deep-link metadata is not synthesized.
+    expect(binding).not.toHaveProperty("slackThread");
+    expect(binding).not.toHaveProperty("slackChannel");
+  });
+
   test("binding upsert preserves existing chat name when incoming name is missing", () => {
     const result = recordInbound("slack", "C0123ABCDEF", "msg-1", {
       sourceThreadId: "1710000000.000100",

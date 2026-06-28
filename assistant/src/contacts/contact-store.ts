@@ -96,11 +96,14 @@ function parseContact(row: typeof contacts.$inferSelect): Contact {
     id: row.id,
     displayName: row.displayName,
     notes: row.notes,
+    // gateway-owned; the serve layer stamps the real role from the gateway
+    // guardian id set.
+    role: "contact",
     lastInteraction: null,
     interactionCount: 0,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
-    contactType: (row.contactType as Contact["contactType"]) ?? "human",
+    contactType: row.contactType,
     userFile: row.userFile ?? null,
   };
 }

@@ -4,11 +4,13 @@
  * `handleListContacts`, `handleGetContact`, and the `search_contacts`
  * no-filter case relay to the gateway rich read (`contacts_list_rich` /
  * `contacts_get_rich`), which is the source of truth for the ACL fields
- * (`role`/`status`/`policy`/`verifiedAt`/`interactionCount`/`lastInteraction`).
- * These tests assert the serialized response shape is gateway-sourced and
- * unchanged for the web client, that no read path falls back to the assistant
- * DB, and that a relay failure fails closed (surfaces an error) instead of
- * reading local ACL.
+ * (`status`/`policy`/`verifiedAt`/`interactionCount`/`lastInteraction`).
+ * Contact-level `role` is derived at the serve layer from the gateway guardian
+ * id set (never the local `contacts.role` column). These tests assert the
+ * serialized response shape is gateway-sourced and unchanged for the web
+ * client, that no read path falls back to the assistant DB, that role + the
+ * guardian name override derive from the gateway guardian id set, and that a
+ * relay failure fails closed (surfaces an error) instead of reading local ACL.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -58,16 +60,34 @@ mock.module("../../../contacts/contact-store.js", () => ({
   searchContacts: searchContactsMock,
 }));
 
-const { handleListContacts, handleGetContact, ROUTES } = await import(
-  "../contact-routes.js"
-);
+// Role + the guardian name override derive from the gateway guardian id set,
+// never the local `contacts.role` column. Drive the set deterministically.
+let guardianIds = new Set<string>();
+const getGuardianContactIdsMock = mock(async () => guardianIds);
 
-// Daemon-native contact: INFO is hydrated locally; ACL fields (role/status/
-// policy/verification) are gateway-owned and legitimately absent.
+mock.module("../../../contacts/guardian-contact-reader.js", () => ({
+  getGuardianContactIds: getGuardianContactIdsMock,
+}));
+
+// Make the guardian display-name override observable without a persona file.
+const actualUserReference = await import("../../../prompts/user-reference.js");
+mock.module("../../../prompts/user-reference.js", () => ({
+  ...actualUserReference,
+  resolveGuardianName: (name?: string | null) => `guardian:${name}`,
+}));
+
+const { handleListContacts, handleGetContact, ROUTES } =
+  await import("../contact-routes.js");
+
+// Daemon-native contact: INFO is hydrated locally; channel-level ACL fields
+// (status/policy/verification) are gateway-owned and absent on native reads.
+// The fixture's `role` is ignored — the serve layer derives role from the
+// gateway guardian id set.
 const nativeContact = {
   id: "ct_2",
   displayName: "Bob",
   notes: null,
+  role: "contact",
   contactType: "human",
   lastInteraction: 4200,
   interactionCount: 4,
@@ -113,7 +133,7 @@ const gatewayChannel = {
 const gatewayContact = {
   id: "ct_1",
   displayName: "Alice",
-  role: "member",
+  role: "guardian",
   notes: "a note",
   contactType: "human",
   lastInteraction: 1900,
@@ -132,9 +152,11 @@ describe("contacts read API relays from the gateway", () => {
     contactStoreReadGuard.mockClear();
     searchContactsResult = [];
     searchContactsMock.mockClear();
+    guardianIds = new Set(["ct_1"]);
+    getGuardianContactIdsMock.mockClear();
   });
 
-  test("list relays to contacts_list_rich and serializes the gateway ACL fields", async () => {
+  test("list relays to contacts_list_rich and trusts the gateway-sourced role", async () => {
     ipcResult = { ok: true, contacts: [gatewayContact] };
 
     const result = await handleListContacts({ limit: "50" });
@@ -146,9 +168,11 @@ describe("contacts read API relays from the gateway", () => {
     expect(result.contacts).toHaveLength(1);
 
     const [contact] = result.contacts;
-    // ACL fields are gateway-sourced and reach the web client unchanged. `role`
-    // is optional on the transform (gateway reads carry it, daemon-native omit).
-    expect((contact as { role?: string }).role).toBe("member");
+    // Role comes straight from the relayed payload; the name override keys off
+    // that role. The guardian id set is NOT consulted on relayed reads.
+    expect((contact as { role?: string }).role).toBe("guardian");
+    expect(contact.displayName).toBe("guardian:Alice");
+    expect(getGuardianContactIdsMock).not.toHaveBeenCalled();
     expect(contact.interactionCount).toBe(7);
     expect(contact.lastInteraction).toBe(1900);
     const channel = contact.channels[0] as Record<string, unknown>;
@@ -160,6 +184,35 @@ describe("contacts read API relays from the gateway", () => {
     // Channel compat echoes address into externalUserId for older clients.
     expect(channel.externalUserId).toBe("+15550100");
 
+    expect(contactStoreReadGuard).not.toHaveBeenCalled();
+  });
+
+  test("relayed list trusts the gateway role even when the guardian id set is empty/stale", async () => {
+    // Reproduces the rebind race: the gateway already returned role "guardian",
+    // but the 30s guardian-id cache is empty (or fail-softed). The relayed role
+    // must NOT be downgraded to "contact", and the name override must still run.
+    ipcResult = { ok: true, contacts: [gatewayContact] };
+    guardianIds = new Set();
+
+    const result = await handleListContacts({ limit: "50" });
+
+    const [contact] = result.contacts;
+    expect((contact as { role?: string }).role).toBe("guardian");
+    expect(contact.displayName).toBe("guardian:Alice");
+    // Relayed reads don't consult the guardian id set (they trust the role).
+    expect(getGuardianContactIdsMock).not.toHaveBeenCalled();
+    expect(contactStoreReadGuard).not.toHaveBeenCalled();
+  });
+
+  test("relayed get trusts the gateway role even when the guardian id set is empty/stale", async () => {
+    ipcResult = { ok: true, contact: gatewayContact };
+    guardianIds = new Set();
+
+    const result = await handleGetContact("ct_1");
+
+    expect(result.contact.role).toBe("guardian");
+    expect(result.contact.displayName).toBe("guardian:Alice");
+    expect(getGuardianContactIdsMock).not.toHaveBeenCalled();
     expect(contactStoreReadGuard).not.toHaveBeenCalled();
   });
 
@@ -199,7 +252,8 @@ describe("contacts read API relays from the gateway", () => {
       { method: "contacts_get_rich", params: { contactId: "ct_1" } },
     ]);
     expect(result.ok).toBe(true);
-    expect(result.contact.role).toBe("member");
+    expect(result.contact.role).toBe("guardian");
+    expect(result.contact.displayName).toBe("guardian:Alice");
     expect(result.contact.interactionCount).toBe(7);
     const channel = result.contact.channels[0] as Record<string, unknown>;
     expect(channel.status).toBe("active");
@@ -244,7 +298,7 @@ describe("contacts read API relays from the gateway", () => {
     expect(ipcCalls).toEqual([
       { method: "contacts_list_rich", params: { limit: 50 } },
     ]);
-    expect(contacts[0].role).toBe("member");
+    expect(contacts[0].role).toBe("guardian");
     expect(contacts[0].interactionCount).toBe(7);
     expect(contacts[0].channels[0].status).toBe("active");
     expect(contactStoreReadGuard).not.toHaveBeenCalled();
@@ -265,6 +319,8 @@ describe("filtered/native contact reads stay daemon-native", () => {
     contactStoreReadGuard.mockClear();
     searchContactsResult = [];
     searchContactsMock.mockClear();
+    guardianIds = new Set();
+    getGuardianContactIdsMock.mockClear();
   });
 
   test("query-filtered list serves daemon-native INFO and validates against the response schema", async () => {
@@ -284,11 +340,36 @@ describe("filtered/native contact reads stay daemon-native", () => {
     expect(channel.interactionCount).toBe(4);
     expect(channel.lastSeenAt).toBe(4100);
     expect(channel.externalUserId).toBe("+15550200");
-    // Gateway-owned ACL fields are absent — and that validates because they're
-    // optional in the response schema.
-    expect("role" in contact).toBe(false);
+    // Non-guardian id derives role "contact" (no name override).
+    expect((contact as { role: string }).role).toBe("contact");
+    expect(contact.displayName).toBe("Bob");
+    // Channel-level ACL fields (status/policy) are gateway-owned and absent.
     expect("status" in channel).toBe(false);
     expect(() => listResponseSchema.parse(result)).not.toThrow();
+  });
+
+  test("daemon-native search stamps role guardian + the name override from the gateway id set", async () => {
+    searchContactsResult = [nativeContact];
+    guardianIds = new Set(["ct_2"]);
+
+    const result = await handleListContacts({ query: "Bob", limit: "10" });
+
+    expect(searchContactsMock).toHaveBeenCalled();
+    const [contact] = result.contacts;
+    expect((contact as { role: string }).role).toBe("guardian");
+    expect(contact.displayName).toBe("guardian:Bob");
+    expect(getGuardianContactIdsMock).toHaveBeenCalled();
+  });
+
+  test("fail-soft: an empty guardian id set yields role contact with no override", async () => {
+    searchContactsResult = [nativeContact];
+    guardianIds = new Set();
+
+    const result = await handleListContacts({ query: "Bob", limit: "10" });
+
+    const [contact] = result.contacts;
+    expect((contact as { role: string }).role).toBe("contact");
+    expect(contact.displayName).toBe("Bob");
   });
 
   test("POST search with a filter validates against the response schema", async () => {

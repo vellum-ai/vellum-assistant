@@ -2,24 +2,20 @@
  * Guardian binding helpers for gateway-owned verification.
  *
  * Provides lookup, conflict detection, and revocation of existing bindings.
- * Binding creation uses the existing createGuardianBinding from
- * gateway/src/auth/guardian-bootstrap.ts which already dual-writes.
+ * Binding creation uses createGuardianBinding from
+ * gateway/src/auth/guardian-bootstrap.ts (gateway-authoritative).
  *
- * Guardian lookups read the gateway DB (source of truth for ACL). Only the
- * revoke path's status write mirrors into the assistant DB (best-effort).
+ * Guardian lookups and revokes read and write the gateway DB, the source of
+ * truth for ACL.
  */
 
 import { and, eq, inArray, sql } from "drizzle-orm";
 
-import { assistantDbRun } from "../db/assistant-db-proxy.js";
 import { getGatewayDb } from "../db/connection.js";
 import {
   contacts as gwContacts,
   contactChannels as gwContactChannels,
 } from "../db/schema.js";
-import { getLogger } from "../logger.js";
-
-const log = getLogger("verification-bindings");
 
 // ---------------------------------------------------------------------------
 // Lookup
@@ -116,7 +112,7 @@ export async function resolveCanonicalPrincipal(
 }
 
 // ---------------------------------------------------------------------------
-// Revocation (dual-write)
+// Revocation
 // ---------------------------------------------------------------------------
 
 /**
@@ -146,8 +142,7 @@ export async function revokeExistingChannelGuardian(
 
   if (revokedRows.length === 0) return;
 
-  // Gateway DB is the source of truth — revoke it first so revocation never
-  // depends on the best-effort assistant mirror succeeding.
+  // Gateway DB is the source of truth.
   const gwDb = getGatewayDb();
   for (const { id } of revokedRows) {
     gwDb
@@ -155,32 +150,5 @@ export async function revokeExistingChannelGuardian(
       .set({ status: "revoked", policy: "deny", updatedAt: now })
       .where(eq(gwContactChannels.id, id))
       .run();
-  }
-
-  // Assistant mirror (best-effort): id-keyed update, then heal divergent
-  // (type,address) rows whose assistant-side id differs (m0006 divergence).
-  // A mirror failure must not abort the authoritative gateway revoke above.
-  try {
-    for (const gwChannel of revokedRows) {
-      const result = await assistantDbRun(
-        `UPDATE contact_channels
-         SET status = 'revoked', policy = 'deny', updated_at = ?
-         WHERE id = ?`,
-        [now, gwChannel.id],
-      );
-      if (result.changes === 0) {
-        await assistantDbRun(
-          `UPDATE contact_channels
-           SET status = 'revoked', policy = 'deny', updated_at = ?
-           WHERE type = ? AND address = ? COLLATE NOCASE`,
-          [now, channel, gwChannel.address],
-        );
-      }
-    }
-  } catch (mirrorErr) {
-    log.warn(
-      { err: mirrorErr },
-      "Assistant mirror revoke failed (best-effort)",
-    );
   }
 }

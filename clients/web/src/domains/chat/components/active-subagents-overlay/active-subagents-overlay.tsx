@@ -29,14 +29,25 @@ export function ActiveSubagentsOverlay({
         />
       )}
     >
-      {subagentIds.map((id) => (
-        <SubagentInlineProgressCard
-          key={id}
-          subagentId={id}
-          onSubagentClick={onSubagentClick}
-          onStopSubagent={onStopSubagent}
-        />
-      ))}
+      {({ close }) =>
+        subagentIds.map((id) => (
+          <SubagentInlineProgressCard
+            key={id}
+            subagentId={id}
+            // Opening drills into the detail panel and dismisses the dropdown
+            // so the two layers stop competing for width; stopping keeps it open.
+            onSubagentClick={
+              onSubagentClick
+                ? (sid) => {
+                    onSubagentClick(sid);
+                    close();
+                  }
+                : undefined
+            }
+            onStopSubagent={onStopSubagent}
+          />
+        ))
+      }
     </ActiveOverlayShell>
   );
 }

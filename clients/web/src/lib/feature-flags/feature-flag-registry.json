@@ -267,14 +267,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "external-plugins",
-      "scope": "assistant",
-      "key": "external-plugins",
-      "label": "External Plugins",
-      "description": "Enable the external-plugin install path: the `assistant plugins` CLI subcommand and the declarative external-plugin loader convention (`<workspaceDir>/plugins/<name>/` directories containing `package.json` plus interface dirs). Gates an unstable surface that may change shape before stabilizing.",
-      "defaultEnabled": false
-    },
-    {
       "id": "velvet-theme",
       "scope": "client",
       "key": "velvet-theme",
@@ -407,8 +399,8 @@
       "scope": "assistant",
       "key": "channel-trust-floors",
       "label": "Channel Trust Floors",
-      "description": "Expose the per-channel “Who Can Reach” admission control (inbound trust floor) inline on each connected channel in Contacts → Channels. When off, the control is hidden and channels fall back to their default admission floor.",
-      "defaultEnabled": true
+      "description": "Expose the Channel Trust Floors settings card (per-channel inbound admission policy) on the Privacy settings page. When off, the card is hidden and channels fall back to their default admission floors. Off by default while the feature is in development.",
+      "defaultEnabled": false
     },
     {
       "id": "mcp-add-server",

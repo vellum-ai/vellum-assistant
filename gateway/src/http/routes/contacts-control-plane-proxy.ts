@@ -744,32 +744,6 @@ export async function updateContactChannelCore(params: {
     );
   }
 
-  // Best-effort dual-write to assistant DB.
-  const dualWriteParams: {
-    status?: string;
-    policy?: string;
-    revokedReason?: string | null;
-    blockedReason?: string | null;
-  } = {};
-  if (status !== undefined) {
-    dualWriteParams.status = status;
-    dualWriteParams.revokedReason = status === "revoked" ? reason : null;
-    dualWriteParams.blockedReason = status === "blocked" ? reason : null;
-  }
-  if (policy !== undefined) dualWriteParams.policy = policy;
-
-  try {
-    await store.dualWriteChannelStatusToAssistantDb(
-      contactChannelId,
-      dualWriteParams,
-    );
-  } catch (err) {
-    log.warn(
-      { contactChannelId, err },
-      "update_channel: assistant DB dual-write failed (best-effort)",
-    );
-  }
-
   // Emit contacts_changed so connected clients refresh.
   void ipcCallAssistant("emit_event", {
     body: { kind: "contacts_changed" },
@@ -1149,7 +1123,10 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
         { contactId: contact.id, created },
         "upsert_contact: handled natively",
       );
-      return Response.json({ ok: true, contact });
+      // ACL (role/principalId, channel status/policy) is sourced from the
+      // gateway DB inside upsertContact's read-back, so this response reflects
+      // the just-written source of truth, not assistant-mirror defaults.
+      return Response.json({ ok: true, contact: toContactPayload(contact) });
     },
 
     /**
@@ -1197,11 +1174,14 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
     },
 
     async handleDeleteContact(contactId: string): Promise<Response> {
-      const rows = await assistantDbQuery<{ role: string }>(
-        "SELECT role FROM contacts WHERE id = ?",
-        [contactId],
-      );
-      if (rows.length === 0) {
+      // Guardian role is gateway-DB source of truth: a dual-write-gap survivor
+      // whose assistant row is missing/defaulted must not bypass this guard.
+      const row = getGatewayDb()
+        .select({ role: contacts.role })
+        .from(contacts)
+        .where(eq(contacts.id, contactId))
+        .get();
+      if (!row) {
         log.warn({ contactId }, "delete_contact: not found");
         return Response.json(
           {
@@ -1213,7 +1193,7 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
           { status: 404 },
         );
       }
-      if (rows[0].role === "guardian") {
+      if (row.role === "guardian") {
         log.warn({ contactId }, "delete_contact: attempted to delete guardian");
         return Response.json(
           {

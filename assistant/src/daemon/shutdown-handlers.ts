@@ -2,6 +2,7 @@ import * as Sentry from "@sentry/node";
 
 import type { FilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
+import { stopGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
 import type { McpServerManager } from "../mcp/manager.js";
 import { getSqlite, resetDb } from "../memory/db-connection.js";
 import type { QdrantManager } from "../memory/qdrant-manager.js";
@@ -12,10 +13,27 @@ import { cleanupShellOutputTempFiles } from "../tools/shared/shell-output.js";
 import { getLogger } from "../util/logger.js";
 import { getEnrichmentService } from "../workspace/commit-message-enrichment-service.js";
 import type { WorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
+import { cleanupPidFile } from "./daemon-control.js";
+import { stopEventLoopWatchdog } from "./event-loop-watchdog.js";
+import { stopDiskPressureGuardForLifecycle } from "./lifecycle.js";
+import { stopOrphanReaper } from "./orphan-reaper.js";
 import type { DaemonServer } from "./server.js";
 import { runShutdownHooks } from "./shutdown-registry.js";
 
 const log = getLogger("lifecycle");
+
+/**
+ * Stop the daemon's background services and remove the PID file. Invoked on
+ * both the graceful-shutdown and force-exit-timeout paths so the process never
+ * leaves a stale PID file or orphaned timers behind.
+ */
+function stopBackgroundServicesAndCleanupPidFile(): void {
+  stopGatewayFlagListener();
+  stopDiskPressureGuardForLifecycle();
+  stopOrphanReaper();
+  stopEventLoopWatchdog();
+  cleanupPidFile();
+}
 
 export interface ShutdownDeps {
   server: DaemonServer;
@@ -28,7 +46,6 @@ export interface ShutdownDeps {
   getQdrantManager: () => QdrantManager | null;
   mcpManager: McpServerManager | null;
   telemetryReporter: { stop(): Promise<void> } | null;
-  cleanupPidFile: () => void;
 }
 
 export function installShutdownHandlers(deps: ShutdownDeps): void {
@@ -51,7 +68,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     // bump only changes behavior for the stuck-shutdown path.
     const forceTimer = setTimeout(() => {
       log.warn("Graceful shutdown timed out, forcing exit");
-      deps.cleanupPidFile();
+      stopBackgroundServicesAndCleanupPidFile();
       process.exit(1);
     }, 20_000);
     forceTimer.unref();
@@ -171,7 +188,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
 
     await Sentry.flush(2000);
     clearTimeout(forceTimer);
-    deps.cleanupPidFile();
+    stopBackgroundServicesAndCleanupPidFile();
     process.exit(exitCode);
   };
 

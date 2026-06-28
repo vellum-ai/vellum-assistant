@@ -31,7 +31,8 @@ import {
     usePluginsInstallPostMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { PluginsByNameGetResponse } from "@/generated/daemon/types.gen";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useSupportsPluginsSurface } from "@/lib/backwards-compat/plugins-surface";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { routes } from "@/utils/routes";
 import { Button, Card, ConfirmDialog, toast } from "@vellumai/design-library";
 
@@ -50,13 +51,13 @@ function shortSha(sha: string | null): string {
  *
  * Mounted under `IntelligenceLayout` so the "About Assistant" heading
  * and tab bar stay in place (the Plugins tab reads active via the
- * layout's `pathname.startsWith` check). Gated by the same
- * `external-plugins` feature flag as `PluginsPage` — a direct deep-link
- * with the flag off redirects back to Identity.
+ * layout's `pathname.startsWith` check). Gated on the same plugin-surface
+ * version check as `PluginsPage` — a direct deep-link on an assistant too
+ * old to expose the plugin routes redirects back to Identity.
  */
 export function PluginDetailPage() {
-  const hasHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
-  const externalPlugins = useAssistantFeatureFlagStore.use.externalPlugins();
+  const version = useAssistantIdentityStore.use.version();
+  const supportsPlugins = useSupportsPluginsSurface();
   const assistantId = useActiveAssistantId();
   const { name } = useParams<{ name: string }>();
   const navigate = useNavigate();
@@ -130,14 +131,14 @@ export function PluginDetailPage() {
     },
   });
 
-  // Wait for the first /feature-flags response before deciding to
-  // redirect, mirroring PluginsPage — rendering nothing for one frame
-  // beats bouncing a user who genuinely has the flag enabled.
-  if (!hasHydrated) {
+  // Wait for the assistant version to hydrate before deciding to redirect
+  // so a deep-link on a supported assistant isn't bounced during the
+  // initial identity fetch.
+  if (version === null) {
     return null;
   }
 
-  if (!externalPlugins) {
+  if (!supportsPlugins) {
     return <Navigate to={routes.identity} replace />;
   }
 

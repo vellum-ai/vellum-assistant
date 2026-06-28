@@ -33,7 +33,7 @@ function resetContactTables(): void {
 function insertContact(id: string, displayName: string): void {
   const now = Date.now();
   getSqlite().run(
-    "INSERT INTO contacts (id, display_name, role, contact_type, user_file, created_at, updated_at) VALUES (?, ?, 'contact', 'human', ?, ?, ?)",
+    "INSERT INTO contacts (id, display_name, contact_type, user_file, created_at, updated_at) VALUES (?, ?, 'human', ?, ?, ?)",
     [id, displayName, `${id}.md`, now, now],
   );
 }

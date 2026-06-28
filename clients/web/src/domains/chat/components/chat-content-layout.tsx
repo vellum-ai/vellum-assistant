@@ -26,6 +26,7 @@ import { useDeployStore } from "@/stores/deploy-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
+import { useAcpRunStore } from "@/domains/chat/acp-run-store";
 import { useEditApp } from "@/hooks/use-edit-app";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { routes } from "@/utils/routes";
@@ -37,14 +38,19 @@ const importSubagentDetailPanel = () =>
   import("@/domains/chat/components/subagent-detail-panel");
 const importToolDetailPanel = () =>
   import("@/domains/chat/components/tool-detail-panel");
+const importAcpRunDetailPanel = () =>
+  import("@/domains/chat/components/acp-run-detail-panel/acp-run-detail-panel");
+const importWorkflowDetailPanel = () =>
+  import("@/domains/chat/components/workflow-detail-panel");
 
 const SubagentDetailPanel = lazy(() =>
   importSubagentDetailPanel().then((m) => ({ default: m.SubagentDetailPanel })),
 );
+const AcpRunDetailPanel = lazy(() =>
+  importAcpRunDetailPanel().then((m) => ({ default: m.AcpRunDetailPanel })),
+);
 const WorkflowDetailPanel = lazy(() =>
-  import("@/domains/chat/components/workflow-detail-panel").then((m) => ({
-    default: m.WorkflowDetailPanel,
-  })),
+  importWorkflowDetailPanel().then((m) => ({ default: m.WorkflowDetailPanel })),
 );
 const ToolDetailPanel = lazy(() =>
   importToolDetailPanel().then((m) => ({ default: m.ToolDetailPanel })),
@@ -70,6 +76,11 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     activeSubagentId ? s.byId[activeSubagentId] : undefined,
   );
   const workflowById = useWorkflowStore((s) => s.byId);
+  const activeAcpRunId = useViewerStore.use.activeAcpRunId();
+  // Active run's entry only — same narrow selector as the subagent entry above.
+  const activeAcpRunEntry = useAcpRunStore((s) =>
+    activeAcpRunId ? s.byId[activeAcpRunId] : undefined,
+  );
 
   const isSharing = useDeployStore.use.isSharing();
   const isDeploying = useDeployStore.use.isDeploying();
@@ -150,9 +161,14 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     void useWorkflowStore.getState().fetchJournalIfNeeded(aid, runId);
   }, []);
 
+  const onCloseAcpRunDetail = useCallback(() => {
+    useViewerStore.getState().closeAcpRunDetail();
+  }, []);
+
   // -------------------------------------------------------------------------
   // Escape closes whichever right-hand side panel is open (tool detail /
-  // thought process, subagent detail, document viewer). Surfaces stacked
+  // thought process, subagent detail, workflow detail, acp run detail,
+  // document viewer). Surfaces stacked
   // above the panel that own Escape — Radix layers (dialogs, popovers,
   // dropdowns), the command palette, voice recording, the attachment
   // preview — all run before this bubble-phase window listener (document
@@ -182,6 +198,9 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
         case "workflow-detail":
           viewer.closeWorkflowDetail();
           break;
+        case "acp-run-detail":
+          viewer.closeAcpRunDetail();
+          break;
         case "document":
           viewer.closeDocument();
           break;
@@ -203,6 +222,8 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     const run = () => {
       importSubagentDetailPanel().catch(() => {});
       importToolDetailPanel().catch(() => {});
+      importAcpRunDetailPanel().catch(() => {});
+      importWorkflowDetailPanel().catch(() => {});
     };
     if (typeof window.requestIdleCallback === "function") {
       const id = window.requestIdleCallback(run);
@@ -275,12 +296,12 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
 
   const chatContent = <ChatMainPanel {...props} />;
 
-  // Right-hand detail panels — document viewer, subagent detail, and tool
-  // detail — all share ONE AnimatedRightDrawer so the chat (`left`) keeps a
-  // stable position in the React tree and is NEVER unmounted when a panel
-  // opens, closes, or switches between them. Only the (lazy, lightweight)
-  // right-pane subtree changes; the transcript keeps its DOM and scroll
-  // position. The drawer eases its width 0 ⇄ target, so opening/closing
+  // Right-hand detail panels — document viewer, subagent detail, tool detail,
+  // and workflow detail — all share ONE AnimatedRightDrawer so the chat
+  // (`left`) keeps a stable position in the React tree and is NEVER unmounted
+  // when a panel opens, closes, or switches between them. Only the (lazy,
+  // lightweight) right-pane subtree changes; the transcript keeps its DOM and
+  // scroll position. The drawer eases its width 0 ⇄ target, so opening/closing
   // reflows the chat in lockstep; drag-to-resize + width persistence are
   // built in. On mobile these panels render via portal overlays, so the
   // drawer stays closed (`open=false`) and the chat fills the width.
@@ -335,36 +356,33 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
           />
         </LazyBoundary>
       );
-    }
-  }
-
-  // Workflow detail side panel — its own ResizablePanel split, not the unified
-  // AnimatedRightDrawer below. Living in a separate return branch, the chat
-  // (`left`) remounts when switching between this panel and the other right-hand
-  // panels, whereas document/subagent/tool-detail share the drawer and keep the
-  // chat mounted across switches.
-  if (mainView === "workflow-detail" && activeWorkflowRunId && !isMobile) {
-    const activeEntry = workflowById[activeWorkflowRunId];
-    if (activeEntry) {
-      return (
-        <ResizablePanel
-          storageKey="workflowDetailPanelWidth"
-          hideDivider
-          defaultRightWidth={400}
-          minLeftWidth={300}
-          minRightWidth={400}
-          left={chatContent}
-          right={
-            <LazyBoundary>
-              <WorkflowDetailPanel
-                entry={activeEntry}
-                onClose={onCloseWorkflowDetail}
-                onStop={onStopWorkflow}
-                onRequestJournal={onRequestWorkflowJournal}
-              />
-            </LazyBoundary>
-          }
-        />
+    } else if (
+      mainView === "acp-run-detail" &&
+      activeAcpRunId &&
+      activeAcpRunEntry
+    ) {
+      rightPanel = (
+        <LazyBoundary>
+          <AcpRunDetailPanel
+            entry={activeAcpRunEntry}
+            onClose={onCloseAcpRunDetail}
+          />
+        </LazyBoundary>
+      );
+    } else if (
+      mainView === "workflow-detail" &&
+      activeWorkflowRunId &&
+      workflowById[activeWorkflowRunId]
+    ) {
+      rightPanel = (
+        <LazyBoundary>
+          <WorkflowDetailPanel
+            entry={workflowById[activeWorkflowRunId]}
+            onClose={onCloseWorkflowDetail}
+            onStop={onStopWorkflow}
+            onRequestJournal={onRequestWorkflowJournal}
+          />
+        </LazyBoundary>
       );
     }
   }

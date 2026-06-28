@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { AppVersionInfo } from "@vellumai/ipc-contract";
 
 import { RENDERER_BASE_PROD, getDevRendererBase } from "./app-config";
+import { getName, onNameChange } from "./identity";
 import { handle } from "./ipc";
 import { createWindow } from "./windows";
 
@@ -119,13 +120,13 @@ export const openAboutWindow = (): void => {
   void aboutWindow.loadURL(aboutWindowUrl());
 };
 
-let installed = false;
-export const installAbout = (): void => {
-  if (installed) return;
-  installed = true;
-
+// Seed the native About panel — which AppleScript and other tooling can
+// invoke independently of our menu. `applicationName` carries the active
+// assistant's name (e.g. "Aria") when the renderer has published one,
+// falling back to the brand name; everything else is build metadata.
+const applyAboutPanelOptions = (): void => {
   app.setAboutPanelOptions({
-    applicationName: APP_NAME,
+    applicationName: getName() ?? APP_NAME,
     applicationVersion: app.getVersion(),
     // The native panel renders `version` after an em-dash; the commit SHA
     // identifies the exact build.
@@ -133,6 +134,17 @@ export const installAbout = (): void => {
     copyright: COPYRIGHT(),
     website: WEBSITE,
   });
+};
+
+let installed = false;
+export const installAbout = (): void => {
+  if (installed) return;
+  installed = true;
+
+  applyAboutPanelOptions();
+  // Re-seed when the assistant name changes so the native panel tracks the
+  // live identity.
+  onNameChange(applyAboutPanelOptions);
 
   handle("vellum:app:versionInfo", z.tuple([]), () => getVersionInfo());
 

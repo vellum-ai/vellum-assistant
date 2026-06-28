@@ -196,6 +196,7 @@ mock.module("../../../../config/loader.js", () => ({
         needleK: 100,
         denseK: 100,
         replyQueryK: 12,
+        selectorEnabled: true,
         learnedEdges: {
           halfLifeDays: 30,
           minCount: 3,

@@ -118,7 +118,7 @@ export function isNativeWebSearchCapableProvider(
   return false;
 }
 
-function shouldUseNativeWebSearch(
+export function shouldUseNativeWebSearch(
   config: ProvidersConfig,
   providerName: string,
   model: string,

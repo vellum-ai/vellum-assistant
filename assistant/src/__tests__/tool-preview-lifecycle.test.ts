@@ -59,14 +59,27 @@ const reserveMessageMock = mock(
 );
 const updateMessageContentMock = mock((_id: string, _content: string) => {});
 
+// Stand-in for the `conversations.seq` column. The DB-backed
+// `recordConversationPersistedSeq` / `getConversationPersistedSeq` are mocked
+// over this map with the same monotonic, ignore-non-positive semantics so the
+// handler's persisted-seq writes are observable without a real database.
+const persistedSeqByConversation = new Map<string, number>();
+
 mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   getConversation: () => null,
   getMessageById: () => null,
   updateMessageContent: updateMessageContentMock,
   provenanceFromTrustContext: () => ({}),
   reserveMessage: reserveMessageMock,
+  recordConversationPersistedSeq: (id: string, seq: number) => {
+    if (!Number.isFinite(seq) || seq <= 0) return;
+    const prev = persistedSeqByConversation.get(id);
+    if (prev == null || prev < seq) persistedSeqByConversation.set(id, seq);
+  },
+  getConversationPersistedSeq: (id: string) =>
+    persistedSeqByConversation.get(id) ?? null,
 }));
 
 mock.module("../memory/conversation-disk-view.js", () => ({
@@ -102,11 +115,11 @@ import {
   handleToolUsePreviewStart,
 } from "../daemon/conversation-agent-loop-handlers.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import { getConversationPersistedSeq } from "../memory/conversation-crud.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import {
   _resetStreamStateForTesting,
   getCurrentSeq,
-  getPersistedSeq,
   stampAndBuffer,
 } from "../runtime/assistant-stream-state.js";
 
@@ -324,6 +337,7 @@ describe("tool preview lifecycle", () => {
   describe("persisted seq advances on tool_use_start", () => {
     beforeEach(() => {
       _resetStreamStateForTesting();
+      persistedSeqByConversation.clear();
     });
 
     test("advances the conversation's persisted seq to the tool_use_start seq", () => {
@@ -374,8 +388,8 @@ describe("tool preview lifecycle", () => {
         (e) => e.type === "tool_use_start",
       );
       expect(toolUseStart).toBeDefined();
-      expect(getPersistedSeq(conversationId)).toBe(getCurrentSeq());
-      expect(getPersistedSeq(conversationId)).toBe(
+      expect(getConversationPersistedSeq(conversationId)).toBe(getCurrentSeq());
+      expect(getConversationPersistedSeq(conversationId)).toBe(
         (toolUseStart as unknown as AssistantEvent).seq ?? null,
       );
     });
@@ -386,6 +400,7 @@ describe("tool preview lifecycle", () => {
 
     beforeEach(() => {
       _resetStreamStateForTesting();
+      persistedSeqByConversation.clear();
     });
 
     /** onEvent that stamps conversation-scoped events like the runtime hub. */
@@ -474,8 +489,8 @@ describe("tool preview lifecycle", () => {
         (e) => e.type === "assistant_thinking_delta",
       );
       expect(thinkingDelta).toBeDefined();
-      expect(getPersistedSeq(conversationId)).toBe(getCurrentSeq());
-      expect(getPersistedSeq(conversationId)).toBe(
+      expect(getConversationPersistedSeq(conversationId)).toBe(getCurrentSeq());
+      expect(getConversationPersistedSeq(conversationId)).toBe(
         (thinkingDelta as unknown as AssistantEvent).seq ?? null,
       );
     });
@@ -505,8 +520,8 @@ describe("tool preview lifecycle", () => {
       // THEN the persisted seq equals the just-stamped tool_result seq
       const toolResult = events.find((e) => e.type === "tool_result");
       expect(toolResult).toBeDefined();
-      expect(getPersistedSeq(conversationId)).toBe(getCurrentSeq());
-      expect(getPersistedSeq(conversationId)).toBe(
+      expect(getConversationPersistedSeq(conversationId)).toBe(getCurrentSeq());
+      expect(getConversationPersistedSeq(conversationId)).toBe(
         (toolResult as unknown as AssistantEvent).seq ?? null,
       );
     });
@@ -539,7 +554,7 @@ describe("tool preview lifecycle", () => {
         events.find((e) => e.type === "assistant_thinking_delta"),
       ).toBeUndefined();
       expect(state.lastPersistedContentSeq).toBeUndefined();
-      expect(getPersistedSeq(conversationId)).toBeNull();
+      expect(getConversationPersistedSeq(conversationId)).toBeNull();
     });
   });
 
@@ -548,6 +563,7 @@ describe("tool preview lifecycle", () => {
 
     beforeEach(() => {
       _resetStreamStateForTesting();
+      persistedSeqByConversation.clear();
       reserveMessageMock.mockClear();
       updateMessageContentMock.mockClear();
     });

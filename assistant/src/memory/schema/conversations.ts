@@ -61,6 +61,17 @@ export const conversations = sqliteTable(
      * callers read this column directly.
      */
     processingStartedAt: integer("processing_started_at"),
+    /**
+     * Highest stream `seq` whose content is durably persisted to this
+     * conversation's message rows. Seeded with the global high-water seq when
+     * the row is inserted and advanced on each persistence flush
+     * (`recordConversationPersistedSeq`). Returned by `/messages` as the
+     * snapshot↔stream alignment baseline so a client applies only stream
+     * events with a higher `seq`. NULL means the conversation was created
+     * before any stream activity (global seq 0) or predates this column — the
+     * client cold-starts in that case.
+     */
+    seq: integer("seq"),
   },
   (table) => [
     index("idx_conversations_updated_at").on(table.updatedAt),
@@ -168,6 +179,34 @@ export const conversationGraphMemoryState = sqliteTable(
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
+);
+
+/**
+ * Append-only ledger of every compaction event for a conversation. The
+ * `conversations` row keeps only the latest compaction (`context_summary` /
+ * `context_compacted_message_count` / `context_compacted_at`) as the hot-path
+ * cache the load path reads; this table preserves the full history so a fork
+ * can inherit the most recent compaction whose event time (`compacted_at`)
+ * is at-or-before the boundary message it forks from.
+ */
+export const conversationCompactionEvents = sqliteTable(
+  "conversation_compaction_events",
+  {
+    id: text("id").primaryKey(),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    compactedAt: integer("compacted_at").notNull(),
+    summary: text("summary").notNull(),
+    compactedMessageCount: integer("compacted_message_count").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("idx_compaction_events_conv_at").on(
+      table.conversationId,
+      table.compactedAt,
+    ),
+  ],
 );
 
 export const channelInboundEvents = sqliteTable("channel_inbound_events", {

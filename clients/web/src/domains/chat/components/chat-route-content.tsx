@@ -20,6 +20,8 @@
 import { type Dispatch, type MutableRefObject, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 
 import { useActiveSubagentIds } from "@/domains/chat/hooks/use-active-subagent-ids";
+import { useActiveAcpRunIds } from "@/domains/chat/hooks/use-active-acp-run-ids";
+import { useAcpRunRehydration } from "@/domains/chat/hooks/use-acp-run-rehydration";
 import { useActiveWorkflowRunIds } from "@/domains/chat/hooks/use-active-workflow-run-ids";
 import { useChatUIState } from "@/domains/chat/hooks/use-chat-ui-state";
 import { useTranscriptData } from "@/domains/chat/hooks/use-transcript-data";
@@ -38,6 +40,7 @@ import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attach
 import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachment-gate";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { ActiveSubagentsOverlay } from "@/domains/chat/components/active-subagents-overlay/active-subagents-overlay";
+import { ActiveAcpRunsOverlay } from "@/domains/chat/components/active-acp-runs-overlay/active-acp-runs-overlay";
 import { ActiveWorkflowsOverlay } from "@/domains/chat/components/active-workflows-overlay/active-workflows-overlay";
 import { ChatBody } from "@/domains/chat/components/chat-body";
 import { ChatComposer } from "@/domains/chat/components/chat-composer/chat-composer";
@@ -58,7 +61,11 @@ import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-sc
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { Button } from "@vellumai/design-library";
 import { Link, useLocation, useNavigate } from "react-router";
-import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
+import {
+  getChatBillingBannerDecision,
+  isManagedCredentialChatError,
+  shouldShowGenericChatErrorNotice,
+} from "@/domains/chat/utils/error-classification";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/types/types";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -264,11 +271,20 @@ export function ChatMainPanel({
     if (assistantId) void useViewerStore.getState().loadDocument(assistantId, surfaceId);
   }, [assistantId]);
 
-  const activeSubagentIds = useActiveSubagentIds();
+  const activeSubagentIds = useActiveSubagentIds(activeConversationId);
+  const activeAcpRunIds = useActiveAcpRunIds(activeConversationId);
   const activeWorkflowRunIds = useActiveWorkflowRunIds();
+
+  // Rehydrate ACP runs from the daemon on conversation load so completed and
+  // in-progress runs reappear after a refresh / reconnect.
+  useAcpRunRehydration(assistantId, activeConversationId);
 
   const onSubagentClick = useCallback((id: string) => {
     useViewerStore.getState().openSubagentDetail(id);
+  }, []);
+
+  const onAcpRunClick = useCallback((acpSessionId: string) => {
+    useViewerStore.getState().openAcpRunDetail(acpSessionId);
   }, []);
 
   const onStopSubagent = useCallback(
@@ -475,18 +491,19 @@ export function ChatMainPanel({
 
   const showDoctorAction =
     assistantState.kind === "active" && !assistantState.isLocal;
+  const doctorAction = showDoctorAction ? (
+    <Button asChild variant="outlined" size="compact">
+      <Link to={`${routes.settings.debug}?tab=doctor`}>
+        Go to Doctor
+      </Link>
+    </Button>
+  ) : undefined;
 
   const genericChatError = shouldShowGenericChatErrorNotice(error) && error
     ? {
         message: error.message,
         tone: "error" as const,
-        actions: showDoctorAction ? (
-          <Button asChild variant="outlined" size="compact">
-            <Link to={`${routes.settings.debug}?tab=doctor`}>
-              Go to Doctor
-            </Link>
-          </Button>
-        ) : undefined,
+        actions: doctorAction,
       }
     : null;
   const hasGenericChatError = genericChatError !== null;
@@ -495,6 +512,9 @@ export function ChatMainPanel({
       ? {
           message: notice.message,
           tone: "warning" as const,
+          actions: isManagedCredentialChatError(notice)
+            ? doctorAction
+            : undefined,
         }
       : null;
   const genericChatBanner = genericChatError ?? genericChatNotice;
@@ -807,8 +827,7 @@ export function ChatMainPanel({
           }
           diskPressureBanner={diskPressureBannerSlot}
           showMissingApiKeyBanner={
-            error?.code === "PROVIDER_NOT_CONFIGURED" ||
-            error?.code === "MANAGED_KEY_INVALID"
+            error?.code === "PROVIDER_NOT_CONFIGURED"
           }
           onOpenAiSettings={pushToAiSettings}
           onDismissApiKeyError={handleDismissApiKeyError}
@@ -841,6 +860,14 @@ export function ChatMainPanel({
         subagentIds={activeSubagentIds}
         onSubagentClick={onSubagentClick}
         onStopSubagent={onStopSubagent}
+      />
+    ) : undefined;
+
+  const activeAcpRunsSlot =
+    activeAcpRunIds.length > 0 ? (
+      <ActiveAcpRunsOverlay
+        acpRunIds={activeAcpRunIds}
+        onAcpRunClick={onAcpRunClick}
       />
     ) : undefined;
 
@@ -889,6 +916,7 @@ export function ChatMainPanel({
         readonlyBannerSlot={channelReadonlyBannerSlot}
         startersSlot={startersSlot}
         activeSubagentsSlot={activeSubagentsSlot}
+        activeAcpRunsSlot={activeAcpRunsSlot}
         activeWorkflowsSlot={activeWorkflowsSlot}
       />
       <MicPermissionPrimer

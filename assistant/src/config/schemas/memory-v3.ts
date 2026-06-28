@@ -48,10 +48,10 @@ export const MemoryV3HotSetSchema = z
     k: z
       .number({ error: "memory.v3.hotSet.k must be a number" })
       .int("memory.v3.hotSet.k must be an integer")
-      .positive("memory.v3.hotSet.k must be a positive integer")
+      .nonnegative("memory.v3.hotSet.k must be a non-negative integer")
       .default(40)
       .describe(
-        "Number of top frecency-scored pages included in the hot-set lane.",
+        "Number of top frecency-scored pages included in the hot-set lane. 0 disables the lane.",
       ),
     halfLifeDays: z
       .number({ error: "memory.v3.hotSet.halfLifeDays must be a number" })
@@ -238,18 +238,18 @@ export const MemoryV3ConfigSchema = z
     needleK: z
       .number({ error: "memory.v3.needleK must be a number" })
       .int("memory.v3.needleK must be an integer")
-      .positive("memory.v3.needleK must be a positive integer")
+      .nonnegative("memory.v3.needleK must be a non-negative integer")
       .default(100)
       .describe(
-        "Number of section-grain BM25 needle articles folded into the candidate pool each turn.",
+        "Number of section-grain BM25 needle articles folded into the candidate pool each turn. 0 disables the needle lane.",
       ),
     denseK: z
       .number({ error: "memory.v3.denseK must be a number" })
       .int("memory.v3.denseK must be an integer")
-      .positive("memory.v3.denseK must be a positive integer")
+      .nonnegative("memory.v3.denseK must be a non-negative integer")
       .default(100)
       .describe(
-        "Number of dense-lane articles folded into the candidate pool each turn.",
+        "Number of dense-lane articles folded into the candidate pool each turn after embedding the turn query. 0 disables dense retrieval for both current-message and reply-query passes.",
       ),
     replyQueryK: z
       .number({ error: "memory.v3.replyQueryK must be a number" })
@@ -258,6 +258,12 @@ export const MemoryV3ConfigSchema = z
       .default(12)
       .describe(
         "Per-lane article budget for the reply-query finder pass: needle and dense each re-run over the assistant's previous message as separate queries (never concatenated with the user's message). 0 disables the pass. Deliberately small next to needleK/denseK — the pass adds the assistant-side retrieval signal, not a second full sweep.",
+      ),
+    selectorEnabled: z
+      .boolean({ error: "memory.v3.selectorEnabled must be a boolean" })
+      .default(true)
+      .describe(
+        "Whether to run the memory-v3 selector LLM callsite over the candidate pool. When false, every pooled candidate is passed through to injection directly; an empty pool produces no memory block.",
       ),
     selectorPromptPath: z
       .string({ error: "memory.v3.selectorPromptPath must be a string" })

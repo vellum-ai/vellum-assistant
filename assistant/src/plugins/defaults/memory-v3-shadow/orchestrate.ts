@@ -51,7 +51,7 @@ import { denseLane } from "./dense.js";
 import type { EdgeGraph } from "./edge.js";
 import { edgeExpand } from "./edge.js";
 import type { PoolCandidate, StableCandidate } from "./pool-select.js";
-import { selectPool } from "./pool-select.js";
+import { selectAllPoolCandidates, selectPool } from "./pool-select.js";
 import type { SectionNeedle } from "./section-needle.js";
 import type {
   FinderLane,
@@ -123,6 +123,9 @@ export interface OrchestrateDeps {
    *  The live caller resolves `memory.v3.selectorPromptPath` (workspace-relative
    *  file override) via `resolveSelectorPrompt` and threads the result here. */
   selectorPrompt?: string;
+  /** Whether to run the selector LLM. False passes all pooled candidates
+   *  straight through as selections, preserving pool-order slug dedup. */
+  selectorEnabled?: boolean;
 }
 
 /** A finder-lane candidate: the slug, the descriptor that justified it, and
@@ -195,22 +198,28 @@ export async function orchestrate(
   );
   const stablePrefix = new Set<Slug>([...coreHotFresh, ...always]);
 
-  // Step 1: needle (sync BM25) and dense (async embed + Qdrant) lanes run in
-  // parallel. Both return distinct articles each tagged with their best-scoring
-  // section index/ordinal. The reply-query pass re-runs both lanes over the
-  // assistant's previous message as SEPARATE queries (concatenating the two
-  // speakers would average their retrieval intents into a vector that matches
-  // neither) at its own, smaller budget; it runs in the same parallel batch.
+  // Step 1: needle (sync BM25) and the enabled dense lane (async embed +
+  // Qdrant) run in parallel. Both return distinct articles each tagged with
+  // their best-scoring section index/ordinal. The reply-query pass re-runs the
+  // enabled lanes over the assistant's previous message as SEPARATE queries
+  // (concatenating the two speakers would average their retrieval intents into
+  // a vector that matches neither) at its own, smaller budget; it runs in the
+  // same parallel batch.
+  // `denseK = 0` disables dense retrieval for the whole turn, including the
+  // reply-query dense pass.
   const replyK = deps.replyQueryK ?? 0;
   const replyQuery =
     replyK > 0 ? (turn.previousAssistantMessage ?? "").trim() : "";
+  const denseEnabled = denseK > 0;
   const [needled, densed, replyNeedled, replyDensed] = await Promise.all([
     Promise.resolve(deps.needle.query(turn.currentMessage, needleK)),
-    denseLane(deps.denseConfig, turn.currentMessage, denseK),
+    denseEnabled
+      ? denseLane(deps.denseConfig, turn.currentMessage, denseK)
+      : Promise.resolve([]),
     Promise.resolve(
       replyQuery.length > 0 ? deps.needle.query(replyQuery, replyK) : [],
     ),
-    replyQuery.length > 0
+    replyQuery.length > 0 && denseEnabled
       ? denseLane(deps.denseConfig, replyQuery, replyK)
       : Promise.resolve([]),
   ]);
@@ -384,11 +393,11 @@ export async function orchestrate(
   // selections come back slug-deduped (pinned flags ORed) — `selectPool`'s
   // contract. `selectorPrompt` is the (optionally overridden) instruction
   // scaffold; `undefined` falls through to the bundled default.
-  const selections = await selectPool(
-    { stable, finder: finderTail },
-    turn,
-    deps.selectorPrompt,
-  );
+  const pool = { stable, finder: finderTail };
+  const selections =
+    deps.selectorEnabled === false
+      ? selectAllPoolCandidates(pool)
+      : await selectPool(pool, turn, deps.selectorPrompt);
 
   return {
     selections,

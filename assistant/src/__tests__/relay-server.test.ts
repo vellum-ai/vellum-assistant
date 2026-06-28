@@ -26,8 +26,6 @@ import {
   test,
 } from "bun:test";
 
-import { and, desc, eq } from "drizzle-orm";
-
 // ── Platform + logger mocks (must come before any source imports) ────
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -254,7 +252,7 @@ mock.module("../calls/inbound-trust-reader.js", () => ({
 // setup keeps driving guardian resolution without per-test changes. Both the
 // async read and the sync cache peek (read by resolveActorTrust) share the same
 // DB-derived snapshot mirroring the gateway's active-guardian-channel query.
-function deriveGuardianDeliveries(
+function resolveGuardianDeliveries(
   channelTypes?: string[],
 ): Array<Record<string, unknown>> {
   if (mockGuardianDeliveryList) {
@@ -264,41 +262,14 @@ function deriveGuardianDeliveries(
         )
       : mockGuardianDeliveryList;
   }
-  const rows = getDb()
-    .select({ contact: contacts, channel: contactChannels })
-    .from(contacts)
-    .innerJoin(contactChannels, eq(contacts.id, contactChannels.contactId))
-    .where(
-      and(eq(contacts.role, "guardian"), eq(contactChannels.status, "active")),
-    )
-    .orderBy(desc(contactChannels.verifiedAt))
-    .all();
-  if (rows.length === 0) return [];
-  const guardianId = rows[0].contact.id;
-  const list = rows
-    .filter((r) => r.contact.id === guardianId)
-    .map((r) => ({
-      channelType: r.channel.type,
-      contactId: r.contact.id,
-      principalId: r.contact.principalId ?? null,
-      displayName: r.contact.displayName ?? null,
-      address: r.channel.address,
-      externalChatId: r.channel.externalChatId ?? null,
-      status: r.channel.status,
-      verifiedAt: r.channel.verifiedAt ?? null,
-    }));
-  return channelTypes
-    ? list.filter((g) =>
-        channelTypes.includes(g.channelType),
-      )
-    : list;
+  return deriveGuardianDeliveries({ channelTypes });
 }
 
 mock.module("../contacts/guardian-delivery-reader.js", () => ({
   getGuardianDelivery: async (input?: { channelTypes?: string[] }) =>
-    deriveGuardianDeliveries(input?.channelTypes),
+    resolveGuardianDeliveries(input?.channelTypes),
   peekCachedGuardianDelivery: (input?: { channelTypes?: string[] }) =>
-    deriveGuardianDeliveries(input?.channelTypes),
+    resolveGuardianDeliveries(input?.channelTypes),
   guardianForChannel: (
     list: Array<{ channelType: string; status: string }>,
     channelType: string,
@@ -454,11 +425,7 @@ import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { createInvite } from "../memory/invite-store.js";
 import { resetTestTables } from "../memory/raw-query.js";
-import {
-  contactChannels,
-  contacts,
-  conversations,
-} from "../memory/schema.js";
+import { conversations } from "../memory/schema.js";
 import {
   createOutboundSession,
   getGuardianBinding,
@@ -466,6 +433,8 @@ import {
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import { deriveGuardianDeliveries } from "./helpers/derive-guardian-delivery.js";
+import { resetGatewayAclStore } from "./helpers/gateway-acl-store.js";
 import { seedContactChannel } from "./helpers/seed-contact-channel.js";
 
 await initializeDb();
@@ -548,6 +517,7 @@ function resetTables() {
     "contact_channels",
     "contacts",
   );
+  resetGatewayAclStore();
   ensuredConvIds = new Set();
 }
 
@@ -2984,6 +2954,7 @@ describe("relay-server", () => {
     const db = getDb();
     db.run("DELETE FROM contact_channels");
     db.run("DELETE FROM contacts");
+    resetGatewayAclStore();
     try {
       ensureConversation("conv-invite-no-name");
       const session = createCallSession({
@@ -3028,6 +2999,7 @@ describe("relay-server", () => {
     const db = getDb();
     db.run("DELETE FROM contact_channels");
     db.run("DELETE FROM contacts");
+    resetGatewayAclStore();
     try {
       ensureConversation("conv-invite-uuid-name");
       const session = createCallSession({

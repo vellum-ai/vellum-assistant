@@ -24,15 +24,8 @@
  * {@link registerDefaultPlugins} at call time.
  */
 
-import { finalizeTool } from "../../tools/tool-defaults.js";
 import { registerPlugin, resetPluginRegistryForTests } from "../registry.js";
 import { type Plugin, PluginExecutionError } from "../types.js";
-import { resetAdvisorStateForTests } from "./advisor/advisor-state-store.js";
-import advisorPostModelCall from "./advisor/hooks/post-model-call.js";
-import advisorPreModelCall from "./advisor/hooks/pre-model-call.js";
-import advisorUserPromptSubmit from "./advisor/hooks/user-prompt-submit.js";
-import advisorPkg from "./advisor/package.json" with { type: "json" };
-import advisorTool from "./advisor/tools/advisor.js";
 import compactionPkg from "./compaction/package.json" with { type: "json" };
 import emptyResponsePostModelCall from "./empty-response/hooks/post-model-call.js";
 import emptyResponseStop from "./empty-response/hooks/stop.js";
@@ -330,36 +323,13 @@ export const defaultToolResultTruncatePlugin: Plugin = {
 };
 
 /**
- * `advisor` — adds the model-visible `advisor` tool: a no-argument tool the
- * model calls to consult a stronger inference profile (the `inference` call
- * site with a `quality-optimized` override) on the full transcript, routed
- * through the assistant's own inference. Three hooks feed it: `user-prompt-submit`
- * seeds the capture, `pre-model-call` records the executor's system prompt and
- * injects the steering that nudges the model to consult, and `post-model-call`
- * snapshots the transcript the tool reads. `finalizeTool` fills the tool's
- * defaults so it satisfies `Tool`, and `bootstrapPlugins` registers it into the
- * catalog.
- */
-export const defaultAdvisorPlugin: Plugin = {
-  manifest: {
-    name: advisorPkg.name,
-    version: advisorPkg.version,
-  },
-  hooks: {
-    "user-prompt-submit": advisorUserPromptSubmit,
-    "pre-model-call": advisorPreModelCall,
-    "post-model-call": advisorPostModelCall,
-  },
-  tools: [finalizeTool(advisorTool, "advisor")],
-};
-
-/**
  * Full set of first-party default plugins. Used by
  * {@link registerDefaultPlugins} to drive the registration loop; the array
  * order is the registration order, which fixes hook-chain order (defaults run
- * ahead of any later-registered user plugins).
+ * ahead of any later-registered user plugins). Also used by
+ * `bootstrapPlugins` to iterate defaults directly.
  */
-function getAllDefaultPlugins(): readonly Plugin[] {
+export function getAllDefaultPlugins(): readonly Plugin[] {
   return [
     defaultMemoryRetrievalPlugin,
     defaultImageFallbackPlugin,
@@ -375,9 +345,6 @@ function getAllDefaultPlugins(): readonly Plugin[] {
     defaultCompactionPlugin,
     defaultTitleGeneratePlugin,
     memoryV3ShadowPlugin,
-    // Registered last so its capture hooks observe the fully-processed turn
-    // (memory injections, history repair) that the executor actually sees.
-    defaultAdvisorPlugin,
   ];
 }
 
@@ -405,15 +372,14 @@ export function registerDefaultPlugins(): void {
 }
 
 /**
- * Test-only helper: clear the plugin registry and re-register every default
+ * Test-only helper: clear the hook registry and re-register every default
  * so integration tests that exercise the full agent loop have a
  * production-parity plugin stack. Use this in `beforeEach` of tests that
  * dispatch through pipelines with a terminal that assumes the default
  * plugin handles every op (e.g. compaction).
  *
- * Tests that specifically need an empty registry (pipeline-unit tests, the
- * plugin-registry tests themselves) should continue to call
- * {@link resetPluginRegistryForTests} directly.
+ * Tests that specifically need an empty hook registry (pipeline-unit tests)
+ * should continue to call {@link resetHookRegistryForTests} directly.
  */
 export function resetPluginRegistryAndRegisterDefaults(): void {
   resetPluginRegistryForTests();
@@ -424,7 +390,6 @@ export function resetPluginRegistryAndRegisterDefaults(): void {
   resetExplorationDriftStateForTests();
   resetTaskProgressNudgeStateForTests();
   resetSurfaceCompletionNudgeStoreForTests();
-  resetAdvisorStateForTests();
   resetCaptionCacheForTests();
   registerDefaultPlugins();
 }

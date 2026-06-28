@@ -504,7 +504,7 @@ describe("plugin bootstrap", () => {
     const names = getRegisteredPlugins().map((p) => p.manifest.name);
     expect(names).toContain("sentinel-off");
     // But its hooks are filtered out at read time by `isPluginDisabled`.
-    const { getHooksFor } = await import("../plugins/registry.js");
+    const { getHooksFor } = await import("../hooks/registry.js");
     const hooks = await getHooksFor("init");
     expect(hooks).toHaveLength(0);
 

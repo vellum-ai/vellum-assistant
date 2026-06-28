@@ -111,6 +111,7 @@ mock.module("../providers/registry.js", () => ({
   isNativeWebSearchCapableProvider: () => false,
   listProviders: () => [],
   resolveProviderFromConnection: async () => null,
+  shouldUseNativeWebSearch: () => false,
 }));
 
 mock.module("../memory/embedding-backend.js", () => ({
@@ -122,6 +123,7 @@ mock.module("../memory/embedding-backend.js", () => ({
     model: "test",
     vectors: [],
   }),
+  geminiCacheExtras: () => [],
   generateSparseEmbedding: () => ({ indices: [], values: [] }),
   getMemoryBackendStatus: async () => ({
     enabled: false,

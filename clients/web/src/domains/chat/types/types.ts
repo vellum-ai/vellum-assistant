@@ -30,6 +30,13 @@ export interface SlackMessageSender {
   isBot?: boolean;
 }
 
+export interface SlackReaction {
+  emoji: string;
+  op: "added" | "removed";
+  actorDisplayName?: string;
+  targetChannelTs: string;
+}
+
 export interface SlackRuntimeMessage {
   channelId: string;
   channelName?: string;
@@ -38,6 +45,8 @@ export interface SlackRuntimeMessage {
   sender?: SlackMessageSender;
   messageLink?: SlackMessageLink;
   threadLink?: SlackMessageLink;
+  eventKind?: "message" | "reaction";
+  reaction?: SlackReaction;
 }
 
 /**

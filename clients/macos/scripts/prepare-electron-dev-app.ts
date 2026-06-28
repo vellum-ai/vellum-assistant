@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const ROOT_DIR = path.resolve(import.meta.dir, "..");
@@ -15,6 +15,18 @@ const ELECTRON_INFO_PLIST = path.join(
   ELECTRON_APP,
   "Contents",
   "Info.plist",
+);
+
+// Sentinel marking that we've restarted the Dock for this patched bundle.
+// Lives in `dist/` but OUTSIDE `Electron.app/` so it doesn't disturb the
+// bundle's code signature. Wiped when `electron` is reinstalled (which resets
+// the plist to stock "Electron"), so the next prepare re-busts the Dock.
+const DOCK_BUST_MARKER = path.join(
+  ROOT_DIR,
+  "node_modules",
+  "electron",
+  "dist",
+  ".vellum-dock-busted",
 );
 
 // macOS keys notification authorization to the bundle identifier. The stock
@@ -105,6 +117,24 @@ if (changed || !isValidSignature()) {
       "[prepare-electron-dev-app] lsregister failed (continuing):",
       error instanceof Error ? error.message : error,
     );
+  }
+}
+
+// The Dock and Cmd-Tab read a bundle's label from `CFBundleName`, cached by
+// macOS keyed to the bundle path. The `lsregister -f` above re-registers the
+// bundle but does NOT evict the running Dock's in-memory label, so a bundle
+// first seen as the stock "Electron" keeps showing "Electron" even after its
+// plist is stamped to "Vellum Electron". Restarting the Dock forces it to
+// re-read the name. Done once per patched bundle (tracked by the marker, and
+// again whenever the plist actually changes) so routine `bun run dev` restarts
+// don't blink the Dock on every launch. Best-effort — never block the dev flow.
+if (changed || !existsSync(DOCK_BUST_MARKER)) {
+  try {
+    execFileSync("killall", ["Dock"], { stdio: "ignore" });
+    writeFileSync(DOCK_BUST_MARKER, "");
+  } catch {
+    // Dock not running, or `killall` unavailable — leave the marker absent so
+    // a later run retries.
   }
 }
 

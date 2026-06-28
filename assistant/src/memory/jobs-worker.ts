@@ -164,27 +164,44 @@ export interface MemoryJobsWorker {
 }
 
 /**
- * Start the memory jobs worker using the configured implementation.
+ * Start the daemon's memory jobs worker supervisor.
  *
- * `memory.worker.enabled` selects between two implementations:
- *   - enabled: spawn the worker as a separate OS process (the same path as
- *     `assistant memory worker start`), keeping long-running jobs off the
- *     caller's event loop.
- *   - disabled (default): run the worker in-process on the caller's event
- *     loop.
+ * The daemon always runs the in-process supervisor returned here. The
+ * supervisor owns the synchronous in-process runner and reconciles to
+ * `memory.worker.enabled` on every poll, re-reading the flag from disk so a
+ * runtime change takes effect without a restart:
+ *   - flag off (default): drain the queue in-process (the synchronous runner).
+ *   - flag on: stand down (the out-of-process worker owns the queue).
+ * Gating on the flag — rather than on the worker process actually being present
+ * — keeps exactly one drainer active and avoids a boot race: when the flag is
+ * on the supervisor never processes, so it can't claim jobs that the spawning
+ * worker's startup recovery would then reset out from under it.
  *
- * The flag is read here so callers don't branch on it themselves. It only
- * governs which implementation starts; shutdown stops whichever worker is
- * actually running (see daemon/shutdown-handlers.ts), so the handle returned
- * for the out-of-process implementation has a no-op `stop()`.
+ * `memory.worker.enabled` is also the persisted boot preference: when set, the
+ * out-of-process worker is spawned here at startup so it is running
+ * immediately. The CLI `memory worker start`/`stop` commands flip the flag (and
+ * spawn/stop the worker process), so the supervisor switches the running daemon
+ * between synchronous and out-of-process modes within one poll. When the flag
+ * is on but no worker process is running, neither drainer processes — `status`
+ * surfaces this (worker not running, synchronous runner not running).
  *
  * This dispatcher must not be used as the standalone worker process's entry —
- * that would recurse and fork-bomb. `worker-process.ts` calls
- * {@link startInProcessMemoryJobsWorker} directly.
+ * that would recurse and fork-bomb, and the flag-on worker process would stand
+ * itself down. `worker.ts` calls {@link startInProcessMemoryJobsWorker}
+ * directly with no options.
  */
 export function startMemoryJobsWorker(): MemoryJobsWorker {
   if (getConfig().memory.worker?.enabled === true) {
-    void spawnMemoryWorkerProcess()
+    // The flag is on, so the supervisor below stands the synchronous runner
+    // down: a worker that comes up late is the desired sole drainer, so do not
+    // terminate it on a slow start (the default). Spawn it as a direct child
+    // (not detached) so the worker the daemon owns shows up in its process tree
+    // (`assistant ps`) and is torn down with the daemon; it is re-spawned on the
+    // next boot, so it need not survive a restart.
+    void spawnMemoryWorkerProcess({
+      terminateOnTimeout: false,
+      detached: false,
+    })
       .then(({ pid, alreadyRunning }) =>
         log.info(
           { pid, alreadyRunning },
@@ -196,31 +213,30 @@ export function startMemoryJobsWorker(): MemoryJobsWorker {
       .catch((err) =>
         log.warn(
           { err },
-          "Failed to start memory worker process — memory jobs will not be processed",
+          "Failed to start memory worker process — the in-process supervisor will drain the queue instead",
         ),
       );
-    return {
-      async runOnce(): Promise<number> {
-        return 0;
-      },
-      // No-op: shutdown always stops the worker process via the live-state
-      // PID probe in daemon/shutdown-handlers.ts, since it can't know whether
-      // the process was started here or out of band (e.g. `assistant memory
-      // worker start`) after boot.
-      stop(): void {},
-    };
   }
 
-  return startInProcessMemoryJobsWorker();
+  return startInProcessMemoryJobsWorker({ standDownForWorkerProcess: true });
 }
 
 /**
  * Run the memory jobs worker in-process on the caller's event loop: poll for
  * claimable jobs with adaptive backoff until {@link MemoryJobsWorker.stop} is
- * called. This is the worker loop itself — used directly by the daemon (when
- * `memory.worker.enabled` is off) and by the standalone worker process.
+ * called. This is the worker loop itself — used by the daemon supervisor (with
+ * `standDownForWorkerProcess`) and by the standalone worker process (without).
+ *
+ * When `standDownForWorkerProcess` is set the loop acts as the daemon's
+ * synchronous-runner supervisor: each tick it skips processing while
+ * `memory.worker.enabled` is on, and drains the queue while it is off. The
+ * standalone worker process must NOT set this — it runs precisely when the flag
+ * is on and would otherwise stand itself down forever.
  */
-export function startInProcessMemoryJobsWorker(): MemoryJobsWorker {
+export function startInProcessMemoryJobsWorker(
+  opts: { standDownForWorkerProcess?: boolean } = {},
+): MemoryJobsWorker {
+  const standDownForWorkerProcess = opts.standDownForWorkerProcess === true;
   const recovered = resetRunningJobsToPending();
   if (recovered > 0) {
     log.info({ recovered }, "Recovered stale running memory jobs");
@@ -248,6 +264,20 @@ export function startInProcessMemoryJobsWorker(): MemoryJobsWorker {
     if (stopped || tickRunning) return;
     tickRunning = true;
     try {
+      if (
+        standDownForWorkerProcess &&
+        getConfig().memory.worker?.enabled === true
+      ) {
+        // The out-of-process worker owns the queue — stand the synchronous
+        // runner down so jobs aren't processed twice.
+        //
+        // Switching modes is a rare operator action, so poll at the slow cap
+        // while standing down: it still picks up a `memory worker stop` (which
+        // flips the flag back off) within one interval, without waking every
+        // couple seconds for the whole time the worker owns the queue.
+        currentIntervalMs = POLL_INTERVAL_MAX_MS;
+        return;
+      }
       const processed = await runMemoryJobsOnce({
         enableScheduledCleanup: true,
       });

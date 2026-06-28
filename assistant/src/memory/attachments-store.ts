@@ -37,7 +37,7 @@ export interface StoredAttachment {
   createdAt: number;
 }
 
-function classifyKind(mimeType: string): string {
+export function classifyKind(mimeType: string): string {
   if (mimeType.startsWith("image/")) return "image";
   if (mimeType.startsWith("video/")) return "video";
   return "document";

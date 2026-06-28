@@ -94,6 +94,10 @@ const upsertVerifiedChannelHandler = contactRoutes.find(
   (r) => r.method === "upsert_verified_channel",
 )!.handler;
 
+const getGuardianContactHandler = contactRoutes.find(
+  (r) => r.method === "get_guardian_contact",
+)!.handler;
+
 beforeAll(async () => {
   await initGatewayDb();
 });
@@ -233,26 +237,23 @@ describe("mark_channel_verified IPC handler", () => {
     ).rejects.toThrow(/not found/);
   });
 
-  test("inherits assistant-mirror behavior: a gateway-absent channel is mirrored then verified", async () => {
+  test("does not verify a channel absent from the gateway DB", async () => {
     seedAssistantContact("c1");
     seedAssistantChannel({ id: "ch1", contactId: "c1", status: "unverified" });
 
-    const res = (await markChannelVerifiedHandler({
-      contactChannelId: "ch1",
-    })) as { ok: boolean; didWrite: boolean; channel: { status: string } };
+    // The channel lives only in the assistant DB. The gateway DB is the source
+    // of truth and does not heal from the assistant, so verification reports
+    // not found and nothing lands in the gateway DB.
+    await expect(
+      markChannelVerifiedHandler({ contactChannelId: "ch1" }),
+    ).rejects.toThrow(/not found/);
 
-    expect(res.ok).toBe(true);
-    expect(res.didWrite).toBe(true);
-    expect(res.channel.status).toBe("active");
-
-    // Channel + parent contact were materialized into the gateway DB.
     const channelInGateway = getGatewayDb()
       .select()
       .from(contactChannels)
       .where(eq(contactChannels.id, "ch1"))
       .get();
-    expect(channelInGateway).toBeTruthy();
-    expect(channelInGateway!.contactId).toBe("c1");
+    expect(channelInGateway).toBeUndefined();
   });
 });
 
@@ -349,6 +350,34 @@ describe("mark_channel_revoked IPC handler", () => {
     await expect(
       markChannelRevokedHandler({ contactChannelId: "nonexistent" }),
     ).rejects.toThrow(/not found/);
+  });
+});
+
+describe("get_guardian_contact IPC handler", () => {
+  test("returns the guardian contact id(s) from the gateway DB", async () => {
+    seedContact("g1", "guardian");
+    seedContact("c1", "contact");
+
+    const res = (await getGuardianContactHandler({})) as {
+      ok: boolean;
+      guardianIds: string[];
+    };
+
+    expect(res.ok).toBe(true);
+    expect(res.guardianIds).toEqual(["g1"]);
+  });
+
+  test("excludes non-guardian contacts", async () => {
+    seedContact("c1", "contact");
+    seedContact("c2", "contact");
+
+    const res = (await getGuardianContactHandler({})) as {
+      ok: boolean;
+      guardianIds: string[];
+    };
+
+    expect(res.ok).toBe(true);
+    expect(res.guardianIds).toEqual([]);
   });
 });
 

@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.10.2
+  version: 0.10.3
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -233,6 +233,22 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        task:
+                          type: string
+                        parentToolUseId:
+                          type: string
+                        usedTokens:
+                          type: number
+                        contextSize:
+                          type: number
+                        costAmount:
+                          type: number
+                        costCurrency:
+                          type: string
+                        inputTokens:
+                          type: number
+                        outputTokens:
+                          type: number
                         eventLog:
                           type: array
                           items: {}
@@ -4841,14 +4857,18 @@ paths:
                         type: string
                       role:
                         type: string
+                        enum:
+                          - guardian
+                          - contact
                       notes:
                         anyOf:
                           - type: string
                           - type: "null"
                       contactType:
-                        anyOf:
-                          - type: string
-                          - type: "null"
+                        type: string
+                        enum:
+                          - human
+                          - assistant
                       lastInteraction:
                         anyOf:
                           - type: number
@@ -4922,6 +4942,8 @@ paths:
                     required:
                       - id
                       - displayName
+                      - role
+                      - contactType
                       - interactionCount
                       - createdAt
                       - updatedAt
@@ -4995,14 +5017,18 @@ paths:
                           type: string
                         role:
                           type: string
+                          enum:
+                            - guardian
+                            - contact
                         notes:
                           anyOf:
                             - type: string
                             - type: "null"
                         contactType:
-                          anyOf:
-                            - type: string
-                            - type: "null"
+                          type: string
+                          enum:
+                            - human
+                            - assistant
                         lastInteraction:
                           anyOf:
                             - type: number
@@ -5076,6 +5102,8 @@ paths:
                       required:
                         - id
                         - displayName
+                        - role
+                        - contactType
                         - interactionCount
                         - createdAt
                         - updatedAt
@@ -5118,14 +5146,18 @@ paths:
                         type: string
                       role:
                         type: string
+                        enum:
+                          - guardian
+                          - contact
                       notes:
                         anyOf:
                           - type: string
                           - type: "null"
                       contactType:
-                        anyOf:
-                          - type: string
-                          - type: "null"
+                        type: string
+                        enum:
+                          - human
+                          - assistant
                       lastInteraction:
                         anyOf:
                           - type: number
@@ -5199,6 +5231,8 @@ paths:
                     required:
                       - id
                       - displayName
+                      - role
+                      - contactType
                       - interactionCount
                       - createdAt
                       - updatedAt
@@ -5486,14 +5520,18 @@ paths:
                         type: string
                       role:
                         type: string
+                        enum:
+                          - guardian
+                          - contact
                       notes:
                         anyOf:
                           - type: string
                           - type: "null"
                       contactType:
-                        anyOf:
-                          - type: string
-                          - type: "null"
+                        type: string
+                        enum:
+                          - human
+                          - assistant
                       lastInteraction:
                         anyOf:
                           - type: number
@@ -5567,6 +5605,8 @@ paths:
                     required:
                       - id
                       - displayName
+                      - role
+                      - contactType
                       - interactionCount
                       - createdAt
                       - updatedAt
@@ -5674,14 +5714,18 @@ paths:
                       type: string
                     role:
                       type: string
+                      enum:
+                        - guardian
+                        - contact
                     notes:
                       anyOf:
                         - type: string
                         - type: "null"
                     contactType:
-                      anyOf:
-                        - type: string
-                        - type: "null"
+                      type: string
+                      enum:
+                        - human
+                        - assistant
                     lastInteraction:
                       anyOf:
                         - type: number
@@ -5755,6 +5799,8 @@ paths:
                   required:
                     - id
                     - displayName
+                    - role
+                    - contactType
                     - interactionCount
                     - createdAt
                     - updatedAt
@@ -7462,6 +7508,12 @@ paths:
                     required:
                       - role
                       - content
+                conversationType:
+                  type: string
+                  enum:
+                    - standard
+                    - background
+                    - scheduled
       responses:
         "200":
           description: Successful response
@@ -8961,6 +9013,9 @@ paths:
                 source:
                   default: cli
                   type: string
+                cronRunId:
+                  type: string
+                  minLength: 1
               required:
                 - conversationId
                 - hint
@@ -16393,6 +16448,104 @@ paths:
                 required:
                   - ok
                 additionalProperties: false
+  /v1/memory/worker/start:
+    post:
+      operationId: memory_worker_start_post
+      summary: Start the memory worker
+      description: Spawns (or reuses) the memory worker process as a child of the daemon and enables memory.worker.enabled.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pid:
+                    type: number
+                  alreadyRunning:
+                    type: boolean
+                  workerEnabled:
+                    type: boolean
+                    const: true
+                  pidPath:
+                    type: string
+                required:
+                  - pid
+                  - alreadyRunning
+                  - workerEnabled
+                  - pidPath
+                additionalProperties: false
+  /v1/memory/worker/status:
+    get:
+      operationId: memory_worker_status_get
+      summary: Memory worker status
+      description: Reports the memory worker process state, memory.worker.enabled, and the synchronous in-process runner.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - running
+                      - not_running
+                  pid:
+                    type: number
+                  workerEnabled:
+                    type: boolean
+                  syncRunner:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        enum:
+                          - running
+                          - not_running
+                      pid:
+                        type: number
+                    required:
+                      - status
+                    additionalProperties: false
+                required:
+                  - status
+                  - workerEnabled
+                  - syncRunner
+                additionalProperties: false
+  /v1/memory/worker/stop:
+    post:
+      operationId: memory_worker_stop_post
+      summary: Stop the memory worker
+      description: Disables memory.worker.enabled and SIGTERMs the memory worker process if it is running.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workerWasRunning:
+                    type: boolean
+                  pid:
+                    type: number
+                  workerEnabled:
+                    type: boolean
+                    const: false
+                required:
+                  - workerWasRunning
+                  - workerEnabled
+                additionalProperties: false
   /v1/messages:
     get:
       operationId: messages_get
@@ -17396,10 +17549,41 @@ paths:
                                 webUrl:
                                   type: string
                               additionalProperties: false
+                            eventKind:
+                              type: string
+                              enum:
+                                - message
+                                - reaction
+                            reaction:
+                              type: object
+                              properties:
+                                emoji:
+                                  type: string
+                                op:
+                                  type: string
+                                  enum:
+                                    - added
+                                    - removed
+                                actorDisplayName:
+                                  type: string
+                                targetChannelTs:
+                                  type: string
+                              required:
+                                - emoji
+                                - op
+                                - targetChannelTs
+                              additionalProperties: false
                           required:
                             - channelId
                             - channelTs
                           additionalProperties: false
+                        queueStatus:
+                          type: string
+                          enum:
+                            - queued
+                            - processing
+                        queuePosition:
+                          type: number
                       required:
                         - id
                         - role
@@ -17432,6 +17616,14 @@ paths:
                     anyOf:
                       - type: number
                       - type: "null"
+                  processing:
+                    description:
+                      "Whether the agent is currently mid-turn for this conversation, sourced authoritatively from the persisted
+                      `processing_started_at` column. `true` means a turn is in flight; `false` means the conversation
+                      is idle. Clients use this to recover from a dropped SSE stream: if a turn appears to be running
+                      locally but the server reports `processing: false`, the turn has ended (or died) and the UI should
+                      stop waiting rather than spin indefinitely. Absent on older daemons that predate this field."
+                    type: boolean
                 required:
                   - messages
                 additionalProperties: false
@@ -21209,7 +21401,9 @@ paths:
     get:
       operationId: ps_get
       summary: Process status
-      description: Returns a JSON summary of the assistant's process tree including qdrant and embed-worker status.
+      description:
+        "Returns the daemon's process tree: every descendant process parented to the assistant runtime, built from
+        the native OS process table."
       tags:
         - system
       responses:
@@ -29653,12 +29847,6 @@ components:
                 - $ref: "#/components/schemas/ProfileStatus"
                 - type: "null"
             - type: "null"
-        advisorEnabled:
-          anyOf:
-            - anyOf:
-                - type: boolean
-                - type: "null"
-            - type: "null"
         mix:
           anyOf:
             - minItems: 2
@@ -30385,10 +30573,6 @@ components:
         status:
           anyOf:
             - $ref: "#/components/schemas/ProfileStatus"
-            - type: "null"
-        advisorEnabled:
-          anyOf:
-            - type: boolean
             - type: "null"
         mix:
           minItems: 2

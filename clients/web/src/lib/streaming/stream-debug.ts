@@ -12,9 +12,14 @@
  *
  * Data is stored outside React state so it survives component unmounts and
  * can be inspected from the console via `window._vellumDebug.chat.events`.
+ *
+ * The event ring is also load-bearing: it retains each event's envelope
+ * metadata (`seq`, `conversationId`, `emittedAt`) so a resync can replay the
+ * recent tail onto a fresh snapshot (`getSseEnvelopesSince`) instead of
+ * guessing whether the live view raced ahead of a lagging snapshot.
  */
 
-import type { AssistantEvent } from "@/types/event-types";
+import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -63,13 +68,16 @@ export interface SseDebugClient {
   endReason: SseClientEndReason | null;
 }
 
-export interface SseDebugEventEntry {
+/**
+ * A buffered event: the full backend envelope (so `seq` / `conversationId` /
+ * `emittedAt` / `message` stay consistent with the wire type and the entry can
+ * be replayed as-is) plus the client/timestamp this tracker stamps on receipt.
+ */
+export interface SseDebugEventEntry extends AssistantEventEnvelope {
   /** Which client produced this event. */
   clientId: string;
   /** ISO 8601 timestamp of when the event was received. */
   receivedAt: string;
-  /** The parsed event payload. */
-  event: AssistantEvent;
 }
 
 // ---------------------------------------------------------------------------
@@ -176,15 +184,16 @@ export function recordSseTraffic(clientId: string, isData: boolean): void {
 }
 
 /**
- * Push a parsed event into the ring buffer. Called from the `onEvent`
- * callback inside {@link subscribeEvents}.
+ * Push an event envelope into the ring buffer. Called from the `onEvent`
+ * callback inside {@link subscribeEvents}. Retains the envelope metadata
+ * (`id`/`conversationId`/`seq`/`emittedAt`) so the entry can be reconstituted
+ * into an `AssistantEventEnvelope` for resync replay.
  */
-export function pushSseEvent(clientId: string, event: AssistantEvent): void {
-  events.push({
-    clientId,
-    receivedAt: new Date().toISOString(),
-    event,
-  });
+export function pushSseEvent(
+  clientId: string,
+  envelope: AssistantEventEnvelope,
+): void {
+  events.push({ clientId, receivedAt: new Date().toISOString(), ...envelope });
   if (events.length > MAX_EVENTS) {
     events.shift();
   }
@@ -207,6 +216,48 @@ export function getSseClients(): SseDebugClient[] {
 export function getSseEvents(limit = MAX_EVENTS): SseDebugEventEntry[] {
   const start = Math.max(0, events.length - limit);
   return events.slice(start);
+}
+
+/**
+ * The buffered tail for one conversation with `seq > sinceSeq`, in ascending
+ * seq order — the events to replay onto a fresh snapshot during resync. The
+ * entries are envelopes already, so no reconstruction is needed.
+ *
+ * Returns `null` to signal "no safe replay — take the snapshot wholesale" when
+ * either: there is no version anchor (`sinceSeq` null), or the ring no longer
+ * covers the cursor. The ring evicts oldest-first ({@link MAX_EVENTS}), so its
+ * retained entries are a seq-ordered suffix of the global stream; if the oldest
+ * retained `seq` is newer than `sinceSeq + 1`, events between the cursor and the
+ * buffer were evicted and a replay would silently apply a partial tail. Entries
+ * without a numeric `seq` can't be ordered or gated and are skipped.
+ */
+export function getSseEnvelopesSince(
+  conversationId: string,
+  sinceSeq: number | null,
+): AssistantEventEnvelope[] | null {
+  if (sinceSeq === null) return null;
+
+  // Does the ring still reach back to the cursor? `seq` is a single global
+  // counter, so the oldest retained seq across ALL conversations is what proves
+  // nothing between the cursor and the buffer was evicted.
+  let oldestRetainedSeq = Infinity;
+  for (const e of events) {
+    if (typeof e.seq === "number") {
+      oldestRetainedSeq = Math.min(oldestRetainedSeq, e.seq);
+    }
+  }
+  if (oldestRetainedSeq !== Infinity && oldestRetainedSeq > sinceSeq + 1) {
+    return null;
+  }
+
+  return events
+    .filter(
+      (e): e is SseDebugEventEntry & { seq: number } =>
+        e.conversationId === conversationId &&
+        typeof e.seq === "number" &&
+        e.seq > sinceSeq,
+    )
+    .sort((a, b) => a.seq - b.seq);
 }
 
 /**

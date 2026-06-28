@@ -79,6 +79,12 @@ type ProcessMessageOptions = ConversationCreateOptions & {
    * origin. Unset for normal user-initiated turns.
    */
   requestOrigin?: string;
+  /**
+   * Firing's `cron_runs.id`, threaded through to the turn's usage rows so a
+   * scheduled execute turn attributes its LLM spend to that firing. Per-turn:
+   * not stored on the long-lived conversation.
+   */
+  cronRunId?: string | null;
 };
 
 function buildEventEmitter(
@@ -154,6 +160,8 @@ async function prepareConversationForMessage(
     sourceChannel,
     sourceInterface,
     onEvent: _onEvent,
+    cronRunId: _cronRunId,
+    requestOrigin: _requestOrigin,
     ...conversationOptions
   } = options ?? {};
   const conversation = await getOrCreateActiveConversation(
@@ -548,6 +556,7 @@ export async function processMessage(
       ...(options?.requestOrigin
         ? { requestOrigin: options.requestOrigin }
         : {}),
+      ...(options?.cronRunId ? { cronRunId: options.cronRunId } : {}),
     });
   } finally {
     if (
@@ -608,6 +617,7 @@ export async function processMessageInBackground(
       ...(options?.overrideProfile
         ? { overrideProfile: options.overrideProfile }
         : {}),
+      ...(options?.cronRunId ? { cronRunId: options.cronRunId } : {}),
     })
     .finally(() => {
       if (

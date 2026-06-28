@@ -34,6 +34,7 @@ import {
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
   seedEverInjectedFromSlugs,
 } from "../plugins/defaults/memory-v3-shadow/ever-injected-store.js";
+import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { UserError } from "../util/errors.js";
 import { safeParseRecord } from "../util/json.js";
@@ -45,6 +46,11 @@ import {
   linkAttachmentToMessage,
 } from "./attachments-store.js";
 import { AUTO_ANALYSIS_SOURCE } from "./auto-analysis-constants.js";
+import {
+  appendCompactionEvent,
+  forkCompactionLedger,
+  getLatestCompactionEventAtOrBefore,
+} from "./compaction-ledger-store.js";
 import {
   projectAssistantMessage,
   seedForkedConversationAttention,
@@ -591,6 +597,7 @@ export function createConversation(
 ) {
   const db = getDb();
   const now = Date.now();
+  const initialSeq = getCurrentSeq();
   const opts =
     typeof titleOrOpts === "string"
       ? { title: titleOrOpts }
@@ -629,6 +636,10 @@ export function createConversation(
     memoryScopeId,
     scheduleJobId: opts.scheduleJobId ?? null,
     forkParentConversationId: opts.forkParentConversationId ?? null,
+    // Snapshot↔stream alignment baseline, captured at the creation instant.
+    // 0 (nothing stamped yet this process) is stored as NULL so `/messages`
+    // reports null and the client cold-starts rather than aligning to seq 0.
+    seq: initialSeq > 0 ? initialSeq : null,
   };
 
   // Retry on SQLITE_BUSY and SQLITE_IOERR — transient disk I/O errors or WAL
@@ -928,16 +939,6 @@ export function forkConversation(params: {
     initialBoundaryIndex,
   );
 
-  const visibleWindowStartIndex = Math.max(
-    0,
-    Math.min(
-      sourceConversation.contextCompactedMessageCount,
-      sourceMessages.length,
-    ),
-  );
-  const preserveSourceCompactionState =
-    copyBoundaryIndex >= visibleWindowStartIndex;
-
   const messagesToCopy =
     copyBoundaryIndex >= 0
       ? sourceMessages.slice(0, copyBoundaryIndex + 1)
@@ -953,6 +954,23 @@ export function forkConversation(params: {
     sourceHistoryStrippedAt != null &&
     boundaryMessageCreatedAt != null &&
     boundaryMessageCreatedAt >= sourceHistoryStrippedAt;
+
+  // Inherit compaction by the same temporal rule: apply the most recent
+  // compaction whose event time is at-or-before the forked-from message. A
+  // compaction that ran after the boundary message did not exist at that point
+  // in the conversation, so the fork branches from full uncompacted history.
+  const inheritedCompaction = getLatestCompactionEventAtOrBefore(
+    sourceConversation.id,
+    boundaryMessageCreatedAt,
+  );
+  // The Slack chronological-context watermark is single-valued on the source
+  // row and reflects only the latest compaction, so carry it only when the
+  // fork inherits that latest compaction. Pairing the latest watermark with an
+  // older inherited summary (a fork between two compactions) would filter out
+  // Slack messages the older summary does not cover.
+  const inheritsLatestCompaction =
+    inheritedCompaction != null &&
+    inheritedCompaction.compactedAt === sourceConversation.contextCompactedAt;
   const forkParentMessageId = messagesToCopy.at(-1)?.id ?? null;
   const forkTitle =
     params.title ?? `${sourceConversation.title ?? "Untitled"} (Fork)`;
@@ -984,19 +1002,14 @@ export function forkConversation(params: {
       .set({
         forkParentConversationId: sourceConversation.id,
         forkParentMessageId,
-        contextSummary: preserveSourceCompactionState
-          ? sourceConversation.contextSummary
-          : null,
-        contextCompactedMessageCount: preserveSourceCompactionState
-          ? sourceConversation.contextCompactedMessageCount
-          : 0,
-        contextCompactedAt: preserveSourceCompactionState
-          ? sourceConversation.contextCompactedAt
-          : null,
-        slackContextCompactionWatermarkTs: preserveSourceCompactionState
+        contextSummary: inheritedCompaction?.summary ?? null,
+        contextCompactedMessageCount:
+          inheritedCompaction?.compactedMessageCount ?? 0,
+        contextCompactedAt: inheritedCompaction?.compactedAt ?? null,
+        slackContextCompactionWatermarkTs: inheritsLatestCompaction
           ? sourceConversation.slackContextCompactionWatermarkTs
           : null,
-        slackContextCompactionWatermarkAt: preserveSourceCompactionState
+        slackContextCompactionWatermarkAt: inheritsLatestCompaction
           ? sourceConversation.slackContextCompactionWatermarkAt
           : null,
         historyStrippedAt: inheritsHistoryStrippedAt
@@ -1042,8 +1055,8 @@ export function forkConversation(params: {
       forkedMessageIds,
       latestForkedAssistant,
       isFullHistoryFork: copyBoundaryIndex === sourceMessages.length - 1,
-      preserveSourceCompactionState,
-      visibleWindowStartIndex,
+      inheritedCompactedMessageCount:
+        inheritedCompaction?.compactedMessageCount ?? 0,
       diskSyncQueue,
     });
 
@@ -1076,8 +1089,13 @@ interface PopulateForkContentsArgs {
   latestForkedAssistant: { messageId: string; messageAt: number } | null;
   /** `copyBoundaryIndex === sourceMessages.length - 1` for the source. */
   isFullHistoryFork: boolean;
-  preserveSourceCompactionState: boolean;
-  visibleWindowStartIndex: number;
+  /**
+   * Count of leading messages behind the compaction event this fork inherits
+   * (0 when the fork branches from uncompacted history). Memory-slug seeding
+   * skips this prefix, since rows behind the fork's summary are not rendered
+   * and must stay re-injectable.
+   */
+  inheritedCompactedMessageCount: number;
   /**
    * When provided, a disk-sync entry is appended per copied message for the
    * caller to flush after commit. Omitted by the retrospective fork, whose
@@ -1109,8 +1127,7 @@ function populateForkContentsInProcess(args: PopulateForkContentsArgs): void {
     forkedMessageIds,
     latestForkedAssistant,
     isFullHistoryFork,
-    preserveSourceCompactionState,
-    visibleWindowStartIndex,
+    inheritedCompactedMessageCount,
     diskSyncQueue,
   } = args;
   const db = getDb();
@@ -1218,9 +1235,10 @@ function populateForkContentsInProcess(args: PopulateForkContentsArgs): void {
     // The v2 and v3 layers persist under separate metadata keys with the
     // same `# memory/concepts/<slug>.md` header convention, so each seeds
     // its own dedup record from its own blocks.
-    const visibleStartIndex = preserveSourceCompactionState
-      ? visibleWindowStartIndex
-      : 0;
+    const visibleStartIndex = Math.min(
+      inheritedCompactedMessageCount,
+      messagesToCopy.length,
+    );
     const inheritedSlugs = new Set<string>();
     const inheritedV3Slugs = new Set<string>();
     for (const message of messagesToCopy.slice(visibleStartIndex)) {
@@ -1256,6 +1274,15 @@ function populateForkContentsInProcess(args: PopulateForkContentsArgs): void {
     forkedMessageIds,
     lastCopiedSourceMessageId: messagesToCopy.at(-1)?.id ?? null,
   });
+
+  // Carry the source's compaction events that predate the fork boundary so the
+  // fork owns a correct ledger for its own future forks/compactions.
+  forkCompactionLedger(
+    db,
+    sourceConversationId,
+    fork.id,
+    messagesToCopy.at(-1)?.createdAt ?? null,
+  );
 }
 
 /**
@@ -1345,15 +1372,6 @@ export async function forkConversationForRetrospective(params: {
     sourceMessages,
     initialBoundaryIndex,
   );
-  const visibleWindowStartIndex = Math.max(
-    0,
-    Math.min(
-      sourceConversation.contextCompactedMessageCount,
-      sourceMessages.length,
-    ),
-  );
-  const preserveSourceCompactionState =
-    copyBoundaryIndex >= visibleWindowStartIndex;
   const messagesToCopy =
     copyBoundaryIndex >= 0
       ? sourceMessages.slice(0, copyBoundaryIndex + 1)
@@ -1365,6 +1383,17 @@ export async function forkConversationForRetrospective(params: {
     sourceHistoryStrippedAt != null &&
     boundaryMessageCreatedAt != null &&
     boundaryMessageCreatedAt >= sourceHistoryStrippedAt;
+  // Inherit the most recent compaction whose event time is at-or-before the
+  // forked-from message (see `forkConversation`).
+  const inheritedCompaction = getLatestCompactionEventAtOrBefore(
+    sourceConversation.id,
+    boundaryMessageCreatedAt,
+  );
+  // Carry the Slack watermark only when inheriting the latest compaction
+  // (see `forkConversation`).
+  const inheritsLatestCompaction =
+    inheritedCompaction != null &&
+    inheritedCompaction.compactedAt === sourceConversation.contextCompactedAt;
   const forkParentMessageId = messagesToCopy.at(-1)?.id ?? null;
   const forkTitle =
     params.title ?? `${sourceConversation.title ?? "Untitled"} (Fork)`;
@@ -1393,19 +1422,14 @@ export async function forkConversationForRetrospective(params: {
       .set({
         forkParentConversationId: sourceConversation.id,
         forkParentMessageId,
-        contextSummary: preserveSourceCompactionState
-          ? sourceConversation.contextSummary
-          : null,
-        contextCompactedMessageCount: preserveSourceCompactionState
-          ? sourceConversation.contextCompactedMessageCount
-          : 0,
-        contextCompactedAt: preserveSourceCompactionState
-          ? sourceConversation.contextCompactedAt
-          : null,
-        slackContextCompactionWatermarkTs: preserveSourceCompactionState
+        contextSummary: inheritedCompaction?.summary ?? null,
+        contextCompactedMessageCount:
+          inheritedCompaction?.compactedMessageCount ?? 0,
+        contextCompactedAt: inheritedCompaction?.compactedAt ?? null,
+        slackContextCompactionWatermarkTs: inheritsLatestCompaction
           ? sourceConversation.slackContextCompactionWatermarkTs
           : null,
-        slackContextCompactionWatermarkAt: preserveSourceCompactionState
+        slackContextCompactionWatermarkAt: inheritsLatestCompaction
           ? sourceConversation.slackContextCompactionWatermarkAt
           : null,
         historyStrippedAt: inheritsHistoryStrippedAt
@@ -1445,8 +1469,8 @@ export async function forkConversationForRetrospective(params: {
         forkedMessageIds,
         latestForkedAssistant,
         isFullHistoryFork: copyBoundaryIndex === sourceMessages.length - 1,
-        preserveSourceCompactionState,
-        visibleWindowStartIndex,
+        inheritedCompactedMessageCount:
+          inheritedCompaction?.compactedMessageCount ?? 0,
       });
     });
 
@@ -2117,15 +2141,27 @@ export function updateConversationContextWindow(
   contextCompactedMessageCount: number,
 ): void {
   const db = getDb();
-  db.update(conversations)
-    .set({
-      contextSummary,
-      contextCompactedMessageCount,
-      contextCompactedAt: Date.now(),
-      updatedAt: Date.now(),
-    })
-    .where(eq(conversations.id, id))
-    .run();
+  const now = Date.now();
+  // Update the hot-path cache columns and append the event to the ledger in a
+  // single transaction so the latest ledger event always matches the cache.
+  db.transaction(() => {
+    db.update(conversations)
+      .set({
+        contextSummary,
+        contextCompactedMessageCount,
+        contextCompactedAt: now,
+        updatedAt: now,
+      })
+      .where(eq(conversations.id, id))
+      .run();
+    if (contextCompactedMessageCount > 0) {
+      appendCompactionEvent(id, {
+        compactedAt: now,
+        summary: contextSummary,
+        compactedMessageCount: contextCompactedMessageCount,
+      });
+    }
+  });
 }
 
 export function setConversationHistoryStrippedAt(
@@ -2216,6 +2252,45 @@ export function isConversationProcessing(id: string): boolean {
     id,
   );
   return row?.processing_started_at != null;
+}
+
+/**
+ * Highest stream `seq` whose content is durably persisted to this
+ * conversation's message rows, read from the `conversations.seq` column. This
+ * is the snapshot↔stream alignment baseline `/messages` returns so a client
+ * applies only stream events with a higher `seq`. `null` when none was
+ * recorded (created before any stream activity, row predates the column, or
+ * the conversation row is absent), in which case the client cold-starts.
+ *
+ * Seeded at creation with the global high-water seq and advanced on each
+ * persistence flush by {@link recordConversationPersistedSeq}.
+ */
+export function getConversationPersistedSeq(id: string): number | null {
+  const row = rawGet<{ seq: number | null }>(
+    "SELECT seq FROM conversations WHERE id = ?",
+    id,
+  );
+  return row?.seq ?? null;
+}
+
+/**
+ * Record that conversation `id` has durably persisted all of its events
+ * through `seq`, writing the `conversations.seq` column. Called at each
+ * persistence flush with the `seq` of the last event whose content the write
+ * committed.
+ *
+ * Monotonic: the `WHERE seq IS NULL OR seq < ?` guard makes the update raise
+ * the high-water mark only, so out-of-order async commits never regress it.
+ * Non-positive or non-finite `seq` values are ignored.
+ */
+export function recordConversationPersistedSeq(id: string, seq: number): void {
+  if (!Number.isFinite(seq) || seq <= 0) return;
+  rawRun(
+    "UPDATE conversations SET seq = ? WHERE id = ? AND (seq IS NULL OR seq < ?)",
+    seq,
+    id,
+    seq,
+  );
 }
 
 /**

@@ -274,7 +274,25 @@ export function ToolProgressCardShell({
         const titleCluster = (
           <span className="flex min-w-0 flex-1 items-center gap-1">
             {hideStatusIndicator ? null : (
-              <StatusIndicator state={state} testId={statusIndicatorTestId} />
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.span
+                  key={state}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={
+                    reduce
+                      ? { duration: 0 }
+                      : { duration: 0.15, ease: [0.16, 1, 0.3, 1] }
+                  }
+                  className="inline-flex shrink-0"
+                >
+                  <StatusIndicator
+                    state={state}
+                    testId={statusIndicatorTestId}
+                  />
+                </motion.span>
+              </AnimatePresence>
             )}
             {leadingIcon ? (
               // `mx-1` adds 4px on each side on top of the parent's `gap-1`

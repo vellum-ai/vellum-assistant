@@ -47,9 +47,8 @@ let nextTrust: ActorTrustContext;
 const resolveActorTrustMock = mock(() => nextTrust);
 // Override only `resolveActorTrust`; the real `trust-verdict-consumer` imports
 // `toTrustContext` from this module, so the rest must pass through untouched.
-const actorTrustResolverModule = await import(
-  "../../runtime/actor-trust-resolver.js"
-);
+const actorTrustResolverModule =
+  await import("../../runtime/actor-trust-resolver.js");
 mock.module("../../runtime/actor-trust-resolver.js", () => ({
   ...actorTrustResolverModule,
   resolveActorTrust: resolveActorTrustMock,
@@ -109,6 +108,7 @@ function makeContact(
     id: "ct_1",
     displayName: "Test Caller",
     notes: null,
+    role: "contact",
     lastInteraction: null,
     interactionCount: 0,
     createdAt: 0,

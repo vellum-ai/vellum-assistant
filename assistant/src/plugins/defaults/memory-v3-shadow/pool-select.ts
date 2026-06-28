@@ -355,6 +355,15 @@ function dedupeBySlug(
   return [...bySlug].map(([slug, pinned]) => ({ slug, pinned }));
 }
 
+/** Return every candidate in pool order, deduped by slug. */
+export function selectAllPoolCandidates(pool: SelectorPool): SelectedPage[] {
+  const ordered: Slug[] = [
+    ...pool.stable.map((c) => c.slug),
+    ...pool.finder.map((c) => c.slug),
+  ];
+  return dedupeBySlug(ordered.map((slug) => ({ slug, pinned: false })));
+}
+
 /**
  * Run the single forced-tool selector over the unified candidate pool. Returns
  * the pages to inject, deduped by slug (a page that appeared as both a card
@@ -382,8 +391,7 @@ export async function selectPool(
   ];
   if (ordered.length === 0) return [];
 
-  const keepAll = (): SelectedPage[] =>
-    dedupeBySlug(ordered.map((slug) => ({ slug, pinned: false })));
+  const keepAll = (): SelectedPage[] => selectAllPoolCandidates(pool);
 
   const provider = await getConfiguredProvider(MEMORY_V3_SELECT_CALL_SITE);
   if (!provider) {
