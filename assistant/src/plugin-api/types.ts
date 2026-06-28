@@ -15,6 +15,7 @@ import type {
   PlatformFacet,
   ProvidersFacet,
   RegistriesFacet,
+  StoreFacet,
   VectorStoreFacet,
 } from "@vellumai/skill-host-contracts";
 
@@ -75,6 +76,12 @@ export interface PluginHost {
   embeddings: EmbeddingsFacet;
   /** Upsert/search/delete dense vectors in a plugin-namespaced collection. */
   vectorStore: VectorStoreFacet;
+  /**
+   * Durable structured storage in plugin-owned, `plugin_<id>_`-prefixed tables
+   * in the shared database, with append-only scoped migrations. Access is
+   * confined to the plugin's own tables.
+   */
+  store: StoreFacet;
 }
 
 export type {
@@ -91,6 +98,9 @@ export type {
   PlatformFacet,
   ProvidersFacet,
   RegistriesFacet,
+  StoreExec,
+  StoreFacet,
+  StoreMigration,
   VectorStoreFacet,
 } from "@vellumai/skill-host-contracts";
 

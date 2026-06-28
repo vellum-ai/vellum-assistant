@@ -167,6 +167,7 @@ import {
   buildPlatformFacet,
   buildProvidersFacet,
   buildRegistriesFacet,
+  buildStoreFacet,
   buildVectorStoreFacet,
 } from "../skill-host-facets.js";
 
@@ -188,6 +189,7 @@ function buildPluginHost(pluginName: string): PluginHost {
     registries: buildRegistriesFacet(pluginName),
     embeddings: buildEmbeddingsFacet(),
     vectorStore: buildVectorStoreFacet(pluginName),
+    store: buildStoreFacet(pluginName),
   };
 }
 
@@ -251,6 +253,7 @@ describe("external-plugin host bundle", () => {
       "registries",
       "embeddings",
       "vectorStore",
+      "store",
     ] as const) {
       expect(host[key]).toBeDefined();
     }
@@ -275,6 +278,7 @@ describe("external-plugin host bundle", () => {
       "registries",
       "embeddings",
       "vectorStore",
+      "store",
     ] as const;
 
     for (const facet of facets) {

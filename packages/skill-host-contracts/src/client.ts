@@ -126,6 +126,7 @@ import type {
   SkillRoute,
   SkillRouteHandle,
   SpeakersFacet,
+  StoreFacet,
   SttProvidersFacet,
   Subscription,
   ToolUse,
@@ -286,6 +287,7 @@ export class SkillHostClient implements SkillHost {
   readonly speakers: SpeakersFacet;
   readonly embeddings: EmbeddingsFacet;
   readonly vectorStore: VectorStoreFacet;
+  readonly store: StoreFacet;
 
   private readonly options: Required<
     Pick<
@@ -378,6 +380,7 @@ export class SkillHostClient implements SkillHost {
     this.speakers = this.buildSpeakersFacet();
     this.embeddings = this.buildEmbeddingsFacet();
     this.vectorStore = this.buildVectorStoreFacet();
+    this.store = this.buildStoreFacet();
   }
 
   // ── Public lifecycle ────────────────────────────────────────────────────
@@ -1363,6 +1366,28 @@ export class SkillHostClient implements SkillHost {
         ({
           __vellumSkillHostClientHandle: "speaker-tracker",
         }) as unknown,
+    };
+  }
+
+  /**
+   * The durable structured store is an in-process facet: its `query`/`exec`/
+   * `migrate` methods run synchronous SQLite against the shared database, which
+   * cannot cross the skill IPC socket. An out-of-process skill that needs
+   * durable structured storage uses its own `pluginStorageDir`; this facet is
+   * therefore unavailable on the IPC client and every method throws a clear
+   * error rather than silently no-op'ing.
+   */
+  private buildStoreFacet(): StoreFacet {
+    const unavailable = (): never => {
+      throw new Error(
+        "SkillHostClient: the durable structured store is not available out-of-process; " +
+          "use the per-skill storage directory instead",
+      );
+    };
+    return {
+      migrate: unavailable,
+      query: unavailable,
+      exec: unavailable,
     };
   }
 

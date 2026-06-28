@@ -2,7 +2,7 @@
  * `DaemonSkillHost` — in-process concretion of the neutral `SkillHost`
  * interface defined in `@vellumai/skill-host-contracts`.
  *
- * `createDaemonSkillHost(skillId)` returns a plain object whose nine facets
+ * `createDaemonSkillHost(skillId)` returns a plain object whose facets
  * (`logger`, `config`, `identity`, `platform`, `providers`, `memory`,
  * `events`, `registries`, `speakers`) delegate to the daemon's existing
  * singleton modules. First-party skills that live in-process receive this
@@ -28,6 +28,7 @@ import {
   buildProvidersFacet,
   buildRegistriesFacet,
   buildSpeakersFacet,
+  buildStoreFacet,
   buildVectorStoreFacet,
 } from "./skill-host-facets.js";
 
@@ -52,5 +53,6 @@ export function createDaemonSkillHost(skillId: string): SkillHost {
     speakers: buildSpeakersFacet(),
     embeddings: buildEmbeddingsFacet(),
     vectorStore: buildVectorStoreFacet(skillId),
+    store: buildStoreFacet(skillId),
   };
 }

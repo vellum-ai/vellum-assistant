@@ -6,7 +6,7 @@
  *
  * Two callers consume these builders:
  * - {@link createDaemonSkillHost} (in `daemon-skill-host.ts`) assembles the
- *   full nine-facet `SkillHost` for in-process first-party skills.
+ *   full `SkillHost` facet bundle for in-process first-party skills.
  * - The external-plugin bootstrap (`external-plugins-bootstrap.ts`) assembles
  *   the subset exposed on `InitContext.host`, so an external plugin reaches
  *   providers/memory/events/config the same way a skill does — without
@@ -46,6 +46,7 @@ import type {
   SkillRoute,
   SkillRouteHandle,
   SpeakersFacet,
+  StoreFacet,
   StreamingTranscriber,
   SttProvidersFacet,
   Subscription,
@@ -69,8 +70,10 @@ import {
   getMessagesPaginated,
   type MessageRow,
 } from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
 import { embedWithBackend } from "../persistence/embeddings/embedding-backend.js";
 import { openPluginVectorCollection } from "../persistence/embeddings/plugin-vector-store.js";
+import { createStoreFacet } from "../persistence/plugin-store/index.js";
 import {
   createTimeout,
   extractToolUse,
@@ -361,6 +364,15 @@ export function buildEmbeddingsFacet(): EmbeddingsFacet {
       return vectors;
     },
   };
+}
+
+export function buildStoreFacet(hostId: string): StoreFacet {
+  // Tables live in the shared main database so plugin rows can be joined
+  // against the history facet's conversation/message views. The handle is
+  // resolved lazily per call, so building the host never opens the DB.
+  // Namespacing and checkpointing are enforced inside `createStoreFacet`,
+  // scoped to `hostId`.
+  return createStoreFacet(getDb, hostId);
 }
 
 export function buildVectorStoreFacet(hostId: string): VectorStoreFacet {
