@@ -38,6 +38,8 @@ let recordedSkillLoadedEvents: SkillLoadedEventRecord[] = [];
 let mockRecordSkillLoadedFailure = false;
 /** Skill IDs for which registerSkillTools throws (simulates a different-owner tool name collision). */
 let mockRegisterFailures: Set<string> = new Set();
+/** `(skillDir, today)` pairs captured by the mocked touchSkillLastUsed. */
+let recordedLastUsedTouches: Array<{ skillDir: string; today: string }> = [];
 
 // ---------------------------------------------------------------------------
 // Mocks — must be set up before importing the module under test
@@ -248,6 +250,10 @@ mock.module("../skills/install-meta.js", () => ({
     const parts = skillDir.split("/");
     const skillId = parts[parts.length - 1];
     return mockInstallMetas[skillId] ?? null;
+  },
+  touchSkillLastUsed: (skillDir: string, today: string) => {
+    recordedLastUsedTouches.push({ skillDir, today });
+    return true;
   },
 }));
 
@@ -1171,6 +1177,153 @@ describe("skill_loaded telemetry recording", () => {
 
     expect(recordedSkillLoadedEvents).toHaveLength(0);
     expect(result.allowedToolNames.has("notes_add")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// lastUsedAt stamping on managed-skill load
+// ---------------------------------------------------------------------------
+
+describe("lastUsedAt stamping on managed-skill load", () => {
+  let sessionState: Map<string, string>;
+
+  // The projection layer computes `today` from the local clock; mirror that
+  // expression so the assertion stays correct regardless of the run date.
+  const expectedToday = new Date().toLocaleDateString("en-CA");
+
+  beforeEach(() => {
+    mockCatalog = [];
+    mockManifests = {};
+    mockRegisteredTools = new Map();
+    mockUnregisteredSkillIds = [];
+    mockSkillRefCount = new Map();
+    mockVersionHashes = {};
+    mockVersionHashErrors = new Set();
+    mockInstallMetas = {};
+    recordedSkillLoadedEvents = [];
+    recordedLastUsedTouches = [];
+    sessionState = new Map<string, string>();
+  });
+
+  test("managed skill load stamps lastUsedAt with today's date and its directory", () => {
+    mockCatalog = [makeSkill("homemade")];
+    mockManifests = { homemade: makeManifest(["hm_run"]) };
+    mockInstallMetas = {
+      homemade: { origin: "custom", installedAt: "2026-01-01T00:00:00Z" },
+    };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="homemade" />'),
+    ];
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    expect(recordedLastUsedTouches).toEqual([
+      { skillDir: "/skills/homemade", today: expectedToday },
+    ]);
+  });
+
+  test("stamps managed skills even when telemetry is off (ungated)", () => {
+    // origin: "custom" is suppressed for telemetry but must still be stamped.
+    mockCatalog = [makeSkill("homemade")];
+    mockManifests = { homemade: makeManifest(["hm_run"]) };
+    mockInstallMetas = {
+      homemade: { origin: "custom", installedAt: "2026-01-01T00:00:00Z" },
+    };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="homemade" />'),
+    ];
+    // No telemetry option passed.
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    expect(recordedSkillLoadedEvents).toHaveLength(0);
+    expect(recordedLastUsedTouches).toHaveLength(1);
+    expect(recordedLastUsedTouches[0].skillDir).toBe("/skills/homemade");
+  });
+
+  test("instruction-only managed skill (no TOOLS.json) is stamped", () => {
+    mockCatalog = [makeSkill("catalog-skill")];
+    // No manifest — instruction-only managed skill.
+    mockInstallMetas = {
+      "catalog-skill": {
+        origin: "vellum",
+        installedAt: "2026-01-01T00:00:00Z",
+      },
+    };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="catalog-skill" />'),
+    ];
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    expect(recordedLastUsedTouches).toEqual([
+      { skillDir: "/skills/catalog-skill", today: expectedToday },
+    ]);
+  });
+
+  test("bundled skills are NOT stamped", () => {
+    mockCatalog = [makeSkill("notes", undefined, "bundled")];
+    mockManifests = { notes: makeManifest(["notes_add"]) };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="notes" />'),
+    ];
+    projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+      telemetry: { conversationId: "conv-xyz", attribution: null },
+    });
+
+    // Telemetry still fires for the bundled skill, but no usage stamp.
+    expect(recordedSkillLoadedEvents).toHaveLength(1);
+    expect(recordedLastUsedTouches).toHaveLength(0);
+  });
+
+  test("workspace skills are NOT stamped", () => {
+    mockCatalog = [makeSkill("local-helper", undefined, "workspace")];
+    mockManifests = { "local-helper": makeManifest(["lh_run"]) };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="local-helper" />'),
+    ];
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    expect(recordedLastUsedTouches).toHaveLength(0);
+  });
+
+  test("a still-active skill on a later turn does not re-stamp", () => {
+    mockCatalog = [makeSkill("homemade")];
+    mockManifests = { homemade: makeManifest(["hm_run"]) };
+    mockInstallMetas = {
+      homemade: { origin: "custom", installedAt: "2026-01-01T00:00:00Z" },
+    };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="homemade" />'),
+    ];
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    // Stamping rides the same load events as telemetry — once per activation.
+    expect(recordedLastUsedTouches).toHaveLength(1);
+  });
+
+  test("version-hash change re-registers and re-stamps the managed skill", () => {
+    mockCatalog = [makeSkill("homemade")];
+    mockManifests = { homemade: makeManifest(["hm_run"]) };
+    mockInstallMetas = {
+      homemade: { origin: "custom", installedAt: "2026-01-01T00:00:00Z" },
+    };
+    mockVersionHashes = { homemade: "v1:hash-aaa" };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="homemade" />'),
+    ];
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    mockVersionHashes = { homemade: "v1:hash-bbb" };
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    expect(recordedLastUsedTouches).toHaveLength(2);
   });
 });
 
