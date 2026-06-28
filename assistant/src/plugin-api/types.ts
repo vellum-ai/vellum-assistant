@@ -4,6 +4,17 @@
  * removing is breaking and gated on a major bump.
  */
 
+import type {
+  ConfigFacet,
+  EventsFacet,
+  IdentityFacet,
+  LoggerFacet,
+  MemoryFacet,
+  PlatformFacet,
+  ProvidersFacet,
+  RegistriesFacet,
+} from "@vellumai/skill-host-contracts";
+
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type {
   ContentBlock,
@@ -17,6 +28,52 @@ export type {
   ToolExecutionResult,
 } from "../tools/types.js";
 export { RiskLevel } from "../tools/types.js";
+
+// ─── Host facets ─────────────────────────────────────────────────────────────
+
+/**
+ * The sanctioned route for an external plugin to reach the assistant's live
+ * subsystems — providers, memory, events, config, identity, platform,
+ * logger, registries — without importing from `assistant/` source. Each
+ * facet is the neutral `@vellumai/skill-host-contracts` interface, the same
+ * contract first-party skills receive; the daemon supplies a concrete
+ * implementation scoped to the plugin at init time on
+ * {@link InitContext.host}.
+ *
+ * Direct `assistant/` source imports remain forbidden for external plugins:
+ * this bundle is the only supported path to those subsystems. Embeddings,
+ * history, store, and jobs facets are added by later PRs; this surface
+ * exposes the facets that exist today.
+ */
+export interface PluginHost {
+  /** Resolve LLM/STT/TTS providers and secure keys for the workspace. */
+  providers: ProvidersFacet;
+  /** Persist messages and wake the agent for opportunities. */
+  memory: MemoryFacet;
+  /** Publish/subscribe to runtime events and build event envelopes. */
+  events: EventsFacet;
+  /** Read assistant feature flags and typed config sections. */
+  config: ConfigFacet;
+  /** Read assistant identity (e.g. display name). */
+  identity: IdentityFacet;
+  /** Resolve workspace/vellum-root paths and the runtime mode. */
+  platform: PlatformFacet;
+  /** Obtain scoped structural loggers. */
+  logger: LoggerFacet;
+  /** Register tools, skill routes, and shutdown hooks. */
+  registries: RegistriesFacet;
+}
+
+export type {
+  ConfigFacet,
+  EventsFacet,
+  IdentityFacet,
+  LoggerFacet,
+  MemoryFacet,
+  PlatformFacet,
+  ProvidersFacet,
+  RegistriesFacet,
+} from "@vellumai/skill-host-contracts";
 
 // ─── Logger ──────────────────────────────────────────────────────────────────
 
@@ -101,6 +158,16 @@ export interface InitContext {
    * semver range, enforced at load time by the external-plugin loader.
    */
   assistantVersion: string;
+  /**
+   * The sanctioned route to the assistant's live subsystems (providers,
+   * memory, events, config, identity, platform, logger, registries). Direct
+   * `assistant/` source imports remain forbidden for external plugins — this
+   * bundle is the only supported path. Optional/additive: present for
+   * external plugins initialized through the bootstrap, absent in lightweight
+   * test contexts that construct an `InitContext` without one, so plugins
+   * that ignore it are unaffected. See {@link PluginHost}.
+   */
+  host?: PluginHost;
 }
 
 // ─── Model profiles ──────────────────────────────────────────────────────────
