@@ -1539,6 +1539,11 @@ describe("memoryRetrospectiveJob", () => {
       "Only CREATE a new skill (fresh `skill_id`) when no existing skill of any source covers the procedure",
     );
 
+    // The dedup directive keys overwrite eligibility on the `author` signal:
+    // overwrite only `source: "managed"` AND `author: "assistant"`.
+    expect(instructionText).toContain('source: "managed"');
+    expect(instructionText).toContain('author: "assistant"');
+
     // Ordinary facts stay plain remembers — the instruction carries no
     // skill-linking directive.
     expect(instructionText).not.toContain("skill:");
