@@ -2,10 +2,7 @@ import { join } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
-import {
-  isMemoryV3Live,
-  isProcToSkillsActive,
-} from "../config/memory-v3-gate.js";
+import { isMemoryV3Live } from "../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../config/types.js";
 import {
   checkDiskPressureBackgroundGate,
@@ -13,7 +10,6 @@ import {
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
 import { maintainJob as memoryV3MaintainJob } from "../plugins/defaults/memory-v3-shadow/maintain-job.js";
-import { procDistillTriggerJob } from "../plugins/defaults/memory-v3-shadow/proc-distill-trigger.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
@@ -156,6 +152,7 @@ const LEGACY_JOB_TYPES = new Set([
   "memory_v3_consolidate",
   "memory_v3_index_maintenance",
   "memory_v3_edge_learning",
+  "memory_proc_distill",
 ]);
 
 export const POLL_INTERVAL_MIN_MS = 1_500;
@@ -753,9 +750,6 @@ async function processJob(
     case "memory_v3_maintain":
       await memoryV3MaintainJob(job, config);
       return;
-    case "memory_proc_distill":
-      await procDistillTriggerJob(job, config);
-      return;
     case "memory_retrospective":
       await memoryRetrospectiveJob(job, config);
       return;
@@ -824,16 +818,6 @@ const GRAPH_NARRATIVE_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000; // 1 week
 // conservative cadence is fine since
 // the maintenance pass is idempotent and cheap when there's nothing to do.
 const GRAPH_V3_MAINTAIN_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
-// Backstop cadence for procedural-memory distillation. The primary trigger is
-// the post-consolidation follow-up (see `consolidation-job.ts`), but that only
-// fires when consolidation actually ran — and scheduled consolidation no-ops
-// while the buffer is under MIN_BUFFER_LINES_FOR_CONSOLIDATION. A cluster left
-// `ready` by a transient/skipped/failed distill (or one never retried because
-// no new memory arrived) would otherwise sit forever. This interval re-enqueues
-// `memory_proc_distill` so a stranded `ready` cluster always gets another pass.
-// 6h matches the v3-maintain backstop; the pass is idempotent and cheap when
-// there is nothing ready to distill.
-const PROC_DISTILL_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 export const GRAPH_MAINTENANCE_CHECKPOINTS = {
   decay: "graph_maintenance:decay:last_run",
@@ -842,7 +826,6 @@ export const GRAPH_MAINTENANCE_CHECKPOINTS = {
   narrative: "graph_maintenance:narrative:last_run",
   memoryV2Consolidate: "memory_v2_consolidate_last_run",
   memoryV3Maintain: "memory_v3_maintain_last_run",
-  memoryProcDistill: "memory_proc_distill_last_run",
 } as const;
 
 /**
@@ -871,9 +854,7 @@ export const GRAPH_MAINTENANCE_CHECKPOINTS = {
  *
  * Independently of the v1/v2 split, a flag-gated `memory_v3_maintain` backstop
  * is appended when a v3 path is active so the topic tree self-heals even if the
- * primary post-consolidation follow-up enqueue is missed. A `memory_proc_distill`
- * backstop is likewise appended when procedural-memory-as-skills is active, so a
- * cluster left `ready` retries even when no new consolidation runs.
+ * primary post-consolidation follow-up enqueue is missed.
  */
 export function maybeEnqueueGraphMaintenanceJobs(
   config: AssistantConfig,
@@ -937,23 +918,6 @@ export function maybeEnqueueGraphMaintenanceJobs(
       key: GRAPH_MAINTENANCE_CHECKPOINTS.memoryV3Maintain,
       intervalMs: GRAPH_V3_MAINTAIN_INTERVAL_MS,
       jobType: "memory_v3_maintain",
-    });
-  }
-
-  // Procedural-memory distillation backstop. Like the v3-maintain backstop, it
-  // owns its own checkpoint and is orthogonal to the v1/v2 split. The primary
-  // trigger is the post-consolidation follow-up, but a cluster left `ready` by a
-  // transient/skipped/failed distill — or one never re-driven because no new
-  // memory arrived to trigger consolidation — would otherwise never retry. Gated
-  // on `isProcToSkillsActive` (flag on AND v3 live), the same predicate that
-  // gates the feature elsewhere, so it stays inert when the feature is off. The
-  // job handler also no-ops when inactive, so this guard is belt-and-suspenders
-  // that additionally avoids a wasted enqueue.
-  if (isProcToSkillsActive(config)) {
-    schedule.push({
-      key: GRAPH_MAINTENANCE_CHECKPOINTS.memoryProcDistill,
-      intervalMs: PROC_DISTILL_INTERVAL_MS,
-      jobType: "memory_proc_distill",
     });
   }
 

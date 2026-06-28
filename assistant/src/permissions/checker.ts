@@ -681,7 +681,7 @@ export async function classifyRisk(
 //   - procedural-memory-as-skills is active (`policyContext.procToSkillsActive`,
 //     precomputed by buildPolicyContext: the flag is on AND memory-v3 is live),
 //   - the turn is the consolidation background source — guardian trust, `vellum`
-//     source channel, `memory_consolidation` origin (set in proc-distill-trigger.ts).
+//     source channel, `memory_consolidation` origin (set in consolidation-job.ts).
 //
 // The grant is intentionally narrow: it matches exactly these two tools AND the
 // consolidation origin under the active flag, so no interactive session, other

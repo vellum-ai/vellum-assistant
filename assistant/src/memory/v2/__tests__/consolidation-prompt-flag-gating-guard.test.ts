@@ -25,7 +25,6 @@ import { describe, expect, test } from "bun:test";
 import {
   CONSOLIDATION_PROMPT_V3,
   CORE_PAGES_CONSOLIDATION_SECTION,
-  PROC_TO_SKILLS_CONSOLIDATION_SECTION,
   renderConsolidationPrompt,
 } from "../prompts/consolidation.js";
 
@@ -52,17 +51,11 @@ const GATED_SECTIONS: Array<{
     section: CORE_PAGES_CONSOLIDATION_SECTION,
     marker: "core-pages",
   },
-  {
-    name: "proc-to-skills routing (gate: procedural-memory-as-skills)",
-    section: PROC_TO_SKILLS_CONSOLIDATION_SECTION,
-    marker: "proc-candidate",
-  },
 ];
 
 /** All `ConsolidationPromptOptions` gates forced off — the v2-only rendering. */
 const ALL_GATES_OFF = {
   includeCorePagesSection: false,
-  includeProcToSkillsSection: false,
   articleShape: "v2" as const,
 };
 
@@ -178,7 +171,6 @@ describe("default consolidation prompt flag-gating guard", () => {
   test("the v3 rendering teaches the v3 shape and drops the v2 summary requirement", () => {
     const v3 = renderConsolidationPrompt("Jan 1, 12:00 AM", {
       includeCorePagesSection: true,
-      includeProcToSkillsSection: false,
       articleShape: "v3",
     });
     for (const marker of V3_SHAPE_MARKERS) {
@@ -189,33 +181,25 @@ describe("default consolidation prompt flag-gating guard", () => {
     expect(v3).not.toContain("The `summary` field is required");
     // §10 rides along under the live flag.
     expect(v3).toContain(CORE_PAGES_CONSOLIDATION_SECTION);
-    // proc-to-skills is independently gated: off here even with the v3 shape.
-    expect(v3).not.toContain(PROC_TO_SKILLS_CONSOLIDATION_SECTION);
     // The raw template keeps all placeholders wired.
     expect(CONSOLIDATION_PROMPT_V3).toContain("{{CUTOFF}}");
     expect(CONSOLIDATION_PROMPT_V3).toContain("{{CORE_PAGES_SECTION}}");
-    expect(CONSOLIDATION_PROMPT_V3).toContain("{{PROC_TO_SKILLS_SECTION}}");
     expect(v3.match(/\{\{[A-Z0-9_]+\}\}/g) ?? []).toEqual([]);
   });
 
-  test("the proc-to-skills section renders only when its own gate is on", () => {
+  test("the core-pages section renders only when its own gate is on", () => {
     const on = renderConsolidationPrompt("Jan 1, 12:00 AM", {
       includeCorePagesSection: true,
-      includeProcToSkillsSection: true,
       articleShape: "v3",
     });
-    // The routing directives reach the rendered prompt under the flag...
-    expect(on).toContain(PROC_TO_SKILLS_CONSOLIDATION_SECTION);
-    expect(on).toContain("the invoke-test");
-    expect(on).toContain("kind: proc-candidate");
-    // ...and the two gated sections are independent of each other.
-    const procOnly = renderConsolidationPrompt("Jan 1, 12:00 AM", {
-      includeCorePagesSection: false,
-      includeProcToSkillsSection: true,
-      articleShape: "v3",
-    });
-    expect(procOnly).toContain(PROC_TO_SKILLS_CONSOLIDATION_SECTION);
-    expect(procOnly).not.toContain(CORE_PAGES_CONSOLIDATION_SECTION);
+    expect(on).toContain(CORE_PAGES_CONSOLIDATION_SECTION);
     expect(on.match(/\{\{[A-Z0-9_]+\}\}/g) ?? []).toEqual([]);
+
+    const off = renderConsolidationPrompt("Jan 1, 12:00 AM", {
+      includeCorePagesSection: false,
+      articleShape: "v3",
+    });
+    expect(off).not.toContain(CORE_PAGES_CONSOLIDATION_SECTION);
+    expect(off.match(/\{\{[A-Z0-9_]+\}\}/g) ?? []).toEqual([]);
   });
 });

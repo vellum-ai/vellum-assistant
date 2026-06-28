@@ -73,12 +73,10 @@ const CUTOFF = "2026-05-01T12:00:00.000Z";
 /** Options for tests not exercising the v3 core-pages gate. */
 const NO_CORE = {
   includeCorePagesSection: false,
-  includeProcToSkillsSection: false,
   articleShape: "v2" as const,
 };
 const WITH_CORE = {
   includeCorePagesSection: true,
-  includeProcToSkillsSection: false,
   articleShape: "v2" as const,
 };
 

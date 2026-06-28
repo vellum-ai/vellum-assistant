@@ -65,10 +65,7 @@ import {
 import { dirname, join } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
-import {
-  isMemoryV3Live,
-  isProcToSkillsActive,
-} from "../../config/memory-v3-gate.js";
+import { isMemoryV3Live } from "../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../config/types.js";
 import { runBackgroundJob } from "../../runtime/background-job-runner.js";
 import { getLogger } from "../../util/logger.js";
@@ -132,16 +129,6 @@ const FOLLOW_UP_JOB_TYPES: readonly MemoryJobType[] = ["memory_v2_reembed"];
 
 /** Follow-up enqueued only when a v3 flag is on. */
 const V3_FOLLOW_UP_JOB_TYPE: MemoryJobType = "memory_v3_maintain";
-
-/**
- * Follow-up enqueued only when procedural-memory-as-skills is active (the flag
- * is on AND memory-v3 is live — see {@link isProcToSkillsActive}). The trigger
- * tallies the `kind: proc-candidate` notes this consolidation pass just wrote,
- * clustering them by goal toward the recurrence threshold. The candidate notes
- * only exist under v3-live (the v2 prompt has no proc-to-skills section), so
- * enqueueing this follow-up without v3-live would tally nothing.
- */
-const PROC_DISTILL_FOLLOW_UP_JOB_TYPE: MemoryJobType = "memory_proc_distill";
 
 /**
  * Job handler. See file header for the full lifecycle. Returns a discriminated
@@ -290,7 +277,6 @@ export async function memoryV2ConsolidateJob(
       cutoff,
       {
         includeCorePagesSection: memoryV3Active,
-        includeProcToSkillsSection: isProcToSkillsActive(config),
         articleShape: memoryV3Live ? "v3" : "v2",
       },
     );
@@ -329,9 +315,6 @@ export async function memoryV2ConsolidateJob(
     const jobTypes: MemoryJobType[] = [...FOLLOW_UP_JOB_TYPES];
     if (memoryV3Active) {
       jobTypes.push(V3_FOLLOW_UP_JOB_TYPE);
-    }
-    if (isProcToSkillsActive(config)) {
-      jobTypes.push(PROC_DISTILL_FOLLOW_UP_JOB_TYPE);
     }
     for (const jobType of jobTypes) {
       try {
