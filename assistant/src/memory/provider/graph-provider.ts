@@ -12,6 +12,7 @@
 import { getConfig } from "../../config/loader.js";
 import type { InjectionBlock } from "../../plugins/types.js";
 import type { ContentBlock, Message } from "../../providers/types.js";
+import { recallTool, rememberTool } from "../../tools/memory/register.js";
 import type { ToolDefinition } from "../../tools/types.js";
 import {
   assembleContextBlock,
@@ -19,10 +20,6 @@ import {
   InContextTracker,
 } from "../graph/injection.js";
 import { loadContextMemory, retrieveForTurn } from "../graph/retriever.js";
-import {
-  graphRecallDefinition,
-  graphRememberDefinition,
-} from "../graph/tools.js";
 import { wrapMemoryBlock } from "../memory-marker.js";
 import { enqueueMemoryRetrospectiveIfEnabled } from "../memory-retrospective-enqueue.js";
 import type { MemoryProvider, MemoryProviderContext } from "./types.js";
@@ -150,7 +147,7 @@ export const GraphMemoryProvider = {
   },
 
   provideTools(): ToolDefinition[] {
-    return [graphRememberDefinition, graphRecallDefinition];
+    return [rememberTool, recallTool];
   },
 
   async init(): Promise<void> {},

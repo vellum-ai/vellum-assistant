@@ -20,7 +20,11 @@ import {
   unregisterSkillTools,
   unregisterWorkspaceTool,
 } from "../tools/registry.js";
-import { eagerModuleToolNames, explicitTools } from "../tools/tool-manifest.js";
+import {
+  eagerModuleToolNames,
+  explicitTools,
+  getMemoryToolsForActiveProvider,
+} from "../tools/tool-manifest.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 
 // Clean up global registry after this file completes to prevent
@@ -114,11 +118,22 @@ describe("tool manifest", () => {
     expect(eagerModuleToolNames.length).toBe(12);
   });
 
-  test("explicit tools list includes memory tools", () => {
-    const names = explicitTools.map((t) => t.name);
-    expect(names).toContain("recall");
-    expect(names.filter((name) => name === "recall")).toHaveLength(1);
-    expect(names).toContain("remember");
+  test("memory tools are provider-owned, not in the static explicit list", () => {
+    const explicitNames = explicitTools.map((t) => t.name);
+    expect(explicitNames).not.toContain("remember");
+    expect(explicitNames).not.toContain("recall");
+
+    // The active memory provider (default config → v2) supplies them instead.
+    const memoryNames = getMemoryToolsForActiveProvider()
+      .map((t) => t.name)
+      .sort();
+    expect(memoryNames).toEqual(["recall", "remember"]);
+  });
+
+  test("active-provider memory tools are registered after initializeTools()", async () => {
+    await initializeTools();
+    expect(getTool("remember")).toBeDefined();
+    expect(getTool("recall")).toBeDefined();
   });
 
   test("registered tool count is at least eager + host", async () => {
