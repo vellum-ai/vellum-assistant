@@ -5,6 +5,7 @@ import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { stopGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
 import { stopMcpServerManager } from "../mcp/manager.js";
 import { getSqlite, resetDb } from "../memory/db-connection.js";
+import { stopMemoryJobsWorker } from "../memory/jobs-worker.js";
 import { stopQdrantManager } from "../memory/qdrant-manager.js";
 import { stopMemoryWorkerProcess } from "../memory/worker-control.js";
 import type { RuntimeHttpServer } from "../runtime/http-server.js";
@@ -43,7 +44,6 @@ export interface ShutdownDeps {
   filing: FilingService | null;
   runtimeHttp: RuntimeHttpServer | null;
   scheduler: { stop(): void };
-  getMemoryWorker: () => { stop(): void } | null;
 }
 
 export function installShutdownHandlers(deps: ShutdownDeps): void {
@@ -129,9 +129,9 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     cleanupShellOutputTempFiles();
     deps.scheduler.stop();
 
-    // Stop the in-process memory worker if one was started on the daemon's
-    // event loop (memory.worker.enabled = false).
-    deps.getMemoryWorker()?.stop();
+    // Stop the in-process memory worker supervisor if it was started on the
+    // daemon's event loop (memory.worker.enabled = false).
+    stopMemoryJobsWorker();
 
     // Stop the out-of-process memory worker if it's actually running. This is
     // keyed off live state rather than config: the worker may have been
