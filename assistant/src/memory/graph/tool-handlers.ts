@@ -1,9 +1,10 @@
 // ---------------------------------------------------------------------------
 // Memory Tool handlers
 //
-// remember: save facts to the PKB (buffer.md + daily archive) under the v1
-// path, or to memory/buffer.md + memory/archive/<today>.md when memory v2 is
-// active.
+// remember: write target follows the resolved `memory.provider`. The v2 and v3
+// providers write to memory/buffer.md + memory/archive/<today>.md (the
+// concept-page corpus their consolidation/retrieval consume); the graph
+// provider writes to the PKB (pkb/buffer.md + daily archive).
 // ---------------------------------------------------------------------------
 
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
@@ -14,11 +15,12 @@ import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { enqueuePkbIndexJob } from "../jobs/embed-pkb-file.js";
 import { PKB_WORKSPACE_SCOPE } from "../pkb/types.js";
+import { resolveMemoryProviderId } from "../provider/provider-id.js";
 
 const log = getLogger("graph-tool-handlers");
 
 // ---------------------------------------------------------------------------
-// remember handler — writes to PKB (v1) or memory/ (v2) buffer + daily archive
+// remember handler — writes to memory/ (v2/v3) or PKB (graph) buffer + archive
 // ---------------------------------------------------------------------------
 
 export interface RememberInput {
@@ -77,13 +79,19 @@ export function handleRemember(
   const entry = facts.map((fact) => formatRememberEntry(fact, now)).join("");
   const message = rememberSuccessMessage(facts.length);
 
-  if (config.memory.v2.enabled) {
+  // Route the write target off the resolved memory provider, not the raw
+  // `memory.v2.enabled` flag: the v2 and v3 providers both consume the
+  // `memory/buffer.md` concept-page corpus (v2 consolidation → concept pages,
+  // which v3 retrieval reads), so an explicit `remember()` under either must
+  // feed that corpus. Only the `graph` provider reads the PKB tree.
+  const provider = resolveMemoryProviderId(config);
+  if (provider === "v2" || provider === "v3") {
     appendBufferAndArchive({
       rootDir: join(workspaceDir, "memory"),
       entry,
       now,
     });
-    // v2 path skips the PKB re-index queue — embedding for memory v2 happens
+    // The concept-page path skips the PKB re-index queue — embedding happens
     // via the dedicated `embed_concept_page` job after consolidation, not on
     // every remember() write.
     return { success: true, message };

@@ -201,6 +201,27 @@ export function getTool(name: string): Tool | undefined {
 }
 
 /**
+ * Remove a CORE (unowned) tool from the registry by name. Returns `true` when a
+ * core tool was removed, `false` when the name is absent or owned by an
+ * extension (plugin / skill / MCP / workspace) — an owned tool is never evicted
+ * here, since its owner controls its lifecycle.
+ *
+ * Used by the memory-capability resync to free the built-in `remember`/`recall`
+ * names when an external `provides: "memory"` plugin takes over at runtime, so
+ * the plugin's same-named tools register without colliding with a core tool.
+ * The reverse direction (re-registering the built-in when the plugin goes away)
+ * goes through {@link registerTool} with the provider's tool definition.
+ */
+export function unregisterCoreTool(name: string): boolean {
+  if (!tools.has(name) || ownersByName.has(name)) {
+    return false;
+  }
+  tools.delete(name);
+  log.info({ name }, "Core tool unregistered");
+  return true;
+}
+
+/**
  * True once {@link initializeTools} has populated the core registry (the core
  * snapshot is captured at the end of init). Callers that must not run before the
  * read-only baseline (`file_read`/`web_fetch`/etc.) exists — e.g. the scheduler

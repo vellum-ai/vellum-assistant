@@ -35,7 +35,9 @@ import {
   runShutdownHook,
   WORKSPACE_HOOKS_OWNER,
 } from "../hooks/hook-loader.js";
+import { unregisterJobHandlersForOwner } from "../persistence/jobs-worker.js";
 import type { HookFunction, ShutdownContext } from "../plugin-api/types.js";
+import { reconcileBuiltinMemoryTools } from "../tools/memory/builtin-memory-tool-sync.js";
 import {
   registerPluginTools,
   unregisterPluginTools,
@@ -395,9 +397,24 @@ async function scanPlugins(): Promise<void> {
 
   // Swap in the freshly-computed memory-capability set so a disabled or removed
   // external memory plugin stops suppressing the built-in memory hooks.
+  const memoryCapabilitySetChanged = !sameStringSet(
+    memoryCapabilityPluginNames,
+    currentMemoryCapabilityNames,
+  );
   memoryCapabilityPluginNames.clear();
   for (const name of currentMemoryCapabilityNames) {
     memoryCapabilityPluginNames.add(name);
+  }
+
+  // When the active memory-capability set changes, resync the built-in
+  // `remember`/`recall` tools BEFORE activating plugins below: if an external
+  // memory plugin just became active, the built-in core tools must be stripped
+  // first so the plugin's same-named tools register cleanly on activation; if
+  // one went away, the built-in tools are re-registered. This makes tool
+  // ownership track the live capability set without a restart, mirroring how the
+  // built-in memory hooks already yield at read time.
+  if (memoryCapabilitySetChanged) {
+    reconcileBuiltinMemoryTools();
   }
 
   // Activate any plugin not yet brought up. Idempotent: already-active plugins
@@ -408,6 +425,18 @@ async function scanPlugins(): Promise<void> {
   for (const [dir, name] of discoveredPluginDirs) {
     await activatePlugin(dir, name);
   }
+}
+
+/** Whether two string sets contain exactly the same members. */
+function sameStringSet(
+  a: ReadonlySet<string>,
+  b: ReadonlySet<string>,
+): boolean {
+  if (a.size !== b.size) return false;
+  for (const value of a) {
+    if (!b.has(value)) return false;
+  }
+  return true;
 }
 
 /**
@@ -545,6 +574,19 @@ async function deactivatePlugin(pluginName: string): Promise<void> {
     log.warn(
       { err, plugin: pluginName },
       "user plugin tool unregister failed (continuing)",
+    );
+  }
+
+  // Remove the plugin's background-job handlers so a pending `plugin:<id>:` job
+  // cannot dispatch into the torn-down plugin's code after it is disabled or
+  // removed at runtime. Scoped by the plugin's namespace, so core handlers are
+  // untouched.
+  try {
+    unregisterJobHandlersForOwner(pluginName);
+  } catch (err) {
+    log.warn(
+      { err, plugin: pluginName },
+      "user plugin job-handler unregister failed (continuing)",
     );
   }
 

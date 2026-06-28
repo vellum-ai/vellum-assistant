@@ -47,6 +47,7 @@ import {
   MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS,
   type MemoryJob,
   type MemoryJobType,
+  PLUGIN_JOB_TYPE_PREFIX,
   resetRunningJobsToPending,
   SLOW_LLM_JOB_TYPES,
 } from "./jobs-store.js";
@@ -70,6 +71,23 @@ const jobHandlers = new Map<string, JobHandler>();
  */
 export function registerJobHandler(type: string, handler: JobHandler): void {
   jobHandlers.set(type, handler);
+}
+
+/**
+ * Remove every job handler a plugin registered, identified by the
+ * `plugin:<pluginId>:` namespace the jobs facet stamps onto each type. Called
+ * when a plugin is deactivated (disabled or removed at runtime) so pending
+ * `plugin:<id>:` jobs no longer dispatch into a torn-down plugin's code. Core
+ * (non-`plugin:`-prefixed) handlers are never matched, so built-in memory
+ * handlers are unaffected. No-op when the plugin registered no handlers.
+ */
+export function unregisterJobHandlersForOwner(pluginId: string): void {
+  const prefix = `${PLUGIN_JOB_TYPE_PREFIX}${pluginId}:`;
+  for (const type of jobHandlers.keys()) {
+    if (type.startsWith(prefix)) {
+      jobHandlers.delete(type);
+    }
+  }
 }
 
 const AUTOMATIC_CONSOLIDATION_JOB_PAYLOAD = {

@@ -19,6 +19,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   afterAll,
+  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -26,6 +27,7 @@ import {
   test,
 } from "bun:test";
 
+import { clearFeatureFlagOverridesCache } from "../config/assistant-feature-flags.js";
 import { _inspectHookCacheForTests } from "../hooks/hook-loader.js";
 import {
   _inspectToolCacheForTests,
@@ -34,11 +36,16 @@ import {
   populateCacheAtBoot,
   resetPluginCacheForTests,
 } from "../plugins/mtime-cache.js";
+import { rememberTool } from "../tools/memory/register.js";
 import {
+  __clearRegistryForTesting,
   getAllToolDefinitions,
   getPluginToolDefinitions,
+  getTool,
   getToolOwner,
+  registerTool,
 } from "../tools/registry.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 // ─── Test fixtures ───────────────────────────────────────────────────────────
 
@@ -641,5 +648,76 @@ describe("plugin runtime activation", () => {
     await triggerScan();
 
     expect(getToolOwner("disable-tool")).toBeUndefined();
+  });
+});
+
+describe("built-in memory tool resync on memory-plugin takeover", () => {
+  beforeEach(() => {
+    // Seed the rollout flag on so a `provides: "memory"` plugin may take over,
+    // and start from a registry holding the built-in (core) `remember` tool —
+    // the post-`initializeTools()` state when the built-in is not yielding.
+    __clearRegistryForTesting();
+    clearFeatureFlagOverridesCache();
+    setOverridesForTesting({ "memory-plugin-provider": true });
+    registerTool(rememberTool);
+  });
+
+  afterEach(() => {
+    __clearRegistryForTesting();
+    clearFeatureFlagOverridesCache();
+  });
+
+  test("a memory plugin installed after boot takes over remember without a restart", async () => {
+    await populateCacheAtBoot(); // empty plugins dir → built-in remember stays core
+    expect(getToolOwner("remember")).toBeUndefined();
+    expect(getTool("remember")).toBeDefined();
+
+    // Install a `provides: "memory"` plugin whose own `remember` tool should
+    // take over capture.
+    const dir = freshPluginDir("external-memory");
+    writePackageJson(dir, {
+      ...SIMPLE_PKG,
+      name: "external-memory",
+      vellum: { provides: "memory" },
+    });
+    writeTool(dir, "remember", TOOL_SRC("remember"));
+
+    await triggerScan();
+
+    // The built-in core `remember` was stripped on the scan, so the plugin's
+    // same-named tool registered as plugin-owned rather than being skipped as a
+    // core-tool conflict — capture moved to the plugin without a restart.
+    expect(getToolOwner("remember")).toEqual({
+      kind: "plugin",
+      id: "external-memory",
+    });
+    expect(getPluginToolDefinitions().some((t) => t.name === "remember")).toBe(
+      true,
+    );
+  });
+
+  test("removing the memory plugin restores the built-in remember tool", async () => {
+    const dir = freshPluginDir("external-memory");
+    writePackageJson(dir, {
+      ...SIMPLE_PKG,
+      name: "external-memory",
+      vellum: { provides: "memory" },
+    });
+    writeTool(dir, "remember", TOOL_SRC("remember"));
+
+    await populateCacheAtBoot();
+    await triggerScan();
+    expect(getToolOwner("remember")).toEqual({
+      kind: "plugin",
+      id: "external-memory",
+    });
+
+    // Remove the plugin → the built-in stops yielding and the core `remember`
+    // is re-registered on the next scan.
+    rmSync(dir, { recursive: true, force: true });
+    await triggerScan();
+
+    expect(getToolOwner("remember")).toBeUndefined();
+    expect(getTool("remember")).toBeDefined();
   });
 });

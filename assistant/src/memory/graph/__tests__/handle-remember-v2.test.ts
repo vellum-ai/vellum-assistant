@@ -1,8 +1,13 @@
 /**
- * Tests for `handleRemember` routing between v1 (PKB) and v2 (memory/).
+ * Tests for `handleRemember` routing between the PKB (graph provider) and the
+ * memory/ concept-page corpus (v2/v3 providers).
  *
- * Routing follows `config.memory.v2.enabled`: when true, writes go to
- * memory/; otherwise they fall back to v1 PKB.
+ * Routing follows the resolved `memory.provider`: the v2 and v3 providers write
+ * to memory/ (the concept-page corpus their consolidation/retrieval consume);
+ * the graph provider writes to v1 PKB. Under the default `provider: "auto"`
+ * this matches the legacy `v2.enabled`-derived selection, so migrated installs
+ * are unchanged; an explicit `provider` pin makes the write target follow the
+ * pinned provider rather than the raw `v2.enabled` flag.
  */
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -68,6 +73,18 @@ const CONFIG_V2_OFF = {
   ...CONFIG,
   memory: { ...CONFIG.memory, v2: { ...CONFIG.memory.v2, enabled: false } },
 };
+// Explicit provider pins. `resolveMemoryProviderId` returns the pinned id
+// verbatim, so the write target must follow the provider — not the raw
+// `v2.enabled` flag, which these fixtures deliberately set against the pin.
+const CONFIG_PROVIDER_V3 = applyNestedDefaults({
+  memory: { provider: "v3", v2: { enabled: false } },
+});
+const CONFIG_PROVIDER_GRAPH = applyNestedDefaults({
+  memory: { provider: "graph", v2: { enabled: true } },
+});
+const CONFIG_PROVIDER_V2 = applyNestedDefaults({
+  memory: { provider: "v2", v2: { enabled: false } },
+});
 
 beforeEach(() => {
   enqueueCalls.length = 0;
@@ -317,5 +334,88 @@ describe("handleRemember — batch (array) content", () => {
     );
     expect(buffer).toContain("lone fact");
     expect(buffer.match(/^- /gm)?.length).toBe(1);
+  });
+});
+
+describe("handleRemember — write target follows the resolved provider", () => {
+  test('provider "v3" writes the concept-page buffer even when v2.enabled is false', () => {
+    const result = handleRemember(
+      { content: "v3 feeds the concept-page corpus" },
+      "conv-provider-v3",
+      "default",
+      CONFIG_PROVIDER_V3,
+    );
+
+    expect(result.success).toBe(true);
+
+    const buffer = readFileSync(
+      join(tmpWorkspace, "memory", "buffer.md"),
+      "utf-8",
+    );
+    expect(buffer).toContain("v3 feeds the concept-page corpus");
+
+    // v3 routes to the concept-page corpus, not the PKB, and skips PKB re-index.
+    expect(existsSync(join(tmpWorkspace, "pkb"))).toBe(false);
+    expect(enqueueCalls).toEqual([]);
+  });
+
+  test('provider "v2" writes the concept-page buffer even when v2.enabled is false', () => {
+    const result = handleRemember(
+      { content: "v2 pin writes the buffer" },
+      "conv-provider-v2",
+      "default",
+      CONFIG_PROVIDER_V2,
+    );
+
+    expect(result.success).toBe(true);
+    expect(
+      readFileSync(join(tmpWorkspace, "memory", "buffer.md"), "utf-8"),
+    ).toContain("v2 pin writes the buffer");
+    expect(existsSync(join(tmpWorkspace, "pkb"))).toBe(false);
+    expect(enqueueCalls).toEqual([]);
+  });
+
+  test('provider "graph" writes the PKB even when v2.enabled is true', () => {
+    const result = handleRemember(
+      { content: "graph pin writes the PKB" },
+      "conv-provider-graph",
+      "default",
+      CONFIG_PROVIDER_GRAPH,
+    );
+
+    expect(result.success).toBe(true);
+
+    const pkbDir = join(tmpWorkspace, "pkb");
+    expect(readFileSync(join(pkbDir, "buffer.md"), "utf-8")).toContain(
+      "graph pin writes the PKB",
+    );
+    // graph routes to the PKB, not the concept-page corpus, and enqueues the
+    // PKB re-index for both files it wrote.
+    expect(existsSync(join(tmpWorkspace, "memory"))).toBe(false);
+    expect(enqueueCalls).toHaveLength(2);
+  });
+
+  test('default "auto" config is unchanged: v2.enabled drives the target', () => {
+    // auto + v2.enabled (default) → concept-page buffer.
+    handleRemember({ content: "auto on" }, "conv-auto-on", "default", CONFIG);
+    expect(
+      readFileSync(join(tmpWorkspace, "memory", "buffer.md"), "utf-8"),
+    ).toContain("auto on");
+    expect(existsSync(join(tmpWorkspace, "pkb"))).toBe(false);
+
+    rmSync(join(tmpWorkspace, "memory"), { recursive: true, force: true });
+    enqueueCalls.length = 0;
+
+    // auto + v2 off → PKB (legacy fallback preserved).
+    handleRemember(
+      { content: "auto off" },
+      "conv-auto-off",
+      "default",
+      CONFIG_V2_OFF,
+    );
+    expect(
+      readFileSync(join(tmpWorkspace, "pkb", "buffer.md"), "utf-8"),
+    ).toContain("auto off");
+    expect(existsSync(join(tmpWorkspace, "memory"))).toBe(false);
   });
 });
