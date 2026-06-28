@@ -228,6 +228,22 @@ describe("resolveConsolidationPrompt — with override", () => {
     expect(result).toBe(`${CUTOFF} ... ${CUTOFF} ... ${CUTOFF}`);
     expect(result).not.toContain(CUTOFF_PLACEHOLDER);
   });
+
+  test("strips the legacy {{PROC_TO_SKILLS_SECTION}} placeholder from a copied override", () => {
+    writeFileSync(
+      join(tmpWorkspace, "legacy-prompt.md"),
+      "Before {{PROC_TO_SKILLS_SECTION}} after, at {{CUTOFF}}",
+    );
+
+    const result = resolveConsolidationPrompt(
+      "legacy-prompt.md",
+      CUTOFF,
+      NO_CORE,
+    );
+
+    expect(result).toBe(`Before  after, at ${CUTOFF}`);
+    expect(result).not.toContain("{{PROC_TO_SKILLS_SECTION}}");
+  });
 });
 
 describe("resolveConsolidationPrompt — failure modes", () => {

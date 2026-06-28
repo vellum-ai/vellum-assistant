@@ -42,6 +42,14 @@ export const CUTOFF_PLACEHOLDER = "{{CUTOFF}}";
 export const CORE_PAGES_PLACEHOLDER = "{{CORE_PAGES_SECTION}}";
 
 /**
+ * Legacy placeholder kept only for backward compatibility. A custom
+ * `memory.v2.consolidation_prompt_path` override copied from an older bundled
+ * prompt may still contain `{{PROC_TO_SKILLS_SECTION}}`; it is always replaced
+ * with an empty string so the raw token never reaches the consolidation LLM.
+ */
+const LEGACY_PROC_TO_SKILLS_PLACEHOLDER = "{{PROC_TO_SKILLS_SECTION}}";
+
+/**
  * The flag-gated `memory/core-pages.md` curation step. Ends with a blank line
  * so substituting it (or the empty string) ahead of the `---` separator keeps
  * the surrounding template byte-stable either way.
@@ -820,7 +828,8 @@ export function renderConsolidationPrompt(
     .replaceAll(
       CORE_PAGES_PLACEHOLDER,
       options.includeCorePagesSection ? CORE_PAGES_CONSOLIDATION_SECTION : "",
-    );
+    )
+    .replaceAll(LEGACY_PROC_TO_SKILLS_PLACEHOLDER, "");
 }
 
 /**
@@ -831,9 +840,10 @@ export function renderConsolidationPrompt(
  * override) is handled by the shared {@link loadPromptOverride}.
  *
  * Override files get the same placeholder substitutions as the bundled
- * template: `{{CUTOFF}}` always, and `{{CORE_PAGES_SECTION}}` per its flag gate
- * — so a prompt copied from the bundled source never leaks a raw placeholder,
- * and a customized prompt can opt into the managed section.
+ * template: `{{CUTOFF}}` always, `{{CORE_PAGES_SECTION}}` per its flag gate, and
+ * the legacy `{{PROC_TO_SKILLS_SECTION}}` always stripped to empty — so a prompt
+ * copied from any past bundled source never leaks a raw placeholder, and a
+ * customized prompt can opt into the managed section.
  */
 export function resolveConsolidationPrompt(
   overridePath: string | null,
@@ -853,5 +863,6 @@ export function resolveConsolidationPrompt(
     .replaceAll(
       CORE_PAGES_PLACEHOLDER,
       options.includeCorePagesSection ? CORE_PAGES_CONSOLIDATION_SECTION : "",
-    );
+    )
+    .replaceAll(LEGACY_PROC_TO_SKILLS_PLACEHOLDER, "");
 }
