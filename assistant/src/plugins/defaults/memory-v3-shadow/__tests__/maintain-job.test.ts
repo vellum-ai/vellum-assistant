@@ -96,11 +96,6 @@ describe("maintainJob", () => {
       // Core-validation stage off by default: empty core set ⇒ nothing to
       // check. The dedicated core tests below override this.
       loadCoreSet: () => [],
-      // Skill-validation stage off by default: empty catalog AND no indexed
-      // `skills/<id>` rows ⇒ nothing to check. The dedicated skill-link tests
-      // below override these.
-      loadValidSkillIds: () => [],
-      readPageSkillLink: async () => undefined,
       invalidateLanes: () => {
         calls.invalidate += 1;
       },
@@ -335,10 +330,8 @@ describe("maintainJob", () => {
     const outcome = await maintainJob(JOB, CONFIG, d);
     expect(outcome.danglingCoreSlugs).toEqual([]);
     // The reconcile and prune stages each read the index once; the empty core
-    // stage adds no further read. The skill-link stage always reads the index to
-    // derive the indexed `skills/<id>` capability set (its valid-skill source of
-    // truth), so it adds one read even when the local catalog is empty.
-    expect(indexReads).toBe(3);
+    // stage adds no further read.
+    expect(indexReads).toBe(2);
   });
 
   test("a thrown core-validation stage is contained and does not abort lane invalidation", async () => {
@@ -417,116 +410,6 @@ describe("maintainJob", () => {
     // Never replace good points with a blank: no delete, no upsert.
     expect(calls.deleted).toEqual([]);
     expect(calls.upserted).toEqual([]);
-  });
-
-  test("a fact linking a live catalog skill reports no orphan", async () => {
-    setOverridesForTesting({ [FLAG_SHADOW]: true });
-    const { deps: d, calls } = deps({
-      loadValidSkillIds: () => ["meet-join"],
-      listIndexedSlugs: async () => ["fact-a"],
-      readPageSkillLink: async (slug) =>
-        slug === "fact-a" ? "meet-join" : undefined,
-    });
-    const outcome = await maintainJob(JOB, CONFIG, d);
-
-    expect(outcome.orphanSkillSlugs).toEqual([]);
-    expect(outcome.failures).toEqual([]);
-    // Report-only and read-only: no dense-store mutation.
-    expect(calls.deleted).toEqual([]);
-    expect(calls.upserted).toEqual([]);
-    expect(calls.invalidate).toBe(1);
-  });
-
-  test("a fact linking a removed skill is reported as an orphan", async () => {
-    setOverridesForTesting({ [FLAG_SHADOW]: true });
-    // Two facts: one links a live skill, the other a removed/renamed one. A
-    // synthetic capability row carries no `skill:` link and is skipped. Only the
-    // dangling fact is reported.
-    const { deps: d, calls } = deps({
-      loadValidSkillIds: () => ["meet-join"],
-      listIndexedSlugs: async () => [
-        "fact-live",
-        "fact-gone",
-        "skills/example",
-      ],
-      // The capability row is already in the store, so the reconcile stage
-      // no-ops here and this test exercises skill-validation in isolation.
-      listSectionArticles: async () => ["skills/example"],
-      readPageSkillLink: async (slug) => {
-        if (slug === "fact-live") return "meet-join";
-        if (slug === "fact-gone") return "removed-skill";
-        return undefined;
-      },
-    });
-    const outcome = await maintainJob(JOB, CONFIG, d);
-
-    expect(outcome.orphanSkillSlugs).toEqual(["fact-gone"]);
-    expect(outcome.failures).toEqual([]);
-    // Report-only: the dangling link triggered no mutation.
-    expect(calls.deleted).toEqual([]);
-    expect(calls.upserted).toEqual([]);
-    expect(calls.invalidate).toBe(1);
-  });
-
-  test("a fact linking an uninstalled catalog skill with an indexed capability row is NOT an orphan", async () => {
-    setOverridesForTesting({ [FLAG_SHADOW]: true });
-    // `meet-join` is absent from the local catalog (`loadValidSkillIds` empty)
-    // but IS seeded into the corpus as a live `skills/meet-join` capability row
-    // — exactly the uninstalled-first-party-catalog case. The edge derivation
-    // resolves `fact → skills/meet-join` against that indexed row, so the fact
-    // must NOT be false-flagged.
-    const { deps: d, calls } = deps({
-      loadValidSkillIds: () => [],
-      listIndexedSlugs: async () => ["fact-a", "skills/meet-join"],
-      // The capability row is already stored, so the reconcile stage no-ops.
-      listSectionArticles: async () => ["skills/meet-join"],
-      readPageSkillLink: async (slug) =>
-        slug === "fact-a" ? "meet-join" : undefined,
-    });
-    const outcome = await maintainJob(JOB, CONFIG, d);
-
-    expect(outcome.orphanSkillSlugs).toEqual([]);
-    expect(outcome.failures).toEqual([]);
-    // Report-only and read-only: no dense-store mutation.
-    expect(calls.deleted).toEqual([]);
-    expect(calls.upserted).toEqual([]);
-    expect(calls.invalidate).toBe(1);
-  });
-
-  test("a fact linking a skill absent from the indexed capability set is an orphan", async () => {
-    setOverridesForTesting({ [FLAG_SHADOW]: true });
-    // `removed-skill` backs no `skills/<id>` capability row and is not in the
-    // local catalog either, so the edge lane drops `fact → skills/removed-skill`
-    // — the fact is a genuine orphan and must be flagged.
-    const { deps: d, calls } = deps({
-      loadValidSkillIds: () => [],
-      listIndexedSlugs: async () => ["fact-gone", "skills/meet-join"],
-      listSectionArticles: async () => ["skills/meet-join"],
-      readPageSkillLink: async (slug) =>
-        slug === "fact-gone" ? "removed-skill" : undefined,
-    });
-    const outcome = await maintainJob(JOB, CONFIG, d);
-
-    expect(outcome.orphanSkillSlugs).toEqual(["fact-gone"]);
-    expect(outcome.failures).toEqual([]);
-    expect(calls.deleted).toEqual([]);
-    expect(calls.upserted).toEqual([]);
-    expect(calls.invalidate).toBe(1);
-  });
-
-  test("a thrown skill-validation stage is contained and does not abort lane invalidation", async () => {
-    setOverridesForTesting({ [FLAG_SHADOW]: true });
-    const { deps: d, calls } = deps({
-      loadValidSkillIds: () => {
-        throw new Error("skill boom");
-      },
-    });
-    const outcome = await maintainJob(JOB, CONFIG, d);
-
-    expect(outcome.failures).toContain("skill-validate");
-    expect(outcome.orphanSkillSlugs).toEqual([]);
-    expect(calls.invalidate).toBe(1);
-    expect(outcome.invalidated).toBe(true);
   });
 });
 

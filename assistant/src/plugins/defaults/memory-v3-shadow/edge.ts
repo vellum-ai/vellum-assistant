@@ -1,9 +1,4 @@
-import { CLI_COMMAND_SLUG_PREFIX } from "../../../memory/v2/cli-command-store.js";
 import type { PageIndexEntry } from "../../../memory/v2/page-index.js";
-import {
-  SKILL_SLUG_PREFIX,
-  skillSlugFor,
-} from "../../../memory/v2/skill-store.js";
 import { parseFrontmatterFields } from "../../../skills/frontmatter.js";
 import type { Slug } from "./types.js";
 
@@ -46,21 +41,6 @@ const LINK_SEPARATOR = " — ";
 /** Matches `[[target]]` wikilinks; captures the raw target before any `|`
  * display-text or `#section` anchor. */
 const WIKILINK_REGEX = /\[\[([^\]]+)\]\]/g;
-
-/** Slug prefixes for capability pages (skills, CLI commands). These are the
- * targets of derived `fact → skills/<id>` edges; a popular capability linked by
- * many facts would otherwise be flagged a hub and filtered out of expansion, so
- * it is exempt from the hub filter — a skill should still co-surface with its
- * facts no matter how many link to it. */
-const CAPABILITY_TARGET_PREFIXES = [
-  SKILL_SLUG_PREFIX,
-  CLI_COMMAND_SLUG_PREFIX,
-] as const;
-
-/** Whether `slug` names a capability page exempt from the hub filter. */
-function isCapabilityTarget(slug: Slug): boolean {
-  return CAPABILITY_TARGET_PREFIXES.some((prefix) => slug.startsWith(prefix));
-}
 
 /**
  * The directed link-graph. `adjacency` maps each source slug to its outbound
@@ -201,19 +181,6 @@ export async function buildEdgeGraph(
       }
     }
 
-    // (a′) the `skill:` frontmatter link — derives a `fact → skills/<id>` edge
-    // so a fact about a skill co-surfaces with the skill's capability page via
-    // the edge lane. `addEdge` drops the edge when `skills/<id>` is absent from
-    // the corpus, so a skill with no capability page is a safe no-op.
-    const skill = parsed?.fields.skill;
-    if (typeof skill === "string" && skill.trim() !== "") {
-      addEdge(
-        source,
-        skillSlugFor(skill),
-        "procedural knowledge for this skill",
-      );
-    }
-
     // (b) inline `[[wikilink]]` targets from the body. `parsed.body` strips
     // the frontmatter; a page without frontmatter has `parsed === null`, so
     // the whole raw text is the body.
@@ -242,11 +209,9 @@ export async function buildEdgeGraph(
 /**
  * Expand `seeds` outward along the graph. For each of the top `seedCount`
  * seeds (in input order), surface up to `perSeed` non-hub, `alive`-passing
- * neighbours, capped at `cap` total distinct articles. Capability targets
- * (`skills/` / `cli-commands/`) are exempt from the hub filter so a popular
- * skill still co-surfaces with its facts. Seeds themselves are not surfaced
- * (they are already in the pool). Each surfaced article carries the curated
- * `links` description of the traversed edge when it had one.
+ * neighbours, capped at `cap` total distinct articles. Seeds themselves are
+ * not surfaced (they are already in the pool). Each surfaced article carries
+ * the curated `links` description of the traversed edge when it had one.
  *
  * Deterministic given the input seed order and the graph's insertion order.
  */
@@ -273,9 +238,7 @@ export function edgeExpand(
       if (surfaced.size >= cap) break;
       if (seedSet.has(target)) continue; // already in the pool
       if (surfaced.has(target)) continue; // already surfaced via another seed
-      // Hubs are too-generic to surface — except capability targets, which a
-      // popular skill must still co-surface with its facts through.
-      if (graph.hubs.has(target) && !isCapabilityTarget(target)) continue;
+      if (graph.hubs.has(target)) continue; // hubs excluded
       if (alive && !alive(target)) continue;
       surfaced.set(target, description);
       added++;
