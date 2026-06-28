@@ -138,15 +138,15 @@ export function getCesToolsIfEnabled(): ToolDefinition[] {
 // ── Memory tools (active-provider owned) ────────────────────────────
 // The `remember`/`recall` tools are owned by the active memory provider:
 // `initializeTools()` registers the tools the resolved provider contributes
-// via `provideTools()`. The graph and v2 providers expose `remember`/`recall`;
-// v3 and `none` expose nothing, so a `memory.provider: "none"` install
-// registers no memory tools.
+// via `provideTools()`. The graph, v2, and v3 providers expose
+// `remember`/`recall`; `none` exposes nothing, so a `memory.provider: "none"`
+// install registers no memory tools.
 
 /**
  * Return the memory tools the active provider contributes, resolved from the
  * current config. Returns an empty array when the provider exposes no tools
- * (v3 / `none`) or when config is not yet loaded (e.g. test setup) so callers
- * can unconditionally iterate the result.
+ * (`none`) or when config is not yet loaded (e.g. test setup) so callers can
+ * unconditionally iterate the result.
  */
 export function getMemoryToolsForActiveProvider(): ToolDefinition[] {
   try {

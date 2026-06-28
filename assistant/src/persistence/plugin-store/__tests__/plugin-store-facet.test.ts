@@ -202,6 +202,139 @@ describe("plugin store facet", () => {
     });
   });
 
+  // A plugin must not slip a cross-namespace table past the guard by QUOTING
+  // its name. A quoted identifier (`"messages"`, `` `messages` ``, `[messages]`)
+  // names the same table as the bare form, so every quote style and statement
+  // shape that reaches a foreign/core table must be rejected — while a
+  // single-quoted string LITERAL (a value, never a table) stays allowed.
+  describe("quoted-identifier namespace bypass", () => {
+    beforeEach(() => {
+      const raw = getSqliteFrom(db);
+      raw.run(
+        `CREATE TABLE plugin_acme_notes (id TEXT PRIMARY KEY, body TEXT)`,
+      );
+      raw.run(`CREATE TABLE plugin_other_secrets (id TEXT PRIMARY KEY)`);
+      raw.run(`CREATE TABLE messages (id TEXT PRIMARY KEY, content TEXT)`);
+      raw.run(`INSERT INTO messages (id, content) VALUES ('m1', 'secret')`);
+    });
+
+    const quoteStyles: Array<{
+      label: string;
+      quote: (name: string) => string;
+    }> = [
+      { label: "double-quote", quote: (n) => `"${n}"` },
+      { label: "backtick", quote: (n) => `\`${n}\`` },
+      { label: "bracket", quote: (n) => `[${n}]` },
+    ];
+
+    for (const { label, quote } of quoteStyles) {
+      const core = quote("messages");
+      const foreign = quote("plugin_other_secrets");
+
+      test(`${label}: SELECT FROM a core table is rejected`, () => {
+        const facet = createStoreFacet(() => db, "acme");
+        expect(() => facet.query(`SELECT * FROM ${core}`)).toThrow(
+          PluginStoreNamespaceError,
+        );
+      });
+
+      test(`${label}: SELECT FROM a foreign plugin table is rejected`, () => {
+        const facet = createStoreFacet(() => db, "acme");
+        expect(() => facet.query(`SELECT * FROM ${foreign}`)).toThrow(
+          PluginStoreNamespaceError,
+        );
+      });
+
+      test(`${label}: INSERT INTO a core table is rejected`, () => {
+        const facet = createStoreFacet(() => db, "acme");
+        expect(() =>
+          facet.exec(`INSERT INTO ${core} (id, content) VALUES ('x', 'y')`),
+        ).toThrow(PluginStoreNamespaceError);
+      });
+
+      test(`${label}: UPDATE a core table is rejected`, () => {
+        const facet = createStoreFacet(() => db, "acme");
+        expect(() =>
+          facet.exec(`UPDATE ${core} SET content = 'pwned'`),
+        ).toThrow(PluginStoreNamespaceError);
+      });
+
+      test(`${label}: DELETE FROM a core table is rejected`, () => {
+        const facet = createStoreFacet(() => db, "acme");
+        expect(() => facet.exec(`DELETE FROM ${core}`)).toThrow(
+          PluginStoreNamespaceError,
+        );
+      });
+
+      test(`${label}: JOIN onto a core table is rejected`, () => {
+        const facet = createStoreFacet(() => db, "acme");
+        expect(() =>
+          facet.query(
+            `SELECT n.id FROM plugin_acme_notes n JOIN ${core} m ON m.id = n.id`,
+          ),
+        ).toThrow(PluginStoreNamespaceError);
+      });
+
+      test(`${label}: a multi-table FROM-list comma reaching a core table is rejected`, () => {
+        const facet = createStoreFacet(() => db, "acme");
+        expect(() =>
+          facet.query(`SELECT * FROM plugin_acme_notes, ${core}`),
+        ).toThrow(PluginStoreNamespaceError);
+      });
+
+      test(`${label}: own quoted table is allowed`, () => {
+        const facet = createStoreFacet(() => db, "acme");
+        const own = quote("plugin_acme_notes");
+        facet.exec(`INSERT INTO ${own} (id, body) VALUES ('q1', 'ok')`);
+        expect(facet.query<{ id: string }>(`SELECT id FROM ${own}`)).toEqual([
+          { id: "q1" },
+        ]);
+      });
+    }
+
+    test("a schema-qualified quoted table name is still rejected", () => {
+      // `main."messages"` lexes as a trailing-dot bareword + a quoted token;
+      // the quoted segment is the real table and must be validated, not slipped
+      // past the guard as the bareword's empty final segment.
+      const facet = createStoreFacet(() => db, "acme");
+      expect(() => facet.query(`SELECT * FROM main."messages"`)).toThrow(
+        PluginStoreNamespaceError,
+      );
+      // The own-prefixed equivalent is allowed.
+      facet.query(`SELECT * FROM main."plugin_acme_notes"`);
+    });
+
+    test("a single-quoted string literal value is not treated as a table", () => {
+      // GIVEN a string literal that spells a foreign/core table name
+      // WHEN it appears as a VALUE (single quotes) on the plugin's own table
+      // THEN the statement is allowed — only the table reference is namespaced.
+      const facet = createStoreFacet(() => db, "acme");
+      facet.exec(
+        `INSERT INTO plugin_acme_notes (id, body) VALUES ('n1', 'messages')`,
+      );
+      expect(
+        facet.query<{ body: string }>(
+          `SELECT body FROM plugin_acme_notes WHERE body = 'plugin_other_secrets'`,
+        ),
+      ).toEqual([]);
+      expect(
+        facet.query<{ body: string }>(`SELECT body FROM plugin_acme_notes`),
+      ).toEqual([{ body: "messages" }]);
+    });
+
+    test("a quoted column on the plugin's own table does not false-reject", () => {
+      // A quoted IDENTIFIER that is a column (not after a table keyword) must
+      // not be mistaken for a table reference.
+      const facet = createStoreFacet(() => db, "acme");
+      facet.exec(`INSERT INTO plugin_acme_notes (id, body) VALUES ('c1', 'v')`);
+      expect(
+        facet.query<{ id: string }>(
+          `SELECT "id" FROM plugin_acme_notes WHERE "body" = 'v'`,
+        ),
+      ).toEqual([{ id: "c1" }]);
+    });
+  });
+
   test("leaves the core `step:` checkpoint namespace untouched", () => {
     const raw = getSqliteFrom(db);
     // Seed a core-runner checkpoint as a prior boot's migration runner would.

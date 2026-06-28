@@ -34,50 +34,287 @@ export function sanitizeHostId(hostId: string): string {
  * does not contribute a validated table, but any keyword-introduced table that
  * lacks the prefix is rejected.
  */
-const TABLE_INTRODUCING_KEYWORDS = ["from", "join", "into", "update", "table"];
+const TABLE_INTRODUCING_KEYWORDS = new Set([
+  "from",
+  "join",
+  "into",
+  "update",
+  "table",
+]);
 
 /**
- * Strip string/blob literals and SQL comments so identifiers inside them are
- * not mistaken for table references. Replaces each with a single space to keep
- * token boundaries intact.
+ * Keywords that end a comma-separated table list. After a table-introducing
+ * keyword names its first table, a comma continues the list (multi-table
+ * `FROM a, b`); any of these keywords closes it so commas in a trailing column
+ * list, predicate, or clause are not mistaken for additional table references.
  */
-function stripLiteralsAndComments(sql: string): string {
+const TABLE_LIST_TERMINATORS = new Set([
+  "where",
+  "on",
+  "using",
+  "group",
+  "order",
+  "having",
+  "limit",
+  "offset",
+  "window",
+  "returning",
+  "set",
+  "values",
+  "select",
+  "union",
+  "intersect",
+  "except",
+  "join",
+  "inner",
+  "left",
+  "right",
+  "full",
+  "cross",
+  "natural",
+]);
+
+/**
+ * A lexed SQL token. `kind` distinguishes a bareword (keyword or unquoted
+ * identifier) from a quoted identifier and from structural punctuation. A
+ * quoted identifier (`"messages"`, `` `messages` ``, `[messages]`) CAN name a
+ * table, so the walk validates its inner name — distinct from a single-quoted
+ * string literal, which is a value (never a table) and is dropped during lexing.
+ */
+interface SqlToken {
+  /** `word` — bareword keyword/identifier; `quoted` — quoted identifier; `punct` — single punctuation char. */
+  kind: "word" | "quoted" | "punct";
+  /** For `quoted`, the inner text with surrounding quotes removed; otherwise the raw token text. */
+  value: string;
+}
+
+/**
+ * Scan a quoted run that doubles its quote char to escape it (`"a""b"`,
+ * `` `a``b` ``). `start` indexes the opening quote; returns the recovered inner
+ * text and the index just past the closing quote. An unterminated run consumes
+ * to end-of-input.
+ */
+function scanDoubledQuote(
+  sql: string,
+  start: number,
+  quote: string,
+): { inner: string; next: number } {
+  const n = sql.length;
+  let i = start + 1;
+  let inner = "";
+  while (i < n) {
+    if (sql[i] === quote) {
+      if (sql[i + 1] === quote) {
+        inner += quote;
+        i += 2;
+        continue;
+      }
+      i++;
+      break;
+    }
+    inner += sql[i];
+    i++;
+  }
+  return { inner, next: i };
+}
+
+/**
+ * Lex `sql` into the tokens the table-reference walk needs: barewords, quoted
+ * identifiers (double-quote / backtick / bracket, with inner text recovered),
+ * and the single punctuation characters that delimit clauses (`,` `(` `)` `;`).
+ *
+ * String literals (`'...'`, with `''` escapes) and comments are consumed and
+ * dropped — a literal is a value, not a table, so it must never surface as a
+ * token the walk could read as a table name. Everything else (operators,
+ * whitespace) is skipped.
+ */
+function tokenize(sql: string): SqlToken[] {
+  const tokens: SqlToken[] = [];
+  let i = 0;
+  const n = sql.length;
+  while (i < n) {
+    const ch = sql[i] as string;
+
+    // Single-quoted string literal — a VALUE, not a table. Consume through the
+    // closing quote (handling the `''` escape) and emit nothing.
+    if (ch === "'") {
+      i = scanDoubledQuote(sql, i, "'").next;
+      continue;
+    }
+
+    // Double-quoted (standard SQL) or backtick-quoted (MySQL) identifier, each
+    // with a doubled-quote escape. A quoted identifier CAN name a table, so
+    // recover the inner text and emit it.
+    if (ch === '"' || ch === "`") {
+      const { inner, next } = scanDoubledQuote(sql, i, ch);
+      tokens.push({ kind: "quoted", value: inner });
+      i = next;
+      continue;
+    }
+
+    // Bracket-quoted identifier (T-SQL style). No escaping inside brackets.
+    if (ch === "[") {
+      i++;
+      let inner = "";
+      while (i < n && sql[i] !== "]") {
+        inner += sql[i];
+        i++;
+      }
+      i++; // consume closing ]
+      tokens.push({ kind: "quoted", value: inner });
+      continue;
+    }
+
+    // Line comment.
+    if (ch === "-" && sql[i + 1] === "-") {
+      i += 2;
+      while (i < n && sql[i] !== "\n") i++;
+      continue;
+    }
+
+    // Block comment.
+    if (ch === "/" && sql[i + 1] === "*") {
+      i += 2;
+      while (i < n && !(sql[i] === "*" && sql[i + 1] === "/")) i++;
+      i += 2;
+      continue;
+    }
+
+    // Bareword: keyword or unquoted identifier. Allow `.` so schema-qualified
+    // names (`main.foo`) stay one token; the walk takes the final segment.
+    if (/[A-Za-z_]/.test(ch)) {
+      let word = "";
+      while (i < n && /[A-Za-z0-9_.$]/.test(sql[i] as string)) {
+        word += sql[i];
+        i++;
+      }
+      tokens.push({ kind: "word", value: word });
+      continue;
+    }
+
+    // Punctuation we care about for clause/structure boundaries.
+    if (ch === "," || ch === "(" || ch === ")" || ch === ";") {
+      tokens.push({ kind: "punct", value: ch });
+      i++;
+      continue;
+    }
+
+    // Anything else (operators, whitespace) is irrelevant to table refs.
+    i++;
+  }
+  return tokens;
+}
+
+/**
+ * Reduce a (possibly schema-qualified) table reference to the bare table name
+ * the prefix applies to: `main.plugin_foo_bar` → `plugin_foo_bar`. A quoted
+ * identifier's inner text is treated whole — quoting suppresses the `.`
+ * special-casing — so `"my.table"` stays `my.table`.
+ */
+function tableNameFromToken(token: SqlToken): string {
+  if (token.kind === "quoted") {
+    return token.value.toLowerCase();
+  }
+  return (token.value.split(".").pop() as string).toLowerCase();
+}
+
+/**
+ * Whether a `word` token is a table-introducing keyword. Quoted tokens are
+ * never keywords — `"from"` is an identifier, not the FROM clause.
+ */
+function isTableIntroKeyword(token: SqlToken): boolean {
   return (
-    sql
-      // single-quoted strings (with '' escapes)
-      .replace(/'(?:[^']|'')*'/g, " ")
-      // double-quoted identifiers — kept as a literal blank so a quoted table
-      // name cannot smuggle an unprefixed reference past the matcher
-      .replace(/"(?:[^"]|"")*"/g, " ")
-      // bracket / backtick quoted identifiers
-      .replace(/\[[^\]]*\]/g, " ")
-      .replace(/`[^`]*`/g, " ")
-      // line comments
-      .replace(/--[^\n]*/g, " ")
-      // block comments
-      .replace(/\/\*[\s\S]*?\*\//g, " ")
+    token.kind === "word" &&
+    TABLE_INTRODUCING_KEYWORDS.has(token.value.toLowerCase())
   );
 }
 
 /**
+ * Modifier words that may sit between a table-introducing keyword and the
+ * table name (`CREATE TABLE IF NOT EXISTS foo`, `DROP TABLE IF EXISTS foo`).
+ * Skipped so the table name itself is the captured token. (`TEMP`/`TEMPORARY`
+ * precede the `TABLE` keyword, so they never need skipping here.)
+ */
+const INTRODUCER_MODIFIERS = new Set(["if", "not", "exists"]);
+
+/**
+ * Capture the table name beginning at `tokens[index]`, returning the resolved
+ * name and the index just past it — or `null` when no table name sits there
+ * (punctuation, e.g. a `FROM ( subquery`, or end-of-input). Both unquoted and
+ * quoted identifiers are captured; a quoted identifier resolves to its inner
+ * name, so `FROM "messages"` validates exactly like the bareword form.
+ *
+ * A schema-qualified name whose table segment is quoted (`main."messages"`)
+ * lexes as a trailing-`.` bareword followed by a quoted token — the quoted
+ * token is the real table name, so it is taken as the name (not the bareword's
+ * empty final segment), keeping the quoted form from slipping the guard.
+ */
+function captureTableAt(
+  tokens: SqlToken[],
+  index: number,
+): { name: string; next: number } | null {
+  const token = tokens[index] as SqlToken | undefined;
+  if (!token || token.kind === "punct") return null;
+  if (token.kind === "word" && token.value.endsWith(".")) {
+    const after = tokens[index + 1] as SqlToken | undefined;
+    if (after?.kind === "quoted") {
+      return { name: after.value.toLowerCase(), next: index + 2 };
+    }
+  }
+  return { name: tableNameFromToken(token), next: index + 1 };
+}
+
+/**
  * Collect the table identifiers a statement references via a recognized
- * table-introducing keyword. Schema-qualified names (`main.foo`) collapse to
- * their final segment, which is the table name the prefix applies to.
+ * table-introducing keyword (and the commas continuing a multi-table list).
  */
 function referencedTables(sql: string): string[] {
-  const cleaned = stripLiteralsAndComments(sql);
+  const tokens = tokenize(sql);
   const tables: string[] = [];
-  const re =
-    /\b(from|join|into|update|table)\s+(?:if\s+not\s+exists\s+)?(?:if\s+exists\s+)?([a-zA-Z_][a-zA-Z0-9_.]*)/gi;
-  let match: RegExpExecArray | null;
-  while ((match = re.exec(cleaned)) !== null) {
-    const keyword = match[1]?.toLowerCase();
-    if (!keyword || !TABLE_INTRODUCING_KEYWORDS.includes(keyword)) continue;
-    const ref = match[2];
-    if (!ref) continue;
-    // `main.plugin_foo_bar` → `plugin_foo_bar`.
-    const name = ref.split(".").pop() as string;
-    tables.push(name.toLowerCase());
+  let i = 0;
+  while (i < tokens.length) {
+    if (!isTableIntroKeyword(tokens[i] as SqlToken)) {
+      i++;
+      continue;
+    }
+    i++;
+    // Skip `IF NOT EXISTS` modifiers between the keyword and the first table.
+    while (
+      i < tokens.length &&
+      (tokens[i] as SqlToken).kind === "word" &&
+      INTRODUCER_MODIFIERS.has((tokens[i] as SqlToken).value.toLowerCase())
+    ) {
+      i++;
+    }
+    // The first token after the keyword (and any modifiers) names a table. A
+    // subquery (`FROM ( SELECT ...`) introduces no direct table here; the inner
+    // SELECT's own FROM is matched independently.
+    const first = captureTableAt(tokens, i);
+    if (!first) continue;
+    tables.push(first.name);
+    i = first.next;
+    // Continue a comma-separated table list (`FROM a, b, c` / `UPDATE a, b`).
+    // A clause keyword or any non-comma punctuation ends the list so commas in
+    // a later column list or predicate are not read as further tables.
+    while (i < tokens.length) {
+      const next = tokens[i] as SqlToken;
+      if (next.kind === "punct" && next.value === ",") {
+        const cand = captureTableAt(tokens, i + 1);
+        if (!cand) break;
+        tables.push(cand.name);
+        i = cand.next;
+        continue;
+      }
+      if (
+        next.kind === "word" &&
+        TABLE_LIST_TERMINATORS.has(next.value.toLowerCase())
+      ) {
+        break;
+      }
+      // An alias, `AS`, or anything else that is not a comma: stop scanning the
+      // list (the next table-introducing keyword restarts capture).
+      break;
+    }
   }
   return tables;
 }
@@ -103,7 +340,8 @@ export class PluginStoreNamespaceError extends Error {
  * Throw if `sql` references any table outside the plugin's `plugin_<id>_`
  * namespace. A statement that references no recognizable table (e.g. `PRAGMA`,
  * `BEGIN`) passes — it cannot reach another plugin's rows — but any
- * keyword-introduced table lacking the prefix is rejected.
+ * keyword-introduced table lacking the prefix is rejected, whether the table is
+ * named bare (`FROM messages`) or quoted (`FROM "messages"`).
  */
 export function assertScopedToPlugin(hostId: string, sql: string): void {
   const prefix = pluginTablePrefix(hostId);

@@ -27,14 +27,19 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const realLoader = await import("../config/loader.js");
 
+// Mutable so individual tests can flip `memory.provider` (e.g. to "none")
+// without re-mocking the module mid-file. `provider` absent resolves to "auto",
+// which with `v2.enabled: true` selects v2 — the default these tests assume.
+const mockMemoryConfig: {
+  enabled: boolean;
+  provider?: string;
+  v2: { enabled: boolean };
+} = { enabled: true, v2: { enabled: true } };
+
 mock.module("../config/loader.js", () => ({
   ...realLoader,
-  loadConfig: () => ({
-    memory: { enabled: true, v2: { enabled: true } },
-  }),
-  getConfig: () => ({
-    memory: { enabled: true, v2: { enabled: true } },
-  }),
+  loadConfig: () => ({ memory: mockMemoryConfig }),
+  getConfig: () => ({ memory: mockMemoryConfig }),
 }));
 
 const { defaultInjectors } =
@@ -94,10 +99,25 @@ function clearV2StaticFiles(): void {
 const memoryV2StaticInjector = findInjector("memory-v2-static");
 
 describe("memory-v2-static injector", () => {
-  beforeEach(() => clearV2StaticFiles());
+  beforeEach(() => {
+    clearV2StaticFiles();
+    // Default the resolver to v2 (provider absent → "auto" → v2 when enabled).
+    delete mockMemoryConfig.provider;
+  });
   afterEach(() => clearV2StaticFiles());
 
   test("returns null when the v2 static memory files are absent", async () => {
+    const ctx = makeContext();
+    expect(await memoryV2StaticInjector.produce(ctx)).toBeNull();
+  });
+
+  test("returns null when memory.provider is none, even with seeded content", async () => {
+    // `none` disables memory entirely; the static `<info>` block is a v2 memory
+    // injection and must be suppressed regardless of `v2.enabled` / seeded
+    // files, so a `provider: "none"` install gets no `<memory>`/`<info>` block.
+    seedEssentials("Alice prefers VS Code.");
+    seedThreads("Open: ship PR.");
+    mockMemoryConfig.provider = "none";
     const ctx = makeContext();
     expect(await memoryV2StaticInjector.produce(ctx)).toBeNull();
   });

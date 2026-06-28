@@ -1426,26 +1426,32 @@ export class SkillHostClient implements SkillHost {
 
   private buildVectorStoreFacet(): VectorStoreFacet {
     const call = this.call.bind(this);
+    // The daemon namespaces every collection by the owning skill's id, so
+    // `skillId` travels at the params level on each frame — matching how
+    // `host.registries.register_tools` carries ownership.
+    const skillId = this.options.skillId;
     return {
       collection: async (name, options): Promise<VectorCollection> => {
         // Round-trip once so the daemon can provision the namespaced
-        // collection; subsequent ops carry the same `name`.
+        // collection; subsequent ops carry the same `skillId` + `name`.
         await call("host.vectorStore.ensure", {
+          skillId,
           name,
           vectorSize: options.vectorSize,
         });
         return {
           upsert: async (points: VectorPoint[]) => {
-            await call("host.vectorStore.upsert", { name, points });
+            await call("host.vectorStore.upsert", { skillId, name, points });
           },
           search: async (vector: number[], limit: number) =>
             call<VectorSearchResult[]>("host.vectorStore.search", {
+              skillId,
               name,
               vector,
               limit,
             }),
           delete: async (ids: string[]) => {
-            await call("host.vectorStore.delete", { name, ids });
+            await call("host.vectorStore.delete", { skillId, name, ids });
           },
         };
       },

@@ -59,6 +59,17 @@ export class PluginVectorCollection {
     this.vectorSize = args.vectorSize;
   }
 
+  /**
+   * Provision the underlying collection if it does not yet exist. Idempotent
+   * and safe to call before any read/write; exposed so the IPC vector-store
+   * route can provision a collection deterministically (with the caller's
+   * `vectorSize`) on `host.vectorStore.ensure`, before later op frames that
+   * carry only the collection name.
+   */
+  async ensure(): Promise<void> {
+    await this.ensureCollection();
+  }
+
   private async ensureCollection(): Promise<void> {
     if (this.ready) return;
     try {

@@ -260,7 +260,13 @@ export const memoryV3Injector: Injector = {
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
     const config = getConfig();
     if (config.memory.enabled === false) return null;
-    const live = resolveMemoryProviderId(config) === "v3";
+    const provider = resolveMemoryProviderId(config);
+    // `memory.provider: "none"` disables memory entirely — suppress even the
+    // shadow path so the v3 selector never runs (and logs nothing) when memory
+    // is off, matching how `none` suppresses tools, turn-commit, and v2
+    // retrieval/injection.
+    if (provider === "none") return null;
+    const live = provider === "v3";
     const shadow = isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config);
     if (!live && !shadow) return null;
     if (!isPersonalMemoryAllowed(ctx.trust)) return null;

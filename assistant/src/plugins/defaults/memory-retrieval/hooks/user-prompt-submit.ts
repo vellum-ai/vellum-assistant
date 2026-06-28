@@ -55,14 +55,20 @@ import { MEMORY_V3_INJECTED_BLOCK_METADATA_KEY } from "../../memory-v3-shadow/ev
  * runtime assembly strips any v2 `<memory>` block, so running v2's retrieval
  * (embedding + hybrid search + the `memoryRetrieval` LLM router) only to
  * discard the result is pure per-turn waste. Untrusted actors never run it
- * either. The caller additionally requires the live conversation and its abort
- * signal to be present (kept inline at the call site for type narrowing).
+ * either, and `memory.provider: "none"` disables memory entirely — retrieval
+ * (and the `<memory>` injection it produces) is suppressed the same way the
+ * `none` provider suppresses tools and turn-commit work. The caller
+ * additionally requires the live conversation and its abort signal to be
+ * present (kept inline at the call site for type narrowing).
  */
 export function shouldRunV2Retrieval(params: {
   isTrustedActor: boolean;
   memoryV3Live: boolean;
+  memoryDisabled: boolean;
 }): boolean {
-  return params.isTrustedActor && !params.memoryV3Live;
+  return (
+    params.isTrustedActor && !params.memoryV3Live && !params.memoryDisabled
+  );
 }
 
 /**
@@ -282,14 +288,17 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
 
   // v2 graph retrieval is the deprecated path: `shouldRunV2Retrieval` skips it
   // under memory-v3-live (v3 owns the `<memory>` layer and assembly strips any
-  // v2 block) and for untrusted actors. The `conversation && abortSignal`
-  // presence checks stay inline so the block below narrows. NOTE: this removes
-  // the v2 fallback — under v3-live, a v3 empty/failed selection yields no NEW
-  // injected memory that turn (prior turns' frozen v3 cards still ride history).
-  const memoryV3Live = resolveMemoryProviderId(config) === "v3";
+  // v2 block), for untrusted actors, and when `memory.provider: "none"`
+  // disables memory entirely. The `conversation && abortSignal` presence checks
+  // stay inline so the block below narrows. NOTE: this removes the v2 fallback
+  // — under v3-live, a v3 empty/failed selection yields no NEW injected memory
+  // that turn (prior turns' frozen v3 cards still ride history).
+  const resolvedProvider = resolveMemoryProviderId(config);
+  const memoryV3Live = resolvedProvider === "v3";
+  const memoryDisabled = resolvedProvider === "none";
   let v2BlockPersisted = false;
   if (
-    shouldRunV2Retrieval({ isTrustedActor, memoryV3Live }) &&
+    shouldRunV2Retrieval({ isTrustedActor, memoryV3Live, memoryDisabled }) &&
     conversation &&
     abortSignal
   ) {
