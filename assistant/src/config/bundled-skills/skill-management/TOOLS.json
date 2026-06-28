@@ -69,6 +69,29 @@
       },
       "executor": "tools/delete-managed.ts",
       "execution_target": "host"
+    },
+    {
+      "name": "find_similar_skills",
+      "description": "Find the existing skills most similar to a goal. Scores the goal against the skill catalog's capability pages and returns a ranked shortlist of nearest skills, each with its name, description, and similarity score. Read-only — it never creates, edits, or deletes anything.",
+      "category": "skills",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "goal": {
+            "type": "string",
+            "description": "The goal or intent to match against existing skills."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Maximum number of nearest skills to return (default: 5)."
+          }
+        },
+        "required": ["goal"]
+      },
+      "executor": "tools/find-similar.ts",
+      "execution_target": "host"
     }
   ]
 }
