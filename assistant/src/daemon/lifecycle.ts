@@ -122,6 +122,7 @@ import {
   rebuildBm25CorpusStatsAndReseedSkills,
 } from "./memory-v2-startup.js";
 import { startOrphanReaper } from "./orphan-reaper.js";
+import { elevatePointerConversationToGuardian } from "./pointer-conversation-trust.js";
 import { processMessage } from "./process-message.js";
 import { runProfilerSweep } from "./profiler-run-store.js";
 import {
@@ -1117,6 +1118,14 @@ export async function runDaemon(): Promise<void> {
         const conversation =
           await server.getConversationForMessages(conversationId);
 
+        // Pointer turns are guardian-gated owner self-maintenance: elevate to
+        // the internal guardian context and rehydrate history so a cold
+        // (evicted) load doesn't filter guardian history to empty and ship a
+        // cache-missing turn. `restoreTrustContext` undoes the elevation after
+        // the turn. See pointer-conversation-trust.ts for the full rationale.
+        const restoreTrustContext =
+          await elevatePointerConversationToGuardian(conversation);
+
         // Constrain pointer generation to a tool-disabled path so call-
         // status events cannot trigger unintended side-effect tools.
         // Incrementing toolsDisabledDepth causes the resolveTools callback
@@ -1242,6 +1251,8 @@ export async function runDaemon(): Promise<void> {
         } finally {
           // Restore tool availability so subsequent turns aren't affected.
           conversation.toolsDisabledDepth--;
+          // Undo the temporary guardian elevation installed above.
+          restoreTrustContext();
         }
       },
     );
