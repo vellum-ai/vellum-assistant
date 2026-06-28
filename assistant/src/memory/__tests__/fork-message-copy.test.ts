@@ -25,7 +25,7 @@ import {
 import { getDb, getSqlite } from "../db-connection.js";
 import { initializeDb } from "../db-init.js";
 import {
-  buildForkCopyBatchScript,
+  buildForkCopyScript,
   copyForkMessagesViaSubprocess,
   type ForkIdPair,
 } from "../fork-message-copy.js";
@@ -211,18 +211,22 @@ describe("copyForkMessagesViaSubprocess", () => {
   });
 });
 
-describe("buildForkCopyBatchScript", () => {
+describe("buildForkCopyScript", () => {
   test("rejects an unsafe fork id", () => {
     expect(() =>
-      buildForkCopyBatchScript("abc'); DROP TABLE messages;--", []),
+      buildForkCopyScript({
+        forkConversationId: "abc'); DROP TABLE messages;--",
+        idPairs: [],
+      }),
     ).toThrow(/unsafe id/);
   });
 
   test("rejects an unsafe message id", () => {
     expect(() =>
-      buildForkCopyBatchScript(crypto.randomUUID(), [
-        { oldId: "ok", newId: "bad'id" },
-      ]),
+      buildForkCopyScript({
+        forkConversationId: crypto.randomUUID(),
+        idPairs: [{ oldId: "ok", newId: "bad'id" }],
+      }),
     ).toThrow(/unsafe id/);
   });
 });

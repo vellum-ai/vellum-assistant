@@ -153,10 +153,14 @@ export async function migrateStripPlaceholderSentinelsFromMessages(
   for (let lo = 0; lo < maxRow; lo += ROWID_WINDOW) {
     const hi = Math.min(lo + ROWID_WINDOW, maxRow);
 
-    const res = await runAsyncSqlite(windowSql(lo, hi), {
-      dbPath,
-      timeoutMs: WINDOW_TIMEOUT_MS,
-    });
+    const res = await runAsyncSqlite(
+      windowSql(lo, hi),
+      `migration-222:strip-placeholder-window:(${lo},${hi}]`,
+      {
+        dbPath,
+        timeoutMs: WINDOW_TIMEOUT_MS,
+      },
+    );
     if (!res.ok) {
       // Surface the failure so the runner leaves the step un-checkpointed and
       // retries the whole sweep on the next boot.
@@ -167,5 +171,9 @@ export async function migrateStripPlaceholderSentinelsFromMessages(
   }
 
   // Bound WAL growth left by the windowed rewrites.
-  await runAsyncSqlite(`PRAGMA wal_checkpoint(TRUNCATE);`, { dbPath });
+  await runAsyncSqlite(
+    `PRAGMA wal_checkpoint(TRUNCATE);`,
+    "migration-222:wal-checkpoint-truncate",
+    { dbPath },
+  );
 }

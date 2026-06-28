@@ -181,7 +181,10 @@ function saveTemplate(): void {
 export async function checkpointWalBeforeOpen(): Promise<void> {
   const log = getLogger("db-init");
   try {
-    const result = await runAsyncSqlite("PRAGMA wal_checkpoint(TRUNCATE)");
+    const result = await runAsyncSqlite(
+      "PRAGMA wal_checkpoint(TRUNCATE)",
+      "db-init:pre-open-wal-checkpoint",
+    );
     if (result.ok) {
       log.info(
         { backend: result.backend, elapsedMs: result.elapsedMs },

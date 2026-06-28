@@ -74,7 +74,10 @@ async function runDbMaintenance(): Promise<void> {
   // Refresh the query planner's statistics. PRAGMA optimize is cheap; it is
   // routed through the async path for consistency and to keep it off the main
   // thread when the sqlite3 CLI backend is available.
-  const optimizeResult = await runAsyncSqlite("PRAGMA optimize");
+  const optimizeResult = await runAsyncSqlite(
+    "PRAGMA optimize",
+    "db-maintenance:optimize",
+  );
   if (!optimizeResult.ok) {
     log.warn(
       { error: optimizeResult.error, backend: optimizeResult.backend },
@@ -97,6 +100,7 @@ async function runDbMaintenance(): Promise<void> {
   // best-effort no-op and the next maintenance pass retries.
   const checkpointResult = await runAsyncSqlite(
     "PRAGMA wal_checkpoint(TRUNCATE)",
+    "db-maintenance:wal-checkpoint-truncate",
   );
   if (!checkpointResult.ok) {
     log.warn(

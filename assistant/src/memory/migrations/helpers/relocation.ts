@@ -174,6 +174,7 @@ export async function drainStagedTable(
         `DELETE FROM "${staging}" WHERE rowid IN (` +
           `SELECT rowid FROM "${staging}" WHERE NOT (${spec.copyWhere}) LIMIT ${DRAIN_BATCH});\n` +
           `SELECT changes();`,
+        `relocation:purge-batch:${table}`,
         { dbPath },
       );
       if (!res.ok) {
@@ -194,6 +195,7 @@ export async function drainStagedTable(
         `DELETE FROM "${staging}" WHERE rowid IN (` +
         `SELECT rowid FROM "${staging}" ${whereCopy} ORDER BY rowid LIMIT ${DRAIN_BATCH});\n` +
         `SELECT changes();`,
+      `relocation:copy-batch:${table}`,
       {
         dbPath,
         attach: [{ path: spec.targetDbPath(), alias: "_reloc_target" }],
@@ -216,6 +218,7 @@ export async function drainStagedTable(
   // Drained — drop the (now empty) staging table and truncate the main WAL.
   const finalizeRes = await runAsyncSqlite(
     `DROP TABLE IF EXISTS "${staging}";\nPRAGMA wal_checkpoint(TRUNCATE);`,
+    `relocation:finalize:${table}`,
     { dbPath },
   );
   if (!finalizeRes.ok) {
