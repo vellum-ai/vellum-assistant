@@ -244,13 +244,14 @@ export async function runForkBasedRetrospective(
   }
   const forkId = forkConversationRow.id;
 
+  const procToSkillsActive = isProcToSkillsActive(config);
   const instruction = buildForkInstruction({
     windowStartTimestamp,
     windowAnchorKind: turnContextTimestamp ? "turn_context" : "created_at",
     priorRemembers,
     timeZone: timezoneContext.effectiveTimezone,
     isFirstPass: lastProcessedMessageId == null,
-    procToSkillsActive: isProcToSkillsActive(config),
+    procToSkillsActive,
   });
   try {
     await addMessage(
@@ -318,17 +319,18 @@ export async function runForkBasedRetrospective(
       // `remember` saves ordinary facts; the skill-authoring trio
       // (`scaffold_managed_skill` / `skill_load` / `find_similar_skills`) lets a
       // pass author or refine a managed skill from an observed procedure. The
-      // checker's origin-scoped grant only ALLOWs the trio non-interactively
-      // when proc-to-skills is active and the pinned origin matches; the fork
-      // instruction only directs their use under the same gate, so an inactive
-      // install keeps remember-only behavior even though the allowlist names
-      // them. Any tool outside this set is rejected at execution time.
-      allowedTools: [
-        "remember",
-        "scaffold_managed_skill",
-        "skill_load",
-        "find_similar_skills",
-      ],
+      // allowlist is gated on the same `procToSkillsActive` predicate as the
+      // fork instruction and the checker's origin-scoped grant, so an inactive
+      // install is remember-only — the authoring trio is not even named on the
+      // allowlist. Any tool outside the active set is rejected at execution time.
+      allowedTools: procToSkillsActive
+        ? [
+            "remember",
+            "scaffold_managed_skill",
+            "skill_load",
+            "find_similar_skills",
+          ]
+        : ["remember"],
       // Always keep the source's full tool surface on the wire and resolve it
       // under the source's client context (`toolContextPin`). The wire tool
       // block is the first tier of the provider cache prefix

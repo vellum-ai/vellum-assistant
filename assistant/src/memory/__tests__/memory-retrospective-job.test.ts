@@ -447,6 +447,7 @@ describe("memoryRetrospectiveJob", () => {
   });
 
   test("wake allows memory saves + skill authoring and suppresses the internal wake surface", async () => {
+    mockProcToSkillsActive = true;
     await memoryRetrospectiveJob(makeJob(), stubConfig);
 
     expect(forkCalls).toHaveLength(1);
@@ -464,6 +465,15 @@ describe("memoryRetrospectiveJob", () => {
     expect(opts.skipHintInjection).toBe(true);
     expect(opts.suppressAutoCompaction).toBe(true);
     expect(opts.hintRole).toBe("user");
+  });
+
+  test("wake is remember-only when proc-to-skills is inactive", async () => {
+    mockProcToSkillsActive = false;
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(wakeCalls).toHaveLength(1);
+    // The authoring trio is not even named on the allowlist when inactive.
+    expect(wakeCalls[0]!.opts.allowedTools).toEqual(["remember"]);
   });
 
   test("wake pins the memory_retrospective origin on the tool-context pin so the checker's grant can fire", async () => {
