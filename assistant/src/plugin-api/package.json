@@ -8,5 +8,8 @@
   "types": "./index.ts",
   "exports": {
     ".": "./index.ts"
+  },
+  "dependencies": {
+    "@vellumai/skill-host-contracts": "file:../../../packages/skill-host-contracts"
   }
 }

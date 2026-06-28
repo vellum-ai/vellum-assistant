@@ -61,7 +61,11 @@ import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags
 import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
 import { HOOKS } from "../plugin-api/constants.js";
-import { getAllDefaultPlugins, registerDefaultPlugins } from "../plugins/defaults/index.js";
+import type { PluginHost } from "../plugin-api/types.js";
+import {
+  getAllDefaultPlugins,
+  registerDefaultPlugins,
+} from "../plugins/defaults/index.js";
 import { getRegisteredPlugins, unregisterPlugin } from "../plugins/registry.js";
 import {
   type Plugin,
@@ -82,6 +86,16 @@ import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir, getWorkspacePluginsDir } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
 import { registerShutdownHook } from "./shutdown-registry.js";
+import {
+  buildConfigFacet,
+  buildEventsFacet,
+  buildIdentityFacet,
+  buildLoggerFacet,
+  buildMemoryFacet,
+  buildPlatformFacet,
+  buildProvidersFacet,
+  buildRegistriesFacet,
+} from "./skill-host-facets.js";
 
 const log = getLogger("plugins-bootstrap");
 
@@ -136,6 +150,28 @@ function ensurePluginStorageDir(pluginName: string): string {
   const dir = join(getWorkspaceDir(), "plugins-data", pluginName);
   mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+/**
+ * Build the `host` bundle handed to an external plugin on
+ * {@link InitContext.host}. Composes the shared `skill-host-facets` builders
+ * — the same source of truth `createDaemonSkillHost` consumes — scoped to the
+ * plugin name (so logger scopes and shutdown-hook keys carry the owning
+ * plugin). This bundle is the sanctioned route for external plugins to reach
+ * providers/memory/events/config; direct `assistant/` source imports remain
+ * forbidden for external plugins.
+ */
+function buildPluginHost(pluginName: string): PluginHost {
+  return {
+    providers: buildProvidersFacet(),
+    memory: buildMemoryFacet(),
+    events: buildEventsFacet(),
+    config: buildConfigFacet(),
+    identity: buildIdentityFacet(),
+    platform: buildPlatformFacet(),
+    logger: buildLoggerFacet(pluginName),
+    registries: buildRegistriesFacet(pluginName),
+  };
 }
 
 function getDisabledPluginFlag(
@@ -346,6 +382,7 @@ async function initializePlugin(
       logger: log.child({ plugin: name }),
       pluginStorageDir: ensurePluginStorageDir(name),
       assistantVersion: APP_VERSION,
+      host: buildPluginHost(name),
     };
 
     if (plugin.tools && plugin.tools.length > 0) {

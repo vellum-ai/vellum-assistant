@@ -98,17 +98,32 @@ export type {
 // pass `"inference"` (the general-purpose call site) and pick the model via the
 // `overrideProfile` option.
 export type { LLMCallSite } from "../config/schemas/llm.js";
+// Host-facet contracts. `InitContext.host` (a {@link PluginHost}) is the
+// sanctioned route for an external plugin to reach the assistant's live
+// subsystems — providers/memory/events/config/identity/platform/logger/
+// registries — without importing `assistant/` source. The facet interfaces
+// are re-exported from `@vellumai/skill-host-contracts` so a plugin types its
+// `host` usage from `@vellumai/plugin-api` alone.
 export type {
   AgentLoopExitReason,
+  ConfigFacet,
+  EventsFacet,
   HookFunction,
+  IdentityFacet,
   InitContext,
+  LoggerFacet,
+  MemoryFacet,
   ModelProfileInfo,
+  PlatformFacet,
+  PluginHost,
   PluginLogger,
   PostCompactContext,
   PostModelCallContext,
   PostModelCallDecision,
   PostToolUseContext,
   PreModelCallContext,
+  ProvidersFacet,
+  RegistriesFacet,
   ShutdownContext,
   StopContext,
   ToolContext,
