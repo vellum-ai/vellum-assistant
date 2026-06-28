@@ -40,6 +40,7 @@ import type { HookFunction, ShutdownContext } from "../plugin-api/types.js";
 import { reconcileBuiltinMemoryTools } from "../tools/memory/builtin-memory-tool-sync.js";
 import {
   registerPluginTools,
+  unregisterPluginTool,
   unregisterPluginTools,
 } from "../tools/registry.js";
 import { finalizeTool } from "../tools/tool-defaults.js";
@@ -508,6 +509,7 @@ async function evictAll(): Promise<void> {
 
   clearPluginHooks();
   toolCache.clear();
+  registeredFileToolNames.clear();
   discoveredPluginDirs.clear();
   installDateCache.clear();
   disabledPluginDirs.clear();
@@ -543,10 +545,110 @@ const shutdownContext: ShutdownContext = {
   assistantVersion: APP_VERSION,
 };
 
+/** A plugin's currently-cached tools, in cache order. */
+function cachedToolsFor(pluginName: string): Tool[] {
+  return Array.from(toolCache.values())
+    .filter((c) => c.pluginName === pluginName)
+    .map((c) => c.tool);
+}
+
+/**
+ * Names of the file-backed tools this module last registered into the global
+ * registry per plugin. Tracked so an already-active plugin's runtime tool
+ * delta is unambiguous: a name that was here last scan but is gone from the
+ * cache this scan is a deleted `tools/*.ts` file and must be unregistered,
+ * while a name a plugin contributed through `host.registries.registerTools()`
+ * (never file-backed, so never recorded here) is left untouched. Cleared on
+ * deactivation/eviction and in test reset.
+ */
+const registeredFileToolNames = new Map<string, Set<string>>();
+
+/**
+ * Register the plugin's file-backed tool cache into the global registry and
+ * record the names that actually landed in {@link registeredFileToolNames}.
+ * Shared by first activation and the already-active reconcile so the tracked
+ * set always mirrors what this module owns in the registry. Returns the
+ * registered names (post provider-safe aliasing), or `[]` on failure.
+ *
+ * The tracked set is REPLACED with the accepted names rather than unioned: a
+ * cached tool that `registerPluginTools` skips (e.g. its name was reclaimed as
+ * a core tool when the built-in memory provider stopped yielding) drops out of
+ * the set, so the next scan won't try to unregister a tool this module no
+ * longer owns.
+ */
+function registerCachedToolsForPlugin(
+  pluginName: string,
+  cachedTools: Tool[],
+): string[] {
+  if (cachedTools.length === 0) {
+    registeredFileToolNames.set(pluginName, new Set());
+    return [];
+  }
+  try {
+    const registeredNames = registerPluginTools(pluginName, cachedTools).map(
+      (t) => t.name,
+    );
+    registeredFileToolNames.set(pluginName, new Set(registeredNames));
+    return registeredNames;
+  } catch (err) {
+    log.error(
+      { err, plugin: pluginName },
+      `Failed to register tools for user plugin ${pluginName}`,
+    );
+    return [];
+  }
+}
+
+/**
+ * Push the plugin's freshly-imported tool cache into the global registry for
+ * an ALREADY-ACTIVE plugin, so a runtime tool change reaches the live tool
+ * surface without a disable/enable cycle or daemon restart.
+ *
+ * `reconcilePluginTools` (run earlier in the scan) keeps `toolCache` current —
+ * it re-imports changed `tools/*.ts` files, drops cache entries whose files
+ * were deleted, and adds entries for new files. But for a plugin already past
+ * `activatePlugin`, those cache mutations never reach the global registry,
+ * which was populated once at activation. This reconciles the registry to the
+ * cache by applying just the delta:
+ *
+ * - tools present in the cache are (re-)registered, which adds new files and
+ *   overwrites changed ones; the registry's same-definition short-circuit
+ *   makes an unchanged tool a no-op;
+ * - file-backed tools this module registered last scan but that no longer land
+ *   (a deleted `tools/*.ts` file, or a name reclaimed by the built-in memory
+ *   provider when it stopped yielding) are unregistered.
+ *
+ * The removal set is the difference between the names this module had
+ * registered before this scan and the names it just registered — both in the
+ * provider-safe registered-name namespace, captured from `registerPluginTools`
+ * itself, so the diff is exact regardless of name aliasing. Tools a plugin
+ * contributed through `host.registries.registerTools()` are not file-backed,
+ * so they never enter `toolCache` nor {@link registeredFileToolNames}; the
+ * removal side cannot strip them, and the registration side never touches them.
+ *
+ * Steady-state (nothing changed on disk) is a no-op: the before/after
+ * registered-name sets are equal, and every cached tool is the same instance
+ * already registered.
+ */
+function reconcileActivePluginRegistry(pluginName: string): void {
+  const before = new Set(registeredFileToolNames.get(pluginName) ?? []);
+  // Re-register the cache; this replaces the tracked set with the names that
+  // actually landed (skipping any reclaimed as core tools).
+  registerCachedToolsForPlugin(pluginName, cachedToolsFor(pluginName));
+  const after = registeredFileToolNames.get(pluginName) ?? new Set<string>();
+  for (const name of before) {
+    if (!after.has(name)) {
+      unregisterPluginTool(pluginName, name);
+    }
+  }
+}
+
 /**
  * Activate a single discovered plugin: pre-import its hooks, register its tools
  * into the global tool registry, and run its `init` hook. Idempotent — a plugin
- * already activated (or mid-activation) is skipped. Never throws; per-surface
+ * already activated (or mid-activation) reconciles its tool cache into the live
+ * registry (so runtime tool add/delete and built-in memory flag flips land
+ * without a restart) and otherwise does no re-init. Never throws; per-surface
  * failures are logged and the plugin still counts as activated so the shutdown
  * hook tears down whatever came up (mirrors boot semantics).
  *
@@ -558,7 +660,12 @@ async function activatePlugin(
   pluginDir: string,
   pluginName: string,
 ): Promise<void> {
-  if (activatedNames.has(pluginName)) return;
+  if (activatedNames.has(pluginName)) {
+    // Already brought up: keep the live registry in step with the plugin's
+    // tool cache, which `reconcilePluginTools` refreshed earlier in this scan.
+    reconcileActivePluginRegistry(pluginName);
+    return;
+  }
   // Reserve synchronously, before any await, so a re-entrant or concurrent
   // scan observes this plugin as already handled.
   activatedNames.add(pluginName);
@@ -568,23 +675,17 @@ async function activatePlugin(
 
   // Register this plugin's tools into the global tool registry so
   // `getAllTools()` and `getTool()` can find them. Tools were already imported
-  // and cached by `reconcilePluginTools` during the scan.
-  const pluginTools = Array.from(toolCache.values())
-    .filter((c) => c.pluginName === pluginName)
-    .map((c) => c.tool);
-  if (pluginTools.length > 0) {
-    try {
-      registerPluginTools(pluginName, pluginTools);
-      log.info(
-        { plugin: pluginName, count: pluginTools.length },
-        "user plugin tools registered",
-      );
-    } catch (err) {
-      log.error(
-        { err, plugin: pluginName },
-        `Failed to register tools for user plugin ${pluginName}`,
-      );
-    }
+  // and cached by `reconcilePluginTools` during the scan. Records the
+  // registered names so subsequent scans can diff a runtime tool delta.
+  const registered = registerCachedToolsForPlugin(
+    pluginName,
+    cachedToolsFor(pluginName),
+  );
+  if (registered.length > 0) {
+    log.info(
+      { plugin: pluginName, count: registered.length },
+      "user plugin tools registered",
+    );
   }
 
   // Run the `init` hook if present.
@@ -606,7 +707,9 @@ async function deactivatePlugin(pluginName: string): Promise<void> {
   if (idx >= 0) activatedPlugins.splice(idx, 1);
 
   // Unregister tools before running shutdown so the model-visible surface is
-  // clean before teardown.
+  // clean before teardown. One call fully removes the plugin's tools (no
+  // refcount gate), including any registered through a `host.registries` facet
+  // call in addition to its `tools/*.ts` files.
   try {
     unregisterPluginTools(pluginName);
   } catch (err) {
@@ -615,6 +718,7 @@ async function deactivatePlugin(pluginName: string): Promise<void> {
       "user plugin tool unregister failed (continuing)",
     );
   }
+  registeredFileToolNames.delete(pluginName);
 
   // Remove the plugin's background-job handlers so a pending `plugin:<id>:` job
   // cannot dispatch into the torn-down plugin's code after it is disabled or
@@ -693,6 +797,7 @@ export async function populateCacheAtBoot(
           "user plugin tool unregister failed (continuing)",
         );
       }
+      registeredFileToolNames.delete(name);
 
       // Run the `shutdown` hook if present.
       await runShutdownHook(name, shutdownContext, reason);
@@ -716,6 +821,7 @@ export function resetPluginCacheForTests(): void {
   resetHookCacheForTests();
   clearSurfaceImportInflight();
   toolCache.clear();
+  registeredFileToolNames.clear();
   discoveredPluginDirs.clear();
   installDateCache.clear();
   activatedPlugins.length = 0;

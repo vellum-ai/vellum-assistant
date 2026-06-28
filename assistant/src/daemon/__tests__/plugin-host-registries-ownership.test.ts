@@ -118,6 +118,39 @@ describe("buildRegistriesFacet — registerTools ownership by host kind", () => 
     });
   });
 
+  test("a single unregister removes tools a plugin registered via BOTH tools/ and the host.registries facet", () => {
+    // A plugin can contribute tools from two surfaces in one activation: its
+    // `tools/*.ts` files (registered directly via `registerPluginTools`) and an
+    // `init`-time `host.registries.registerTools()` facet call (which routes
+    // through `registerPluginTools` again for a plugin host). Both land
+    // plugin-owned under the same plugin id.
+    registry.registerPluginTools("multi-surface", [tool("file_backed_tool")]);
+    const facet = buildRegistriesFacet("multi-surface", "plugin");
+    facet.registerTools(provide("facet_tool"));
+
+    expect(registry.getToolOwner("file_backed_tool")).toEqual({
+      kind: "plugin",
+      id: "multi-surface",
+    });
+    expect(registry.getToolOwner("facet_tool")).toEqual({
+      kind: "plugin",
+      id: "multi-surface",
+    });
+
+    // Plugin teardown is once-per-plugin: a single unregister must remove
+    // EVERY tool the plugin owns, not just the most recent registration.
+    const removed = registry.unregisterPluginTools("multi-surface");
+
+    expect(removed.sort()).toEqual(["facet_tool", "file_backed_tool"]);
+    expect(registry.getTool("file_backed_tool")).toBeUndefined();
+    expect(registry.getTool("facet_tool")).toBeUndefined();
+    expect(
+      registry
+        .getAllToolDefinitions()
+        .some((t) => t.name === "file_backed_tool" || t.name === "facet_tool"),
+    ).toBe(false);
+  });
+
   test("SKILL host routes registerTools through registerExternalTools as skill-owned", () => {
     const externalSpy = spyOn(registry, "registerExternalTools");
 

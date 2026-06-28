@@ -92,10 +92,20 @@ let coreToolsSnapshot: Map<string, Tool> | null = null;
 // Tools are only removed from the global registry when this drops to 0.
 const skillRefCount = new Map<string, number>();
 
-// Plugin-tool refcount lives in its own namespace so plugin and skill IDs
-// cannot collide in the ref map even if a plugin's `manifest.name` happens to
-// match a skill id. Conflict detection on `tools` (keyed by tool name) is
-// separate and covers the case of two extensions choosing the same tool name.
+// Counts how many times each plugin has registered tools. Lives in its own
+// namespace so plugin and skill IDs cannot collide in the ref map even if a
+// plugin's `manifest.name` happens to match a skill id. Conflict detection on
+// `tools` (keyed by tool name) is separate and covers the case of two
+// extensions choosing the same tool name.
+//
+// Unlike {@link skillRefCount} this is NOT a teardown gate: a plugin's
+// lifecycle (activation/deactivation) is once-per-plugin and process-global,
+// not per-session, so {@link unregisterPluginTools} fully removes a plugin's
+// tools on the single teardown call regardless of how many times the plugin
+// registered them (e.g. `Plugin.tools` plus an `init`-time
+// `host.registries.registerTools()` facet call, or a hot reload). The count
+// is retained only as an observability signal of how many registration calls
+// a plugin made.
 const pluginRefCount = new Map<string, number>();
 
 /**
@@ -436,36 +446,94 @@ export function registerPluginTools(
 }
 
 /**
- * Decrement the reference count for a plugin and remove its tools only when
- * no more references remain. Safe to call when the plugin never contributed
- * tools (no-op).
+ * Remove every tool owned by `pluginName` from the registry. Plugin teardown
+ * (deactivation on disable/removal, or process shutdown) is once-per-plugin
+ * and process-global — not refcounted per-session like skills — so a single
+ * call fully removes the plugin's tools no matter how many times the plugin
+ * registered them. This is what keeps a disabled or removed plugin's tools
+ * from staying model-visible when it registered via more than one surface
+ * (e.g. `Plugin.tools` plus an `init`-time `host.registries.registerTools()`
+ * facet call, or a hot reload).
+ *
+ * Returns the names of the tools that were removed. Safe to call when the
+ * plugin never contributed tools (no-op, returns `[]`).
  */
-export function unregisterPluginTools(pluginName: string): void {
-  const current = pluginRefCount.get(pluginName) ?? 0;
-  if (current > 1) {
-    pluginRefCount.set(pluginName, current - 1);
-    log.info(
-      { pluginName, remaining: current - 1 },
-      "Decremented plugin ref count, tools kept",
-    );
-    return;
-  }
-
+export function unregisterPluginTools(pluginName: string): string[] {
   pluginRefCount.delete(pluginName);
+  const removed: string[] = [];
   for (const [name, owner] of ownersByName) {
     if (owner.kind === "plugin" && owner.id === pluginName) {
       tools.delete(name);
       ownersByName.delete(name);
+      removed.push(name);
       log.info({ name, ownerPluginId: pluginName }, "Plugin tool unregistered");
     }
   }
+  return removed;
 }
 
 /**
- * Return the current reference count for a plugin's tools. Exposed for testing.
+ * Return the current registration-call count for a plugin's tools. This counts
+ * how many times {@link registerPluginTools} ran for the plugin, NOT a teardown
+ * gate — {@link unregisterPluginTools} removes everything in one call. Exposed
+ * for testing.
  */
 export function getPluginRefCount(pluginName: string): number {
   return pluginRefCount.get(pluginName) ?? 0;
+}
+
+/**
+ * Remove a single plugin-owned tool by name. No-op unless `name` is currently
+ * owned by `pluginName` — a tool owned by a different extension (or a core
+ * tool) is never evicted here. Used by the user-plugin scan reconcile to drop
+ * exactly the tools whose `tools/*.ts` files disappeared at runtime, leaving
+ * the plugin's other tools (and its refcount) intact. Returns `true` when a
+ * tool was removed.
+ */
+export function unregisterPluginTool(
+  pluginName: string,
+  name: string,
+): boolean {
+  const owner = ownersByName.get(name);
+  if (owner?.kind !== "plugin" || owner.id !== pluginName) {
+    return false;
+  }
+  tools.delete(name);
+  ownersByName.delete(name);
+  log.info(
+    { name, ownerPluginId: pluginName },
+    "Plugin tool unregistered (runtime cache delta)",
+  );
+  return true;
+}
+
+/**
+ * Reclaim a tool name from whatever PLUGIN currently owns it so a core tool can
+ * take it back. No-op when the name is unowned (already core) or owned by a
+ * non-plugin extension (skill/mcp/workspace) — those owners control their own
+ * lifecycle and are not displaced here.
+ *
+ * Used by the memory-capability resync so that when the built-in memory
+ * provider stops yielding (e.g. the `memory-plugin-provider` flag flips off),
+ * re-registering the built-in `remember`/`recall` installs them as clean core
+ * tools instead of overwriting an external memory plugin's same-named entry
+ * while leaving stale plugin ownership behind. With the name reclaimed, the
+ * plugin's same-named tool is then skipped as a core conflict on the next
+ * plugin scan, mirroring how the yield direction frees the names for the
+ * plugin. Returns the displaced plugin id, or `undefined` when nothing changed.
+ */
+export function reclaimPluginToolNameForCore(name: string): string | undefined {
+  const owner = ownersByName.get(name);
+  if (owner?.kind !== "plugin") {
+    return undefined;
+  }
+  tools.delete(name);
+  ownersByName.delete(name);
+  log.info(
+    { name, ownerPluginId: owner.id },
+    "Plugin tool name reclaimed for a built-in core tool",
+  );
+  return owner.id;
 }
 
 /**

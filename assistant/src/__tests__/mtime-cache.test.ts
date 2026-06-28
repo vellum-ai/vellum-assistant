@@ -649,6 +649,68 @@ describe("plugin runtime activation", () => {
 
     expect(getToolOwner("disable-tool")).toBeUndefined();
   });
+
+  test("an already-active plugin that gains a tools/ file registers it without a restart", async () => {
+    const dir = freshPluginDir("grow-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "grow-plugin" });
+    writeTool(dir, "first-tool", TOOL_SRC("first-tool"));
+
+    await populateCacheAtBoot();
+    // The plugin is already active with one tool.
+    expect(getToolOwner("first-tool")).toEqual({
+      kind: "plugin",
+      id: "grow-plugin",
+    });
+    expect(getAllToolDefinitions().some((t) => t.name === "second-tool")).toBe(
+      false,
+    );
+
+    // Drop a NEW tool file into the already-active plugin and rescan.
+    writeTool(dir, "second-tool", TOOL_SRC("second-tool"));
+    await triggerScan();
+
+    // The new tool reaches the global registry (and the per-turn resolver)
+    // without a disable/enable cycle or daemon restart. The original stays put.
+    expect(getToolOwner("second-tool")).toEqual({
+      kind: "plugin",
+      id: "grow-plugin",
+    });
+    expect(getAllToolDefinitions().some((t) => t.name === "second-tool")).toBe(
+      true,
+    );
+    expect(
+      getPluginToolDefinitions().some((t) => t.name === "second-tool"),
+    ).toBe(true);
+    expect(getToolOwner("first-tool")?.kind).toBe("plugin");
+  });
+
+  test("an already-active plugin that loses a tools/ file unregisters it without a restart", async () => {
+    const dir = freshPluginDir("shrink-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "shrink-plugin" });
+    writeTool(dir, "keep-tool", TOOL_SRC("keep-tool"));
+    writeTool(dir, "drop-tool", TOOL_SRC("drop-tool"));
+
+    await populateCacheAtBoot();
+    expect(getToolOwner("keep-tool")?.kind).toBe("plugin");
+    expect(getToolOwner("drop-tool")?.kind).toBe("plugin");
+
+    // Delete one tool file from the already-active plugin and rescan.
+    rmSync(join(dir, "tools", "drop-tool.ts"), { force: true });
+    await triggerScan();
+
+    // The deleted tool is stripped from the global registry; the other remains.
+    expect(getToolOwner("drop-tool")).toBeUndefined();
+    expect(getAllToolDefinitions().some((t) => t.name === "drop-tool")).toBe(
+      false,
+    );
+    expect(getToolOwner("keep-tool")).toEqual({
+      kind: "plugin",
+      id: "shrink-plugin",
+    });
+    expect(getAllToolDefinitions().some((t) => t.name === "keep-tool")).toBe(
+      true,
+    );
+  });
 });
 
 describe("built-in memory tool resync on memory-plugin takeover", () => {
@@ -717,6 +779,50 @@ describe("built-in memory tool resync on memory-plugin takeover", () => {
     rmSync(dir, { recursive: true, force: true });
     await triggerScan();
 
+    expect(getToolOwner("remember")).toBeUndefined();
+    expect(getTool("remember")).toBeDefined();
+  });
+
+  test("flipping the provider flag at runtime lands the active plugin's memory tools, then restores the built-in", async () => {
+    // A `provides: "memory"` plugin is installed and activated while the
+    // rollout flag is OFF: it is already active (hooks/other tools live), but
+    // the built-in core `remember` still owns the name, so the plugin's
+    // same-named tool was skipped as a core conflict at activation.
+    // `setOverridesForTesting` seeds the live override slot synchronously — no
+    // follow-up cache clear (that would wipe the override just set).
+    setOverridesForTesting({ "memory-plugin-provider": false });
+
+    const dir = freshPluginDir("external-memory");
+    writePackageJson(dir, {
+      ...SIMPLE_PKG,
+      name: "external-memory",
+      vellum: { provides: "memory" },
+    });
+    writeTool(dir, "remember", TOOL_SRC("remember"));
+
+    await populateCacheAtBoot();
+    // Built-in still owns remember; the plugin did not take over.
+    expect(getToolOwner("remember")).toBeUndefined();
+    expect(getTool("remember")).toBeDefined();
+
+    // Flip the flag ON at runtime (no plugin-set change). The next scan strips
+    // the built-in core tool and the already-active plugin's reconcile lands
+    // its own `remember` — no disable/enable cycle, no restart.
+    setOverridesForTesting({ "memory-plugin-provider": true });
+    await triggerScan();
+    expect(getToolOwner("remember")).toEqual({
+      kind: "plugin",
+      id: "external-memory",
+    });
+    expect(getPluginToolDefinitions().some((t) => t.name === "remember")).toBe(
+      true,
+    );
+
+    // Flip the flag OFF again — the built-in reclaims `remember` from the
+    // (still active) plugin and re-registers as a core tool. The plugin's
+    // same-named tool yields back without a restart.
+    setOverridesForTesting({ "memory-plugin-provider": false });
+    await triggerScan();
     expect(getToolOwner("remember")).toBeUndefined();
     expect(getTool("remember")).toBeDefined();
   });

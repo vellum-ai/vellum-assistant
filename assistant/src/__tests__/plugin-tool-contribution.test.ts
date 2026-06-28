@@ -338,16 +338,28 @@ describe("registerPluginTools / unregisterPluginTools helpers", () => {
     expect(() => unregisterPluginTools("never-registered")).not.toThrow();
   });
 
-  test("ref-counting: repeated registrations require matching unregister calls", () => {
-    registerPluginTools("rc-plugin", [makeFakeTool("pt_rc")]);
-    registerPluginTools("rc-plugin", [makeFakeTool("pt_rc")]);
-    expect(getPluginRefCount("rc-plugin")).toBe(2);
+  test("a single unregister fully removes a plugin's tools regardless of registration count", () => {
+    // Plugin teardown (deactivation/shutdown) is once-per-plugin and
+    // process-global — not refcounted per-session like skills — so a plugin
+    // that registered its tools through more than one surface (here simulated
+    // by two `registerPluginTools` calls, as a `tools/*.ts` set plus an
+    // `init`-time `host.registries.registerTools()` facet call would produce)
+    // must have ALL its tools removed by the single teardown call. Leaving
+    // them registered would keep a disabled/removed plugin's tools
+    // model-visible.
+    registerPluginTools("rc-plugin", [makeFakeTool("pt_rc_a")]);
+    registerPluginTools("rc-plugin", [makeFakeTool("pt_rc_b")]);
+    expect(getTool("pt_rc_a")).toBeDefined();
+    expect(getTool("pt_rc_b")).toBeDefined();
 
-    unregisterPluginTools("rc-plugin");
-    expect(getTool("pt_rc")).toBeDefined();
+    const removed = unregisterPluginTools("rc-plugin");
 
-    unregisterPluginTools("rc-plugin");
-    expect(getTool("pt_rc")).toBeUndefined();
+    expect(getTool("pt_rc_a")).toBeUndefined();
+    expect(getTool("pt_rc_b")).toBeUndefined();
+    expect(removed.sort()).toEqual(["pt_rc_a", "pt_rc_b"]);
     expect(getPluginRefCount("rc-plugin")).toBe(0);
+
+    // Idempotent: a second teardown call is a harmless no-op.
+    expect(unregisterPluginTools("rc-plugin")).toEqual([]);
   });
 });
