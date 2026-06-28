@@ -1,1 +1,1 @@
-export * from "./schema/index.js";
+export * from "../persistence/schema/index.js";
