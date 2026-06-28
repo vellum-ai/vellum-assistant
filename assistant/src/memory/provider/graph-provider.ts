@@ -5,8 +5,8 @@
  * Thin adapter over the existing graph modules: it delegates retrieval to
  * `graph/retriever.ts`, rendering to `graph/injection.ts`, and post-turn
  * consolidation enqueue to `memory/memory-retrospective-enqueue.ts`, then maps
- * the results into the {@link InjectionBlock} shape daemon core consumes. No
- * call site selects this provider yet — wiring lands in a later PR.
+ * the results into the {@link InjectionBlock} shape daemon core consumes.
+ * Selected by `memory.provider` through `resolveMemoryProvider`.
  */
 
 import { getConfig } from "../../config/loader.js";

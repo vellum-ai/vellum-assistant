@@ -10,8 +10,7 @@
  *   - consolidation/write enqueue: `enqueueMemoryRetrospectiveIfEnabled`,
  *     the same post-turn trigger the live v2 path fires.
  *
- * No call site consumes this yet — it is additive scaffolding selected by
- * `memory.provider` in a later PR.
+ * Selected by `memory.provider` through `resolveMemoryProvider`.
  */
 
 import { getConfig } from "../../config/loader.js";
