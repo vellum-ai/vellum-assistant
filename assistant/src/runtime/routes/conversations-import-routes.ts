@@ -3,11 +3,6 @@ import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
 import {
-  addMessage,
-  createConversation,
-  type MessageRole,
-} from "../../memory/conversation-crud.js";
-import {
   getConversationByKey,
   setConversationKey,
 } from "../../memory/conversation-key-store.js";
@@ -17,6 +12,11 @@ import {
   conversations as conversationsTable,
   messages as messagesTable,
 } from "../../memory/schema.js";
+import {
+  addMessage,
+  createConversation,
+  type MessageRole,
+} from "../../persistence/conversation-crud.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";

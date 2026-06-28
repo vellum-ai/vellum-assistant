@@ -21,12 +21,12 @@
 import type { HookFunction, Message, StopContext } from "@vellumai/plugin-api";
 
 import { getConfig } from "../../../../config/loader.js";
-import { getConversation } from "../../../../memory/conversation-crud.js";
 import {
   AUTO_TITLE_DETERMINISTIC,
   isReplaceableTitle,
   queueRegenerateConversationTitle,
 } from "../../../../memory/conversation-title-service.js";
+import { getConversation } from "../../../../persistence/conversation-crud.js";
 
 /**
  * User turn at which the second title pass fires. Matches the

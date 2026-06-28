@@ -61,7 +61,7 @@ mock.module("../runtime/background-job-runner.js", () => ({
       };
     }
     const { createConversation } =
-      await import("../memory/conversation-crud.js");
+      await import("../persistence/conversation-crud.js");
     const conv = createConversation({
       title: "(test stub)",
       conversationType: opts.conversationType ?? "background",
@@ -86,9 +86,9 @@ mock.module("../runtime/background-job-runner.js", () => ({
   },
 }));
 
-import { deleteConversation } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
+import { deleteConversation } from "../persistence/conversation-crud.js";
 import { createSchedule, getScheduleRuns } from "../schedule/schedule-store.js";
 import { startScheduler } from "../schedule/scheduler.js";
 

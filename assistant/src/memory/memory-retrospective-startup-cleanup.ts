@@ -52,8 +52,8 @@ import {
 } from "drizzle-orm";
 
 import { getConfig } from "../config/loader.js";
+import { deleteConversation } from "../persistence/conversation-crud.js";
 import { getLogger } from "../util/logger.js";
-import { deleteConversation } from "./conversation-crud.js";
 import { getDb, getMemoryDb } from "./db-connection.js";
 import { MEMORY_RETROSPECTIVE_SOURCES } from "./memory-retrospective-constants.js";
 import { loadRetrospectiveRunMessages } from "./memory-retrospective-fork-boundary.js";

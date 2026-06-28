@@ -55,7 +55,7 @@ mock.module("../contacts/contact-store.js", () => ({
 }));
 
 // Stub downstream side effects so the test isolates trust classification.
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
   addMessage: async () => ({ id: "msg-1" }),
 }));
 mock.module("../memory/delivery-crud.js", () => ({

@@ -43,8 +43,8 @@ import {
 } from "../../../../daemon/conversation-runtime-assembly.js";
 import type { MemoryRecalled } from "../../../../daemon/message-types/memory.js";
 import { resolveTrustClass } from "../../../../daemon/trust-context.js";
-import { updateMessageMetadata } from "../../../../memory/conversation-crud.js";
 import { recordMemoryRecallLog } from "../../../../memory/memory-recall-log-store.js";
+import { updateMessageMetadata } from "../../../../persistence/conversation-crud.js";
 import { broadcastMessage } from "../../../../runtime/assistant-event-hub.js";
 import type { GraphMemoryResult } from "../../../types.js";
 import { MEMORY_V3_INJECTED_BLOCK_METADATA_KEY } from "../../memory-v3-shadow/ever-injected-store.js";

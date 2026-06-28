@@ -31,12 +31,6 @@ import {
   getAttentionStateByConversationIds,
   markConversationUnread,
 } from "../memory/conversation-attention-store.js";
-import {
-  addMessage,
-  createConversation,
-  forkConversation,
-  getMessages,
-} from "../memory/conversation-crud.js";
 import { getConversationDirPath } from "../memory/conversation-disk-view.js";
 import { getDb, getLogsDb, getMemoryDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
@@ -65,6 +59,12 @@ import {
   toolInvocations,
 } from "../memory/schema.js";
 import { hydrate as hydrateActivationState } from "../memory/v2/activation-store.js";
+import {
+  addMessage,
+  createConversation,
+  forkConversation,
+  getMessages,
+} from "../persistence/conversation-crud.js";
 import {
   getInjected as getV3Injected,
   markPruned as markV3Pruned,

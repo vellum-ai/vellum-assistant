@@ -8,11 +8,11 @@
 import { z } from "zod";
 
 import { SubagentDetailResponseSchema } from "../../api/responses/subagent-detail.js";
+import { getConversationUsageTotals } from "../../memory/llm-usage-store.js";
 import {
   getMessages,
   type MessageRow,
-} from "../../memory/conversation-crud.js";
-import { getConversationUsageTotals } from "../../memory/llm-usage-store.js";
+} from "../../persistence/conversation-crud.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";

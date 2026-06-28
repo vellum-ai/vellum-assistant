@@ -129,7 +129,7 @@ mock.module("../../config/loader.js", () => ({
   }),
 }));
 
-mock.module("../conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   deleteConversation: (id: string) => {
     deletedIds.push(id);
     mockConversations = mockConversations.filter((c) => c.id !== id);

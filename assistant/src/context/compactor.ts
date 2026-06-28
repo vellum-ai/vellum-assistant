@@ -27,8 +27,8 @@ import {
   getAttachmentContent,
   getAttachmentMetadataForMessage,
 } from "../memory/attachments-store.js";
-import { getMessages } from "../memory/conversation-crud.js";
 import { recordRequestLog } from "../memory/llm-request-log-store.js";
+import { getMessages } from "../persistence/conversation-crud.js";
 import type {
   ContentBlock,
   ImageContent,

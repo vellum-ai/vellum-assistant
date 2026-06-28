@@ -20,7 +20,7 @@ import { parseImageDimensions } from "../../../context/image-dimensions.js";
 import {
   getMessages,
   updateMessageContent,
-} from "../../../memory/conversation-crud.js";
+} from "../../../persistence/conversation-crud.js";
 import { getLogger } from "../../../util/logger.js";
 
 const log = getLogger("image-recovery");

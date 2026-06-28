@@ -23,7 +23,7 @@ import { ContextOverflowError } from "../providers/types.js";
 
 const conversationCrudRealSnapshot = {
   ...(createRequire(import.meta.url)(
-    "../memory/conversation-crud.js",
+    "../persistence/conversation-crud.js",
   ) as Record<string, unknown>),
 };
 const conversationDiskViewRealSnapshot = {
@@ -279,7 +279,7 @@ const deleteMessageByIdMock = mock(() => ({
 const reserveMessageMock = mock(async () => ({ id: "msg-reserve" }));
 const updateMessageContentMock = mock(() => {});
 const addMessageMock = mock(() => ({ id: "mock-msg-id" }));
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
@@ -338,7 +338,7 @@ mock.module("../runtime/sync/sync-publisher.js", () => ({
 
 afterAll(() => {
   mock.module(
-    "../memory/conversation-crud.js",
+    "../persistence/conversation-crud.js",
     () => conversationCrudRealSnapshot,
   );
   mock.module(

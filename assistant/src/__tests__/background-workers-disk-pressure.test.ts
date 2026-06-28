@@ -99,7 +99,7 @@ mock.module("../daemon/process-message.js", () => ({
 }));
 
 const createdConversations: Array<{ conversationType: string }> = [];
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
   recordConversationPersistedSeq: () => {},

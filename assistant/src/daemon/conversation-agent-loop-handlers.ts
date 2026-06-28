@@ -23,18 +23,6 @@ import {
   recordCompactionStartBestEffort,
 } from "../memory/compaction-log-store-clickhouse.js";
 import { projectAssistantMessage } from "../memory/conversation-attention-store.js";
-import {
-  deleteMessageById,
-  getConversation,
-  getMessageById,
-  messageMetadataSchema,
-  provenanceFromTrustContext,
-  recordConversationPersistedSeq,
-  reserveMessage,
-  setConversationHistoryStrippedAt,
-  setLastNotifiedInferenceProfile,
-  updateMessageContent,
-} from "../memory/conversation-crud.js";
 import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
 import { indexMessageNow } from "../memory/indexer.js";
 import {
@@ -51,6 +39,18 @@ import {
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
+import {
+  deleteMessageById,
+  getConversation,
+  getMessageById,
+  messageMetadataSchema,
+  provenanceFromTrustContext,
+  recordConversationPersistedSeq,
+  reserveMessage,
+  setConversationHistoryStrippedAt,
+  setLastNotifiedInferenceProfile,
+  updateMessageContent,
+} from "../persistence/conversation-crud.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import { backfillMemoryV3SelectionMessageId } from "../plugins/defaults/memory-v3-shadow/shadow-plugin.js";
 import type {

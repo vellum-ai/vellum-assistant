@@ -2,8 +2,11 @@ import { v4 as uuid } from "uuid";
 
 import { peekAcpSessionManager } from "../../acp/index.js";
 import { resolveCanonicalGuardianRequest } from "../../memory/canonical-guardian-store.js";
-import { clearAll, getConversation } from "../../memory/conversation-crud.js";
 import { resolveConversationId } from "../../memory/conversation-key-store.js";
+import {
+  clearAll,
+  getConversation,
+} from "../../persistence/conversation-crud.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { resolveCapabilities } from "../../runtime/capabilities.js";
 import * as pendingInteractions from "../../runtime/pending-interactions.js";

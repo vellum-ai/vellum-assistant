@@ -6,15 +6,15 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
 }));
 
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import {
   createConversation,
   getConversation,
   resolveOverrideProfile,
   setConversationInferenceProfile,
   setConversationInferenceProfileSession,
-} from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../persistence/conversation-crud.js";
 await initializeDb();
 
 describe("setConversationInferenceProfile", () => {

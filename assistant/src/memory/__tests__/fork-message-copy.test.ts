@@ -21,7 +21,7 @@ import {
   addMessage,
   createConversation,
   getMessages,
-} from "../conversation-crud.js";
+} from "../../persistence/conversation-crud.js";
 import { getDb, getSqlite } from "../db-connection.js";
 import { initializeDb } from "../db-init.js";
 import {

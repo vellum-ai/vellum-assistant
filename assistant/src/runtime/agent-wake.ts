@@ -90,12 +90,12 @@ import {
   recordCompactionEndBestEffort,
   recordCompactionStartBestEffort,
 } from "../memory/compaction-log-store-clickhouse.js";
-import { getConversationOverrideProfile } from "../memory/conversation-crud.js";
 import {
   buildProviderErrorResponsePayload,
   recordRequestLog,
   setAgentLoopExitReasonOnLatestLog,
 } from "../memory/llm-request-log-store.js";
+import { getConversationOverrideProfile } from "../persistence/conversation-crud.js";
 import type { SystemPromptPersonaOverride } from "../prompts/system-prompt.js";
 import type { Message } from "../providers/types.js";
 import {
@@ -391,7 +391,8 @@ async function defaultResolveTarget(
   // module-evaluation time.  Callers that only import agent-wake for
   // the types or for explicit-deps usage (tests, shell tools) never
   // trigger these imports.
-  const { getConversation } = await import("../memory/conversation-crud.js");
+  const { getConversation } =
+    await import("../persistence/conversation-crud.js");
   const { getOrCreateConversation } =
     await import("../daemon/conversation-store.js");
   try {

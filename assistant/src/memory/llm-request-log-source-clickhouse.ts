@@ -16,14 +16,14 @@
  * finetune prompts" use case; revisit when mirror updates are added.
  */
 import type { LlmRequestLogsClickHouseConfig } from "../config/schemas/llm-request-logs.js";
-import { credentialKey } from "../security/credential-key.js";
-import { getSecureKeyAsync } from "../security/secure-keys.js";
-import { getLogger } from "../util/logger.js";
 import {
   getAssistantMessageIdsInTurn,
   getMessageById,
   messageMetadataSchema,
-} from "./conversation-crud.js";
+} from "../persistence/conversation-crud.js";
+import { credentialKey } from "../security/credential-key.js";
+import { getSecureKeyAsync } from "../security/secure-keys.js";
+import { getLogger } from "../util/logger.js";
 import type { LlmRequestLogSource } from "./llm-request-log-source.js";
 import type {
   CompactionAgentLogRow,

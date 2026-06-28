@@ -13,7 +13,7 @@ import {
   createConversation,
   findAnalysisConversationFor,
   getConversationSource,
-} from "../conversation-crud.js";
+} from "../../persistence/conversation-crud.js";
 import { getDb } from "../db-connection.js";
 import { initializeDb } from "../db-init.js";
 import { conversations } from "../schema.js";

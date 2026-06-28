@@ -51,9 +51,8 @@ mock.module("../contacts/contact-store.js", () => ({
 // `resolveTurnInboundActorContext` must NOT re-resolve ACL via the actor-trust
 // resolver on the fresh-inbound path. Track calls so the tests can assert it
 // is never invoked.
-const realActorTrustResolverForAssemblyTest = await import(
-  "../runtime/actor-trust-resolver.js"
-);
+const realActorTrustResolverForAssemblyTest =
+  await import("../runtime/actor-trust-resolver.js");
 let resolveActorTrustCalls = 0;
 mock.module("../runtime/actor-trust-resolver.js", () => ({
   ...realActorTrustResolverForAssemblyTest,
@@ -133,7 +132,6 @@ import {
 import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
 import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import type { MessageRow } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
@@ -144,6 +142,7 @@ import {
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
 import { parentAlias } from "../messaging/providers/slack/render-transcript.js";
+import type { MessageRow } from "../persistence/conversation-crud.js";
 import postCompact from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import {
   buildUnifiedTurnContextBlock,

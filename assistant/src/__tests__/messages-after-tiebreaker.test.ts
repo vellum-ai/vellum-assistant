@@ -6,13 +6,13 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
 }));
 
-import {
-  countMessagesAfter,
-  getMessagesAfter,
-} from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { conversations, messages } from "../memory/schema.js";
+import {
+  countMessagesAfter,
+  getMessagesAfter,
+} from "../persistence/conversation-crud.js";
 
 await initializeDb();
 

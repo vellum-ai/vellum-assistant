@@ -17,13 +17,13 @@ import { v4 as uuid } from "uuid";
 
 import { CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE } from "../api/constants/call-sites.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import { AssistantError, ProviderError } from "../util/errors.js";
 import {
   getAssistantMessageIdsInTurn,
   getMessageById,
   getTurnTimeBounds,
   messageMetadataSchema,
-} from "./conversation-crud.js";
+} from "../persistence/conversation-crud.js";
+import { AssistantError, ProviderError } from "../util/errors.js";
 import { type DrizzleDb, getDb, getLogsDb } from "./db-connection.js";
 import { llmRequestLogs, messages } from "./schema.js";
 

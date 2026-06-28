@@ -20,11 +20,6 @@ mock.module("../config/loader.js", () => ({
 
 import { sql } from "drizzle-orm";
 
-import {
-  addMessage,
-  createConversation,
-  forkConversation,
-} from "../memory/conversation-crud.js";
 import { getDb, getLogsDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
@@ -34,6 +29,11 @@ import {
   relinkLlmRequestLogs,
 } from "../memory/llm-request-log-store.js";
 import { llmRequestLogs, toolInvocations } from "../memory/schema.js";
+import {
+  addMessage,
+  createConversation,
+  forkConversation,
+} from "../persistence/conversation-crud.js";
 
 await initializeDb();
 
@@ -150,7 +150,7 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
     // Fork the conversation
     const fork = forkConversation({ conversationId: source.id });
     const forkMessages = (
-      await import("../memory/conversation-crud.js")
+      await import("../persistence/conversation-crud.js")
     ).getMessages(fork.id);
     const forkLastAssistant = forkMessages
       .filter((m) => m.role === "assistant")

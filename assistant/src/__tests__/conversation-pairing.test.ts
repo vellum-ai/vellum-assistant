@@ -50,9 +50,9 @@ const getConversationMock = mock((id: string) => {
   return mockExistingConversations[id] ?? null;
 });
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},

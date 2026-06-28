@@ -35,7 +35,7 @@ mock.module("../../config/loader.js", () => ({
   loadConfig: () => ({}),
 }));
 
-mock.module("../../memory/conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   addMessage: () => ({ id: "mock-msg-id" }),
   getMessageById: () => null,
   updateMessageContent: () => {},
@@ -121,9 +121,7 @@ function createCollectorDeps(): {
 
 describe("formatSearchStatusText", () => {
   test("surfaces the query in quotes", () => {
-    expect(formatSearchStatusText("web_search", "foo")).toBe(
-      'Searching "foo"',
-    );
+    expect(formatSearchStatusText("web_search", "foo")).toBe('Searching "foo"');
   });
 
   test("truncates queries longer than 60 chars with an ellipsis", () => {

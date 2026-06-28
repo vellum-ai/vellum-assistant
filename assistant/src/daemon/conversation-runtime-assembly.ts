@@ -26,10 +26,6 @@ import {
   listAppFiles,
   resolveAppDir,
 } from "../memory/app-store.js";
-import {
-  getMessages as defaultGetMessages,
-  type MessageRow,
-} from "../memory/conversation-crud.js";
 import { isBackgroundConversationType } from "../memory/conversation-types.js";
 import {
   countMemoryPrefixBlocks,
@@ -49,6 +45,10 @@ import {
   type RenderedSlackTranscriptMessage,
   renderSlackTranscriptWithProvenance,
 } from "../messaging/providers/slack/render-transcript.js";
+import {
+  getMessages as defaultGetMessages,
+  type MessageRow,
+} from "../persistence/conversation-crud.js";
 import { createContextSummaryMessage } from "../plugins/defaults/compaction/window-manager.js";
 import { getInjectorChain } from "../plugins/defaults/memory-retrieval/injector-chain.js";
 import {

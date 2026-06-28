@@ -15,8 +15,8 @@ import type {
   UserPromptSubmitContext,
 } from "@vellumai/plugin-api";
 
-import { getConversation } from "../../../../memory/conversation-crud.js";
 import { queueGenerateConversationTitle } from "../../../../memory/conversation-title-service.js";
+import { getConversation } from "../../../../persistence/conversation-crud.js";
 
 const userPromptSubmit: HookFunction<UserPromptSubmitContext> = async (ctx) => {
   // System conversations (background/scheduled) carry a deterministic title

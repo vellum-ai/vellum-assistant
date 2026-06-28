@@ -19,7 +19,7 @@ mock.module("../../config/loader.js", () => ({
   }),
 }));
 
-import { createConversation } from "../conversation-crud.js";
+import { createConversation } from "../../persistence/conversation-crud.js";
 import { getDb } from "../db-connection.js";
 import { initializeDb } from "../db-init.js";
 import {

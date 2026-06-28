@@ -12,7 +12,7 @@ import {
   createConversation,
   isConversationProcessing,
   setConversationProcessingStartedAt,
-} from "../conversation-crud.js";
+} from "../../persistence/conversation-crud.js";
 import { getDb } from "../db-connection.js";
 import { initializeDb } from "../db-init.js";
 

@@ -1,10 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
 
-import {
-  addMessage,
-  getConversation,
-} from "../../../../memory/conversation-crud.js";
 import { syncMessageToDisk } from "../../../../memory/conversation-disk-view.js";
 import { getBindingByChannelChat } from "../../../../memory/external-conversation-store.js";
 import {
@@ -14,6 +10,10 @@ import {
   getThread,
 } from "../../../../messaging/providers/gmail/client.js";
 import { buildMultipartMime } from "../../../../messaging/providers/gmail/mime-builder.js";
+import {
+  addMessage,
+  getConversation,
+} from "../../../../persistence/conversation-crud.js";
 import type {
   ToolContext,
   ToolExecutionResult,

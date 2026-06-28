@@ -36,14 +36,14 @@ mock.module("../daemon/handlers/conversations.js", () => ({
   regenerateResponse: async () => null,
 }));
 
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import {
   addMessage,
   clearAll,
   createConversation,
   getConversation,
-} from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../persistence/conversation-crud.js";
 import { enforcePolicy } from "../runtime/auth/route-policy.js";
 import type { AuthContext, Scope } from "../runtime/auth/types.js";
 import { ROUTES } from "../runtime/routes/conversation-management-routes.js";

@@ -43,6 +43,15 @@ import {
 } from "../instrument.js";
 import { commitAppTurnChanges } from "../memory/app-git-service.js";
 import { enqueueAutoAnalysisOnCompaction } from "../memory/auto-analysis-enqueue.js";
+import { getResolvedConversationDirPath } from "../memory/conversation-directories.js";
+import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
+import { isReplaceableTitle } from "../memory/conversation-title-service.js";
+import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
+import {
+  backfillMessageIdOnLogs,
+  recordSyntheticAgentErrorMessageLog,
+} from "../memory/llm-request-log-store.js";
+import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
 import {
   addMessage,
   deleteMessageById,
@@ -55,16 +64,7 @@ import {
   resolveOverrideProfile,
   updateConversationContextWindow,
   updateConversationSlackContextWatermark,
-} from "../memory/conversation-crud.js";
-import { getResolvedConversationDirPath } from "../memory/conversation-directories.js";
-import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
-import { isReplaceableTitle } from "../memory/conversation-title-service.js";
-import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
-import {
-  backfillMessageIdOnLogs,
-  recordSyntheticAgentErrorMessageLog,
-} from "../memory/llm-request-log-store.js";
-import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
+} from "../persistence/conversation-crud.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { runHook } from "../plugins/pipeline.js";

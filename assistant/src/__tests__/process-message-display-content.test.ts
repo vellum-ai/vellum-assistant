@@ -36,9 +36,9 @@ mock.module("../memory/attachments-store.js", () => ({
   AttachmentUploadError: class extends Error {},
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   addMessage: async (
     conversationId: string,
     role: string,

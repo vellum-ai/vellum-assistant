@@ -34,9 +34,12 @@ import {
   clearConversations,
   setConversation,
 } from "../daemon/conversation-registry.js";
-import { addMessage, createConversation } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
+import {
+  addMessage,
+  createConversation,
+} from "../persistence/conversation-crud.js";
 import { handleListMessages } from "../runtime/routes/conversation-routes.js";
 
 await initializeDb();

@@ -22,9 +22,9 @@ let dbMessages: Array<{
   metadata: string | null;
 }> = [];
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   getMessages: (conversationId: string) =>
     dbMessages.filter((m) => m.conversationId === conversationId),
   deleteMessageById: (messageId: string) => {

@@ -37,7 +37,7 @@ mock.module("../../config/loader.js", () => ({
   loadConfig: () => ({}),
 }));
 
-mock.module("../../memory/conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   addMessage: () => ({ id: "mock-msg-id" }),
   getMessageById: () => null,
   updateMessageContent: () => {},

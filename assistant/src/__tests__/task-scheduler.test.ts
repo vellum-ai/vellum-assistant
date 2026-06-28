@@ -27,7 +27,7 @@ mock.module("../runtime/background-job-runner.js", () => ({
     onConversationCreated?: (conversationId: string) => void;
   }) => {
     const { createConversation } =
-      await import("../memory/conversation-crud.js");
+      await import("../persistence/conversation-crud.js");
     const conv = createConversation({
       title: "(test stub)",
       conversationType: "background",

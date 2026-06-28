@@ -53,7 +53,7 @@ import { SpeakerIdentityTracker } from "../calls/speaker-identification.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig, getNestedValue } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import { addMessage } from "../memory/conversation-crud.js";
+import { addMessage } from "../persistence/conversation-crud.js";
 import {
   createTimeout,
   extractToolUse,

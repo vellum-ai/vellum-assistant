@@ -1,6 +1,6 @@
 import { getConfig } from "../config/loader.js";
-import { updateConversationUsage } from "../memory/conversation-crud.js";
 import { recordUsageEvent } from "../memory/llm-usage-store.js";
+import { updateConversationUsage } from "../persistence/conversation-crud.js";
 import type { UsageActor } from "../usage/actors.js";
 import { resolveUsageAttribution } from "../usage/attribution.js";
 import { extractRawUsage } from "../usage/pricing.js";

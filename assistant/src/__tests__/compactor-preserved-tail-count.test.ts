@@ -21,9 +21,9 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeLoggerStub(),
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   getMessages: () => [],
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));

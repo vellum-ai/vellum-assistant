@@ -17,11 +17,6 @@ import {
   recordConversationSeenSignal,
   type SignalType,
 } from "../../memory/conversation-attention-store.js";
-import { isConversationProcessing } from "../../memory/conversation-crud.js";
-import {
-  type ConversationRow,
-  getDisplayMetaForConversations,
-} from "../../memory/conversation-crud.js";
 import { resolveConversationId } from "../../memory/conversation-key-store.js";
 import {
   countConversations,
@@ -32,6 +27,11 @@ import type { ConversationType } from "../../memory/conversation-types.js";
 import { getBindingsForConversations } from "../../memory/external-conversation-store.js";
 import { listGroups } from "../../memory/group-crud.js";
 import { channelBindingSchema } from "../../messaging/channel-binding-schema.js";
+import { isConversationProcessing } from "../../persistence/conversation-crud.js";
+import {
+  type ConversationRow,
+  getDisplayMetaForConversations,
+} from "../../persistence/conversation-crud.js";
 import { UserError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";

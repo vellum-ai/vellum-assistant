@@ -30,6 +30,45 @@ import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
 import {
+  deleteOrphanAttachments,
+  linkAttachmentToMessage,
+} from "../memory/attachments-store.js";
+import { AUTO_ANALYSIS_SOURCE } from "../memory/auto-analysis-constants.js";
+import {
+  appendCompactionEvent,
+  forkCompactionLedger,
+  getLatestCompactionEventAtOrBefore,
+} from "../memory/compaction-ledger-store.js";
+import {
+  projectAssistantMessage,
+  seedForkedConversationAttention,
+} from "../memory/conversation-attention-store.js";
+import {
+  initConversationDir,
+  removeConversationDir,
+  syncMessageToDisk,
+  updateMetaFile,
+} from "../memory/conversation-disk-view.js";
+import { ensureDisplayOrderMigration } from "../memory/conversation-display-order-migration.js";
+import { ensureGroupMigration } from "../memory/conversation-group-migration.js";
+import { forkGraphMemoryState } from "../memory/graph/graph-memory-state-store.js";
+import { indexMessageNow } from "../memory/indexer.js";
+import { MEMORY_RETROSPECTIVE_SOURCES } from "../memory/memory-retrospective-constants.js";
+import { forkRetrospectiveState } from "../memory/memory-retrospective-state.js";
+import {
+  rawExec,
+  rawGet,
+  rawLogsRun,
+  rawMemoryRun,
+  rawRun,
+} from "../memory/raw-query.js";
+import { cancelPendingJobsForConversation } from "../memory/task-memory-cleanup.js";
+import {
+  forkActivationState,
+  seedForkActivationState,
+} from "../memory/v2/activation-store.js";
+import { extractInjectedConceptSlugs } from "../memory/v2/injected-block-slugs.js";
+import {
   forkEverInjected,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
   seedEverInjectedFromSlugs,
@@ -41,28 +80,6 @@ import { safeParseRecord } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
 import { getConversationsDir } from "../util/platform.js";
 import { createRowMapper } from "../util/row-mapper.js";
-import {
-  deleteOrphanAttachments,
-  linkAttachmentToMessage,
-} from "./attachments-store.js";
-import { AUTO_ANALYSIS_SOURCE } from "./auto-analysis-constants.js";
-import {
-  appendCompactionEvent,
-  forkCompactionLedger,
-  getLatestCompactionEventAtOrBefore,
-} from "./compaction-ledger-store.js";
-import {
-  projectAssistantMessage,
-  seedForkedConversationAttention,
-} from "./conversation-attention-store.js";
-import {
-  initConversationDir,
-  removeConversationDir,
-  syncMessageToDisk,
-  updateMetaFile,
-} from "./conversation-disk-view.js";
-import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
-import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import {
   type DrizzleDb,
@@ -74,17 +91,6 @@ import {
   copyForkMessagesViaSubprocess,
   type ForkIdPair,
 } from "./fork-message-copy.js";
-import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
-import { indexMessageNow } from "./indexer.js";
-import { MEMORY_RETROSPECTIVE_SOURCES } from "./memory-retrospective-constants.js";
-import { forkRetrospectiveState } from "./memory-retrospective-state.js";
-import {
-  rawExec,
-  rawGet,
-  rawLogsRun,
-  rawMemoryRun,
-  rawRun,
-} from "./raw-query.js";
 import {
   channelInboundEvents,
   conversations,
@@ -96,13 +102,7 @@ import {
   messages,
   skillLoadedEvents,
   toolInvocations,
-} from "./schema.js";
-import { cancelPendingJobsForConversation } from "./task-memory-cleanup.js";
-import {
-  forkActivationState,
-  seedForkActivationState,
-} from "./v2/activation-store.js";
-import { extractInjectedConceptSlugs } from "./v2/injected-block-slugs.js";
+} from "./schema/index.js";
 
 const log = getLogger("conversation-store");
 

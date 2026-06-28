@@ -19,7 +19,7 @@ const upsertCalls: Array<{
   runAfter: number;
 }> = [];
 
-mock.module("../conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   getConversationSource: (_id: string) => sourceTag,
   getConversation: (_id: string) => ({
     conversationType: convType,

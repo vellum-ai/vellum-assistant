@@ -13,6 +13,10 @@ import {
   linkAttachmentToMessage,
   uploadAttachment,
 } from "../memory/attachments-store.js";
+import { isLastUserMessageToolResult } from "../memory/conversation-queries.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
+import { skillLoadedEvents } from "../memory/schema.js";
 import {
   addMessage,
   clearAll,
@@ -21,11 +25,7 @@ import {
   deleteLastExchange,
   getConversation,
   getMessages,
-} from "../memory/conversation-crud.js";
-import { isLastUserMessageToolResult } from "../memory/conversation-queries.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { skillLoadedEvents } from "../memory/schema.js";
+} from "../persistence/conversation-crud.js";
 // Initialize db once before all tests
 await initializeDb();
 

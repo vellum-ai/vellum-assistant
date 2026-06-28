@@ -48,12 +48,12 @@ import {
   linkAttachmentToMessage,
   uploadAttachment,
 } from "../memory/attachments-store.js";
-import * as conversationStore from "../memory/conversation-crud.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import * as deliveryChannels from "../memory/delivery-channels.js";
 import { resetTestTables } from "../memory/raw-query.js";
+import * as conversationStore from "../persistence/conversation-crud.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { resetDbForTesting } from "./db-test-helpers.js";

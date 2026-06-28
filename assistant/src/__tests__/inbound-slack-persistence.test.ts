@@ -34,9 +34,9 @@ const addMessageCalls: Array<{
   metadata?: Record<string, unknown>;
 }> = [];
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   addMessage: async (
     conversationId: string,
     role: string,

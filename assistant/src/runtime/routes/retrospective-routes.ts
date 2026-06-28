@@ -17,7 +17,6 @@
 import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
-import type { ConversationRow } from "../../memory/conversation-crud.js";
 import {
   getMessageRoleStatsByConversation,
   listConversationsBySource,
@@ -28,6 +27,7 @@ import {
   MEMORY_RETROSPECTIVE_FORK_SOURCE,
   MEMORY_RETROSPECTIVE_SOURCE,
 } from "../../memory/memory-retrospective-constants.js";
+import type { ConversationRow } from "../../persistence/conversation-crud.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   paginateRuns,
