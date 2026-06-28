@@ -46,6 +46,10 @@ These tools exist as `class ... implements Tool` registrations because:
 
 See [`assistant/docs/credential-execution-service.md`](../../docs/credential-execution-service.md) for the full ADR.
 
+## Memory Tools Are Provider-Owned
+
+The `remember` / `recall` tools are **not** statically registered. They are contributed by the active memory provider's `provideTools()` and resolved via `resolveMemoryProvider(getConfig()).provideTools()` in `tool-manifest.ts`. The graph and v2 providers expose them; v3 and `memory.provider: "none"` expose nothing, so a `"none"` install registers no memory tools. To change memory tool behavior, edit the provider (`assistant/src/memory/provider/`) or the external memory plugin — not a static registration. See `ARCHITECTURE.md` § Persistence and Pluggable Memory and `assistant/docs/memory-plugins.md`.
+
 ## If You Have Approval
 
 If the core team has approved your new tool:

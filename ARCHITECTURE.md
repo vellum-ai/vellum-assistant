@@ -11,6 +11,8 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Browser extension                            | [`clients/chrome-extension/README.md`](clients/chrome-extension/README.md)                                               |
 | Clients (web, iOS, macOS/Electron)           | [`clients/README.md`](clients/README.md)                                                           |
 | Assistant memory deep dive                  | [`assistant/docs/architecture/memory.md`](assistant/docs/architecture/memory.md)                   |
+| Memory plugin authoring guide               | [`assistant/docs/memory-plugins.md`](assistant/docs/memory-plugins.md)                             |
+| Persistence vs. pluggable memory            | [Persistence and Pluggable Memory](#persistence-and-pluggable-memory) (this file)                 |
 | Assistant integrations deep dive            | [`assistant/docs/architecture/integrations.md`](assistant/docs/architecture/integrations.md)       |
 | Assistant scheduling deep dive              | [`assistant/docs/architecture/scheduling.md`](assistant/docs/architecture/scheduling.md)           |
 | Assistant security deep dive                | [`assistant/docs/architecture/security.md`](assistant/docs/architecture/security.md)               |
@@ -34,6 +36,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 - Production LLM calls go through the provider abstraction, not provider SDKs in feature code.
 - Notification producers emit through `emitNotificationSignal()` to preserve decisioning and audit invariants. Reminder routing metadata (`routingIntent`, `routingHints`) flows through the signal and is enforced post-decision to control multi-channel fanout. The decision engine produces per-channel conversation actions (`start_new` / `reuse_existing`) validated against a candidate set; `notification_conversation_created` is emitted only on actual creation, not on reuse.
 - Memory extraction/recall must enforce actor-role provenance gates for untrusted actors.
+- **Persistence is a layer below memory.** Core storage infrastructure (the SQLite DB and migrations, conversation/message stores, the job queue, delivery/media/llm-log stores, embeddings + Qdrant) lives in `assistant/src/persistence/` and is consumed by — but does not depend on — the memory *feature* in `assistant/src/memory/`. A `persistence/` → `memory/` import is a layering violation (guard: `persistence-layering-guard.test.ts`, which allowlists only documented residual back-imports). The **memory system itself is pluggable**: the built-in graph/v2/v3 systems are interchangeable implementations of an internal `MemoryProvider` interface selected by the `memory.provider` config (`auto | graph | v2 | v3 | none`), and a third party can supply an external memory plugin through the public `@vellumai/plugin-api` `InitContext.host` facet bundle. See [Persistence and Pluggable Memory](#persistence-and-pluggable-memory).
 - **Credential Execution Service (CES)** is a separate top-level package (`credential-executor/`) and a separate managed container image that enforces hard process-boundary isolation for credential-bearing operations. The assistant communicates with CES exclusively via RPC (stdio JSON-RPC locally, Unix socket in managed). In Docker mode, the assistant and gateway also access credential CRUD operations via the CES HTTP API (`CES_CREDENTIAL_URL`), authenticated with `CES_SERVICE_TOKEN`. CES exposes three tools (`run_authenticated_command`, `make_authenticated_request`, `manage_secure_command_tool`) as a deliberate exception to the skill-first tool direction — these require hard isolation that skills cannot provide. Shared contract types, credential-storage abstractions, egress-proxy session management, and typed service clients live in seven private packages under `packages/` — these are the only allowed shared-code path; direct source imports between `assistant/` and `credential-executor/` remain banned:
   - `@vellumai/service-contracts` — CES wire-protocol schemas (RPC methods, handshake types, Zod validators) and shared trust-rule types. Consumed via explicit domain subpaths: `@vellumai/service-contracts/credential-rpc`, `@vellumai/service-contracts/trust-rules`, `@vellumai/service-contracts/handles`, `@vellumai/service-contracts/grants`, `@vellumai/service-contracts/rpc`, `@vellumai/service-contracts/rendering`, `@vellumai/service-contracts/error`.
   - `@vellumai/credential-storage` — Credential-storage abstractions shared by assistant and CES.
@@ -328,11 +331,22 @@ subgraph "Text Q&A Session"
             OLLAMA["Ollama<br/>local models"]
         end
 
-        subgraph "Memory System"
+        subgraph "Persistence (assistant/src/persistence/)"
             CONV_STORE["ConversationStore<br/>Drizzle ORM CRUD"]
+            JOBS_WORKER["JobsWorker<br/>poll every 1.5s<br/>registerJobHandler dispatch"]
+            EMBED_INFRA["Embeddings + Qdrant<br/>backends · vector store"]
+        end
+
+        subgraph "Memory feature (assistant/src/memory/)"
+            MEM_RESOLVE["resolveMemoryProvider<br/>memory.provider:<br/>auto|graph|v2|v3|none"]
+            MEM_PROVIDER["Active MemoryProvider<br/>retrieve · onTurnCommit<br/>provideTools · provideRoutes"]
             INDEXER["Memory Indexer<br/>segment + extract"]
             RECALL["Memory Recall<br/>Hybrid Search (dense + sparse RRF)<br/>Tier Classification + Staleness<br/>Scope Filtering + Two-Layer Injection"]
-            JOBS_WORKER["MemoryJobsWorker<br/>poll every 1.5s<br/>embed, extract, cleanup_stale"]
+        end
+
+        subgraph "Plugin host facets (@vellumai/plugin-api)"
+            PLUGIN_HOST["InitContext.host<br/>store · embeddings · vectorStore<br/>history · jobs · providers · ..."]
+            MEM_PLUGIN["External memory plugin<br/>(provides: 'memory',<br/>flag-gated, default off)"]
         end
 
         subgraph "SQLite Database ($VELLUM_WORKSPACE_DIR/data/db/assistant.db)"
@@ -489,7 +503,16 @@ subgraph "Text Q&A Session"
     SESSION_MGR --> GEMINI
     SESSION_MGR --> OLLAMA
     SESSION_MGR --> CONV_STORE
-    SESSION_MGR --> RECALL
+    SESSION_MGR -->|"resolve active system"| MEM_RESOLVE
+    MEM_RESOLVE --> MEM_PROVIDER
+    MEM_PROVIDER --> RECALL
+    MEM_PROVIDER --> INDEXER
+    MEM_PROVIDER -.->|"flag on: built-in yields"| MEM_PLUGIN
+    MEM_PLUGIN -->|"only sanctioned route"| PLUGIN_HOST
+    PLUGIN_HOST --> EMBED_INFRA
+    PLUGIN_HOST --> CONV_STORE
+    PLUGIN_HOST --> JOBS_WORKER
+    RECALL --> EMBED_INFRA
     HANDLERS -->|"conversation_create.transport"| PLAYBOOK_MGR
     PLAYBOOK_MGR --> PLAYBOOK_REG
     PLAYBOOK_MGR -->|"inject <channel_onboarding_playbook><br/>runtime context"| SESSION_MGR
@@ -596,6 +619,40 @@ subgraph "Text Q&A Session"
     classDef storage fill:#78909c,stroke:#37474f,color:#fff
     classDef provider fill:#ef5350,stroke:#c62828,color:#fff
 ```
+
+## Persistence and Pluggable Memory
+
+Memory is split into two layers, and the memory *feature* itself is selectable and externally pluggable.
+
+### Persistence vs. memory-feature split
+
+Core storage infrastructure lives in `assistant/src/persistence/`, separate from the memory *feature* in `assistant/src/memory/`:
+
+- **`persistence/`** owns the DB connection and migrations (the `memory_checkpoints` ledger keys migration steps by function name, so step identities are immutable), conversation/message stores, the generic job queue (`jobs-worker.ts` dispatches via `registerJobHandler` injection rather than statically importing handlers), delivery/media/lifecycle/bookmark stores, the llm-request-log and usage stores, and the embeddings + Qdrant infrastructure.
+- **`memory/`** owns the memory feature: the graph/v2/v3 systems, retrieval, the PKB, retrospective forking, and the `MemoryProvider` adapters.
+
+The dependency is **one-way**: `memory/` (and the rest of the daemon) consume `persistence/`, but `persistence/` must not import from `memory/`. The `persistence-layering-guard.test.ts` enforces this, allowlisting only a small documented set of residual `persistence/` → `memory/` back-imports (decoupling tech debt that ratchets down — the guard fails the moment a new one is added).
+
+### MemoryProvider and provider selection
+
+The built-in graph (v1), v2 (concept-page), and v3 (shadow) systems are each a single interchangeable implementation of the internal `MemoryProvider` interface (`assistant/src/memory/provider/`). It captures memory's full surface: `retrieveForContext` / `retrieveForTurn` (injection blocks), `onTurnCommit` (post-turn write/consolidation enqueue — enqueue only, no synchronous LLM work), `provideTools` and optional `provideRoutes`, and `init` / `shutdown`.
+
+The active system is selected by the `memory.provider` config field — `"auto" | "graph" | "v2" | "v3" | "none"`. `resolveMemoryProvider(config)` maps it onto one provider; `"auto"` (the default) reproduces the legacy selection derived from `v2.enabled` / `v3.live` and is behavior-neutral, and `"none"` disables memory entirely (no injection, no tools). This selector replaced the scattered `isMemoryV3Live()` gates. Two consequences:
+
+- **Memory tools are provider-owned.** The `remember` / `recall` tools are contributed by the resolved provider's `provideTools()`, not registered statically. The graph and v2 providers expose them; v3 and `none` expose nothing, so a `memory.provider: "none"` install registers no memory tools. (`tools/tool-manifest.ts` resolves them via `resolveMemoryProvider(getConfig()).provideTools()`.)
+- **Retrospective enqueue, routes, and injection** all flow through the resolved provider rather than hard-coded call sites.
+
+### Public plugin host facets
+
+A third party can supply an external memory plugin through the public `@vellumai/plugin-api` contract without importing `assistant/` source. The mechanism:
+
+- **Host facets.** At `init`, an external plugin receives `InitContext.host` — a `PluginHost` bundle (providers, memory, events, config, identity, platform, logger, registries, embeddings, vectorStore, history, store, jobs). These are the neutral `@vellumai/skill-host-contracts` interfaces (the same contracts first-party skills receive), built by the shared `daemon/skill-host-facets.ts` so the skill host and plugin host construct identical facets. The host bundle is the plugin's **only** sanctioned route to those subsystems; direct `assistant/` imports remain forbidden for external plugins.
+- **Lifecycle hooks.** A memory plugin contributes `init`, `user-prompt-submit` (per-turn `<memory>` injection), `turn-commit` (post-turn consolidation enqueue — no synchronous LLM work), and optionally `post-compact` / `shutdown`.
+- **`provides: "memory"` capability marker.** Exactly one plugin owns the conversation's memory at a time. The built-in memory plugins provide it by default; an external plugin declaring `vellum.provides === "memory"` takes over **only when the `memory-plugin-provider` feature flag is on** (default off). When it takes over, the built-in memory plugins yield (their hooks filtered out at read time). Two simultaneously-active external memory plugins is a misconfiguration the bootstrap rejects.
+
+**What ships today:** the `MemoryProvider` interface, the `memory.provider` selector, and the host-facet bundle are **live**. The `memory-reference` plugin at `assistant/examples/plugins/memory-reference/` is a bundled **example** that proves the public contract is sufficient — it is not the live default, and installing it does not change default behavior. External memory override is **flag-gated, default-off**. The persistence→memory allowlist is documented decoupling debt.
+
+See [`assistant/docs/memory-plugins.md`](assistant/docs/memory-plugins.md) for the third-party authoring guide and [`assistant/docs/architecture/memory.md`](assistant/docs/architecture/memory.md) for the built-in memory system deep dive.
 
 ## Assistant Feature Flags
 
