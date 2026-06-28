@@ -29,6 +29,12 @@ export const MemoryConfigSchema = z
       .describe(
         "Whether the long-term memory system is enabled — gates background memory jobs, embedding generation, and `<memory>` block injection into user messages",
       ),
+    provider: z
+      .enum(["auto", "graph", "v2", "v3", "none"])
+      .default("auto")
+      .describe(
+        'Which memory provider drives retrieval and post-turn writes. "auto" (the default) preserves the existing selection derived from `v2.enabled` and the memory-v3-live flag, so it is behavior-neutral; the concrete provider resolution is wired in a later change. "graph"/"v2"/"v3" pin a specific system and "none" disables memory.',
+      ),
     embeddings: MemoryEmbeddingsConfigSchema.default(
       MemoryEmbeddingsConfigSchema.parse({}),
     ),
