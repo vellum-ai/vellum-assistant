@@ -8659,8 +8659,6 @@ paths:
                             type: number
                           live:
                             type: boolean
-                          shadow:
-                            type: boolean
                           selections:
                             type: array
                             items:
@@ -8690,7 +8688,6 @@ paths:
                         required:
                           - turn
                           - live
-                          - shadow
                           - selections
                           - injectedText
                         additionalProperties: false
@@ -18266,8 +18263,6 @@ paths:
                             type: number
                           live:
                             type: boolean
-                          shadow:
-                            type: boolean
                           selections:
                             type: array
                             items:
@@ -18297,7 +18292,6 @@ paths:
                         required:
                           - turn
                           - live
-                          - shadow
                           - selections
                           - injectedText
                         additionalProperties: false

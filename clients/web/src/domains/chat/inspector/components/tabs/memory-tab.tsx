@@ -19,8 +19,7 @@ import { conceptPageQueryOptions } from "../../concept-page-api";
  * Memory tab rendering V1 recall, V2 activation, and/or the V3 selection.
  * When more than one is present a pill switcher lets the user toggle between
  * them; when only one is present it renders directly. The V3 section shows
- * what the v3 retriever selected — actually injected in live mode, or the
- * would-be block in shadow mode.
+ * what the v3 retriever selected and injected into context this turn.
  */
 type MemoryView = "recall" | "v2" | "v3";
 
@@ -483,8 +482,6 @@ function MemoryV3Section({
 }: {
   selection: MemoryV3SelectionLog;
 }): ReactNode {
-  const live = selection.live;
-
   const coreCount = selection.selections.filter((s) =>
     s.source.startsWith("core"),
   ).length;
@@ -496,16 +493,8 @@ function MemoryV3Section({
   return (
     <div className="flex flex-col gap-4 p-4">
       <ScopeBanner
-        title={
-          live
-            ? "Memory V3 — live injection"
-            : "Memory V3 — shadow (observation only)"
-        }
-        body={
-          live
-            ? "v3 is the live memory source this turn — the block below was injected into context (v2 suppressed)."
-            : "v3 ran in shadow this turn. The block below is what it would have injected; the live memory came from v2."
-        }
+        title="Memory V3 — live injection"
+        body="v3 is the live memory source this turn — the block below was injected into context (v2 suppressed)."
       />
 
       <div className="flex flex-wrap gap-2">
@@ -538,12 +527,7 @@ function MemoryV3Section({
 
       {selection.injectedText !== "" && (
         <SectionCard
-          title={live ? "Injected memory context" : "Would-be memory context"}
-          subtitle={
-            live
-              ? undefined
-              : "Rendered from the v3 selection — not injected this turn."
-          }
+          title="Injected memory context"
           copyText={selection.injectedText}
         >
           <CodeBlock text={selection.injectedText} />

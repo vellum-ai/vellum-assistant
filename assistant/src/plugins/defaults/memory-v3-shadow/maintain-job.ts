@@ -51,7 +51,6 @@
  * and `invalidateLanes` without process-global module mocks.
  */
 
-import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
 import { isMemoryV3Live } from "../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../config/types.js";
 import {
@@ -79,8 +78,6 @@ import {
 import { buildSectionIndex as realBuildSectionIndex } from "./sections.js";
 import { invalidateLanes as realInvalidateLanes } from "./shadow-plugin.js";
 import type { Slug } from "./types.js";
-
-const MEMORY_V3_SHADOW = "memory-v3-shadow" as const;
 
 /**
  * Durable checkpoint holding the epoch-ms high-water mark of the last successful
@@ -656,9 +653,7 @@ export async function maintainJob(
     failures: [],
   };
 
-  const enabled =
-    isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config) ||
-    isMemoryV3Live(config);
+  const enabled = isMemoryV3Live(config);
   if (!enabled) {
     outcome.disabled = true;
     return outcome;
