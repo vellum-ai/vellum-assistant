@@ -2,7 +2,7 @@
  * Memory v3 — `memory_v3_maintain` job handler.
  *
  * A flag-gated, best-effort self-maintenance pass over the v3 section dense
- * store and the in-memory lanes. It runs five independent stages, in order:
+ * store and the in-memory lanes. It runs six independent stages, in order:
  *
  *   1. **Section re-embed** — diff the page index by `modifiedAt` against the
  *      last successful pass (the high-water mark below), and for every page that
@@ -34,7 +34,14 @@
  *      in the page index (dangling slugs) via the log + outcome. The file is
  *      maintainer-owned, so this stage NEVER edits it — the maintainer fixes
  *      dangling entries at the next consolidation pass.
- *   5. **Lane invalidation** — `invalidateLanes()` so the next turn rebuilds the
+ *   5. **Skill usage-prune (observe-first, default-off)** — REPORT
+ *      assistant-authored managed skills unused for at least
+ *      {@link SKILL_OBSERVE_WINDOW_DAYS} days (in `prunableSkills`) on every
+ *      pass for observability, and DELETE them (via `executeDeleteManagedSkill`)
+ *      only when `memory.maintenance.skillPruneDays` is a positive integer
+ *      (default `null` = never prune). `author:"user"` and untagged skills are
+ *      always protected. See {@link pruneStaleSkills}.
+ *   6. **Lane invalidation** — `invalidateLanes()` so the next turn rebuilds the
  *      in-memory section index, needle, and edge graph from the freshly-updated
  *      pages.
  *
@@ -53,6 +60,7 @@
 
 import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
 import { isMemoryV3Live } from "../../../config/memory-v3-gate.js";
+import { loadSkillCatalog, type SkillSummary } from "../../../config/skills.js";
 import type { AssistantConfig } from "../../../config/types.js";
 import {
   getMemoryCheckpoint,
@@ -66,6 +74,11 @@ import { EmbeddingBillingBlockError } from "../../../memory/embedding-billing-br
 import type { MemoryJob } from "../../../memory/jobs-store.js";
 import { getPageIndex } from "../../../memory/v2/page-index.js";
 import { readPage } from "../../../memory/v2/page-store.js";
+import {
+  readInstallMeta,
+  type SkillInstallMeta,
+} from "../../../skills/install-meta.js";
+import { executeDeleteManagedSkill } from "../../../tools/skills/delete-managed.js";
 import { getLogger } from "../../../util/logger.js";
 import { getWorkspaceDir } from "../../../util/platform.js";
 import { capabilityOrDiskBody, isCapabilitySlug } from "./capabilities.js";
@@ -101,6 +114,18 @@ const MEMORY_V3_SHADOW = "memory-v3-shadow" as const;
  */
 const MAINTAIN_EMBED_HIGH_WATER_KEY =
   "memory_v3_maintain:sections_embedded_through_ms" as const;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Age (in days) past which an assistant-authored managed skill is reported in
+ * `prunableSkills`. This is the OBSERVE-ONLY window: it drives the report the
+ * usage-prune stage emits on EVERY pass, independent of the delete threshold
+ * (`memory.maintenance.skillPruneDays`). We ship deletion default-off and watch
+ * this report to learn whether skills actually accumulate before enabling any
+ * deletion.
+ */
+const SKILL_OBSERVE_WINDOW_DAYS = 30;
 
 const log = getLogger("memory-v3-maintain");
 
@@ -159,6 +184,24 @@ export interface MaintainJobDeps {
   loadCoreSet: () => Slug[];
   /** Drop the memoized v3 lanes so the next turn rebuilds them. */
   invalidateLanes: () => void;
+  /**
+   * The managed (assistant-installed) skills in the catalog. The usage-prune
+   * stage reads each one's install-meta to find stale assistant-authored skills.
+   */
+  listManagedSkills: () => SkillSummary[];
+  /**
+   * Read a skill's install metadata from its directory. The prune stage reads
+   * `author`, `lastUsedAt`, and `installedAt` to decide eligibility.
+   */
+  readSkillMeta: (skillDir: string) => SkillInstallMeta | null;
+  /**
+   * Delete a managed skill by id (dir + companion files + graph node + v2
+   * page/vectors + v3 sections reconcile), as the `delete_managed_skill` tool
+   * does. Called only when deletion is enabled and a skill is stale.
+   */
+  deleteSkill: (skillId: string) => Promise<void>;
+  /** Injected clock (epoch ms) for the usage-prune age math; testable. */
+  nowMs: () => number;
   /** Active assistant config (for the dense-store/embedding calls). */
   config: AssistantConfig;
 }
@@ -246,6 +289,22 @@ export interface MaintainOutcome {
    * consolidation pass — the file itself is never mutated.
    */
   danglingCoreSlugs: Slug[];
+  /**
+   * Assistant-authored managed skills actually deleted this pass by the
+   * usage-prune stage. Always empty when deletion is disabled
+   * (`memory.maintenance.skillPruneDays` is `null`).
+   */
+  prunedSkills: string[];
+  /**
+   * Observe-only report: assistant-authored managed skills unused (by
+   * `lastUsedAt`, else `installedAt`) for at least {@link SKILL_OBSERVE_WINDOW_DAYS}
+   * days. Reported on EVERY pass regardless of the delete threshold so skill
+   * accumulation is visible before deletion is enabled. User-authored and
+   * untagged skills are excluded.
+   */
+  prunableSkills: string[];
+  /** Skill deletes that threw (and were contained). */
+  skillPruneFailures: Array<{ skillId: string; error: string }>;
   /** Whether the in-memory lanes were invalidated. */
   invalidated: boolean;
   /** Stages that threw (and were contained). */
@@ -346,6 +405,21 @@ function defaultDeps(config: AssistantConfig): MaintainJobDeps {
     listIndexedSlugs: () => selectAllPagesFromWorkspace(workspaceDir),
     loadCoreSet: () => realLoadCoreSet(workspaceDir),
     invalidateLanes: realInvalidateLanes,
+    listManagedSkills: () =>
+      loadSkillCatalog().filter((s) => s.source === "managed"),
+    readSkillMeta: (skillDir) => readInstallMeta(skillDir),
+    deleteSkill: async (skillId) => {
+      const result = await executeDeleteManagedSkill(
+        { skill_id: skillId },
+        {
+          conversationId: "memory-v3-maintain",
+          workingDir: workspaceDir,
+          trustClass: "guardian",
+        },
+      );
+      if (result.isError) throw new Error(result.content);
+    },
+    nowMs: () => Date.now(),
     config,
   };
 }
@@ -487,6 +561,86 @@ async function pruneDeletedPages(
     }
   }
   return { pruned, pruneFailures };
+}
+
+/**
+ * Usage-based prune of assistant-authored managed skills — OBSERVE-FIRST and
+ * DEFAULT-OFF. The retrospective stage authors/updates skills eagerly; this is
+ * the backstop for skills that never recur. Two independent behaviors:
+ *
+ *   1. **Observe (always):** for every managed skill, read its install-meta and
+ *      consider only `author === "assistant"` skills — `author:"user"` AND
+ *      untagged legacy skills are protected and skipped. Reference time is
+ *      `lastUsedAt ?? installedAt`; a skill whose age ≥
+ *      {@link SKILL_OBSERVE_WINDOW_DAYS} is reported in `prunableSkills` EVERY
+ *      pass, regardless of the delete threshold. This is the observability
+ *      signal we watch before enabling deletion.
+ *   2. **Delete (opt-in):** ONLY when `skillPruneDays` is a positive number does
+ *      a skill whose age ≥ `skillPruneDays` get deleted via `deleteSkill`
+ *      (recorded in `prunedSkills`). When `skillPruneDays` is `null` (the
+ *      default) nothing is deleted.
+ *
+ * Each deletion is independent: a single `deleteSkill` rejection is recorded in
+ * `skillPruneFailures` and the loop continues. The whole stage is wrapped by the
+ * caller's try/catch per the job's contained-stage convention.
+ */
+async function pruneStaleSkills(deps: MaintainJobDeps): Promise<{
+  prunedSkills: string[];
+  prunableSkills: string[];
+  skillPruneFailures: Array<{ skillId: string; error: string }>;
+}> {
+  const skillPruneDays = deps.config.memory.maintenance.skillPruneDays;
+  const deleteEnabled =
+    typeof skillPruneDays === "number" && skillPruneDays > 0;
+
+  const managed = deps.listManagedSkills();
+  const prunableSkills: string[] = [];
+  const prunedSkills: string[] = [];
+  const skillPruneFailures: Array<{ skillId: string; error: string }> = [];
+
+  const now = deps.nowMs();
+  let assistantAuthored = 0;
+
+  for (const skill of managed) {
+    const meta = deps.readSkillMeta(skill.directoryPath);
+    // Protect user-authored AND untagged (legacy) skills — only the
+    // assistant's own skills are ever eligible.
+    if (meta?.author !== "assistant") continue;
+    assistantAuthored += 1;
+
+    const referenceTime = Date.parse(meta.lastUsedAt ?? meta.installedAt);
+    if (Number.isNaN(referenceTime)) continue;
+    const ageDays = (now - referenceTime) / DAY_MS;
+
+    if (ageDays >= SKILL_OBSERVE_WINDOW_DAYS) {
+      prunableSkills.push(skill.id);
+    }
+
+    if (deleteEnabled && ageDays >= skillPruneDays) {
+      try {
+        await deps.deleteSkill(skill.id);
+        prunedSkills.push(skill.id);
+      } catch (err) {
+        skillPruneFailures.push({
+          skillId: skill.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  }
+
+  log.info(
+    {
+      managed: managed.length,
+      assistantAuthored,
+      prunable: prunableSkills.length,
+      deleteEnabled,
+      pruned: prunedSkills.length,
+    },
+    "memory-v3 maintain: skill usage-prune pass",
+  );
+
+  return { prunedSkills, prunableSkills, skillPruneFailures };
 }
 
 /**
@@ -652,6 +806,9 @@ export async function maintainJob(
     pruned: 0,
     pruneFailures: 0,
     danglingCoreSlugs: [],
+    prunedSkills: [],
+    prunableSkills: [],
+    skillPruneFailures: [],
     invalidated: false,
     failures: [],
   };
@@ -763,7 +920,28 @@ export async function maintainJob(
     );
   }
 
-  // Stage 5: rebuild section index + needle + edge graph on the next turn.
+  // Stage 5: usage-prune assistant-authored skills. OBSERVE-FIRST and
+  // DEFAULT-OFF: it always REPORTS assistant-authored managed skills unused for
+  // at least SKILL_OBSERVE_WINDOW_DAYS days (prunableSkills) so accumulation is
+  // visible, and only DELETES — via executeDeleteManagedSkill — when
+  // memory.maintenance.skillPruneDays is a positive integer (default null = never
+  // prune). User-authored and untagged skills are always protected. Contained: a
+  // failure is logged + recorded without aborting invalidation.
+  try {
+    const { prunedSkills, prunableSkills, skillPruneFailures } =
+      await pruneStaleSkills(deps);
+    outcome.prunedSkills = prunedSkills;
+    outcome.prunableSkills = prunableSkills;
+    outcome.skillPruneFailures = skillPruneFailures;
+  } catch (err) {
+    outcome.failures.push("skill-prune");
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "memory-v3 maintain: skill usage-prune failed (non-fatal)",
+    );
+  }
+
+  // Stage 6: rebuild section index + needle + edge graph on the next turn.
   try {
     deps.invalidateLanes();
     outcome.invalidated = true;
@@ -784,6 +962,9 @@ export async function maintainJob(
       pruned: outcome.pruned,
       pruneFailures: outcome.pruneFailures,
       danglingCoreSlugs: outcome.danglingCoreSlugs,
+      prunedSkills: outcome.prunedSkills,
+      prunableSkills: outcome.prunableSkills,
+      skillPruneFailures: outcome.skillPruneFailures,
       invalidated: outcome.invalidated,
       failures: outcome.failures,
     },
