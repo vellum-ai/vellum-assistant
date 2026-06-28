@@ -193,6 +193,64 @@ describe("plugin store facet", () => {
       ).toThrow(PluginStoreNamespaceError);
     });
 
+    test("cannot CREATE INDEX on a core table", () => {
+      // `CREATE INDEX … ON messages` names its target table after `ON`, a
+      // position the keyword walk does not key off — the guard must capture and
+      // reject it so a plugin migration cannot index/mutate the core schema.
+      const facet = createStoreFacet(() => db, "acme");
+      expect(() => facet.exec(`CREATE INDEX bad_idx ON messages (id)`)).toThrow(
+        PluginStoreNamespaceError,
+      );
+    });
+
+    test("cannot CREATE INDEX on a foreign plugin table", () => {
+      const facet = createStoreFacet(() => db, "acme");
+      expect(() =>
+        facet.exec(`CREATE INDEX bad_idx ON plugin_other_secrets (id)`),
+      ).toThrow(PluginStoreNamespaceError);
+    });
+
+    test("cannot CREATE UNIQUE INDEX IF NOT EXISTS on a core table", () => {
+      const facet = createStoreFacet(() => db, "acme");
+      expect(() =>
+        facet.exec(
+          `CREATE UNIQUE INDEX IF NOT EXISTS bad_idx ON messages (id)`,
+        ),
+      ).toThrow(PluginStoreNamespaceError);
+    });
+
+    test("can CREATE INDEX on its own table", () => {
+      const facet = createStoreFacet(() => db, "acme");
+      facet.exec(
+        `CREATE INDEX plugin_acme_notes_id_idx ON plugin_acme_notes (id)`,
+      );
+    });
+
+    test("rejects a table-operating statement whose shape captures no table", () => {
+      // `ALTER TABLE … RENAME` reaches a table but the guard does not parse its
+      // shape into a captured table — fail-closed rejects it rather than letting
+      // an unhandled DDL form bypass the namespace check.
+      const facet = createStoreFacet(() => db, "acme");
+      expect(() =>
+        facet.exec(`ALTER TABLE RENAME TO plugin_acme_renamed`),
+      ).toThrow(PluginStoreNamespaceError);
+    });
+
+    test("allows a table-less SELECT (reaches no table)", () => {
+      // `SELECT 1` operates on no table, so it cannot reach another plugin's
+      // rows — it must pass rather than be swept up by the fail-closed rule.
+      const facet = createStoreFacet(() => db, "acme");
+      expect(facet.query<{ one: number }>(`SELECT 1 AS one`)).toEqual([
+        { one: 1 },
+      ]);
+    });
+
+    test("allows a table-less PRAGMA", () => {
+      const facet = createStoreFacet(() => db, "acme");
+      // user_version is a connection pragma touching no table; must not reject.
+      facet.exec(`PRAGMA user_version = 1`);
+    });
+
     test("can still read and write its own tables", () => {
       const facet = createStoreFacet(() => db, "acme");
       facet.exec(`INSERT INTO plugin_acme_notes (id) VALUES ('a1')`);
@@ -289,6 +347,22 @@ describe("plugin store facet", () => {
         expect(facet.query<{ id: string }>(`SELECT id FROM ${own}`)).toEqual([
           { id: "q1" },
         ]);
+      });
+
+      test(`${label}: CREATE INDEX ON a quoted core table is rejected`, () => {
+        // The `ON <table>` target may itself be quoted — the guard recovers the
+        // inner name and rejects it just like the bare form.
+        const facet = createStoreFacet(() => db, "acme");
+        expect(() => facet.exec(`CREATE INDEX idx ON ${core} (id)`)).toThrow(
+          PluginStoreNamespaceError,
+        );
+      });
+
+      test(`${label}: CREATE INDEX ON the own quoted table is allowed`, () => {
+        const facet = createStoreFacet(() => db, "acme");
+        const own = quote("plugin_acme_notes");
+        const indexName = `idx_${label.replace(/[^a-z0-9]+/g, "_")}`;
+        facet.exec(`CREATE INDEX ${indexName} ON ${own} (id)`);
       });
     }
 

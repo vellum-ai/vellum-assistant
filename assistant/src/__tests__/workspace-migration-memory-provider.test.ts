@@ -86,16 +86,36 @@ describe("116-memory-provider migration", () => {
     expect(provider()).toBe("v2");
   });
 
-  test("maps neither-flag to provider 'graph'", () => {
+  test("maps explicit v2.enabled=false (v3 not live) to provider 'graph'", () => {
     writeConfig({ memory: { v2: { enabled: false }, v3: { live: false } } });
     memoryProviderMigration.run(workspaceDir);
     expect(provider()).toBe("graph");
   });
 
-  test("maps missing v2/v3 entirely to provider 'graph'", () => {
+  test("maps missing v2/v3 entirely to provider 'v2' (schema default)", () => {
+    // An empty `memory` object sets no explicit `v2.enabled`, which defaults to
+    // `true` in MemoryV2ConfigSchema — so the pre-migration runtime ran v2.
     writeConfig({ memory: {} });
     memoryProviderMigration.run(workspaceDir);
-    expect(provider()).toBe("graph");
+    expect(provider()).toBe("v2");
+  });
+
+  test("memory present without v2.enabled derives 'v2' (schema default, not graph)", () => {
+    // An existing `memory` object that carries unrelated keys but omits
+    // `v2.enabled` (raw JSON has `v2.enabled === undefined`) ran v2 before the
+    // migration, because the schema defaults it to `true`. The migration must
+    // not silently switch such an upgraded workspace to graph.
+    writeConfig({ memory: { embeddings: { provider: "google" } } });
+    memoryProviderMigration.run(workspaceDir);
+    expect(provider()).toBe("v2");
+  });
+
+  test("v2 object present without enabled key derives 'v2' (schema default)", () => {
+    // `v2` exists as an object but omits `enabled` — still the schema default
+    // (true), so it derives v2, not graph.
+    writeConfig({ memory: { v2: { sweep_enabled: true } } });
+    memoryProviderMigration.run(workspaceDir);
+    expect(provider()).toBe("v2");
   });
 
   test("absent provider key with auto-equivalent legacy state derives provider", () => {

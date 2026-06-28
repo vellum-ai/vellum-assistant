@@ -29,10 +29,13 @@ export function sanitizeHostId(hostId: string): string {
 /**
  * Identifiers appearing immediately after one of these keywords name a table
  * the statement reads or writes. We require each such identifier to carry the
- * plugin's prefix. This is deliberately conservative: a statement the matcher
- * cannot understand (a table reference in a form we do not key off) simply
- * does not contribute a validated table, but any keyword-introduced table that
- * lacks the prefix is rejected.
+ * plugin's prefix. Any keyword-introduced table that lacks the prefix is
+ * rejected.
+ *
+ * `on` is deliberately NOT here: it follows a `CREATE INDEX … ON <table>` (a
+ * table target — captured specially, see {@link captureCreateIndexOrTriggerTarget})
+ * but also a `JOIN … ON <predicate>` (a column expression, not a table). The
+ * walk keys off `on` only inside a CREATE INDEX/TRIGGER, never in a join.
  */
 const TABLE_INTRODUCING_KEYWORDS = new Set([
   "from",
@@ -265,12 +268,123 @@ function captureTableAt(
 }
 
 /**
- * Collect the table identifiers a statement references via a recognized
- * table-introducing keyword (and the commas continuing a multi-table list).
+ * Lowercased text of a `word` token, or `null` for a quoted/punct token (which
+ * is never a keyword). Used to read the leading verbs that classify a statement.
  */
-function referencedTables(sql: string): string[] {
-  const tokens = tokenize(sql);
+function keywordAt(tokens: SqlToken[], index: number): string | null {
+  const token = tokens[index] as SqlToken | undefined;
+  if (!token || token.kind !== "word") return null;
+  return token.value.toLowerCase();
+}
+
+/**
+ * `CREATE [UNIQUE] INDEX [IF NOT EXISTS] <name> ON <table>` and
+ * `CREATE [TEMP] TRIGGER [IF NOT EXISTS] <name> … ON <table>` name their target
+ * table after the `ON` keyword — a position {@link TABLE_INTRODUCING_KEYWORDS}
+ * cannot key off (`on` also opens a join predicate). Given `tokens` starting at
+ * the leading `create`, return the captured target table name, or `null` when
+ * the statement is not a CREATE INDEX/TRIGGER or has no `ON <table>` shape.
+ *
+ * Only the first `ON` is taken as the target; a trigger body's later `ON`
+ * (inside its action statements) is reached by the independent walk over those
+ * statements, not here.
+ */
+function captureCreateIndexOrTriggerTarget(tokens: SqlToken[]): string | null {
+  // tokens[0] is `create`; find the INDEX/TRIGGER keyword, skipping the
+  // modifiers SQLite allows between them (`UNIQUE`, `TEMP`/`TEMPORARY`).
+  let i = 1;
+  while (i < tokens.length) {
+    const kw = keywordAt(tokens, i);
+    if (kw === "unique" || kw === "temp" || kw === "temporary") {
+      i++;
+      continue;
+    }
+    break;
+  }
+  const kind = keywordAt(tokens, i);
+  if (kind !== "index" && kind !== "trigger") return null;
+
+  // Scan forward to the first `ON`; the token after it is the target table.
+  for (let j = i + 1; j < tokens.length; j++) {
+    if (keywordAt(tokens, j) === "on") {
+      const captured = captureTableAt(tokens, j + 1);
+      return captured ? captured.name : null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Leading verbs of statements that structurally operate on a table — so a shape
+ * that reaches this function but yields no captured table is an unrecognized
+ * form the guard does not understand, and is rejected fail-closed (see
+ * {@link assertScopedToPlugin}). `SELECT` is intentionally absent: `SELECT 1`
+ * (no FROM) is valid table-less SQL that reaches no table, so a table-less
+ * SELECT is allowed rather than rejected.
+ */
+const TABLE_OPERATING_LEADING_VERBS = new Set([
+  "insert",
+  "replace",
+  "update",
+  "delete",
+  "alter",
+  "drop",
+  "truncate",
+]);
+
+/**
+ * Whether a statement's leading verbs structurally require a table target, so a
+ * zero-table capture means an unhandled shape (rejected fail-closed). Covers the
+ * single-word verbs in {@link TABLE_OPERATING_LEADING_VERBS} plus the
+ * table-bearing `CREATE` forms (`CREATE TABLE`, `CREATE [UNIQUE] INDEX`,
+ * `CREATE [TEMP] TRIGGER`). `CREATE VIEW`/`CREATE VIRTUAL TABLE` etc. that do
+ * not own a base table are not forced — they reference their backing tables via
+ * the keyword walk like any other statement.
+ */
+function operatesOnTable(tokens: SqlToken[]): boolean {
+  const lead = keywordAt(tokens, 0);
+  if (lead === null) return false;
+  if (TABLE_OPERATING_LEADING_VERBS.has(lead)) return true;
+  if (lead === "create") {
+    return captureCreateIndexOrTriggerTarget(tokens) !== null
+      ? true
+      : statementCreatesTable(tokens);
+  }
+  return false;
+}
+
+/**
+ * Whether a `CREATE … TABLE` statement (ignoring `TEMP`/`TEMPORARY`) introduces
+ * a base table — the `table` keyword is in {@link TABLE_INTRODUCING_KEYWORDS}, so
+ * the keyword walk captures its name; this only classifies the shape for the
+ * fail-closed check.
+ */
+function statementCreatesTable(tokens: SqlToken[]): boolean {
+  let i = 1;
+  while (
+    keywordAt(tokens, i) === "temp" ||
+    keywordAt(tokens, i) === "temporary"
+  ) {
+    i++;
+  }
+  return keywordAt(tokens, i) === "table";
+}
+
+/**
+ * Collect the table identifiers a statement references via a recognized
+ * table-introducing keyword (and the commas continuing a multi-table list),
+ * plus the `ON <table>` target of a CREATE INDEX/TRIGGER.
+ */
+function referencedTables(tokens: SqlToken[]): string[] {
   const tables: string[] = [];
+
+  // CREATE INDEX/TRIGGER name their target after `ON`, a position the keyword
+  // walk cannot key off; capture it up front.
+  if (keywordAt(tokens, 0) === "create") {
+    const target = captureCreateIndexOrTriggerTarget(tokens);
+    if (target !== null) tables.push(target);
+  }
+
   let i = 0;
   while (i < tokens.length) {
     if (!isTableIntroKeyword(tokens[i] as SqlToken)) {
@@ -338,14 +452,30 @@ export class PluginStoreNamespaceError extends Error {
 
 /**
  * Throw if `sql` references any table outside the plugin's `plugin_<id>_`
- * namespace. A statement that references no recognizable table (e.g. `PRAGMA`,
- * `BEGIN`) passes — it cannot reach another plugin's rows — but any
- * keyword-introduced table lacking the prefix is rejected, whether the table is
- * named bare (`FROM messages`) or quoted (`FROM "messages"`).
+ * namespace. A statement that operates on no table (e.g. `PRAGMA`, `BEGIN`, a
+ * table-less `SELECT 1`) passes — it cannot reach another plugin's rows — but
+ * any keyword-introduced table lacking the prefix is rejected, whether named
+ * bare (`FROM messages`) or quoted (`FROM "messages"`).
+ *
+ * Fail-closed: a statement whose leading verbs structurally operate on a table
+ * (INSERT/UPDATE/DELETE/REPLACE/ALTER/DROP/TRUNCATE, CREATE TABLE/INDEX/TRIGGER)
+ * yet yields no captured table is an unrecognized shape the guard cannot vouch
+ * for — it is rejected rather than let through, so a future unhandled DDL form
+ * cannot silently bypass the namespace check.
  */
 export function assertScopedToPlugin(hostId: string, sql: string): void {
   const prefix = pluginTablePrefix(hostId);
-  for (const table of referencedTables(sql)) {
+  const tokens = tokenize(sql);
+  const tables = referencedTables(tokens);
+
+  if (tables.length === 0) {
+    if (operatesOnTable(tokens)) {
+      throw new PluginStoreNamespaceError(hostId, "<unrecognized>", prefix);
+    }
+    return;
+  }
+
+  for (const table of tables) {
     if (!table.startsWith(prefix)) {
       throw new PluginStoreNamespaceError(hostId, table, prefix);
     }

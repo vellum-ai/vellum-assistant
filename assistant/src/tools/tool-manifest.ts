@@ -12,6 +12,7 @@ import {
   isCesToolsEnabled,
 } from "../credential-execution/feature-gates.js";
 import { resolveMemoryProvider } from "../memory/provider/resolve.js";
+import { shouldBuiltinMemoryYield } from "../plugins/memory-capability.js";
 import { askQuestionTool } from "./ask-question/ask-question-tool.js";
 import { makeAuthenticatedRequestTool } from "./credential-execution/make-authenticated-request.js";
 import { manageSecureCommandTool } from "./credential-execution/manage-secure-command-tool.js";
@@ -141,15 +142,25 @@ export function getCesToolsIfEnabled(): ToolDefinition[] {
 // via `provideTools()`. The graph, v2, and v3 providers expose
 // `remember`/`recall`; `none` exposes nothing, so a `memory.provider: "none"`
 // install registers no memory tools.
+//
+// When an external `provides: "memory"` plugin is active (the
+// `memory-plugin-provider` flag is on and exactly one such plugin is enabled),
+// the built-in memory provider yields its tools too — the same condition the
+// capability arbiter uses to drop the built-in memory hooks. Returning none
+// here keeps the `remember`/`recall` names free so the external plugin's
+// same-named tools register cleanly (instead of being skipped as core-tool
+// conflicts), so the plugin owns capture as well as injection/consolidation.
 
 /**
  * Return the memory tools the active provider contributes, resolved from the
- * current config. Returns an empty array when the provider exposes no tools
- * (`none`) or when config is not yet loaded (e.g. test setup) so callers can
- * unconditionally iterate the result.
+ * current config. Returns an empty array when the built-in yields to an active
+ * external memory plugin, when the provider exposes no tools (`none`), or when
+ * config is not yet loaded (e.g. test setup) so callers can unconditionally
+ * iterate the result.
  */
 export function getMemoryToolsForActiveProvider(): ToolDefinition[] {
   try {
+    if (shouldBuiltinMemoryYield()) return [];
     return resolveMemoryProvider(getConfig()).provideTools();
   } catch {
     // Config not yet loaded (e.g. during test setup) - no memory tools.
