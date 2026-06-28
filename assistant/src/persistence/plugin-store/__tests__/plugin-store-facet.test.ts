@@ -312,6 +312,116 @@ describe("plugin store facet", () => {
     });
   });
 
+  // A `WITH … AS ( … )` CTE introduces a NAME the outer query can read from. The
+  // guard must recognize that name as a CTE — not flag the outer `FROM <cte>` as
+  // an unprefixed physical table — while still walking the CTE body so a body
+  // that reaches a core/foreign table (or shadows one) is rejected.
+  describe("CTE-defined names", () => {
+    beforeEach(() => {
+      const raw = getSqliteFrom(db);
+      raw.run(`CREATE TABLE ${ACME_NOTES} (id TEXT PRIMARY KEY, body TEXT)`);
+      raw.run(`CREATE TABLE plugin_other_secrets (id TEXT PRIMARY KEY)`);
+      raw.run(`CREATE TABLE messages (id TEXT PRIMARY KEY, content TEXT)`);
+      raw.run(`INSERT INTO ${ACME_NOTES} (id, body) VALUES ('n1', 'b1')`);
+      raw.run(`INSERT INTO ${ACME_NOTES} (id, body) VALUES ('n2', 'b2')`);
+      raw.run(`INSERT INTO messages (id, content) VALUES ('m1', 'secret')`);
+    });
+
+    test("a single CTE over its own table is allowed", () => {
+      const facet = createStoreFacet(() => db, "acme");
+      const rows = facet.query<{ id: string }>(
+        `WITH recent AS (SELECT id FROM ${ACME_NOTES}) SELECT id FROM recent ORDER BY id`,
+      );
+      expect(rows).toEqual([{ id: "n1" }, { id: "n2" }]);
+    });
+
+    test("multiple comma-separated CTEs over own tables are allowed", () => {
+      const facet = createStoreFacet(() => db, "acme");
+      const rows = facet.query<{ id: string }>(
+        `WITH a AS (SELECT id FROM ${ACME_NOTES} WHERE id = 'n1'),
+              b AS (SELECT id FROM ${ACME_NOTES} WHERE id = 'n2')
+         SELECT id FROM a UNION SELECT id FROM b ORDER BY id`,
+      );
+      expect(rows).toEqual([{ id: "n1" }, { id: "n2" }]);
+    });
+
+    test("a nested CTE referencing an earlier CTE is allowed", () => {
+      // `b`'s body reads `a` (an earlier CTE name, not a physical table); the
+      // outer query reads `b`. Neither names a real table beyond ACME_NOTES.
+      const facet = createStoreFacet(() => db, "acme");
+      const rows = facet.query<{ id: string }>(
+        `WITH a AS (SELECT id FROM ${ACME_NOTES}),
+              b AS (SELECT id FROM a WHERE id = 'n1')
+         SELECT id FROM b`,
+      );
+      expect(rows).toEqual([{ id: "n1" }]);
+    });
+
+    test("a WITH RECURSIVE self-referential CTE is allowed", () => {
+      // The recursive term reads the CTE's own name `c` — in scope inside its
+      // own body only because of RECURSIVE — and touches no physical table.
+      const facet = createStoreFacet(() => db, "acme");
+      const rows = facet.query<{ n: number }>(
+        `WITH RECURSIVE c(n) AS (
+           SELECT 1 UNION ALL SELECT n + 1 FROM c WHERE n < 3
+         ) SELECT n FROM c ORDER BY n`,
+      );
+      expect(rows).toEqual([{ n: 1 }, { n: 2 }, { n: 3 }]);
+    });
+
+    test("a CTE body reaching a core table is rejected", () => {
+      const facet = createStoreFacet(() => db, "acme");
+      expect(() =>
+        facet.query(`WITH x AS (SELECT * FROM messages) SELECT * FROM x`),
+      ).toThrow(PluginStoreNamespaceError);
+    });
+
+    test("a CTE body reaching a foreign plugin table is rejected", () => {
+      const facet = createStoreFacet(() => db, "acme");
+      expect(() =>
+        facet.query(
+          `WITH x AS (SELECT * FROM plugin_other_secrets) SELECT * FROM x`,
+        ),
+      ).toThrow(PluginStoreNamespaceError);
+    });
+
+    test("a CTE name exempt, but a real unprefixed table alongside it still rejected", () => {
+      // `r` is the CTE (exempt); `messages` in the outer JOIN is a real core
+      // table and must still be caught.
+      const facet = createStoreFacet(() => db, "acme");
+      expect(() =>
+        facet.query(
+          `WITH r AS (SELECT id FROM ${ACME_NOTES})
+           SELECT r.id FROM r JOIN messages m ON m.id = r.id`,
+        ),
+      ).toThrow(PluginStoreNamespaceError);
+    });
+
+    test("a non-recursive CTE shadowing a core name still reads the real table in its body — rejected", () => {
+      // The CTE is named `messages`. The outer `FROM messages` resolves to the
+      // CTE (exempt), but the body's `FROM messages` is the CTE's own name in a
+      // NON-recursive body — out of scope, so it is the real core table and the
+      // statement is rejected fail-closed.
+      const facet = createStoreFacet(() => db, "acme");
+      expect(() =>
+        facet.query(
+          `WITH messages AS (SELECT * FROM messages) SELECT * FROM messages`,
+        ),
+      ).toThrow(PluginStoreNamespaceError);
+    });
+
+    test("a CTE name shadowing a core name, body over its OWN table, is allowed", () => {
+      // Same shadowing of the `messages` name, but the body reads the plugin's
+      // own table — so no real core table is ever touched and it is allowed.
+      const facet = createStoreFacet(() => db, "acme");
+      const rows = facet.query<{ id: string }>(
+        `WITH messages AS (SELECT id FROM ${ACME_NOTES})
+         SELECT id FROM messages ORDER BY id`,
+      );
+      expect(rows).toEqual([{ id: "n1" }, { id: "n2" }]);
+    });
+  });
+
   // A plugin must not slip a cross-namespace table past the guard by QUOTING
   // its name. A quoted identifier (`"messages"`, `` `messages` ``, `[messages]`)
   // names the same table as the bare form, so every quote style and statement

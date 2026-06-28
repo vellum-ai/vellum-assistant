@@ -358,9 +358,16 @@ export async function runMemoryJobsOnce(
   options: { enableScheduledCleanup?: boolean; claimMode?: JobClaimMode } = {},
 ): Promise<number> {
   const config = getConfig();
-  if (config.memory.enabled === false) return 0;
   const enableScheduledCleanup = options.enableScheduledCleanup === true;
   const claimMode = options.claimMode ?? "all";
+  // `memory.enabled: false` disables built-in CORE memory work, not the plugin
+  // job lane. The `host.jobs` facet enqueues `plugin:<id>:` jobs into this same
+  // queue and the daemon drains them via `claimMode: "plugin"`, so a non-memory
+  // plugin's background jobs must still run even when core memory is off. Only
+  // short-circuit the core/all drains here; the plugin lane falls through and
+  // claims only `plugin:`-prefixed jobs (it already runs no core maintenance,
+  // see `runsCoreMaintenance` below).
+  if (config.memory.enabled === false && claimMode !== "plugin") return 0;
   // Core-queue scheduling (cleanup + graph maintenance enqueues, DB
   // maintenance) belongs to the process draining the core queue. In `"plugin"`
   // mode this loop is the daemon's plugin-only lane running alongside the

@@ -302,6 +302,126 @@ function keywordAt(tokens: SqlToken[], index: number): string | null {
 }
 
 /**
+ * A common-table-expression defined by a leading `WITH [RECURSIVE]` clause.
+ * `name` is the CTE's lowercased identifier; `bodyStart`/`bodyEnd` are the token
+ * indices of the body's opening `(` and matching `)`; `recursive` records
+ * whether the clause is `WITH RECURSIVE` (which puts the CTE's own name in scope
+ * inside its own body).
+ */
+interface CteScope {
+  name: string;
+  bodyStart: number;
+  bodyEnd: number;
+  recursive: boolean;
+}
+
+/**
+ * Lowercased identifier of a CTE name token (`WITH <name> AS …`), or `null` when
+ * the token is not a usable name (punctuation/end-of-input). A quoted CTE name
+ * resolves to its inner text, matching how a later quoted reference to it lexes.
+ */
+function cteNameFromToken(token: SqlToken | undefined): string | null {
+  if (!token || token.kind === "punct") return null;
+  return tableNameFromToken(token);
+}
+
+/**
+ * Find the index of the `)` matching the `(` at `openIndex`, tracking nested
+ * parentheses. Returns the token stream length when the run is unterminated so
+ * callers treat the rest of the statement as the body (fail-closed: an
+ * unbalanced CTE body never shrinks the region the table walk scans).
+ */
+function matchingParen(tokens: SqlToken[], openIndex: number): number {
+  let depth = 0;
+  for (let i = openIndex; i < tokens.length; i++) {
+    const tok = tokens[i] as SqlToken;
+    if (tok.kind === "punct" && tok.value === "(") depth++;
+    else if (tok.kind === "punct" && tok.value === ")") {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return tokens.length;
+}
+
+/**
+ * Parse the CTE definitions of a leading `WITH [RECURSIVE] <name> [(cols)] AS
+ * [[NOT] MATERIALIZED] ( body ) [, …]` clause. Returns the defined CTE scopes in
+ * definition order; an empty array when the statement has no leading `WITH`.
+ *
+ * Only the CTE NAMES are collected here — the bodies are still walked for table
+ * references by {@link referencedTables} like any other subquery, so a CTE whose
+ * body touches a core/foreign table (`WITH x AS (SELECT * FROM messages) …`) is
+ * still rejected. The scopes only let {@link referencedTables} recognize a
+ * reference to a defined CTE name (e.g. the outer `FROM recent`) as a CTE, not a
+ * physical table that must carry the plugin prefix.
+ */
+function collectCteScopes(tokens: SqlToken[]): CteScope[] {
+  if (keywordAt(tokens, 0) !== "with") return [];
+  const scopes: CteScope[] = [];
+  let i = 1;
+  const recursive = keywordAt(tokens, i) === "recursive";
+  if (recursive) i++;
+
+  while (i < tokens.length) {
+    const name = cteNameFromToken(tokens[i]);
+    if (name === null) break;
+    i++;
+
+    // Optional `(col, col, …)` projected-column list before `AS`.
+    if ((tokens[i] as SqlToken | undefined)?.value === "(") {
+      i = matchingParen(tokens, i) + 1;
+    }
+
+    if (keywordAt(tokens, i) !== "as") break;
+    i++;
+
+    // Optional `MATERIALIZED` / `NOT MATERIALIZED` hint between `AS` and `(`.
+    if (keywordAt(tokens, i) === "not") i++;
+    if (keywordAt(tokens, i) === "materialized") i++;
+
+    if ((tokens[i] as SqlToken | undefined)?.value !== "(") break;
+    const bodyStart = i;
+    const bodyEnd = matchingParen(tokens, bodyStart);
+    scopes.push({ name, bodyStart, bodyEnd, recursive });
+    i = bodyEnd + 1;
+
+    // Another CTE follows only after a comma; anything else begins the main
+    // statement.
+    if ((tokens[i] as SqlToken | undefined)?.value !== ",") break;
+    i++;
+  }
+
+  return scopes;
+}
+
+/**
+ * Whether a reference to `name` captured at token `index` resolves to a CTE
+ * defined earlier in the statement rather than a physical table.
+ *
+ * A defined CTE name is in scope after its own definition closes — so it covers
+ * later sibling CTE bodies and the main query — and additionally inside its own
+ * body when the clause is `WITH RECURSIVE`. A non-recursive CTE's own name is
+ * NOT in scope within its own body, so a shadowing escape
+ * (`WITH messages AS (SELECT * FROM messages) …`) leaves the body's
+ * `FROM messages` resolving to the real table and rejected.
+ */
+function isCteReference(
+  scopes: CteScope[],
+  name: string,
+  index: number,
+): boolean {
+  for (const scope of scopes) {
+    if (scope.name !== name) continue;
+    if (index > scope.bodyEnd) return true;
+    if (scope.recursive && index > scope.bodyStart && index <= scope.bodyEnd) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * `CREATE [UNIQUE] INDEX [IF NOT EXISTS] <name> ON <table>` and
  * `CREATE [TEMP] TRIGGER [IF NOT EXISTS] <name> … ON <table>` name their target
  * table after the `ON` keyword — a position {@link TABLE_INTRODUCING_KEYWORDS}
@@ -438,6 +558,13 @@ function captureAlterRenameTarget(tokens: SqlToken[]): string | null {
 function referencedTables(tokens: SqlToken[]): string[] {
   const tables: string[] = [];
 
+  // CTE names defined by a leading `WITH [RECURSIVE] … AS ( … )` clause. A
+  // reference to one of these is the CTE, not a physical table, so it is exempt
+  // from the prefix check — but only in the keyword walk below, where CTEs are
+  // referenced. The CREATE INDEX/TRIGGER `ON` target and the ALTER RENAME
+  // destination cannot name a CTE, so those captures stay fail-closed.
+  const cteScopes = collectCteScopes(tokens);
+
   // CREATE INDEX/TRIGGER name their target after `ON`, a position the keyword
   // walk cannot key off; capture it up front.
   if (keywordAt(tokens, 0) === "create") {
@@ -471,7 +598,7 @@ function referencedTables(tokens: SqlToken[]): string[] {
     // SELECT's own FROM is matched independently.
     const first = captureTableAt(tokens, i);
     if (!first) continue;
-    tables.push(first.name);
+    if (!isCteReference(cteScopes, first.name, i)) tables.push(first.name);
     i = first.next;
     // Continue a comma-separated table list (`FROM a, b, c` / `UPDATE a, b`).
     // A clause keyword or any non-comma punctuation ends the list so commas in
@@ -481,7 +608,9 @@ function referencedTables(tokens: SqlToken[]): string[] {
       if (next.kind === "punct" && next.value === ",") {
         const cand = captureTableAt(tokens, i + 1);
         if (!cand) break;
-        tables.push(cand.name);
+        if (!isCteReference(cteScopes, cand.name, i + 1)) {
+          tables.push(cand.name);
+        }
         i = cand.next;
         continue;
       }
@@ -528,6 +657,13 @@ export class PluginStoreNamespaceError extends Error {
  * yet yields no captured table is an unrecognized shape the guard cannot vouch
  * for — it is rejected rather than let through, so a future unhandled DDL form
  * cannot silently bypass the namespace check.
+ *
+ * A leading `WITH [RECURSIVE] … AS ( … )` clause's CTE names are recognized, so
+ * a reference to a CTE (e.g. the outer `FROM recent`) is not mistaken for an
+ * unprefixed physical table. The CTE bodies are still walked, so a body that
+ * touches a core/foreign table (`WITH x AS (SELECT * FROM messages) …`) — or a
+ * non-recursive CTE that shadows a real table name and reads it inside its own
+ * body — is still rejected.
  */
 export function assertScopedToPlugin(hostId: string, sql: string): void {
   const prefix = pluginTablePrefix(hostId);

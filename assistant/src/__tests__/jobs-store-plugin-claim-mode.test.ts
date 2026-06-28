@@ -9,7 +9,15 @@
  * those jobs. `claimMode: "all"` (the daemon when it owns the whole queue)
  * claims both.
  */
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -21,14 +29,24 @@ mock.module("../util/logger.js", () => ({
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 import type { AssistantConfig } from "../config/types.js";
 
-const TEST_CONFIG: AssistantConfig = {
+// Held in a mutable cell so a single test can flip `memory.enabled` to false
+// (see the `memory.enabled: false` plugin-lane case) without disturbing the
+// other blocks, which run with memory enabled.
+let testConfig: AssistantConfig = {
   ...DEFAULT_CONFIG,
   memory: { ...DEFAULT_CONFIG.memory, enabled: true },
 };
 
+function setMemoryEnabled(enabled: boolean): void {
+  testConfig = {
+    ...testConfig,
+    memory: { ...testConfig.memory, enabled },
+  };
+}
+
 mock.module("../config/loader.js", () => ({
-  loadConfig: () => TEST_CONFIG,
-  getConfig: () => TEST_CONFIG,
+  loadConfig: () => testConfig,
+  getConfig: () => testConfig,
   invalidateConfigCache: () => {},
 }));
 
@@ -50,7 +68,10 @@ import {
   failStalledJobs,
   type MemoryJobType,
 } from "../persistence/jobs-store.js";
-import { runMemoryJobsOnce } from "../persistence/jobs-worker.js";
+import {
+  registerJobHandler,
+  runMemoryJobsOnce,
+} from "../persistence/jobs-worker.js";
 import { memoryJobs } from "../persistence/schema/index.js";
 
 // A core-union-foreign plugin job type — the shape `enqueuePluginJob` writes.
@@ -134,6 +155,55 @@ describe("runMemoryJobsOnce — standalone worker (core mode) and a plugin job",
 
     expect(processed).toBe(0);
     expect(statusOf(PLUGIN_JOB_TYPE)).toBe("pending");
+  });
+});
+
+describe("runMemoryJobsOnce — memory.enabled: false still drains the plugin lane", () => {
+  beforeAll(async () => {
+    await initializeDb();
+  });
+
+  beforeEach(() => {
+    getMemoryDb()!.run("DELETE FROM memory_jobs");
+    setMemoryEnabled(false);
+  });
+
+  afterEach(() => {
+    setMemoryEnabled(true);
+  });
+
+  test('"plugin" mode drains a plugin job while core memory jobs stay skipped', async () => {
+    // A workspace with built-in memory disabled still hosts plugins that use
+    // background jobs. The daemon's plugin lane must drain those even though
+    // core memory work is off.
+    let pluginRan = false;
+    registerJobHandler(PLUGIN_JOB_TYPE, () => {
+      pluginRan = true;
+    });
+
+    enqueuePluginJob(PLUGIN_JOB_TYPE, { conversationId: "conv-1" });
+    enqueueMemoryJob("conversation_analyze", { conversationId: "conv-1" });
+
+    const processed = await runMemoryJobsOnce({ claimMode: "plugin" });
+
+    // The plugin job ran to completion; the core job is left untouched (the
+    // `memory.enabled: false` gate skips the core lane, and the plugin lane
+    // never claims core jobs anyway).
+    expect(pluginRan).toBe(true);
+    expect(processed).toBe(1);
+    expect(statusOf(PLUGIN_JOB_TYPE)).toBe("completed");
+    expect(statusOf("conversation_analyze")).toBe("pending");
+  });
+
+  test('"core" mode short-circuits entirely when memory is disabled', async () => {
+    // The standalone worker / daemon core lane preserves today's behavior: with
+    // memory disabled it processes nothing and claims no core jobs.
+    enqueueMemoryJob("conversation_analyze", { conversationId: "conv-1" });
+
+    const processed = await runMemoryJobsOnce({ claimMode: "core" });
+
+    expect(processed).toBe(0);
+    expect(statusOf("conversation_analyze")).toBe("pending");
   });
 });
 
