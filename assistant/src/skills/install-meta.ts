@@ -21,6 +21,13 @@ export interface SkillInstallMeta {
   slug?: string; // registry slug
   sourceRepo?: string; // GitHub repo (e.g. "vercel-labs/agent-skills")
   contentHash?: string; // SHA-256 content hash (v2:hex format)
+  // Authorship provenance. Drives prune protection: only "assistant"-authored
+  // skills are eligible for the usage-based prune; "user" and untagged skills
+  // are protected. Set by install/scaffold callers, never defaulted here.
+  author?: "assistant" | "user";
+  // Day-granularity stamp of the last time the skill was loaded (ISO 8601).
+  // Written by a later PR (skill-load instrumentation); unused for now.
+  lastUsedAt?: string;
 }
 
 // ─── Atomic write helper ────────────────────────────────────────────────────

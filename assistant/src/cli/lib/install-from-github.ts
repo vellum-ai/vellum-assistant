@@ -578,6 +578,12 @@ export interface InstallMeta {
    * {@link InstallMeta.fingerprint}.
    */
   readonly contentHash?: string;
+  /**
+   * Authorship provenance, mirroring the skills' `SkillInstallMeta.author`.
+   * GitHub installs are user-initiated, so they record `"user"`; this protects
+   * them from the usage-based prune that only targets `"assistant"` entries.
+   */
+  readonly author?: "assistant" | "user";
 
   /** Install name. Matches the plugins directory and `plugins install <name>`. */
   readonly name: string;
@@ -1169,6 +1175,7 @@ function writeInstallMeta(
     version: readStagedPackageVersion(stagingDir),
     sourceRepo: `${source.owner}/${source.repo}`,
     contentHash,
+    author: "user",
     name,
     source: {
       kind: "github",
@@ -1238,6 +1245,10 @@ export function readInstallMeta(pluginDir: string): InstallMeta | null {
     slug: optionalString(obj.slug),
     sourceRepo: optionalString(obj.sourceRepo),
     contentHash: optionalString(obj.contentHash),
+    author:
+      obj.author === "assistant" || obj.author === "user"
+        ? obj.author
+        : undefined,
     name: obj.name,
     source: {
       kind: typeof source.kind === "string" ? source.kind : "github",

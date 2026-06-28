@@ -108,6 +108,36 @@ describe("writeInstallMeta", () => {
     expect(parsed.contentHash).toBe("v2:abc123def456");
   });
 
+  test("round-trips optional author and lastUsedAt fields", () => {
+    const dir = makeTempDir();
+    const meta: SkillInstallMeta = {
+      origin: "custom",
+      installedAt: "2026-01-15T10:30:00.000Z",
+      author: "user",
+      lastUsedAt: "2026-02-01",
+    };
+
+    writeInstallMeta(dir, meta);
+
+    const result = readInstallMeta(dir);
+    expect(result).not.toBeNull();
+    expect(result!.author).toBe("user");
+    expect(result!.lastUsedAt).toBe("2026-02-01");
+  });
+
+  test("leaves author and lastUsedAt unset when omitted", () => {
+    const dir = makeTempDir();
+    writeInstallMeta(dir, {
+      origin: "custom",
+      installedAt: "2026-01-15T10:30:00.000Z",
+    });
+
+    const result = readInstallMeta(dir);
+    expect(result).not.toBeNull();
+    expect(result!.author).toBeUndefined();
+    expect(result!.lastUsedAt).toBeUndefined();
+  });
+
   test("overwrites existing install-meta.json", () => {
     const dir = makeTempDir();
     writeInstallMeta(dir, {
