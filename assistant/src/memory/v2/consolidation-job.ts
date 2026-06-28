@@ -15,9 +15,10 @@
  * substitute in.
  *
  * Lifecycle:
- *   1. Bail if `config.memory.enabled` or `config.memory.v2.enabled` is false
- *      (the worker may have claimed a stale row from before memory was
- *      disabled).
+ *   1. Bail if `config.memory.enabled` is false, or if the resolved memory
+ *      provider is not v2/v3 (the worker may have claimed a stale row from
+ *      before memory was disabled or the provider was switched). v3 reuses this
+ *      pass because it reads the same concept-page corpus the run produces.
  *   2. Acquire a single-process lock at `memory/.v2-state/consolidation.lock`
  *      so two overlapping schedule windows can't fight over the same files.
  *      The lock contains the holder's PID + timestamp so a crashed run leaves
@@ -66,16 +67,16 @@ import { dirname, join } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../../config/types.js";
-import { runBackgroundJob } from "../../runtime/background-job-runner.js";
-import { getLogger } from "../../util/logger.js";
-import { getWorkspaceDir } from "../../util/platform.js";
-import { isProcessAlive } from "../../util/process-liveness.js";
-import { formatBufferTimestamp } from "../graph/tool-handlers.js";
 import {
   enqueueMemoryJob,
   type MemoryJob,
   type MemoryJobType,
 } from "../../persistence/jobs-store.js";
+import { runBackgroundJob } from "../../runtime/background-job-runner.js";
+import { getLogger } from "../../util/logger.js";
+import { getWorkspaceDir } from "../../util/platform.js";
+import { isProcessAlive } from "../../util/process-liveness.js";
+import { formatBufferTimestamp } from "../graph/tool-handlers.js";
 import { resolveMemoryProviderId } from "../provider/provider-id.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./constants.js";
 import { resolveConsolidationPrompt } from "./prompts/consolidation.js";
@@ -162,8 +163,17 @@ export async function memoryV2ConsolidateJob(
     return { kind: "disabled" };
   }
 
-  if (!config.memory.v2.enabled) {
-    log.debug("memory.v2.enabled is false; consolidation skipped");
+  // Gate on the resolved provider, mirroring the scheduler: consolidation drains
+  // the `memory/buffer.md` corpus that both v2 and v3 read, so it runs for
+  // either provider but must skip `"none"`/`"graph"`. A row claimed here may be
+  // stale (enqueued before a provider switch), so the handler re-checks rather
+  // than trusting the schedule.
+  const provider = resolveMemoryProviderId(config);
+  if (provider !== "v2" && provider !== "v3") {
+    log.debug(
+      { provider },
+      "resolved memory provider does not run v2 consolidation; skipped",
+    );
     return { kind: "disabled" };
   }
 

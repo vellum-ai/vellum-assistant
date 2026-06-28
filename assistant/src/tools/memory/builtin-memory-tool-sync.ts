@@ -27,8 +27,21 @@ import {
   registerTool,
   unregisterCoreTool,
 } from "../registry.js";
+import { getMemoryToolsForActiveProvider } from "../tool-manifest.js";
+import { recallTool, rememberTool } from "./register.js";
 
 const log = getLogger("builtin-memory-tool-sync");
+
+/**
+ * Canonical names of the provider-owned memory tools. Every memory provider
+ * that exposes capture/recall contributes these exact definitions
+ * (`provideTools()` returns `rememberTool`/`recallTool`), so they are the names
+ * a config change may add or remove as the resolved provider changes.
+ */
+const MEMORY_TOOL_NAMES: readonly string[] = [
+  rememberTool.name,
+  recallTool.name,
+];
 
 /**
  * Reconcile the built-in memory tools in the global registry against the live
@@ -86,6 +99,56 @@ export function reconcileBuiltinMemoryTools(): void {
     log.warn(
       { err },
       "Built-in memory tool resync failed; tool ownership may lag the active memory-plugin set until restart",
+    );
+  }
+}
+
+/**
+ * Reconcile the provider-owned memory tools after a live config change so the
+ * registry tracks the newly-resolved `memory.provider` without a restart.
+ *
+ * `initializeTools()` registers `remember`/`recall` once at boot from the
+ * provider resolved then. Live config writes (`PATCH /v1/config`, `config/set`)
+ * persist a new `memory.provider` but do not re-run tool init, so a running
+ * assistant would otherwise keep the old tool surface: switching to
+ * `provider: "none"` would leave the model-visible `remember`/`recall`
+ * registered, and switching back to a real provider would not add them.
+ *
+ * Reconciliation is symmetric and reuses the resolved provider as the single
+ * source of truth:
+ * - Each canonical memory tool the active provider no longer provides
+ *   (`provider: "none"`, or a provider that yields to an external memory
+ *   plugin) is stripped while it is still an unowned core tool —
+ *   {@link unregisterCoreTool} never evicts a plugin-owned tool.
+ * - {@link reconcileBuiltinMemoryTools} then registers the active provider's
+ *   memory tools (reclaiming a name from a yielding plugin first), so switching
+ *   to a real provider restores capture.
+ *
+ * Idempotent in both directions, so callers may invoke it on any config write;
+ * keeping it a no-op when `memory.provider` is unchanged is the caller's job
+ * (this skips the work when the resolved id did not move). Never throws — a
+ * resync failure must not break the config write that triggered it.
+ */
+export function reconcileMemoryToolsForConfigChange(): void {
+  try {
+    const desiredNames = new Set(
+      getMemoryToolsForActiveProvider()
+        .map((tool) => tool.name)
+        .filter((name): name is string => name !== undefined),
+    );
+    for (const name of MEMORY_TOOL_NAMES) {
+      if (!desiredNames.has(name) && unregisterCoreTool(name)) {
+        log.info(
+          { name },
+          "Provider-owned memory tool unregistered: resolved memory provider no longer provides it",
+        );
+      }
+    }
+    reconcileBuiltinMemoryTools();
+  } catch (err) {
+    log.warn(
+      { err },
+      "Memory tool resync after config change failed; tool surface may lag the resolved memory provider until restart",
     );
   }
 }

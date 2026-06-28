@@ -761,22 +761,59 @@ export const GRAPH_MAINTENANCE_CHECKPOINTS = {
 } as const;
 
 /**
+ * The four v1 graph-maintenance cron entries, scheduled when the resolved
+ * provider is `"graph"`. All fields are module constants, so this is a stable
+ * shared value rather than a per-tick allocation.
+ */
+const V1_GRAPH_MAINTENANCE_SCHEDULE: ReadonlyArray<{
+  key: string;
+  intervalMs: number;
+  jobType: MemoryJobType;
+}> = [
+  {
+    key: GRAPH_MAINTENANCE_CHECKPOINTS.decay,
+    intervalMs: GRAPH_DECAY_INTERVAL_MS,
+    jobType: "graph_decay",
+  },
+  {
+    key: GRAPH_MAINTENANCE_CHECKPOINTS.consolidate,
+    intervalMs: GRAPH_CONSOLIDATE_INTERVAL_MS,
+    jobType: "graph_consolidate",
+  },
+  {
+    key: GRAPH_MAINTENANCE_CHECKPOINTS.patternScan,
+    intervalMs: GRAPH_PATTERN_SCAN_INTERVAL_MS,
+    jobType: "graph_pattern_scan",
+  },
+  {
+    key: GRAPH_MAINTENANCE_CHECKPOINTS.narrative,
+    intervalMs: GRAPH_NARRATIVE_INTERVAL_MS,
+    jobType: "graph_narrative_refine",
+  },
+];
+
+/**
  * Enqueue periodic graph maintenance jobs.
  *
- * Mutually exclusive between v1 and v2:
- *   - v2 active (`memory.v2.enabled` on) → only one buffer-drainer is
- *     scheduled (see below).
- *   - v2 inactive → the four v1 entries (decay, consolidate, pattern_scan,
- *     narrative) are scheduled instead.
+ * Keyed on the resolved memory provider (`resolveMemoryProviderId`), so an
+ * explicit `memory.provider` pin and a migrated `auto` install agree:
+ *   - provider `"v2"`/`"v3"` → only the v2 buffer-drainer is scheduled (see
+ *     below). v3 reuses the v2 consolidation pass — the agent writes its concept
+ *     pages from `memory/buffer.md`, the corpus v3 retrieval reads — so this
+ *     branch must keep running under v3 to keep that corpus fresh.
+ *   - provider `"graph"` → the four v1 entries (decay, consolidate,
+ *     pattern_scan, narrative) are scheduled instead.
+ *   - provider `"none"` → no buffer maintenance is scheduled (a disabled memory
+ *     provider must not drain the buffer or spend background LLM work).
  *
  * The `memory/buffer.md` is shared, so exactly one consolidator owns the drain
- * at a time. When v2 is active, the v2 consolidator (`memory_v2_consolidate`)
- * is the sole buffer-drainer.
+ * at a time. Under v2/v3 the v2 consolidator (`memory_v2_consolidate`) is the
+ * sole buffer-drainer.
  *
- * Read/write paths route to v2 when the flag is on, so v1 graph data goes
- * unread; running v1 maintenance alongside v2 is wasted compute and LLM
- * spend. The v1 code path remains live so flipping the flag back to off
- * fully re-engages v1.
+ * Read/write paths route to v2/v3 when those providers are active, so v1 graph
+ * data goes unread; running v1 maintenance alongside them is wasted compute and
+ * LLM spend. The v1 code path remains live so pinning back to `"graph"` fully
+ * re-engages v1.
  *
  * Uses durable checkpoints so intervals survive daemon restarts — jobs only
  * fire when the actual elapsed time since last run exceeds the interval.
@@ -784,9 +821,9 @@ export const GRAPH_MAINTENANCE_CHECKPOINTS = {
  * live `graph_extract` trigger path (see `indexMessageNow` in `indexer.ts`)
  * so it runs on the same idle/message-count cadence.
  *
- * Independently of the v1/v2 split, a flag-gated `memory_v3_maintain` backstop
- * is appended when a v3 path is active so the topic tree self-heals even if the
- * primary post-consolidation follow-up enqueue is missed.
+ * Independently of the provider split, a flag-gated `memory_v3_maintain`
+ * backstop is appended when a v3 path is active so the topic tree self-heals
+ * even if the primary post-consolidation follow-up enqueue is missed.
  */
 export function maybeEnqueueGraphMaintenanceJobs(
   config: AssistantConfig,
@@ -795,9 +832,14 @@ export function maybeEnqueueGraphMaintenanceJobs(
   const memoryEnabled = config.memory.enabled !== false;
   if (!memoryEnabled) return;
 
-  const v2Active = config.memory.v2.enabled;
+  // v2 consolidation drains the buffer corpus that BOTH v2 and v3 read, so it
+  // runs for either provider; `"graph"` runs v1 maintenance and `"none"` runs
+  // neither.
+  const memoryProvider = resolveMemoryProviderId(config);
+  const v2Active = memoryProvider === "v2" || memoryProvider === "v3";
+  const graphActive = memoryProvider === "graph";
 
-  // The single buffer-drainer entry for the v2-active branch. Referenced again
+  // The single buffer-drainer entry for the v2/v3 branch. Referenced again
   // below by the size-based trigger.
   const consolidateEntry = {
     key: GRAPH_MAINTENANCE_CHECKPOINTS.memoryV2Consolidate,
@@ -805,34 +847,18 @@ export function maybeEnqueueGraphMaintenanceJobs(
     jobType: "memory_v2_consolidate" as MemoryJobType,
   };
 
+  // v2/v3 → the single buffer-drainer; graph → v1 upkeep; none → neither. The
+  // v3 backstop below may push onto this, so it is a fresh mutable array (the
+  // graph branch copies the shared constant).
   const schedule: Array<{
     key: string;
     intervalMs: number;
     jobType: MemoryJobType;
   }> = v2Active
     ? [consolidateEntry]
-    : [
-        {
-          key: GRAPH_MAINTENANCE_CHECKPOINTS.decay,
-          intervalMs: GRAPH_DECAY_INTERVAL_MS,
-          jobType: "graph_decay",
-        },
-        {
-          key: GRAPH_MAINTENANCE_CHECKPOINTS.consolidate,
-          intervalMs: GRAPH_CONSOLIDATE_INTERVAL_MS,
-          jobType: "graph_consolidate",
-        },
-        {
-          key: GRAPH_MAINTENANCE_CHECKPOINTS.patternScan,
-          intervalMs: GRAPH_PATTERN_SCAN_INTERVAL_MS,
-          jobType: "graph_pattern_scan",
-        },
-        {
-          key: GRAPH_MAINTENANCE_CHECKPOINTS.narrative,
-          intervalMs: GRAPH_NARRATIVE_INTERVAL_MS,
-          jobType: "graph_narrative_refine",
-        },
-      ];
+    : graphActive
+      ? [...V1_GRAPH_MAINTENANCE_SCHEDULE]
+      : [];
 
   // v3 self-maintenance backstop. Orthogonal to the v1/v2 mutual exclusion
   // above: it owns its own checkpoint and operates on the v3 topic tree, so it

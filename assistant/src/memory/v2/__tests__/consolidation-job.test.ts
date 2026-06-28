@@ -117,13 +117,17 @@ mock.module("../../../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: (key: string) => flagStates[key] ?? v3FlagOn,
 }));
 
-// The v3-live gate is resolved from `memory.provider` via
-// `resolveMemoryProviderId`. Mirror the flag mock so the shadow-vs-live tests
-// keep driving live through `flagStates["memory-v3-live"]` (and `v3FlagOn`
-// toggles it alongside shadow for the existing on/off tests).
+// The provider gate is resolved from `memory.provider` via
+// `resolveMemoryProviderId`. An explicit `memory.provider` on the config wins
+// (so the consolidation gate tests can drive `"none"`/`"graph"`); otherwise the
+// shadow-vs-live tests keep selecting v3 via `flagStates["memory-v3-live"]`
+// (and `v3FlagOn` toggles it alongside shadow for the existing on/off tests).
 mock.module("../../provider/provider-id.js", () => ({
-  resolveMemoryProviderId: () =>
-    (flagStates["memory-v3-live"] ?? v3FlagOn) ? "v3" : "v2",
+  resolveMemoryProviderId: (config?: { memory?: { provider?: string } }) => {
+    const explicit = config?.memory?.provider;
+    if (explicit !== undefined && explicit !== "auto") return explicit;
+    return (flagStates["memory-v3-live"] ?? v3FlagOn) ? "v3" : "v2";
+  },
 }));
 
 // ── Workspace pin ───────────────────────────────────────────────────
@@ -176,10 +180,31 @@ function configWithMaxEntries(
     },
   } as Parameters<typeof memoryV2ConsolidateJob>[1];
 }
-const CONFIG_DISABLED = {
+// Resolved provider is `"graph"` — the real `auto` resolution when
+// `v2.enabled` is false — so the v2 consolidation gate skips it.
+const CONFIG_GRAPH = {
   memory: {
     enabled: true,
+    provider: "graph",
     v2: { enabled: false, consolidation_prompt_path: null },
+  },
+} as Parameters<typeof memoryV2ConsolidateJob>[1];
+// Resolved provider is `"none"` — a disabled memory provider must not run the
+// buffer-draining consolidation even if `v2.enabled` defaults on.
+const CONFIG_NONE = {
+  memory: {
+    enabled: true,
+    provider: "none",
+    v2: { enabled: true, consolidation_prompt_path: null },
+  },
+} as Parameters<typeof memoryV2ConsolidateJob>[1];
+// Resolved provider is `"v3"` — v3 reads the v2 concept-page corpus, so
+// consolidation must still run.
+const CONFIG_V3 = {
+  memory: {
+    enabled: true,
+    provider: "v3",
+    v2: { enabled: true, consolidation_prompt_path: null },
   },
 } as Parameters<typeof memoryV2ConsolidateJob>[1];
 const CONFIG_MEMORY_DISABLED = {
@@ -395,7 +420,7 @@ describe("memoryV2ConsolidateJob — chunked cutoff (consolidation_max_entries_p
   });
 });
 
-describe("memoryV2ConsolidateJob — v2 disabled", () => {
+describe("memoryV2ConsolidateJob — provider gate", () => {
   test("returns disabled without invoking the runner when memory.enabled is false", async () => {
     writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
 
@@ -412,10 +437,10 @@ describe("memoryV2ConsolidateJob — v2 disabled", () => {
     expect(existsSync(lockPath())).toBe(false);
   });
 
-  test("returns disabled without invoking the runner when memory.v2.enabled is false", async () => {
+  test("returns disabled without invoking the runner when the resolved provider is graph", async () => {
     writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
 
-    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG_DISABLED);
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG_GRAPH);
 
     expect(result).toEqual({ kind: "disabled" });
     expect(runnerCalls).toBe(0);
@@ -423,6 +448,26 @@ describe("memoryV2ConsolidateJob — v2 disabled", () => {
     // Lock must NOT linger on the disabled path — the handler bailed before
     // the lock was acquired.
     expect(existsSync(lockPath())).toBe(false);
+  });
+
+  test("returns disabled without invoking the runner when the resolved provider is none (even with v2.enabled true)", async () => {
+    writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG_NONE);
+
+    expect(result).toEqual({ kind: "disabled" });
+    expect(runnerCalls).toBe(0);
+    expect(enqueuedJobs).toHaveLength(0);
+    expect(existsSync(lockPath())).toBe(false);
+  });
+
+  test("runs consolidation when the resolved provider is v3 (v3 reads the v2 concept-page corpus)", async () => {
+    writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG_V3);
+
+    expect(result.kind).toBe("invoked");
+    expect(runnerCalls).toBe(1);
   });
 });
 

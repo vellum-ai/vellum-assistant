@@ -65,6 +65,7 @@ import {
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../memory/memory-v2-activation-log-store.js";
+import { resolveMemoryProviderId } from "../../memory/provider/provider-id.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
 import {
   getAssistantMessageIdsInTurn,
@@ -85,6 +86,7 @@ import { PROVIDER_CATALOG } from "../../providers/model-catalog.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { validateAllowlistFile } from "../../security/secret-allowlist.js";
+import { reconcileMemoryToolsForConfigChange } from "../../tools/memory/builtin-memory-tool-sync.js";
 import {
   resolvePricingForUsage,
   usesAnthropicPricingRules,
@@ -868,6 +870,11 @@ async function commitConfigWrite(
   const configWatcher = getConfigWatcher();
   const wasSuppressed = configWatcher.suppressConfigReload;
   configWatcher.suppressConfigReload = true;
+  // Resolved memory provider before the write, so the post-write reconcile can
+  // detect a change in memory tool ownership (the registry registers
+  // `remember`/`recall` from the provider resolved at boot and is not re-run by
+  // this live write).
+  const memoryProviderBefore = resolveMemoryProviderId(getConfig());
   try {
     saveRawConfig(raw);
   } catch (err) {
@@ -885,6 +892,13 @@ async function commitConfigWrite(
 
   clearEmbeddingBackendCache();
   invalidateConfigCache();
+  // Resync provider-owned memory tools when the resolved memory provider
+  // changed: `memory.provider: "none"` unregisters `remember`/`recall`, and
+  // switching back to a real provider re-registers them — without a restart.
+  // No-op when the provider is unchanged.
+  if (resolveMemoryProviderId(getConfig()) !== memoryProviderBefore) {
+    reconcileMemoryToolsForConfigChange();
+  }
   // Reinitialize providers so the live registry reflects the new config.
   // Suppress disk writes inside loadConfig() — we just wrote the raw config
   // and the first-launch seed path would overwrite it with full defaults.

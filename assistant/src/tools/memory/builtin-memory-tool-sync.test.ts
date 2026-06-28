@@ -26,13 +26,21 @@ import {
   getToolOwner,
   registerPluginTools,
 } from "../registry.js";
-import { reconcileBuiltinMemoryTools } from "./builtin-memory-tool-sync.js";
+import {
+  reconcileBuiltinMemoryTools,
+  reconcileMemoryToolsForConfigChange,
+} from "./builtin-memory-tool-sync.js";
 
 // Pin the active provider to v2 so `provideTools()` returns the shared
 // `remember`/`recall` definitions (graph/v2/v3 all resolve to the same pair).
 function pinV2Config(): void {
+  pinProvider("v2");
+}
+
+/** Pin the resolved memory provider that `getConfig()` reports. */
+function pinProvider(provider: "v2" | "v3" | "graph" | "none"): void {
   spyOn(configLoader, "getConfig").mockReturnValue(
-    AssistantConfigSchema.parse({ memory: { provider: "v2" } }),
+    AssistantConfigSchema.parse({ memory: { provider } }),
   );
 }
 
@@ -134,6 +142,65 @@ describe("reconcileBuiltinMemoryTools", () => {
       id: "external-memory",
     });
     expect(getToolOwner("recall")).toEqual({
+      kind: "plugin",
+      id: "external-memory",
+    });
+  });
+});
+
+describe("reconcileMemoryToolsForConfigChange", () => {
+  test("a runtime switch to provider:none unregisters remember/recall, and switching back re-registers them", () => {
+    __clearRegistryForTesting();
+    // No external memory plugin in play — ownership tracks the resolved provider.
+    setYield(false);
+
+    // A real provider is configured at boot: the memory tools are registered.
+    pinProvider("v2");
+    reconcileMemoryToolsForConfigChange();
+    expect(getTool("remember")).toBeDefined();
+    expect(getTool("recall")).toBeDefined();
+
+    // A live config write flips the provider to "none" (no restart). The
+    // provider now contributes no tools, so the resync strips the stale
+    // model-visible memory tools.
+    pinProvider("none");
+    reconcileMemoryToolsForConfigChange();
+    expect(getTool("remember")).toBeUndefined();
+    expect(getTool("recall")).toBeUndefined();
+
+    // Switching back to a real provider re-registers them — again without a
+    // restart.
+    pinProvider("v2");
+    reconcileMemoryToolsForConfigChange();
+    expect(getTool("remember")).toBeDefined();
+    expect(getTool("recall")).toBeDefined();
+    expect(getToolOwner("remember")).toBeUndefined();
+    expect(getToolOwner("recall")).toBeUndefined();
+  });
+
+  test("never strips a plugin-owned memory tool when the provider resolves to none", () => {
+    __clearRegistryForTesting();
+    // An external memory plugin owns the names and the built-in yields to it.
+    setYield(true);
+    pinProvider("none");
+    registerPluginTools("external-memory", [
+      {
+        name: "remember",
+        description: "plugin remember",
+        category: "plugin",
+        defaultRiskLevel: RiskLevel.Low,
+        executionTarget: "sandbox",
+        input_schema: { type: "object", properties: {} },
+        execute: async () => ({ content: "", isError: false }),
+      },
+    ]);
+
+    reconcileMemoryToolsForConfigChange();
+
+    // The unregister direction only evicts unowned core tools, so the plugin's
+    // tool is left intact.
+    expect(getTool("remember")).toBeDefined();
+    expect(getToolOwner("remember")).toEqual({
       kind: "plugin",
       id: "external-memory",
     });

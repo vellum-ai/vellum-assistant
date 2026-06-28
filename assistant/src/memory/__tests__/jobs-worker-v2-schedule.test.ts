@@ -66,13 +66,15 @@ const { memoryJobs } = await import("../../persistence/schema/index.js");
 const { applyNestedDefaults } = await import("../../config/loader.js");
 const { getMemoryCheckpoint, setMemoryCheckpoint, deleteMemoryCheckpoint } =
   await import("../../persistence/checkpoints.js");
-const { maybeEnqueueGraphMaintenanceJobs } = await import("../../persistence/jobs-worker.js");
+const { maybeEnqueueGraphMaintenanceJobs } =
+  await import("../../persistence/jobs-worker.js");
 
 const CONSOLIDATE_CHECKPOINT_KEY = "memory_v2_consolidate_last_run";
 
 function buildConfig(overrides: {
   memoryEnabled?: boolean;
   v2Enabled?: boolean;
+  provider?: "auto" | "v2" | "v3" | "graph" | "none";
   intervalHours?: number;
   maxBufferLines?: number | null;
 }) {
@@ -82,6 +84,9 @@ function buildConfig(overrides: {
   }
   if (overrides.v2Enabled !== undefined) {
     partial.memory.v2.enabled = overrides.v2Enabled;
+  }
+  if (overrides.provider !== undefined) {
+    partial.memory.provider = overrides.provider;
   }
   if (overrides.intervalHours !== undefined) {
     partial.memory.v2.consolidation_interval_hours = overrides.intervalHours;
@@ -264,6 +269,100 @@ describe("maybeEnqueueGraphMaintenanceJobs — memory v2 consolidation", () => {
     expect(countPendingJobs("graph_consolidate")).toBe(1);
     expect(countPendingJobs("graph_pattern_scan")).toBe(1);
     expect(countPendingJobs("graph_narrative_refine")).toBe(1);
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
+  });
+});
+
+describe("maybeEnqueueGraphMaintenanceJobs — gated on the resolved provider", () => {
+  function clearAllMaintenanceCheckpoints(): void {
+    deleteMemoryCheckpoint("graph_maintenance:decay:last_run");
+    deleteMemoryCheckpoint("graph_maintenance:consolidate:last_run");
+    deleteMemoryCheckpoint("graph_maintenance:pattern_scan:last_run");
+    deleteMemoryCheckpoint("graph_maintenance:narrative:last_run");
+    deleteMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY);
+  }
+
+  // `v2.enabled` stays true throughout so the gate keys off the resolved
+  // provider alone, not the raw flag — a disabled provider must not drain the
+  // buffer just because `v2.enabled` defaults on.
+
+  test("provider:v2 schedules consolidation", () => {
+    const config = buildConfig({
+      provider: "v2",
+      v2Enabled: true,
+      intervalHours: 1,
+    });
+    writeBuffer(15);
+    clearAllMaintenanceCheckpoints();
+
+    maybeEnqueueGraphMaintenanceJobs(config, Date.now());
+
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
+  });
+
+  test("provider:v3 schedules consolidation (v3 reads the v2 concept-page corpus)", () => {
+    const config = buildConfig({
+      provider: "v3",
+      v2Enabled: true,
+      intervalHours: 1,
+    });
+    writeBuffer(15);
+    clearAllMaintenanceCheckpoints();
+
+    maybeEnqueueGraphMaintenanceJobs(config, Date.now());
+
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
+  });
+
+  test("provider:none does not schedule consolidation even with v2.enabled true", () => {
+    const config = buildConfig({
+      provider: "none",
+      v2Enabled: true,
+      intervalHours: 1,
+    });
+    writeBuffer(15);
+    clearAllMaintenanceCheckpoints();
+
+    maybeEnqueueGraphMaintenanceJobs(config, Date.now());
+
+    // No buffer maintenance at all: not the v2 drainer, not v1 graph upkeep.
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
+    expect(countPendingJobs("graph_decay")).toBe(0);
+    expect(countPendingJobs("graph_consolidate")).toBe(0);
+  });
+
+  test("provider:graph runs v1 maintenance, not v2 consolidation", () => {
+    const config = buildConfig({
+      provider: "graph",
+      v2Enabled: true,
+      intervalHours: 1,
+    });
+    writeBuffer(15);
+    clearAllMaintenanceCheckpoints();
+
+    maybeEnqueueGraphMaintenanceJobs(config, Date.now());
+
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
+    expect(countPendingJobs("graph_decay")).toBe(1);
+    expect(countPendingJobs("graph_consolidate")).toBe(1);
+    expect(countPendingJobs("graph_pattern_scan")).toBe(1);
+    expect(countPendingJobs("graph_narrative_refine")).toBe(1);
+  });
+
+  test("provider:none disables the size-based trigger too", () => {
+    const config = buildConfig({
+      provider: "none",
+      v2Enabled: true,
+      intervalHours: 1,
+      maxBufferLines: 5,
+    });
+    const now = Date.now();
+    // Recent checkpoint so only the size branch could fire.
+    setMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY, String(now - 60_000));
+    writeBuffer(100);
+
+    maybeEnqueueGraphMaintenanceJobs(config, now);
+
     expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
   });
 });
