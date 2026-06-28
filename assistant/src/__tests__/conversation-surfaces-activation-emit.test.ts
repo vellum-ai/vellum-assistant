@@ -39,10 +39,10 @@ import {
   isActivationSession,
   markActivationSession,
 } from "../memory/activation-session-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { queryUnreportedOnboardingEvents } from "../memory/onboarding-events-store.js";
-import { activationSessions, onboardingEvents } from "../memory/schema.js";
+import { activationSessions, onboardingEvents } from "../persistence/schema/index.js";
 
 await initializeDb();
 

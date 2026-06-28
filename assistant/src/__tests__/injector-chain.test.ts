@@ -66,10 +66,10 @@ import {
   setConversation,
 } from "../daemon/conversation-registry.js";
 import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { getPkbRoot } from "../memory/pkb/types.js";
-import { conversations, messages } from "../memory/schema.js";
+import { conversations, messages } from "../persistence/schema/index.js";
 import {
   type SlackMessageMetadata,
   writeSlackMetadata,

@@ -59,7 +59,7 @@
  */
 
 import { getConfig } from "../../../config/loader.js";
-import { getDb, getSqliteFrom } from "../../../memory/db-connection.js";
+import { getDb, getSqliteFrom } from "../../../persistence/db-connection.js";
 import {
   unwrapMemoryBlock,
   wrapMemoryBlock,

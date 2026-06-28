@@ -133,9 +133,9 @@ import {
   updateSessionDelivery as storeUpdateSessionDelivery,
   updateSessionStatus as _storeUpdateSessionStatus,
 } from "../memory/channel-verification-sessions.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { upsertBinding as upsertExternalBinding } from "../memory/external-conversation-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { upsertBinding as upsertExternalBinding } from "../persistence/external-conversation-store.js";
 import {
   getRateLimit,
   recordInvalidAttempt,
@@ -144,7 +144,7 @@ import {
 import {
   channelVerificationSessions,
   conversations,
-} from "../memory/schema.js";
+} from "../persistence/schema/index.js";
 import {
   bindSessionIdentity as serviceBindSessionIdentity,
   createInboundVerificationSession,

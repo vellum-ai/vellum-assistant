@@ -50,7 +50,7 @@ mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (conversationId: string) =>
     mockFindConversation(conversationId),
 }));
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},

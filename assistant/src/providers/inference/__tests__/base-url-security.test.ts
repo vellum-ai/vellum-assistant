@@ -8,8 +8,8 @@ import { migrateProviderConnectionStatusLabel } from "../../../persistence/migra
 import { migrateProviderConnectionBaseUrlAndModels } from "../../../persistence/migrations/250-provider-connection-base-url-and-models.js";
 import { migrateStripBaseUrlNonOpenaiCompatible } from "../../../persistence/migrations/257-strip-base-url-non-openai-compatible.js";
 import { migrateDropProviderConnectionStatus } from "../../../persistence/migrations/265-drop-provider-connection-status.js";
-import * as schema from "../../../memory/schema.js";
-import { providerConnections } from "../../../memory/schema/inference.js";
+import * as schema from "../../../persistence/schema/index.js";
+import { providerConnections } from "../../../persistence/schema/inference.js";
 import { getConnection } from "../connections.js";
 import { resolveAuth } from "../resolve-auth.js";
 

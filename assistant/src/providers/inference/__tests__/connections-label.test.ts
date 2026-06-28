@@ -7,7 +7,7 @@ import { migrateCreateProviderConnections } from "../../../persistence/migration
 import { migrateProviderConnectionStatusLabel } from "../../../persistence/migrations/244-provider-connection-status-label.js";
 import { migrateProviderConnectionBaseUrlAndModels } from "../../../persistence/migrations/250-provider-connection-base-url-and-models.js";
 import { migrateDropProviderConnectionStatus } from "../../../persistence/migrations/265-drop-provider-connection-status.js";
-import * as schema from "../../../memory/schema.js";
+import * as schema from "../../../persistence/schema/index.js";
 import {
   createConnection,
   getConnection,

@@ -54,7 +54,7 @@ mock.module("../config/loader.js", () => ({
 let mockedRowContent = "";
 const updates: Array<{ id: string; content: string }> = [];
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
     setConversationProcessingStartedAt: () => {},
     isConversationProcessing: () => false,
   addMessage: () => ({ id: "mock-msg-id" }),
@@ -67,7 +67,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../memory/llm-request-log-store.js", () => ({
+mock.module("../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: () => {},
   backfillMessageIdOnLogs: () => {},
 }));

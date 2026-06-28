@@ -50,7 +50,7 @@ const createdConversations: Array<{
 }> = [];
 let conversationIdCounter = 0;
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
     setConversationProcessingStartedAt: () => {},
     isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},

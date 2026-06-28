@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { migrateScrubCorruptedImageAttachments } from "../persistence/migrations/206-scrub-corrupted-image-attachments.js";
-import * as schema from "../memory/schema.js";
+import * as schema from "../persistence/schema/index.js";
 
 function createTestDb() {
   const sqlite = new Database(":memory:");

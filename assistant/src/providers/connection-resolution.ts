@@ -28,7 +28,7 @@
  */
 
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
-import { getDb } from "../memory/db-connection.js";
+import { getDb } from "../persistence/db-connection.js";
 import { getLogger } from "../util/logger.js";
 import {
   describeSubscriptionModelIncompatibility,

@@ -25,8 +25,8 @@ import {
   getAttachmentsForMessage,
   linkAttachmentToMessage,
   uploadAttachment,
-} from "../memory/attachments-store.js";
-import { appendCompactionEvent } from "../memory/compaction-ledger-store.js";
+} from "../persistence/attachments-store.js";
+import { appendCompactionEvent } from "../persistence/compaction-ledger-store.js";
 import {
   getAttentionStateByConversationIds,
   markConversationUnread,
@@ -36,15 +36,15 @@ import {
   createConversation,
   forkConversation,
   getMessages,
-} from "../memory/conversation-crud.js";
+} from "../persistence/conversation-crud.js";
 import { getConversationDirPath } from "../memory/conversation-disk-view.js";
-import { getDb, getLogsDb, getMemoryDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb, getLogsDb, getMemoryDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   loadGraphMemoryState,
   saveGraphMemoryState,
 } from "../memory/graph/graph-memory-state-store.js";
-import { getRequestLogsByMessageId } from "../memory/llm-request-log-store.js";
+import { getRequestLogsByMessageId } from "../persistence/llm-request-log-store.js";
 import {
   bumpRetrospectiveLastRunAt,
   getRetrospectiveState,
@@ -63,7 +63,7 @@ import {
   memoryJobs,
   memoryRetrospectiveState,
   toolInvocations,
-} from "../memory/schema.js";
+} from "../persistence/schema/index.js";
 import { hydrate as hydrateActivationState } from "../memory/v2/activation-store.js";
 import {
   getInjected as getV3Injected,

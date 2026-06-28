@@ -52,7 +52,7 @@ mock.module("../providers/inference/connections.js", () => ({
   seedCanonicalConnections: () => {},
 }));
 
-mock.module("../memory/db-connection.js", () => ({
+mock.module("../persistence/db-connection.js", () => ({
   getDb: () => ({
     select: () => ({ from: () => ({ where: () => ({ get: () => null, all: () => [] }), all: () => [] }) }),
     insert: () => ({ values: () => ({ run: () => {} }) }),

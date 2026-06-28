@@ -2,12 +2,12 @@ import { and, asc, desc, eq, like, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import type { ChannelId } from "../channels/types.js";
-import { getDb } from "../memory/db-connection.js";
+import { getDb } from "../persistence/db-connection.js";
 import {
   assistantContactMetadata,
   contactChannels,
   contacts,
-} from "../memory/schema.js";
+} from "../persistence/schema/index.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { emitContactChange } from "./contact-events.js";
 import type {

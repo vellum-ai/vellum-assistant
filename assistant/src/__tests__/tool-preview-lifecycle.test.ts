@@ -65,7 +65,7 @@ const updateMessageContentMock = mock((_id: string, _content: string) => {});
 // handler's persisted-seq writes are observable without a real database.
 const persistedSeqByConversation = new Map<string, number>();
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
   getConversation: () => null,
@@ -86,7 +86,7 @@ mock.module("../memory/conversation-disk-view.js", () => ({
   syncMessageToDisk: () => {},
 }));
 
-mock.module("../memory/llm-request-log-store.js", () => ({
+mock.module("../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: () => {},
   backfillMessageIdOnLogs: () => {},
 }));
@@ -115,7 +115,7 @@ import {
   handleToolUsePreviewStart,
 } from "../daemon/conversation-agent-loop-handlers.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import { getConversationPersistedSeq } from "../memory/conversation-crud.js";
+import { getConversationPersistedSeq } from "../persistence/conversation-crud.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import {
   _resetStreamStateForTesting,

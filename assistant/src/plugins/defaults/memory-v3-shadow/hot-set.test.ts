@@ -13,7 +13,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { MemoryV3ConfigSchema } from "../../../config/schemas/memory-v3.js";
 import { migrateAddMemoryV3Selections } from "../../../persistence/migrations/268-add-memory-v3-selections.js";
-import * as schema from "../../../memory/schema.js";
+import * as schema from "../../../persistence/schema/index.js";
 import { computeHotSet, type HotSetOptions } from "./hot-set.js";
 
 const HALF_LIFE_MS = 1000;

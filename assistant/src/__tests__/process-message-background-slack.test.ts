@@ -5,7 +5,7 @@ mock.module("../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
   getSourcePathsForAttachments: () => new Map<string, string>(),
 }));
@@ -18,7 +18,7 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
   generateCanonicalRequestCode: () => "ABC123",
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
     setConversationProcessingStartedAt: () => {},
     isConversationProcessing: () => false,
   addMessage: async () => ({ id: "message-id" }),

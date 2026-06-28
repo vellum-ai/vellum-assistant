@@ -21,7 +21,7 @@
 import type { HookFunction, StopContext } from "@vellumai/plugin-api";
 
 import { getConfig } from "../../../../config/loader.js";
-import { getConversation } from "../../../../memory/conversation-crud.js";
+import { getConversation } from "../../../../persistence/conversation-crud.js";
 import {
   AUTO_TITLE_DETERMINISTIC,
   isReplaceableTitle,

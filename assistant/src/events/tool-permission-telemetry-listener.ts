@@ -1,4 +1,4 @@
-import { recordLifecycleEvent } from "../memory/lifecycle-events-store.js";
+import { recordLifecycleEvent } from "../persistence/lifecycle-events-store.js";
 import { getLogger } from "../util/logger.js";
 import type { EventBus, Subscription } from "./bus.js";
 import type { AssistantDomainEvents } from "./domain-events.js";

@@ -89,8 +89,8 @@ mock.module("../daemon/disk-pressure-background-gate.js", () => ({
   shouldLogDiskPressureBackgroundSkip: () => true,
 }));
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { createSchedule } from "../schedule/schedule-store.js";
 import { runScheduleOnce } from "../schedule/scheduler.js";
 

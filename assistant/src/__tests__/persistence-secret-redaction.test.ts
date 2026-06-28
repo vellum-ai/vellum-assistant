@@ -47,7 +47,7 @@ interface AddMessageCall {
   metadata?: Record<string, unknown>;
 }
 const addMessageCalls: AddMessageCall[] = [];
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
     setConversationProcessingStartedAt: () => {},
     isConversationProcessing: () => false,
   addMessage: (
@@ -94,7 +94,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   ),
 }));
 
-mock.module("../memory/llm-request-log-store.js", () => ({
+mock.module("../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: () => {},
   backfillMessageIdOnLogs: () => {},
 }));

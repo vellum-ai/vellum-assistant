@@ -5,7 +5,7 @@
  */
 
 import { getOrCreateConversation } from "../../../memory/conversation-key-store.js";
-import { upsertOutboundBinding } from "../../../memory/external-conversation-store.js";
+import { upsertOutboundBinding } from "../../../persistence/external-conversation-store.js";
 import type { OAuthConnection } from "../../../oauth/connection.js";
 import { credentialKey } from "../../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../../security/secure-keys.js";

@@ -97,8 +97,8 @@ const {
   refreshBackgroundWakeIntent,
   resetBackgroundWakeIntentPublisherForTest,
 } = await import("./publisher.js");
-const { initializeDb } = await import("../memory/db-init.js");
-const { getDb } = await import("../memory/db-connection.js");
+const { initializeDb } = await import("../persistence/db-init.js");
+const { getDb } = await import("../persistence/db-connection.js");
 const { createSchedule, deleteSchedule, updateSchedule } =
   await import("../schedule/schedule-store.js");
 

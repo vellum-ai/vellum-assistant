@@ -111,7 +111,7 @@ let persistedMessages: Array<{ role: string; content: string }> = [];
 let reservedRowContent: Map<string, string> = new Map();
 let reserveCounter = 0;
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
     setConversationProcessingStartedAt: () => {},
     isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
@@ -147,7 +147,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   }),
 }));
 
-mock.module("../memory/conversation-queries.js", () => ({
+mock.module("../persistence/conversation-queries.js", () => ({
   listConversations: () => [],
 }));
 

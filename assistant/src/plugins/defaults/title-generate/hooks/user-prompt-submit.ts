@@ -15,7 +15,7 @@ import type {
   UserPromptSubmitContext,
 } from "@vellumai/plugin-api";
 
-import { getConversation } from "../../../../memory/conversation-crud.js";
+import { getConversation } from "../../../../persistence/conversation-crud.js";
 import { queueGenerateConversationTitle } from "../../../../memory/conversation-title-service.js";
 
 const userPromptSubmit: HookFunction<UserPromptSubmitContext> = async (ctx) => {

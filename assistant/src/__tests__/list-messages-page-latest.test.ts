@@ -41,10 +41,10 @@ import {
   createConversation,
   recordConversationPersistedSeq,
   setConversationProcessingStartedAt,
-} from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { messages } from "../memory/schema.js";
+} from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { messages } from "../persistence/schema/index.js";
 import { writeSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import {

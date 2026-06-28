@@ -35,7 +35,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { migrateAddMemoryV3Selections } from "../../../../persistence/migrations/268-add-memory-v3-selections.js";
 import { migrateMemoryV3SelectionsMessageIdAndSections } from "../../../../persistence/migrations/283-memory-v3-selections-message-id-and-sections.js";
-import * as schema from "../../../../memory/schema.js";
+import * as schema from "../../../../persistence/schema/index.js";
 import type { PageIndexEntry } from "../../../../memory/v2/page-index.js";
 import type {
   Message,
@@ -98,7 +98,7 @@ mock.module("../dense.js", () => ({
 
 // In-memory selections DB. `summarizeSelections` reads via getDb/getSqliteFrom;
 // the writer below writes through the same handles.
-const realDb = { ...(await import("../../../../memory/db-connection.js")) };
+const realDb = { ...(await import("../../../../persistence/db-connection.js")) };
 let testSqlite: Database;
 let testDb = makeDb();
 function makeDb() {
@@ -109,7 +109,7 @@ function makeDb() {
   migrateMemoryV3SelectionsMessageIdAndSections(db);
   return db;
 }
-mock.module("../../../../memory/db-connection.js", () => ({
+mock.module("../../../../persistence/db-connection.js", () => ({
   ...realDb,
   getDb: () => (mockActive ? testDb : realDb.getDb()),
   getSqliteFrom: (db: unknown) =>

@@ -77,7 +77,7 @@ mock.module("../permissions/checker.js", () => ({
   getCachedAssessment: () => undefined,
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
     setConversationProcessingStartedAt: () => {},
     isConversationProcessing: () => false,
   createConversation: (title: string) => ({ id: "conversation-1", title }),

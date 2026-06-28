@@ -59,7 +59,7 @@ const mockGetMessages = mock(() => [
 const mockUpdateConversationTitle = mock(() => {});
 const mockGetConfiguredProvider = mock(async () => null);
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
   getConversation: mockGetConversation,

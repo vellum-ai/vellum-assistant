@@ -13,10 +13,10 @@ import {
   resetPointerMessageProcessor,
   setPointerMessageProcessor,
 } from "../calls/call-pointer-messages.js";
-import { addMessage, getMessages } from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { conversations } from "../memory/schema.js";
+import { addMessage, getMessages } from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { conversations } from "../persistence/schema/index.js";
 
 await initializeDb();
 
@@ -355,7 +355,7 @@ describe("addPointerMessage", () => {
 
     // Confirm the durable snapshot round-trips through the schema parser.
     const { getConversationRecentProvenanceTrustClass } =
-      await import("../memory/conversation-crud.js");
+      await import("../persistence/conversation-crud.js");
     expect(getConversationRecentProvenanceTrustClass(convId)).toBe(
       "unverified_contact",
     );

@@ -76,7 +76,7 @@ const messageMetadataSchema = z.object({
     .optional(),
 });
 
-mock.module("../../memory/conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   getConversation: (_id: string) => null,
   getMessages: (id: string) =>
     id === "child-conv-1" ? childMessages : parentMessages,

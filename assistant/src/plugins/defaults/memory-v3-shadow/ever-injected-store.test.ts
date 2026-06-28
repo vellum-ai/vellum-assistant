@@ -20,9 +20,9 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { migrateAddMemoryV3EverInjected } from "../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
-import * as schema from "../../../memory/schema.js";
+import * as schema from "../../../persistence/schema/index.js";
 
-const realDb = { ...(await import("../../../memory/db-connection.js")) };
+const realDb = { ...(await import("../../../persistence/db-connection.js")) };
 
 let storeMockActive = false;
 
@@ -35,7 +35,7 @@ function makeDb() {
   return db;
 }
 
-mock.module("../../../memory/db-connection.js", () => ({
+mock.module("../../../persistence/db-connection.js", () => ({
   ...realDb,
   getDb: () => (storeMockActive ? testDb : realDb.getDb()),
   getSqliteFrom: (db: unknown) =>

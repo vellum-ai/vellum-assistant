@@ -9,9 +9,9 @@ import type {
 import type { MemoryNode } from "../memory/graph/types.js";
 
 const loggerModule = import.meta.resolve("../util/logger.js");
-const embedModule = import.meta.resolve("../memory/embed.js");
+const embedModule = import.meta.resolve("../persistence/embeddings/embed.js");
 const embeddingBackendModule = import.meta
-  .resolve("../memory/embedding-backend.js");
+  .resolve("../persistence/embeddings/embedding-backend.js");
 const graphSearchModule = import.meta
   .resolve("../memory/graph/graph-search.js");
 const graphStoreModule = import.meta.resolve("../memory/graph/store.js");

@@ -27,7 +27,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 // Mock jobs-store (accesses DB)
-mock.module("../memory/jobs-store.js", () => ({
+mock.module("../persistence/jobs-store.js", () => ({
   resetRunningJobsToPending: () => 0,
   claimMemoryJobs: () => [],
   completeMemoryJob: () => {},
@@ -41,7 +41,7 @@ import {
   POLL_INTERVAL_MAX_MS,
   POLL_INTERVAL_MIN_MS,
   startMemoryJobsWorker,
-} from "../memory/jobs-worker.js";
+} from "../persistence/jobs-worker.js";
 
 describe("memory jobs worker adaptive poll interval", () => {
   test("exports expected poll interval constants", () => {

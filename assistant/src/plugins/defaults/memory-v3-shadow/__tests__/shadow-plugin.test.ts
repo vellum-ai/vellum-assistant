@@ -30,7 +30,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrateAddMemoryV3Selections } from "../../../../persistence/migrations/268-add-memory-v3-selections.js";
 import { migrateAddMemoryV3EverInjected } from "../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
 import { migrateMemoryV3SelectionsMessageIdAndSections } from "../../../../persistence/migrations/283-memory-v3-selections-message-id-and-sections.js";
-import * as schema from "../../../../memory/schema.js";
+import * as schema from "../../../../persistence/schema/index.js";
 import type { HotSetEntry, HotSetOptions } from "../hot-set.js";
 import type { OrchestrateResult } from "../orchestrate.js";
 import {
@@ -63,7 +63,7 @@ const realPageStore = {
   ...(await import("../../../../memory/v2/page-store.js")),
 };
 const realConversationCrud = {
-  ...(await import("../../../../memory/conversation-crud.js")),
+  ...(await import("../../../../persistence/conversation-crud.js")),
 };
 const realSkillStore = {
   ...(await import("../../../../memory/v2/skill-store.js")),
@@ -234,12 +234,12 @@ mock.module("../hot-set.js", () => ({
 
 // Spread the real module so every export the live path transitively imports
 // stays present; only `getMessages` is overridden.
-mock.module("../../../../memory/conversation-crud.js", () => ({
+mock.module("../../../../persistence/conversation-crud.js", () => ({
   ...realConversationCrud,
   getMessages: () => messages.map((m, i) => ({ ...m, id: `m${i}` })),
 }));
 
-mock.module("../../../../memory/db-connection.js", () => ({
+mock.module("../../../../persistence/db-connection.js", () => ({
   getDb: () => testDb,
   getSqliteFrom: () => testSqlite,
 }));

@@ -26,11 +26,11 @@ mock.module("../memory/checkpoints.js", () => ({
 const mockQueryUnreportedUsageEvents = mock(
   () =>
     [] as ReturnType<
-      typeof import("../memory/llm-usage-store.js").queryUnreportedUsageEvents
+      typeof import("../persistence/llm-usage-store.js").queryUnreportedUsageEvents
     >,
 );
 
-mock.module("../memory/llm-usage-store.js", () => ({
+mock.module("../persistence/llm-usage-store.js", () => ({
   queryUnreportedUsageEvents: mockQueryUnreportedUsageEvents,
 }));
 
@@ -180,7 +180,7 @@ const mockQueryUnreportedLifecycleEvents = mock(
     }[],
 );
 
-mock.module("../memory/lifecycle-events-store.js", () => ({
+mock.module("../persistence/lifecycle-events-store.js", () => ({
   queryUnreportedLifecycleEvents: mockQueryUnreportedLifecycleEvents,
 }));
 
@@ -225,14 +225,14 @@ import {
   type ToolInvocationSeedSpec,
 } from "../__tests__/test-support/tool-invocation-seed.js";
 import { recordAuthFallbackCounts } from "../memory/auth-fallback-events-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   authFallbackEvents,
   conversations,
   skillLoadedEvents,
   toolInvocations,
-} from "../memory/schema.js";
+} from "../persistence/schema/index.js";
 import { recordSkillLoadedEvent } from "../memory/skill-loaded-events-store.js";
 import type { UsageEvent } from "../usage/types.js";
 import {

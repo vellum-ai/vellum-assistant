@@ -17,7 +17,7 @@
  * Tracking: ATL-XXX (gateway security migration)
  */
 
-import { getSqlite } from "../../memory/db-connection.js";
+import { getSqlite } from "../../persistence/db-connection.js";
 import { getLogger } from "../../util/logger.js";
 
 const log = getLogger("db-proxy");

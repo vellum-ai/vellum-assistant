@@ -18,7 +18,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Stub the persistence helpers BEFORE importing the module under test so the
 // bindings resolve through the mocks.
 const updateMessageMetadataMock = mock((_id: string, _updates: unknown) => {});
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
     setConversationProcessingStartedAt: () => {},
     isConversationProcessing: () => false,
   updateMessageMetadata: updateMessageMetadataMock,
@@ -73,7 +73,7 @@ import type { AssistantConfig } from "../config/schema.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
-import type { QdrantSparseVector } from "../memory/qdrant-client.js";
+import type { QdrantSparseVector } from "../persistence/embeddings/qdrant-client.js";
 import userPromptSubmitMemoryRetrieval from "../plugins/defaults/memory-retrieval/hooks/user-prompt-submit.js";
 import type { Message } from "../providers/types.js";
 

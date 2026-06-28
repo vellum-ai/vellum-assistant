@@ -9,7 +9,7 @@
 import type { Button, KnownBlock } from "@slack/types";
 import type { ApprovalUIMetadata } from "@vellumai/gateway-client";
 
-import { getAttachmentContent } from "../../../memory/attachments-store.js";
+import { getAttachmentContent } from "../../../persistence/attachments-store.js";
 import type { RuntimeAttachmentMetadata } from "../../../runtime/http-types.js";
 import { getLogger } from "../../../util/logger.js";
 import {

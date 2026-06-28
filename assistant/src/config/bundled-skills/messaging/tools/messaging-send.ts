@@ -4,9 +4,9 @@ import { basename } from "node:path";
 import {
   addMessage,
   getConversation,
-} from "../../../../memory/conversation-crud.js";
+} from "../../../../persistence/conversation-crud.js";
 import { syncMessageToDisk } from "../../../../memory/conversation-disk-view.js";
-import { getBindingByChannelChat } from "../../../../memory/external-conversation-store.js";
+import { getBindingByChannelChat } from "../../../../persistence/external-conversation-store.js";
 import {
   createDraft,
   createDraftRaw,

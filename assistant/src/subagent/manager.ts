@@ -19,7 +19,7 @@ import {
   setSubagentConversation,
 } from "../daemon/conversation-registry.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
+import { bootstrapConversation } from "../persistence/conversation-bootstrap.js";
 import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
 import { resolveDefaultProvider } from "../providers/connection-resolution.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";

@@ -204,8 +204,8 @@ const BUN_ADD_KEY = `${BUN_BIN} add`;
 
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import type { AcpSessionUpdate } from "../../daemon/message-types/acp.js";
-import { getSqlite } from "../../memory/db-connection.js";
-import { initializeDb } from "../../memory/db-init.js";
+import { getSqlite } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
 import type { AcpSessionState } from "../types.js";
 import {
   clearHistory,

@@ -20,7 +20,7 @@ import type { MemoryV3SelectionLog } from "../../../api/responses/memory-v3-sele
 import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
 import { getConfig } from "../../../config/loader.js";
 import { isMemoryV3Live } from "../../../config/memory-v3-gate.js";
-import { getDb, getSqliteFrom } from "../../../memory/db-connection.js";
+import { getDb, getSqliteFrom } from "../../../persistence/db-connection.js";
 import { readPage } from "../../../memory/v2/page-store.js";
 import { getWorkspaceDir } from "../../../util/platform.js";
 import { capabilityOrDiskBody } from "./capabilities.js";

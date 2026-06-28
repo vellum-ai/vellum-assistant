@@ -22,7 +22,7 @@ mock.module("../security/secure-keys.js", () => ({
 }));
 
 import type { AssistantConfig } from "../config/schema.js";
-import { initializeDb } from "../memory/db-init.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { resetTestTables } from "../memory/raw-query.js";
 import { listProviders, seedProviders } from "../oauth/oauth-store.js";
 import { isProviderVisible } from "../oauth/provider-visibility.js";
