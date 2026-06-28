@@ -1,7 +1,7 @@
 import * as Sentry from "@sentry/node";
 
 import { stopFilingService } from "../filing/filing-service.js";
-import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
+import { stopHeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { stopGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
 import { stopMcpServerManager } from "../mcp/manager.js";
 import { getSqlite, resetDb } from "../memory/db-connection.js";
@@ -41,7 +41,6 @@ function stopBackgroundServicesAndCleanupPidFile(): void {
 export interface ShutdownDeps {
   server: DaemonServer;
   workspaceHeartbeat: WorkspaceHeartbeatService;
-  heartbeat: HeartbeatService;
 }
 
 export function installShutdownHandlers(deps: ShutdownDeps): void {
@@ -70,7 +69,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     forceTimer.unref();
 
     await deps.workspaceHeartbeat.stop();
-    await deps.heartbeat.stop();
+    await stopHeartbeatService();
     await stopFilingService();
 
     // Run registered skill shutdown hooks (e.g. meet-join session teardown)

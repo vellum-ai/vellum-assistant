@@ -33,7 +33,7 @@ import {
   injectCesClientWhenReady,
 } from "../credential-execution/startup-timeout.js";
 import { startFilingService } from "../filing/filing-service.js";
-import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
+import { startHeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
@@ -1323,8 +1323,7 @@ export async function runDaemon(): Promise<void> {
   const workspaceHeartbeat = new WorkspaceHeartbeatService();
   workspaceHeartbeat.start();
 
-  const heartbeatConfig = config.heartbeat;
-  const heartbeat = new HeartbeatService({
+  const heartbeat = startHeartbeatService({
     alerter: (alert) => broadcastMessage(alert),
     onConversationCreated: (info) =>
       broadcastMessage({
@@ -1333,16 +1332,8 @@ export async function runDaemon(): Promise<void> {
         title: info.title,
       }),
   });
-  heartbeat.start();
   registerBackgroundWakeRuntime({ scheduler, heartbeat });
   refreshBackgroundWakeIntent("daemon-startup");
-  log.info(
-    {
-      enabled: heartbeatConfig.enabled,
-      intervalMs: heartbeatConfig.intervalMs,
-    },
-    "Heartbeat service configured",
-  );
 
   // Filing yields to the memory v2 consolidation job when v2 is enabled — both
   // serve the same role (periodic background memory processing) and running both
@@ -1353,7 +1344,6 @@ export async function runDaemon(): Promise<void> {
   installShutdownHandlers({
     server,
     workspaceHeartbeat,
-    heartbeat,
   });
 
   log.info(
