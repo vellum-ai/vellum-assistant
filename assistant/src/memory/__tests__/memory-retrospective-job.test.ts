@@ -194,6 +194,16 @@ mock.module("../conversation-crud.js", () => ({
     }
     deletedConversationIds.push(id);
   },
+  // Superseded-prior GC goes through the batched/off-loop variant; mirror the
+  // synchronous mock's tracking (and throw behaviour) so the same assertions
+  // hold.
+  deleteConversationGently: async (id: string) => {
+    if (deleteConversationThrowsFor === id) {
+      throw new Error(`delete failed for ${id}`);
+    }
+    deletedConversationIds.push(id);
+    return { segmentIds: [], deletedSummaryIds: [] };
+  },
   // Mirrors the real helper's semantics (interactive-only, expiry-aware) so
   // matchConversationProfile tests exercise the same fallback behavior.
   resolveOverrideProfile: (

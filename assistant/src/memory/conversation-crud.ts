@@ -74,6 +74,7 @@ import {
   copyForkMessagesViaSubprocess,
   type ForkIdPair,
 } from "./fork-message-copy.js";
+import { deleteForkMessagesViaSubprocess } from "./fork-message-delete.js";
 import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
 import { MEMORY_RETROSPECTIVE_SOURCES } from "./memory-retrospective-constants.js";
@@ -1568,6 +1569,102 @@ export function deleteConversation(id: string): DeletedMemoryIds {
   });
 
   // Remove the conversation's disk-view directory after the DB transaction
+  if (createdAtForDiskCleanup != null) {
+    removeConversationDir(id, createdAtForDiskCleanup);
+  }
+
+  return result;
+}
+
+/**
+ * Delete a conversation like {@link deleteConversation}, but move the bulk
+ * `messages` delete off the event loop in lock-friendly batches (see
+ * {@link deleteForkMessagesViaSubprocess}). The synchronous variant runs the
+ * whole message delete as one implicit transaction that holds the SQLite write
+ * lock for its full duration — fine for an interactive conversation, but the
+ * memory retrospective GCs fork conversations that carry a full copy of the
+ * source's message history, so on a large database that single delete pegs the
+ * event loop and starves live user turns. This variant is the deletion mirror
+ * of the batched fork copy ({@link forkConversationForRetrospective}): the
+ * heavy message rows go in chunks that each release the lock, the cheap
+ * bookkeeping (non-cascading tables, segment embeddings, the conversation row)
+ * stays in-process.
+ *
+ * The subprocess delete enables `PRAGMA foreign_keys=ON` so the message
+ * cascade (memory_segments, message_attachments, …) fires just as it does on
+ * the daemon connection. Segment ids are captured up front (before the cascade
+ * removes them) so the caller can still clean up the corresponding Qdrant
+ * vectors. A subprocess failure throws — any rows already deleted are gone, the
+ * conversation row remains, and the worker's orphan sweep is the backstop, so
+ * callers should treat this as best-effort like the synchronous variant.
+ */
+export async function deleteConversationGently(
+  id: string,
+): Promise<DeletedMemoryIds> {
+  const db = getDb();
+  const result: DeletedMemoryIds = {
+    segmentIds: [],
+    deletedSummaryIds: [],
+  };
+
+  // Capture createdAt before deletion — needed to resolve the conversation's
+  // disk-view directory path afterwards.
+  const convBeforeDelete = getConversation(id);
+  const createdAtForDiskCleanup = convBeforeDelete?.createdAt;
+
+  // Collect the linked memory segment ids before the message cascade removes
+  // them, so the caller can clean up the matching Qdrant vector entries.
+  result.segmentIds = db
+    .select({ id: memorySegments.id })
+    .from(memorySegments)
+    .where(eq(memorySegments.conversationId, id))
+    .all()
+    .map((r) => r.id);
+
+  // llm_request_logs lives in the dedicated logs connection, so it is deleted
+  // there — separately from the main DB.
+  logsDb()
+    .delete(llmRequestLogs)
+    .where(eq(llmRequestLogs.conversationId, id))
+    .run();
+
+  // Bulk message delete off the event loop, in lock-friendly batches. Cascades
+  // to memory_segments, message_attachments, bookmarks, channel_inbound_events.
+  const del = await deleteForkMessagesViaSubprocess({ conversationId: id });
+  if (!del.ok) {
+    throw new Error(
+      `gentle conversation delete failed (${del.backend}): ${del.error ?? "unknown"}`,
+    );
+  }
+
+  // Remaining cleanup is cheap (bounded, non-message tables) so it stays a
+  // single in-process transaction.
+  db.transaction((tx) => {
+    tx.delete(toolInvocations)
+      .where(eq(toolInvocations.conversationId, id))
+      .run();
+    tx.delete(skillLoadedEvents)
+      .where(eq(skillLoadedEvents.conversationId, id))
+      .run();
+
+    // Clean up segment embeddings (not FK-linked to segments, so the message
+    // cascade above did not remove them).
+    if (result.segmentIds.length > 0) {
+      tx.delete(memoryEmbeddings)
+        .where(
+          and(
+            eq(memoryEmbeddings.targetType, "segment"),
+            inArray(memoryEmbeddings.targetId, result.segmentIds),
+          ),
+        )
+        .run();
+    }
+
+    // Conversation row deletion cascades to remaining dependent tables.
+    tx.delete(conversations).where(eq(conversations.id, id)).run();
+  });
+
+  // Remove the conversation's disk-view directory after the DB transaction.
   if (createdAtForDiskCleanup != null) {
     removeConversationDir(id, createdAtForDiskCleanup);
   }
