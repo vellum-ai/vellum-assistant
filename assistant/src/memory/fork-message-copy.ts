@@ -33,6 +33,8 @@
 //      `client_message_id` is intentionally NOT copied, matching the
 //      in-process fork (a forked row is not a client-submitted message).
 
+import { setTimeout as sleep } from "node:timers/promises";
+
 import { getLogger } from "../util/logger.js";
 import {
   type AsyncSqliteBackend,
@@ -45,11 +47,23 @@ const log = getLogger("fork-message-copy");
 /**
  * Default batch size for the chunked copy. Each batch is one `INSERT … SELECT`
  * that auto-commits, so this bounds how long the subprocess holds the write
- * lock before releasing it to in-process writers. Small enough to keep the
- * lock-hold window short on a bloated database; large enough that per-batch
- * statement overhead stays negligible against the row copy.
+ * lock before releasing it to in-process writers. Kept small so the worst-case
+ * wait for a contending foreground write is one short batch, even on a bloated
+ * database; per-batch statement overhead stays negligible against the row copy
+ * and fork latency doesn't matter (nobody waits on a background fork).
  */
-export const DEFAULT_FORK_COPY_BATCH_SIZE = 500;
+export const DEFAULT_FORK_COPY_BATCH_SIZE = 50;
+
+/**
+ * Pause inserted between batch subprocess calls. Without it the copy releases
+ * the write lock on each batch's auto-commit but greedily re-acquires it
+ * microseconds later, so a concurrent in-process writer (a live user turn
+ * persisting a message) can lose every race. A brief yield lets foreground
+ * writes reliably slip in between batches. The extra fork latency is free —
+ * nothing waits on a background fork — so we trade copy speed for foreground
+ * fairness.
+ */
+export const DEFAULT_FORK_COPY_INTER_BATCH_DELAY_MS = 25;
 
 /**
  * A single source→fork message-id mapping. `oldId` is an existing source
@@ -138,14 +152,14 @@ FROM messages m JOIN _fork_id_map map ON map.old_id = m.id;`,
 }
 
 /**
- * Copy the message rows for a fork off the event loop, in lock-friendly
- * batches. Each batch is a separate {@link runAsyncSqlite} call: the `await`
- * between batches yields the event loop (the hook for an inter-batch
- * throttle/yield), and each batch's `elapsedMs` is logged so lock-wait is
- * visible at batch granularity. Resolves once every batch has committed (or
- * returns an `ok: false` result on the first batch failure — the caller is
- * responsible for cleaning up the partially-built fork). The returned
- * `elapsedMs` is the sum across batches.
+ * batches. Each batch runs as its own {@link runAsyncSqlite} call with a brief
+ * yield in between (see {@link DEFAULT_FORK_COPY_INTER_BATCH_DELAY_MS}) so
+ * foreground writers reliably acquire the write lock between batches instead of
+ * losing every race to the copy's greedy lock re-acquisition. Each batch's
+ * `elapsedMs` is logged so lock-wait is visible at batch granularity. Resolves
+ * once every batch has committed (or returns the failing batch's `ok: false`
+ * result on subprocess failure — the caller is responsible for cleaning up the
+ * partially-built fork). The returned `elapsedMs` is the sum across batches.
  *
  * No-op (returns a synthetic ok result) when there is nothing to copy.
  */
@@ -166,7 +180,7 @@ export async function copyForkMessagesViaSubprocess(
     1,
     options.batchSize ?? DEFAULT_FORK_COPY_BATCH_SIZE,
   );
-  const forceOpts = options.forceInProcess
+  const runOptions = options.forceInProcess
     ? { forceBackend: "in-process-blocking" as const }
     : {};
   const batchCount = Math.ceil(idPairs.length / batchSize);
@@ -177,7 +191,7 @@ export async function copyForkMessagesViaSubprocess(
   for (let i = 0, batchIndex = 0; i < idPairs.length; i += batchSize) {
     const batch = idPairs.slice(i, i + batchSize);
     const sql = buildForkCopyBatchScript(forkConversationId, batch);
-    const result = await runAsyncSqlite(sql, forceOpts);
+    const result = await runAsyncSqlite(sql, runOptions);
     totalElapsedMs += result.elapsedMs;
     backend = result.backend;
 
@@ -195,6 +209,15 @@ export async function copyForkMessagesViaSubprocess(
 
     if (!result.ok) {
       return { ...result, elapsedMs: totalElapsedMs };
+    }
+
+    // Yield between batches so a concurrent foreground writer (a live user
+    // turn persisting a message) can acquire the write lock instead of losing
+    // every race to the copy's greedy lock re-acquisition. Skipped after the
+    // final batch.
+    const isLastBatch = i + batchSize >= idPairs.length;
+    if (!isLastBatch) {
+      await sleep(DEFAULT_FORK_COPY_INTER_BATCH_DELAY_MS);
     }
     batchIndex++;
   }

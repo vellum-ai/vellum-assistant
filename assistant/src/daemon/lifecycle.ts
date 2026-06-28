@@ -44,7 +44,11 @@ import {
   getSourcePathsForAttachments,
 } from "../memory/attachments-store.js";
 import { expireAllPendingCanonicalRequests } from "../memory/canonical-guardian-store.js";
-import { deleteMessageById, getMessages } from "../memory/conversation-crud.js";
+import {
+  clearStaleProcessingFlags,
+  deleteMessageById,
+  getMessages,
+} from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { selectEmbeddingBackend } from "../memory/embedding-backend.js";
@@ -627,6 +631,31 @@ export async function runDaemon(): Promise<void> {
 
   log.info("Daemon startup: loading config");
   const config = loadConfig();
+
+  // Reconcile conversations left mid-turn by the previous shutdown. Their
+  // `processing_started_at` is still set even though the in-memory agent loop
+  // that owned the turn is gone.
+  if (dbReady) {
+    if (config.conversations.resumeProcessingOnStartup) {
+      // TODO: automatically resume the interrupted turn for each conversation
+      // whose processing flag is still set instead of clearing it.
+    } else {
+      try {
+        const cleared = clearStaleProcessingFlags();
+        if (cleared > 0) {
+          log.info(
+            { count: cleared },
+            "Cleared stale conversation processing flags from previous process",
+          );
+        }
+      } catch (err) {
+        log.warn(
+          { err },
+          "Failed to clear stale conversation processing flags — continuing startup",
+        );
+      }
+    }
+  }
 
   // Seed module-level ingress state from the workspace config so that
   // getIngressPublicBaseUrl() returns the correct value immediately after
