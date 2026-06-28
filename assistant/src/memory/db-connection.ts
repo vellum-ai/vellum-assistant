@@ -94,7 +94,11 @@ export const SQLITE_BUSY_TIMEOUT_MS = 5000;
  */
 function applyConnectionPragmas(sqlite: Database): void {
   sqlite.exec("PRAGMA journal_mode=WAL");
-  sqlite.exec("PRAGMA synchronous=FULL");
+  // NORMAL (not FULL) under WAL: the WAL+checkpoint protocol still guarantees
+  // database integrity across crashes; only the durability of the last few
+  // committed transactions is at risk on an OS crash/power loss. Dropping the
+  // per-commit fsync is a large latency win on write-heavy paths.
+  sqlite.exec("PRAGMA synchronous=NORMAL");
   sqlite.exec(`PRAGMA busy_timeout=${SQLITE_BUSY_TIMEOUT_MS}`);
   sqlite.exec("PRAGMA foreign_keys = ON");
   sqlite.exec("PRAGMA cache_size=-256000");
