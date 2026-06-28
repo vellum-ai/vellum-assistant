@@ -10,6 +10,7 @@
  */
 
 import type { MemoryConfig } from "../../config/schemas/memory.js";
+import type { TrustContext } from "../../daemon/trust-context.js";
 import type { InjectionBlock } from "../../plugins/types.js";
 import type { Message } from "../../providers/types.js";
 import type { RouteDefinition } from "../../runtime/routes/types.js";
@@ -24,9 +25,10 @@ export type MemoryProviderId = "graph" | "v2" | "v3" | "none";
 /**
  * Inputs a provider needs to produce injection or enqueue post-turn work.
  *
- * Carries the turn identifiers, the working message array for the turn, and a
- * read-only slice of memory configuration so the provider can scope its
- * behaviour without reaching for global config.
+ * Carries the turn identifiers, the working message array for the turn, a
+ * read-only slice of memory configuration, and the per-turn position and trust
+ * classification the v3 injectors require. Providers scope their behaviour off
+ * this context without reaching for global config.
  */
 export interface MemoryProviderContext {
   /** Conversation the turn is scoped to. */
@@ -37,14 +39,20 @@ export interface MemoryProviderContext {
   readonly messages: Message[];
   /** Read-only memory configuration slice. */
   readonly config: MemoryConfig;
+  /**
+   * 0-based turn index within the conversation — the v3 orchestration memo key
+   * and shadow-turn `turnNumber`.
+   */
+  readonly turnIndex: number;
+  /** Trust classification and channel identity for the inbound actor. */
+  readonly trust: TrustContext;
 }
 
 /**
  * The full surface a memory system exposes to daemon core.
  *
  * Implementations adapt the existing graph/v2/v3 systems; daemon core selects
- * one by `id` via `memory.provider` and drives it through this interface
- * rather than branching on `isMemoryV3Live()` and friends.
+ * one by `id` via `memory.provider` and drives it through this interface.
  */
 export interface MemoryProvider {
   /** Which memory system this provider implements. */

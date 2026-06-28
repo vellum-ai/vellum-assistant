@@ -11,7 +11,6 @@ import { join } from "node:path";
 import { type ChannelId, parseInterfaceId } from "../channels/types.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
-import { isMemoryV3Live } from "../config/memory-v3-gate.js";
 import type { LLMCallSite, LLMConfig } from "../config/schemas/llm.js";
 import { findContactInfoById } from "../contacts/contact-store.js";
 import {
@@ -32,6 +31,7 @@ import {
   getLiveGraphMemory,
 } from "../memory/graph/conversation-graph-memory.js";
 import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory/memory-marker.js";
+import { resolveMemoryProviderId } from "../memory/provider/provider-id.js";
 import {
   readSlackMetadata,
   readSlackMetadataFromMessageMetadata,
@@ -2210,7 +2210,7 @@ export async function applyRuntimeInjections(
   // (`produce()` → null) leaves v2's block intact — fallback rather than a
   // memory-less turn. Idempotent: re-injection sites that already stripped
   // see no change. Flag off → bit-for-bit identical to the v2 path.
-  const suppressV2MemoryForV3 = isMemoryV3Live(getConfig());
+  const suppressV2MemoryForV3 = resolveMemoryProviderId(getConfig()) === "v3";
   const v3ProducedBlock = afterMemory.some((b) => b.id === MEMORY_V3_BLOCK_ID);
   const memoryV3Active = suppressV2MemoryForV3 && v3ProducedBlock;
   if (memoryV3Active) {

@@ -19,9 +19,9 @@
 import type { MemoryV3SelectionLog } from "../../../api/responses/memory-v3-selection-log.js";
 import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
 import { getConfig } from "../../../config/loader.js";
-import { isMemoryV3Live } from "../../../config/memory-v3-gate.js";
-import { getDb, getSqliteFrom } from "../../../persistence/db-connection.js";
+import { resolveMemoryProviderId } from "../../../memory/provider/provider-id.js";
 import { readPage } from "../../../memory/v2/page-store.js";
+import { getDb, getSqliteFrom } from "../../../persistence/db-connection.js";
 import { getWorkspaceDir } from "../../../util/platform.js";
 import { capabilityOrDiskBody } from "./capabilities.js";
 import { sectionByOrdinal } from "./orchestrate.js";
@@ -179,7 +179,7 @@ async function buildSelectionLog(
 
   return {
     turn: rows[0]!.turn,
-    live: isMemoryV3Live(config),
+    live: resolveMemoryProviderId(config) === "v3",
     shadow: isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config),
     selections,
     injectedText,

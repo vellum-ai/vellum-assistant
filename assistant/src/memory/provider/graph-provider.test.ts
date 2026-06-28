@@ -9,6 +9,7 @@ import {
 } from "../graph/injection.js";
 import type { MemoryNode, ScoredNode } from "../graph/types.js";
 import { wrapMemoryBlock } from "../memory-marker.js";
+import type { MemoryProviderContext } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -124,17 +125,14 @@ async function loadProviderWithMocks(
   return GraphMemoryProvider;
 }
 
-function ctx(messages: Message[]): {
-  conversationId: string;
-  requestId: string;
-  messages: Message[];
-  config: MemoryConfig;
-} {
+function ctx(messages: Message[]): MemoryProviderContext {
   return {
     conversationId: "conv-1",
     requestId: "req-1",
     messages,
     config: {} as MemoryConfig,
+    turnIndex: 0,
+    trust: { sourceChannel: "vellum", trustClass: "guardian" },
   };
 }
 

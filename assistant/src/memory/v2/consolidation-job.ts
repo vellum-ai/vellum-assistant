@@ -65,7 +65,6 @@ import {
 import { dirname, join } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
-import { isMemoryV3Live } from "../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../config/types.js";
 import { runBackgroundJob } from "../../runtime/background-job-runner.js";
 import { getLogger } from "../../util/logger.js";
@@ -77,6 +76,7 @@ import {
   type MemoryJob,
   type MemoryJobType,
 } from "../jobs-store.js";
+import { resolveMemoryProviderId } from "../provider/provider-id.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./constants.js";
 import { resolveConsolidationPrompt } from "./prompts/consolidation.js";
 
@@ -269,7 +269,7 @@ export async function memoryV2ConsolidateJob(
     // The article SHAPE is keyed on the live flag alone: under shadow, live
     // prompts are still assembled by v2's injection model, so consolidation
     // must keep producing `summary:`-bearing fragment pages until the flip.
-    const memoryV3Live = isMemoryV3Live(config);
+    const memoryV3Live = resolveMemoryProviderId(config) === "v3";
     const memoryV3Active =
       isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config) || memoryV3Live;
     const prompt = resolveConsolidationPrompt(

@@ -62,7 +62,6 @@
 
 import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
 import { getConfig } from "../../../config/loader.js";
-import { isMemoryV3Live } from "../../../config/memory-v3-gate.js";
 import {
   type PendingConversationNotice,
   queueConversationNotice,
@@ -72,6 +71,7 @@ import {
   wrapMemoryBlock,
   wrapMemorySpotlightBlock,
 } from "../../../memory/memory-marker.js";
+import { resolveMemoryProviderId } from "../../../memory/provider/provider-id.js";
 import { getLogger } from "../../../util/logger.js";
 import {
   type InjectionBlock,
@@ -260,7 +260,7 @@ export const memoryV3Injector: Injector = {
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
     const config = getConfig();
     if (config.memory.enabled === false) return null;
-    const live = isMemoryV3Live(config);
+    const live = resolveMemoryProviderId(config) === "v3";
     const shadow = isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config);
     if (!live && !shadow) return null;
     if (!isPersonalMemoryAllowed(ctx.trust)) return null;
@@ -399,7 +399,7 @@ export const memoryV3SpotlightInjector: Injector = {
     // Live-only: shadow mode logs spotlight refs from the cards injector and
     // must keep the turn untouched (no ring state either, so a later
     // live-flag flip starts from a clean window).
-    if (!isMemoryV3Live(config)) return null;
+    if (resolveMemoryProviderId(config) !== "v3") return null;
     if (!isPersonalMemoryAllowed(ctx.trust)) return null;
 
     try {

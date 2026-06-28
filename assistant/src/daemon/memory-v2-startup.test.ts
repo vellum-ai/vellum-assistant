@@ -36,8 +36,8 @@ mock.module("../providers/platform-proxy/context.js", () => ({
   hasManagedProxyPrereqs: async () => proxyState.prereqs,
 }));
 
-mock.module("../config/memory-v3-gate.js", () => ({
-  isMemoryV3Live: () => v3State.live,
+mock.module("../memory/provider/provider-id.js", () => ({
+  resolveMemoryProviderId: () => (v3State.live ? "v3" : "v2"),
 }));
 
 mock.module("../persistence/jobs-store.js", () => ({

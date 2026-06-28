@@ -181,8 +181,9 @@ export async function maybeReseedCapabilitiesAfterManagedCredential(
   // skill/CLI pages within seconds instead of waiting out the 6h backstop.
   // Resolve the gate + enqueuer once and reuse for the post-barrier enqueue and
   // the straggler re-enqueue below.
-  const { isMemoryV3Live } = await import("../config/memory-v3-gate.js");
-  const v3Live = isMemoryV3Live(config);
+  const { resolveMemoryProviderId } =
+    await import("../memory/provider/provider-id.js");
+  const v3Live = resolveMemoryProviderId(config) === "v3";
   const enqueueMaintain = async (): Promise<void> => {
     if (!v3Live) return;
     try {
