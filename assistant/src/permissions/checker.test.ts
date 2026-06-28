@@ -726,16 +726,16 @@ describe("Permission Checker (gateway IPC)", () => {
       expect(result.decision).toBe("prompt");
     });
 
-    test("the old memory_consolidation origin no longer grants skill authoring", async () => {
+    test("only the memory_retrospective origin grants skill authoring", async () => {
       mockIpcClassifyRiskResult = {
         risk: "high",
         reason: "Skill scaffold",
         matchType: "registry",
         scopeOptions: [],
       };
-      // Same guardian/vellum background trust and active feature, but the
-      // consolidation origin — which previously held the grant — must no longer
-      // authorize skill authoring now that it re-points to the retrospective.
+      // Same guardian/vellum background trust and active feature: the
+      // consolidation origin does not authorize skill authoring; only the
+      // retrospective origin holds this grant.
       const result = await check(
         "scaffold_managed_skill",
         { skill_id: "deploy-preview" },

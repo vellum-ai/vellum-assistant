@@ -4,13 +4,15 @@
  * The tool's shortlist + catalog seams are dependency-injected via `deps`, so
  * these tests exercise the input validation, the catalog name/description join,
  * and the `limit` pass-through without Qdrant. Coverage:
- *   - Maps each shortlist hit to its catalog name/description and score.
+ *   - Maps each shortlist hit to its catalog name/description/source and score.
  *   - Drops a shortlist hit whose id is absent from the catalog.
  *   - Passes `limit` through to the shortlist (and defaults when omitted).
  *   - Rejects a missing/blank goal and a non-positive-integer limit.
  */
 
 import { describe, expect, mock, test } from "bun:test";
+
+import type { SkillSource } from "../../config/skills.js";
 
 mock.module("../../util/logger.js", () => ({
   getLogger: () =>
@@ -31,11 +33,16 @@ function makeContext(): ToolContext {
 }
 
 const catalog = (
-  ...skills: { id: string; name: string; description: string }[]
+  ...skills: {
+    id: string;
+    name: string;
+    description: string;
+    source: SkillSource;
+  }[]
 ) => skills;
 
 describe("find_similar_skills — enrichment", () => {
-  test("maps each hit to its catalog name/description and score", async () => {
+  test("maps each hit to its catalog name/description/source and score", async () => {
     const result = await executeFindSimilarSkills(
       { goal: "ship the web app" },
       makeContext(),
@@ -50,11 +57,13 @@ describe("find_similar_skills — enrichment", () => {
               id: "deploy-web",
               name: "Deploy Web",
               description: "Ship the web app to prod",
+              source: "managed",
             },
             {
               id: "clean-disk",
               name: "Clean Disk",
               description: "Free up disk space",
+              source: "bundled",
             },
           ),
       },
@@ -67,12 +76,14 @@ describe("find_similar_skills — enrichment", () => {
           skill_id: "deploy-web",
           name: "Deploy Web",
           description: "Ship the web app to prod",
+          source: "managed",
           score: 0.91,
         },
         {
           skill_id: "clean-disk",
           name: "Clean Disk",
           description: "Free up disk space",
+          source: "bundled",
           score: 0.7,
         },
       ],
@@ -93,6 +104,7 @@ describe("find_similar_skills — enrichment", () => {
             id: "present",
             name: "Present",
             description: "Exists in catalog",
+            source: "plugin",
           }),
       },
     );
@@ -103,6 +115,7 @@ describe("find_similar_skills — enrichment", () => {
           skill_id: "present",
           name: "Present",
           description: "Exists in catalog",
+          source: "plugin",
           score: 0.9,
         },
       ],

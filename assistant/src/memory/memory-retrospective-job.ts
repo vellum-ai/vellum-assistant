@@ -923,9 +923,9 @@ ${procToSkillsActive ? buildSkillAuthoringSection() : ""}`;
 /**
  * Skill-authoring addendum appended to the fork instruction when
  * procedural-memory-as-skills is active. Directs the pass to capture a
- * genuinely-executed, reusable procedure as a managed skill — preferring to
- * refine an existing assistant-authored sibling over spawning a new one, and
- * never folder-rewriting a user-authored skill.
+ * genuinely-executed, reusable procedure as a managed skill — but only to
+ * overwrite or refine a skill it authored, never to overwrite or shadow a
+ * skill of any other source.
  */
 function buildSkillAuthoringSection(): string {
   return `
@@ -935,11 +935,9 @@ If your review window contains a PROCEDURE you actually carried out — a sequen
 
 When you do capture a procedure:
 
-1. Deduplicate against existing skills first. Call \`find_similar_skills\` with a short description of the procedure's goal. If a returned skill is the SAME procedure (not just an adjacent one), UPDATE it rather than creating a sibling: call \`scaffold_managed_skill\` with that skill's existing \`skill_id\` and \`overwrite: true\`, rewriting the body from what you actually observed in the trace. Otherwise CREATE a new skill with a fresh \`skill_id\`. Bias strongly toward reusing or refining over spawning near-duplicates.
+1. Deduplicate against existing skills first. Call \`find_similar_skills\` with a short description of the procedure's goal. Each hit carries a \`source\` (bundled, managed, plugin, workspace, or extra). You may only overwrite or refine a skill YOU authored — a managed skill you created. If a hit is bundled, plugin, or workspace, or is a managed skill a person wrote, the procedure is ALREADY COVERED: do not \`overwrite\` it, do not shadow it by creating a skill with its \`skill_id\`, and do not create a near-duplicate — skip it. Only when a returned skill is one of your own (a managed skill you authored) and is the SAME procedure, UPDATE it: call \`scaffold_managed_skill\` with that \`skill_id\` and \`overwrite: true\`, rewriting the body from what you actually observed in the trace. Only CREATE a new skill (fresh \`skill_id\`) when no existing skill of any source covers the procedure. Bias strongly toward reusing or refining your own skills over spawning near-duplicates.
 
 2. Capture procedure-scoped knowledge alongside the body. Failure modes, gotchas, and cached values you observed in the trace (error signatures and how you recovered, preconditions, IDs/paths/endpoints that held steady) belong in companion files passed via \`scaffold_managed_skill\`'s \`files\` input (for example \`references/failure-modes.md\`), and the SKILL.md body should reference them so a future load surfaces them.
-
-3. Never folder-rewrite a user-authored skill. If \`find_similar_skills\` returns a skill a person wrote or installed, do not \`overwrite\` it or write companion \`files\` into it — refine conservatively or skip. Companion-file capture and overwrites apply only to skills you authored.
 
 Ordinary facts still go through \`remember\` (unlinked) exactly as above — skills are for executed, reusable procedures, not for facts.
 `;

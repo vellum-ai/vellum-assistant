@@ -1528,9 +1528,15 @@ describe("memoryRetrospectiveJob", () => {
     expect(instructionText).toContain("references/failure-modes.md");
     expect(instructionText).toContain("`files`");
 
-    // User-skill protection directive.
+    // Ownership directive: only overwrite/refine your own skills; skip
+    // (don't shadow or duplicate) a match of any other source.
     expect(instructionText).toContain(
-      "Never folder-rewrite a user-authored skill",
+      "You may only overwrite or refine a skill YOU authored",
+    );
+    expect(instructionText).toContain("ALREADY COVERED");
+    expect(instructionText).toContain("do not shadow it");
+    expect(instructionText).toContain(
+      "Only CREATE a new skill (fresh `skill_id`) when no existing skill of any source covers the procedure",
     );
 
     // Ordinary facts stay plain remembers — the instruction carries no

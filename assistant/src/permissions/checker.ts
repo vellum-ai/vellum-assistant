@@ -6,6 +6,7 @@ import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { loadSkillCatalog, resolveSkillSelector } from "../config/skills.js";
 import { ipcClassifyRisk } from "../ipc/gateway-client.js";
+import { MEMORY_RETROSPECTIVE_ORIGIN } from "../memory/memory-retrospective-constants.js";
 import { indexCatalogById } from "../skills/include-graph.js";
 import { getSkillRoots } from "../skills/path-classifier.js";
 import { computeTransitiveSkillVersionHash } from "../skills/transitive-version-hash.js";
@@ -688,7 +689,6 @@ export async function classifyRisk(
 // The grant is intentionally narrow: it matches exactly these tools AND the
 // retrospective origin under the active flag, so no interactive session, other
 // origin, or feature-off install is affected.
-const MEMORY_RETROSPECTIVE_ORIGIN = "memory_retrospective";
 const SKILL_MANAGEMENT_SKILL_ID = "skill-management";
 
 function isRetrospectiveSkillAuthoringGrant(
