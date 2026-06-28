@@ -45,9 +45,13 @@
  * below it (a new turn restarts counting low).
  */
 
-import type { HookFunction, PostToolUseContext } from "@vellumai/plugin-api";
+import type {
+  ContentBlock,
+  HookFunction,
+  Message,
+  PostToolUseContext,
+} from "@vellumai/plugin-api";
 
-import type { ContentBlock, Message } from "../../../../providers/types.js";
 import { isWeakOpenModel } from "../../../../providers/weak-open-model.js";
 
 /**

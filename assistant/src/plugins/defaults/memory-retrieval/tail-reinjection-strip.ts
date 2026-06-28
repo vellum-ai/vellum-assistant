@@ -13,12 +13,13 @@
  * keeping injection idempotency a property of the injection machinery rather
  * than of the agent loop that drives compaction.
  */
+import type { Message } from "@vellumai/plugin-api";
+
 import {
   type InjectionMatcher,
   RUNTIME_INJECTION_PREFIXES,
   stripTailUserTextBlocksByPrefix,
 } from "../../../context/strip-injections.js";
-import type { Message } from "../../../providers/types.js";
 
 /**
  * Per-turn blocks that `stripInjectionsForCompaction` deliberately keeps in the

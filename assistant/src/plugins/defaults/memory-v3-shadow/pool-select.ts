@@ -46,6 +46,11 @@
  *     it so v2 retrieval can serve the turn.
  */
 
+import type {
+  ContentBlock,
+  Message,
+  ToolUseContent,
+} from "@vellumai/plugin-api";
 import { z } from "zod";
 
 import { classifyConversationError } from "../../../daemon/conversation-error.js";
@@ -56,12 +61,7 @@ import {
   extractToolUse,
   getConfiguredProvider,
 } from "../../../providers/provider-send-message.js";
-import type {
-  ContentBlock,
-  Message,
-  ToolDefinition,
-  ToolUseContent,
-} from "../../../providers/types.js";
+import type { ToolDefinition } from "../../../providers/types.js";
 import { redactLogString } from "../../../util/log-redact.js";
 import { getLogger } from "../../../util/logger.js";
 import { truncate } from "../../../util/truncate.js";

@@ -58,6 +58,8 @@
  * bytes it cannot free.
  */
 
+import type { ContentBlock, Message } from "@vellumai/plugin-api";
+
 import { getConfig } from "../../../config/loader.js";
 import { getDb, getSqliteFrom } from "../../../memory/db-connection.js";
 import {
@@ -68,7 +70,6 @@ import {
   INJECTED_CONCEPT_HEADER_REGEX,
   readInjectedBlock,
 } from "../../../memory/v2/injected-block-slugs.js";
-import type { ContentBlock, Message } from "../../../providers/types.js";
 import { getLogger } from "../../../util/logger.js";
 import {
   getActiveEntries,
