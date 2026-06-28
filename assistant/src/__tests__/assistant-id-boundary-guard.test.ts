@@ -486,6 +486,8 @@ describe("assistant ID boundary", () => {
     const schemaGlobs = [
       "assistant/src/memory/schema/*.ts",
       "assistant/src/memory/schema/**/*.ts",
+      "assistant/src/persistence/schema/*.ts",
+      "assistant/src/persistence/schema/**/*.ts",
     ];
 
     let grepOutput = "";
@@ -551,6 +553,8 @@ describe("assistant ID boundary", () => {
     // multiple lines) from exported functions to catch multiline signatures.
     const storeGlobs = [
       "assistant/src/memory/*.ts",
+      "assistant/src/persistence/*.ts",
+      "assistant/src/persistence/embeddings/*.ts",
       "assistant/src/contacts/*.ts",
       "assistant/src/notifications/*.ts",
       "assistant/src/calls/call-store.ts",
