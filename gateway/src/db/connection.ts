@@ -191,10 +191,13 @@ export async function initGatewayDb(): Promise<void> {
 
   const raw = new Database(getDbPath());
   raw.exec("PRAGMA journal_mode=WAL");
-  // NORMAL (not FULL) under WAL: integrity is preserved across crashes; only
-  // the last few committed transactions can be lost on an OS crash/power loss.
-  // Dropping the per-commit fsync is a large write-latency win.
-  raw.exec("PRAGMA synchronous=NORMAL");
+  // FULL (not NORMAL) is intentional here even though the assistant memory DB
+  // runs NORMAL under WAL. The gateway DB holds the security/trust boundary
+  // state (contacts, auto-approve thresholds, admission policy) where an
+  // acknowledged write must survive an OS crash/power loss — losing the last
+  // commit under NORMAL could silently re-open a trust gap. The gateway is not
+  // on a write-heavy hot path, so the per-commit fsync cost is negligible.
+  raw.exec("PRAGMA synchronous=FULL");
   raw.exec("PRAGMA busy_timeout=5000");
   raw.exec("PRAGMA foreign_keys=ON");
 
