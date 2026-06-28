@@ -822,12 +822,6 @@ export async function runDaemon(): Promise<void> {
   startOrphanReaper();
   startEventLoopWatchdog();
 
-  // Mutable ref for the memory worker so background init can assign it and the
-  // shutdown handler always sees the latest value.
-  const bgRefs: {
-    memoryWorker: { stop(): void } | null;
-  } = { memoryWorker: null };
-
   // Initialize Qdrant vector store and memory worker in the background so the
   // RuntimeHttpServer can start accepting requests without waiting for Qdrant.
   async function initializeQdrantAndMemory(): Promise<void> {
@@ -964,7 +958,7 @@ export async function runDaemon(): Promise<void> {
     // `memory.worker.enabled` is set. Shutdown stops whichever worker is
     // actually running — see shutdown-handlers.ts.
     log.info("Daemon startup: starting memory worker");
-    bgRefs.memoryWorker = startMemoryJobsWorker();
+    startMemoryJobsWorker();
 
     // Seed capability graph nodes (new memory graph system)
     try {
@@ -1408,7 +1402,6 @@ export async function runDaemon(): Promise<void> {
     filing,
     runtimeHttp,
     scheduler,
-    getMemoryWorker: () => bgRefs.memoryWorker,
   });
 
   log.info(

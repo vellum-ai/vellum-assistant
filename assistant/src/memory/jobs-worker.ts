@@ -162,6 +162,9 @@ export interface MemoryJobsWorker {
   stop(): void;
 }
 
+/** The daemon's in-process supervisor, retained so shutdown can stop it. */
+let daemonSupervisor: MemoryJobsWorker | null = null;
+
 /**
  * Start the daemon's memory jobs worker supervisor.
  *
@@ -217,7 +220,21 @@ export function startMemoryJobsWorker(): MemoryJobsWorker {
       );
   }
 
-  return startInProcessMemoryJobsWorker({ standDownForWorkerProcess: true });
+  daemonSupervisor = startInProcessMemoryJobsWorker({
+    standDownForWorkerProcess: true,
+  });
+  return daemonSupervisor;
+}
+
+/**
+ * Stop the daemon's in-process memory jobs supervisor if it was started; no-op
+ * otherwise. Does not touch the out-of-process worker — see
+ * stopMemoryWorkerProcess() in worker-control.ts.
+ */
+export function stopMemoryJobsWorker(): void {
+  if (!daemonSupervisor) return;
+  daemonSupervisor.stop();
+  daemonSupervisor = null;
 }
 
 /**
