@@ -2,7 +2,6 @@ import {
     lazy,
     useCallback,
     useEffect,
-    useMemo,
     useRef,
     useState,
     type ReactNode,
@@ -24,6 +23,7 @@ import {
 import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 
+import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useAttentionTracking } from "@/domains/chat/hooks/use-attention-tracking";
 import { useChatLayoutDrawer } from "@/domains/chat/hooks/use-chat-layout-drawer";
 import { useChatLayoutShortcuts } from "@/domains/chat/hooks/use-chat-layout-shortcuts";
@@ -349,10 +349,19 @@ export function ChatLayout() {
     prePinGroupIdsRef,
   });
 
-  const activeConversation = useMemo(
-    () => conversations.find((c) => c.conversationId === activeConversationId) ?? null,
-    [conversations, activeConversationId],
-  );
+  // Resolve the active row from whichever list cache holds it (foreground,
+  // background, or scheduled), fetching the single row when an open
+  // background/scheduled thread is in none. The foreground `conversations`
+  // list deliberately excludes background jobs, so a directly-opened
+  // background conversation — e.g. a memory retrospective ("… (Retrospective)")
+  // — is absent from it and the header would otherwise fall back to "New
+  // conversation". `ActiveChatView` resolves its copy through the same hook.
+  const activeConversation =
+    useActiveConversation(
+      assistantId,
+      activeConversationId,
+      isAssistantActive,
+    ) ?? null;
 
   const topBarCenter = topBarCenterSlot ?? (headerSupplements ? (
     <ChatConversationHeader
