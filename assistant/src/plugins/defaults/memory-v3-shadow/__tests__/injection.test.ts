@@ -12,8 +12,6 @@
  *   - fork dedup: a conversation whose everInjected record was seeded from
  *     inherited blocks does not re-render those slugs;
  *   - prune round-trip: a pruned slug that is re-selected re-injects;
- *   - shadow mode: attaches nothing and records nothing, but logs the
- *     would-inject set;
  *   - spotlight: current-window entries only, re-rendered (never accumulated),
  *     bounded by `n × (windowTurns + 1)`, live-only, absent from the
  *     persistent card layer.
@@ -58,7 +56,6 @@ let injectionMockActive = false;
 // ─── mutable test state ──────────────────────────────────────────────────────
 
 let liveEnabled = false;
-let shadowEnabled = false;
 let memoryEnabled = true;
 let spotlightConfig = { n: 6, windowTurns: 2 };
 /** `null` disables the prune valve (the default for tests not exercising it —
@@ -163,11 +160,7 @@ mock.module("../../../../config/assistant-feature-flags.js", () => ({
         config,
       );
     }
-    return key === "memory-v3-live"
-      ? liveEnabled
-      : key === "memory-v3-shadow"
-        ? shadowEnabled
-        : false;
+    return key === "memory-v3-live" ? liveEnabled : false;
   },
 }));
 
@@ -311,7 +304,6 @@ beforeEach(async () => {
   await flushPruneValveForTests();
   injectionMockActive = true;
   liveEnabled = false;
-  shadowEnabled = false;
   memoryEnabled = true;
   spotlightConfig = { n: 6, windowTurns: 2 };
   pruneConfig = null;
@@ -552,31 +544,6 @@ describe("memoryV3Injector — frozen net-new cards", () => {
     expect(getActiveSlugs("conv-1")).toEqual(new Set());
   });
 
-  test("shadow mode (live off) attaches nothing, records nothing, logs the would-inject set", async () => {
-    shadowEnabled = true;
-    turnResults.set(
-      0,
-      result(
-        ["page-a"],
-        [["page-a", section("page-a", "Heading", "section text")]],
-      ),
-    );
-
-    expect(await produceCards("conv-1", 0)).toBeNull();
-    expect(await produceSpotlight("conv-1", 0)).toBeNull();
-    expect(getActiveSlugs("conv-1")).toEqual(new Set());
-    const shadowLog = logCalls.find((c) =>
-      c.msg.includes("memory-v3 shadow: would inject"),
-    );
-    expect(shadowLog).toBeDefined();
-    const data = shadowLog!.data as {
-      netNew: Array<{ slug: string; bytes: number }>;
-      spotlightRefs: string[];
-    };
-    expect(data.netNew.map((e) => e.slug)).toEqual(["page-a"]);
-    expect(data.spotlightRefs).toEqual(["page-a§Heading"]);
-  });
-
   test("the persistent card block never contains the spotlight wrapper", async () => {
     liveEnabled = true;
     turnResults.set(
@@ -709,8 +676,7 @@ describe("memoryV3SpotlightInjector — ephemeral section spotlight", () => {
     expect(await produceSpotlight("conv-1", 0)).toBeNull();
   });
 
-  test("live off → null even when shadow is on", async () => {
-    shadowEnabled = true;
+  test("live off → null", async () => {
     turnResults.set(0, result(["page-a"], [["page-a", sectionA]]));
     expect(await produceSpotlight("conv-1", 0)).toBeNull();
   });

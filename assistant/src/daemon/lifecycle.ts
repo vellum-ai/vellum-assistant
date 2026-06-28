@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { config as dotenvConfig } from "dotenv";
 
 import { refreshBackgroundWakeIntent } from "../background-wake/publisher.js";
-import { registerBackgroundWakeRuntime } from "../background-wake/runtime-registry.js";
 import { setPointerMessageProcessor } from "../calls/call-pointer-messages.js";
 import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { setRelayBroadcast } from "../calls/relay-server.js";
@@ -104,7 +103,7 @@ import {
 } from "../work-items/work-item-store.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/adaptive-thinking-repair.js";
-import { WorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
+import { startWorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import { runWorkspaceMigrations } from "../workspace/migrations/runner.js";
 import { writePid } from "./daemon-control.js";
@@ -122,6 +121,7 @@ import {
   rebuildBm25CorpusStatsAndReseedSkills,
 } from "./memory-v2-startup.js";
 import { startOrphanReaper } from "./orphan-reaper.js";
+import { elevatePointerConversationToGuardian } from "./pointer-conversation-trust.js";
 import { processMessage } from "./process-message.js";
 import { runProfilerSweep } from "./profiler-run-store.js";
 import {
@@ -988,7 +988,7 @@ export async function runDaemon(): Promise<void> {
     );
   }
 
-  const scheduler = startScheduler(
+  startScheduler(
     async (conversationId, message, options) => {
       await processMessage(
         conversationId,
@@ -1117,6 +1117,14 @@ export async function runDaemon(): Promise<void> {
         const conversation =
           await server.getConversationForMessages(conversationId);
 
+        // Pointer turns are guardian-gated owner self-maintenance: elevate to
+        // the internal guardian context and rehydrate history so a cold
+        // (evicted) load doesn't filter guardian history to empty and ship a
+        // cache-missing turn. `restoreTrustContext` undoes the elevation after
+        // the turn. See pointer-conversation-trust.ts for the full rationale.
+        const restoreTrustContext =
+          await elevatePointerConversationToGuardian(conversation);
+
         // Constrain pointer generation to a tool-disabled path so call-
         // status events cannot trigger unintended side-effect tools.
         // Incrementing toolsDisabledDepth causes the resolveTools callback
@@ -1242,6 +1250,8 @@ export async function runDaemon(): Promise<void> {
         } finally {
           // Restore tool availability so subsequent turns aren't affected.
           conversation.toolsDisabledDepth--;
+          // Undo the temporary guardian elevation installed above.
+          restoreTrustContext();
         }
       },
     );
@@ -1320,19 +1330,9 @@ export async function runDaemon(): Promise<void> {
     });
   }
 
-  const workspaceHeartbeat = new WorkspaceHeartbeatService();
-  workspaceHeartbeat.start();
+  startWorkspaceHeartbeatService();
 
-  const heartbeat = startHeartbeatService({
-    alerter: (alert) => broadcastMessage(alert),
-    onConversationCreated: (info) =>
-      broadcastMessage({
-        type: "heartbeat_conversation_created",
-        conversationId: info.conversationId,
-        title: info.title,
-      }),
-  });
-  registerBackgroundWakeRuntime({ scheduler, heartbeat });
+  startHeartbeatService();
   refreshBackgroundWakeIntent("daemon-startup");
 
   // Filing yields to the memory v2 consolidation job when v2 is enabled — both
@@ -1341,10 +1341,7 @@ export async function runDaemon(): Promise<void> {
   // (see `maybeEnqueueGraphMaintenanceJobs`).
   startFilingService();
 
-  installShutdownHandlers({
-    server,
-    workspaceHeartbeat,
-  });
+  installShutdownHandlers({ server });
 
   log.info(
     {

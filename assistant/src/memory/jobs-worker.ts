@@ -1,6 +1,5 @@
 import { join } from "node:path";
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import { isMemoryV3Live } from "../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../config/types.js";
@@ -950,16 +949,13 @@ export function maybeEnqueueGraphMaintenanceJobs(
 
   // v3 self-maintenance backstop. Orthogonal to the v1/v2 mutual exclusion
   // above: it owns its own checkpoint and operates on the v3 topic tree, so it
-  // runs under either branch. Gated on the same flags that gate the v3 plugin
+  // runs under either branch. Gated on the same config that gates the v3 plugin
   // so it stays inert when v3 is off. The post-consolidation follow-up in
   // `consolidation-job.ts` remains the primary trigger; this interval only
   // self-heals when that follow-up is missed (failed enqueue). The job handler
   // itself no-ops when v3 is off, so
   // this guard is belt-and-suspenders that also avoids a wasted enqueue.
-  if (
-    isAssistantFeatureFlagEnabled("memory-v3-shadow", config) ||
-    isMemoryV3Live(config)
-  ) {
+  if (isMemoryV3Live(config)) {
     schedule.push({
       key: GRAPH_MAINTENANCE_CHECKPOINTS.memoryV3Maintain,
       intervalMs: GRAPH_V3_MAINTAIN_INTERVAL_MS,

@@ -24,11 +24,10 @@
  *    all-repeat turn returns an EMPTY-TEXT block: assembly attaches nothing,
  *    but the block's presence still keys v2 suppression (v3 ran and owns the
  *    `<memory>` layer this turn). A `null` return (failure / empty selection /
- *    every net-new card rendered empty) attaches no v3 block: in shadow mode
- *    (`memory-v3-live` off) v2 still ran this turn, so its block stays as the
- *    fallback; under `memory-v3-live` the user-prompt-submit hook skips v2
- *    retrieval entirely, so a null return leaves the turn with no NEW injected
- *    memory (prior turns' frozen cards still ride history).
+ *    every net-new card rendered empty) attaches no v3 block: under
+ *    `memory-v3-live` the user-prompt-submit hook skips v2 retrieval entirely,
+ *    so a null return leaves the turn with no NEW injected memory (prior turns'
+ *    frozen cards still ride history).
  *
  *  - {@link memoryV3SpotlightInjector} (id `memory-v3-spotlight`,
  *    `after-memory-prefix`): the EPHEMERAL layer. Renders the top `spotlight.n`
@@ -41,9 +40,8 @@
  *    block id only); it is never persisted to metadata, so the frozen card
  *    prefix it follows stays byte-stable and cached regardless.
  *
- * Gating: `memory.v3.live` (config) attaches blocks; the `memory-v3-shadow`
- * flag (live off) logs what WOULD inject (net-new slugs + bytes + spotlight
- * refs) and attaches nothing; both off → no orchestration.
+ * Gating: `memory.v3.live` (config) runs orchestration and attaches blocks;
+ * with it off, no orchestration runs and nothing is attached.
  *
  * Both injectors apply the same personal-memory trust gate as v2
  * ({@link isPersonalMemoryAllowed}): an untrusted remote actor's turn
@@ -60,7 +58,6 @@
  * The next compaction clears the store and resets both layers.
  */
 
-import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
 import { getConfig } from "../../../config/loader.js";
 import { isMemoryV3Live } from "../../../config/memory-v3-gate.js";
 import {
@@ -90,7 +87,7 @@ import {
   renderSpotlightInner,
   type SpotlightEntry,
 } from "./render-injection.js";
-import { MEMORY_V3_SHADOW, observeTurn } from "./shadow-plugin.js";
+import { observeTurn } from "./shadow-plugin.js";
 import {
   MEMORY_V3_BLOCK_ID,
   MEMORY_V3_COMMIT_META_KEY,
@@ -261,8 +258,7 @@ export const memoryV3Injector: Injector = {
     const config = getConfig();
     if (config.memory.enabled === false) return null;
     const live = isMemoryV3Live(config);
-    const shadow = isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config);
-    if (!live && !shadow) return null;
+    if (!live) return null;
     if (!isPersonalMemoryAllowed(ctx.trust)) return null;
 
     let observed: OrchestrateResult | null;
@@ -275,18 +271,17 @@ export const memoryV3Injector: Injector = {
           {
             err: err.message,
             conversationId: ctx.conversationId,
-            mode: live ? "live" : "shadow",
+            mode: "live",
           },
           "memory-v3 selection failed; skipping v3 memory for this turn",
         );
       }
       return null;
     }
-    // Empty selection → return null (attach nothing). Returning null (vs an
-    // empty block) preserves the shadow-mode v2 fallback: v2 suppression keys
-    // off BOTH the flag AND a produced block, so in shadow a turn with nothing
-    // selected ships v2's memory. Under `memory-v3-live` the hook skipped v2
-    // retrieval, so the turn simply gets no injected memory.
+    // Empty selection → return null (attach nothing). The user-prompt-submit
+    // hook skipped v2 retrieval under live, so a turn with nothing selected
+    // simply gets no v3 `<memory>` block (prior turns' frozen cards still ride
+    // history).
     if (!observed || observed.selections.length === 0) return null;
     // `const` so the non-null narrowing survives capture in the `commit`
     // closure below (a `let` would re-widen to `OrchestrateResult | null`).
@@ -307,12 +302,10 @@ export const memoryV3Injector: Injector = {
         if (card.trim().length > 0) cards.push({ slug, card });
       }
       // Every net-new card rendered empty: return null rather than an
-      // empty-text block. Returning null preserves the shadow-mode v2 fallback
-      // (an empty block would key v2 suppression yet show nothing); under
-      // `memory-v3-live` there is no v2 block, so the turn simply gets no new
-      // memory. Distinct from the all-repeat case (empty `netNew`), where the
-      // empty block correctly keeps v2 suppressed because the cards already
-      // ride history.
+      // empty-text block. Under live there is no v2 block, so the turn simply
+      // gets no new memory. Distinct from the all-repeat case (empty `netNew`),
+      // where the empty block correctly keeps v2 suppressed because the cards
+      // already ride history.
       if (netNew.length > 0 && cards.length === 0) return null;
       const entries = cards.map(({ slug, card }) => ({
         slug,
@@ -324,25 +317,6 @@ export const memoryV3Injector: Injector = {
         // it cannot free).
         bytes: isCapabilitySlug(slug) ? 0 : cardBytes(card),
       }));
-
-      if (!live) {
-        // Shadow mode: log what WOULD inject, attach and record nothing.
-        const spotlightRefs = computeSpotlightEntries(
-          result,
-          config.memory.v3.spotlight.n,
-        ).map((e) => `${e.slug}§${e.title}`);
-        log.info(
-          {
-            conversationId: ctx.conversationId,
-            turnIndex: ctx.turnIndex,
-            netNew: entries,
-            netNewBytes: entries.reduce((sum, e) => sum + e.bytes, 0),
-            spotlightRefs,
-          },
-          "memory-v3 shadow: would inject net-new cards + spotlight",
-        );
-        return null;
-      }
 
       // The everInjected store write and the prune-valve schedule are
       // DEFERRED to this commit callback, invoked by runtime assembly at the
@@ -396,9 +370,8 @@ export const memoryV3SpotlightInjector: Injector = {
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
     const config = getConfig();
     if (config.memory.enabled === false) return null;
-    // Live-only: shadow mode logs spotlight refs from the cards injector and
-    // must keep the turn untouched (no ring state either, so a later
-    // live-flag flip starts from a clean window).
+    // The spotlight rides the live `<memory>` layer; with `memory.v3.live` off
+    // it produces nothing and keeps no ring state.
     if (!isMemoryV3Live(config)) return null;
     if (!isPersonalMemoryAllowed(ctx.trust)) return null;
 

@@ -1,12 +1,10 @@
 /**
  * Tests for `shadow-plugin.ts` (section-lane pipeline).
  *
- * The v3 plugin is flag-gated. These tests assert:
- *   - both flags OFF → orchestrate is never called and no DB rows are written;
- *   - either flag ON → orchestrate runs and selection rows land in
+ * These tests assert the v3 orchestration engine and the live injector:
+ *   - {@link observeTurn} runs orchestration and selection rows land in
  *     `memory_v3_selections` with the new lane source tags;
- *   - shadow-only (live off) → the injector returns `null` (never mutates the
- *     turn) but still logs;
+ *   - {@link observeTurn} is skipped when global memory is disabled;
  *   - live on → the injector returns the rendered `<memory>` block;
  *   - an empty selection under live → `null`;
  *   - lazy-init runs the lane builders only once across multiple turns, and
@@ -79,7 +77,6 @@ let shadowMockActive = false;
 // ─── mutable test state, read by the mocks below ────────────────────────────
 
 let liveEnabled = false;
-let shadowEnabled = false;
 let memoryEnabled = true;
 let messages: Array<{ role: string; content: string }> = [];
 
@@ -177,11 +174,7 @@ const FAKE_SECTION_INDEX: SectionIndex = {
 
 mock.module("../../../../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: (key: string) =>
-    key === "memory-v3-live"
-      ? liveEnabled
-      : key === "memory-v3-shadow"
-        ? shadowEnabled
-        : false,
+    key === "memory-v3-live" ? liveEnabled : false,
 }));
 
 mock.module("../../../../config/loader.js", () => ({
@@ -383,7 +376,7 @@ mock.module("../orchestrate.js", () => ({
 
 // Import AFTER mocks so the plugin binds to them.
 const {
-  runShadowObservation,
+  observeTurn,
   resetShadowLanesForTests,
   invalidateLanes,
   attributeSelections,
@@ -407,7 +400,6 @@ function readRows() {
 beforeEach(() => {
   shadowMockActive = true;
   liveEnabled = false;
-  shadowEnabled = false;
   memoryEnabled = true;
   messages = [
     {
@@ -448,30 +440,19 @@ async function produce(conversationId: string, turnIndex: number) {
   return block;
 }
 
-describe("memory-v3 shadow plugin", () => {
-  test("global memory disabled → observation is skipped even when v3 flags are on", async () => {
-    shadowEnabled = true;
-    liveEnabled = true;
+describe("memory-v3 engine", () => {
+  test("global memory disabled → observation is skipped", async () => {
     memoryEnabled = false;
 
-    await runShadowObservation("conv-1", 0);
+    await observeTurn("conv-1", 0);
 
     expect(orchestrateSpy).not.toHaveBeenCalled();
     expect(sectionBuilds).toBe(0);
     expect(readRows()).toHaveLength(0);
   });
 
-  test("shadow flag OFF → orchestrate not called, no DB writes", async () => {
-    shadowEnabled = false;
-    await runShadowObservation("conv-1", 0);
-    expect(orchestrateSpy).not.toHaveBeenCalled();
-    expect(sectionBuilds).toBe(0);
-    expect(readRows()).toHaveLength(0);
-  });
-
-  test("shadow flag ON → orchestrate runs and rows are written with per-lane sources", async () => {
-    shadowEnabled = true;
-    await runShadowObservation("conv-1", 2);
+  test("observeTurn runs orchestration and writes rows with per-lane sources", async () => {
+    await observeTurn("conv-1", 2);
 
     expect(orchestrateSpy).toHaveBeenCalledTimes(1);
     const rows = readRows();
@@ -499,7 +480,6 @@ describe("memory-v3 shadow plugin", () => {
   });
 
   test("the turn carries the tail of the previous assistant reply for the reply-query pass", async () => {
-    shadowEnabled = true;
     messages = [
       {
         role: "user",
@@ -516,7 +496,7 @@ describe("memory-v3 shadow plugin", () => {
         content: JSON.stringify([{ type: "text", text: "and now this" }]),
       },
     ];
-    await runShadowObservation("conv-1", 1);
+    await observeTurn("conv-1", 1);
 
     const turn = (
       orchestrateSpy.mock.calls as unknown as unknown[][]
@@ -528,8 +508,7 @@ describe("memory-v3 shadow plugin", () => {
   });
 
   test("a conversation-opening turn has no previous assistant message", async () => {
-    shadowEnabled = true;
-    await runShadowObservation("conv-1", 0);
+    await observeTurn("conv-1", 0);
 
     const turn = (
       orchestrateSpy.mock.calls as unknown as unknown[][]
@@ -562,8 +541,7 @@ describe("memory-v3 shadow plugin", () => {
   });
 
   test("the turn passed to orchestrate carries the latest user message", async () => {
-    shadowEnabled = true;
-    await runShadowObservation("conv-1", 0);
+    await observeTurn("conv-1", 0);
     const turn = (
       orchestrateSpy.mock.calls as unknown as unknown[][]
     )[0]![0] as {
@@ -577,8 +555,7 @@ describe("memory-v3 shadow plugin", () => {
   });
 
   test("orchestrate receives the lane deps", async () => {
-    shadowEnabled = true;
-    await runShadowObservation("conv-1", 0);
+    await observeTurn("conv-1", 0);
     const deps = (
       orchestrateSpy.mock.calls as unknown as unknown[][]
     )[0]![1] as {
@@ -596,7 +573,6 @@ describe("memory-v3 shadow plugin", () => {
   });
 
   test("initLanes filters core to existing pages and excludes core from the hot set", async () => {
-    shadowEnabled = true;
     // The core file lists a live page and a dangling slug; the hot set returns
     // a live page and a deleted one (selection rows can outlive their pages).
     coreSetSlugs = ["page-1", "missing-page"];
@@ -604,7 +580,7 @@ describe("memory-v3 shadow plugin", () => {
       { slug: "page-2", score: 2 },
       { slug: "gone-page", score: 1 },
     ];
-    await runShadowObservation("conv-1", 0);
+    await observeTurn("conv-1", 0);
 
     const deps = (
       orchestrateSpy.mock.calls as unknown as unknown[][]
@@ -619,27 +595,16 @@ describe("memory-v3 shadow plugin", () => {
     expect(hotSetOpts?.halfLifeMs).toBe(14 * 24 * 60 * 60 * 1000);
   });
 
-  test("both flags OFF → produce returns null, no orchestrate, no writes", async () => {
+  test("live off → produce returns null, no orchestrate, no writes", async () => {
     liveEnabled = false;
-    shadowEnabled = false;
     const block = await produce("conv-1", 0);
     expect(block).toBeNull();
     expect(orchestrateSpy).not.toHaveBeenCalled();
     expect(readRows()).toHaveLength(0);
   });
 
-  test("shadow-only (live off) → produce returns null but still logs", async () => {
-    liveEnabled = false;
-    shadowEnabled = true;
-    const block = await produce("conv-1", 0);
-    expect(block).toBeNull();
-    expect(orchestrateSpy).toHaveBeenCalledTimes(1);
-    expect(readRows().length).toBeGreaterThan(0);
-  });
-
   test("live on → produce returns the net-new CARD block and logs", async () => {
     liveEnabled = true;
-    shadowEnabled = false;
     const block = await produce("conv-1", 0);
     expect(block).not.toBeNull();
     expect(block!.placement).toBe("after-memory-prefix");
@@ -659,7 +624,6 @@ describe("memory-v3 shadow plugin", () => {
 
   test("live on → a later turn re-selecting the same pages renders an EMPTY block (net-new dedup)", async () => {
     liveEnabled = true;
-    shadowEnabled = false;
     const first = await produce("conv-1", 0);
     expect(first!.text.length).toBeGreaterThan(0);
     // Same orchestrate fixture on the next turn → zero net-new cards. The
@@ -671,7 +635,6 @@ describe("memory-v3 shadow plugin", () => {
 
   test("live on but empty selection → produce returns null", async () => {
     liveEnabled = true;
-    shadowEnabled = false;
     orchestrateSpy.mockImplementationOnce(async () => ({
       selections: [],
       matchedSections: new Map(),
@@ -684,10 +647,9 @@ describe("memory-v3 shadow plugin", () => {
   });
 
   test("lazy-init runs the lane builders only once across turns", async () => {
-    shadowEnabled = true;
-    await runShadowObservation("conv-1", 0);
-    await runShadowObservation("conv-1", 1);
-    await runShadowObservation("conv-1", 2);
+    await observeTurn("conv-1", 0);
+    await observeTurn("conv-1", 1);
+    await observeTurn("conv-1", 2);
     expect(sectionBuilds).toBe(1);
     expect(needleBuilds).toBe(1);
     expect(edgeBuilds).toBe(1);
@@ -696,12 +658,11 @@ describe("memory-v3 shadow plugin", () => {
   });
 
   test("a Qdrant section-collection failure does not disable the in-memory lanes", async () => {
-    shadowEnabled = true;
     ensureCollectionThrows = true;
     // initLanes still builds the needle + edge lanes and orchestrate runs — a
     // Qdrant outage degrades only the dense lane, it does not take down all of v3
     // (and does not poison the memoized lanes by rejecting init).
-    await runShadowObservation("conv-1", 0);
+    await observeTurn("conv-1", 0);
     expect(needleBuilds).toBe(1);
     expect(edgeBuilds).toBe(1);
     expect(ensureCollectionCalls).toBe(1);
@@ -709,69 +670,64 @@ describe("memory-v3 shadow plugin", () => {
   });
 
   test("invalidateLanes forces a one-time rebuild on the next turn", async () => {
-    shadowEnabled = true;
-    await runShadowObservation("conv-1", 0);
-    await runShadowObservation("conv-1", 1);
+    await observeTurn("conv-1", 0);
+    await observeTurn("conv-1", 1);
     expect(sectionBuilds).toBe(1);
     expect(needleBuilds).toBe(1);
 
     invalidateLanes();
 
-    await runShadowObservation("conv-1", 2);
+    await observeTurn("conv-1", 2);
     expect(sectionBuilds).toBe(2);
     expect(needleBuilds).toBe(2);
     expect(edgeBuilds).toBe(2);
 
     // ...and the rebuild is memoized again — no further builds until the next
     // invalidation.
-    await runShadowObservation("conv-1", 3);
+    await observeTurn("conv-1", 3);
     expect(sectionBuilds).toBe(2);
     expect(needleBuilds).toBe(2);
   });
 
   test("resetShadowLanesForTests invalidates like invalidateLanes", async () => {
-    shadowEnabled = true;
-    await runShadowObservation("conv-1", 0);
+    await observeTurn("conv-1", 0);
     expect(sectionBuilds).toBe(1);
 
     resetShadowLanesForTests();
 
-    await runShadowObservation("conv-1", 1);
+    await observeTurn("conv-1", 1);
     expect(sectionBuilds).toBe(2);
   });
 
   test("concurrent first turns after invalidation share a single build", async () => {
-    shadowEnabled = true;
-    await runShadowObservation("conv-1", 0);
+    await observeTurn("conv-1", 0);
     expect(sectionBuilds).toBe(1);
 
     invalidateLanes();
 
     await Promise.all([
-      runShadowObservation("conv-1", 1),
-      runShadowObservation("conv-1", 2),
+      observeTurn("conv-1", 1),
+      observeTurn("conv-1", 2),
     ]);
     expect(sectionBuilds).toBe(2);
     expect(needleBuilds).toBe(2);
   });
 
   test("no user message → no orchestrate, no writes", async () => {
-    shadowEnabled = true;
     messages = [
       {
         role: "assistant",
         content: JSON.stringify([{ type: "text", text: "hi" }]),
       },
     ];
-    await runShadowObservation("conv-1", 0);
+    await observeTurn("conv-1", 0);
     expect(orchestrateSpy).not.toHaveBeenCalled();
     expect(readRows()).toHaveLength(0);
   });
 
   describe("initLanes feeds synthetic capability pages into the section index", () => {
     test("the pageBody resolver returns capability content for a synthetic slug and disk body otherwise", async () => {
-      shadowEnabled = true;
-      await runShadowObservation("conv-1", 0);
+      await observeTurn("conv-1", 0);
 
       // `initLanes` ran the real pageBody-building closure and handed it to
       // `buildSectionIndex`; the stub captured it.
@@ -787,8 +743,7 @@ describe("memory-v3 shadow plugin", () => {
     });
 
     test("a synthetic slug's capability content yields a section the needle ranks", async () => {
-      shadowEnabled = true;
-      await runShadowObservation("conv-1", 0);
+      await observeTurn("conv-1", 0);
       const pageBody = capturedPageBody!;
 
       // Feed the captured resolver through the REAL section builder + needle:
@@ -819,35 +774,21 @@ describe("memory-v3 infrastructure-failure handling", () => {
 
   test("LIVE injector logs and degrades to no v3 block on an infra failure", async () => {
     liveEnabled = true;
-    shadowEnabled = false;
     throwInfra();
 
     expect(await produce("conv-infra-live", 0)).toBeNull();
   });
 
-  test("SHADOW injector swallows an infra failure (v2 fallback) — no throw, no block", async () => {
-    liveEnabled = false;
-    shadowEnabled = true;
+  test("observeTurn rethrows an infra failure so the injector can degrade distinctly", async () => {
     throwInfra();
 
-    // Shadow mode: v2 retrieval still ran this turn, so the v3 injector returns
-    // null.
-    expect(await produce("conv-infra-shadow", 0)).toBeNull();
-  });
-
-  test("runShadowObservation never throws on an infra failure (fire-and-forget)", async () => {
-    liveEnabled = false;
-    shadowEnabled = true;
-    throwInfra();
-
-    await expect(
-      runShadowObservation("conv-infra-obs", 0),
-    ).resolves.toBeUndefined();
+    await expect(observeTurn("conv-infra-obs", 0)).rejects.toBeInstanceOf(
+      MemoryV3RetrievalUnavailableError,
+    );
   });
 
   test("LIVE injector stays NON-fatal on a non-infra error (degrades to no v3 block)", async () => {
     liveEnabled = true;
-    shadowEnabled = false;
     orchestrateSpy.mockImplementationOnce(async () => {
       throw new Error("some unexpected non-infra bug");
     });

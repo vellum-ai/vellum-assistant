@@ -187,6 +187,11 @@ export function stopScheduler(): void {
   instance = null;
 }
 
+/** The running scheduler, or null if one was never started. */
+export function getScheduler(): SchedulerHandle | null {
+  return instance;
+}
+
 export async function runScheduleOnce(
   processMessage: ScheduleMessageProcessor,
   notifyScheduleOneShot: ScheduleNotifyModeNotifier,

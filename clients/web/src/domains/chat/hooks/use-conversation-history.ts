@@ -21,7 +21,7 @@
  */
 
 import { captureError } from "@/lib/sentry/capture-error";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import { type InfiniteData, useQueryClient } from "@tanstack/react-query";
 
@@ -350,19 +350,13 @@ export function useConversationHistory({
   }, [pagination.dataUpdatedAt, assistantId, activeConversationId]);
 
   // -------------------------------------------------------------------------
-  // Live-turn → history handoff. On the sending→idle transition the finished
-  // turn is persisted, so refetch history (authoritative copy) and then drop
-  // only the rows that actually landed in history from the live turn. Rows not
-  // yet persisted stay live — no flash, no loss.
+  // Live-turn → history handoff. When a turn finishes, the persisted copy is
+  // authoritative, so refetch history and then drop only the rows that actually
+  // landed in history from the live turn. Rows not yet persisted stay live — no
+  // flash, no loss.
   // -------------------------------------------------------------------------
-  const wasSendingRef = useRef(false);
-  const turnPhase = useTurnStore.use.phase();
-  useEffect(() => {
-    const sending = isSending(turnPhase);
-    const justFinished = wasSendingRef.current && !sending;
-    wasSendingRef.current = sending;
-
-    if (!justFinished || !assistantId || !activeConversationId) return;
+  const handoffLiveTurnToHistory = useCallback(() => {
+    if (!assistantId || !activeConversationId) return;
     if (useChatSessionStore.getState().liveTurn.length === 0) return;
 
     const key = conversationHistoryQueryKey(assistantId, activeConversationId);
@@ -382,7 +376,31 @@ export function useConversationHistory({
           ),
         );
     });
-  }, [turnPhase, assistantId, activeConversationId, pagination, queryClient]);
+  }, [assistantId, activeConversationId, pagination, queryClient]);
+
+  // A turn is in progress for the active conversation when either the local
+  // turn store is sending (a `useSendMessage` turn this client started) or the
+  // conversation is flagged processing. The processing flag also covers
+  // passively-observed turns the local flow never initiated — external channels
+  // (phone, Slack, Telegram) and other-client sends — where `turnPhase` stays
+  // idle. Without this, such a turn's content would be stranded in the live turn
+  // while the durable history cache went stale, so the live view would show only
+  // the latest exchange until a reload. Hand off on the combined falling edge;
+  // for local sends both signals clear together in `endTurn`, so it fires
+  // exactly once per turn.
+  const turnPhase = useTurnStore.use.phase();
+  const processingConversationIds =
+    useConversationStore.use.processingConversationIds();
+  const activeInProgress =
+    isSending(turnPhase) ||
+    (!!activeConversationId &&
+      processingConversationIds.has(activeConversationId));
+  const wasInProgressRef = useRef(false);
+  useEffect(() => {
+    const justFinished = wasInProgressRef.current && !activeInProgress;
+    wasInProgressRef.current = activeInProgress;
+    if (justFinished) handoffLiveTurnToHistory();
+  }, [activeInProgress, handoffLiveTurnToHistory]);
 
   // -------------------------------------------------------------------------
   // Refetch history when the SSE connection reopens after a disconnect.

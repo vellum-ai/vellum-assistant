@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import { setOverridesForTesting } from "../../../../__tests__/feature-flag-test-helpers.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { EmbeddingBackendUnavailableError } from "../../../../memory/embedding-backend.js";
 import { EmbeddingBillingBlockError } from "../../../../memory/embedding-billing-breaker.js";
@@ -17,12 +16,8 @@ import {
 import { buildSectionIndex } from "../sections.js";
 import type { Section, SectionIndex, Slug } from "../types.js";
 
-const FLAG_SHADOW = "memory-v3-shadow";
-
-// The shadow flag resolver ignores the passed config and reads the override
-// cache; the config arg only satisfies the signature. Shadow is driven via
-// `setOverridesForTesting`; v3-live (now config-gated) is driven through the
-// `isMemoryV3Live` mock slot below.
+// v3-live (config-gated) is driven through the `isMemoryV3Live` mock slot
+// below; the config arg only satisfies the signature.
 const CONFIG = {} as AssistantConfig;
 
 let memoryV3LiveSlot = false;
@@ -50,7 +45,6 @@ const JOB = { id: "job-1", type: "memory_v3_maintain" } as unknown as MemoryJob;
 
 describe("maintainJob", () => {
   afterEach(() => {
-    setOverridesForTesting({});
     memoryV3LiveSlot = false;
   });
 
@@ -103,8 +97,7 @@ describe("maintainJob", () => {
     return { deps: { ...base, ...overrides }, calls };
   }
 
-  test("no-op when both v3 flags are off", async () => {
-    setOverridesForTesting({ [FLAG_SHADOW]: false });
+  test("no-op when v3 is disabled", async () => {
     const { deps: d, calls } = deps({
       selectChangedPages: async () => ["page-a"],
     });
@@ -114,8 +107,8 @@ describe("maintainJob", () => {
     expect(calls.invalidate).toBe(0);
   });
 
-  test("re-chunks + re-embeds changed pages and invalidates lanes (shadow on)", async () => {
-    setOverridesForTesting({ [FLAG_SHADOW]: true });
+  test("re-chunks + re-embeds changed pages and invalidates lanes (live on)", async () => {
+    memoryV3LiveSlot = true;
     const { deps: d, calls } = deps({
       selectChangedPages: async () => ["page-a", "page-b"],
     });
@@ -148,7 +141,7 @@ describe("maintainJob", () => {
   });
 
   test("skips the dense store entirely when no pages changed", async () => {
-    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    memoryV3LiveSlot = true;
     const { deps: d, calls } = deps({ selectChangedPages: async () => [] });
     const outcome = await maintainJob(JOB, CONFIG, d);
     expect(outcome.reembedded).toBe(0);
@@ -161,7 +154,7 @@ describe("maintainJob", () => {
   });
 
   test("a single failing page is contained; other pages still re-embed", async () => {
-    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    memoryV3LiveSlot = true;
     const { deps: d, calls } = deps({
       selectChangedPages: async () => ["page-ok", "page-bad", "page-ok-2"],
       upsertSections: async (_config, sections) => {
@@ -190,7 +183,7 @@ describe("maintainJob", () => {
   });
 
   test("a thrown re-embed stage does not abort lane invalidation", async () => {
-    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    memoryV3LiveSlot = true;
     const { deps: d, calls } = deps({
       selectChangedPages: async () => {
         throw new Error("select boom");
@@ -204,7 +197,7 @@ describe("maintainJob", () => {
   });
 
   test("advances the high-water mark after a successful re-embed pass", async () => {
-    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    memoryV3LiveSlot = true;
     const { deps: d, calls } = deps({
       selectChangedPages: async () => ["page-a"],
     });
@@ -213,7 +206,7 @@ describe("maintainJob", () => {
   });
 
   test("does not advance the high-water mark when selection throws", async () => {
-    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    memoryV3LiveSlot = true;
     const { deps: d, calls } = deps({
       selectChangedPages: async () => {
         throw new Error("select boom");
@@ -225,7 +218,7 @@ describe("maintainJob", () => {
   });
 
   test("prunes sections for an article absent from the page index", async () => {
-    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    memoryV3LiveSlot = true;
     // The dense store holds points for a live page, a deleted page, and a
     // synthetic capability row; the page index holds only the live + synthetic
     // slugs. Only the deleted page's sections are pruned. `selectChangedPages`
@@ -250,7 +243,7 @@ describe("maintainJob", () => {
   });
 
   test("prunes nothing when every stored article is still in the index", async () => {
-    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    memoryV3LiveSlot = true;
     const { deps: d, calls } = deps({
       listSectionArticles: async () => ["page-a", "page-b"],
       listIndexedSlugs: async () => ["page-a", "page-b", "page-c"],
@@ -262,7 +255,7 @@ describe("maintainJob", () => {
   });
 
   test("a single failing prune delete is contained; other deletions proceed", async () => {
-    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    memoryV3LiveSlot = true;
     const { deps: d, calls } = deps({
       listSectionArticles: async () => ["gone-1", "gone-bad", "gone-2"],
       listIndexedSlugs: async () => [],
@@ -284,7 +277,7 @@ describe("maintainJob", () => {
   });
 
   test("reports dangling core entries without mutating anything", async () => {
-    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    memoryV3LiveSlot = true;
     // The core file lists a live page, a renamed/deleted page, and a synthetic
     // capability slug; only the missing page is reported. The stage is
     // report-only: no deletes, no upserts, and the maintainer-owned file is
@@ -308,7 +301,7 @@ describe("maintainJob", () => {
   });
 
   test("reports nothing when every core entry is still in the index", async () => {
-    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    memoryV3LiveSlot = true;
     const { deps: d } = deps({
       loadCoreSet: () => ["page-a", "page-b"],
       listIndexedSlugs: async () => ["page-a", "page-b", "page-c"],
@@ -318,7 +311,7 @@ describe("maintainJob", () => {
   });
 
   test("an empty core set skips validation entirely", async () => {
-    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    memoryV3LiveSlot = true;
     let indexReads = 0;
     const { deps: d } = deps({
       loadCoreSet: () => [],
@@ -335,7 +328,7 @@ describe("maintainJob", () => {
   });
 
   test("a thrown core-validation stage is contained and does not abort lane invalidation", async () => {
-    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    memoryV3LiveSlot = true;
     const { deps: d, calls } = deps({
       loadCoreSet: () => {
         throw new Error("core boom");
@@ -350,7 +343,7 @@ describe("maintainJob", () => {
   });
 
   test("a thrown prune stage is contained and does not abort lane invalidation", async () => {
-    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    memoryV3LiveSlot = true;
     const { deps: d, calls } = deps({
       listSectionArticles: async () => {
         throw new Error("scroll boom");
@@ -366,7 +359,7 @@ describe("maintainJob", () => {
   });
 
   test("reconciles capability rows missing from the section store", async () => {
-    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    memoryV3LiveSlot = true;
     // The index lists a real page and three capability rows; the store already
     // holds one of the caps. The change-delta excludes capability rows, so
     // without this stage a skill enabled after the one-time backfill never
@@ -397,7 +390,7 @@ describe("maintainJob", () => {
   });
 
   test("skips a cold capability row (empty body) without deleting its points", async () => {
-    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    memoryV3LiveSlot = true;
     const { deps: d, calls } = deps({
       listIndexedSlugs: async () => ["skills/cold"],
       listSectionArticles: async () => [],
@@ -459,7 +452,6 @@ describe("computeChangedPages", () => {
 
 describe("backfillAllSections", () => {
   afterEach(() => {
-    setOverridesForTesting({});
     memoryV3LiveSlot = false;
   });
 
