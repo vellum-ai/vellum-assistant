@@ -126,14 +126,15 @@ const procToSkillsFlagOn = () =>
   flagStates["procedural-memory-as-skills"] ?? false;
 mock.module("../../../config/memory-v3-gate.js", () => ({
   isMemoryV3Live: () => procToSkillsLive(),
-  // Proc-to-skills routing is gated by the `procedural-memory-as-skills`
-  // assistant flag (default off). Drive it through `flagStates` so suites that
-  // need the proc-to-skills consolidation section ON can flip it the same way
-  // they flip the other gates, while existing cases keep the default-off shape.
+  // Proc-to-skills is gated by the `procedural-memory-as-skills` assistant flag
+  // (default off). Drive it through `flagStates` so suites can flip it the same
+  // way they flip the other gates, while existing cases keep the default-off
+  // shape.
   isProcToSkillsEnabled: () => procToSkillsFlagOn(),
-  // Active = flag on AND v3 live. The consolidation prompt section, the distill
-  // follow-up enqueue, and the skill-authoring grant all gate on this combined
-  // predicate, so drive it from the same flag slots.
+  // Active = flag on AND v3 live. The retrospective skill-authoring step and its
+  // skill-authoring grant gate on this combined predicate, so drive it from the
+  // same flag slots. (The v2 consolidation job itself only reads
+  // `isMemoryV3Live`; these are mocked to satisfy the module shape.)
   isProcToSkillsActive: () => procToSkillsFlagOn() && procToSkillsLive(),
 }));
 

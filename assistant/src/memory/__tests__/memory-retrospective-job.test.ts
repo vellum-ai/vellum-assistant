@@ -1533,8 +1533,8 @@ describe("memoryRetrospectiveJob", () => {
       "Never folder-rewrite a user-authored skill",
     );
 
-    // No skill:-link directive (that layer was removed); ordinary facts stay
-    // unlinked remembers.
+    // Ordinary facts stay plain remembers — the instruction carries no
+    // skill-linking directive.
     expect(instructionText).not.toContain("skill:");
     expect(instructionText).toContain("Ordinary facts still go through");
   });
