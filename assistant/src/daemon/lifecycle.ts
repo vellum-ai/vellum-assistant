@@ -104,7 +104,7 @@ import {
 } from "../work-items/work-item-store.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/adaptive-thinking-repair.js";
-import { WorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
+import { startWorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import { runWorkspaceMigrations } from "../workspace/migrations/runner.js";
 import { writePid } from "./daemon-control.js";
@@ -1320,18 +1320,9 @@ export async function runDaemon(): Promise<void> {
     });
   }
 
-  const workspaceHeartbeat = new WorkspaceHeartbeatService();
-  workspaceHeartbeat.start();
+  startWorkspaceHeartbeatService();
 
-  const heartbeat = startHeartbeatService({
-    alerter: (alert) => broadcastMessage(alert),
-    onConversationCreated: (info) =>
-      broadcastMessage({
-        type: "heartbeat_conversation_created",
-        conversationId: info.conversationId,
-        title: info.title,
-      }),
-  });
+  const heartbeat = startHeartbeatService();
   registerBackgroundWakeRuntime({ scheduler, heartbeat });
   refreshBackgroundWakeIntent("daemon-startup");
 
@@ -1341,10 +1332,7 @@ export async function runDaemon(): Promise<void> {
   // (see `maybeEnqueueGraphMaintenanceJobs`).
   startFilingService();
 
-  installShutdownHandlers({
-    server,
-    workspaceHeartbeat,
-  });
+  installShutdownHandlers({ server });
 
   log.info(
     {

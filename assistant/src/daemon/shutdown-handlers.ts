@@ -15,7 +15,10 @@ import { browserManager } from "../tools/browser/browser-manager.js";
 import { cleanupShellOutputTempFiles } from "../tools/shared/shell-output.js";
 import { getLogger } from "../util/logger.js";
 import { getEnrichmentService } from "../workspace/commit-message-enrichment-service.js";
-import type { WorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
+import {
+  commitAllPendingWorkspaceChanges,
+  stopWorkspaceHeartbeatService,
+} from "../workspace/heartbeat-service.js";
 import { cleanupPidFile } from "./daemon-control.js";
 import { stopEventLoopWatchdog } from "./event-loop-watchdog.js";
 import { stopDiskPressureGuardForLifecycle } from "./lifecycle.js";
@@ -40,7 +43,6 @@ function stopBackgroundServicesAndCleanupPidFile(): void {
 
 export interface ShutdownDeps {
   server: DaemonServer;
-  workspaceHeartbeat: WorkspaceHeartbeatService;
 }
 
 export function installShutdownHandlers(deps: ShutdownDeps): void {
@@ -68,7 +70,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     }, 20_000);
     forceTimer.unref();
 
-    await deps.workspaceHeartbeat.stop();
+    await stopWorkspaceHeartbeatService();
     await stopHeartbeatService();
     await stopFilingService();
 
@@ -85,7 +87,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     // This ensures no workspace state is lost during graceful shutdown.
     try {
       log.info({ phase: "pre_stop" }, "Committing pending workspace changes");
-      await deps.workspaceHeartbeat.commitAllPending();
+      await commitAllPendingWorkspaceChanges();
     } catch (err) {
       log.warn({ err, phase: "pre_stop" }, "Shutdown workspace commit failed");
     }
@@ -96,7 +98,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     // (e.g. in-flight tool executions completing during drain).
     try {
       log.info({ phase: "post_stop" }, "Final workspace commit sweep");
-      await deps.workspaceHeartbeat.commitAllPending();
+      await commitAllPendingWorkspaceChanges();
     } catch (err) {
       log.warn(
         { err, phase: "post_stop" },
