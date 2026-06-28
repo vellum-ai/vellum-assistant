@@ -49,12 +49,17 @@ mock.module("../../util/platform.js", () => ({
   getWorkspaceDir: () => "/tmp/ws",
 }));
 
+const realConfigLoader = await import("../../config/loader.js");
 mock.module("../../config/loader.js", () => ({
+  ...realConfigLoader,
   getConfig: () => ({ memory: { v2: { enabled: true } } }),
 }));
 
 const enqueueCalls: Array<Record<string, unknown>> = [];
+const realRetrospectiveEnqueue =
+  await import("../memory-retrospective-enqueue.js");
 mock.module("../memory-retrospective-enqueue.js", () => ({
+  ...realRetrospectiveEnqueue,
   enqueueMemoryRetrospectiveIfEnabled: (args: Record<string, unknown>) => {
     enqueueCalls.push(args);
   },
@@ -103,6 +108,14 @@ describe("V2MemoryProvider", () => {
     const names = V2MemoryProvider.provideTools().map((t) => t.name);
     expect(names).toContain("remember");
     expect(names).toContain("recall");
+  });
+
+  test("provideRoutes contributes the v2 maintenance routes", () => {
+    const operationIds = (V2MemoryProvider.provideRoutes?.() ?? []).map(
+      (r) => r.operationId,
+    );
+    expect(operationIds).toContain("memory_v2_backfill");
+    expect(operationIds).toContain("memory_v2_list_concept_pages");
   });
 
   test("retrieve* return no blocks when v2 is disabled", async () => {

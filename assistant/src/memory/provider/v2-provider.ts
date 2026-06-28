@@ -15,11 +15,13 @@
  */
 
 import { getConfig } from "../../config/loader.js";
+import { getDb } from "../../persistence/db-connection.js";
 import type { InjectionBlock } from "../../plugins/types.js";
+import { ROUTES as MEMORY_V2_ROUTES } from "../../runtime/routes/memory-v2-routes.js";
+import type { RouteDefinition } from "../../runtime/routes/types.js";
 import { recallTool, rememberTool } from "../../tools/memory/register.js";
 import type { ToolDefinition } from "../../tools/types.js";
 import { getWorkspaceDir } from "../../util/platform.js";
-import { getDb } from "../../persistence/db-connection.js";
 import { enqueueMemoryRetrospectiveIfEnabled } from "../memory-retrospective-enqueue.js";
 import {
   injectMemoryV2Block,
@@ -106,6 +108,10 @@ export const V2MemoryProvider = {
 
   provideTools(): ToolDefinition[] {
     return [rememberTool, recallTool];
+  },
+
+  provideRoutes(): RouteDefinition[] {
+    return MEMORY_V2_ROUTES;
   },
 
   async init(): Promise<void> {},
