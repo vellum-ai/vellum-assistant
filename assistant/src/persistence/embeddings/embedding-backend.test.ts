@@ -4,6 +4,7 @@ import type { AssistantConfig } from "../../config/types.js";
 import {
   clearEmbeddingBackendCache,
   embedWithBackend,
+  isEmbeddingDimensionAvailable,
   resetLocalEmbeddingFailureState,
   selectEmbeddingBackend,
 } from "./embedding-backend.js";
@@ -92,6 +93,87 @@ describe("embedding backend cache invalidation", () => {
 
     const secondSelection = await selectEmbeddingBackend(LOCAL_CONFIG);
     expect(secondSelection.backend).toBe(firstSelection.backend);
+  });
+});
+
+describe("isEmbeddingDimensionAvailable", () => {
+  afterEach(() => {
+    clearEmbeddingBackendCache();
+  });
+
+  function localConfigWithVectorSize(vectorSize: number): AssistantConfig {
+    return {
+      memory: {
+        enabled: true,
+        embeddings: {
+          provider: "local",
+          localModel: "BAAI/bge-small-en-v1.5",
+          required: false,
+        },
+        qdrant: { vectorSize },
+      },
+    } as unknown as AssistantConfig;
+  }
+
+  /** Stub the selected backend's `embed` so the dimension probe is deterministic. */
+  async function stubSelectedBackendProbeDim(
+    config: AssistantConfig,
+    dim: number,
+  ): Promise<ReturnType<typeof mock>> {
+    const { backend } = await selectEmbeddingBackend(config);
+    if (!backend) throw new Error("expected a backend to be selected");
+    const embedMock = mock(async () => [new Array(dim).fill(0)]);
+    (backend as { embed: typeof backend.embed }).embed =
+      embedMock as unknown as typeof backend.embed;
+    return embedMock;
+  }
+
+  test("returns true when the reachable backend matches the committed dimension", async () => {
+    const config = localConfigWithVectorSize(384);
+    await stubSelectedBackendProbeDim(config, 384);
+
+    expect(await isEmbeddingDimensionAvailable(config)).toBe(true);
+  });
+
+  test("returns false when the reachable backend's dimension differs from the committed one", async () => {
+    // 3072-dim collection committed, but only a 384-dim backend is reachable.
+    const config = localConfigWithVectorSize(3072);
+    await stubSelectedBackendProbeDim(config, 384);
+
+    expect(await isEmbeddingDimensionAvailable(config)).toBe(false);
+  });
+
+  test("returns false when the backend probe throws (unreachable)", async () => {
+    const config = localConfigWithVectorSize(384);
+    const { backend } = await selectEmbeddingBackend(config);
+    if (!backend) throw new Error("expected a backend to be selected");
+    (backend as { embed: typeof backend.embed }).embed = (async () => {
+      throw new Error("backend unreachable");
+    }) as unknown as typeof backend.embed;
+
+    expect(await isEmbeddingDimensionAvailable(config)).toBe(false);
+  });
+
+  test("memoizes the probe so repeated calls embed only once", async () => {
+    const config = localConfigWithVectorSize(384);
+    const embedMock = await stubSelectedBackendProbeDim(config, 384);
+
+    expect(await isEmbeddingDimensionAvailable(config)).toBe(true);
+    expect(await isEmbeddingDimensionAvailable(config)).toBe(true);
+
+    expect(embedMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("returns false when memory is disabled", async () => {
+    const config = {
+      memory: {
+        enabled: false,
+        embeddings: { provider: "local", localModel: "m", required: false },
+        qdrant: { vectorSize: 384 },
+      },
+    } as unknown as AssistantConfig;
+
+    expect(await isEmbeddingDimensionAvailable(config)).toBe(false);
   });
 });
 

@@ -23,6 +23,7 @@ import { GeminiEmbeddingBackend } from "./embedding-gemini.js";
 import { OllamaEmbeddingBackend } from "./embedding-ollama.js";
 import { OpenAIEmbeddingBackend } from "./embedding-openai.js";
 import {
+  EMBEDDING_DIMENSION_PROBE_TEXT,
   type EmbeddingBackend,
   type EmbeddingInput,
   embeddingInputContentHash,
@@ -216,6 +217,7 @@ export function clearEmbeddingBackendCache(): void {
   backendCache.clear();
   vectorCache.clear();
   vectorCacheBytes = 0;
+  backendDimCache.clear();
   localBackendBroken = false;
 }
 
@@ -506,6 +508,77 @@ export async function getMemoryBackendStatus(config: AssistantConfig): Promise<{
     model: selection.backend.model,
     reason: null,
   };
+}
+
+/**
+ * Memoized output dimension per "provider:model". A backend's vector dimension
+ * is fixed for the life of a (provider, model) pair, so a single probe answers
+ * every subsequent {@link isEmbeddingDimensionAvailable} call without another
+ * backend round-trip. Cleared alongside the backend cache so a credential
+ * change or explicit reset re-probes the (possibly different) backend.
+ */
+const backendDimCache = new Map<string, number>();
+
+/**
+ * Whether the currently-reachable embedding backend can produce vectors of the
+ * committed Qdrant collection dimension (`config.memory.qdrant.vectorSize`).
+ *
+ * Read lanes call this BEFORE embedding a query for a dense Qdrant search so a
+ * known mismatch (e.g. a 3072-dim collection committed to Gemini, but only a
+ * 384-dim local backend reachable while Gemini is down) short-circuits to a
+ * clean degraded outcome instead of paying for an embed round-trip that
+ * {@link embedWithBackend} would only reject on its dimension assertion. The
+ * write path keeps that assertion as the correctness backstop.
+ *
+ * Returns `false` when memory is degraded for any of these reasons:
+ *   - no backend is configured/selectable (`getMemoryBackendStatus().degraded`);
+ *   - the selected backend is unreachable (its probe `embed` throws);
+ *   - the selected backend's output dimension differs from the committed one.
+ *
+ * The selected backend's output dimension is not statically known from
+ * provider/model alone, so it is measured with a fixed-string probe and
+ * memoized per (provider, model) — steady-state calls resolve from
+ * {@link backendDimCache} without a backend round-trip.
+ */
+export async function isEmbeddingDimensionAvailable(
+  config: AssistantConfig,
+): Promise<boolean> {
+  const status = await getMemoryBackendStatus(config);
+  if (status.degraded || !status.provider) return false;
+
+  const { backend } = await selectEmbeddingBackend(config);
+  if (!backend) return false;
+
+  const dim = await resolveBackendDimension(backend);
+  if (dim == null) return false;
+  return dim === config.memory.qdrant.vectorSize;
+}
+
+/**
+ * Resolve a backend's output dimension, probing once and memoizing the result.
+ * Returns `null` when the probe fails (backend unreachable) so the caller can
+ * treat the lane as degraded.
+ */
+async function resolveBackendDimension(
+  backend: EmbeddingBackend,
+): Promise<number | null> {
+  const key = `${backend.provider}:${backend.model}`;
+  const cached = backendDimCache.get(key);
+  if (cached != null) return cached;
+
+  try {
+    const [vector] = await backend.embed([EMBEDDING_DIMENSION_PROBE_TEXT]);
+    const dim = vector?.length;
+    if (dim == null) return null;
+    backendDimCache.set(key, dim);
+    return dim;
+  } catch (err) {
+    log.warn(
+      { err, provider: backend.provider, model: backend.model },
+      "Embedding-dimension availability probe failed; treating as degraded",
+    );
+    return null;
+  }
 }
 
 /**

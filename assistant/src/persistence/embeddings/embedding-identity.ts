@@ -4,7 +4,10 @@ import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
 import { selectEmbeddingBackend } from "./embedding-backend.js";
 import { isEmbeddingBillingBreakerOpen } from "./embedding-billing-breaker.js";
-import type { EmbeddingProviderName } from "./embedding-types.js";
+import {
+  EMBEDDING_DIMENSION_PROBE_TEXT,
+  type EmbeddingProviderName,
+} from "./embedding-types.js";
 import { resolveQdrantUrl } from "./qdrant-client.js";
 
 const log = getLogger("embedding-identity");
@@ -41,7 +44,7 @@ export async function probeBackendDimension(
   if (!backend) return null;
 
   try {
-    const vectors = await backend.embed(["embedding dimension probe"]);
+    const vectors = await backend.embed([EMBEDDING_DIMENSION_PROBE_TEXT]);
     const dim = vectors[0]?.length;
     if (dim == null) return null;
     return { provider: backend.provider, model: backend.model, dim };
