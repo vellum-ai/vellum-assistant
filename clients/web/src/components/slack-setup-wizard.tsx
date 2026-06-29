@@ -6,14 +6,13 @@ import { buildSlackManifestUrl } from "@/utils/slack-manifest";
 
 export type SlackThreadMode = "mention_only" | "mention_then_thread";
 
-const WIZARD_STEP_IDS = ["create-app", "app-token", "install-app", "bot-token"] as const;
+const WIZARD_STEP_IDS = ["create-app", "app-token", "install-and-connect"] as const;
 type WizardStepId = (typeof WIZARD_STEP_IDS)[number];
 
 const WIZARD_STEPS: StepperStep[] = [
   { id: "create-app", label: "Create App" },
-  { id: "app-token", label: "Generate App Token" },
-  { id: "install-app", label: "Install App" },
-  { id: "bot-token", label: "Add Bot Token" },
+  { id: "app-token", label: "App Token" },
+  { id: "install-and-connect", label: "Install & Connect" },
 ];
 
 export interface SlackSetupWizardProps {
@@ -150,12 +149,8 @@ export function SlackSetupWizard({
             />
           )}
 
-          {stepId === "install-app" && (
-            <InstallAppStep onNext={goNext} />
-          )}
-
-          {stepId === "bot-token" && (
-            <BotTokenStep
+          {stepId === "install-and-connect" && (
+            <InstallAndConnectStep
               botToken={botToken}
               saving={saving}
               error={error}
@@ -186,7 +181,8 @@ function CreateAppStep({ slackAppName, onSlackAppNameChange, onCreateApp, onNext
   return (
     <div className="flex flex-col gap-4">
       <p className="text-body-medium-lighter text-[var(--content-default)]">
-        Name your Slack app, then click below to create it:
+        Name your Slack app, then click below to create it. All permissions and
+        settings will be pre-configured automatically.
       </p>
       <Input
         label="App Name"
@@ -195,7 +191,7 @@ function CreateAppStep({ slackAppName, onSlackAppNameChange, onCreateApp, onNext
         placeholder="My Assistant"
         fullWidth
       />
-      <div className="flex items-center">
+      <div className="flex items-center gap-3">
         <Button
           type="button"
           disabled={!nameValid}
@@ -206,14 +202,19 @@ function CreateAppStep({ slackAppName, onSlackAppNameChange, onCreateApp, onNext
           leftIcon={<Plus aria-hidden className="size-4" />}
           rightIcon={<ExternalLink aria-hidden className="size-4" />}
         >
-          Add Slack App
+          Create Slack App
         </Button>
       </div>
-      <div className="flex justify-end">
-        <Button type="button" variant="primary" onClick={onNext}>
-          Next &gt;
-        </Button>
-      </div>
+      <p className="text-body-small-default text-[var(--content-faint)]">
+        Already have a Slack app?{" "}
+        <button
+          type="button"
+          className="text-[var(--content-link)] hover:underline"
+          onClick={onNext}
+        >
+          Skip to next step
+        </button>
+      </p>
     </div>
   );
 }
@@ -235,12 +236,14 @@ function AppTokenStep({
 }: AppTokenStepProps) {
   return (
     <div className="flex flex-col gap-4">
+      <p className="text-body-medium-lighter text-[var(--content-default)]">
+        On your app&apos;s settings page in Slack:
+      </p>
       <ol className="list-decimal list-inside space-y-1 text-body-medium-lighter text-[var(--content-default)]">
         <li>Go to <strong>Basic Information</strong> &rarr; <strong>App-Level Tokens</strong></li>
         <li>Click <strong>Generate Token and Scopes</strong></li>
-        <li>Add the <strong>connections:write</strong> scope</li>
-        <li>Click <strong>Generate</strong></li>
-        <li>Copy the token (starts with <strong>xapp-</strong>) and paste it below</li>
+        <li>Name it anything (e.g. &ldquo;socket&rdquo;) and add the <strong>connections:write</strong> scope</li>
+        <li>Click <strong>Generate</strong> and copy the token</li>
       </ol>
       <div className="flex items-end gap-3">
         <div className="flex-1">
@@ -267,41 +270,10 @@ function AppTokenStep({
 }
 
 // ---------------------------------------------------------------------------
-// Step 3 — Install App
+// Step 3 — Install & Connect
 // ---------------------------------------------------------------------------
 
-interface InstallAppStepProps {
-  onNext: () => void;
-}
-
-function InstallAppStep({ onNext }: InstallAppStepProps) {
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-2">
-        <ol className="list-decimal list-inside space-y-1 text-body-medium-lighter text-[var(--content-default)]">
-          <li>Go to <strong>Install App</strong> in the sidebar</li>
-          <li>Click <strong>Install to Workspace</strong></li>
-          <li>Approve the requested permissions</li>
-        </ol>
-        <p className="text-body-medium-lighter text-[var(--content-faint)]">
-          If Slack shows &ldquo;Request approval&rdquo;, a workspace admin needs
-          to approve it first.
-        </p>
-      </div>
-      <div className="flex justify-end">
-        <Button type="button" variant="primary" onClick={onNext}>
-          Next &gt;
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Step 4 — Bot Token
-// ---------------------------------------------------------------------------
-
-interface BotTokenStepProps {
+interface InstallAndConnectStepProps {
   botToken: string;
   saving: boolean;
   error: string | null;
@@ -309,20 +281,24 @@ interface BotTokenStepProps {
   onSave: () => void;
 }
 
-function BotTokenStep({
+function InstallAndConnectStep({
   botToken,
   saving,
   error,
   onBotTokenChange,
   onSave,
-}: BotTokenStepProps) {
+}: InstallAndConnectStepProps) {
   return (
     <div className="flex flex-col gap-4">
       <ol className="list-decimal list-inside space-y-1 text-body-medium-lighter text-[var(--content-default)]">
         <li>Go to <strong>Install App</strong> in the sidebar</li>
-        <li>Copy the <strong>Bot User OAuth Token</strong> (starts with <strong>xoxb-</strong>)</li>
-        <li>Paste it below</li>
+        <li>Click <strong>Install to Workspace</strong> and approve the permissions</li>
+        <li>Copy the <strong>Bot User OAuth Token</strong> shown on the page</li>
       </ol>
+      <p className="text-body-small-default text-[var(--content-faint)]">
+        If Slack shows &ldquo;Request approval&rdquo; instead, a workspace admin
+        needs to approve the app first.
+      </p>
       <div className="flex items-end gap-3">
         <div className="flex-1">
           <Input
