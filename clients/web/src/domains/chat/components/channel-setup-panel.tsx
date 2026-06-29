@@ -4,7 +4,6 @@ import { useCallback } from "react";
 import { Button } from "@vellumai/design-library";
 
 import { SlackSetupWizard } from "@/components/slack-setup-wizard";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { integrationsSlackChannelConfigPost } from "@/generated/daemon/sdk.gen";
 import type { ChannelSetupPayload } from "@/stores/viewer-store";
 
@@ -14,19 +13,16 @@ interface ChannelSetupPanelProps {
 }
 
 export function ChannelSetupPanel({ payload, onClose }: ChannelSetupPanelProps) {
-  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
-
   const handleSave = useCallback(
     async (botToken: string, appToken: string) => {
-      if (!assistantId) return;
       await integrationsSlackChannelConfigPost({
-        path: { assistant_id: assistantId },
+        path: { assistant_id: payload.assistantId },
         body: { botToken, appToken },
         throwOnError: true,
       });
       onClose();
     },
-    [assistantId, onClose],
+    [payload.assistantId, onClose],
   );
 
   return (

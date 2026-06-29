@@ -151,6 +151,7 @@ export type ChannelSetupType = "slack";
 
 export interface ChannelSetupPayload {
   channel: ChannelSetupType;
+  assistantId: string;
   assistantName: string;
 }
 

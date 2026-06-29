@@ -29,10 +29,12 @@ export function handleUISurfaceShow(
     const data = event.data as { channel?: string } | undefined;
     const { assistants, activeAssistantId } =
       useResolvedAssistantsStore.getState();
+    if (!activeAssistantId) return;
     const assistantName =
       assistants.find((a) => a.id === activeAssistantId)?.name ?? "Assistant";
     useViewerStore.getState().openChannelSetup({
       channel: (data?.channel as "slack") ?? "slack",
+      assistantId: activeAssistantId,
       assistantName,
     });
     return;
