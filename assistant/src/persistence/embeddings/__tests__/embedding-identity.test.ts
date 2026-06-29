@@ -18,8 +18,22 @@ const selectEmbeddingBackendMock = mock(async () => ({
   backend: backendToReturn,
   reason: backendToReturn ? null : "no backend",
 }));
+// probeBackendDimension delegates the measurement to resolveBackendDimension;
+// the mock mirrors the real resolver's "embed → vector length, null on throw"
+// contract so these tests drive behavior through the stub backend's embed().
+const resolveBackendDimensionMock = mock(
+  async (backend: { embed: (inputs: string[]) => Promise<number[][]> }) => {
+    try {
+      const [vector] = await backend.embed(["embedding dimension probe"]);
+      return vector?.length ?? null;
+    } catch {
+      return null;
+    }
+  },
+);
 mock.module("../embedding-backend.js", () => ({
   selectEmbeddingBackend: selectEmbeddingBackendMock,
+  resolveBackendDimension: resolveBackendDimensionMock,
 }));
 
 mock.module("../embedding-billing-breaker.js", () => ({
