@@ -105,6 +105,26 @@ describe("renderSlackBlocks", () => {
     ]);
   });
 
+  test("degrades an image in a formatted cell to a link, keeping the URL", () => {
+    const table = [
+      "| Name | Logo |",
+      "| --- | --- |",
+      "| **acme** | ![logo](https://e.com/l.png) |",
+    ].join("\n");
+    const t = renderSlackBlocks(table)![0] as TableBlock;
+    expect(t.rows[1]![1]).toEqual({
+      type: "rich_text",
+      elements: [
+        {
+          type: "rich_text_section",
+          elements: [
+            { type: "link", url: "https://e.com/l.png", text: "logo" },
+          ],
+        },
+      ],
+    });
+  });
+
   test("keeps plain table cells as raw_text", () => {
     const table = ["| A | B |", "| --- | --- |", "| one | two |"].join("\n");
     const t = renderSlackBlocks(table)![0] as TableBlock;

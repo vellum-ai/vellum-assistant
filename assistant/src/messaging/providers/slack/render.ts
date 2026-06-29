@@ -243,15 +243,23 @@ function tryTableBlock(
   if (columnCount === 0 || columnCount > SLACK_TABLE_MAX_COLUMNS) return null;
   if (rows.length > SLACK_TABLE_MAX_ROWS) return null;
 
-  const toCells = (row: TableRow): TableCell[] =>
-    Array.from({ length: columnCount }, (_, c) =>
-      cellBlock(row.children[c]?.children ?? []),
-    );
+  const cellNodesAt = (row: TableRow, c: number): PhrasingContent[] =>
+    row.children[c]?.children ?? [];
 
-  const tableRows = rows.map(toCells);
-  const cellChars = tableRows.reduce(
+  const tableRows = rows.map((row) =>
+    Array.from({ length: columnCount }, (_, c) =>
+      cellBlock(cellNodesAt(row, c)),
+    ),
+  );
+  // Slack's 10k budget counts visible cell text; derive it from the source nodes
+  // rather than re-walking the built blocks.
+  const cellChars = rows.reduce(
     (sum, row) =>
-      sum + row.reduce((rowSum, cell) => rowSum + cellLength(cell), 0),
+      sum +
+      Array.from(
+        { length: columnCount },
+        (_, c) => serializePlain(cellNodesAt(row, c)).length,
+      ).reduce((rowSum, len) => rowSum + len, 0),
     0,
   );
   if (cellChars > SLACK_TABLE_MAX_TOTAL_CHARS) return null;
@@ -287,19 +295,6 @@ function cellBlock(nodes: PhrasingContent[]): TableCell {
   return { type: "raw_text", text: text.length > 0 ? text : " " };
 }
 
-/** Total visible text length of a built cell, for the 10k cell-character budget. */
-function cellLength(cell: TableCell): number {
-  if (cell.type === "raw_text") return cell.text.length;
-  let total = 0;
-  for (const section of cell.elements) {
-    if (section.type !== "rich_text_section") continue;
-    for (const el of section.elements) {
-      if ("text" in el && typeof el.text === "string") total += el.text.length;
-    }
-  }
-  return total;
-}
-
 /** Column-alignment settings derived from GFM table alignment, or `undefined`. */
 function columnSettingsFor(
   node: Table,
@@ -323,7 +318,8 @@ function hasInlineFormatting(nodes: PhrasingContent[]): boolean {
       node.type === "emphasis" ||
       node.type === "delete" ||
       node.type === "inlineCode" ||
-      node.type === "link"
+      node.type === "link" ||
+      node.type === "image"
     ) {
       return true;
     }
@@ -370,7 +366,13 @@ function toRichText(
         out.push(styledText("\n", style));
         break;
       case "image":
-        if (node.alt) out.push(styledText(node.alt, style));
+        // rich_text can't embed an image; degrade to a link to it (keeping the
+        // URL), matching how the markdown block renders an image as a link.
+        if (node.url) {
+          out.push({ type: "link", url: node.url, text: node.alt || node.url });
+        } else if (node.alt) {
+          out.push(styledText(node.alt, style));
+        }
         break;
       default:
         if ("children" in node) {
