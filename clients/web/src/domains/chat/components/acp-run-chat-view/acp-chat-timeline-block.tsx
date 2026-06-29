@@ -1,10 +1,10 @@
-// Wraps one ACP chat block with a left timeline rail. Blocks are grouped into
-// phases (runs of the same kind): only the first block of a phase shows a dot,
-// so a burst of tool calls reads as one phase instead of N events. Mid-phase
-// blocks render just the connector. Matches the subagent / workflow phase
-// timelines (same 14px dot box, 5px `--content-disabled` dot, 1px
-// `--border-element` connector at left-[6.5px]), adapted for variable-height
-// chat blocks instead of fixed-height step rows.
+// Wraps one ACP chat block with a left timeline rail. The caller decides which
+// blocks anchor the rail: action blocks (tool calls + plan) pass showDot to get
+// a dot, while narration (agent messages, thinking, user turns) passes
+// showDot={false} and renders inline with only the connector running through.
+// Same chrome as the subagent / workflow timelines (14px dot box, 5px
+// `--content-disabled` dot, 1px `--border-element` connector at left-[6.5px]),
+// adapted for variable-height chat blocks instead of fixed-height step rows.
 
 import type { ReactNode } from "react";
 
@@ -13,7 +13,7 @@ export function AcpChatTimelineBlock({
   isLast,
   children,
 }: {
-  /** First block of a phase shows the dot; mid-phase blocks show only the rail. */
+  /** Action blocks (tool/plan) show the dot; narration passes false (rail only). */
   showDot: boolean;
   /** The final block draws no trailing connector. */
   isLast: boolean;
@@ -21,8 +21,8 @@ export function AcpChatTimelineBlock({
 }) {
   return (
     <div className={`relative flex items-start gap-2${isLast ? "" : " pb-4"}`}>
-      {/* Connector trails down to the next block's dot. A phase-start block
-          begins the line just below its dot (top-[18px]); a mid-phase block
+      {/* Connector trails down to the next dot. A dotted (action) block begins
+          the line just below its dot (top-[18px]); a dotless narration block
           runs it full-height (top-0) so the rail stays continuous through the
           empty dot slot. Omitted on the last block. */}
       {!isLast && (

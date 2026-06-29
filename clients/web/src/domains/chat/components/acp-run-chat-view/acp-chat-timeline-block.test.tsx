@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { AcpChatTimelineBlock } from "@/domains/chat/components/acp-run-chat-view/acp-chat-timeline-block";
 
 describe("AcpChatTimelineBlock", () => {
-  test("renders the timeline dot and the child content when it starts a phase", () => {
+  test("renders the timeline dot and the child content when showDot is set", () => {
     const html = renderToStaticMarkup(
       <AcpChatTimelineBlock showDot isLast={false}>
         <span>BLOCK_CONTENT</span>
@@ -14,7 +14,7 @@ describe("AcpChatTimelineBlock", () => {
     expect(html).toContain("BLOCK_CONTENT");
   });
 
-  test("omits the dot for a mid-phase block but keeps the rail continuous", () => {
+  test("omits the dot when showDot is false but keeps the rail continuous", () => {
     const html = renderToStaticMarkup(
       <AcpChatTimelineBlock showDot={false} isLast={false}>
         x

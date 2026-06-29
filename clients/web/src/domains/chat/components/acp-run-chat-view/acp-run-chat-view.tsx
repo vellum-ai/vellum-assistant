@@ -209,16 +209,17 @@ export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
           >
             <ObjectiveSection task={entry.task} />
 
-            {/* Blocks render on a vertical timeline rail grouped into phases:
-                one dot per run of same-kind blocks (a burst of tool calls reads
-                as one phase, not N events), matching the subagent / workflow
-                phase timelines. The rail owns inter-block spacing via per-row
-                padding, so this container drops the parent `gap-4`. */}
+            {/* Blocks render on a vertical timeline rail with a dot only on
+                action blocks (tool calls + plan). Narration — agent messages,
+                thinking, and user turns — renders inline on the rail without a
+                dot, so the rail reads as a sparse list of what the agent did.
+                The rail owns inter-block spacing via per-row padding, so this
+                container drops the parent `gap-4`. */}
             <div className="flex flex-col" data-testid="acp-chat-timeline">
               {blocks.map((block, index) => (
                 <AcpChatTimelineBlock
                   key={blockKey(block, index)}
-                  showDot={index === 0 || block.kind !== blocks[index - 1].kind}
+                  showDot={block.kind === "tool" || block.kind === "plan"}
                   isLast={index === blocks.length - 1}
                 >
                   <ChatBlock
