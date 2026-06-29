@@ -9,7 +9,7 @@ import {
   contacts,
 } from "../persistence/schema/index.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
-import { emitContactChange } from "./contact-events.js";
+import { notifyContactsChanged } from "./notify-contacts-changed.js";
 import type {
   AssistantContactMetadata,
   ChannelPolicy,
@@ -274,7 +274,7 @@ export function upsertContact(params: {
         );
       }
 
-      emitContactChange();
+      notifyContactsChanged();
       return { ...getContactInternal(contactId)!, created: false };
     }
   }
@@ -301,7 +301,7 @@ export function upsertContact(params: {
           .run();
 
         syncChannels(contactId, canonicalChannels, now);
-        emitContactChange();
+        notifyContactsChanged();
         return { ...getContactInternal(contactId)!, created: false };
       }
     }
@@ -334,7 +334,7 @@ export function upsertContact(params: {
     );
   }
 
-  emitContactChange();
+  notifyContactsChanged();
   return { ...getContactInternal(contactId)!, created: true };
 }
 
@@ -650,7 +650,7 @@ export function mergeContacts(
     tx.delete(contacts).where(eq(contacts.id, mergeId)).run();
   });
 
-  emitContactChange();
+  notifyContactsChanged();
   return getContactInternal(keepId)!;
 }
 
@@ -790,7 +790,7 @@ export function updateContactPrincipalAndChannel(
     .where(eq(contactChannels.id, channelId))
     .run();
 
-  emitContactChange();
+  notifyContactsChanged();
   return true;
 }
 
