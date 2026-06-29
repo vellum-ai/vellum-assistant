@@ -1085,6 +1085,61 @@ describe("handleListContacts ACL overlay (filtered/search path)", () => {
     expect(ch.id).toBe("daemon-side-id");
   });
 
+  test("(type,address) fallback is case-insensitive on address", async () => {
+    // Daemon and gateway disagree on channel id AND address casing. The
+    // logical key is (type, lower(address)), so the overlay must still match.
+    fetchMock = mock(async () =>
+      daemonResponse([
+        daemonContact({
+          channels: [
+            {
+              ...daemonContact().channels[0],
+              id: "daemon-side-id",
+              type: "email",
+              address: "Alice@Example.COM",
+            },
+          ],
+        }),
+      ]),
+    );
+    contactStoreGetAclMock = mock(
+      async () =>
+        new Map<string, ContactAcl>([
+          [
+            "c1",
+            {
+              role: "contact",
+              channels: new Map<string, ChannelAcl>([
+                [
+                  "gateway-side-id",
+                  {
+                    id: "gateway-side-id",
+                    type: "email",
+                    address: "alice@example.com",
+                    status: "blocked",
+                    policy: "deny",
+                    verifiedAt: null,
+                    verifiedVia: null,
+                    revokedReason: null,
+                    blockedReason: "spam",
+                  },
+                ],
+              ]),
+            },
+          ],
+        ]),
+    );
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts?query=alice"),
+    );
+    const ch = (await res.json()).contacts[0].channels[0];
+    // Matched despite case + id mismatch: blocked ACL overlaid, not neutral.
+    expect(ch.status).toBe("blocked");
+    expect(ch.blockedReason).toBe("spam");
+  });
+
   test("soft-fail: ACL read throws → original daemon response unchanged", async () => {
     const original = { ok: true, contacts: [daemonContact()] };
     fetchMock = mock(

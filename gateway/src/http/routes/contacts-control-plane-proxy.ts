@@ -807,6 +807,15 @@ function applyChannelAcl(
 }
 
 /**
+ * Logical channel key: (type, lower(address)) — mirrors the case-insensitive
+ * key the gateway ACL uses (UNIQUE(type, address) collates NOCASE). The
+ * escaped NUL delimiter cannot appear in either field, so keys never collide.
+ */
+function channelKey(type: string, address: string): string {
+  return `${type}\u0000${address.toLowerCase()}`;
+}
+
+/**
  * Overlay authoritative gateway ACL onto a parsed daemon contact-list body
  * (in place). For each contact, replace contact-level `role` and per-channel
  * ACL fields from the gateway map. Channels match by `id` first, then by
@@ -838,10 +847,10 @@ function overlayAclOntoContacts(
     const channels = contact.channels;
     if (!Array.isArray(channels)) continue;
 
-    // Index gateway channels by (type,address) for the id-miss fallback.
+    // Index gateway channels by (type, lower(address)) for the id-miss fallback.
     const byTypeAddress = new Map<string, ChannelAcl>();
     for (const ch of acl.channels.values()) {
-      byTypeAddress.set(`${ch.type} ${ch.address}`, ch);
+      byTypeAddress.set(channelKey(ch.type, ch.address), ch);
     }
 
     for (const ch of channels) {
@@ -854,7 +863,7 @@ function overlayAclOntoContacts(
         const type = channel.type;
         const address = channel.address;
         if (typeof type === "string" && typeof address === "string") {
-          match = byTypeAddress.get(`${type} ${address}`);
+          match = byTypeAddress.get(channelKey(type, address));
         }
       }
       if (match) applyChannelAcl(channel, match);
