@@ -43,7 +43,6 @@ import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
 import { expireAllPendingCanonicalRequests } from "../memory/canonical-guardian-store.js";
 import { registerMemoryJobHandlers } from "../memory/register-job-handlers.js";
-import { rotateToolInvocations } from "../memory/tool-usage-store.js";
 import { sweepConceptPageFrontmatter } from "../memory/v2/frontmatter-sweep.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
@@ -98,6 +97,7 @@ import {
   setCesClient,
   setCesReconnect,
 } from "../security/secure-keys.js";
+import { rotateToolInvocations } from "../telemetry/tool-usage-store.js";
 import { startUsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { syncFlagGatedTools } from "../tools/registry.js";
 import { registerBuiltinTtsProviders } from "../tts/providers/register-builtins.js";
