@@ -19,6 +19,7 @@ import {
     PLUGIN_REMOVE_ERROR,
     PLUGIN_UPGRADE_ERROR,
     pluginRemoveConfirmMessage,
+    pluginRiskyUpgradeConfirmLabel,
     pluginRiskyUpgradeConfirmMessage,
 } from "@/domains/intelligence/plugins/constants";
 import { invalidatePluginQueries } from "@/domains/intelligence/plugins/invalidate-plugin-queries";
@@ -26,11 +27,11 @@ import type {
     PluginFilter,
     PluginListItem,
 } from "@/domains/intelligence/plugins/types";
-import { shortSha } from "@/domains/intelligence/plugins/use-plugin-detail";
 import { usePluginsList } from "@/domains/intelligence/plugins/use-plugins-list";
 import {
     filterByStatus,
     matchesQuery,
+    shortSha,
 } from "@/domains/intelligence/plugins/utils";
 import {
     hasLocalEdits,
@@ -291,7 +292,7 @@ export function PluginsTab({ assistantId, initialPluginName }: PluginsTabProps) 
             ? pluginRiskyUpgradeConfirmMessage(pendingUpgrade.name)
             : ""
         }
-        confirmLabel="Upgrade"
+        confirmLabel={pluginRiskyUpgradeConfirmLabel}
         destructive
         onConfirm={confirmUpgrade}
         onCancel={() => setPendingUpgrade(null)}

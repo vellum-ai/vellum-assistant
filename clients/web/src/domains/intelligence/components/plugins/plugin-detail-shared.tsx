@@ -14,9 +14,10 @@ import {
     PLUGIN_REMOVE_ERROR,
     PLUGIN_UPGRADE_ERROR,
     pluginRemoveConfirmMessage,
+    pluginRiskyUpgradeConfirmLabel,
     pluginRiskyUpgradeConfirmMessage,
 } from "@/domains/intelligence/plugins/constants";
-import { shortSha } from "@/domains/intelligence/plugins/use-plugin-detail";
+import { shortSha } from "@/domains/intelligence/plugins/utils";
 import type { PluginDrift } from "@/domains/intelligence/use-plugin-drift";
 import type { PluginsByNameGetResponse } from "@/generated/daemon/types.gen";
 import { cn } from "@/utils/misc";
@@ -278,7 +279,7 @@ export function PluginDetailActions({
         open={confirmingUpgrade}
         title="Upgrade plugin"
         message={pluginRiskyUpgradeConfirmMessage(plugin.name)}
-        confirmLabel="Upgrade anyway"
+        confirmLabel={pluginRiskyUpgradeConfirmLabel}
         destructive
         onConfirm={confirmUpgrade}
         onCancel={() => setConfirmingUpgrade(false)}

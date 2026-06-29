@@ -83,9 +83,8 @@ mock.module("@/domains/intelligence/plugins/use-plugin-detail", () => ({
     isRemoveError: false,
     isUpgradeError: false,
   }),
-  // The shared `PluginDetailActions` imports `shortSha` from this module for its
-  // upgrade tooltip, so the mock must re-export it.
-  shortSha: (sha: string | null) => (sha ? sha.slice(0, 7) : "unknown"),
+  // `shortSha` is not stubbed: `PluginDetailActions` now imports it from
+  // `plugins/utils`, so the real helper runs.
 }));
 
 const { PluginDetailMobile } = await import(

@@ -66,3 +66,8 @@ export function filterByStatus(
   if (filter === "all") return items;
   return items.filter((i) => i.status === filter);
 }
+
+/** First 7 chars of a commit SHA, matching git's default short form. */
+export function shortSha(sha: string | null): string {
+  return sha ? sha.slice(0, 7) : "unknown";
+}
