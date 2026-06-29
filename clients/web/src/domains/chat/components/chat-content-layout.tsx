@@ -27,6 +27,7 @@ import { useViewerStore } from "@/stores/viewer-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
+import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
 import { useEditApp } from "@/hooks/use-edit-app";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { routes } from "@/utils/routes";
@@ -42,6 +43,10 @@ const importAcpRunDetailPanel = () =>
   import("@/domains/chat/components/acp-run-detail-panel/acp-run-detail-panel");
 const importWorkflowDetailPanel = () =>
   import("@/domains/chat/components/workflow-detail-panel");
+const importBackgroundTaskDetailPanel = () =>
+  import(
+    "@/domains/chat/components/background-task-detail-panel/background-task-detail-panel"
+  );
 
 const SubagentDetailPanel = lazy(() =>
   importSubagentDetailPanel().then((m) => ({ default: m.SubagentDetailPanel })),
@@ -54,6 +59,11 @@ const WorkflowDetailPanel = lazy(() =>
 );
 const ToolDetailPanel = lazy(() =>
   importToolDetailPanel().then((m) => ({ default: m.ToolDetailPanel })),
+);
+const BackgroundTaskDetailPanel = lazy(() =>
+  importBackgroundTaskDetailPanel().then((m) => ({
+    default: m.BackgroundTaskDetailPanel,
+  })),
 );
 
 // ---------------------------------------------------------------------------
@@ -80,6 +90,11 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   // Active run's entry only — same narrow selector as the subagent entry above.
   const activeAcpRunEntry = useAcpRunStore((s) =>
     activeAcpRunId ? s.byId[activeAcpRunId] : undefined,
+  );
+  const activeBackgroundTaskId = useViewerStore.use.activeBackgroundTaskId();
+  // Active task's entry only — same narrow selector as the entries above.
+  const activeBackgroundTaskEntry = useBackgroundTaskStore((s) =>
+    activeBackgroundTaskId ? s.byId[activeBackgroundTaskId] : undefined,
   );
 
   const isSharing = useDeployStore.use.isSharing();
@@ -165,6 +180,10 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     useViewerStore.getState().closeAcpRunDetail();
   }, []);
 
+  const onCloseBackgroundTaskDetail = useCallback(() => {
+    useViewerStore.getState().closeBackgroundTaskDetail();
+  }, []);
+
   // -------------------------------------------------------------------------
   // Escape closes whichever right-hand side panel is open (tool detail /
   // thought process, subagent detail, workflow detail, acp run detail,
@@ -201,6 +220,9 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
         case "acp-run-detail":
           viewer.closeAcpRunDetail();
           break;
+        case "background-task-detail":
+          viewer.closeBackgroundTaskDetail();
+          break;
         case "document":
           viewer.closeDocument();
           break;
@@ -224,6 +246,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
       importToolDetailPanel().catch(() => {});
       importAcpRunDetailPanel().catch(() => {});
       importWorkflowDetailPanel().catch(() => {});
+      importBackgroundTaskDetailPanel().catch(() => {});
     };
     if (typeof window.requestIdleCallback === "function") {
       const id = window.requestIdleCallback(run);
@@ -366,6 +389,19 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
           <AcpRunDetailPanel
             entry={activeAcpRunEntry}
             onClose={onCloseAcpRunDetail}
+          />
+        </LazyBoundary>
+      );
+    } else if (
+      mainView === "background-task-detail" &&
+      activeBackgroundTaskId &&
+      activeBackgroundTaskEntry
+    ) {
+      rightPanel = (
+        <LazyBoundary>
+          <BackgroundTaskDetailPanel
+            entry={activeBackgroundTaskEntry}
+            onClose={onCloseBackgroundTaskDetail}
           />
         </LazyBoundary>
       );
