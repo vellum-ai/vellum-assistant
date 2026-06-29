@@ -697,6 +697,29 @@ describe("VellumAcpClientHandler seq + enriched fields", () => {
     expect(serialized).toContain("<redacted");
   });
 
+  test("tool_call redacts credential-named fields nested inside arrays of arrays", async () => {
+    const { handler, sent } = makeHandler();
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tc-nested-array",
+        title: "Batch",
+        kind: "execute",
+        status: "completed",
+        // Credential-named field buried under array-in-array nesting; the
+        // value isn't secret-shaped, so only field-name redaction catches it.
+        rawInput: { calls: [[{ token: "plainword" }]] },
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    const serialized = JSON.stringify(sent[0]);
+    expect(serialized).not.toContain("plainword");
+    expect(serialized).toContain("<redacted");
+  });
+
   test("tool_call_update redacts credential-named fields whose values aren't secret-shaped", async () => {
     const { handler, sent } = makeHandler();
 
