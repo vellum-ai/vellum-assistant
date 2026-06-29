@@ -78,7 +78,7 @@ export function useChatUIState(): ChatUIState {
   // All message-derived checks read the rendered transcript (the materialized
   // snapshot ⊕ optimistic sends) — the streaming assistant row is its tail
   // while a turn is in flight.
-  const transcript = useTranscriptMessages(assistantId, activeConversationId);
+  const transcript = useTranscriptMessages();
 
   // TanStack Query — deduped with any other call for the same conversation.
   const activeConversation = useActiveConversation(assistantId, activeConversationId, true);

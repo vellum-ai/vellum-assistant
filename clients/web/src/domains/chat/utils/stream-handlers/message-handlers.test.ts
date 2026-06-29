@@ -15,6 +15,7 @@ import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { conversationsQueryKey } from "@/utils/conversation-list-fetchers";
 import { findConversation } from "@/utils/conversation-cache";
 import type { Conversation } from "@/types/conversation-types";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 
 describe("handleAssistantTurnStart", () => {
   it("seeds currentAssistantMessageIdRef from the event's messageId", () => {
@@ -346,13 +347,24 @@ describe("handleUserMessageEcho", () => {
     expect(ctx.clearOptimisticSend).toHaveBeenCalledWith("client-1");
   });
 
-  it("is a no-op when the echo carries no clientMessageId", () => {
+  it("retires the most recent optimistic user send when the echo carries no nonce", () => {
     const ctx = makeCtx();
     handleUserMessageEcho(
       { type: "user_message_echo", text: "Hello", messageId: "msg-1" },
       ctx,
     );
+    // No nonce to correlate on — falls back to setOptimisticSends rather than
+    // clearOptimisticSend.
     expect(ctx.clearOptimisticSend).not.toHaveBeenCalled();
+    expect(ctx.setOptimisticSends).toHaveBeenCalled();
+    // The updater drops the last optimistic user row, leaving others intact.
+    const updater = (ctx.setOptimisticSends as unknown as ReturnType<typeof Object>)
+      .mock.calls[0][0] as (prev: DisplayMessage[]) => DisplayMessage[];
+    const next = updater([
+      { id: "keep", role: "assistant" } as DisplayMessage,
+      { id: "opt-1", role: "user", isOptimistic: true } as DisplayMessage,
+    ]);
+    expect(next.map((m) => m.id)).toEqual(["keep"]);
   });
 });
 

@@ -54,10 +54,6 @@ export function handleConversationErrorEvent(
   }
   ctx.endTurn({ conversationId: convId, reason: "error" });
 
-  // The reducer folds `conversation_error` into the snapshot (finalizing any
-  // running tool calls on the streaming row); the handler owns turn teardown,
-  // the error banner, and stream lifecycle.
-
   ctx.setError({
     message: event.userMessage,
     code: event.code,

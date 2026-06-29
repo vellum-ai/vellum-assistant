@@ -25,10 +25,6 @@ function seedSnapshot(messages: DisplayMessage[]): void {
   });
 }
 
-function snapshotMessages(): DisplayMessage[] {
-  return useChatSessionStore.getState().snapshot?.messages ?? [];
-}
-
 function runningToolCall(id: string): ChatMessageToolCall {
   return { id, name: "bash", input: {} };
 }
@@ -84,7 +80,10 @@ describe("handleConfirmationRequest", () => {
     expect(state.pendingConfirmation).toMatchObject({ requestId: "cr-1" });
   });
 
-  it("attaches the confirmation marker onto the matched tool call in the snapshot", () => {
+  it("wires the interaction store to the matched tool call (reducer folds the marker)", () => {
+    // The reducer attaches the inline marker onto the snapshot (covered in
+    // rolling-base.test.ts); the handler only derives the matched tool-call id
+    // read-only to wire the interaction store.
     seedSnapshot([
       {
         id: "a-1",
@@ -108,8 +107,6 @@ describe("handleConfirmationRequest", () => {
       ctx,
     );
 
-    const toolCall = snapshotMessages()[0]?.toolCalls?.[0];
-    expect(toolCall?.pendingConfirmation?.requestId).toBe("cr-1");
     expect(
       useInteractionStore.getState().inlineConfirmationToolCallId,
     ).toBe("tc-1");
@@ -118,22 +115,10 @@ describe("handleConfirmationRequest", () => {
 });
 
 describe("handleInteractionResolved", () => {
-  it("retires the active confirmation card when its interaction resolves", () => {
-    const ctx = makeCtx();
-    seedSnapshot([
-      {
-        id: "a-1",
-        role: "assistant",
-        ...textBody(""),
-        timestamp: 1,
-        toolCalls: [
-          {
-            ...runningToolCall("tc-1"),
-            pendingConfirmation: { requestId: "cr-1", toolName: "acp_spawn" },
-          },
-        ],
-      },
-    ]);
+  it("retires the active confirmation's interaction-store state when it resolves", () => {
+    // The reducer clears the inline marker on the snapshot (covered in
+    // rolling-base.test.ts); the handler releases the interaction-store
+    // bookkeeping.
     useInteractionStore.getState().showConfirmation({
       requestId: "cr-1",
       toolName: "acp_spawn",
@@ -143,30 +128,23 @@ describe("handleInteractionResolved", () => {
     useInteractionStore.getState().setInlineConfirmationToolCallId("tc-1");
     useChatSessionStore.getState().setConfirmationToolCall("cr-1", "tc-1");
 
-    handleInteractionResolved(
-      {
-        type: "interaction_resolved",
-        requestId: "cr-1",
-        conversationId: "conv-1",
-        kind: "confirmation",
-        state: "cancelled",
-      },
-      ctx,
-    );
+    handleInteractionResolved({
+      type: "interaction_resolved",
+      requestId: "cr-1",
+      conversationId: "conv-1",
+      kind: "confirmation",
+      state: "cancelled",
+    });
 
     const interaction = useInteractionStore.getState();
     expect(interaction.pendingConfirmation).toBeNull();
     expect(interaction.inlineConfirmationToolCallId).toBeNull();
-    expect(
-      snapshotMessages()[0]?.toolCalls?.[0]?.pendingConfirmation,
-    ).toBeUndefined();
     expect(
       useChatSessionStore.getState().confirmationToolCallMap.has("cr-1"),
     ).toBe(false);
   });
 
   it("leaves a non-matching confirmation untouched", () => {
-    const ctx = makeCtx();
     useInteractionStore.getState().showConfirmation({
       requestId: "cr-1",
       toolName: "acp_spawn",
@@ -174,16 +152,13 @@ describe("handleInteractionResolved", () => {
       input: {},
     });
 
-    handleInteractionResolved(
-      {
-        type: "interaction_resolved",
-        requestId: "other-request",
-        conversationId: "conv-1",
-        kind: "confirmation",
-        state: "cancelled",
-      },
-      ctx,
-    );
+    handleInteractionResolved({
+      type: "interaction_resolved",
+      requestId: "other-request",
+      conversationId: "conv-1",
+      kind: "confirmation",
+      state: "cancelled",
+    });
 
     expect(
       useInteractionStore.getState().pendingConfirmation?.requestId,
@@ -191,7 +166,6 @@ describe("handleInteractionResolved", () => {
   });
 
   it("ignores non-confirmation interaction kinds", () => {
-    const ctx = makeCtx();
     useInteractionStore.getState().showConfirmation({
       requestId: "cr-1",
       toolName: "acp_spawn",
@@ -199,16 +173,13 @@ describe("handleInteractionResolved", () => {
       input: {},
     });
 
-    handleInteractionResolved(
-      {
-        type: "interaction_resolved",
-        requestId: "cr-1",
-        conversationId: "conv-1",
-        kind: "host_bash",
-        state: "cancelled",
-      },
-      ctx,
-    );
+    handleInteractionResolved({
+      type: "interaction_resolved",
+      requestId: "cr-1",
+      conversationId: "conv-1",
+      kind: "host_bash",
+      state: "cancelled",
+    });
 
     // Host-proxy steps own their own lifecycle and must not clear the card.
     expect(

@@ -261,9 +261,14 @@ export function handleMessageComplete(
  * The reducer folds the echoed server user row into the snapshot — rendering
  * the user turn on every client, including passive viewers and synthetic
  * surface-action prompts that never issued the originating POST. The handler's
- * job is to retire the originating client's optimistic send: the snapshot now
- * carries the server row, so the optimistic overlay correlated by
- * `clientMessageId` is no longer needed. A no-op for echoes with no matching
+ * job is to retire the originating client's optimistic send so the overlay
+ * doesn't double-render it next to the now-persisted server row.
+ *
+ * The common path correlates on `clientMessageId` (the nonce the daemon echoes
+ * back). When the echo carries no nonce — the field is optional and pre-
+ * idempotency daemons omit it — there's no shared key for the overlay to
+ * collapse on, so fall back to retiring the most recent optimistic user send,
+ * mirroring the legacy echo correlation. A no-op for echoes with no matching
  * optimistic row (other clients' sends, synthetic prompts).
  */
 export function handleUserMessageEcho(
@@ -272,7 +277,17 @@ export function handleUserMessageEcho(
 ): void {
   if (event.clientMessageId) {
     ctx.clearOptimisticSend(event.clientMessageId);
+    return;
   }
+  ctx.setOptimisticSends((prev) => {
+    for (let i = prev.length - 1; i >= 0; i--) {
+      const m = prev[i];
+      if (m && m.role === "user" && m.isOptimistic === true) {
+        return [...prev.slice(0, i), ...prev.slice(i + 1)];
+      }
+    }
+    return prev;
+  });
 }
 
 export function handleGenerationHandoff(

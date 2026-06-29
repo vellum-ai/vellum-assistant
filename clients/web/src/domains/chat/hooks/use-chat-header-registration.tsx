@@ -51,7 +51,7 @@ export function useChatHeaderRegistration({
 }: UseChatHeaderRegistrationOptions): void {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const activeConversationId = useConversationStore.use.activeConversationId();
-  const messages = useTranscriptMessages(assistantId, activeConversationId);
+  const messages = useTranscriptMessages();
   const setTopBarRightSlot = useChatLayoutSlotsStore.use.setTopBarRightSlot();
   const setHeaderSupplements = useChatLayoutSlotsStore.use.setHeaderSupplements();
 

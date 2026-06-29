@@ -214,4 +214,72 @@ describe("rolling-base reducer", () => {
       expect(resolved.messages.find((m) => m.id === "a1")?.textSegments).toEqual(["x"]);
     });
   });
+
+  describe("tool-call preview + inline confirmation", () => {
+    const previewStart = (seq: number, id: string, toolUseId: string) =>
+      env(seq, {
+        type: "tool_use_preview_start",
+        messageId: id,
+        toolUseId,
+        toolName: "bash",
+      } as AssistantEvent);
+    const confirmationRequest = (seq: number, requestId: string, toolUseId: string) =>
+      env(seq, {
+        type: "confirmation_request",
+        requestId,
+        toolName: "bash",
+        toolUseId,
+        riskLevel: "low",
+        input: {},
+      } as AssistantEvent);
+    const interactionResolved = (seq: number, requestId: string, kind: string) =>
+      env(seq, {
+        type: "interaction_resolved",
+        requestId,
+        kind,
+        state: "cancelled",
+      } as AssistantEvent);
+
+    test("preview-start opens a running tool card the later tool_use_start fills in", () => {
+      const afterPreview = applyEvent(SEED, previewStart(1, "a1", "t1"));
+      const previewCard = afterPreview.messages
+        .find((m) => m.id === "a1")
+        ?.toolCalls?.find((tc) => tc.id === "t1");
+      expect(previewCard).toBeDefined();
+
+      const afterStart = applyEvent(
+        afterPreview,
+        toolUseStart(2, "a1", "t1", "bash"),
+      );
+      // Same card (merged, not duplicated).
+      expect(
+        afterStart.messages.find((m) => m.id === "a1")?.toolCalls,
+      ).toHaveLength(1);
+    });
+
+    test("confirmation_request attaches, interaction_resolved clears the marker", () => {
+      const withTool = applyEventsToHistory(SEED, [toolUseStart(1, "a1", "t1", "bash")]);
+      const attached = applyEvent(withTool, confirmationRequest(2, "cr-1", "t1"));
+      const tc = attached.messages.find((m) => m.id === "a1")?.toolCalls?.[0];
+      expect(tc?.pendingConfirmation?.requestId).toBe("cr-1");
+
+      const cleared = applyEvent(attached, interactionResolved(3, "cr-1", "confirmation"));
+      expect(
+        cleared.messages.find((m) => m.id === "a1")?.toolCalls?.[0]
+          ?.pendingConfirmation,
+      ).toBeUndefined();
+    });
+
+    test("interaction_resolved for a non-confirmation kind leaves content untouched", () => {
+      const attached = applyEventsToHistory(SEED, [
+        toolUseStart(1, "a1", "t1", "bash"),
+        confirmationRequest(2, "cr-1", "t1"),
+      ]);
+      const after = applyEvent(attached, interactionResolved(3, "cr-1", "host_bash"));
+      expect(
+        after.messages.find((m) => m.id === "a1")?.toolCalls?.[0]
+          ?.pendingConfirmation?.requestId,
+      ).toBe("cr-1");
+    });
+  });
 });

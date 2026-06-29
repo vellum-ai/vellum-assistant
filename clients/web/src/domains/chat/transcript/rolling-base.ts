@@ -34,6 +34,8 @@ import {
   dismissSurface,
   updateSurfaceData,
 } from "@/domains/chat/utils/stream-updaters/surface-updaters";
+import { attachConfirmationToToolCall } from "@/domains/chat/utils/chat";
+import { clearConfirmationByRequestId } from "@/domains/chat/utils/send-message-utils";
 
 /** Parse the envelope's ISO `emittedAt` to epoch ms, the deterministic stamp
  *  for any row an event opens. Falls back to `seq` so a malformed/absent time
@@ -162,6 +164,29 @@ export function appendEventToMessages(
       return dismissSurface(messages, event.surfaceId);
     case "ui_surface_complete":
       return completeSurface(messages, event.surfaceId, event.summary);
+    case "confirmation_request":
+      // Attach the inline confirmation marker onto the matching tool-call row.
+      // The interaction handler owns the interaction-store side (it derives the
+      // same tool-call id read-only); the marker itself folds here so the
+      // reducer stays the single writer of transcript content.
+      return attachConfirmationToToolCall(messages, {
+        requestId: event.requestId,
+        toolName: event.toolName,
+        riskLevel: event.riskLevel,
+        riskReason: event.riskReason,
+        allowlistOptions: event.allowlistOptions,
+        scopeOptions: event.scopeOptions,
+        directoryScopeOptions: event.directoryScopeOptions,
+        persistentDecisionsAllowed: event.persistentDecisionsAllowed,
+        input: event.input,
+        toolUseId: event.toolUseId,
+      }).updatedMessages;
+    case "interaction_resolved":
+      // Clearing the inline confirmation marker is the symmetric fold; only
+      // confirmation kinds render one (other kinds own their own lifecycle).
+      return event.kind === "confirmation" || event.kind === "acp_confirmation"
+        ? clearConfirmationByRequestId(messages, event.requestId)
+        : messages;
     default:
       // Total: events that don't change message content (turn lifecycle,
       // queue, subagent/workflow, sync, unknowns) leave the list untouched.

@@ -860,13 +860,6 @@ export function useSendMessage({
 
         resolvedId = result.resolvedConversationId;
 
-        // No optimistic id-swap: the optimistic send stays in `optimisticSends`
-        // keyed by its `clientMessageId`, and the daemon echoes that nonce back
-        // on the persisted user row. The transcript overlay collapses the two
-        // by `clientMessageId` (so there's never a duplicate), and
-        // `user_message_echo` clears the optimistic copy once the snapshot
-        // carries the server row.
-
         // Resolve draft key -> server-assigned conversation ID.
         if (resolvedId && resolvedId !== activeConversationId) {
           const newConversationId = resolvedId;

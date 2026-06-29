@@ -440,7 +440,7 @@ export function useStreamEventHandler(
         // and defers the active one here, so retire any matching confirmation
         // card before the user can tap a prompt the server has discarded.
         case "interaction_resolved":
-          handleInteractionResolved(event, ctx);
+          handleInteractionResolved(event);
           break;
         // Diagnostic timeline events. The logs domain fetches these from
         // the daemon's trace-events endpoint on demand; the chat stream

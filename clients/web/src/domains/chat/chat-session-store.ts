@@ -44,6 +44,7 @@ import type {
   TranscriptPaginationState,
 } from "@/domains/chat/transcript/types";
 import { applyEvent, resolveSnapshot } from "@/domains/chat/transcript/rolling-base";
+import { messageMatchKeys } from "@/domains/chat/utils/message-identity";
 import { getSseEnvelopesSince } from "@/lib/streaming/stream-debug";
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 
@@ -260,6 +261,31 @@ function applyUpdater<T>(current: T, updater: T | ((prev: T) => T)): T {
     : updater;
 }
 
+/**
+ * Drop optimistic sends the (re)seeded snapshot already represents.
+ *
+ * On a reconnect / replay-gap path the `user_message_echo` (or dequeue) that
+ * would normally clear an optimistic send can be missed, while the authoritative
+ * server snapshot — pulled in by the reseed — does carry the persisted row. The
+ * overlay lets optimistic rows win by identity, so a confirmed send would
+ * otherwise stay rendered as optimistic/queued indefinitely. Pruning by the same
+ * match keys `selectTranscriptMessages` overlays on keeps the two in lockstep.
+ */
+function pruneConfirmedOptimisticSends(
+  optimisticSends: DisplayMessage[],
+  snapshotMessages: DisplayMessage[],
+): DisplayMessage[] {
+  if (optimisticSends.length === 0) return optimisticSends;
+  const snapshotKeys = new Set<string>();
+  for (const m of snapshotMessages) {
+    for (const k of messageMatchKeys(m)) snapshotKeys.add(k);
+  }
+  const kept = optimisticSends.filter(
+    (m) => !messageMatchKeys(m).some((k) => snapshotKeys.has(k)),
+  );
+  return kept.length === optimisticSends.length ? optimisticSends : kept;
+}
+
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
@@ -270,7 +296,14 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
   // --- Materialized snapshot ---
   seedSnapshot: (conversationId, snapshot) => {
     const tail = getSseEnvelopesSince(conversationId, snapshot.seq ?? null);
-    set({ snapshot: resolveSnapshot(snapshot, tail) });
+    const resolved = resolveSnapshot(snapshot, tail);
+    set((s) => ({
+      snapshot: resolved,
+      optimisticSends: pruneConfirmedOptimisticSends(
+        s.optimisticSends,
+        resolved.messages,
+      ),
+    }));
   },
 
   applyEnvelopeToSnapshot: (envelope) =>

@@ -2,8 +2,6 @@ import { useMemo } from "react";
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
-import { useConversationStore } from "@/stores/conversation-store";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 /**
  * Tool call looked up by id from the rendered transcript (server history ⊕ the
@@ -25,9 +23,7 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 export function useLiveToolCall(
   toolCallId: string | undefined,
 ): ChatMessageToolCall | null {
-  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  const conversationId = useConversationStore.use.activeConversationId();
-  const messages = useTranscriptMessages(assistantId, conversationId);
+  const messages = useTranscriptMessages();
   return useMemo(() => {
     if (!toolCallId) return null;
     for (const m of messages) {

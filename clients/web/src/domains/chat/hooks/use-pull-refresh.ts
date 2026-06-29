@@ -59,10 +59,7 @@ export function usePullRefresh({
   // turn. Mirror it into a ref so the async refresh handler can sample it before
   // and after the refetch without re-creating the callback on every change.
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  const transcript = useTranscriptMessages(
-    assistantId,
-    activeConversationId ?? null,
-  );
+  const transcript = useTranscriptMessages();
   const transcriptCountRef = useRef(transcript.length);
   useEffect(() => {
     transcriptCountRef.current = transcript.length;

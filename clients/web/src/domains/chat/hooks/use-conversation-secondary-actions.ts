@@ -97,10 +97,7 @@ export function useConversationSecondaryActions({
   // token).
   const secondaryAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const secondaryConversationId = useConversationStore.use.activeConversationId();
-  const transcript = useTranscriptMessages(
-    secondaryAssistantId,
-    secondaryConversationId,
-  );
+  const transcript = useTranscriptMessages();
   const transcriptRef = useRef(transcript);
   useEffect(() => {
     transcriptRef.current = transcript;
