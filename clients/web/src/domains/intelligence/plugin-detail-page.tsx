@@ -1,4 +1,3 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
     ArrowDownToLine,
     ArrowLeft,
@@ -9,37 +8,22 @@ import {
     Trash2,
     TriangleAlert,
 } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { FileMarkdown } from "@/components/file-markdown";
 import { UpdateAvailableBadge } from "@/domains/intelligence/components/plugins/update-available-badge";
 import {
-    hasLocalEdits,
-    type PluginDrift,
-    usePluginDrift,
-} from "@/domains/intelligence/use-plugin-drift";
-import {
-    pluginsByNameGetOptions,
-    pluginsByNameGetQueryKey,
-    pluginsByNameInspectGetQueryKey,
-    pluginsGetQueryKey,
-    pluginsSearchGetQueryKey,
-    usePluginsByNameDeleteMutation,
-    usePluginsByNameUpgradePostMutation,
-    usePluginsInstallPostMutation,
-} from "@/generated/daemon/@tanstack/react-query.gen";
+    shortSha,
+    usePluginDetail,
+} from "@/domains/intelligence/plugins/use-plugin-detail";
+import type { PluginDrift } from "@/domains/intelligence/use-plugin-drift";
 import type { PluginsByNameGetResponse } from "@/generated/daemon/types.gen";
 import { useSupportsPluginsSurface } from "@/lib/backwards-compat/plugins-surface";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { routes } from "@/utils/routes";
-import { Button, Card, ConfirmDialog, toast } from "@vellumai/design-library";
-
-/** First 7 chars of a commit SHA, matching git's default short form. */
-function shortSha(sha: string | null): string {
-  return sha ? sha.slice(0, 7) : "unknown";
-}
+import { Button, Card, ConfirmDialog } from "@vellumai/design-library";
 
 /**
  * Detail page for a single plugin, reached by clicking a row in the
@@ -61,73 +45,30 @@ export function PluginDetailPage() {
   const assistantId = useActiveAssistantId();
   const { name } = useParams<{ name: string }>();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const [confirmingRemove, setConfirmingRemove] = useState(false);
   const [confirmingUpgrade, setConfirmingUpgrade] = useState(false);
 
-  const detailQuery = useQuery({
-    ...pluginsByNameGetOptions({
-      path: { assistant_id: assistantId, name: name ?? "" },
-    }),
-    enabled: Boolean(assistantId) && Boolean(name),
-  });
-
-  const installed = detailQuery.data?.installed ?? false;
-  const driftQuery = usePluginDrift({
-    assistantId,
-    name: name ?? "",
-    enabled: installed,
-  });
-  const drift = driftQuery.data;
-
-  const invalidate = useCallback(() => {
-    void queryClient.invalidateQueries({
-      queryKey: pluginsGetQueryKey({ path: { assistant_id: assistantId } }),
-    });
-    void queryClient.invalidateQueries({
-      queryKey: pluginsSearchGetQueryKey({
-        path: { assistant_id: assistantId },
-      }),
-    });
-    if (name) {
-      void queryClient.invalidateQueries({
-        queryKey: pluginsByNameGetQueryKey({
-          path: { assistant_id: assistantId, name },
-        }),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: pluginsByNameInspectGetQueryKey({
-          path: { assistant_id: assistantId, name },
-        }),
-      });
-    }
-  }, [assistantId, name, queryClient]);
-
-  const installMutation = usePluginsInstallPostMutation({
-    onSuccess: () => {
-      invalidate();
-      toast.success(`Installed ${name ?? "plugin"}`);
-    },
-  });
-
-  const removeMutation = usePluginsByNameDeleteMutation({
-    onSuccess: () => {
-      invalidate();
+  const {
+    plugin,
+    drift,
+    isLoading,
+    isError,
+    install,
+    remove,
+    upgrade,
+    isInstalling,
+    isRemoving,
+    isUpgrading,
+    isInstallError,
+    isRemoveError,
+    isUpgradeError,
+    hasLocalEdits,
+  } = usePluginDetail(assistantId, name ?? "", {
+    onRemoved: () => {
       // The detail page has nothing left to show once the plugin is gone,
       // so return to the plugins list rather than stranding the user on a
       // "We couldn't load this plugin" error.
       void navigate(routes.plugins);
-    },
-  });
-
-  const upgradeMutation = usePluginsByNameUpgradePostMutation({
-    onSuccess: (result) => {
-      invalidate();
-      toast.success(
-        result.outcome === "already-up-to-date"
-          ? `${name ?? "Plugin"} is already up to date`
-          : `Upgraded ${name ?? "plugin"} to ${shortSha(result.toCommit)}`,
-      );
     },
   });
 
@@ -146,43 +87,25 @@ export function PluginDetailPage() {
     return <Navigate to={routes.plugins} replace />;
   }
 
-  const handleInstall = () => {
-    installMutation.mutate({
-      path: { assistant_id: assistantId },
-      body: { name },
-    });
-  };
-
   const confirmRemove = () => {
     setConfirmingRemove(false);
-    removeMutation.mutate({
-      path: { assistant_id: assistantId, name },
-    });
-  };
-
-  const runUpgrade = () => {
-    upgradeMutation.mutate({
-      path: { assistant_id: assistantId, name },
-      body: {},
-    });
+    remove();
   };
 
   // Local edits would be clobbered by the re-install, so confirm first;
   // a clean copy upgrades directly.
   const handleUpgrade = () => {
-    if (hasLocalEdits(drift)) {
+    if (hasLocalEdits) {
       setConfirmingUpgrade(true);
       return;
     }
-    runUpgrade();
+    upgrade();
   };
 
   const confirmUpgrade = () => {
     setConfirmingUpgrade(false);
-    runUpgrade();
+    upgrade();
   };
-
-  const plugin = detailQuery.data ?? null;
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
@@ -196,23 +119,21 @@ export function PluginDetailPage() {
           name={name}
           plugin={plugin}
           drift={drift}
-          onInstall={handleInstall}
+          onInstall={install}
           onRemove={() => setConfirmingRemove(true)}
           onUpgrade={handleUpgrade}
-          isInstalling={installMutation.isPending}
-          isRemoving={removeMutation.isPending}
-          isUpgrading={upgradeMutation.isPending}
+          isInstalling={isInstalling}
+          isRemoving={isRemoving}
+          isUpgrading={isUpgrading}
         />
       </div>
 
-      {(installMutation.isError ||
-        removeMutation.isError ||
-        upgradeMutation.isError) && (
+      {(isInstallError || isRemoveError || isUpgradeError) && (
         <ActionError
           message={
-            installMutation.isError
+            isInstallError
               ? "Failed to install plugin. Please try again."
-              : removeMutation.isError
+              : isRemoveError
                 ? "Failed to remove plugin. Please try again."
                 : "Failed to upgrade plugin. Please try again."
           }
@@ -221,9 +142,9 @@ export function PluginDetailPage() {
 
       <Card.Root asChild>
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-          {detailQuery.isLoading ? (
+          {isLoading ? (
             <LoadingState />
-          ) : detailQuery.isError || !plugin ? (
+          ) : isError || !plugin ? (
             <DetailErrorState />
           ) : (
             <>
