@@ -35,7 +35,6 @@ export function mergePlugins(
       status: "available",
       external: true,
       path: m.path,
-      sourceHost: m.source.repo,
     }));
 
   return [...installedItems, ...catalogItems];

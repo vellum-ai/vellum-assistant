@@ -1,7 +1,6 @@
 /**
- * Tests for `PluginIcon`: emoji defaulting by `external`, `emoji`
- * override, and the `sm` / `md` container sizing that matches
- * `SkillIcon`.
+ * Tests for `PluginIcon`: glyph defaulting by `external` and the `sm` / `md`
+ * container sizing that matches `SkillIcon`.
  *
  * Mounted via `@testing-library/react` (happy-dom — see
  * `clients/web/test-setup.ts`).
@@ -29,16 +28,6 @@ describe("PluginIcon", () => {
   test("defaults to 🧩 when not external", () => {
     const { container } = render(<PluginIcon />);
     expect(container.textContent).toBe(PUZZLE);
-  });
-
-  test("emoji prop overrides the external default", () => {
-    const { container } = render(<PluginIcon external emoji="🚀" />);
-    expect(container.textContent).toBe("🚀");
-  });
-
-  test("emoji prop overrides the non-external default", () => {
-    const { container } = render(<PluginIcon emoji="🚀" />);
-    expect(container.textContent).toBe("🚀");
   });
 
   test("sm size renders an h-7 w-7 container", () => {

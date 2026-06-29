@@ -60,7 +60,6 @@ describe("mergePlugins", () => {
       description: "B",
       status: "available",
       external: true,
-      sourceHost: "acme/beta",
     });
   });
 

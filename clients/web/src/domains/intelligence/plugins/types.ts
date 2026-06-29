@@ -19,7 +19,6 @@ export interface PluginListItem {
   external: boolean;
   version?: string;
   path?: string;
-  sourceHost?: string;
   issues?: string[];
 }
 

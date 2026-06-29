@@ -126,7 +126,7 @@ export function PluginDetailMobile({
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             {updateAvailable ? <UpdateAvailableBadge /> : null}
-            <PluginOriginBadge external={isExternal} />
+            {plugin ? <PluginOriginBadge external={isExternal} /> : null}
           </div>
         </div>
         {plugin?.description ? (
@@ -160,13 +160,9 @@ export function PluginDetailMobile({
       {(isInstallError || isRemoveError || isUpgradeError) && (
         <div className="mt-3">
           <PluginDetailActionError
-            message={
-              isInstallError
-                ? "Failed to install plugin. Please try again."
-                : isRemoveError
-                  ? "Failed to remove plugin. Please try again."
-                  : "Failed to upgrade plugin. Please try again."
-            }
+            isInstallError={isInstallError}
+            isRemoveError={isRemoveError}
+            isUpgradeError={isUpgradeError}
           />
         </div>
       )}

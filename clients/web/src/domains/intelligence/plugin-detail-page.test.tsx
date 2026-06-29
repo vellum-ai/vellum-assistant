@@ -1,15 +1,15 @@
 /**
- * Tests for the retired standalone plugin detail route. The page is now a
- * thin redirect shim: detail renders in-tab via the `?plugin=<name>`
- * deep-link, so the old `/assistant/plugins/:name` URL forwards there to
- * preserve the bookmark/deep-link contract.
+ * Tests for the standalone plugin-detail route, a thin redirect shim: detail
+ * renders in-tab via the `?plugin=<name>` deep-link, so the
+ * `/assistant/plugins/:name` URL forwards there to preserve the
+ * bookmark/deep-link contract.
  *
  * Mounted via `@testing-library/react` (happy-dom — see `test-setup.ts`)
  * with sentinel routes at the redirect targets so the test can prove where
  * the shim lands. The active assistant id is stubbed and the identity store
  * is seeded per-test so the backwards-compat gate's branch is deterministic
  * (a plugin-capable version forwards in-tab; a too-old version redirects to
- * Identity, matching the prior route's guard).
+ * Identity).
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";

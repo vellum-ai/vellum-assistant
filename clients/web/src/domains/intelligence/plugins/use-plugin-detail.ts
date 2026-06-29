@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 
+import { invalidatePluginQueries } from "@/domains/intelligence/plugins/invalidate-plugin-queries";
 import {
     hasLocalEdits as computeHasLocalEdits,
     type PluginDrift,
@@ -8,10 +9,6 @@ import {
 } from "@/domains/intelligence/use-plugin-drift";
 import {
     pluginsByNameGetOptions,
-    pluginsByNameGetQueryKey,
-    pluginsByNameInspectGetQueryKey,
-    pluginsGetQueryKey,
-    pluginsSearchGetQueryKey,
     usePluginsByNameDeleteMutation,
     usePluginsByNameUpgradePostMutation,
     usePluginsInstallPostMutation,
@@ -87,28 +84,10 @@ export function usePluginDetail(
   });
   const drift = driftQuery.data;
 
-  const invalidate = useCallback(() => {
-    void queryClient.invalidateQueries({
-      queryKey: pluginsGetQueryKey({ path: { assistant_id: assistantId } }),
-    });
-    void queryClient.invalidateQueries({
-      queryKey: pluginsSearchGetQueryKey({
-        path: { assistant_id: assistantId },
-      }),
-    });
-    if (name) {
-      void queryClient.invalidateQueries({
-        queryKey: pluginsByNameGetQueryKey({
-          path: { assistant_id: assistantId, name },
-        }),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: pluginsByNameInspectGetQueryKey({
-          path: { assistant_id: assistantId, name },
-        }),
-      });
-    }
-  }, [assistantId, name, queryClient]);
+  const invalidate = useCallback(
+    () => invalidatePluginQueries(queryClient, assistantId, name),
+    [assistantId, name, queryClient],
+  );
 
   const installMutation = usePluginsInstallPostMutation({
     onSuccess: () => {

@@ -144,6 +144,24 @@ describe("PluginListRow", () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
+  test("does not render an origin badge (origin is unknowable from the list)", () => {
+    const onSelect = mock(() => {});
+
+    const { container } = render(
+      <PluginListRow
+        item={makeItem({ status: "installed", external: false })}
+        onSelect={onSelect}
+      />,
+    );
+
+    // The installed-list endpoint carries no source, so the row must not claim
+    // an origin. No Local/External tag and no globe/drive icon.
+    expect(container.querySelector(".lucide-globe")).toBeNull();
+    expect(container.querySelector(".lucide-hard-drive")).toBeNull();
+    expect(container.textContent).not.toContain("Local");
+    expect(container.textContent).not.toContain("External");
+  });
+
   test("upgrade affordance only appears with update-available drift", () => {
     const onSelect = mock(() => {});
 
