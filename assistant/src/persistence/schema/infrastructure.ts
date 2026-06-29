@@ -373,7 +373,6 @@ export const traceEvents = sqliteTable(
     createdAt: integer("created_at").notNull(),
   },
   (table) => [
-    index("idx_trace_events_conversation_id").on(table.conversationId),
     index("idx_trace_events_conversation_timestamp").on(
       table.conversationId,
       table.timestampMs,
