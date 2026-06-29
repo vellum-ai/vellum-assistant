@@ -853,4 +853,43 @@ describe("handleContactPromptSubmit", () => {
     // The rolled-back bind mutated nothing net — no cache-invalidation broadcast.
     expectNoEmit(ipcMock);
   });
+
+  test("guardian bind — existing guardian, read-back miss still emits (committed bind, no rollback)", async () => {
+    // An existing guardian is bound to a NEW channel; the post-bind resolve
+    // misses. rollbackCreatedContact is a no-op (the guardian wasn't created
+    // here), so the committed channel bind persists and the caches MUST be
+    // invalidated despite the 500.
+    seedGuardian();
+    const spy = spyOn(
+      ContactStore.prototype,
+      "getChannelsForContact",
+    ).mockReturnValue([]);
+
+    let res: Response;
+    try {
+      res = await handleContactPromptSubmit(
+        makeRequest({
+          requestId: "req-existing-noresolve",
+          address: "+15557778888",
+          channelType: "phone",
+          role: "guardian",
+        }),
+      );
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(res.status).toBe(500);
+
+    // The existing guardian was NOT rolled back.
+    const gwGuardians = getGatewayDb()
+      .select()
+      .from(gwContacts)
+      .where(eq(gwContacts.role, "guardian"))
+      .all();
+    expect(gwGuardians).toHaveLength(1);
+
+    // Committed bind on an existing guardian — caches invalidated despite 500.
+    expectEmittedContactsChanged(ipcMock);
+  });
 });

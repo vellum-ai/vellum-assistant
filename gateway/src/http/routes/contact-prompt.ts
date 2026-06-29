@@ -355,6 +355,14 @@ export async function handleContactPromptSubmit(
           "contact-prompt-submit: channel resolution failed after guardian bind, rolling back contact",
         );
         await rollbackCreatedContact();
+        // A freshly-created guardian was just rolled back (net no change). An
+        // existing guardian's channel bind committed and is NOT rolled back, so
+        // invalidate the daemon caches even though the read-back missed.
+        if (!createdNewContact) {
+          void ipcCallAssistant("emit_event", {
+            body: { kind: "contacts_changed" },
+          } as unknown as Record<string, unknown>).catch(() => {});
+        }
         return await channelResolutionError(requestId);
       }
 
