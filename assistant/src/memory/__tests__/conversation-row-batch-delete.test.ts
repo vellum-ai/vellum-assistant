@@ -23,12 +23,12 @@ import {
   deleteConversationGently,
   getMessages,
 } from "../../persistence/conversation-crud.js";
+import {
+  buildBatchDeleteScript,
+  deleteConversationRowsInBatches,
+} from "../../persistence/conversation-row-batch-delete.js";
 import { getDb, getSqlite } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
-import {
-  buildForkDeleteBatchScript,
-  deleteForkMessagesViaSubprocess,
-} from "../../persistence/fork-message-delete.js";
 
 await initializeDb();
 
@@ -43,7 +43,7 @@ function countMessages(conversationId: string): number {
   return getMessages(conversationId).length;
 }
 
-describe("deleteForkMessagesViaSubprocess", () => {
+describe("deleteConversationRowsInBatches", () => {
   beforeEach(() => {
     resetTables();
   });
@@ -55,8 +55,10 @@ describe("deleteForkMessagesViaSubprocess", () => {
     }
     expect(countMessages(conv.id)).toBe(5);
 
-    const result = await deleteForkMessagesViaSubprocess({
+    const result = await deleteConversationRowsInBatches({
       conversationId: conv.id,
+      table: "messages",
+      enableForeignKeys: true,
       batchSize: 2,
       forceInProcess: true,
     });
@@ -64,24 +66,28 @@ describe("deleteForkMessagesViaSubprocess", () => {
     expect(countMessages(conv.id)).toBe(0);
   });
 
-  test("is a no-op on a conversation with no messages", async () => {
+  test("is a no-op on a conversation with no rows", async () => {
     const conv = createConversation("empty");
-    const result = await deleteForkMessagesViaSubprocess({
+    const result = await deleteConversationRowsInBatches({
       conversationId: conv.id,
+      table: "messages",
+      enableForeignKeys: true,
       forceInProcess: true,
     });
     expect(result.ok).toBe(true);
     expect(countMessages(conv.id)).toBe(0);
   });
 
-  test("leaves other conversations' messages untouched", async () => {
+  test("leaves other conversations' rows untouched", async () => {
     const target = createConversation("target");
     const keep = createConversation("keep");
     await addMessage(target.id, "user", "delete me", { skipIndexing: true });
     await addMessage(keep.id, "user", "keep me", { skipIndexing: true });
 
-    const result = await deleteForkMessagesViaSubprocess({
+    const result = await deleteConversationRowsInBatches({
       conversationId: target.id,
+      table: "messages",
+      enableForeignKeys: true,
       forceInProcess: true,
     });
     expect(result.ok).toBe(true);
@@ -89,7 +95,7 @@ describe("deleteForkMessagesViaSubprocess", () => {
     expect(countMessages(keep.id)).toBe(1);
   });
 
-  test("cascades to memory_segments linked to the deleted messages", async () => {
+  test("cascades to memory_segments when foreign keys are enabled", async () => {
     const conv = createConversation("with-segments");
     const msg = await addMessage(conv.id, "user", "segment me", {
       skipIndexing: true,
@@ -105,8 +111,10 @@ describe("deleteForkMessagesViaSubprocess", () => {
       getSqlite().query("SELECT COUNT(*) AS c FROM memory_segments").get(),
     ).toEqual({ c: 1 });
 
-    const result = await deleteForkMessagesViaSubprocess({
+    const result = await deleteConversationRowsInBatches({
       conversationId: conv.id,
+      table: "messages",
+      enableForeignKeys: true,
       forceInProcess: true,
     });
     expect(result.ok).toBe(true);
@@ -146,17 +154,46 @@ describe("deleteConversationGently", () => {
   });
 });
 
-describe("buildForkDeleteBatchScript", () => {
+describe("buildBatchDeleteScript", () => {
   test("rejects an unsafe conversation id", () => {
     expect(() =>
-      buildForkDeleteBatchScript("abc'); DROP TABLE messages;--", 50),
+      buildBatchDeleteScript({
+        conversationId: "abc'); DROP TABLE messages;--",
+        table: "messages",
+        batchSize: 50,
+      }),
     ).toThrow(/unsafe id/);
   });
 
-  test("enables foreign keys and bounds the batch", () => {
-    const sql = buildForkDeleteBatchScript("conv-123", 50);
-    expect(sql).toContain("PRAGMA foreign_keys=ON;");
-    expect(sql).toContain("LIMIT 50");
-    expect(sql).toContain("SELECT changes();");
+  test("rejects an unsafe table identifier", () => {
+    expect(() =>
+      buildBatchDeleteScript({
+        conversationId: "conv-123",
+        table: "messages; DROP TABLE conversations;--",
+        batchSize: 50,
+      }),
+    ).toThrow(/unsafe table/);
+  });
+
+  test("enables foreign keys only when requested and bounds the batch", () => {
+    const withFk = buildBatchDeleteScript({
+      conversationId: "conv-123",
+      table: "messages",
+      enableForeignKeys: true,
+      batchSize: 50,
+    });
+    expect(withFk).toContain("PRAGMA foreign_keys=ON;");
+    expect(withFk).toContain("DELETE FROM messages");
+    expect(withFk).toContain("LIMIT 50");
+    expect(withFk).toContain("SELECT changes();");
+
+    const withoutFk = buildBatchDeleteScript({
+      conversationId: "conv-123",
+      table: "llm_request_logs",
+      batchSize: 25,
+    });
+    expect(withoutFk).not.toContain("PRAGMA foreign_keys=ON;");
+    expect(withoutFk).toContain("DELETE FROM llm_request_logs");
+    expect(withoutFk).toContain("LIMIT 25");
   });
 });
