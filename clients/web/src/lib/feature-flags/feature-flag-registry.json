@@ -409,6 +409,14 @@
       "label": "New-thread suggestions library",
       "description": "Replace the empty-state conversation-starter chips with the scrollable, categorized suggestions library and detail drawer (currently mocked data).",
       "defaultEnabled": false
+    },
+    {
+      "id": "client-sync-snapshot-render",
+      "scope": "client",
+      "key": "client-sync-snapshot-render",
+      "label": "Client-sync: render from the materialized snapshot",
+      "description": "Derive the chat transcript from the client-sync rolling snapshot (snapshot ⊕ optimisticSends) instead of cached history ⊕ liveTurn. In-progress cutover — optimistic-send re-homing, queued messages, and confirmation/surface patches are still being migrated, so leave off outside testing.",
+      "defaultEnabled": false
     }
   ]
 }
