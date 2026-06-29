@@ -10,11 +10,14 @@ import { Eye, Paperclip, Square, X } from "lucide-react";
 
 import { QuestionPromptSlot } from "@/domains/chat/components/question-prompt-slot";
 import { StagedQuotesStrip } from "@/domains/chat/components/staged-quotes-strip";
-import { ChatScrollArea, type ChatScrollAreaProps } from "@/domains/chat/components/chat-scroll-area";
+import {
+  ChatScrollArea,
+  type ChatScrollAreaProps,
+} from "@/domains/chat/components/chat-scroll-area";
 import { ScrollToLatestButton } from "@/domains/chat/components/scroll-to-latest-button";
 import {
-    RefreshFeedbackPill,
-    type RefreshFeedback,
+  RefreshFeedbackPill,
+  type RefreshFeedback,
 } from "@/domains/chat/refresh-feedback-pill";
 import { Button, Notice, type NoticeTone } from "@vellumai/design-library";
 
@@ -156,9 +159,9 @@ export interface ChatBodyProps {
   startersSlot?: ReactNode;
 
   /**
-   * Top-center floating overlay; shown only when scrolled up. Visibility on
-   * scroll is gated here on `showScrollToLatest`; the caller passes the slot
-   * only when there is ≥1 active subagent.
+   * Top-center floating overlay. Shown whenever there is ≥1 active subagent,
+   * independent of scroll position; the caller passes the slot only when its
+   * active list is non-empty.
    */
   activeSubagentsSlot?: ReactNode;
 
@@ -314,9 +317,7 @@ export function ChatBody({
           empty→active transition so React preserves its state (focus,
           draft text, attachments) and iOS Safari does not blur the input
           on first send (LUM-1506 / LUM-1516). */}
-      <div
-        className="relative px-3 pt-2 pb-2 sm:px-6 sm:pb-0"
-      >
+      <div className="relative px-3 pt-2 pb-2 sm:px-6 sm:pb-0">
         {refreshFeedback && (
           <div className="pointer-events-none absolute inset-x-0 bottom-full z-10 flex justify-center pb-2">
             <RefreshFeedbackPill
@@ -385,7 +386,9 @@ export function ChatBody({
                 {canStopGenerating ? (
                   <Button
                     variant="primary"
-                    iconOnly={<Square className="h-3 w-3" fill="currentColor" />}
+                    iconOnly={
+                      <Square className="h-3 w-3" fill="currentColor" />
+                    }
                     onClick={onStopGenerating}
                     aria-label="Stop generating"
                     title="Stop generation"
@@ -411,7 +414,9 @@ export function ChatBody({
         >
           <div className="flex flex-col items-center gap-2 text-[var(--content-default)]">
             <Paperclip className="h-6 w-6" />
-            <span className="text-body-medium-default">Drop files to attach</span>
+            <span className="text-body-medium-default">
+              Drop files to attach
+            </span>
           </div>
         </div>
       )}
