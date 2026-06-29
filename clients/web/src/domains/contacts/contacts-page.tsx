@@ -231,9 +231,10 @@ export function ContactsPage({
   useEffect(() => {
     if (guardianAutoSelectedRef.current) return;
     if (!guardian) return;
+    if (setupChannel) return;
     guardianAutoSelectedRef.current = true;
     setSelection({ kind: "contact", contactId: guardian.id });
-  }, [guardian]);
+  }, [guardian, setupChannel]);
 
   const channels = useMemo(
     () => deriveChannelStates(readinessData),
