@@ -4,10 +4,13 @@
  *
  * SPIKE — research-onboarding flow.
  *
- * Uses the exact same edge slots, sizing, and rotations as the picker step
+ * Uses the same edge slots and rotations as the picker step
  * (`OnboardingCharacterStage`) so the arrangement matches between the two
- * screens. Pool index 0 is the picker's centered avatar, so it's omitted here
- * (the form sits in the center); indices 1–9 fill edge slots 0–8.
+ * screens, but adds a per-slot depth pass — a slight size variation and reduced
+ * opacity on a few of the cast — so the first screen's ring reads with depth
+ * rather than a flat, uniform border. Pool index 0 is the picker's centered
+ * avatar, so it's omitted here (the form sits in the center); indices 1–9 fill
+ * edge slots 0–8.
  *
  * Decorative: `aria-hidden`, `pointer-events-none`, reduced-motion safe.
  */
@@ -23,6 +26,13 @@ import {
 } from "@/domains/onboarding/components/onboarding-character-stage";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
+
+// Per-slot depth pass, indexed by edge slot (0–10). A slight size variation so
+// the cast isn't a uniform ring, and reduced opacity on a few so some sit back
+// for depth. Deterministic by slot — never jumps between renders; slots past
+// the table fall back to full size / full opacity.
+const SLOT_SCALE = [1.12, 0.85, 1.0, 0.9, 1.14, 0.82, 1.06, 0.92, 1.1, 0.88, 1.0];
+const SLOT_OPACITY = [1, 0.5, 1, 0.7, 1, 0.55, 0.85, 0.65, 1, 0.75, 0.6];
 
 function useViewport() {
   const [size, setSize] = useState(() => ({
@@ -75,15 +85,21 @@ export function OnboardingEdgeCharacters() {
         const p = positions[slot];
         if (!p) return null;
         const rotation = SLOT_ROTATIONS[slot % SLOT_ROTATIONS.length] ?? 0;
+        // Depth pass: scale around the slot centre and dim a few so the ring
+        // reads with depth instead of a flat, uniform border.
+        const scale = SLOT_SCALE[slot] ?? 1;
+        const avatarSize = size * scale;
+        const opacity = SLOT_OPACITY[slot] ?? 1;
         return (
           <div
             key={i}
             className="absolute"
             style={{
-              left: p.x - size / 2,
-              top: p.y - size / 2,
-              width: size,
-              height: size,
+              left: p.x - avatarSize / 2,
+              top: p.y - avatarSize / 2,
+              width: avatarSize,
+              height: avatarSize,
+              opacity,
               animation: reduce
                 ? undefined
                 : `character-pop-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) ${0.1 + i * 0.05}s both`,
@@ -93,7 +109,7 @@ export function OnboardingEdgeCharacters() {
               <AnimatedAvatar
                 components={components}
                 traits={traits}
-                size={size}
+                size={avatarSize}
                 breathe={false}
               />
             </div>

@@ -165,6 +165,12 @@ export function ResearchOnboardingRoute() {
     null,
   );
   const [faceValues, setFaceValues] = useState<GiveMeAFaceValues | null>(null);
+  // Id of the behind-the-scenes "research me" conversation. Captured the moment
+  // it's minted (and restored from the snapshot on refresh) so a mid-search
+  // reload re-attaches to that same thread instead of starting a second search.
+  const [researchConversationId, setResearchConversationId] = useState<
+    string | null
+  >(null);
   // Formatted booked check-in time ("2:30 PM"), set when scheduleCheckin lands;
   // null until then (or if booking failed) → confirmation shows generic copy.
   const [checkinTime, setCheckinTime] = useState<string | null>(null);
@@ -243,6 +249,7 @@ export function ResearchOnboardingRoute() {
       setFaceValues(snapshot.faceValues);
       setCheckinTime(snapshot.checkinTime);
       setCheckinBooked(snapshot.checkinBooked);
+      setResearchConversationId(snapshot.researchConversationId ?? null);
       // Re-enqueue the named plugin installs against the re-hatched assistant so
       // a suggestion click awaits real (idempotent) installs, not an empty map.
       if (snapshot.research) hydrateResearch(snapshot.research, awaitHatchReady);
@@ -274,6 +281,9 @@ export function ResearchOnboardingRoute() {
               installedPlugins: research.installedPlugins,
             }
           : null,
+      ...(researchConversationId
+        ? { researchConversationId }
+        : {}),
     });
   }, [
     restored,
@@ -283,6 +293,7 @@ export function ResearchOnboardingRoute() {
     faceValues,
     checkinTime,
     checkinBooked,
+    researchConversationId,
     research.status,
     research.claims,
     research.suggestions,
@@ -290,12 +301,15 @@ export function ResearchOnboardingRoute() {
   ]);
 
   // Mid-flow resume: we restored a journey whose research turn hadn't settled.
-  // The in-flight client turn is gone, so re-fire it once from the restored
-  // subject. Only fires when results are absent (status "idle") — a fresh visit
-  // has no `formValues` until the form is submitted (which fires the search
-  // itself), and a completed resume hydrates the status to "done". The meeting
-  // is never re-booked here: that only fires from the calendar step, which a
-  // resume skips past.
+  // Resume it once from the restored subject. When the prior session got far
+  // enough to mint the research conversation, re-attach to that SAME thread
+  // (`resumeConversationId`) — the turn keeps generating server-side across the
+  // reload, so we poll it instead of running a second search; only if it's gone
+  // (or was never minted) does the runner fall back to a fresh run. Only fires
+  // when results are absent (status "idle") — a fresh visit has no `formValues`
+  // until the form is submitted (which fires the search itself), and a completed
+  // resume hydrates the status to "done". The meeting is never re-booked here:
+  // that only fires from the calendar step, which a resume skips past.
   useEffect(() => {
     if (!restored || !enabled || !flagsHydrated) return;
     if (!formValues || research.status !== "idle") return;
@@ -303,12 +317,17 @@ export function ResearchOnboardingRoute() {
       awaitAssistantId: awaitHatchReady,
       subject: researchSubjectFrom(formValues),
       conversationTitle: researchTitleFor(formValues),
+      ...(researchConversationId
+        ? { resumeConversationId: researchConversationId }
+        : {}),
+      onConversationCreated: setResearchConversationId,
     });
   }, [
     restored,
     enabled,
     flagsHydrated,
     formValues,
+    researchConversationId,
     research.status,
     startResearch,
     awaitHatchReady,
@@ -414,6 +433,7 @@ export function ResearchOnboardingRoute() {
       awaitAssistantId: awaitHatchReady,
       subject: researchSubjectFrom(values),
       conversationTitle: researchTitleFor(values),
+      onConversationCreated: setResearchConversationId,
     });
     goForwardTo("face");
   }

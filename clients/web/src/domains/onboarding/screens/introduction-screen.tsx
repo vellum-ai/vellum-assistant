@@ -14,6 +14,7 @@
 import { useMemo } from "react";
 import { ArrowRight } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
+import { Button } from "@vellumai/design-library/components/button";
 
 import { ONBOARDING_STEP_CONTENT } from "@/domains/onboarding/onboarding-step-layout";
 import { OnboardingPeekingEyes } from "@/domains/onboarding/components/onboarding-peeking-eyes";
@@ -168,17 +169,22 @@ export function IntroductionScreen({
           </span>
         </motion.h1>
 
-        <motion.button
-          type="button"
-          onClick={onContinue}
-          className="flex h-11 w-[234px] items-center justify-center gap-2 rounded-[10px] bg-black text-body-medium-default text-white transition-transform duration-150 active:scale-[0.97]"
+        <motion.div
           initial={reduce ? false : { opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={reduce ? { duration: 0 } : { duration: 0.4, delay: 1.15 }}
         >
-          Continue
-          <ArrowRight className="h-4 w-4" />
-        </motion.button>
+          <Button
+            type="button"
+            variant="primary"
+            size="regular"
+            rightIcon={<ArrowRight size={16} />}
+            onClick={onContinue}
+            className="h-11 w-[234px] text-base"
+          >
+            Continue
+          </Button>
+        </motion.div>
       </div>
       </OnboardingStageSizeProvider>
     </div>
