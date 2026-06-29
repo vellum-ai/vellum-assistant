@@ -40,14 +40,13 @@ import { captionImage } from "./vision-caption.js";
  * process images itself).
  *
  * Used by `user-prompt-submit`, whose context carries the effective profile
- * key rather than the resolved model id. Returns `false` when no profile
- * resolves or the resolved model already supports vision, in which case the
- * image reaches the model untouched.
+ * identity. Profileless configs use the resolved model id, which
+ * `doesSupportVision` can check directly.
  */
 export function needsImageFallback(modelProfileKey: string): boolean {
   const profiles = getModelProfiles();
   const profile = profiles.find((p) => p.key === modelProfileKey);
-  if (profile == null) return false;
+  if (profile == null) return !doesSupportVision(modelProfileKey);
   return !doesSupportVision(profile);
 }
 

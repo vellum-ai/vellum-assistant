@@ -30,6 +30,7 @@ import {
 import {
   resolveCallSiteConfig,
   resolveDefaultProfileKey,
+  resolveProfilelessModelKey,
 } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
@@ -852,14 +853,16 @@ export async function runAgentLoopImpl(
     const effectiveProfileKey =
       turnOverrideProfile ??
       config.llm.activeProfile ??
-      resolveDefaultProfileKey("mainAgent", config.llm);
+      resolveDefaultProfileKey("mainAgent", config.llm) ??
+      resolveProfilelessModelKey(turnCallSite, config.llm, {
+        ...(turnOverrideProfile != null
+          ? { overrideProfile: turnOverrideProfile }
+          : {}),
+        ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
+        selectionSeed: ctx.conversationId,
+      });
     const lastNotified = ctx.lastNotifiedInferenceProfile;
     const modelProfileKey = effectiveProfileKey;
-    if (modelProfileKey == null) {
-      throw new Error(
-        "Unable to resolve an effective model profile for this user turn.",
-      );
-    }
     const modelProfileNoticeKey =
       modelProfileKey !== lastNotified ? modelProfileKey : null;
     ctx.currentTurnModelProfileNoticeKey = modelProfileNoticeKey ?? undefined;

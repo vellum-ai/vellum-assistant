@@ -192,10 +192,11 @@ export interface UserPromptSubmitContext {
    */
   readonly requestId: string;
   /**
-   * Effective inference profile key for the model this turn will use. Hooks
-   * that need model capabilities should resolve them from this profile rather
-   * than the workspace active profile, because a conversation can be pinned to
-   * a different profile.
+   * Effective inference profile identity for the model this turn will use.
+   * Named-profile configs receive a profile key; profileless configs receive
+   * the resolved model id. Hooks that need model capabilities should resolve
+   * them from this value rather than the workspace active profile, because a
+   * conversation can be pinned to a different profile.
    */
   readonly modelProfileKey: string;
   /**
@@ -283,8 +284,8 @@ export interface PostCompactContext {
    */
   readonly isNonInteractive: boolean;
   /**
-   * Effective inference profile key for the model the compacted turn will keep
-   * using. Mirrors {@link UserPromptSubmitContext.modelProfileKey}.
+   * Effective inference profile identity for the model the compacted turn will
+   * keep using. Mirrors {@link UserPromptSubmitContext.modelProfileKey}.
    */
   readonly modelProfileKey: string;
   /**

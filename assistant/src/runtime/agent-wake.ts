@@ -64,7 +64,10 @@ import type {
 } from "../agent/loop.js";
 import type { InterfaceId } from "../channels/types.js";
 import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.js";
-import { resolveDefaultProfileKey } from "../config/llm-resolver.js";
+import {
+  resolveDefaultProfileKey,
+  resolveProfilelessModelKey,
+} from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { conversationSupportsDynamicUi } from "../daemon/channel-ui-capability.js";
@@ -694,10 +697,12 @@ export async function wakeAgentForOpportunity(
         : undefined) ??
       resolveDefaultProfileKey(callSite, config.llm) ??
       overrideProfile ??
-      resolveDefaultProfileKey("mainAgent", config.llm);
-    if (modelProfileKey == null) {
-      throw new Error("Unable to resolve an effective model profile for wake.");
-    }
+      resolveDefaultProfileKey("mainAgent", config.llm) ??
+      resolveProfilelessModelKey(callSite, config.llm, {
+        ...(overrideProfile != null ? { overrideProfile } : {}),
+        ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
+        selectionSeed: conversationId,
+      });
 
     // Apply the caller's persona override for the duration of the run. The
     // prompt is built once before `agentLoop.run()` (via

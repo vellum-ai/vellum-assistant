@@ -221,7 +221,9 @@ export function resolveTurnModelProfileLabel(
     selectionSeed,
   });
   const label = profileEntry?.label ?? modelProfileNoticeKey;
-  return resolved.model ? `${label} (${resolved.model})` : label;
+  return resolved.model && resolved.model !== label
+    ? `${label} (${resolved.model})`
+    : label;
 }
 
 /** Derive channel capabilities from source channel + interface identifiers. */

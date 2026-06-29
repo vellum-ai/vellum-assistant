@@ -1790,15 +1790,22 @@ export async function handleMessageComplete(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "message_complete" }>,
 ): Promise<void> {
-  // The model has now received the turn context, so persist any pending
-  // inference-profile-change notification. Guarded by the pending slot so it
-  // fires once per turn; a turn that fails before reaching delivery leaves the
-  // slot unconsumed and re-sends the notice next turn.
+  // A completed message means the model received the turn context, so record
+  // any pending inference-profile-change notification. Guarded by the pending
+  // slot so it fires once per turn; a turn that fails before reaching delivery
+  // leaves the slot unconsumed and re-sends the notice next turn.
   if (state.pendingNotifiedInferenceProfile != null) {
-    setLastNotifiedInferenceProfile(
-      deps.ctx.conversationId,
-      state.pendingNotifiedInferenceProfile,
-    );
+    try {
+      setLastNotifiedInferenceProfile(
+        deps.ctx.conversationId,
+        state.pendingNotifiedInferenceProfile,
+      );
+    } catch (err) {
+      deps.rlog.warn(
+        { conversationId: deps.ctx.conversationId, err },
+        "Failed to persist last notified inference profile (non-fatal)",
+      );
+    }
     deps.ctx.lastNotifiedInferenceProfile =
       state.pendingNotifiedInferenceProfile;
     state.pendingNotifiedInferenceProfile = null;
