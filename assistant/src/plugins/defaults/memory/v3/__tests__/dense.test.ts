@@ -27,11 +27,13 @@ const realEmbeddingBackend =
 const embedState = {
   calls: [] as string[][],
   throws: null as Error | null,
+  dimensionAvailable: true,
 };
 mock.module(
   "../../../../../persistence/embeddings/embedding-backend.js",
   () => ({
     ...realEmbeddingBackend,
+    isEmbeddingDimensionAvailable: async () => embedState.dimensionAvailable,
     embedWithBackend: async (_config: unknown, inputs: string[]) => {
       embedState.calls.push(inputs);
       if (embedState.throws) throw embedState.throws;
@@ -94,6 +96,7 @@ function point(article: string, ordinal: number, score: number): MockPoint {
 function resetState(): void {
   embedState.calls.length = 0;
   embedState.throws = null;
+  embedState.dimensionAvailable = true;
   state.points = [];
   state.queryThrows = null;
   state.queryCalls.length = 0;
@@ -174,6 +177,18 @@ describe("memory v3 dense lane", () => {
     const hits = await denseLane(CONFIG, "query", 5);
 
     expect(hits).toEqual([]);
+  });
+
+  test("a committed-dimension/reachable-backend mismatch degrades to [] without embedding", async () => {
+    // Simulates a 3072-dim collection committed while only a 384-dim backend is
+    // reachable: the read lane short-circuits before paying for an embed.
+    embedState.dimensionAvailable = false;
+
+    const hits = await denseLane(CONFIG, "query", 5);
+
+    expect(hits).toEqual([]);
+    expect(embedState.calls).toEqual([]);
+    expect(state.queryCalls).toHaveLength(0);
   });
 
   test("a failed embedding degrades to []", async () => {

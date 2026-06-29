@@ -16,7 +16,10 @@
 // forward regardless, so a dense outage narrows recall but never breaks a turn.
 
 import type { AssistantConfig } from "../../../../config/types.js";
-import { embedWithBackend } from "../../../../persistence/embeddings/embedding-backend.js";
+import {
+  embedWithBackend,
+  isEmbeddingDimensionAvailable,
+} from "../../../../persistence/embeddings/embedding-backend.js";
 import { getLogger } from "../../../../util/logger.js";
 import {
   getSectionDenseClient,
@@ -46,7 +49,11 @@ export interface DenseHit {
  * Qdrant in descending score order, so the first time an article is seen is its
  * best section; subsequent sections of the same article are ignored.
  *
- * Returns `[]` on any embedding or Qdrant failure (logged at warn level).
+ * Returns `[]` on any embedding or Qdrant failure (logged at warn level), and
+ * short-circuits to `[]` when the reachable backend cannot produce vectors of
+ * the committed collection dimension (degraded backend or dimension mismatch) —
+ * so a 3072-dim collection committed while only a 384-dim backend is reachable
+ * narrows recall cleanly rather than failing the dimension assertion every turn.
  */
 export async function denseLane(
   config: AssistantConfig,
@@ -54,6 +61,10 @@ export async function denseLane(
   k: number,
 ): Promise<DenseHit[]> {
   if (k <= 0) return [];
+
+  if (!(await isEmbeddingDimensionAvailable(config))) {
+    return [];
+  }
 
   let points: Array<{ payload?: unknown; score?: number }>;
   try {
