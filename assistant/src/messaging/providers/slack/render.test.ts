@@ -186,6 +186,13 @@ describe("renderSlackBlocks", () => {
     expect(image.alt_text).toBe("x".repeat(2000));
   });
 
+  test("falls back to a non-empty alt_text for an image with no alt", () => {
+    const blocks = renderSlackBlocks("![](https://example.com/cat.png)");
+    const image = blocks![0] as ImageBlock;
+    expect(image.type).toBe("image");
+    expect(image.alt_text).toBe("image");
+  });
+
   test("leaves a non-hostable image URL in the markdown block", () => {
     const blocks = renderSlackBlocks("![x](/relative/path.png)");
     expect(blocks).toEqual([

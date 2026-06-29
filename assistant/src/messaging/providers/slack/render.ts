@@ -215,7 +215,9 @@ function imageBlocksFromParagraph(node: Paragraph): ImageBlock[] | null {
   return images.map((img) => ({
     type: "image",
     image_url: img.url,
-    alt_text: (img.alt ?? "").slice(0, SLACK_IMAGE_ALT_MAX_CHARS),
+    // `alt_text` is required and must be non-empty; fall back when the image
+    // has no alt (e.g. `![](url)`).
+    alt_text: (img.alt ?? "").slice(0, SLACK_IMAGE_ALT_MAX_CHARS) || "image",
   }));
 }
 
