@@ -68,7 +68,7 @@ mock.module("../../persistence/embeddings/qdrant-circuit-breaker.js", () => ({
 }));
 
 // Stub raw query helpers (used by jobs-store internally).
-mock.module("../raw-query.js", () => ({
+mock.module("../../persistence/raw-query.js", () => ({
   rawAll: () => [],
   rawChanges: () => 0,
   rawMemoryAll: () => [],

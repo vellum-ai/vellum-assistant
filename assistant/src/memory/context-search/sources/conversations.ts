@@ -3,12 +3,12 @@ import {
   buildFtsMatchQuery,
   buildRecallEvidenceExcerpt,
 } from "../../../persistence/conversation-queries.js";
+import { rawAll } from "../../../persistence/raw-query.js";
 import { AUTO_ANALYSIS_SOURCE } from "../../../runtime/services/auto-analysis-guard.js";
 import {
   parseExternalContentEnvelope,
   wrapUntrustedContent,
 } from "../../../security/untrusted-content.js";
-import { rawAll } from "../../raw-query.js";
 import type { RecallSearchContext, RecallSearchResult } from "../types.js";
 
 const SUBAGENT_SOURCE = "subagent";

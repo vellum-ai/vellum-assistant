@@ -35,7 +35,6 @@ import {
   getRetrospectiveState,
   upsertRetrospectiveState,
 } from "../memory/memory-retrospective-state.js";
-import { rawGet, rawRun } from "../memory/raw-query.js";
 import { hydrate as hydrateActivationState } from "../memory/v2/activation-store.js";
 import {
   getAttachmentsForMessage,
@@ -52,6 +51,7 @@ import {
 import { getDb, getLogsDb, getMemoryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { getRequestLogsByMessageId } from "../persistence/llm-request-log-store.js";
+import { rawGet, rawRun } from "../persistence/raw-query.js";
 import {
   activationState,
   channelInboundEvents,

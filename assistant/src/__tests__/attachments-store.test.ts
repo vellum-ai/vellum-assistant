@@ -21,7 +21,6 @@ mock.module("../config/loader.js", () => ({
 }));
 
 import { getConversationDirPath } from "../memory/conversation-disk-view.js";
-import { rawGet, rawRun } from "../memory/raw-query.js";
 import {
   AttachmentUploadError,
   deleteAttachment,
@@ -43,6 +42,7 @@ import {
 } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { rawGet, rawRun } from "../persistence/raw-query.js";
 import { getConversationsDir } from "../util/platform.js";
 
 await initializeDb();

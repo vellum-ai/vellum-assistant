@@ -208,7 +208,7 @@ const { getDb, getMemoryDb, getMemorySqlite } =
 const { resetDbForTesting } =
   await import("../../../__tests__/db-test-helpers.js");
 const { initializeDb } = await import("../../../persistence/db-init.js");
-const { rawExec } = await import("../../raw-query.js");
+const { rawExec } = await import("../../../persistence/raw-query.js");
 const { conversations, memoryJobs, messages } =
   await import("../../../persistence/schema/index.js");
 const { writePage } = await import("../page-store.js");

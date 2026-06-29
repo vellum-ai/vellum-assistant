@@ -5,8 +5,8 @@
  * (which needs the migration to run before ORDER BY display_order).
  */
 
+import { rawRun } from "../persistence/raw-query.js";
 import { getLogger } from "../util/logger.js";
-import { rawRun } from "./raw-query.js";
 const log = getLogger("conversation-store");
 
 function isDuplicateColumnError(err: unknown): boolean {

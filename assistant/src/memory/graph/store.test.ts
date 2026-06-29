@@ -1,7 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
 import { initializeDb } from "../../persistence/db-init.js";
-import { resetTestTables } from "../raw-query.js";
+import { resetTestTables } from "../../persistence/raw-query.js";
 import {
   applyDiff,
   countNodes,

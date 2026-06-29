@@ -6,8 +6,8 @@
 
 import { eq } from "drizzle-orm";
 
-import { rawGet } from "../memory/raw-query.js";
 import { getDb } from "../persistence/db-connection.js";
+import { rawGet } from "../persistence/raw-query.js";
 import { memoryCheckpoints } from "../persistence/schema/index.js";
 
 // ── Checkpoint keys ──────────────────────────────────────────────

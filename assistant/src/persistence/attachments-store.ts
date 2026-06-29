@@ -21,7 +21,7 @@ import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getConversationAttachmentsDirPath } from "../memory/conversation-directories.js";
-import { rawAll, rawGet, rawRun } from "../memory/raw-query.js";
+import { rawAll, rawGet, rawRun } from "../persistence/raw-query.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { getDb } from "./db-connection.js";

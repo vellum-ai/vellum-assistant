@@ -53,7 +53,6 @@ const MEMORY_DIR = join(ASSISTANT_SRC, "memory");
 const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
   "assistant/src/persistence/attachments-store.ts": new Set([
     "conversation-directories",
-    "raw-query",
   ]),
   "assistant/src/persistence/bookmark-crud.ts": new Set(["message-content"]),
   "assistant/src/persistence/conversation-bootstrap.ts": new Set([
@@ -69,7 +68,6 @@ const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
     "indexer",
     "memory-retrospective-constants",
     "memory-retrospective-state",
-    "raw-query",
     "task-memory-cleanup",
     "v2/activation-store",
     "v2/injected-block-slugs",
@@ -77,7 +75,6 @@ const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
   "assistant/src/persistence/conversation-queries.ts": new Set([
     "conversation-display-order-migration",
     "conversation-group-migration",
-    "raw-query",
   ]),
   "assistant/src/persistence/db-maintenance.ts": new Set(["checkpoints"]),
   "assistant/src/persistence/delivery-crud.ts": new Set([
@@ -88,9 +85,7 @@ const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
   ]),
   "assistant/src/persistence/group-crud.ts": new Set([
     "conversation-group-migration",
-    "raw-query",
   ]),
-  "assistant/src/persistence/jobs-store.ts": new Set(["raw-query"]),
   "assistant/src/persistence/jobs-worker.ts": new Set([
     "checkpoints",
     "cleanup-schedule-state",
@@ -99,7 +94,6 @@ const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
     "worker-control",
   ]),
   "assistant/src/persistence/llm-usage-store.ts": new Set([
-    "raw-query",
     "schedule-attribution-sql",
     "usage-buckets",
     "usage-grouped-buckets",

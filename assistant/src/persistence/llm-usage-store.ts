@@ -1,7 +1,6 @@
 import { and, asc, desc, eq, gt, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { rawAll } from "../memory/raw-query.js";
 import {
   buildScheduleAttributionSubquery,
   buildScheduleRunWindowExists,
@@ -20,6 +19,7 @@ import {
   type UsageGroupedBucketRow,
   type UsageGroupedSeriesBucket,
 } from "../memory/usage-grouped-buckets.js";
+import { rawAll } from "../persistence/raw-query.js";
 import type {
   PricingResult,
   UsageEvent,

@@ -1,8 +1,8 @@
 import { and, desc, eq, notInArray, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { rawChanges, rawRun } from "../memory/raw-query.js";
 import { getDb } from "../persistence/db-connection.js";
+import { rawChanges, rawRun } from "../persistence/raw-query.js";
 import {
   callEvents,
   callPendingQuestions,

@@ -5,9 +5,9 @@ import {
   enqueueMemoryJob,
   type MemoryJob,
 } from "../../persistence/jobs-store.js";
+import { rawAll, rawLogsRun, rawRun } from "../../persistence/raw-query.js";
 import { getLogger } from "../../util/logger.js";
 import { getLogsDbPath } from "../../util/logs-db-path.js";
-import { rawAll, rawLogsRun, rawRun } from "../raw-query.js";
 
 const log = getLogger("memory-jobs-worker");
 
