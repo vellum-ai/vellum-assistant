@@ -1,21 +1,30 @@
-import { getConfig } from "../../config/loader.js";
-import { runAgenticRecall } from "../../memory/context-search/agent-runner.js";
-import type { RecallInput } from "../../memory/context-search/types.js";
+/**
+ * The memory feature's model-visible tools: `remember` and `recall`.
+ *
+ * Core, always-loaded tools registered via the host tool manifest
+ * (`tools/tool-manifest.ts`), so they carry core/workspace-override precedence
+ * and the `"memory"` tool category. Their implementations source from the
+ * memory feature (`src/memory/*`).
+ */
+
+import { getConfig } from "../../../config/loader.js";
+import { runAgenticRecall } from "../../../memory/context-search/agent-runner.js";
+import type { RecallInput } from "../../../memory/context-search/types.js";
 import {
   handleRemember,
   type RememberInput,
-} from "../../memory/graph/tool-handlers.js";
+} from "../../../memory/graph/tool-handlers.js";
 import {
   graphRecallDefinition,
   graphRememberDefinition,
-} from "../../memory/graph/tools.js";
-import { RiskLevel } from "../../permissions/types.js";
-import { resolveCapabilities } from "../../runtime/capabilities.js";
+} from "../../../memory/graph/tools.js";
+import { RiskLevel } from "../../../permissions/types.js";
+import { resolveCapabilities } from "../../../runtime/capabilities.js";
 import type {
   ToolContext,
   ToolDefinition,
   ToolExecutionResult,
-} from "../types.js";
+} from "../../../tools/types.js";
 
 // ── remember ────────────────────────────────────────────────────────
 
