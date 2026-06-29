@@ -193,6 +193,14 @@ export async function handleContactPromptSubmit(
         ],
       });
       contactId = contact.id;
+
+      // Invalidate the daemon guardian-id/role caches after the committed
+      // gateway contact write — before the read-back guard, so a
+      // resolveChannelId miss still drops the stale caches.
+      void ipcCallAssistant("emit_event", {
+        body: { kind: "contacts_changed" },
+      } as unknown as Record<string, unknown>).catch(() => {});
+
       channelId = resolveChannelId(contactId, channelType, normalizedAddress);
 
       log.info(
@@ -347,6 +355,14 @@ export async function handleContactPromptSubmit(
           "contact-prompt-submit: channel resolution failed after guardian bind, rolling back contact",
         );
         await rollbackCreatedContact();
+        // A freshly-created guardian was just rolled back (net no change). An
+        // existing guardian's channel bind committed and is NOT rolled back, so
+        // invalidate the daemon caches even though the read-back missed.
+        if (!createdNewContact) {
+          void ipcCallAssistant("emit_event", {
+            body: { kind: "contacts_changed" },
+          } as unknown as Record<string, unknown>).catch(() => {});
+        }
         return await channelResolutionError(requestId);
       }
 
@@ -363,6 +379,12 @@ export async function handleContactPromptSubmit(
       { status: 500 },
     );
   }
+
+  // Invalidate the daemon guardian-id/role caches after a gateway-owned
+  // guardian bind/rebind/reuse.
+  void ipcCallAssistant("emit_event", {
+    body: { kind: "contacts_changed" },
+  } as unknown as Record<string, unknown>).catch(() => {});
 
   return await resolveContactPrompt({
     requestId,

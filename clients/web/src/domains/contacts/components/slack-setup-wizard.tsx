@@ -1,5 +1,5 @@
 import { ExternalLink, Plus } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button, Card, Input, Radio, RadioGroup, Stepper, type StepperStep, Typography } from "@vellumai/design-library";
 
@@ -39,6 +39,12 @@ export function SlackSetupWizard({
 }: SlackSetupWizardProps) {
   const [stepId, setStepId] = useState<WizardStepId>(initialStepId);
   const [slackAppName, setSlackAppName] = useState(assistantName);
+  const userEditedName = useRef(false);
+
+  useEffect(() => {
+    if (!userEditedName.current) setSlackAppName(assistantName);
+  }, [assistantName]);
+
   const [appToken, setAppToken] = useState("");
   const [botToken, setBotToken] = useState("");
   const [saving, setSaving] = useState(false);
@@ -162,7 +168,7 @@ export function SlackSetupWizard({
               {stepId === "create-app" && (
                 <CreateAppStep
                   slackAppName={slackAppName}
-                  onSlackAppNameChange={setSlackAppName}
+                  onSlackAppNameChange={(v) => { userEditedName.current = true; setSlackAppName(v); }}
                   onCreateApp={handleCreateApp}
                   onNext={goNext}
                 />
