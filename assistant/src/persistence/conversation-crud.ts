@@ -72,6 +72,7 @@ import { getLogger } from "../util/logger.js";
 import { getLogsDbPath } from "../util/logs-db-path.js";
 import { getConversationsDir } from "../util/platform.js";
 import { createRowMapper } from "../util/row-mapper.js";
+import { withSqliteRetry, withSqliteRetrySync } from "../util/sqlite-retry.js";
 import {
   deleteOrphanAttachments,
   linkAttachmentToMessage,
@@ -457,11 +458,11 @@ async function insertMessageCore(
       ? metadata.userMessageChannel
       : null;
 
-  const MAX_RETRIES = 3;
-  let now!: number;
-  for (let attempt = 0; ; attempt++) {
-    now = monotonicNow();
-    try {
+  // The timestamp is recomputed each attempt so a late retry doesn't persist a
+  // stale `updatedAt`.
+  return withSqliteRetry(
+    (): InsertedMessage => {
+      const now = monotonicNow();
       const values = {
         id: messageId,
         conversationId,
@@ -547,35 +548,20 @@ async function insertMessageCore(
             .run();
         });
       }
-      break;
-    } catch (err) {
-      const errCode = (err as { code?: string }).code ?? "";
-      if (
-        attempt < MAX_RETRIES &&
-        (errCode.startsWith("SQLITE_BUSY") ||
-          errCode.startsWith("SQLITE_IOERR"))
-      ) {
-        log.warn(
-          { attempt, conversationId, code: errCode },
-          "insertMessageCore: transient SQLite error, retrying",
-        );
-        await Bun.sleep(50 * (attempt + 1));
-        continue;
-      }
-      throw err;
-    }
-  }
 
-  return {
-    id: messageId,
-    conversationId,
-    role,
-    content,
-    createdAt: now,
-    ...(metadataStr ? { metadata: metadataStr } : {}),
-    ...(clientMessageId ? { clientMessageId } : {}),
-    deduplicated: false,
-  };
+      return {
+        id: messageId,
+        conversationId,
+        role,
+        content,
+        createdAt: now,
+        ...(metadataStr ? { metadata: metadataStr } : {}),
+        ...(clientMessageId ? { clientMessageId } : {}),
+        deduplicated: false,
+      };
+    },
+    { op: "insertMessageCore", context: { conversationId } },
+  );
 }
 
 export function createConversation(
@@ -652,58 +638,26 @@ export function createConversation(
   // No explicit BEGIN/COMMIT here — callers that need atomicity (e.g.
   // forkConversation) wrap in their own transaction, and nesting raw BEGIN
   // inside Drizzle's db.transaction() would crash SQLite.
-  const MAX_RETRIES = 3;
-  for (let attempt = 0; ; attempt++) {
-    try {
-      db.insert(conversations).values(conversation).run();
-      break;
-    } catch (err) {
-      const code = (err as { code?: string }).code ?? "";
-      if (
-        attempt < MAX_RETRIES &&
-        (code.startsWith("SQLITE_BUSY") || code.startsWith("SQLITE_IOERR"))
-      ) {
-        log.warn(
-          { attempt, conversationId: id, code },
-          "createConversation: INSERT transient error, retrying",
-        );
-        Bun.sleepSync(50 * (attempt + 1));
-        continue;
-      }
-      throw err;
-    }
-  }
+  withSqliteRetrySync(
+    () => db.insert(conversations).values(conversation).run(),
+    { op: "createConversation.insert", context: { conversationId: id } },
+  );
 
   // group_id is NOT in the Drizzle schema (raw-query-only pattern).
   // Set via raw SQL after the INSERT succeeds.
   // Always set group_id — default to "system:all" when none provided.
   {
     const effectiveGroupId = groupId ?? "system:all";
-    for (let attempt = 0; ; attempt++) {
-      try {
+    withSqliteRetrySync(
+      () =>
         rawRun(
           "UPDATE conversations SET group_id = ?, is_pinned = ? WHERE id = ?",
           effectiveGroupId,
           effectiveGroupId === "system:pinned" ? 1 : 0,
           id,
-        );
-        break;
-      } catch (err) {
-        const code = (err as { code?: string }).code ?? "";
-        if (
-          attempt < MAX_RETRIES &&
-          (code.startsWith("SQLITE_BUSY") || code.startsWith("SQLITE_IOERR"))
-        ) {
-          log.warn(
-            { attempt, conversationId: id, code },
-            "createConversation: group_id UPDATE transient error, retrying",
-          );
-          Bun.sleepSync(50 * (attempt + 1));
-          continue;
-        }
-        throw err;
-      }
-    }
+        ),
+      { op: "createConversation.groupId", context: { conversationId: id } },
+    );
   }
 
   initConversationDir({ ...conversation, originChannel: null });
