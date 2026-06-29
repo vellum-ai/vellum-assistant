@@ -137,6 +137,28 @@ export async function maybeReseedCapabilitiesAfterManagedCredential(
     await import("../providers/platform-proxy/context.js");
   if (!(await hasManagedProxyPrereqs())) return;
 
+  // The managed credential has just landed, so the embedding backend is now
+  // reachable. Retry the embedding-identity reconcile to close the
+  // fresh-platform-install-booted-with-Gemini-down case: the first boot defers
+  // (degraded) because the backend probe returns null, and this credential-
+  // arrival retry commits the collection dimension once the backend answers.
+  // Run to COMPLETION before launching the reseeds below: the reconcile's
+  // commit-fresh/migrate may create or destroy+recreate the concept-page
+  // collection, and the reseeds embed + upsert into it — settling the
+  // collection dimension first stops a recreate from wiping freshly-seeded
+  // points or upserting at a stale dimension. Contained so a reconcile failure
+  // never rejects the detached caller.
+  try {
+    const { reconcileEmbeddingIdentity } =
+      await import("./embedding-reconcile.js");
+    await reconcileEmbeddingIdentity(config);
+  } catch (err) {
+    log.warn(
+      { err },
+      "Embedding-identity reconcile after managed proxy credential update threw — continuing",
+    );
+  }
+
   // Skills and CLI commands are independent catalogs sharing the unified
   // collection — reseed in parallel, each contained so one catalog's embed
   // failure does not abort the other or reject the detached caller.
@@ -175,23 +197,6 @@ export async function maybeReseedCapabilitiesAfterManagedCredential(
         ),
     ),
   );
-
-  // The managed credential has just landed, so the embedding backend is now
-  // reachable. Retry the embedding-identity reconcile to close the
-  // fresh-platform-install-booted-with-Gemini-down case: the first boot defers
-  // (degraded) because the backend probe returns null, and this credential-
-  // arrival retry commits the collection dimension once the backend answers.
-  // Contained so a reconcile failure never rejects the detached caller.
-  try {
-    const { reconcileEmbeddingIdentity } =
-      await import("./embedding-reconcile.js");
-    await reconcileEmbeddingIdentity(config);
-  } catch (err) {
-    log.warn(
-      { err },
-      "Embedding-identity reconcile after managed proxy credential update threw — continuing",
-    );
-  }
 
   // When v3 is live, a maintain pass embeds the freshly-seeded capability rows
   // into `memory_v3_sections` and invalidates the lanes so v3 surfaces the

@@ -30,7 +30,10 @@ import {
   readConceptPageCollectionDim,
 } from "../persistence/embeddings/embedding-identity.js";
 import { decideEmbeddingReconcile } from "../persistence/embeddings/reconcile-decision.js";
-import { enqueueMemoryJob } from "../persistence/jobs-store.js";
+import {
+  enqueueMemoryJob,
+  hasActiveJobOfType,
+} from "../persistence/jobs-store.js";
 import {
   ensureSectionCollection,
   recreateSectionCollection,
@@ -82,33 +85,52 @@ function defaultPersistVectorSize(dim: number): void {
 }
 
 /**
- * Default `recreateCollectionsAtDim`: destroy + recreate both the v2
- * concept-page collection and the v3 section collection at `dim`. Reuses the
- * recreate helpers each store exports so the named-vector layout and payload
- * indexes flow through the single creation code path. The `dim` is read from
- * config (which the caller has already committed via `persistVectorSize` +
- * cache invalidation) by the underlying `ensure*` calls.
+ * Default `recreateCollectionsAtDim`: destroy + recreate the v2 concept-page
+ * collection at `dim`, plus the v3 section collection when v3 is the live
+ * injected source. Reuses the recreate helpers each store exports so the
+ * named-vector layout and payload indexes flow through the single creation code
+ * path. The `dim` is read from config (which the caller has already committed
+ * via `persistVectorSize` + cache invalidation) by the underlying `ensure*`
+ * calls. The v3 section collection's lifecycle is gated on `isMemoryV3Live` to
+ * match its population gate — a v2-only install never populates it, so it must
+ * not be created.
  */
 async function defaultRecreateCollectionsAtDim(
   config: AssistantConfig,
 ): Promise<void> {
   await recreateConceptPageCollection();
-  await recreateSectionCollection(config);
+  if (isMemoryV3Live(config)) {
+    await recreateSectionCollection(config);
+  }
 }
 
 /**
  * Default `enqueueReembed`: enqueue the v2 reembed, plus the v3 maintain job
  * when v3 is the live injected source for this assistant (its section
  * collection only carries points under v3-live).
+ *
+ * Both enqueues dedup against an already-in-flight (pending or running) job of
+ * the same type: on the lifecycle startup path the reconcile runs immediately
+ * before `maybeRebuildMemoryV2Concepts`, which also enqueues `memory_v2_reembed`
+ * when it finds the just-(re)created collection empty — without the guard the
+ * corpus would re-embed twice.
  */
 function defaultEnqueueReembed(config: AssistantConfig): void {
-  enqueueMemoryJob("memory_v2_reembed", {});
-  if (isMemoryV3Live(config)) {
+  if (!hasActiveJobOfType("memory_v2_reembed")) {
+    enqueueMemoryJob("memory_v2_reembed", {});
+  }
+  if (isMemoryV3Live(config) && !hasActiveJobOfType("memory_v3_maintain")) {
     enqueueMemoryJob("memory_v3_maintain", {});
   }
 }
 
-function defaultDeps(config: AssistantConfig): ReconcileDeps {
+/**
+ * Build the production collaborator set: real read primitives + decision wired
+ * to the side-effecting defaults (config write, collection ensure/recreate,
+ * reembed enqueue). Exported so tests can take the real side-effecting deps and
+ * override only the read primitives + decision to drive a specific branch.
+ */
+export function defaultDeps(config: AssistantConfig): ReconcileDeps {
   return {
     probeBackendDimension,
     readConceptPageCollectionDim,
@@ -121,7 +143,11 @@ function defaultDeps(config: AssistantConfig): ReconcileDeps {
     recreateCollectionsAtDim: () => defaultRecreateCollectionsAtDim(config),
     ensureCollections: async () => {
       await ensureConceptPageCollection();
-      await ensureSectionCollection(config);
+      // The v3 section collection's lifecycle matches its population gate: a
+      // v2-only install never writes to it, so it must not be created.
+      if (isMemoryV3Live(config)) {
+        await ensureSectionCollection(config);
+      }
     },
     enqueueReembed: () => defaultEnqueueReembed(config),
   };
