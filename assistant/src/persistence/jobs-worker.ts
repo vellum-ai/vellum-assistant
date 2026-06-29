@@ -9,10 +9,6 @@ import {
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
 import {
-  getMemoryCheckpoint,
-  setMemoryCheckpoint,
-} from "../memory/checkpoints.js";
-import {
   getLastScheduledCleanupEnqueueMs,
   markScheduledCleanupEnqueued,
 } from "../memory/cleanup-schedule-state.js";
@@ -21,6 +17,7 @@ import { countBufferLines } from "../memory/v2/consolidation-job.js";
 import { spawnMemoryWorkerProcess } from "../memory/worker-control.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
+import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
 import { maybeRunDbMaintenance } from "./db-maintenance.js";
 import {
   EmbeddingBillingBlockError,

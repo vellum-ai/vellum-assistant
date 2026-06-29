@@ -30,6 +30,7 @@ import { and, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import type { AssistantConfig } from "../../config/types.js";
 import type { getDb } from "../../persistence/db-connection.js";
 import { embedWithRetry } from "../../persistence/embeddings/embed.js";
+import { stringifyMessageContent } from "../../persistence/message-content.js";
 import { conversations, messages } from "../../persistence/schema/index.js";
 import { renderCard } from "../../plugins/defaults/memory/v3/card.js";
 import { buildSectionNeedle } from "../../plugins/defaults/memory/v3/section-needle.js";
@@ -42,7 +43,6 @@ import {
   FRONTMATTER_REGEX,
   parseFrontmatterFields,
 } from "../../skills/frontmatter.js";
-import { stringifyMessageContent } from "../message-content.js";
 import { injectedConceptHeader } from "../v2/injected-block-slugs.js";
 import { slugFromConceptPath } from "../v2/page-store.js";
 

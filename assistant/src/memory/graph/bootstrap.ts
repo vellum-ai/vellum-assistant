@@ -16,6 +16,10 @@ import { and, asc, ne, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../../config/loader.js";
+import {
+  getMemoryCheckpoint,
+  setMemoryCheckpoint,
+} from "../../persistence/checkpoints.js";
 import { getDb } from "../../persistence/db-connection.js";
 import {
   initQdrantClient,
@@ -34,7 +38,6 @@ import {
 } from "../../persistence/schema/index.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
-import { getMemoryCheckpoint, setMemoryCheckpoint } from "../checkpoints.js";
 import { runGraphExtraction } from "./extraction.js";
 import { countNodes } from "./store.js";
 
