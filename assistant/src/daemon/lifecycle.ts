@@ -93,7 +93,7 @@ import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import { runWorkspaceMigrations } from "../workspace/migrations/runner.js";
 import { startAppSourceWatcher } from "./app-source-watcher.js";
 import { startConfigWatcher } from "./config-watcher.js";
-import { startConversationEvictor } from "./conversation-store.js";
+import { startConversationEvictor } from "./conversation-evictor.js";
 import { writePid } from "./daemon-control.js";
 import {
   evaluateDiskPressureNow,

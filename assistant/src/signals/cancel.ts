@@ -11,8 +11,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
+import { touchConversation } from "../daemon/conversation-evictor.js";
 import { findConversation } from "../daemon/conversation-registry.js";
-import { touchConversation } from "../daemon/conversation-store.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";

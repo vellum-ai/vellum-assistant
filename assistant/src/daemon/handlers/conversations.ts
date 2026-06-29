@@ -14,6 +14,7 @@ import { getSubagentManager } from "../../subagent/index.js";
 import { createAbortReason } from "../../util/abort-reasons.js";
 import { UserError } from "../../util/errors.js";
 import { truncate } from "../../util/truncate.js";
+import { touchConversation } from "../conversation-evictor.js";
 import { regenerate } from "../conversation-history.js";
 import {
   buildSlashContext,
@@ -27,7 +28,6 @@ import { resolveSlash } from "../conversation-slash.js";
 import {
   clearAllActiveConversations,
   getOrCreateConversation,
-  touchConversation,
 } from "../conversation-store.js";
 import type { ConfirmationResponse } from "../message-protocol.js";
 import { normalizeConversationType } from "../message-protocol.js";

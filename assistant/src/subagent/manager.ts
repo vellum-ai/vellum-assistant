@@ -191,8 +191,9 @@ export class SubagentManager {
   private labelIndex = new Map<string, string>();
 
   /**
-   * Shared rate-limit timestamps array from the daemon server.
-   * Set by DaemonServer at startup so subagents share the global rate limit.
+   * Cross-conversation rate-limit window. The conversation store reads this
+   * same array when building its per-conversation RateLimitProvider, so
+   * subagent requests and conversation requests share one global budget.
    */
   sharedRequestTimestamps: number[] = [];
 
