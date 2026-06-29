@@ -135,7 +135,7 @@ mock.module("../daemon/conversation.js", () => ({
   Conversation: FakeConversation,
 }));
 
-mock.module("../memory/conversation-bootstrap.js", () => ({
+mock.module("../persistence/conversation-bootstrap.js", () => ({
   bootstrapConversation: () => ({ id: `conv-${Math.random()}` }),
 }));
 

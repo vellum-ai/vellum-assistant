@@ -12,7 +12,7 @@ import { z } from "zod";
 import {
   getConversation,
   updateConversationTitle,
-} from "../../memory/conversation-crud.js";
+} from "../../persistence/conversation-crud.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { publishConversationTitleChanged } from "../sync/resource-sync-events.js";
 import { BadRequestError, NotFoundError } from "./errors.js";

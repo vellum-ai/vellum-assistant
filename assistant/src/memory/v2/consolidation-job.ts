@@ -64,19 +64,18 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { isMemoryV3Live } from "../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../config/types.js";
+import {
+  enqueueMemoryJob,
+  type MemoryJob,
+  type MemoryJobType,
+} from "../../persistence/jobs-store.js";
 import { runBackgroundJob } from "../../runtime/background-job-runner.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { isProcessAlive } from "../../util/process-liveness.js";
 import { formatBufferTimestamp } from "../graph/tool-handlers.js";
-import {
-  enqueueMemoryJob,
-  type MemoryJob,
-  type MemoryJobType,
-} from "../jobs-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./constants.js";
 import { resolveConsolidationPrompt } from "./prompts/consolidation.js";
 
@@ -84,12 +83,6 @@ const log = getLogger("memory-v2-consolidate");
 
 /** Stable identifier surfaced in `runBackgroundJob` logs and notifications. */
 const JOB_NAME = "memory.consolidate";
-
-/**
- * v3 plugin flags. Either being on enqueues `memory_v3_maintain` as a
- * post-consolidation follow-up. These gate the v3 plugin itself.
- */
-const MEMORY_V3_SHADOW = "memory-v3-shadow" as const;
 
 /**
  * Hard timeout for the consolidation run. Consolidation reads the buffer,
@@ -127,7 +120,7 @@ const STALE_LOCK_TTL_MS = 4 * CONSOLIDATION_TIMEOUT_MS;
  */
 const FOLLOW_UP_JOB_TYPES: readonly MemoryJobType[] = ["memory_v2_reembed"];
 
-/** Follow-up enqueued only when a v3 flag is on. */
+/** Follow-up enqueued only when v3 is live. */
 const V3_FOLLOW_UP_JOB_TYPE: MemoryJobType = "memory_v3_maintain";
 
 /**
@@ -262,21 +255,17 @@ export async function memoryV2ConsolidateJob(
     // the `memory.v2.consolidation_prompt_path` config override but bounds
     // it to a regular file under 1 MiB before substitution so a stray path
     // (or a `/dev/zero`-style pseudo-file) cannot exfiltrate megabytes of
-    // bytes through the wake hint. The core-pages curation section rides the
-    // same v3 gate as the maintenance follow-up: the file feeds the v3 core
-    // lane, so on a v2-only install the instruction would curate a file
-    // nothing reads.
-    // The article SHAPE is keyed on the live flag alone: under shadow, live
-    // prompts are still assembled by v2's injection model, so consolidation
-    // must keep producing `summary:`-bearing fragment pages until the flip.
+    // bytes through the wake hint. The core-pages curation section and the
+    // article SHAPE both ride the single `memory.v3.live` gate: the core-pages
+    // file feeds the v3 core lane (inert on a v2-only install), and the v3
+    // article shape drops the `summary:` field v2 injection depends on, so a
+    // v2-only install must keep producing `summary:`-bearing fragment pages.
     const memoryV3Live = isMemoryV3Live(config);
-    const memoryV3Active =
-      isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config) || memoryV3Live;
     const prompt = resolveConsolidationPrompt(
       config.memory.v2.consolidation_prompt_path,
       cutoff,
       {
-        includeCorePagesSection: memoryV3Active,
+        includeCorePagesSection: memoryV3Live,
         articleShape: memoryV3Live ? "v3" : "v2",
       },
     );
@@ -309,11 +298,11 @@ export async function memoryV2ConsolidateJob(
 
     // Step 5: enqueue follow-up jobs. Enqueueing now keeps the dispatch
     // wiring exercised end-to-end so PR 21 only has to swap in the handler
-    // bodies. v3 maintenance is appended only while a v3 path (shadow or live)
-    // is active, so it never fans out on v2-only installs.
+    // bodies. v3 maintenance is appended only while v3 is live, so it never
+    // fans out on v2-only installs.
     const followUpJobIds: string[] = [];
     const jobTypes: MemoryJobType[] = [...FOLLOW_UP_JOB_TYPES];
-    if (memoryV3Active) {
+    if (memoryV3Live) {
       jobTypes.push(V3_FOLLOW_UP_JOB_TYPE);
     }
     for (const jobType of jobTypes) {

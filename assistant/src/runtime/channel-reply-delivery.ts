@@ -1,13 +1,13 @@
 import { stripVellumLinks } from "../daemon/assistant-attachments.js";
 import type { RenderedHistoryContent } from "../daemon/handlers/shared.js";
 import { renderHistoryContent } from "../daemon/handlers/shared.js";
-import { getAttachmentMetadataForMessage } from "../memory/attachments-store.js";
+import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
+import { getAttachmentMetadataForMessage } from "../persistence/attachments-store.js";
 import {
   getMessageById,
   getMessages,
   updateMessageMetadata,
-} from "../memory/conversation-crud.js";
-import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
+} from "../persistence/conversation-crud.js";
 import { getLogger } from "../util/logger.js";
 import type { ChannelDeliveryResult } from "./gateway-client.js";
 import { deliverChannelReply } from "./gateway-client.js";

@@ -8,8 +8,8 @@
 // next run's dedup baseline). Lives in its own module so the sweep doesn't
 // have to import the job handler's full dependency graph.
 
+import { getMessages } from "../persistence/conversation-crud.js";
 import { getLogger } from "../util/logger.js";
-import { getMessages } from "./conversation-crud.js";
 import { MEMORY_RETROSPECTIVE_FORK_SOURCE } from "./memory-retrospective-constants.js";
 
 const log = getLogger("memory-retrospective-fork-boundary");

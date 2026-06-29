@@ -23,7 +23,7 @@ import { ContextOverflowError } from "../providers/types.js";
 
 const conversationCrudRealSnapshot = {
   ...(createRequire(import.meta.url)(
-    "../memory/conversation-crud.js",
+    "../persistence/conversation-crud.js",
   ) as Record<string, unknown>),
 };
 const tokenEstimatorRealSnapshot = {
@@ -256,7 +256,7 @@ mock.module("../plugins/defaults/compaction/overflow-policy.js", () => ({
   resolveOverflowAction: () => mockOverflowAction,
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
@@ -295,7 +295,7 @@ mock.module("../memory/conversation-crud.js", () => ({
 
 afterAll(() => {
   mock.module(
-    "../memory/conversation-crud.js",
+    "../persistence/conversation-crud.js",
     () => conversationCrudRealSnapshot,
   );
   mock.module(
@@ -496,7 +496,7 @@ mock.module("../agent/message-types.js", () => ({
   }),
 }));
 
-mock.module("../memory/llm-request-log-store.js", () => ({
+mock.module("../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: () => {},
   backfillMessageIdOnLogs: () => {},
   setAgentLoopExitReasonOnLatestLog: setAgentLoopExitReasonOnLatestLogMock,

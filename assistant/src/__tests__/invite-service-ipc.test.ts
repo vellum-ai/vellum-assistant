@@ -92,13 +92,13 @@ function richContactForId(contactId: string | undefined) {
 
 import { getContact, upsertContact } from "../contacts/contact-store.js";
 import { handleMintInvite } from "../ipc/routes/invite-ipc-routes.js";
-import { getSqlite } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getSqlite } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   createInvite,
   findById,
   hashToken,
-} from "../memory/invite-store.js";
+} from "../persistence/invite-store.js";
 import {
   handleRedeemTokenInvite,
   handleRedeemVoiceInvite,

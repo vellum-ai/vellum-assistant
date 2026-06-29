@@ -3,8 +3,6 @@ import { existsSync } from "node:fs";
 import { Command } from "commander";
 
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
-import { getConfigReadOnly } from "../config/loader.js";
-import { isExternalPluginsEnabled } from "../plugins/feature-gate.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
 import { registerAttachmentCommand } from "./commands/attachment.js";
@@ -74,8 +72,7 @@ export async function buildCliProgram(): Promise<Command> {
  * to the gateway unnecessarily.
  *
  * Same shape as `buildCliProgram` minus the async feature-flag init: registers
- * the full subcommand set (conditionally gated on email / external-plugins
- * flags via `getConfigReadOnly()`) and installs the workspace-preAction hook.
+ * the full subcommand set and installs the workspace-preAction hook.
  */
 export function buildCliProgramTree(): Command {
   const program = new Command();
@@ -135,9 +132,7 @@ Examples:
   registerOAuthCommand(program);
   registerPendingCommand(program);
   registerPlatformCommand(program);
-  if (isExternalPluginsEnabled(getConfigReadOnly())) {
-    registerPluginsCommand(program);
-  }
+  registerPluginsCommand(program);
   registerPsCommand(program);
   registerRoutesCommand(program);
   registerSchedulesCommand(program);

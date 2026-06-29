@@ -55,9 +55,11 @@
  * per-tool-result hot path.
  */
 
-import type { HookFunction, PostToolUseContext } from "@vellumai/plugin-api";
-
-import type { Message } from "../../../../providers/types.js";
+import type {
+  HookFunction,
+  Message,
+  PostToolUseContext,
+} from "@vellumai/plugin-api";
 
 /**
  * Canonical long-dig notice. Module-level constant so tests and wrapping

@@ -74,9 +74,8 @@ mock.module("../ipc/gateway-client.js", () => ({
     params?: Record<string, unknown>,
   ) => {
     if (method === "mark_channel_revoked") {
-      const { revokeChannelById } = await import(
-        "./helpers/seed-contact-channel.js"
-      );
+      const { revokeChannelById } =
+        await import("./helpers/seed-contact-channel.js");
       const channelId = params?.contactChannelId as string | undefined;
       if (channelId) revokeChannelById(channelId);
     }
@@ -99,9 +98,8 @@ mock.module("../ipc/gateway-client.js", () => ({
 // existence from the gateway. Derive the list from the local binding state so
 // the gateway-backed presence guard mirrors the DB the rest of the test sets up.
 const resolveGuardianList = async (input?: { channelTypes?: string[] }) => {
-  const { deriveGuardianDeliveries } = await import(
-    "./helpers/derive-guardian-delivery.js"
-  );
+  const { deriveGuardianDeliveries } =
+    await import("./helpers/derive-guardian-delivery.js");
   return deriveGuardianDeliveries({ channelTypes: input?.channelTypes ?? [] });
 };
 
@@ -111,8 +109,7 @@ mock.module("../contacts/guardian-delivery-reader.js", () => ({
   guardianForChannel: (
     list: Array<{ channelType: string; status: string }>,
     channelType: string,
-  ) =>
-    list.find((g) => g.channelType === channelType && g.status === "active"),
+  ) => list.find((g) => g.channelType === channelType && g.status === "active"),
 }));
 
 import { handleChannelVerificationSession } from "../daemon/handlers/config-channels.js";
@@ -133,18 +130,18 @@ import {
   updateSessionDelivery as storeUpdateSessionDelivery,
   updateSessionStatus as _storeUpdateSessionStatus,
 } from "../memory/channel-verification-sessions.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { upsertBinding as upsertExternalBinding } from "../memory/external-conversation-store.js";
 import {
   getRateLimit,
   recordInvalidAttempt,
   resetRateLimit,
 } from "../memory/guardian-rate-limits.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { upsertBinding as upsertExternalBinding } from "../persistence/external-conversation-store.js";
 import {
   channelVerificationSessions,
   conversations,
-} from "../memory/schema.js";
+} from "../persistence/schema/index.js";
 import {
   bindSessionIdentity as serviceBindSessionIdentity,
   createInboundVerificationSession,

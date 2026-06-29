@@ -3,6 +3,16 @@ import { v4 as uuid } from "uuid";
 
 import type { AssistantConfig } from "../../config/types.js";
 import { estimateTextTokens } from "../../context/token-estimator.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { asString, truncate } from "../../persistence/job-utils.js";
+import {
+  enqueueMemoryJob,
+  type MemoryJob,
+} from "../../persistence/jobs-store.js";
+import {
+  memorySegments,
+  memorySummaries,
+} from "../../persistence/schema/index.js";
 import {
   createTimeout,
   extractText,
@@ -10,10 +20,6 @@ import {
   userMessage,
 } from "../../providers/provider-send-message.js";
 import { getLogger } from "../../util/logger.js";
-import { getDb } from "../db-connection.js";
-import { asString, truncate } from "../job-utils.js";
-import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
-import { memorySegments, memorySummaries } from "../schema.js";
 
 const log = getLogger("memory-jobs-worker");
 

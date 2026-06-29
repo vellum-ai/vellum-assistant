@@ -99,7 +99,7 @@ mock.module("../daemon/process-message.js", () => ({
 }));
 
 const createdConversations: Array<{ conversationType: string }> = [];
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
   recordConversationPersistedSeq: () => {},
@@ -116,6 +116,10 @@ mock.module("../memory/conversation-crud.js", () => ({
   deleteMessageById: mock(() => {}),
   clearAll: mock(async () => ({ conversations: 0, messages: 0 })),
   deleteConversation: mock(() => ({ memoryIds: [] })),
+  deleteConversationGently: mock(async () => ({
+    segmentIds: [],
+    deletedSummaryIds: [],
+  })),
   deleteLastExchange: mock(() => 0),
   findAnalysisConversationFor: mock(() => null),
   findMostRecentRetrospectiveFor: mock(() => null),
@@ -173,7 +177,7 @@ mock.module("../memory/conversation-title-service.js", () => ({
 
 const mockFailStalledJobs = mock(() => 0);
 const mockClaimMemoryJobs = mock(() => []);
-mock.module("../memory/jobs-store.js", () => ({
+mock.module("../persistence/jobs-store.js", () => ({
   claimMemoryJobs: mockClaimMemoryJobs,
   completeMemoryJob: mock(() => {}),
   deferMemoryJob: mock(() => "deferred"),
@@ -199,7 +203,7 @@ mock.module("../memory/jobs-store.js", () => ({
 }));
 
 const mockMaybeRunDbMaintenance = mock(() => {});
-mock.module("../memory/db-maintenance.js", () => ({
+mock.module("../persistence/db-maintenance.js", () => ({
   maybeRunDbMaintenance: mockMaybeRunDbMaintenance,
 }));
 
@@ -208,7 +212,7 @@ mock.module("../memory/cleanup-schedule-state.js", () => ({
   markScheduledCleanupEnqueued: mock(() => {}),
 }));
 
-const { runMemoryJobsOnce } = await import("../memory/jobs-worker.js");
+const { runMemoryJobsOnce } = await import("../persistence/jobs-worker.js");
 const { FilingService } = await import("../filing/filing-service.js");
 const { WorkspaceHeartbeatService } =
   await import("../workspace/heartbeat-service.js");

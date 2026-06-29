@@ -47,9 +47,12 @@ mock.module("../config/loader.js", () => ({
 }));
 
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { conversationKeys, conversations } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import {
+  conversationKeys,
+  conversations,
+} from "../persistence/schema/index.js";
 
 await initializeDb();
 

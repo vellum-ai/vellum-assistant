@@ -15,7 +15,7 @@ import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import { LS_IMAGE_GEN_MODE, LS_IMAGE_GEN_MODEL } from "@/domains/settings/ai/local-storage-keys";
-import { AVAILABLE_IMAGE_GEN_MODELS, IMAGE_GEN_MODEL_DISPLAY_NAMES } from "@/domains/settings/ai/provider-catalogs";
+import { AVAILABLE_IMAGE_GEN_MODELS, IMAGE_GEN_MODEL_DISPLAY_NAMES, providerForImageGenModel } from "@/domains/settings/ai/provider-catalogs";
 import { parseServiceMode } from "@/domains/settings/ai/utils";
 import type { ServiceMode } from "@/generated/daemon/types.gen";
 
@@ -67,7 +67,7 @@ export function ImageGenerationCard() {
     const hasUserKey = imageGenMode === "your-own" && trimmed.length > 0;
     try {
       if (hasUserKey) {
-        await provisionProviderKey("gemini", trimmed);
+        await provisionProviderKey(providerForImageGenModel(imageGenModel), trimmed);
       }
       await configMutation.mutateAsync({
         path: { assistant_id: assistantId },
@@ -159,7 +159,11 @@ export function ImageGenerationCard() {
             type="password"
             value={imageGenApiKey}
             onChange={(e) => setImageGenApiKey(e.target.value)}
-            placeholder="Enter your Gemini API key"
+            placeholder={
+              providerForImageGenModel(imageGenModel) === "openai"
+                ? "Enter your OpenAI API key"
+                : "Enter your Gemini API key"
+            }
             fullWidth
           />
 

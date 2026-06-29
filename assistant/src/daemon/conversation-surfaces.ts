@@ -19,11 +19,11 @@ import {
   resolveEffectiveAppHtml,
   updateApp,
 } from "../memory/app-store.js";
+import { recordActivationEvent } from "../memory/onboarding-events-store.js";
 import {
   getMessages,
   updateMessageContent,
-} from "../memory/conversation-crud.js";
-import { recordActivationEvent } from "../memory/onboarding-events-store.js";
+} from "../persistence/conversation-crud.js";
 import {
   assistantEventHub,
   broadcastMessage,

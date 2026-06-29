@@ -1,6 +1,6 @@
+import type { DrizzleDb } from "../../persistence/db-connection.js";
+import { getSqliteFrom } from "../../persistence/db-connection.js";
 import { getLogger } from "../../util/logger.js";
-import type { DrizzleDb } from "../db-connection.js";
-import { getSqliteFrom } from "../db-connection.js";
 
 const log = getLogger("memory-v2-injection-events");
 

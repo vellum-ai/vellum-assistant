@@ -4,8 +4,9 @@
  * Verifies that `assistant plugins disable default-*` takes effect on the
  * next turn without a daemon restart. The `.disabled` sentinel is checked at
  * read time by each surface (`getHooksFor` for hooks,
- * `getPluginToolDefinitions` for tools) rather than at boot, so toggling the
- * sentinel file at runtime is immediately reflected.
+ * `getPluginToolDefinitions` for tools, `getRegisteredInjectors` for runtime
+ * injectors) rather than at boot, so toggling the sentinel file at runtime is
+ * immediately reflected.
  */
 
 import { existsSync } from "node:fs";
@@ -14,14 +15,23 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import { getHooksFor } from "../hooks/registry.js";
 import { RiskLevel } from "../permissions/types.js";
 import {
-  getHooksFor,
+  clearInjectorRegistry,
+  getRegisteredInjectors,
+  registerPluginInjectors,
+} from "../plugins/injector-registry.js";
+import {
   registerPlugin,
   resetPluginRegistryForTests,
   unregisterPlugin,
 } from "../plugins/registry.js";
-import { type HookFunction, type Plugin } from "../plugins/types.js";
+import {
+  type HookFunction,
+  type Injector,
+  type Plugin,
+} from "../plugins/types.js";
 import {
   getAllToolDefinitions,
   getPluginToolDefinitions,
@@ -75,6 +85,7 @@ function makeFakeTool(name: string): Tool {
 
 beforeEach(() => {
   resetPluginRegistryForTests();
+  clearInjectorRegistry();
 });
 
 afterEach(async () => {
@@ -178,6 +189,32 @@ describe("per-surface disabled-state filtering", () => {
     await removeSentinel("default-test-base-snapshot");
     defs = getAllToolDefinitions();
     expect(defs.some((d) => d.name === "base_snapshot_tool")).toBe(true);
+  });
+
+  test("getRegisteredInjectors filters out injectors from a disabled plugin", async () => {
+    const injector: Injector = {
+      name: "test_injector",
+      order: 5,
+      produce: () => Promise.resolve(null),
+    };
+    registerPluginInjectors("default-test-injectors", [injector]);
+
+    // Before disabling: injector is in the chain.
+    expect(
+      getRegisteredInjectors().some((i) => i.name === "test_injector"),
+    ).toBe(true);
+
+    // Disable via sentinel — filtered at read time, no restart needed.
+    await createSentinel("default-test-injectors");
+    expect(
+      getRegisteredInjectors().some((i) => i.name === "test_injector"),
+    ).toBe(false);
+
+    // Re-enable.
+    await removeSentinel("default-test-injectors");
+    expect(
+      getRegisteredInjectors().some((i) => i.name === "test_injector"),
+    ).toBe(true);
   });
 
   test("disabling one plugin does not affect others", async () => {

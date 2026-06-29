@@ -3,7 +3,7 @@
  * memory-injection blocks — builder, matcher, and slug extraction.
  *
  * Both the v2 injection renderer (`injection.ts`) and the v3 card renderers
- * (`plugins/defaults/memory-v3-shadow/card.ts` / `page-content.ts`) emit each
+ * (`plugins/defaults/memory/v3/card.ts` / `page-content.ts`) emit each
  * concept page under this exact header inside the block that is persisted on
  * the user message (`metadata.memoryInjectedBlock` /
  * `metadata.memoryV3InjectedBlock`) and re-attached at request build. The

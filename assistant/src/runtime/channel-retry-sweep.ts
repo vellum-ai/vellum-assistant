@@ -15,12 +15,12 @@ import {
   addSlackDmLiveDeliveredTextResponseIndex,
   getSlackDmLiveDeliveredTextResponseIndexes,
   updateDeliveredSegmentCount,
-} from "../memory/delivery-channels.js";
+} from "../persistence/delivery-channels.js";
 import {
   clearPayload,
   linkMessage,
   storeReplyMessageId,
-} from "../memory/delivery-crud.js";
+} from "../persistence/delivery-crud.js";
 import {
   getRetryableDeliveryEvents,
   getRetryableEvents,
@@ -29,7 +29,7 @@ import {
   markRetryableFailure,
   recordDeliveryFailure,
   recordProcessingFailure,
-} from "../memory/delivery-status.js";
+} from "../persistence/delivery-status.js";
 import { getLogger } from "../util/logger.js";
 import {
   deliverReplyViaCallback,

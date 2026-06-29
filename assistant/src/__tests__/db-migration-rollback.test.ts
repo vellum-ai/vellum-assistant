@@ -16,69 +16,69 @@ import { describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { type DrizzleDb, getSqliteFrom } from "../memory/db-connection.js";
+import { type DrizzleDb, getSqliteFrom } from "../persistence/db-connection.js";
 import {
   downJobDeferrals,
   migrateJobDeferrals,
-} from "../memory/migrations/001-job-deferrals.js";
+} from "../persistence/migrations/001-job-deferrals.js";
 import {
   downMemoryEntityRelationDedup,
   migrateMemoryEntityRelationDedup,
-} from "../memory/migrations/004-entity-relation-dedup.js";
+} from "../persistence/migrations/004-entity-relation-dedup.js";
 import {
   downMemoryItemsFingerprintScopeUnique,
   migrateMemoryItemsFingerprintScopeUnique,
-} from "../memory/migrations/005-fingerprint-scope-unique.js";
+} from "../persistence/migrations/005-fingerprint-scope-unique.js";
 import {
   downMemoryItemsScopeSaltedFingerprints,
   migrateMemoryItemsScopeSaltedFingerprints,
-} from "../memory/migrations/006-scope-salted-fingerprints.js";
-import { downAssistantIdToSelf } from "../memory/migrations/007-assistant-id-to-self.js";
-import { downRemoveAssistantIdColumns } from "../memory/migrations/008-remove-assistant-id-columns.js";
-import { downLlmUsageEventsDropAssistantId } from "../memory/migrations/009-llm-usage-events-drop-assistant-id.js";
-import { downBackfillInboxThreadState } from "../memory/migrations/014-backfill-inbox-thread-state.js";
-import { downDropActiveSearchIndex } from "../memory/migrations/015-drop-active-search-index.js";
-import { downNotificationTablesSchema } from "../memory/migrations/019-notification-tables-schema-migration.js";
-import { downRenameChannelToVellum } from "../memory/migrations/020-rename-macos-ios-channel-to-vellum.js";
-import { downEmbeddingVectorBlob } from "../memory/migrations/024-embedding-vector-blob.js";
-import { downEmbeddingsNullableVectorJson } from "../memory/migrations/026a-embeddings-nullable-vector-json.js";
-import { downNormalizePhoneIdentities } from "../memory/migrations/036-normalize-phone-identities.js";
-import { downBackfillGuardianPrincipalId } from "../memory/migrations/126-backfill-guardian-principal-id.js";
-import { downGuardianPrincipalIdNotNull } from "../memory/migrations/127-guardian-principal-id-not-null.js";
-import { downContactsNotesColumn } from "../memory/migrations/134-contacts-notes-column.js";
-import { downBackfillContactInteractionStats } from "../memory/migrations/135-backfill-contact-interaction-stats.js";
-import { downDropAssistantIdColumns } from "../memory/migrations/136-drop-assistant-id-columns.js";
-import { downBackfillUsageCacheAccounting } from "../memory/migrations/140-backfill-usage-cache-accounting.js";
-import { downRenameVerificationTable } from "../memory/migrations/141-rename-verification-table.js";
-import { downRenameVerificationSessionIdColumn } from "../memory/migrations/142-rename-verification-session-id-column.js";
-import { downRenameGuardianVerificationValues } from "../memory/migrations/143-rename-guardian-verification-values.js";
-import { downRenameVoiceToPhone } from "../memory/migrations/144-rename-voice-to-phone.js";
-import { migrateDropAccountsTableDown } from "../memory/migrations/145-drop-accounts-table.js";
-import { migrateRemindersToSchedulesDown } from "../memory/migrations/147-migrate-reminders-to-schedules.js";
-import { migrateDropRemindersTableDown } from "../memory/migrations/148-drop-reminders-table.js";
-import { migrateOAuthAppsClientSecretPathDown } from "../memory/migrations/150-oauth-apps-client-secret-path.js";
+} from "../persistence/migrations/006-scope-salted-fingerprints.js";
+import { downAssistantIdToSelf } from "../persistence/migrations/007-assistant-id-to-self.js";
+import { downRemoveAssistantIdColumns } from "../persistence/migrations/008-remove-assistant-id-columns.js";
+import { downLlmUsageEventsDropAssistantId } from "../persistence/migrations/009-llm-usage-events-drop-assistant-id.js";
+import { downBackfillInboxThreadState } from "../persistence/migrations/014-backfill-inbox-thread-state.js";
+import { downDropActiveSearchIndex } from "../persistence/migrations/015-drop-active-search-index.js";
+import { downNotificationTablesSchema } from "../persistence/migrations/019-notification-tables-schema-migration.js";
+import { downRenameChannelToVellum } from "../persistence/migrations/020-rename-macos-ios-channel-to-vellum.js";
+import { downEmbeddingVectorBlob } from "../persistence/migrations/024-embedding-vector-blob.js";
+import { downEmbeddingsNullableVectorJson } from "../persistence/migrations/026a-embeddings-nullable-vector-json.js";
+import { downNormalizePhoneIdentities } from "../persistence/migrations/036-normalize-phone-identities.js";
+import { downBackfillGuardianPrincipalId } from "../persistence/migrations/126-backfill-guardian-principal-id.js";
+import { downGuardianPrincipalIdNotNull } from "../persistence/migrations/127-guardian-principal-id-not-null.js";
+import { downContactsNotesColumn } from "../persistence/migrations/134-contacts-notes-column.js";
+import { downBackfillContactInteractionStats } from "../persistence/migrations/135-backfill-contact-interaction-stats.js";
+import { downDropAssistantIdColumns } from "../persistence/migrations/136-drop-assistant-id-columns.js";
+import { downBackfillUsageCacheAccounting } from "../persistence/migrations/140-backfill-usage-cache-accounting.js";
+import { downRenameVerificationTable } from "../persistence/migrations/141-rename-verification-table.js";
+import { downRenameVerificationSessionIdColumn } from "../persistence/migrations/142-rename-verification-session-id-column.js";
+import { downRenameGuardianVerificationValues } from "../persistence/migrations/143-rename-guardian-verification-values.js";
+import { downRenameVoiceToPhone } from "../persistence/migrations/144-rename-voice-to-phone.js";
+import { migrateDropAccountsTableDown } from "../persistence/migrations/145-drop-accounts-table.js";
+import { migrateRemindersToSchedulesDown } from "../persistence/migrations/147-migrate-reminders-to-schedules.js";
+import { migrateDropRemindersTableDown } from "../persistence/migrations/148-drop-reminders-table.js";
+import { migrateOAuthAppsClientSecretPathDown } from "../persistence/migrations/150-oauth-apps-client-secret-path.js";
 import {
   migrateGuardianTimestampsEpochMsDown,
   migrateGuardianTimestampsRebuildDown,
-} from "../memory/migrations/162-guardian-timestamps-epoch-ms.js";
-import { migrateRenameGmailProviderKeyToGoogleDown } from "../memory/migrations/169-rename-gmail-provider-key-to-google.js";
-import { migrateRenameThreadStartersTableDown } from "../memory/migrations/174-rename-thread-starters-table.js";
-import { migrateDropCapabilityCardStateDown } from "../memory/migrations/176-drop-capability-card-state.js";
-import { migrateBackfillInlineAttachmentsToDiskDown } from "../memory/migrations/180-backfill-inline-attachments-to-disk.js";
-import { migrateRenameThreadStartersCheckpointsDown } from "../memory/migrations/181-rename-thread-starters-checkpoints.js";
-import { migrateBackfillAudioAttachmentMimeTypesDown } from "../memory/migrations/191-backfill-audio-attachment-mime-types.js";
-import { migrateLlmUsageAttribution } from "../memory/migrations/235-llm-usage-attribution.js";
+} from "../persistence/migrations/162-guardian-timestamps-epoch-ms.js";
+import { migrateRenameGmailProviderKeyToGoogleDown } from "../persistence/migrations/169-rename-gmail-provider-key-to-google.js";
+import { migrateRenameThreadStartersTableDown } from "../persistence/migrations/174-rename-thread-starters-table.js";
+import { migrateDropCapabilityCardStateDown } from "../persistence/migrations/176-drop-capability-card-state.js";
+import { migrateBackfillInlineAttachmentsToDiskDown } from "../persistence/migrations/180-backfill-inline-attachments-to-disk.js";
+import { migrateRenameThreadStartersCheckpointsDown } from "../persistence/migrations/181-rename-thread-starters-checkpoints.js";
+import { migrateBackfillAudioAttachmentMimeTypesDown } from "../persistence/migrations/191-backfill-audio-attachment-mime-types.js";
+import { migrateLlmUsageAttribution } from "../persistence/migrations/235-llm-usage-attribution.js";
 import {
   type MigrationStep,
   runMigrationSteps,
-} from "../memory/migrations/run-migrations.js";
+} from "../persistence/migrations/run-migrations.js";
 import {
   type MigrationValidationResult,
   rollbackMemoryMigration,
   validateMigrationState,
-} from "../memory/migrations/validate-migration-state.js";
-import * as schema from "../memory/schema.js";
-import { migrationSteps } from "../memory/steps.js";
+} from "../persistence/migrations/validate-migration-state.js";
+import * as schema from "../persistence/schema/index.js";
+import { migrationSteps } from "../persistence/steps.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -547,7 +547,10 @@ describe("schema-drift recovery: migration handles unexpected schema state", () 
     // structured diagnostic data. Assert directly on the returned result rather
     // than re-deriving the crashed list from the raw DB — this verifies the
     // function itself detects the crash, not just that the data is present.
-    const result: MigrationValidationResult = validateMigrationState(db, migrationSteps);
+    const result: MigrationValidationResult = validateMigrationState(
+      db,
+      migrationSteps,
+    );
     expect(result.crashed).toContain("step:migrateJobDeferrals");
     expect(result.crashed).not.toContain(
       "step:migrateMemoryEntityRelationDedup",
@@ -585,7 +588,9 @@ describe("schema-drift recovery: migration handles unexpected schema state", () 
     // Sanity-check: confirm the steps list also declares this dependency, so
     // the violation detection is grounded in real schema intent.
     const saltedStep = migrationSteps.find(
-      (s) => typeof s !== "function" && s.name === "migrateMemoryItemsScopeSaltedFingerprints",
+      (s) =>
+        typeof s !== "function" &&
+        s.name === "migrateMemoryItemsScopeSaltedFingerprints",
     );
     expect(saltedStep).toBeTruthy();
     if (saltedStep && typeof saltedStep !== "function") {

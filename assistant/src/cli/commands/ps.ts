@@ -46,17 +46,18 @@ export function registerPsCommand(program: Command): void {
   registerCommand(program, {
     name: "ps",
     transport: "ipc",
-    description:
-      "Show the assistant daemon's process tree and subsystem health",
+    description: "Show the assistant daemon's live process tree",
     build: (ps) => {
       ps.option("--json", "Machine-readable JSON output").addHelpText(
         "after",
         `
-Reports the daemon's own process tree: the assistant runtime plus its
-supervised subsystems (qdrant vector store, embed-worker). Each subsystem
-status is probed live — qdrant via its readiness endpoint, embed-worker via
-PID-file liveness — so a status of "unreachable" means the probe itself
-failed rather than the process being confirmed down.
+Walks the daemon's OS process tree and reports every descendant process
+parented to the assistant runtime — qdrant, the embed worker, the memory
+worker (when the daemon owns it), MCP servers, and any other live children.
+The tree is built from the native process table (/proc on Linux, ps on
+macOS), so it reflects what is actually running, not a fixed subsystem list.
+
+Each node shows its PID; every listed process is live by definition.
 
 Examples:
   $ assistant ps

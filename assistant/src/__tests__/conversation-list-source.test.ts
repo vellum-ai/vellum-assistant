@@ -43,9 +43,9 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-import { createConversation } from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { createConversation } from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 

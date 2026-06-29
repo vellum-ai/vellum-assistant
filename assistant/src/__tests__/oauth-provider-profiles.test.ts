@@ -13,9 +13,9 @@ mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async () => undefined,
 }));
 
-import { initializeDb } from "../memory/db-init.js";
 import { getProvider } from "../oauth/oauth-store.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
+import { initializeDb } from "../persistence/db-init.js";
 
 await initializeDb();
 seedOAuthProviders();

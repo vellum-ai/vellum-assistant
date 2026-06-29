@@ -13,10 +13,10 @@ import {
   createConversation,
   findAnalysisConversationFor,
   getConversationSource,
-} from "../conversation-crud.js";
-import { getDb } from "../db-connection.js";
-import { initializeDb } from "../db-init.js";
-import { conversations } from "../schema.js";
+} from "../../persistence/conversation-crud.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
+import { conversations } from "../../persistence/schema/index.js";
 
 await initializeDb();
 

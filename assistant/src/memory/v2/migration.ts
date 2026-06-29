@@ -23,14 +23,17 @@ import { join } from "node:path";
 
 import type { AssistantConfig } from "../../config/types.js";
 import {
+  type DrizzleDb,
+  getSqliteFrom,
+} from "../../persistence/db-connection.js";
+import { enqueueMemoryJob } from "../../persistence/jobs-store.js";
+import {
   extractText,
   getConfiguredProvider,
   userMessage,
 } from "../../providers/provider-send-message.js";
 import type { Provider } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
-import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
-import { enqueueMemoryJob } from "../jobs-store.js";
 import { deletePage, listPages, slugify, writePage } from "./page-store.js";
 import type { ConceptPage } from "./types.js";
 
@@ -465,19 +468,16 @@ export function collapseEdges(
  * is implemented separately — we just stage the queue here so the embeddings
  * are ready by the time activation needs them.
  *
- * `database` is threaded through to `enqueueMemoryJob` as the override DB
- * handle. Without this, jobs would be written to the global `getDb()` instead
- * of the migration's DB — which is wrong for tests, isolated runners, and
- * multi-workspace processes that pass an explicit `database`.
+ * The `memory_jobs` queue lives in the dedicated memory database
+ * (`assistant-memory.db`), not the main DB. `enqueueMemoryJob` targets it by
+ * default, so we pass no DB override here: the migration's `database` handle is
+ * the *main* DB (the v1 graph source read by `gatherV1State`) and must not
+ * receive `memory_jobs` writes — doing so silently drops the jobs into a table
+ * that doesn't exist there.
  */
-export function enqueueEmbeds(slugs: string[], database: DrizzleDb): number {
+export function enqueueEmbeds(slugs: string[]): number {
   for (const slug of slugs) {
-    enqueueMemoryJob(
-      "embed_concept_page",
-      { slug },
-      undefined,
-      database as never,
-    );
+    enqueueMemoryJob("embed_concept_page", { slug });
   }
   return slugs.length;
 }
@@ -621,10 +621,7 @@ export async function runMemoryV2Migration(
   }
   await appendPromotions(workspaceDir, promotions);
 
-  const embedsEnqueued = enqueueEmbeds(
-    finalizedPages.map((p) => p.slug),
-    database,
-  );
+  const embedsEnqueued = enqueueEmbeds(finalizedPages.map((p) => p.slug));
 
   await writeSentinel(workspaceDir);
 

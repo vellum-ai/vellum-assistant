@@ -81,11 +81,11 @@ import {
   OS_BETA_PROFILE_TEMPLATE,
   seedInferenceProfiles,
 } from "../config/seed-inference-profiles.js";
-import type { DrizzleDb } from "../memory/db-connection.js";
-import { migrateCreateProviderConnections } from "../memory/migrations/243-provider-connections.js";
-import { migrateProviderConnectionStatusLabel } from "../memory/migrations/244-provider-connection-status-label.js";
-import { migrateProviderConnectionBaseUrlAndModels } from "../memory/migrations/250-provider-connection-base-url-and-models.js";
-import * as schema from "../memory/schema.js";
+import type { DrizzleDb } from "../persistence/db-connection.js";
+import { migrateCreateProviderConnections } from "../persistence/migrations/243-provider-connections.js";
+import { migrateProviderConnectionStatusLabel } from "../persistence/migrations/244-provider-connection-status-label.js";
+import { migrateProviderConnectionBaseUrlAndModels } from "../persistence/migrations/250-provider-connection-base-url-and-models.js";
+import * as schema from "../persistence/schema/index.js";
 import { getConnection } from "../providers/inference/connections.js";
 import { getConfigQuarantineNoticePath } from "../util/platform.js";
 import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
@@ -854,6 +854,7 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles.balanced.model).toBe(
       "accounts/fireworks/models/glm-5p2",
     );
+    expect(raw.llm.profiles.balanced.effort).toBe("high");
     expect(raw.llm.profiles.balanced.source).toBe("managed");
     // Quality serves Anthropic Opus, the most capable managed profile.
     expect(raw.llm.profiles["quality-optimized"].provider).toBe("anthropic");

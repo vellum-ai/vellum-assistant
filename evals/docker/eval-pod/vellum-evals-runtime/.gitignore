@@ -1,3 +1,0 @@
-# Local build output. Produced by the README's build command:
-#   CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o vellum-evals-runtime ./
-/vellum-evals-runtime

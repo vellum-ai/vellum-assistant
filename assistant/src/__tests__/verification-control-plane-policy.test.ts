@@ -71,9 +71,9 @@ mock.module("../permissions/checker.js", () => ({
   getCachedAssessment: () => undefined,
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   createConversation: (title: string) => ({ id: "conversation-1", title }),
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
@@ -224,7 +224,7 @@ function makePrompter(): PermissionPrompter {
   } as unknown as PermissionPrompter;
 }
 
-import { initializeDb } from "../memory/db-init.js";
+import { initializeDb } from "../persistence/db-init.js";
 
 beforeAll(async () => {
   await initializeDb();

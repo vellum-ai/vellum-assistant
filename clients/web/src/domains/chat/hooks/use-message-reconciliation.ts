@@ -19,7 +19,10 @@ import {
   serverSnapshotHasNewContent,
 } from "@/domains/chat/utils/reconcile-detection";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
-import { fetchConversationMessages } from "@/domains/chat/api/messages";
+import {
+  fetchConversationMessages,
+  RECONCILE_LATEST_PAGE_LIMIT,
+} from "@/domains/chat/api/messages";
 import type { ConversationMessage } from "@vellumai/assistant-api";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -136,7 +139,20 @@ export function useMessageReconciliation({
         isSending(useTurnStore.getState().phase),
       );
       const changed = serverSnapshotHasNewContent(serverView, localView);
-      const messagesAdded = serverView.length - localView.length;
+      // Count server rows absent from the local view by id rather than a raw
+      // length diff: the server snapshot is the latest page only, while the
+      // local view spans every loaded page, so a length subtraction would go
+      // negative once older history is paged in. Counting unmatched ids stays
+      // correct under that windowing (this feeds diagnostics / the Sentry
+      // rescue breadcrumb, not control flow).
+      const localIds = new Set<string>();
+      for (const m of localView) {
+        if (m.id) localIds.add(m.id);
+      }
+      const messagesAdded = serverView.reduce(
+        (count, sm) => (sm.id && !localIds.has(sm.id) ? count + 1 : count),
+        0,
+      );
 
       // Refresh the single source — history flows into the query cache and the
       // transcript (its union with the live turn) re-renders. No client-side
@@ -296,7 +312,9 @@ export function useMessageReconciliation({
         }
         const snapshotTurnId = useTurnStore.getState().activeTurnId;
 
-        fetchConversationMessages(ctx.assistantId, ctx.conversationId)
+        fetchConversationMessages(ctx.assistantId, ctx.conversationId, {
+          latestPageLimit: RECONCILE_LATEST_PAGE_LIMIT,
+        })
           .then((snapshot) => {
             if (epoch !== useStreamStore.getState().streamEpoch) return;
             const serverMessages = snapshot?.messages ?? [];
@@ -393,6 +411,7 @@ export function useMessageReconciliation({
         const snapshot = await fetchConversationMessages(
           ctx.assistantId,
           ctx.conversationId,
+          { latestPageLimit: RECONCILE_LATEST_PAGE_LIMIT },
         );
         const serverMessages = snapshot?.messages ?? [];
         const serverSeq = snapshot?.seq ?? null;

@@ -10,10 +10,13 @@ import type { AssistantDomainEvents } from "../events/domain-events.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";
 import { enqueueAutoAnalysisIfEnabled } from "../memory/auto-analysis-enqueue.js";
 import { isAutoAnalysisConversation } from "../memory/auto-analysis-guard.js";
-import { enqueueMemoryJob, isMemoryEnabled } from "../memory/jobs-store.js";
 import { enqueueMemoryRetrospectiveIfEnabled } from "../memory/memory-retrospective-enqueue.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
+import {
+  enqueueMemoryJob,
+  isMemoryEnabled,
+} from "../persistence/jobs-store.js";
 import { disposeContextWindowManager } from "../plugins/defaults/compaction/manager-store.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import { type TrustClass } from "../runtime/actor-trust-resolver.js";

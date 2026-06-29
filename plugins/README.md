@@ -623,6 +623,32 @@ name**. It does not by itself guarantee the plugin's hooks/tools match this
 loader's conventions — a plugin authored for another ecosystem may install yet
 contribute nothing on boot. A **postinstall adapter** bridges that gap.
 
+### Installing a plugin not in the marketplace (untrusted)
+
+While a plugin is still under development — before it is whitelisted here —
+install it directly from its GitHub repo by passing a URL (anything containing a
+slash) instead of a marketplace name:
+
+```bash
+assistant plugins install https://github.com/owner/repo
+assistant plugins install https://github.com/owner/repo/tree/my-branch/sub/path
+assistant plugins install owner/repo --name my-plugin
+```
+
+The ref comes from the URL's `/tree/<ref>/` segment, or defaults to the
+repository's default branch. The install directory name is derived from the repo
+(or sub-path leaf) and can be overridden with `--name`.
+
+A direct install **bypasses marketplace curation entirely**: the tree is
+materialized verbatim (no [postinstall adapter](#postinstall-adapters) is
+overlaid), and the source is **untrusted** — it has not been reviewed and its
+hooks/tools run inside the assistant with full access. The CLI prints a yellow
+warning naming the source, so the choice to trust it is explicit. Unlike
+marketplace installs — which pin an immutable, reviewed commit SHA — a branch or
+`HEAD` ref is mutable, so a direct install is a development convenience, not a
+reproducible pin. The marketplace-only flags (`--ref`, `--pin`,
+`--allow-unreviewed`) do not apply.
+
 ### Postinstall adapters
 
 External ecosystem plugins are often shaped for a different host (e.g. a Claude

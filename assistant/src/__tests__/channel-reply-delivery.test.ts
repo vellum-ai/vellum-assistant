@@ -80,7 +80,7 @@ mock.module("../runtime/gateway-client.js", () => ({
   },
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
@@ -133,7 +133,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentMetadataForMessage: (messageId: string) =>
     attachmentsByMessageId.get(messageId) ?? [],
   getFilePathForAttachment: () => null,

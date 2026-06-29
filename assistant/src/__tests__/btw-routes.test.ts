@@ -42,9 +42,9 @@ mock.module("../memory/conversation-key-store.js", () => ({
 
 const mockAddMessage = mock(() => {});
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   addMessage: mockAddMessage,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
@@ -103,7 +103,6 @@ mock.module("../daemon/conversation-store.js", () => ({
   conversationEntries: () => [][Symbol.iterator](),
   conversationIds: () => [][Symbol.iterator](),
   getConversationMap: () => new Map(),
-  initConversationLifecycle: () => {},
   registerConversationFactory: () => {},
   getOrCreateActiveConversation: mockGetOrCreateConversation,
   getConversationOptions: () => undefined,

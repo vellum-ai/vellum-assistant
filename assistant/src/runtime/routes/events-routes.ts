@@ -25,9 +25,9 @@ import { z } from "zod";
 
 import type { HostProxyCapability } from "../../channels/types.js";
 import { parseInterfaceId, supportsHostProxy } from "../../channels/types.js";
-import { emitContactChange } from "../../contacts/contact-events.js";
-import { getConversation } from "../../memory/conversation-crud.js";
+import { notifyContactsChanged } from "../../contacts/notify-contacts-changed.js";
 import { getOrCreateConversation } from "../../memory/conversation-key-store.js";
+import { getConversation } from "../../persistence/conversation-crud.js";
 import { getLogger } from "../../util/logger.js";
 import { formatSseFrame, formatSseHeartbeat } from "../assistant-event.js";
 import type {
@@ -583,7 +583,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: ({ body }) => {
       const { kind } = EmitEventBodySchema.parse(body);
       if (kind === "contacts_changed") {
-        emitContactChange();
+        notifyContactsChanged();
       }
       return null;
     },

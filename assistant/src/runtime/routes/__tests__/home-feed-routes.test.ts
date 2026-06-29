@@ -35,8 +35,8 @@ const addedMessages: Array<{
 let createConversationShouldThrow = false;
 
 const realConversationCrud =
-  await import("../../../memory/conversation-crud.js");
-mock.module("../../../memory/conversation-crud.js", () => ({
+  await import("../../../persistence/conversation-crud.js");
+mock.module("../../../persistence/conversation-crud.js", () => ({
   ...realConversationCrud,
   createConversation: (opts: unknown) => {
     if (createConversationShouldThrow) {

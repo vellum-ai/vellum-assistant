@@ -56,7 +56,7 @@ mock.module("../daemon/process-message.js", () => ({
 
 import type { TwilioRelaySpeechConfig } from "../calls/twilio-routes.js";
 import { generateTwiML } from "../calls/twilio-routes.js";
-import { initializeDb } from "../memory/db-init.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { handleChannelInbound } from "../runtime/routes/inbound-message-handler.js";
 import {
   composeChannelVerifyReply,

@@ -1,34 +1,57 @@
 import * as Sentry from "@sentry/node";
 
-import type { FilingService } from "../filing/filing-service.js";
-import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
-import type { McpServerManager } from "../mcp/manager.js";
-import { getSqlite, resetDb } from "../memory/db-connection.js";
-import type { QdrantManager } from "../memory/qdrant-manager.js";
+import { stopCes } from "../credential-execution/ces-runtime.js";
+import { stopFilingService } from "../filing/filing-service.js";
+import { stopHeartbeatService } from "../heartbeat/heartbeat-service.js";
+import { stopCliIpcServer } from "../ipc/assistant-server.js";
+import { stopGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
+import { stopSkillIpcServer } from "../ipc/skill-server.js";
+import { stopMcpServerManager } from "../mcp/manager.js";
 import { stopMemoryWorkerProcess } from "../memory/worker-control.js";
-import type { RuntimeHttpServer } from "../runtime/http-server.js";
+import { getSqlite, resetDb } from "../persistence/db-connection.js";
+import { stopQdrantManager } from "../persistence/embeddings/qdrant-manager.js";
+import { stopMemoryJobsWorker } from "../persistence/jobs-worker.js";
+import { stopRuntimeHttpServer } from "../runtime/http-server.js";
+import { stopScheduler } from "../schedule/scheduler.js";
+import { stopUsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { browserManager } from "../tools/browser/browser-manager.js";
 import { cleanupShellOutputTempFiles } from "../tools/shared/shell-output.js";
 import { getLogger } from "../util/logger.js";
 import { getEnrichmentService } from "../workspace/commit-message-enrichment-service.js";
-import type { WorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
+import {
+  commitAllPendingWorkspaceChanges,
+  stopWorkspaceHeartbeatService,
+} from "../workspace/heartbeat-service.js";
+import { stopAppSourceWatcher } from "./app-source-watcher.js";
+import { stopConfigWatcher } from "./config-watcher.js";
+import {
+  stopConversationEvictor,
+  stopConversations,
+} from "./conversation-store.js";
+import { cleanupPidFile } from "./daemon-control.js";
+import { stopEventLoopWatchdog } from "./event-loop-watchdog.js";
+import { stopDiskPressureGuardForLifecycle } from "./lifecycle.js";
+import { stopOrphanReaper } from "./orphan-reaper.js";
 import type { DaemonServer } from "./server.js";
 import { runShutdownHooks } from "./shutdown-registry.js";
 
 const log = getLogger("lifecycle");
 
+/**
+ * Stop the daemon's background services and remove the PID file. Invoked on
+ * both the graceful-shutdown and force-exit-timeout paths so the process never
+ * leaves a stale PID file or orphaned timers behind.
+ */
+function stopBackgroundServicesAndCleanupPidFile(): void {
+  stopGatewayFlagListener();
+  stopDiskPressureGuardForLifecycle();
+  stopOrphanReaper();
+  stopEventLoopWatchdog();
+  cleanupPidFile();
+}
+
 export interface ShutdownDeps {
   server: DaemonServer;
-  workspaceHeartbeat: WorkspaceHeartbeatService;
-  heartbeat: HeartbeatService;
-  filing: FilingService | null;
-  runtimeHttp: RuntimeHttpServer | null;
-  scheduler: { stop(): void };
-  getMemoryWorker: () => { stop(): void } | null;
-  getQdrantManager: () => QdrantManager | null;
-  mcpManager: McpServerManager | null;
-  telemetryReporter: { stop(): Promise<void> } | null;
-  cleanupPidFile: () => void;
 }
 
 export function installShutdownHandlers(deps: ShutdownDeps): void {
@@ -51,14 +74,14 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     // bump only changes behavior for the stuck-shutdown path.
     const forceTimer = setTimeout(() => {
       log.warn("Graceful shutdown timed out, forcing exit");
-      deps.cleanupPidFile();
+      stopBackgroundServicesAndCleanupPidFile();
       process.exit(1);
     }, 20_000);
     forceTimer.unref();
 
-    await deps.workspaceHeartbeat.stop();
-    await deps.heartbeat.stop();
-    if (deps.filing) await deps.filing.stop();
+    await stopWorkspaceHeartbeatService();
+    await stopHeartbeatService();
+    await stopFilingService();
 
     // Run registered skill shutdown hooks (e.g. meet-join session teardown)
     // before stopping the server so any HTTP round-trips and SSE emissions
@@ -73,18 +96,25 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     // This ensures no workspace state is lost during graceful shutdown.
     try {
       log.info({ phase: "pre_stop" }, "Committing pending workspace changes");
-      await deps.workspaceHeartbeat.commitAllPending();
+      await commitAllPendingWorkspaceChanges();
     } catch (err) {
       log.warn({ err, phase: "pre_stop" }, "Shutdown workspace commit failed");
     }
 
     await deps.server.stop();
+    stopConversationEvictor();
+    stopConfigWatcher();
+    stopAppSourceWatcher();
+    stopCliIpcServer();
+    stopSkillIpcServer();
+    stopConversations();
+    await stopCes();
 
     // Final commit sweep: catch any writes that occurred during server.stop()
     // (e.g. in-flight tool executions completing during drain).
     try {
       log.info({ phase: "post_stop" }, "Final workspace commit sweep");
-      await deps.workspaceHeartbeat.commitAllPending();
+      await commitAllPendingWorkspaceChanges();
     } catch (err) {
       log.warn(
         { err, phase: "post_stop" },
@@ -100,28 +130,23 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
       log.warn({ err }, "Enrichment service shutdown failed (non-fatal)");
     }
 
-    if (deps.telemetryReporter) {
-      try {
-        const timeout = new Promise<void>((_, reject) =>
-          setTimeout(
-            () => reject(new Error("Telemetry flush timed out")),
-            3_000,
-          ),
-        );
-        await Promise.race([deps.telemetryReporter.stop(), timeout]);
-      } catch (err) {
-        log.warn({ err }, "Telemetry reporter shutdown failed (non-fatal)");
-      }
+    try {
+      const timeout = new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error("Telemetry flush timed out")), 3_000),
+      );
+      await Promise.race([stopUsageTelemetryReporter(), timeout]);
+    } catch (err) {
+      log.warn({ err }, "Telemetry reporter shutdown failed (non-fatal)");
     }
 
-    if (deps.runtimeHttp) await deps.runtimeHttp.stop();
+    await stopRuntimeHttpServer();
     await browserManager.closeAllPages();
     cleanupShellOutputTempFiles();
-    deps.scheduler.stop();
+    stopScheduler();
 
-    // Stop the in-process memory worker if one was started on the daemon's
-    // event loop (memory.worker.enabled = false).
-    deps.getMemoryWorker()?.stop();
+    // Stop the in-process memory worker supervisor if it was started on the
+    // daemon's event loop (memory.worker.enabled = false).
+    stopMemoryJobsWorker();
 
     // Stop the out-of-process memory worker if it's actually running. This is
     // keyed off live state rather than config: the worker may have been
@@ -139,15 +164,13 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
       log.warn({ err }, "Failed to stop memory worker process (non-fatal)");
     }
 
-    if (deps.mcpManager) {
-      try {
-        await deps.mcpManager.stop();
-      } catch (err) {
-        log.warn({ err }, "MCP server manager shutdown failed (non-fatal)");
-      }
+    try {
+      await stopMcpServerManager();
+    } catch (err) {
+      log.warn({ err }, "MCP server manager shutdown failed (non-fatal)");
     }
 
-    await deps.getQdrantManager()?.stop();
+    await stopQdrantManager();
 
     // Optimize query planner statistics before closing so they persist for
     // the next session. Checkpoint WAL and close SQLite so no writes are
@@ -171,7 +194,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
 
     await Sentry.flush(2000);
     clearTimeout(forceTimer);
-    deps.cleanupPidFile();
+    stopBackgroundServicesAndCleanupPidFile();
     process.exit(exitCode);
   };
 

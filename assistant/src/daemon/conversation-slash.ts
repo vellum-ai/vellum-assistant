@@ -8,7 +8,7 @@ import {
   saveRawConfig,
 } from "../config/loader.js";
 import { orderProfileKeys } from "../config/profile-order.js";
-import { getConversationOverrideProfile } from "../memory/conversation-crud.js";
+import { getConversationOverrideProfile } from "../persistence/conversation-crud.js";
 import { getConfiguredProviders } from "../providers/provider-availability.js";
 import { getVisibleProviderCatalog } from "../providers/provider-catalog-visibility.js";
 

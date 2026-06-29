@@ -27,7 +27,7 @@ mock.module("../runtime/background-job-runner.js", () => ({
     onConversationCreated?: (conversationId: string) => void;
   }) => {
     const { createConversation } =
-      await import("../memory/conversation-crud.js");
+      await import("../persistence/conversation-crud.js");
     const conv = createConversation({
       title: "(test stub)",
       conversationType: "background",
@@ -85,9 +85,9 @@ mock.module("../tools/registry.js", () => ({
   areCoreToolsInitialized: () => coreToolsReady,
 }));
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { recordUsageEvent } from "../memory/llm-usage-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { recordUsageEvent } from "../persistence/llm-usage-store.js";
 import {
   createSchedule,
   deferClaimedSchedule,

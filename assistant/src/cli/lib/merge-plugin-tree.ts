@@ -44,8 +44,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 
-import { INSTALL_META_FILENAME } from "./install-from-github.js";
-import { computeFingerprint } from "./plugin-fingerprint.js";
+import {
+  computeFingerprint,
+  PRESERVED_ENTRIES,
+} from "./plugin-fingerprint.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -243,7 +245,7 @@ export async function mergePluginTree({
   conflictLabels,
 }: MergePluginTreeOptions): Promise<PluginMergeResult> {
   const labels = conflictLabels ?? DEFAULT_CONFLICT_LABELS;
-  const exclude = [INSTALL_META_FILENAME];
+  const exclude = PRESERVED_ENTRIES;
   const base = computeFingerprint(baseDir, exclude).files;
   const ours = computeFingerprint(oursDir, exclude).files;
   const theirs = computeFingerprint(theirsDir, exclude).files;

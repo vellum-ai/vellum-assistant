@@ -14,4 +14,11 @@ describe("routes", () => {
       "/assistant/logs/usage?range=7d&groupBy=schedule&scheduleId=schedule+with+spaces",
     );
   });
+
+  test("builds the schedules tab and per-schedule detail paths", () => {
+    expect(routes.schedules.root).toBe("/assistant/schedules");
+    expect(routes.schedules.detail("sch_123")).toBe(
+      "/assistant/schedules/sch_123",
+    );
+  });
 });

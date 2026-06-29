@@ -1,5 +1,5 @@
-import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { invalidateAssistantInferredItemsForConversation } from "../memory/task-memory-cleanup.js";
+import { bootstrapConversation } from "../persistence/conversation-bootstrap.js";
 import { getLogger } from "../util/logger.js";
 import { createTaskRun, getTask, updateTaskRun } from "./task-store.js";
 

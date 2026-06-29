@@ -2,11 +2,12 @@ import { Cron } from "croner";
 import { and, asc, desc, eq, isNull, lt, lte, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb } from "../memory/db-connection.js";
 import { rawChanges } from "../memory/raw-query.js";
-import { scheduleJobs, scheduleRuns } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { scheduleJobs, scheduleRuns } from "../persistence/schema/index.js";
 import { publishSchedulesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
+import { withSqliteRetrySync } from "../util/sqlite-retry.js";
 import {
   computeNextRunAt as computeNextRunAtEngine,
   isValidScheduleExpression,
@@ -216,7 +217,10 @@ export function createSchedule(params: {
     updatedAt: now,
   };
 
-  db.insert(scheduleJobs).values(row).run();
+  withSqliteRetrySync(() => db.insert(scheduleJobs).values(row).run(), {
+    op: "createSchedule",
+    context: { scheduleId: id },
+  });
   notifySchedulesChanged();
   return parseJobRow(row);
 }
@@ -415,7 +419,10 @@ export function updateSchedule(
     set.nextRunAt = newEnabled ? computeNextRunAtEngine(spec) : 0;
   }
 
-  db.update(scheduleJobs).set(set).where(eq(scheduleJobs.id, id)).run();
+  withSqliteRetrySync(
+    () => db.update(scheduleJobs).set(set).where(eq(scheduleJobs.id, id)).run(),
+    { op: "updateSchedule", context: { scheduleId: id } },
+  );
   notifySchedulesChanged();
 
   return getSchedule(id);
@@ -423,7 +430,10 @@ export function updateSchedule(
 
 export function deleteSchedule(id: string): boolean {
   const db = getDb();
-  db.delete(scheduleJobs).where(eq(scheduleJobs.id, id)).run();
+  withSqliteRetrySync(
+    () => db.delete(scheduleJobs).where(eq(scheduleJobs.id, id)).run(),
+    { op: "deleteSchedule", context: { scheduleId: id } },
+  );
   const deleted = rawChanges() > 0;
   if (deleted) notifySchedulesChanged();
   return deleted;
@@ -495,15 +505,20 @@ export function claimDueSchedules(now: number): ScheduleJob[] {
       updates.nextRunAt = newNextRunAt!;
     }
 
-    db.update(scheduleJobs)
-      .set(updates)
-      .where(
-        and(
-          eq(scheduleJobs.id, row.id),
-          eq(scheduleJobs.nextRunAt, row.nextRunAt),
-        ),
-      )
-      .run();
+    withSqliteRetrySync(
+      () =>
+        db
+          .update(scheduleJobs)
+          .set(updates)
+          .where(
+            and(
+              eq(scheduleJobs.id, row.id),
+              eq(scheduleJobs.nextRunAt, row.nextRunAt),
+            ),
+          )
+          .run(),
+      { op: "claimDueSchedules.recurring", context: { scheduleId: row.id } },
+    );
 
     if (rawChanges() === 0) continue;
 
@@ -534,16 +549,21 @@ export function claimDueSchedules(now: number): ScheduleJob[] {
     .all();
 
   for (const row of oneShotCandidates) {
-    db.update(scheduleJobs)
-      .set({
-        status: "firing",
-        lastRunAt: now,
-        updatedAt: now,
-      })
-      .where(
-        and(eq(scheduleJobs.id, row.id), eq(scheduleJobs.status, "active")),
-      )
-      .run();
+    withSqliteRetrySync(
+      () =>
+        db
+          .update(scheduleJobs)
+          .set({
+            status: "firing",
+            lastRunAt: now,
+            updatedAt: now,
+          })
+          .where(
+            and(eq(scheduleJobs.id, row.id), eq(scheduleJobs.status, "active")),
+          )
+          .run(),
+      { op: "claimDueSchedules.oneShot", context: { scheduleId: row.id } },
+    );
 
     if (rawChanges() === 0) continue;
 
@@ -568,14 +588,19 @@ export function claimDueSchedules(now: number): ScheduleJob[] {
 export function completeOneShot(id: string): void {
   const db = getDb();
   const now = Date.now();
-  db.update(scheduleJobs)
-    .set({
-      status: "fired",
-      enabled: false,
-      updatedAt: now,
-    })
-    .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
-    .run();
+  withSqliteRetrySync(
+    () =>
+      db
+        .update(scheduleJobs)
+        .set({
+          status: "fired",
+          enabled: false,
+          updatedAt: now,
+        })
+        .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
+        .run(),
+    { op: "completeOneShot", context: { scheduleId: id } },
+  );
   if (rawChanges() > 0) notifySchedulesChanged();
 }
 
@@ -586,13 +611,18 @@ export function completeOneShot(id: string): void {
 export function failOneShot(id: string): void {
   const db = getDb();
   const now = Date.now();
-  db.update(scheduleJobs)
-    .set({
-      status: "active",
-      updatedAt: now,
-    })
-    .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
-    .run();
+  withSqliteRetrySync(
+    () =>
+      db
+        .update(scheduleJobs)
+        .set({
+          status: "active",
+          updatedAt: now,
+        })
+        .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
+        .run(),
+    { op: "failOneShot", context: { scheduleId: id } },
+  );
   if (rawChanges() > 0) notifySchedulesChanged();
 }
 
@@ -619,15 +649,20 @@ export function failOneShot(id: string): void {
 export function deferClaimedSchedule(id: string): void {
   const db = getDb();
   const now = Date.now();
-  db.update(scheduleJobs)
-    .set({
-      status: "active",
-      enabled: true,
-      nextRunAt: now,
-      updatedAt: now,
-    })
-    .where(eq(scheduleJobs.id, id))
-    .run();
+  withSqliteRetrySync(
+    () =>
+      db
+        .update(scheduleJobs)
+        .set({
+          status: "active",
+          enabled: true,
+          nextRunAt: now,
+          updatedAt: now,
+        })
+        .where(eq(scheduleJobs.id, id))
+        .run(),
+    { op: "deferClaimedSchedule", context: { scheduleId: id } },
+  );
   if (rawChanges() > 0) notifySchedulesChanged();
 }
 
@@ -640,14 +675,19 @@ export function retryOneShot(id: string): void {
   const db = getDb();
   const now = Date.now();
   let changed = false;
-  db.update(scheduleJobs)
-    .set({
-      status: "active",
-      retryCount: sql`${scheduleJobs.retryCount} + 1`,
-      updatedAt: now,
-    })
-    .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
-    .run();
+  withSqliteRetrySync(
+    () =>
+      db
+        .update(scheduleJobs)
+        .set({
+          status: "active",
+          retryCount: sql`${scheduleJobs.retryCount} + 1`,
+          updatedAt: now,
+        })
+        .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
+        .run(),
+    { op: "retryOneShot", context: { scheduleId: id } },
+  );
   changed = rawChanges() > 0;
   if (changed) notifySchedulesChanged();
 }
@@ -660,15 +700,20 @@ export function retryOneShot(id: string): void {
 export function failOneShotPermanently(id: string): void {
   const db = getDb();
   const now = Date.now();
-  db.update(scheduleJobs)
-    .set({
-      status: "cancelled",
-      enabled: false,
-      lastStatus: "error",
-      updatedAt: now,
-    })
-    .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
-    .run();
+  withSqliteRetrySync(
+    () =>
+      db
+        .update(scheduleJobs)
+        .set({
+          status: "cancelled",
+          enabled: false,
+          lastStatus: "error",
+          updatedAt: now,
+        })
+        .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
+        .run(),
+    { op: "failOneShotPermanently", context: { scheduleId: id } },
+  );
   if (rawChanges() > 0) notifySchedulesChanged();
 }
 
@@ -679,14 +724,19 @@ export function failOneShotPermanently(id: string): void {
 export function cancelSchedule(id: string): boolean {
   const db = getDb();
   const now = Date.now();
-  db.update(scheduleJobs)
-    .set({
-      status: "cancelled",
-      enabled: false,
-      updatedAt: now,
-    })
-    .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "active")))
-    .run();
+  withSqliteRetrySync(
+    () =>
+      db
+        .update(scheduleJobs)
+        .set({
+          status: "cancelled",
+          enabled: false,
+          updatedAt: now,
+        })
+        .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "active")))
+        .run(),
+    { op: "cancelSchedule", context: { scheduleId: id } },
+  );
   const cancelled = rawChanges() > 0;
   if (cancelled) notifySchedulesChanged();
   return cancelled;
@@ -699,20 +749,25 @@ export function createScheduleRun(
   const db = getDb();
   const id = uuid();
   const now = Date.now();
-  db.insert(scheduleRuns)
-    .values({
-      id,
-      jobId,
-      status: "running",
-      startedAt: now,
-      finishedAt: null,
-      durationMs: null,
-      output: null,
-      error: null,
-      conversationId,
-      createdAt: now,
-    })
-    .run();
+  withSqliteRetrySync(
+    () =>
+      db
+        .insert(scheduleRuns)
+        .values({
+          id,
+          jobId,
+          status: "running",
+          startedAt: now,
+          finishedAt: null,
+          durationMs: null,
+          output: null,
+          error: null,
+          conversationId,
+          createdAt: now,
+        })
+        .run(),
+    { op: "createScheduleRun", context: { scheduleId: jobId, runId: id } },
+  );
   return id;
 }
 
@@ -721,10 +776,15 @@ export function setScheduleRunConversationId(
   conversationId: string,
 ): void {
   const db = getDb();
-  db.update(scheduleRuns)
-    .set({ conversationId })
-    .where(eq(scheduleRuns.id, runId))
-    .run();
+  withSqliteRetrySync(
+    () =>
+      db
+        .update(scheduleRuns)
+        .set({ conversationId })
+        .where(eq(scheduleRuns.id, runId))
+        .run(),
+    { op: "setScheduleRunConversationId", context: { runId } },
+  );
 }
 
 export function completeScheduleRun(
@@ -743,16 +803,21 @@ export function completeScheduleRun(
 
   const durationMs = now - run.startedAt;
 
-  db.update(scheduleRuns)
-    .set({
-      status: result.status,
-      finishedAt: now,
-      durationMs,
-      output: result.output?.slice(0, 10_000) ?? null,
-      error: result.error?.slice(0, 2000) ?? null,
-    })
-    .where(eq(scheduleRuns.id, runId))
-    .run();
+  withSqliteRetrySync(
+    () =>
+      db
+        .update(scheduleRuns)
+        .set({
+          status: result.status,
+          finishedAt: now,
+          durationMs,
+          output: result.output?.slice(0, 10_000) ?? null,
+          error: result.error?.slice(0, 2000) ?? null,
+        })
+        .where(eq(scheduleRuns.id, runId))
+        .run(),
+    { op: "completeScheduleRun.run", context: { runId } },
+  );
 
   // Update the parent job's lastStatus and retryCount
   if (result.status === "error") {
@@ -763,21 +828,34 @@ export function completeScheduleRun(
       .where(eq(scheduleJobs.id, run.jobId))
       .get();
     if (job) {
-      db.update(scheduleJobs)
-        .set({
-          lastStatus: "error",
-          retryCount: job.retryCount + 1,
-          updatedAt: now,
-        })
-        .where(eq(scheduleJobs.id, run.jobId))
-        .run();
+      withSqliteRetrySync(
+        () =>
+          db
+            .update(scheduleJobs)
+            .set({
+              lastStatus: "error",
+              retryCount: job.retryCount + 1,
+              updatedAt: now,
+            })
+            .where(eq(scheduleJobs.id, run.jobId))
+            .run(),
+        {
+          op: "completeScheduleRun.jobError",
+          context: { scheduleId: run.jobId },
+        },
+      );
       if (rawChanges() > 0) notifySchedulesChanged();
     }
   } else {
-    db.update(scheduleJobs)
-      .set({ lastStatus: "ok", retryCount: 0, updatedAt: now })
-      .where(eq(scheduleJobs.id, run.jobId))
-      .run();
+    withSqliteRetrySync(
+      () =>
+        db
+          .update(scheduleJobs)
+          .set({ lastStatus: "ok", retryCount: 0, updatedAt: now })
+          .where(eq(scheduleJobs.id, run.jobId))
+          .run(),
+      { op: "completeScheduleRun.jobOk", context: { scheduleId: run.jobId } },
+    );
     if (rawChanges() > 0) notifySchedulesChanged();
   }
 }
@@ -1032,17 +1110,27 @@ export function scheduleRetry(id: string, nextRetryAt: number): void {
   const db = getDb();
   const now = Date.now();
   let changed = false;
-  db.update(scheduleJobs)
-    .set({ nextRunAt: nextRetryAt, updatedAt: now })
-    .where(eq(scheduleJobs.id, id))
-    .run();
+  withSqliteRetrySync(
+    () =>
+      db
+        .update(scheduleJobs)
+        .set({ nextRunAt: nextRetryAt, updatedAt: now })
+        .where(eq(scheduleJobs.id, id))
+        .run(),
+    { op: "scheduleRetry.nextRunAt", context: { scheduleId: id } },
+  );
   changed = rawChanges() > 0;
   // Revert one-shot status from "firing" to "active" so the scheduler
   // will claim it again when nextRetryAt arrives. No-op for recurring.
-  db.update(scheduleJobs)
-    .set({ status: "active", updatedAt: now })
-    .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
-    .run();
+  withSqliteRetrySync(
+    () =>
+      db
+        .update(scheduleJobs)
+        .set({ status: "active", updatedAt: now })
+        .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
+        .run(),
+    { op: "scheduleRetry.revertStatus", context: { scheduleId: id } },
+  );
   changed = rawChanges() > 0 || changed;
   if (changed) notifySchedulesChanged();
 }
@@ -1052,10 +1140,15 @@ export function scheduleRetry(id: string, nextRetryAt: number): void {
  */
 export function resetRetryCount(id: string): void {
   const db = getDb();
-  db.update(scheduleJobs)
-    .set({ retryCount: 0, updatedAt: Date.now() })
-    .where(eq(scheduleJobs.id, id))
-    .run();
+  withSqliteRetrySync(
+    () =>
+      db
+        .update(scheduleJobs)
+        .set({ retryCount: 0, updatedAt: Date.now() })
+        .where(eq(scheduleJobs.id, id))
+        .run(),
+    { op: "resetRetryCount", context: { scheduleId: id } },
+  );
   if (rawChanges() > 0) notifySchedulesChanged();
 }
 

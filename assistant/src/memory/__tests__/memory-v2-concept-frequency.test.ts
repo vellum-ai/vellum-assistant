@@ -24,14 +24,14 @@ mock.module("../v2/page-store.js", () => ({
   listPages: (workspaceDir: string) => listPagesImpl(workspaceDir),
 }));
 
-import { getDb } from "../db-connection.js";
-import { initializeDb } from "../db-init.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
+import { memoryV2ActivationLogs } from "../../persistence/schema/index.js";
 import {
   type MemoryV2ConceptRowRecord,
   recordMemoryV2ActivationLog,
 } from "../memory-v2-activation-log-store.js";
 import { getConceptFrequencySummary } from "../memory-v2-concept-frequency.js";
-import { memoryV2ActivationLogs } from "../schema.js";
 import { sampleConfig } from "./fixtures/memory-v2-activation-fixtures.js";
 
 await initializeDb();

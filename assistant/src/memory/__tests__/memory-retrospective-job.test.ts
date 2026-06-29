@@ -130,7 +130,7 @@ mock.module("../memory-retrospective-state.js", () => ({
   ],
 }));
 
-mock.module("../conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   getMessagesAfter: (_id: string, _afterId: string | null) => newMessages,
   getMessages: (id: string) => {
     if (messagesByConversationId[id]) return messagesByConversationId[id];
@@ -194,6 +194,16 @@ mock.module("../conversation-crud.js", () => ({
     }
     deletedConversationIds.push(id);
   },
+  // Superseded-prior GC goes through the batched/off-loop variant; mirror the
+  // synchronous mock's tracking (and throw behaviour) so the same assertions
+  // hold.
+  deleteConversationGently: async (id: string) => {
+    if (deleteConversationThrowsFor === id) {
+      throw new Error(`delete failed for ${id}`);
+    }
+    deletedConversationIds.push(id);
+    return { segmentIds: [], deletedSummaryIds: [] };
+  },
   // Mirrors the real helper's semantics (interactive-only, expiry-aware) so
   // matchConversationProfile tests exercise the same fallback behavior.
   resolveOverrideProfile: (
@@ -251,11 +261,11 @@ mock.module("../../runtime/agent-wake.js", () => ({
   },
 }));
 
-mock.module("../jobs-store.js", () => ({
+mock.module("../../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: () => "follow-up-job-id",
 }));
 
-import type { MemoryJob } from "../jobs-store.js";
+import type { MemoryJob } from "../../persistence/jobs-store.js";
 import { memoryRetrospectiveJob } from "../memory-retrospective-job.js";
 
 function makeConfig(

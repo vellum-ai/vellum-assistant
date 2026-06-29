@@ -23,7 +23,7 @@ import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
 } from "../memory/checkpoints.js";
-import { recordLifecycleEvent } from "../memory/lifecycle-events-store.js";
+import { recordLifecycleEvent } from "../persistence/lifecycle-events-store.js";
 import { getLogger } from "../util/logger.js";
 import { listWatchers } from "./watcher-store.js";
 
