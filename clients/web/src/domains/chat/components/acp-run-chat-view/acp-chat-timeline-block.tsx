@@ -22,14 +22,14 @@ export function AcpChatTimelineBlock({
   return (
     <div className={`relative flex items-start gap-2${isLast ? "" : " pb-4"}`}>
       {/* Connector trails down to the next dot. A dotted (action) block begins
-          the line just below its dot (top-[18px]); a dotless narration block
+          the line just below its dot (top-[16px]); a dotless narration block
           runs it full-height (top-0) so the rail stays continuous through the
           empty dot slot. Omitted on the last block. */}
       {!isLast && (
         <div
           aria-hidden
           className={`absolute bottom-0 left-[6.5px] w-px bg-[var(--border-element)] ${
-            showDot ? "top-[18px]" : "top-0"
+            showDot ? "top-[16px]" : "top-0"
           }`}
         />
       )}
@@ -37,7 +37,8 @@ export function AcpChatTimelineBlock({
         <span
           aria-hidden
           data-testid="acp-chat-timeline-dot"
-          className="mt-[2px] flex h-[14px] w-[14px] shrink-0 items-center justify-center"
+          // No top margin so the 14px dot centers on the 14px icon-led first line.
+          className="flex h-[14px] w-[14px] shrink-0 items-center justify-center"
         >
           <span className="h-[5px] w-[5px] rounded-full bg-[var(--content-disabled)]" />
         </span>
