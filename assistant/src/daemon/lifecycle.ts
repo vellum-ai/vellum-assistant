@@ -18,6 +18,11 @@ import { loadConfig, mergeDefaultWorkspaceConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
 import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
 import { reconcileFlagGatedProfiles } from "../config/sync-gated-profiles.js";
+import {
+  getCesClient as getActiveCesClient,
+  setCes,
+  updateCesClient,
+} from "../credential-execution/ces-runtime.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { createCesClient } from "../credential-execution/client.js";
 import { refreshManagedConnectionCache } from "../credential-execution/managed-catalog.js";
@@ -772,11 +777,11 @@ export async function runDaemon(): Promise<void> {
   // routes can begin accepting requests while Qdrant initializes.
   log.info("Daemon startup: starting DaemonServer");
   const server = new DaemonServer();
-  server.setCes(await cesStartupPromise);
+  setCes(await cesStartupPromise);
 
-  // Keep the server's CES client ref in sync after reconnection so that
-  // secret routes and new conversations use the fresh client.
-  onCesClientChanged((client) => server.updateCesClient(client));
+  // Keep the CES client ref in sync after reconnection so that secret routes
+  // and new conversations use the fresh client.
+  onCesClientChanged(updateCesClient);
 
   await server.start();
   log.info("Daemon startup: DaemonServer started");
@@ -1075,7 +1080,7 @@ export async function runDaemon(): Promise<void> {
   // the running routes. They're module-level state, so they're effective
   // even when the HTTP server failed to bind (IPC clients still work).
   registerSecretsDeps({
-    getCesClient: () => server.getCesClient(),
+    getCesClient: getActiveCesClient,
     onProviderCredentialsChanged: () =>
       server.refreshConversationsForProviderChange(),
   });
