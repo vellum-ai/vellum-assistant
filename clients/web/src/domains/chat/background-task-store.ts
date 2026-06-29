@@ -87,10 +87,19 @@ export interface BackgroundTaskActions {
    * Retire running tasks absent from an authoritative active-task snapshot —
    * the daemon restarted and lost the subprocess before persisting a terminal
    * row, so no completion event will ever settle them. Marks each still-running
-   * task "cancelled". No-op for tasks already terminal or present in the
-   * snapshot.
+   * task "cancelled".
+   *
+   * `knownIds` is the snapshot of task ids that existed when the active-task
+   * fetch was issued. A running task is retired only if it IS in `knownIds` AND
+   * NOT in `activeIds`, so a task that started while the fetch was in flight (in
+   * `byId` but absent from both sets) is left untouched. Callers must capture
+   * the id snapshot before issuing the fetch and pass it here. No-op for tasks
+   * already terminal or present in the snapshot.
    */
-  retireMissing: (activeIds: string[]) => void;
+  retireMissing: (
+    activeIds: string[] | Set<string>,
+    knownIds: Iterable<string>,
+  ) => void;
 
   /**
    * Idempotent merge of history entries keyed by id. Adds unseen entries (with
@@ -209,9 +218,18 @@ const useBackgroundTaskStoreBase = create<BackgroundTaskStore>()((set, get) => (
   restoreTaskStatus: (id, prev) => {
     const { byId } = get();
     const existing = byId[id];
-    // Only revert our own optimistic cancel; if a real terminal already landed,
-    // leave it.
-    if (!existing || existing.status !== "cancelled") return;
+    // Only revert our own optimistic cancel. The optimistic `cancelTask` never
+    // sets `completedAt`, so a non-null `completedAt` means a real terminal
+    // already landed — even one that preserved the "cancelled" status (a racing
+    // failed `completeTask`). Reviving it would flash a finished task back to
+    // active.
+    if (
+      !existing ||
+      existing.status !== "cancelled" ||
+      existing.completedAt != null
+    ) {
+      return;
+    }
 
     set({
       byId: {
@@ -221,13 +239,21 @@ const useBackgroundTaskStoreBase = create<BackgroundTaskStore>()((set, get) => (
     });
   },
 
-  retireMissing: (activeIds) => {
+  retireMissing: (activeIds, knownIds) => {
     const { byId } = get();
     const active = new Set(activeIds);
+    const known = new Set(knownIds);
     let changed = false;
     const next = { ...byId };
     for (const entry of Object.values(byId)) {
-      if (!isActiveBackgroundTaskStatus(entry.status) || active.has(entry.id)) {
+      // Retire only tasks known before the snapshot and absent from it; a task
+      // started while the fetch was in flight is in `byId` but not `known`, so
+      // it is left running.
+      if (
+        !isActiveBackgroundTaskStatus(entry.status) ||
+        !known.has(entry.id) ||
+        active.has(entry.id)
+      ) {
         continue;
       }
       next[entry.id] = { ...entry, status: "cancelled" };

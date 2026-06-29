@@ -220,6 +220,24 @@ describe("restoreTaskStatus", () => {
     expect(getState().byId["bg-1"]!.status).toBe("completed");
   });
 
+  it("is a no-op when a terminal completion raced in after the optimistic cancel", () => {
+    getState().startTask(startedEvent());
+    getState().cancelTask("bg-1");
+    // A failed terminal races in before the cancel request reports: it settles
+    // the entry (sets completedAt) while preserving the "cancelled" status.
+    getState().completeTask(
+      completedEvent({ status: "failed", exitCode: 143, output: "killed", completedAt: NOW + 2000 }),
+    );
+    expect(getState().byId["bg-1"]!.completedAt).toBe(NOW + 2000);
+
+    // The cancel request later fails — restore must NOT revive the settled task.
+    getState().restoreTaskStatus("bg-1", "running");
+
+    const entry = getState().byId["bg-1"]!;
+    expect(entry.status).toBe("cancelled");
+    expect(entry.completedAt).toBe(NOW + 2000);
+  });
+
   it("ignores an unknown id", () => {
     getState().restoreTaskStatus("bg-missing", "running");
     expect(getState().byId).toEqual({});
@@ -235,8 +253,9 @@ describe("retireMissing", () => {
     getState().startTask(startedEvent({ id: "bg-1" }));
     getState().startTask(startedEvent({ id: "bg-2" }));
 
-    // Only bg-1 is still active in the snapshot — bg-2 is retired.
-    getState().retireMissing(["bg-1"]);
+    // Both were known when the snapshot was taken; only bg-1 is still active in
+    // it — bg-2 is retired.
+    getState().retireMissing(["bg-1"], ["bg-1", "bg-2"]);
 
     expect(getState().byId["bg-1"]!.status).toBe("running");
     expect(getState().byId["bg-2"]!.status).toBe("cancelled");
@@ -245,7 +264,7 @@ describe("retireMissing", () => {
   it("leaves an already-terminal task untouched", () => {
     getState().startTask(startedEvent());
     getState().completeTask(completedEvent({ status: "completed" }));
-    getState().retireMissing([]);
+    getState().retireMissing([], ["bg-1"]);
 
     expect(getState().byId["bg-1"]!.status).toBe("completed");
   });
@@ -253,8 +272,20 @@ describe("retireMissing", () => {
   it("does not touch state when every running task is still active", () => {
     getState().startTask(startedEvent());
     const before = getState().byId;
-    getState().retireMissing(["bg-1"]);
+    getState().retireMissing(["bg-1"], ["bg-1"]);
     expect(getState().byId).toBe(before);
+  });
+
+  it("leaves a task started after the snapshot (not in knownIds) untouched", () => {
+    getState().startTask(startedEvent({ id: "bg-known" }));
+    getState().startTask(startedEvent({ id: "bg-new" }));
+
+    // Snapshot knew only bg-known; bg-new started while the fetch was in flight.
+    // Neither is in the active set, but only the known one is retired.
+    getState().retireMissing([], ["bg-known"]);
+
+    expect(getState().byId["bg-known"]!.status).toBe("cancelled");
+    expect(getState().byId["bg-new"]!.status).toBe("running");
   });
 });
 
