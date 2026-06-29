@@ -27,11 +27,11 @@ import {
   type FeedItem,
   type FeedItemSourceType,
 } from "../api/responses/home.js";
-import { AUTO_ANALYSIS_SOURCE } from "../memory/auto-analysis-constants.js";
 import {
   MEMORY_RETROSPECTIVE_FORK_SOURCE,
   MEMORY_RETROSPECTIVE_SOURCE,
 } from "../memory/memory-retrospective-constants.js";
+import { AUTO_ANALYSIS_SOURCE } from "../persistence/auto-analysis-constants.js";
 import { getConversation } from "../persistence/conversation-crud.js";
 import { getSchedule } from "../schedule/schedule-store.js";
 

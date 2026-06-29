@@ -29,7 +29,6 @@ import { findConversation } from "../daemon/conversation-registry.js";
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
-import { AUTO_ANALYSIS_SOURCE } from "../memory/auto-analysis-constants.js";
 import { forkGraphMemoryState } from "../memory/graph/graph-memory-state-store.js";
 import { indexMessageNow } from "../memory/indexer.js";
 import { MEMORY_RETROSPECTIVE_SOURCES } from "../memory/memory-retrospective-constants.js";
@@ -63,6 +62,7 @@ import {
   deleteOrphanAttachments,
   linkAttachmentToMessage,
 } from "./attachments-store.js";
+import { AUTO_ANALYSIS_SOURCE } from "./auto-analysis-constants.js";
 import {
   appendCompactionEvent,
   forkCompactionLedger,
