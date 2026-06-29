@@ -15,7 +15,7 @@ import {
   backfillAppConversationIds,
   createApp,
   getApp,
-} from "../memory/app-store.js";
+} from "../apps/app-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { rawRun } from "../persistence/raw-query.js";

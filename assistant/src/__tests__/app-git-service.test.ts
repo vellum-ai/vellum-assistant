@@ -12,7 +12,7 @@ import {
   getAppsDir,
   updateApp,
   writeAppFile,
-} from "../memory/app-store.js";
+} from "../apps/app-store.js";
 import { _resetGitServiceRegistry } from "../workspace/git-service.js";
 
 let testDataDir: string;

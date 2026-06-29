@@ -321,7 +321,7 @@ mock.module("../memory/retriever.js", () => ({
   injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
 }));
 
-mock.module("../memory/app-store.js", () => ({
+mock.module("../apps/app-store.js", () => ({
   getApp: () => null,
   listAppFiles: () => [],
   getAppsDir: () => "/tmp/apps",

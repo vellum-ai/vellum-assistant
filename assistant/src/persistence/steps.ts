@@ -7,7 +7,7 @@
  * registry.ts file; it now lives inline with the step it applies to.
  */
 
-import { backfillAppConversationIds } from "../memory/app-store.js";
+import { backfillAppConversationIds } from "../apps/app-store.js";
 // Forward migration + down function imports
 import { migrateToolCreatedItems } from "../memory/graph/bootstrap.js";
 import { migrateCoreTables } from "./migrations/000-core-tables.js";

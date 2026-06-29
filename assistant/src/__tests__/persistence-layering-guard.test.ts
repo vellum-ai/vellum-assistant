@@ -67,10 +67,7 @@ const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
     "memory-retrospective-startup-cleanup",
     "v2/consolidation-job",
   ]),
-  "assistant/src/persistence/steps.ts": new Set([
-    "app-store",
-    "graph/bootstrap",
-  ]),
+  "assistant/src/persistence/steps.ts": new Set(["graph/bootstrap"]),
 };
 
 /** Match `from "x"`, `import "x"`, `import("x")`, and `mock.module("x", …)`. */
