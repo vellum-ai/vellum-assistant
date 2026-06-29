@@ -79,7 +79,9 @@ mock.module("../../../config/loader.js", () => ({
   },
 }));
 
-const { ROUTES } = await import("../memory-worker-routes.js");
+const { ROUTES, embeddingStatusSchema } = await import(
+  "../memory-worker-routes.js"
+);
 
 function handler(operationId: string) {
   const route = ROUTES.find((r) => r.operationId === operationId);
@@ -239,6 +241,30 @@ describe("memory_worker_status", () => {
     expect(res).toMatchObject({
       embedding: { degraded: false, provider: "gemini" },
     });
+  });
+
+  test("surfaces the local embedding backend (the default non-platform provider)", async () => {
+    workerProbe = { status: "not_running" };
+    configEnabled = false;
+    backendStatus = {
+      enabled: true,
+      degraded: false,
+      provider: "local",
+      model: "Xenova/all-MiniLM-L6-v2",
+      reason: null,
+    };
+
+    const res = await handler("memory_worker_status")();
+
+    expect(res).toMatchObject({
+      embedding: { degraded: false, provider: "local" },
+    });
+    // The wire value "local" must satisfy the documented response contract.
+    expect(
+      embeddingStatusSchema.safeParse(
+        (res as { embedding: unknown }).embedding,
+      ).success,
+    ).toBe(true);
   });
 
   test("surfaces a degraded embedding backend with a reason when none is configured", async () => {
