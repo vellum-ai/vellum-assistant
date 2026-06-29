@@ -51,7 +51,12 @@ function stopBackgroundServicesAndCleanupPidFile(): void {
 
 let shuttingDown = false;
 
-async function shutdown(exitCode = 0): Promise<void> {
+// Shared so a fatal error (unhandledRejection / uncaughtException) arriving
+// mid-drain can upgrade the exit code of an already-running graceful shutdown
+// from 0 to 1, ensuring supervisors and CI still see the failure.
+let exitCode = 0;
+
+async function shutdown(): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
 
@@ -222,12 +227,14 @@ export function installShutdownHandlers(): void {
       "Unhandled promise rejection — initiating shutdown",
     );
     Sentry.captureException(reason);
-    void shutdown(1);
+    exitCode = 1;
+    void shutdown();
   });
 
   process.on("uncaughtException", (err) => {
     log.error({ err }, "Uncaught exception — initiating shutdown");
     Sentry.captureException(err);
-    void shutdown(1);
+    exitCode = 1;
+    void shutdown();
   });
 }
