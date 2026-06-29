@@ -143,6 +143,11 @@ const subagentNotificationSchema = z.object({
   objective: z.string().optional(),
 });
 
+const acpNotificationSchema = z.object({
+  acpSessionId: z.string(),
+  agent: z.string().optional(),
+});
+
 export const messageMetadataSchema = z
   .object({
     userMessageChannel: channelIdSchema.optional(),
@@ -160,6 +165,7 @@ export const messageMetadataSchema = z
      */
     client: z.record(z.string(), z.unknown()).optional(),
     subagentNotification: subagentNotificationSchema.optional(),
+    acpNotification: acpNotificationSchema.optional(),
     /**
      * Trust class of the actor at the time this message was persisted.
      * This is a durable snapshot -- it does NOT change if the actor's

@@ -119,6 +119,72 @@ describe("messageId coalescing", () => {
 });
 
 // ---------------------------------------------------------------------------
+// id-less stream then final-snapshot reconciliation
+// ---------------------------------------------------------------------------
+
+describe("id-less stream then snapshot reconciliation", () => {
+  it("folds a final id-bearing snapshot into the streamed anonymous block", () => {
+    // Some agents stream a message as id-less deltas, then re-send the whole
+    // message as one chunk that finally carries a messageId.
+    const blocks = computeAcpRunChatBlocks([
+      thoughtChunk("m1", ""),
+      event({ updateType: "agent_message_chunk", content: "## Plan\n" }),
+      event({ updateType: "agent_message_chunk", content: "step one" }),
+      agentChunk("m1", "## Plan\nstep one"),
+    ]);
+
+    expect(blocks).toEqual([
+      { kind: "thinking", messageId: "m1", content: "", isComplete: true },
+      {
+        kind: "agent",
+        messageId: "m1",
+        content: "## Plan\nstep one",
+        isComplete: false,
+      },
+    ]);
+  });
+
+  it("does not fold an id-bearing chunk that differs from the streamed text", () => {
+    const blocks = computeAcpRunChatBlocks([
+      event({ updateType: "agent_message_chunk", content: "first message" }),
+      agentChunk("m2", "a different message"),
+    ]);
+
+    expect(blocks).toEqual([
+      { kind: "agent", messageId: "", content: "first message", isComplete: true },
+      {
+        kind: "agent",
+        messageId: "m2",
+        content: "a different message",
+        isComplete: false,
+      },
+    ]);
+  });
+
+  it("reconciles across the incremental projector too", () => {
+    const { project } = createAcpRunChatProjection();
+    const events: AcpRunRawEvent[] = [];
+    const push = (e: AcpRunRawEvent) => {
+      events.push(e);
+      return project(events.slice());
+    };
+
+    push(event({ updateType: "agent_message_chunk", content: "## Plan\n" }));
+    push(event({ updateType: "agent_message_chunk", content: "step one" }));
+    const blocks = push(agentChunk("m1", "## Plan\nstep one"));
+
+    expect(blocks).toEqual([
+      {
+        kind: "agent",
+        messageId: "m1",
+        content: "## Plan\nstep one",
+        isComplete: false,
+      },
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // empty thought signals
 // ---------------------------------------------------------------------------
 
@@ -382,6 +448,115 @@ describe("tool blocks", () => {
 
     const tool = blocks[0] as Extract<AcpChatBlock, { kind: "tool" }>;
     expect(tool.locations).toEqual([{ path: "a.ts", line: 12 }]);
+  });
+
+  it("carries rawInput/rawOutput from a tool_call when present", () => {
+    const blocks = computeAcpRunChatBlocks([
+      event({
+        updateType: "tool_call",
+        toolCallId: "tc1",
+        toolTitle: "Bash",
+        rawInput: { command: "ls -la" },
+        rawOutput: "total 0",
+      }),
+    ]);
+
+    const tool = blocks[0] as Extract<AcpChatBlock, { kind: "tool" }>;
+    expect(tool.rawInput).toEqual({ command: "ls -la" });
+    expect(tool.rawOutput).toBe("total 0");
+  });
+
+  it("overrides rawInput/rawOutput on update only when the field is present", () => {
+    const blocks = computeAcpRunChatBlocks([
+      event({
+        updateType: "tool_call",
+        toolCallId: "tc1",
+        toolTitle: "Bash",
+        rawInput: { command: "ls" },
+        rawOutput: "first",
+      }),
+      // Updates rawOutput but omits rawInput — the prior rawInput is preserved.
+      event({
+        updateType: "tool_call_update",
+        toolCallId: "tc1",
+        toolStatus: "completed",
+        rawOutput: "second",
+      }),
+    ]);
+
+    const tool = blocks[0] as Extract<AcpChatBlock, { kind: "tool" }>;
+    expect(tool.rawInput).toEqual({ command: "ls" });
+    expect(tool.rawOutput).toBe("second");
+  });
+
+  it("projects an explicit null rawInput/rawOutput over a prior value", () => {
+    const blocks = computeAcpRunChatBlocks([
+      event({
+        updateType: "tool_call",
+        toolCallId: "tc1",
+        toolTitle: "Bash",
+        rawInput: { command: "ls" },
+        rawOutput: "first",
+      }),
+      // A JSON `null` is a real value, not an omission — it must overwrite the
+      // prior rawInput/rawOutput rather than be treated as "field absent".
+      event({
+        updateType: "tool_call_update",
+        toolCallId: "tc1",
+        toolStatus: "completed",
+        rawInput: null,
+        rawOutput: null,
+      }),
+    ]);
+
+    const tool = blocks[0] as Extract<AcpChatBlock, { kind: "tool" }>;
+    expect(tool.rawInput).toBeNull();
+    expect(tool.rawOutput).toBeNull();
+  });
+
+  it("keeps a prior value when a later update omits rawInput/rawOutput", () => {
+    const blocks = computeAcpRunChatBlocks([
+      event({
+        updateType: "tool_call",
+        toolCallId: "tc1",
+        toolTitle: "Bash",
+        rawInput: { command: "ls" },
+        rawOutput: "out",
+      }),
+      // Sets a null value...
+      event({
+        updateType: "tool_call_update",
+        toolCallId: "tc1",
+        rawInput: null,
+        rawOutput: null,
+      }),
+      // ...then a later update omits both fields entirely — the prior (null)
+      // value is preserved, not reset to undefined.
+      event({
+        updateType: "tool_call_update",
+        toolCallId: "tc1",
+        toolStatus: "completed",
+      }),
+    ]);
+
+    const tool = blocks[0] as Extract<AcpChatBlock, { kind: "tool" }>;
+    expect(tool.rawInput).toBeNull();
+    expect(tool.rawOutput).toBeNull();
+  });
+
+  it("leaves rawInput/rawOutput undefined when no event carries them", () => {
+    const blocks = computeAcpRunChatBlocks([
+      event({ updateType: "tool_call", toolCallId: "tc1", toolTitle: "Read" }),
+      event({
+        updateType: "tool_call_update",
+        toolCallId: "tc1",
+        toolStatus: "completed",
+      }),
+    ]);
+
+    const tool = blocks[0] as Extract<AcpChatBlock, { kind: "tool" }>;
+    expect(tool.rawInput).toBeUndefined();
+    expect(tool.rawOutput).toBeUndefined();
   });
 });
 

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  formatRawValue,
   getAcpFileChanges,
+  getAcpToolCommand,
   parseAcpToolContent,
   type AcpToolContentBlock,
 } from "@/domains/chat/acp-tool-content";
@@ -114,5 +116,51 @@ describe("getAcpFileChanges", () => {
 
   it("returns [] when there are no diffs and no locations", () => {
     expect(getAcpFileChanges([])).toEqual([]);
+  });
+});
+
+describe("getAcpToolCommand", () => {
+  it("returns the command from an object with a string command", () => {
+    expect(getAcpToolCommand({ command: "npm test" })).toBe("npm test");
+  });
+
+  it("returns undefined for an object without a string command", () => {
+    expect(getAcpToolCommand({ command: 42 })).toBeUndefined();
+    expect(getAcpToolCommand({ other: "x" })).toBeUndefined();
+  });
+
+  it("returns undefined for non-object input", () => {
+    expect(getAcpToolCommand("npm test")).toBeUndefined();
+    expect(getAcpToolCommand(undefined)).toBeUndefined();
+    expect(getAcpToolCommand(null)).toBeUndefined();
+  });
+});
+
+describe("formatRawValue", () => {
+  it("returns undefined for undefined and null", () => {
+    expect(formatRawValue(undefined)).toBeUndefined();
+    expect(formatRawValue(null)).toBeUndefined();
+  });
+
+  it("passes strings through verbatim", () => {
+    expect(formatRawValue("hello")).toBe("hello");
+  });
+
+  it("pretty-prints objects as JSON", () => {
+    expect(formatRawValue({ a: 1, b: "x" })).toBe(
+      JSON.stringify({ a: 1, b: "x" }, null, 2),
+    );
+  });
+
+  it("stringifies other primitives", () => {
+    expect(formatRawValue(42)).toBe("42");
+    expect(formatRawValue(true)).toBe("true");
+  });
+
+  it("falls back to String on a non-serializable (circular) object", () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    // Must not throw; falls back rather than crashing the card render.
+    expect(formatRawValue(circular)).toBe(String(circular));
   });
 });
