@@ -1,8 +1,8 @@
-# Capacitor / iOS Conventions
+# Capacitor / Native Conventions
 
-The web app ships as both a browser SPA and the JS layer of a [Capacitor](https://capacitorjs.com/) iOS shell that loads it in a `WKWebView`. The patterns below are mandatory for any code path that might run inside Capacitor iOS — most of them address real iOS-specific failure modes that desktop browsers silently tolerate.
+The web app ships as both a browser SPA and the JS layer of [Capacitor](https://capacitorjs.com/) iOS and Android shells that load it in native WebViews. The patterns below are mandatory for any code path that might run inside a Capacitor shell. Several sections call out iOS-specific failure modes that desktop browsers silently tolerate.
 
-> **Read this only if your change touches iOS code paths.** For browser-only contributions you can skip this document. Building the iOS app itself additionally requires macOS and Xcode; the native shell lives in [`clients/ios/`](../../../clients/ios/).
+> **Read this only if your change touches native Capacitor code paths.** For browser-only contributions you can skip this document. The native shells live in [`clients/ios/`](../../../clients/ios/) and [`clients/android/`](../../../clients/android/).
 
 If you're touching anything in `clients/web/src/runtime/`, anything that calls a `@capacitor/*` plugin, anything that streams from the daemon, anything that auto-resizes based on content, or anything that gates a browser API that triggers an OS permission alert — start here.
 
