@@ -16,18 +16,18 @@ describe("injectLocalActorHeader principal resolution", () => {
     const out = injectLocalActorHeader({
       headers: { "x-vellum-principal-type": "actor" },
     });
-    expect(out.principalType).toBe("actor");
+    expect(out.headers?.["x-vellum-principal-type"]).toBe("actor");
   });
 
   test("gateway-proxied IPC with no principal resolves to svc_gateway, not local", () => {
     const out = injectLocalActorHeader({
       headers: { "x-vellum-proxy-server": "ipc" },
     });
-    expect(out.principalType).toBe("svc_gateway");
+    expect(out.headers?.["x-vellum-principal-type"]).toBe("svc_gateway");
   });
 
   test("a direct IPC caller (no proxy marker, no principal) defaults to local", () => {
     const out = injectLocalActorHeader({ headers: {} });
-    expect(out.principalType).toBe("local");
+    expect(out.headers?.["x-vellum-principal-type"]).toBe("local");
   });
 });

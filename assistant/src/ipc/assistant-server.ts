@@ -609,26 +609,17 @@ export class AssistantIpcServer {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the caller's principal identity for an IPC request: the verified
- * principal type and a synthetic `x-vellum-actor-principal-id` header from the
- * local guardian when the caller hasn't already provided one.
+ * Resolve an IPC caller's identity headers, mirroring what the HTTP adapter
+ * derives from the verified `AuthContext`: `x-vellum-principal-type` and a
+ * synthetic `x-vellum-actor-principal-id` for the local guardian. Handlers read
+ * the resolved identity from `headers` (the single source of truth across both
+ * transports); they never trust the request body.
  *
- * Local IPC is intra-process and owned by the same user as the daemon, so
- * routes that consume `headers["x-vellum-actor-principal-id"]` (e.g. the
- * same-user filter on `GET /v1/clients`) need an actor identity to function
- * over IPC. The HTTP adapter does this from the verified `AuthContext`
- * (`http-adapter.ts`); this helper mirrors that convention for IPC.
- *
- * `principalType` comes from the gateway-forwarded `x-vellum-principal-type`
- * (the gateway IPC proxy sets it from the verified JWT), defaulting to
- * `"local"` for direct CLI/local IPC callers. Routes that elevate trust gate
- * on `"local"`, so a gateway-proxied remote `actor` must never be mistaken
- * for a local caller.
- *
- * Existing headers from the caller (e.g. the gateway's IPC runtime proxy,
- * which forwards real `x-vellum-*` headers from the authenticated HTTP
- * request) are preserved — we only fill in the gap for direct CLI/local
- * IPC callers.
+ * Principal type comes from the gateway-forwarded `x-vellum-principal-type`,
+ * else `svc_gateway` for a gateway-proxied request (marked by
+ * `x-vellum-proxy-server: ipc`, which a direct CLI never sends), else `local`.
+ * Routes that elevate trust gate on `local`, so a remote caller arriving with
+ * no verified principal must resolve to `svc_gateway`, never `local`.
  */
 export function injectLocalActorHeader(
   params: Record<string, unknown> | undefined,
@@ -638,44 +629,30 @@ export function injectLocalActorHeader(
   const forwardedPrincipal = existingHeaders?.["x-vellum-principal-type"] as
     | PrincipalType
     | undefined;
-  // A gateway-proxied request carries `x-vellum-proxy-server: ipc` (forwarded
-  // as an `x-vellum-*` header); a direct CLI on the local IPC socket never
-  // sends it. Default to `local` ONLY for genuinely-direct callers — a proxied
-  // request with no verified principal (e.g. `runtimeProxyRequireAuth`
-  // disabled) is remote: it resolves to `svc_gateway` (matching the gateway's
-  // HTTP proxy path), never `local`.
   const isGatewayProxied = existingHeaders?.["x-vellum-proxy-server"] === "ipc";
-  const principalType: PrincipalType =
-    forwardedPrincipal ?? (isGatewayProxied ? "svc_gateway" : "local");
-
-  if (existingHeaders?.["x-vellum-actor-principal-id"]) {
-    return { ...args, principalType };
-  }
-
-  // Defensive: the guardian lookup queries the contacts table, which may
-  // not yet exist on a very early boot path or in test fixtures that don't
-  // initialize the DB. A failure here must not block IPC dispatch — routes
-  // that require the header will fail-closed on their own.
-  let localActor: string | undefined;
-  try {
-    localActor = findLocalGuardianPrincipalIdFromStore();
-  } catch (err) {
-    log.debug(
-      { err },
-      "failed to resolve local actor principal for IPC header injection",
-    );
-    return { ...args, principalType };
-  }
-  if (!localActor) return { ...args, principalType };
-
-  return {
-    ...args,
-    principalType,
-    headers: {
-      ...existingHeaders,
-      "x-vellum-actor-principal-id": localActor,
-    },
+  const headers: Record<string, string> = {
+    ...existingHeaders,
+    "x-vellum-principal-type":
+      forwardedPrincipal ?? (isGatewayProxied ? "svc_gateway" : "local"),
   };
+
+  // Fill the local guardian's actor id for direct callers that lack one.
+  // Defensive: the lookup queries the contacts table, which may not exist on a
+  // very early boot path or in test fixtures without a DB — a failure must not
+  // block dispatch, so routes requiring the header fail-closed on their own.
+  if (!headers["x-vellum-actor-principal-id"]) {
+    try {
+      const localActor = findLocalGuardianPrincipalIdFromStore();
+      if (localActor) headers["x-vellum-actor-principal-id"] = localActor;
+    } catch (err) {
+      log.debug(
+        { err },
+        "failed to resolve local actor principal for IPC header injection",
+      );
+    }
+  }
+
+  return { ...args, headers };
 }
 
 // ── Process-level singleton ───────────────────────────────────────────────

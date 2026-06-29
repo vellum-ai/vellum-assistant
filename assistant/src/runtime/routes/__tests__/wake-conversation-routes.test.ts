@@ -52,7 +52,7 @@ describe("wake_conversation principal-gated elevation", () => {
     const conversationId = makeConversation();
     const result = await handler({
       body: { conversationId, hint: "poll result", cronRunId: "run-1" },
-      principalType: "local",
+      headers: { "x-vellum-principal-type": "local" },
     });
     expect(result).toEqual({ invoked: true, producedToolCalls: false });
     expect(wakeCalls).toHaveLength(1);
@@ -69,7 +69,7 @@ describe("wake_conversation principal-gated elevation", () => {
     const conversationId = makeConversation();
     await handler({
       body: { conversationId, hint: "poll result", cronRunId: "attacker-run" },
-      principalType: "actor",
+      headers: { "x-vellum-principal-type": "actor" },
     });
     expect(wakeCalls[0].trustContext).toBeUndefined();
     expect(wakeCalls[0].clientless).toBeUndefined();

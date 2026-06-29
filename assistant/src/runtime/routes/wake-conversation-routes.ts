@@ -41,7 +41,7 @@ export const ROUTES: RouteDefinition[] = [
       producedToolCalls: z.boolean(),
       reason: z.string().optional(),
     }),
-    handler: async ({ body, principalType }) => {
+    handler: async ({ body, headers }) => {
       const { conversationId, hint, source, cronRunId } =
         WakeConversationBody.parse(body);
 
@@ -58,7 +58,7 @@ export const ROUTES: RouteDefinition[] = [
       // client. A remote `actor` (reachable via the gateway) stays
       // `unknown`/interactive. The body's `cronRunId` is trusted only from a
       // local caller.
-      const isLocal = principalType === "local";
+      const isLocal = headers?.["x-vellum-principal-type"] === "local";
 
       return wakeAgentForOpportunity({
         conversationId,
