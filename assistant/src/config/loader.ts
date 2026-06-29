@@ -127,6 +127,15 @@ export function getDeploymentContextDefaults(): Record<string, unknown> {
   // search for providers/models that support it.
   const managed = { mode: "managed" as const };
   return {
+    // Express platform intent that hosted assistants embed via the managed
+    // Gemini backend. Fill-only (applied in-memory by
+    // `fillContextDefaultsForMissingKeys`), so it expresses the default without
+    // persisting it or overriding an explicit on-disk provider. The committed
+    // dimension (`memory.qdrant.vectorSize`) and `geminiModel` are NOT set here:
+    // the dimension is derived at startup by the embedding-identity reconcile
+    // from a live backend probe, and `geminiModel` carries its own schema
+    // default (`gemini-embedding-2`).
+    memory: { embeddings: { provider: "gemini" } },
     services: {
       "image-generation": managed,
       "web-search": managed,
@@ -680,8 +689,8 @@ export function loadConfig(): AssistantConfig {
           // Same shape contract as `loadRawConfig`: top-level value must be a
           // plain object. A `null`, primitive, or array is treated like a
           // parse error so downstream code (`warnAndStripDeprecatedFields`,
-          // `setNestedValue` in the managed-Gemini migration block, etc.)
-          // never iterates a non-record. Quarantine + fall through to defaults.
+          // etc.) never iterates a non-record. Quarantine + fall through to
+          // defaults.
           quarantineCorruptConfig(
             configPath,
             new Error(
@@ -714,50 +723,7 @@ export function loadConfig(): AssistantConfig {
     }
 
     // Validate and apply defaults via Zod schema
-    let config = validateWithSchema(fileConfig);
-
-    if (suppressConfigDiskWritesDepth === 0) {
-      // Managed Gemini embedding defaults migration.
-      // When on a managed platform (IS_PLATFORM=true) and no explicit embedding
-      // provider chosen (provider=auto), persist Gemini embedding defaults into
-      // the raw config file.
-      // Idempotent: once provider=gemini is written, subsequent loads skip this.
-      if (config.memory.embeddings.provider === "auto") {
-        try {
-          if (
-            process.env.IS_PLATFORM === "true" ||
-            process.env.IS_PLATFORM === "1"
-          ) {
-            setNestedValue(fileConfig, "memory.embeddings.provider", "gemini");
-            setNestedValue(
-              fileConfig,
-              "memory.embeddings.geminiModel",
-              "gemini-embedding-2",
-            );
-            setNestedValue(
-              fileConfig,
-              "memory.embeddings.geminiDimensions",
-              3072,
-            );
-            setNestedValue(fileConfig, "memory.qdrant.vectorSize", 3072);
-            writeFileSync(
-              configPath,
-              JSON.stringify(fileConfig, null, 2) + "\n",
-            );
-            log.info(
-              "Applied managed Gemini embedding defaults (provider=gemini, model=gemini-embedding-2, dimensions=3072, vectorSize=3072)",
-            );
-            // Re-validate so the returned config reflects the migration.
-            config = validateWithSchema(fileConfig);
-          }
-        } catch (err) {
-          log.warn(
-            { err },
-            "Managed Gemini defaults migration failed — continuing with existing config",
-          );
-        }
-      }
-    }
+    const config = validateWithSchema(fileConfig);
 
     // Layer deployment-context defaults (e.g. IS_PLATFORM=true → all service
     // modes = "managed") onto the in-memory config for any leaves that aren't
