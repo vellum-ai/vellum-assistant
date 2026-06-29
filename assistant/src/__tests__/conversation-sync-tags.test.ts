@@ -7,7 +7,7 @@ import {
 import {
   projectAssistantMessage,
   recordConversationSeenSignal,
-} from "../memory/conversation-attention-store.js";
+} from "../persistence/conversation-attention-store.js";
 import {
   addMessage,
   createConversation,

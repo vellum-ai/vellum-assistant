@@ -20,14 +20,14 @@ import {
 import { renderHistoryContent } from "./daemon/handlers/shared.js";
 import type { ServerMessage } from "./daemon/message-protocol.js";
 import {
-  getConversationByKey,
-  getOrCreateConversation,
-  setConversationKeyIfAbsent,
-} from "./memory/conversation-key-store.js";
-import {
   getConversation,
   getMessages,
 } from "./persistence/conversation-crud.js";
+import {
+  getConversationByKey,
+  getOrCreateConversation,
+  setConversationKeyIfAbsent,
+} from "./persistence/conversation-key-store.js";
 import { listConversations } from "./persistence/conversation-queries.js";
 import {
   type EventStreamWatcher,

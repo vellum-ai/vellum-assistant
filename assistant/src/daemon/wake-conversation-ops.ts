@@ -13,12 +13,12 @@
  */
 
 import type { AgentEvent } from "../agent/loop.js";
-import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
 import {
   addMessage,
   getConversation,
   provenanceFromTrustContext,
 } from "../persistence/conversation-crud.js";
+import { syncMessageToDisk } from "../persistence/conversation-disk-view.js";
 import { backfillMessageIdOnLogs } from "../persistence/llm-request-log-store.js";
 import type { Message } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";

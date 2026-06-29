@@ -104,12 +104,12 @@ mock.module("../../channel-reply-delivery.js", () => ({
   },
 }));
 
-import type { TrustContext } from "../../../daemon/trust-context.js";
 import {
   clearThreadTs,
   getThreadTs,
   setThreadTs,
-} from "../../../memory/slack-thread-store.js";
+} from "../../../channels/slack-thread-store.js";
+import type { TrustContext } from "../../../daemon/trust-context.js";
 import type { MessageProcessor } from "../../http-types.js";
 import {
   isBoundGuardianActor,

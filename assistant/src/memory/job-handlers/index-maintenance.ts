@@ -13,6 +13,7 @@ import {
   enqueueMemoryJob,
   type MemoryJob,
 } from "../../persistence/jobs-store.js";
+import { extractMediaBlockMeta } from "../../persistence/message-content.js";
 import {
   mediaAssets,
   memoryEmbeddings,
@@ -23,7 +24,6 @@ import {
   messages,
 } from "../../persistence/schema/index.js";
 import { getLogger } from "../../util/logger.js";
-import { extractMediaBlockMeta } from "../message-content.js";
 
 const log = getLogger("memory-jobs-worker");
 

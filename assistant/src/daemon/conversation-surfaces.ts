@@ -7,7 +7,6 @@ import {
   CardSurfaceDataSchema,
   FileUploadSurfaceDataSchema,
 } from "../api/surfaces.js";
-import { isActivationSession } from "../memory/activation-session-store.js";
 import {
   addAppConversationId,
   getApp,
@@ -18,8 +17,9 @@ import {
   resolveAppDir,
   resolveEffectiveAppHtml,
   updateApp,
-} from "../memory/app-store.js";
-import { recordActivationEvent } from "../memory/onboarding-events-store.js";
+} from "../apps/app-store.js";
+import { isActivationSession } from "../memory/activation-session-store.js";
+import { recordActivationEvent } from "../onboarding/onboarding-events-store.js";
 import {
   getMessages,
   updateMessageContent,

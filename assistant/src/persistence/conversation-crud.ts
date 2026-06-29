@@ -29,36 +29,36 @@ import { findConversation } from "../daemon/conversation-registry.js";
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
-import { AUTO_ANALYSIS_SOURCE } from "../memory/auto-analysis-constants.js";
-import {
-  projectAssistantMessage,
-  seedForkedConversationAttention,
-} from "../memory/conversation-attention-store.js";
-import {
-  initConversationDir,
-  removeConversationDir,
-  syncMessageToDisk,
-  updateMetaFile,
-} from "../memory/conversation-disk-view.js";
-import { ensureDisplayOrderMigration } from "../memory/conversation-display-order-migration.js";
-import { ensureGroupMigration } from "../memory/conversation-group-migration.js";
 import { forkGraphMemoryState } from "../memory/graph/graph-memory-state-store.js";
 import { indexMessageNow } from "../memory/indexer.js";
 import { MEMORY_RETROSPECTIVE_SOURCES } from "../memory/memory-retrospective-constants.js";
 import { forkRetrospectiveState } from "../memory/memory-retrospective-state.js";
-import {
-  rawExec,
-  rawGet,
-  rawLogsRun,
-  rawMemoryRun,
-  rawRun,
-} from "../memory/raw-query.js";
 import { cancelPendingJobsForConversation } from "../memory/task-memory-cleanup.js";
 import {
   forkActivationState,
   seedForkActivationState,
 } from "../memory/v2/activation-store.js";
 import { extractInjectedConceptSlugs } from "../memory/v2/injected-block-slugs.js";
+import { AUTO_ANALYSIS_SOURCE } from "../persistence/auto-analysis-constants.js";
+import {
+  projectAssistantMessage,
+  seedForkedConversationAttention,
+} from "../persistence/conversation-attention-store.js";
+import {
+  initConversationDir,
+  removeConversationDir,
+  syncMessageToDisk,
+  updateMetaFile,
+} from "../persistence/conversation-disk-view.js";
+import { ensureDisplayOrderMigration } from "../persistence/conversation-display-order-migration.js";
+import { ensureGroupMigration } from "../persistence/conversation-group-migration.js";
+import {
+  rawExec,
+  rawGet,
+  rawLogsRun,
+  rawMemoryRun,
+  rawRun,
+} from "../persistence/raw-query.js";
 import {
   forkEverInjected,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,

@@ -82,7 +82,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
     persistedSeqByConversation.get(id) ?? null,
 }));
 
-mock.module("../memory/conversation-disk-view.js", () => ({
+mock.module("../persistence/conversation-disk-view.js", () => ({
   syncMessageToDisk: () => {},
 }));
 

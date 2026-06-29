@@ -1,14 +1,14 @@
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import { getConfig } from "../config/loader.js";
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
+import { getConfig } from "../../config/loader.js";
+import { isMemoryRetrospectiveConversation } from "../../memory/memory-retrospective-enqueue.js";
 import {
   isMemoryEnabled,
   upsertAutoAnalysisJob,
-} from "../persistence/jobs-store.js";
-import { type TrustClass } from "../runtime/actor-trust-resolver.js";
-import { resolveCapabilities } from "../runtime/capabilities.js";
-import { getLogger } from "../util/logger.js";
+} from "../../persistence/jobs-store.js";
+import { getLogger } from "../../util/logger.js";
+import { type TrustClass } from "../actor-trust-resolver.js";
+import { resolveCapabilities } from "../capabilities.js";
 import { isAutoAnalysisConversation } from "./auto-analysis-guard.js";
-import { isMemoryRetrospectiveConversation } from "./memory-retrospective-enqueue.js";
 
 const log = getLogger("auto-analysis-enqueue");
 

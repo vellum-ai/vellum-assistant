@@ -10,6 +10,7 @@ import type pino from "pino";
 import { v4 as uuid } from "uuid";
 
 import type { AgentEvent } from "../agent/loop.js";
+import { getThreadTs } from "../channels/slack-thread-store.js";
 import type {
   TurnChannelContext,
   TurnInterfaceContext,
@@ -18,12 +19,9 @@ import { getConfig } from "../config/loader.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import { getCalibrationProviderKey } from "../context/token-estimator.js";
-import { projectAssistantMessage } from "../memory/conversation-attention-store.js";
-import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
 import { indexMessageNow } from "../memory/indexer.js";
 import { backfillMemoryRecallLogMessageId } from "../memory/memory-recall-log-store.js";
 import { backfillMemoryV2ActivationMessageId } from "../memory/memory-v2-activation-log-store.js";
-import { getThreadTs } from "../memory/slack-thread-store.js";
 import {
   formatSlackTimezoneLabel,
   type SlackMessageMetadata,
@@ -33,6 +31,7 @@ import {
   recordCompactionEndBestEffort,
   recordCompactionStartBestEffort,
 } from "../persistence/compaction-log-store-clickhouse.js";
+import { projectAssistantMessage } from "../persistence/conversation-attention-store.js";
 import {
   deleteMessageById,
   getConversation,
@@ -45,6 +44,7 @@ import {
   setLastNotifiedInferenceProfile,
   updateMessageContent,
 } from "../persistence/conversation-crud.js";
+import { syncMessageToDisk } from "../persistence/conversation-disk-view.js";
 import {
   backfillMessageIdOnLogs,
   buildProviderErrorResponsePayload,

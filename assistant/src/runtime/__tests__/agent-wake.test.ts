@@ -151,7 +151,7 @@ mock.module("../../persistence/conversation-crud.js", () => ({
 
 // The wake's tail persistence syncs each row to the disk view. Stub it so
 // unit tests don't touch the filesystem.
-mock.module("../../memory/conversation-disk-view.js", () => ({
+mock.module("../../persistence/conversation-disk-view.js", () => ({
   syncMessageToDisk: () => {},
 }));
 

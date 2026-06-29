@@ -13,20 +13,11 @@
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getPlatformOrganizationId, getPlatformUserId } from "../config/env.js";
 import { getConfig } from "../config/loader.js";
-import { queryUnreportedAuthFallbackEvents } from "../memory/auth-fallback-events-store.js";
+import { queryUnreportedOnboardingEvents } from "../onboarding/onboarding-events-store.js";
 import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
-} from "../memory/checkpoints.js";
-import { queryUnreportedOnboardingEvents } from "../memory/onboarding-events-store.js";
-import { queryUnreportedSkillLoadedEvents } from "../memory/skill-loaded-events-store.js";
-import { queryUnreportedToolExecutedEvents } from "../memory/tool-executed-events-store.js";
-import { queryUnreportedTurnEvents } from "../memory/turn-events-store.js";
-import {
-  assembleBoundedTurnTrace,
-  isTurnSettled,
-} from "../memory/turn-trace-store.js";
-import { queryUnreportedWatchdogEvents } from "../memory/watchdog-events-store.js";
+} from "../persistence/checkpoints.js";
 import { queryUnreportedLifecycleEvents } from "../persistence/lifecycle-events-store.js";
 import { queryUnreportedUsageEvents } from "../persistence/llm-usage-store.js";
 import { VellumPlatformClient } from "../platform/client.js";
@@ -36,6 +27,13 @@ import {
   getCachedShareDiagnosticsVersion,
 } from "../platform/consent-cache.js";
 import { arePlatformFeaturesEnabled } from "../platform/feature-gate.js";
+import { queryUnreportedAuthFallbackEvents } from "../security/auth-fallback-events-store.js";
+import { queryUnreportedTurnEvents } from "../telemetry/turn-events-store.js";
+import {
+  assembleBoundedTurnTrace,
+  isTurnSettled,
+} from "../telemetry/turn-trace-store.js";
+import { queryUnreportedWatchdogEvents } from "../telemetry/watchdog-events-store.js";
 import type { UsageAttributionProfileSource } from "../usage/types.js";
 import { getDeviceId } from "../util/device-id.js";
 import { getLogger } from "../util/logger.js";
@@ -44,6 +42,8 @@ import {
   type ActivationStepName,
   buildActivationDaemonEventId,
 } from "./activation-funnel.js";
+import { queryUnreportedSkillLoadedEvents } from "./skill-loaded-events-store.js";
+import { queryUnreportedToolExecutedEvents } from "./tool-executed-events-store.js";
 import { isDiagnosticsConsentVersionEligible } from "./trace-collection-policy.js";
 import type { TelemetryEvent, TurnTelemetryClientInfo } from "./types.js";
 

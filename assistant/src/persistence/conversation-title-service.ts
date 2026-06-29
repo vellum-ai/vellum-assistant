@@ -8,12 +8,6 @@
  */
 
 import {
-  getConversation,
-  getMessages,
-  type MessageRow,
-  updateConversationTitle,
-} from "../persistence/conversation-crud.js";
-import {
   createTimeout,
   extractAllText,
   extractToolUse,
@@ -24,6 +18,12 @@ import type { Provider, ToolDefinition } from "../providers/types.js";
 import { publishConversationTitleChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import { Mutex } from "../util/mutex.js";
+import {
+  getConversation,
+  getMessages,
+  type MessageRow,
+  updateConversationTitle,
+} from "./conversation-crud.js";
 
 const log = getLogger("conversation-title-service");
 

@@ -12,13 +12,13 @@
  */
 
 import { answerCall } from "../calls/call-domain.js";
-import { findContactChannel } from "../contacts/contact-store.js";
-import { activateMemberChannel } from "../contacts/member-write-relay.js";
-import { findConversation } from "../daemon/conversation-registry.js";
 import {
   type CanonicalGuardianRequest,
   getCanonicalGuardianRequest,
-} from "../memory/canonical-guardian-store.js";
+} from "../contacts/canonical-guardian-store.js";
+import { findContactChannel } from "../contacts/contact-store.js";
+import { activateMemberChannel } from "../contacts/member-write-relay.js";
+import { findConversation } from "../daemon/conversation-registry.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import {
   isNotificationSourceChannel,

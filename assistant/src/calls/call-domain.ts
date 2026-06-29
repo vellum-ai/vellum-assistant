@@ -5,6 +5,7 @@
  * to these functions so business logic lives in one place.
  */
 
+import { revokeScopedApprovalGrantsForContext } from "../approvals/scoped-approval-grants.js";
 import { loadConfig } from "../config/loader.js";
 import { VALID_CALLER_IDENTITY_MODES } from "../config/schema.js";
 import type { AssistantConfig } from "../config/types.js";
@@ -13,10 +14,9 @@ import {
   getTwilioStatusCallbackUrl,
   getTwilioVoiceWebhookUrl,
 } from "../inbound/public-ingress-urls.js";
-import { getOrCreateConversation } from "../memory/conversation-key-store.js";
-import { queueGenerateConversationTitle } from "../memory/conversation-title-service.js";
-import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
 import { getConversation } from "../persistence/conversation-crud.js";
+import { getOrCreateConversation } from "../persistence/conversation-key-store.js";
+import { queueGenerateConversationTitle } from "../persistence/conversation-title-service.js";
 import { upsertBinding } from "../persistence/external-conversation-store.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { isGuardian } from "../runtime/channel-verification-service.js";

@@ -21,7 +21,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 const { getSqlite } = await import("../../persistence/db-connection.js");
 const { initializeDb } = await import("../../persistence/db-init.js");
 const { deleteMemoryCheckpoint, getMemoryCheckpoint } =
-  await import("../checkpoints.js");
+  await import("../../persistence/checkpoints.js");
 const { maybeRunDbMaintenance } =
   await import("../../persistence/db-maintenance.js");
 const { getLastUserMessageTimestamp } =
@@ -89,7 +89,8 @@ describe("maybeRunDbMaintenance", () => {
   test("respects the 24h interval and skips when last run was recent", async () => {
     const now = Date.now();
     const recent = now - 60_000;
-    const { setMemoryCheckpoint } = await import("../checkpoints.js");
+    const { setMemoryCheckpoint } =
+      await import("../../persistence/checkpoints.js");
     setMemoryCheckpoint(MAINTENANCE_CHECKPOINT_KEY, String(recent));
 
     await maybeRunDbMaintenance(now);

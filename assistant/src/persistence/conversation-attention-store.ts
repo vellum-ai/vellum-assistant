@@ -9,14 +9,14 @@
 import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb } from "../persistence/db-connection.js";
+import { UserError } from "../util/errors.js";
+import { getDb } from "./db-connection.js";
 import {
   conversationAssistantAttentionState,
   conversationAttentionEvents,
   conversations,
   messages,
-} from "../persistence/schema/index.js";
-import { UserError } from "../util/errors.js";
+} from "./schema/index.js";
 
 // ── Types ────────────────────────────────────────────────────────────
 

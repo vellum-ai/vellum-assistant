@@ -18,7 +18,7 @@ import { join, relative } from "node:path";
 
 import { getConfig, invalidateConfigCache } from "../config/loader.js";
 import type { MemoryCleanupConfig } from "../config/schemas/memory-lifecycle.js";
-import { resetCleanupScheduleThrottle } from "../memory/cleanup-schedule-state.js";
+import { resetCleanupScheduleThrottle } from "../persistence/cleanup-schedule-state.js";
 import { clearEmbeddingBackendCache } from "../persistence/embeddings/embedding-backend.js";
 import { syncIdentityNameToPlatform } from "../platform/sync-identity.js";
 import { initializeProviders } from "../providers/registry.js";

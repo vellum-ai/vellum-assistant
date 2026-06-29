@@ -16,11 +16,11 @@ import {
   countActiveMemoryNodes,
   getCheckpointValue,
   parseCheckpointInt,
-} from "../../memory/conversation-starter-checkpoints.js";
+} from "../../home/conversation-starter-checkpoints.js";
 import {
   buildConversationStarterValidationContext,
   isValidConversationStarterText,
-} from "../../memory/conversation-starter-validation.js";
+} from "../../home/conversation-starter-validation.js";
 import { getDb, getMemoryDb } from "../../persistence/db-connection.js";
 import {
   enqueueMemoryJob,

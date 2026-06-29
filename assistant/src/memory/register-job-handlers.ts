@@ -1,9 +1,17 @@
 import type { AssistantConfig } from "../config/types.js";
+import { buildConversationSummaryJob } from "../conversations/job-handlers/summarization.js";
+import { generateConversationStartersJob } from "../home/job-handlers/conversation-starters.js";
+import { mediaProcessingJob } from "../media/job-handlers/media-processing.js";
+import {
+  pruneOldConversationsJob,
+  pruneOldLlmRequestLogsJob,
+  pruneOldTraceEventsJob,
+} from "../persistence/job-handlers/cleanup.js";
 import type { MemoryJob } from "../persistence/jobs-store.js";
 import { registerJobHandler } from "../persistence/jobs-worker.js";
 import { maintainJob as memoryV3MaintainJob } from "../plugins/defaults/memory/v3/maintain-job.js";
+import { conversationAnalyzeJob } from "../runtime/services/conversation-analyze-job.js";
 import { getLogger } from "../util/logger.js";
-import { conversationAnalyzeJob } from "./conversation-analyze-job.js";
 import { bootstrapFromHistory } from "./graph/bootstrap.js";
 import { runConsolidation } from "./graph/consolidation.js";
 import { runDecayTick } from "./graph/decay.js";
@@ -16,12 +24,6 @@ import { runNarrativeRefinement } from "./graph/narrative.js";
 import { runPatternScan } from "./graph/pattern-scan.js";
 import { backfillJob } from "./job-handlers/backfill.js";
 import {
-  pruneOldConversationsJob,
-  pruneOldLlmRequestLogsJob,
-  pruneOldTraceEventsJob,
-} from "./job-handlers/cleanup.js";
-import { generateConversationStartersJob } from "./job-handlers/conversation-starters.js";
-import {
   embedAttachmentJob,
   embedMediaJob,
   embedSegmentJob,
@@ -31,8 +33,6 @@ import {
   deleteQdrantVectorsJob,
   rebuildIndexJob,
 } from "./job-handlers/index-maintenance.js";
-import { mediaProcessingJob } from "./job-handlers/media-processing.js";
-import { buildConversationSummaryJob } from "./job-handlers/summarization.js";
 import { embedConceptPageJob } from "./jobs/embed-concept-page.js";
 import { embedPkbFileJob } from "./jobs/embed-pkb-file.js";
 import { memoryRetrospectiveJob } from "./memory-retrospective-job.js";

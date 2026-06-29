@@ -4,6 +4,10 @@ import { eq } from "drizzle-orm";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import type { MemoryConfig } from "../config/types.js";
+import {
+  getMemoryCheckpoint,
+  setMemoryCheckpoint,
+} from "../persistence/checkpoints.js";
 import { getDb } from "../persistence/db-connection.js";
 import { selectedBackendSupportsMultimodal } from "../persistence/embeddings/embedding-backend.js";
 import {
@@ -11,18 +15,17 @@ import {
   isMemoryEnabled,
   upsertDebouncedJob,
 } from "../persistence/jobs-store.js";
-import { memorySegments } from "../persistence/schema/index.js";
-import type { TrustClass } from "../runtime/actor-trust-resolver.js";
-import { getLogger } from "../util/logger.js";
-import { enqueueAutoAnalysisIfEnabled } from "./auto-analysis-enqueue.js";
-import { isAutoAnalysisConversation } from "./auto-analysis-guard.js";
-import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
-import { isMemoryRetrospectiveConversation } from "./memory-retrospective-enqueue.js";
-import { maybeEnqueueRetrospective } from "./memory-retrospective-trigger-check.js";
 import {
   extractMediaBlockMeta,
   extractTextFromStoredMessageContent,
-} from "./message-content.js";
+} from "../persistence/message-content.js";
+import { memorySegments } from "../persistence/schema/index.js";
+import type { TrustClass } from "../runtime/actor-trust-resolver.js";
+import { enqueueAutoAnalysisIfEnabled } from "../runtime/services/auto-analysis-enqueue.js";
+import { isAutoAnalysisConversation } from "../runtime/services/auto-analysis-guard.js";
+import { getLogger } from "../util/logger.js";
+import { isMemoryRetrospectiveConversation } from "./memory-retrospective-enqueue.js";
+import { maybeEnqueueRetrospective } from "./memory-retrospective-trigger-check.js";
 import { segmentText } from "./segmenter.js";
 
 const log = getLogger("memory-indexer");

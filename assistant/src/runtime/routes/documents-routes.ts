@@ -12,7 +12,7 @@ import {
   getDocumentsForConversation,
   saveDocument,
 } from "../../documents/document-store.js";
-import { rawAll } from "../../memory/raw-query.js";
+import { rawAll } from "../../persistence/raw-query.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { renderMarkdownToPDF } from "./document-pdf-renderer.js";

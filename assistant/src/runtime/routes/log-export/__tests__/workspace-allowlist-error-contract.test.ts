@@ -19,7 +19,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../../../memory/conversation-directories.js", () => ({
+mock.module("../../../../persistence/conversation-directories.js", () => ({
   parseConversationDirName: (_name: string) => {
     // Return an object whose `createdAtMs` accessor throws. This bypasses the
     // inner try/catch wrapping `parseConversationDirName(name)` (which only

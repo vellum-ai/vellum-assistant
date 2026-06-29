@@ -22,8 +22,8 @@ import {
 } from "../../persistence/conversation-queries.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
+import { rawRun } from "../../persistence/raw-query.js";
 import { conversations } from "../../persistence/schema/index.js";
-import { rawRun } from "../raw-query.js";
 
 await initializeDb();
 

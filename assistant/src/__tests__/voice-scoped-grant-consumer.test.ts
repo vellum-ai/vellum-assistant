@@ -78,15 +78,15 @@ mock.module("../daemon/conversation-runtime-assembly.js", () => ({
 import { and, eq } from "drizzle-orm";
 
 import {
+  _internal,
+  type CreateScopedApprovalGrantParams,
+  revokeScopedApprovalGrantsForContext,
+} from "../approvals/scoped-approval-grants.js";
+import {
   setVoiceBridgeDeps,
   startVoiceTurn,
 } from "../calls/voice-session-bridge.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import {
-  _internal,
-  type CreateScopedApprovalGrantParams,
-  revokeScopedApprovalGrantsForContext,
-} from "../memory/scoped-approval-grants.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { scopedApprovalGrants } from "../persistence/schema/index.js";

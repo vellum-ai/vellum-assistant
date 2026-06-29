@@ -8,6 +8,12 @@
 import { statSync } from "node:fs";
 import { join } from "node:path";
 
+import {
+  getApp,
+  getAppDirPath,
+  listAppFiles,
+  resolveAppDir,
+} from "../apps/app-store.js";
 import { type ChannelId, parseInterfaceId } from "../channels/types.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
@@ -20,12 +26,6 @@ import {
   stripUserTextBlocksByPrefix,
 } from "../context/strip-injections.js";
 import { getDocumentsForConversation } from "../documents/document-store.js";
-import {
-  getApp,
-  getAppDirPath,
-  listAppFiles,
-  resolveAppDir,
-} from "../memory/app-store.js";
 import {
   countMemoryPrefixBlocks,
   extractMemoryPrefixBlocks,

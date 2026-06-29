@@ -408,20 +408,20 @@ import {
   RelayConnection,
 } from "../calls/relay-server.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
-import { upsertContact } from "../contacts/contact-store.js";
-import {
-  listCanonicalGuardianRequests,
-  resolveCanonicalGuardianRequest,
-} from "../memory/canonical-guardian-store.js";
 import {
   createInboundSession,
   createVerificationSession,
-} from "../memory/channel-verification-sessions.js";
-import { resetTestTables } from "../memory/raw-query.js";
+} from "../channels/channel-verification-sessions.js";
+import {
+  listCanonicalGuardianRequests,
+  resolveCanonicalGuardianRequest,
+} from "../contacts/canonical-guardian-store.js";
+import { upsertContact } from "../contacts/contact-store.js";
 import { addMessage, getMessages } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { createInvite } from "../persistence/invite-store.js";
+import { resetTestTables } from "../persistence/raw-query.js";
 import { conversations } from "../persistence/schema/index.js";
 import {
   createOutboundSession,

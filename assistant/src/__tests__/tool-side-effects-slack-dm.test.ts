@@ -27,7 +27,7 @@ mock.module("../bundler/app-compiler.js", () => ({
 mock.module("../media/app-icon-generator.js", () => ({
   generateAppIcon: mock(() => Promise.resolve()),
 }));
-mock.module("../memory/app-store.js", () => ({
+mock.module("../apps/app-store.js", () => ({
   getApp: mock(() => null),
   getAppDirPath: mock(() => ""),
   getAppsDir: mock(() => ""),

@@ -33,6 +33,7 @@ import {
 import { emitNotificationSignal } from "../../notifications/emit-signal.js";
 import { getDb } from "../../persistence/db-connection.js";
 import type { MemoryJob } from "../../persistence/jobs-store.js";
+import { stringifyMessageContent } from "../../persistence/message-content.js";
 import { conversations, messages } from "../../persistence/schema/index.js";
 import {
   extractToolUse,
@@ -46,7 +47,6 @@ import {
   appendBufferAndArchive,
   formatRememberEntry,
 } from "../graph/tool-handlers.js";
-import { stringifyMessageContent } from "../message-content.js";
 import { renderSweepPrompt } from "./prompts/sweep.js";
 
 const log = getLogger("memory-v2-sweep");

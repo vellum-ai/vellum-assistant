@@ -7,7 +7,7 @@
  */
 import type { ChannelId } from "../../../channels/types.js";
 import type { TrustContext } from "../../../daemon/trust-context.js";
-import { recordConversationSeenSignal } from "../../../memory/conversation-attention-store.js";
+import { recordConversationSeenSignal } from "../../../persistence/conversation-attention-store.js";
 import {
   clearPayload,
   storePayload,

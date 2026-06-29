@@ -1,9 +1,14 @@
 import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
+import { setMemoryCheckpoint } from "../../persistence/checkpoints.js";
 import { getMemoryDb } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
-import { setMemoryCheckpoint } from "../checkpoints.js";
-import { rawAll, rawGet, rawRun, resetTestTables } from "../raw-query.js";
+import {
+  rawAll,
+  rawGet,
+  rawRun,
+  resetTestTables,
+} from "../../persistence/raw-query.js";
 import { migrateToolCreatedItems } from "./bootstrap.js";
 
 // ---------------------------------------------------------------------------

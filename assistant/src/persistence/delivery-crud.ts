@@ -8,14 +8,14 @@
 import { and, eq, isNotNull, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { readSlackMetadataFromMessageMetadata } from "../messaging/providers/slack/message-metadata.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { selectSlackMetaCandidateMetadata } from "./conversation-crud.js";
 import {
   getConversationByKey,
   getOrCreateConversation,
   setConversationKeyIfAbsent,
-} from "../memory/conversation-key-store.js";
-import { readSlackMetadataFromMessageMetadata } from "../messaging/providers/slack/message-metadata.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import { selectSlackMetaCandidateMetadata } from "./conversation-crud.js";
+} from "./conversation-key-store.js";
 import { getDb } from "./db-connection.js";
 import { channelInboundEvents, conversations } from "./schema.js";
 

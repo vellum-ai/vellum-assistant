@@ -1,15 +1,15 @@
 import { beforeAll, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../util/logger.js", () => ({
+mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     }),
 }));
 
-import { initializeDb } from "../../persistence/db-init.js";
-import { ensureGroupMigration } from "../conversation-group-migration.js";
-import { rawAll, rawExec, rawGet, rawRun } from "../raw-query.js";
+import { ensureGroupMigration } from "./conversation-group-migration.js";
+import { initializeDb } from "./db-init.js";
+import { rawAll, rawExec, rawGet, rawRun } from "./raw-query.js";
 await initializeDb();
 
 // Simulate a legacy install that has the `system:reflections` system group

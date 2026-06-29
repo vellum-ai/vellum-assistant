@@ -95,7 +95,7 @@ mock.module("../inbound/public-ingress-urls.js", () => ({
     "https://test.example.com/webhooks/twilio/status",
 }));
 
-mock.module("../memory/conversation-title-service.js", () => ({
+mock.module("../persistence/conversation-title-service.js", () => ({
   queueGenerateConversationTitle: () => {},
 }));
 

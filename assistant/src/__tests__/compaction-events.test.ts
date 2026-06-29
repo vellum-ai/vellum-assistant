@@ -229,7 +229,7 @@ mock.module("../persistence/llm-usage-store.js", () => ({
   listUsageEvents: () => [],
 }));
 
-mock.module("../memory/auto-analysis-enqueue.js", () => ({
+mock.module("../runtime/services/auto-analysis-enqueue.js", () => ({
   enqueueAutoAnalysisOnCompaction: () => {},
 }));
 
@@ -255,7 +255,7 @@ mock.module("../agent/loop.js", () => ({
   },
 }));
 
-mock.module("../memory/canonical-guardian-store.js", () => ({
+mock.module("../contacts/canonical-guardian-store.js", () => ({
   listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
   listCanonicalGuardianRequests: () => [],
   listPendingRequestsByConversationScope: () => [],

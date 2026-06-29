@@ -57,7 +57,7 @@ mock.module("../../persistence/conversation-crud.js", () => ({
   getConversationSource: () => null,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
-mock.module("../auto-analysis-guard.js", () => ({
+mock.module("../../runtime/services/auto-analysis-guard.js", () => ({
   isAutoAnalysisConversation: () => false,
 }));
 
@@ -68,7 +68,7 @@ mock.module("../../persistence/embeddings/qdrant-circuit-breaker.js", () => ({
 }));
 
 // Stub raw query helpers (used by jobs-store internally).
-mock.module("../raw-query.js", () => ({
+mock.module("../../persistence/raw-query.js", () => ({
   rawAll: () => [],
   rawChanges: () => 0,
   rawMemoryAll: () => [],
@@ -119,7 +119,7 @@ mock.module("../../persistence/db-connection.js", () => ({
 // Now load the real modules under test.
 const { isMemoryEnabled } = await import("../../persistence/jobs-store.js");
 const { enqueueAutoAnalysisIfEnabled } =
-  await import("../auto-analysis-enqueue.js");
+  await import("../../runtime/services/auto-analysis-enqueue.js");
 const { enqueueMemoryRetrospectiveIfEnabled } =
   await import("../memory-retrospective-enqueue.js");
 
