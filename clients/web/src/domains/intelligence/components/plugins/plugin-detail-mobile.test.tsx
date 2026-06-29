@@ -6,8 +6,10 @@
  * plugin plus drift state without touching React Query or the daemon client. A
  * mutable `hookState` lets individual tests swap the plugin (installed vs not)
  * and drift (update available or not). We verify the back wiring, the header
- * content (title + full description), and that the install / remove / upgrade
- * action surfaces per state.
+ * content (title + full description), and that the shared Install / Remove /
+ * Upgrade action set surfaces per state — including that Remove stays reachable
+ * alongside Upgrade when an update is available (the action set now comes from
+ * `plugin-detail-shared`, which renders both together).
  *
  * Mounted via `@testing-library/react` (happy-dom — see `clients/web/test-setup.ts`).
  */
@@ -81,6 +83,9 @@ mock.module("@/domains/intelligence/plugins/use-plugin-detail", () => ({
     isRemoveError: false,
     isUpgradeError: false,
   }),
+  // The shared `PluginDetailActions` imports `shortSha` from this module for its
+  // upgrade tooltip, so the mock must re-export it.
+  shortSha: (sha: string | null) => (sha ? sha.slice(0, 7) : "unknown"),
 }));
 
 const { PluginDetailMobile } = await import(
@@ -100,6 +105,18 @@ function getButton(label: string): HTMLButtonElement {
     throw new Error(`expected a button with aria-label="${label}"`);
   }
   return match;
+}
+
+/**
+ * The shared `PluginDetailActions` labels its buttons with text (not
+ * aria-label), so match by accessible name.
+ */
+function getActionButton(name: string): HTMLButtonElement {
+  return screen.getByRole("button", { name }) as HTMLButtonElement;
+}
+
+function queryActionButton(name: string): HTMLButtonElement | null {
+  return screen.queryByRole("button", { name }) as HTMLButtonElement | null;
 }
 
 describe("PluginDetailMobile", () => {
@@ -149,7 +166,9 @@ describe("PluginDetailMobile", () => {
       <PluginDetailMobile assistantId="asst-1" name="test-plugin" onBack={() => {}} />,
     );
 
-    expect(getButton("Install plugin")).toBeTruthy();
+    expect(getActionButton("Install")).toBeTruthy();
+    // An available plugin offers Install, not Remove.
+    expect(queryActionButton("Remove")).toBeNull();
   });
 
   test("installed plugin: remove action appears", () => {
@@ -159,10 +178,13 @@ describe("PluginDetailMobile", () => {
       <PluginDetailMobile assistantId="asst-1" name="test-plugin" onBack={() => {}} />,
     );
 
-    expect(getButton("Remove plugin")).toBeTruthy();
+    expect(getActionButton("Remove")).toBeTruthy();
   });
 
-  test("update available: upgrade action and badge appear", () => {
+  test("update available: Upgrade and Remove are both reachable, plus the badge", () => {
+    // Regression for Codex P2: an update must not hide the uninstall path. The
+    // shared action set renders Upgrade *and* Remove together, so mobile users
+    // can still remove a plugin when an upgrade is offered.
     hookState.plugin = makePlugin({ installed: true });
     hookState.drift = UPDATE_DRIFT;
 
@@ -170,7 +192,8 @@ describe("PluginDetailMobile", () => {
       <PluginDetailMobile assistantId="asst-1" name="test-plugin" onBack={() => {}} />,
     );
 
-    expect(getButton("Upgrade plugin")).toBeTruthy();
+    expect(getActionButton("Upgrade")).toBeTruthy();
+    expect(getActionButton("Remove")).toBeTruthy();
     expect(screen.getByText("Update available")).toBeTruthy();
   });
 });
