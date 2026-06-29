@@ -19,12 +19,6 @@ import {
   setMemoryCheckpoint,
 } from "../memory/checkpoints.js";
 import { queryUnreportedOnboardingEvents } from "../memory/onboarding-events-store.js";
-import { queryUnreportedTurnEvents } from "../memory/turn-events-store.js";
-import {
-  assembleBoundedTurnTrace,
-  isTurnSettled,
-} from "../memory/turn-trace-store.js";
-import { queryUnreportedWatchdogEvents } from "../memory/watchdog-events-store.js";
 import { queryUnreportedLifecycleEvents } from "../persistence/lifecycle-events-store.js";
 import { queryUnreportedUsageEvents } from "../persistence/llm-usage-store.js";
 import { VellumPlatformClient } from "../platform/client.js";
@@ -34,6 +28,12 @@ import {
   getCachedShareDiagnosticsVersion,
 } from "../platform/consent-cache.js";
 import { arePlatformFeaturesEnabled } from "../platform/feature-gate.js";
+import { queryUnreportedTurnEvents } from "../telemetry/turn-events-store.js";
+import {
+  assembleBoundedTurnTrace,
+  isTurnSettled,
+} from "../telemetry/turn-trace-store.js";
+import { queryUnreportedWatchdogEvents } from "../telemetry/watchdog-events-store.js";
 import type { UsageAttributionProfileSource } from "../usage/types.js";
 import { getDeviceId } from "../util/device-id.js";
 import { getLogger } from "../util/logger.js";
