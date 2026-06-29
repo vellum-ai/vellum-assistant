@@ -9,7 +9,8 @@ import { renderTelegramHtml } from "./render.js";
 //     `<s>`, so the serializer's defaults need no remapping.
 //   - Character references are numeric (`&#x26;`) because Telegram supports all
 //     numeric references but only 13 named ones; numeric is unambiguously safe.
-//   - `<img src>` is a supported tag, so images render rather than degrading.
+//   - `<img src>` is a supported tag, but only as a standalone media block, so
+//     an image-only paragraph is unwrapped from its `<p>`.
 describe("renderTelegramHtml", () => {
   test("returns undefined for empty or whitespace-only input", () => {
     expect(renderTelegramHtml("")).toBeUndefined();
@@ -94,9 +95,27 @@ describe("renderTelegramHtml", () => {
     expect(renderTelegramHtml("---")).toBe("<hr>");
   });
 
-  test("renders an image with its source and alt text", () => {
+  test("renders a standalone image as a top-level media block", () => {
+    // Telegram accepts `<img>` only as a standalone media block, never nested
+    // in a `<p>`, so the serializer's `<p><img></p>` wrapper is removed.
     expect(renderTelegramHtml("![alt text](https://x.test/i.png)")).toBe(
-      '<p><img src="https://x.test/i.png" alt="alt text"></p>',
+      '<img src="https://x.test/i.png" alt="alt text">',
+    );
+  });
+
+  test("keeps an image inline when it shares a paragraph with text", () => {
+    // A paragraph mixing prose and an image keeps its `<p>` so the surrounding
+    // text is not orphaned; only image-only paragraphs are unwrapped.
+    expect(renderTelegramHtml("see ![a](https://x.test/i.png) here")).toBe(
+      '<p>see <img src="https://x.test/i.png" alt="a"> here</p>',
+    );
+  });
+
+  test("preserves significant whitespace between inline elements in a list item", () => {
+    // The space between adjacent inline nodes is content, not layout, so it must
+    // survive: `Status: ready`, never `Status:ready`.
+    expect(renderTelegramHtml("- **Status:** _ready_")).toBe(
+      "<ul><li><strong>Status:</strong> <em>ready</em></li></ul>",
     );
   });
 

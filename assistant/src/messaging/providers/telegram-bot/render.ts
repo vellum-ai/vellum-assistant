@@ -17,7 +17,9 @@
  *   - task-list items use a bare `<input type="checkbox">` — no `disabled`
  *     attribute and no list classes;
  *   - a code block without a language is a bare `<pre>`; a language is carried
- *     on a nested `<code class="language-…">`.
+ *     on a nested `<code class="language-…">`;
+ *   - images are standalone media blocks, so an image-only paragraph is
+ *     unwrapped (`<p><img></p>` → `<img>`) rather than nested inside `<p>`.
  *
  * `useNamedReferences: false` emits numeric character references. Telegram
  * supports every numeric reference but only a fixed set of 13 named entities,
@@ -29,7 +31,7 @@
  *   https://core.telegram.org/bots/api#inputrichmessage
  */
 
-import type { Element, ElementContent, Root } from "hast";
+import type { Element, ElementContent, Root, RootContent } from "hast";
 import { toHtml } from "hast-util-to-html";
 import { toHast } from "mdast-util-to-hast";
 
@@ -73,17 +75,40 @@ export function renderTelegramHtml(text: string): string | undefined {
 // Telegram-specific hast adjustments
 // ---------------------------------------------------------------------------
 
-/** Container elements whose inter-child whitespace is layout-insignificant. */
-const WHITESPACE_CONTAINERS = new Set([
-  "ul",
-  "ol",
-  "li",
-  "table",
-  "thead",
-  "tbody",
-  "tr",
+/**
+ * Block-level tags in the generic HTML the serializer produces. Whitespace that
+ * only separates block-level siblings is layout-insignificant; whitespace
+ * between inline content (text, `<strong>`, `<em>`, `<a>`, …) is meaningful and
+ * must be preserved.
+ */
+const BLOCK_TAGS = new Set([
   "blockquote",
+  "details",
+  "figure",
+  "figcaption",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "hr",
+  "li",
+  "ol",
+  "p",
+  "pre",
+  "summary",
+  "table",
+  "tbody",
+  "td",
+  "th",
+  "thead",
+  "tr",
+  "ul",
 ]);
+
+/** Tags whose text content is preformatted, so whitespace is always significant. */
+const PREFORMATTED_TAGS = new Set(["pre", "code"]);
 
 function telegramizeHast(root: Root): void {
   processNode(root);
@@ -107,13 +132,17 @@ function processNode(node: Root | Element): void {
         break;
       case "ul":
       case "ol":
+        stripTaskListClasses(node);
+        break;
       case "li":
         stripTaskListClasses(node);
+        normalizeTaskItemSpacing(node);
         break;
     }
   }
 
-  stripInsignificantWhitespace(node);
+  unwrapImageParagraphs(node);
+  stripStructuralWhitespace(node);
 }
 
 /** Lift `<tr>` rows out of `<thead>`/`<tbody>`, which Telegram does not support. */
@@ -171,10 +200,93 @@ function stripTaskListClasses(element: Element): void {
   }
 }
 
-function stripInsignificantWhitespace(node: Root | Element): void {
-  const tag = node.type === "root" ? "root" : node.tagName;
-  if (tag !== "root" && !WHITESPACE_CONTAINERS.has(tag)) return;
-  node.children = node.children.filter(
-    (child) => !(child.type === "text" && child.value.trim().length === 0),
-  ) as Element["children"];
+/**
+ * Drop the whitespace that GFM inserts between a task-list checkbox and its
+ * label. Telegram's documented checklist form places the label directly after
+ * the input (`<input type="checkbox" checked>Checked checkbox`), so the leading
+ * space is removed to match.
+ */
+function normalizeTaskItemSpacing(li: Element): void {
+  const [first, second] = li.children;
+  if (
+    first?.type === "element" &&
+    first.tagName === "input" &&
+    first.properties?.type === "checkbox" &&
+    second?.type === "text" &&
+    second.value.trim().length === 0
+  ) {
+    li.children.splice(1, 1);
+  }
+}
+
+/**
+ * Lift the `<img>` out of an image-only paragraph. Telegram's rich HTML treats
+ * images as standalone media blocks and does not accept `<img>` nested inside a
+ * `<p>`; the generic serializer wraps a standalone Markdown image in `<p>`, so
+ * an `<p><img></p>` is flattened to a top-level `<img>`. A paragraph that mixes
+ * an image with text is left intact — its surrounding prose still needs `<p>`.
+ */
+function unwrapImageParagraphs(node: Root | Element): void {
+  const lifted: Array<RootContent | ElementContent> = [];
+  for (const child of node.children) {
+    if (
+      child.type === "element" &&
+      child.tagName === "p" &&
+      isImageOnlyParagraph(child)
+    ) {
+      for (const grandchild of child.children) {
+        if (grandchild.type === "element" && grandchild.tagName === "img") {
+          lifted.push(grandchild);
+        }
+      }
+    } else {
+      lifted.push(child);
+    }
+  }
+  node.children = lifted as Element["children"];
+}
+
+function isImageOnlyParagraph(paragraph: Element): boolean {
+  let hasImage = false;
+  for (const child of paragraph.children) {
+    if (child.type === "text") {
+      if (child.value.trim().length > 0) return false;
+    } else if (child.type === "element" && child.tagName === "img") {
+      hasImage = true;
+    } else {
+      return false;
+    }
+  }
+  return hasImage;
+}
+
+/**
+ * Remove whitespace-only text nodes that merely separate block-level siblings —
+ * the generic serializer inserts newlines between block elements, but Telegram
+ * renders those source newlines as literal text. Whitespace flanked by inline
+ * content on both sides (e.g. the space in `<strong>x</strong> <em>y</em>`) is
+ * meaningful and preserved, and preformatted (`<pre>`/`<code>`) whitespace is
+ * always left untouched.
+ */
+function stripStructuralWhitespace(node: Root | Element): void {
+  if (node.type === "element" && PREFORMATTED_TAGS.has(node.tagName)) return;
+
+  const children = node.children;
+  node.children = children.filter((child, index) => {
+    if (child.type !== "text" || child.value.trim().length > 0) return true;
+    const prev = children[index - 1];
+    const next = children[index + 1];
+    return (
+      prev !== undefined &&
+      next !== undefined &&
+      isInlineContent(prev) &&
+      isInlineContent(next)
+    );
+  }) as Element["children"];
+}
+
+function isInlineContent(node: RootContent | ElementContent): boolean {
+  if (node.type === "text") return node.value.trim().length > 0;
+  if (node.type === "element") return !BLOCK_TAGS.has(node.tagName);
+  return false;
 }
