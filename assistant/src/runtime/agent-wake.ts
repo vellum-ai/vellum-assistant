@@ -662,18 +662,8 @@ export async function wakeAgentForOpportunity(
       return { invoked: false, producedToolCalls: false, reason: "timeout" };
     }
 
-    // Apply caller-supplied trust before the agent loop reads its per-turn
-    // snapshot. Background jobs without an inbound message use this to
-    // declare guardian trust so side-effect tools clear the approval gate.
-    // Scoped to this wake's turn: capture the prior value and restore it in
-    // both cleanup paths below (mirroring the guardian-elevation restore in
-    // daemon/handlers/conversations.ts), so the elevation never lingers on the
-    // cached conversation — a later wake on the same conversation (e.g. a
-    // remote `actor`) must not inherit this turn's guardian trust.
-    const priorTrustContext = conversation.trustContext;
-    if (opts.trustContext) {
-      conversation.setTrustContext(opts.trustContext);
-    }
+    // Trust elevation is applied per-turn via `currentTurnTrustContext` right
+    // before the run (see below) — not on the persistent conversation trust.
 
     // Honor the conversation's pinned inference-profile override (if any).
     // Without this, scheduled-task wakes and other opportunity wakes bypass
@@ -1254,9 +1244,15 @@ export async function wakeAgentForOpportunity(
       const priorCallSite = conversation.currentCallSite;
       const priorTurnOverrideProfile = conversation.currentTurnOverrideProfile;
       const priorHasNoClient = conversation.hasNoClient;
+      const priorTurnTrust = conversation.currentTurnTrustContext;
       conversation.currentCallSite = callSite;
       conversation.currentTurnOverrideProfile = overrideProfile;
       if (opts.clientless) conversation.hasNoClient = true;
+      // Per-turn guardian elevation for the wake's tools, set after the pre-run
+      // reads so a pre-run failure can't leak it; restored in the finally.
+      if (opts.trustContext) {
+        conversation.currentTurnTrustContext = opts.trustContext;
+      }
 
       let updatedHistory: Message[];
       try {
@@ -1318,6 +1314,7 @@ export async function wakeAgentForOpportunity(
         conversation.currentCallSite = priorCallSite;
         conversation.currentTurnOverrideProfile = priorTurnOverrideProfile;
         conversation.hasNoClient = priorHasNoClient;
+        conversation.currentTurnTrustContext = priorTurnTrust;
       }
 
       // The loop swallows provider rejections into a graceful no-output
@@ -1378,9 +1375,6 @@ export async function wakeAgentForOpportunity(
       // error/early-return paths where no tail was produced.
       restoreWakeAllowedTools();
       clearWakePersonaOverride();
-      if (opts.trustContext) {
-        conversation.setTrustContext(priorTrustContext ?? null);
-      }
       try {
         conversation.setProcessing(false);
       } catch (err) {
@@ -1409,9 +1403,6 @@ export async function wakeAgentForOpportunity(
       if (!drainedInTry) {
         restoreWakeAllowedTools();
         clearWakePersonaOverride();
-        if (opts.trustContext) {
-          conversation.setTrustContext(priorTrustContext ?? null);
-        }
         try {
           conversation.setProcessing(false);
         } catch (err) {
