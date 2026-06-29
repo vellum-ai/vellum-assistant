@@ -32,7 +32,6 @@ import {
     type ContactPayload,
     type ContactSelection,
 } from "@/domains/contacts/types";
-import { SETUP_CHANNEL_IDS } from "@/domains/contacts/types";
 import {
     channelsAvailableGetOptions,
     channelsReadinessGetOptions,
