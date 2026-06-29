@@ -631,6 +631,18 @@ interface AgentLoopRunOptionsBase {
    * client/headless state mid-turn. Defaults to `false` when omitted.
    */
   isNonInteractive?: boolean;
+  /**
+   * First-token latency instrumentation. Created per turn by the
+   * orchestrator (which stamps the turn-level marks) and threaded here so
+   * the loop can stamp the per-call marks (`tools_resolved`, `request_sent`,
+   * `first_token`, `call_complete`). Structurally typed to keep the loop
+   * decoupled from the daemon's `TurnLatencyTracker`. Absent for callers
+   * that don't instrument (tests, workflows).
+   */
+  latencyTracker?: {
+    mark(name: string): void;
+    markFirstToken(kind: "thinking" | "text"): void;
+  };
 }
 
 interface AgentLoopRunOptionsWithContextWindow extends AgentLoopRunOptionsBase {
@@ -1008,6 +1020,7 @@ export class AgentLoop {
       compactInPlace = false,
       isNonInteractive = false,
       model: runModel,
+      latencyTracker,
     } = options;
     // Snapshot the system prompt once per run. The instance field is mutable
     // (the conversation may update it between turns), but a single run must
@@ -1324,6 +1337,9 @@ export class AgentLoop {
         const resolvedTools = this.resolveTools
           ? this.resolveTools(history)
           : this.tools;
+        // Latency: the budget gate (above) and tool resolution are done; what
+        // follows is per-call request prep before the wire.
+        latencyTracker?.mark("tools_resolved");
 
         // Provider-native web search: append a `web_search`-named tool that the
         // provider substitutes for its server-side search (run inline, no client
@@ -1509,6 +1525,11 @@ export class AgentLoop {
         // the client would otherwise see nothing.
         let streamedVisibleText = false;
 
+        // Latency instrumentation: stamp the first streamed token (thinking or
+        // text) of THIS call exactly once, so each per-call segment carries its
+        // own time-to-first-token. Reset per provider call.
+        let firstTokenMarked = false;
+
         // The `onEvent` wrapping below applies sensitive-output placeholder
         // substitution to streamed text while forwarding every other event
         // type through unchanged.
@@ -1517,6 +1538,15 @@ export class AgentLoop {
           systemPrompt: runSystemPrompt,
           config: providerConfig,
           onEvent: (event) => {
+            if (
+              !firstTokenMarked &&
+              (event.type === "thinking_delta" || event.type === "text_delta")
+            ) {
+              firstTokenMarked = true;
+              latencyTracker?.markFirstToken(
+                event.type === "thinking_delta" ? "thinking" : "text",
+              );
+            }
             if (event.type === "text_delta") {
               // Held when the turn's output is deferred — the final text is
               // emitted once, after the `post-model-call` hook runs.
@@ -1657,6 +1687,9 @@ export class AgentLoop {
         // `llm_request_logs` row, then re-throw so the existing outer catch
         // continues to handle abort sync, Sentry capture, the `error` event,
         // and the loop break unchanged.
+        // Latency: the request is about to leave for the provider. The span
+        // from here to the first streamed token is time-to-first-token.
+        latencyTracker?.mark("request_sent");
         let response: ProviderResponse;
         try {
           response = await this.provider.sendMessage(
@@ -1699,6 +1732,10 @@ export class AgentLoop {
         }
 
         const providerDurationMs = Date.now() - providerStart;
+        // Latency: provider call returned; the span from first token to here is
+        // generation time. Stamped before the `usage` event so the breakdown
+        // serialized in `handleUsage` already sees it.
+        latencyTracker?.mark("call_complete");
 
         onEvent({
           type: "usage",

@@ -124,6 +124,7 @@ import type {
 } from "./message-protocol.js";
 import type { TrustContext } from "./trust-context.js";
 import { resolveTurnCallSite } from "./turn-call-site.js";
+import { TurnLatencyTracker } from "./turn-latency-tracker.js";
 
 const log = getLogger("conversation-agent-loop");
 
@@ -288,6 +289,14 @@ export async function runAgentLoopImpl(
      */
     forceOverrideProfile?: boolean;
     /**
+     * Origin tag of this turn (the conversation's `TitleOrigin`, e.g.
+     * "memory_consolidation"), threaded from `runBackgroundJob`. Exposed on
+     * the conversation so tool execution can scope narrow non-interactive
+     * permission auto-grants to a specific internal background origin. Unset
+     * for normal user-initiated turns.
+     */
+    requestOrigin?: string;
+    /**
      * Firing's `cron_runs.id` stamped onto this turn's usage rows so a
      * scheduled execute turn attributes its LLM spend to that firing.
      */
@@ -309,6 +318,11 @@ export async function runAgentLoopImpl(
 
   const abortController = ctx.abortController;
   const reqId = ctx.currentRequestId ?? uuid();
+  // First-token latency instrumentation for this turn. Stamped here at the
+  // earliest point of turn processing, then through the prompt-submit hook
+  // (memory/context retrieval) and the agent loop's per-call marks.
+  const latencyTracker = new TurnLatencyTracker();
+  latencyTracker.mark("turn_start");
   const rlog = log.child({
     conversationId: ctx.conversationId,
     requestId: reqId,
@@ -346,6 +360,12 @@ export async function runAgentLoopImpl(
   // Expose the turn's call site on the live conversation so the runtime
   // injection assembly self-resolves it for the turn's plugin contexts.
   ctx.currentCallSite = turnCallSite;
+
+  // Expose the turn's request origin (e.g. "memory_consolidation") on the live
+  // conversation so the tool context — and through it `buildPolicyContext` —
+  // can scope narrow non-interactive permission auto-grants to a specific
+  // internal background origin. Unset for normal user turns.
+  ctx.currentTurnRequestOrigin = options?.requestOrigin;
 
   // Firing's run id for this turn's usage attribution. Kept local (not on the
   // conversation) so a reused conversation attributes each turn to its own
@@ -878,10 +898,12 @@ export async function runAgentLoopImpl(
       modelProfileKey,
       isNonInteractive,
     };
+    latencyTracker.mark("prompt_hook_start");
     const finalUserPromptCtx = await runHook(
       HOOKS.USER_PROMPT_SUBMIT,
       userPromptCtx,
     );
+    latencyTracker.mark("prompt_hook_end");
     const runMessages = finalUserPromptCtx.latestMessages;
 
     // Reset the manager's turn-scoped overflow-recovery ladder at the turn
@@ -902,6 +924,7 @@ export async function runAgentLoopImpl(
       turnChannelContext: capturedTurnChannelContext,
       turnInterfaceContext: capturedTurnInterfaceContext,
       applyCompaction: applySuccessfulCompaction,
+      latencyTracker,
     };
     const eventHandler = (event: AgentEvent): Promise<void> => {
       if (
@@ -982,6 +1005,7 @@ export async function runAgentLoopImpl(
           compactInPlace,
           isNonInteractive,
           modelProfileKey,
+          latencyTracker,
           ...(ctx.modelOverride ? { model: ctx.modelOverride } : {}),
         }),
         abortController.signal,
@@ -1571,6 +1595,9 @@ export async function runAgentLoopImpl(
     // opportunity wakes calling `agentLoop.run` directly) don't inherit a stale
     // value and instead fall back to live client state in the tool context.
     ctx.currentTurnIsNonInteractive = undefined;
+    // Turn-scoped request origin. Clear so a later turn on a reused
+    // conversation cannot inherit a stale origin-scoped permission grant.
+    ctx.currentTurnRequestOrigin = undefined;
     // Channel command intents (e.g. Telegram /start) are single-turn metadata.
     // Clear at turn end so they never leak into subsequent unrelated messages.
     ctx.commandIntent = undefined;

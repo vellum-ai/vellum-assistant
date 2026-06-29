@@ -37,7 +37,7 @@ async function handleWipeConversation({ body = {} }: RouteHandlerArgs) {
     conv.scheduleJobId &&
     countConversationsByScheduleJobId(conv.scheduleJobId) <= 1
   ) {
-    deleteSchedule(conv.scheduleJobId);
+    await deleteSchedule(conv.scheduleJobId);
   }
 
   destroyActiveConversation(conversationId);

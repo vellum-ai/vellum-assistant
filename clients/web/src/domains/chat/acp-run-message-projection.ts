@@ -50,6 +50,8 @@ export type AcpChatBlock =
       status: AcpToolStatus;
       content?: string;
       locations?: { path: string; line?: number }[];
+      rawInput?: unknown;
+      rawOutput?: unknown;
     }
   | { kind: "plan"; entries: { label: string; checked: boolean }[] };
 
@@ -177,6 +179,20 @@ export function applyAcpChatEvent(
         };
         return;
       }
+      // Some agents stream a message as id-less deltas, then re-send the whole
+      // message as one chunk that finally carries a messageId. Adopt the id
+      // onto the streamed block rather than opening a duplicate of it.
+      if (
+        messageId !== ANONYMOUS_MESSAGE_ID &&
+        last &&
+        last.kind === "agent" &&
+        last.messageId === ANONYMOUS_MESSAGE_ID &&
+        !last.isComplete &&
+        last.content === (event.content ?? "")
+      ) {
+        blocks[blocks.length - 1] = { ...last, messageId };
+        return;
+      }
       closeTrailingMessage(blocks);
       blocks.push({
         kind: "agent",
@@ -225,6 +241,8 @@ export function applyAcpChatEvent(
         status: mapToolStatus(event.toolStatus, "running"),
         content: event.content,
         locations: parseLocations(event),
+        rawInput: event.rawInput,
+        rawOutput: event.rawOutput,
       });
       return;
     }
@@ -249,6 +267,10 @@ export function applyAcpChatEvent(
         // ACP `ToolCallUpdate.content` REPLACES the snapshot, not a delta.
         content: event.content ?? target.content,
         locations: parsedLocations ?? target.locations,
+        rawInput:
+          event.rawInput !== undefined ? event.rawInput : target.rawInput,
+        rawOutput:
+          event.rawOutput !== undefined ? event.rawOutput : target.rawOutput,
       };
       return;
     }

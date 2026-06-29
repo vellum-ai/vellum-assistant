@@ -10,11 +10,14 @@ import { Eye, Paperclip, Square, X } from "lucide-react";
 
 import { QuestionPromptSlot } from "@/domains/chat/components/question-prompt-slot";
 import { StagedQuotesStrip } from "@/domains/chat/components/staged-quotes-strip";
-import { ChatScrollArea, type ChatScrollAreaProps } from "@/domains/chat/components/chat-scroll-area";
+import {
+  ChatScrollArea,
+  type ChatScrollAreaProps,
+} from "@/domains/chat/components/chat-scroll-area";
 import { ScrollToLatestButton } from "@/domains/chat/components/scroll-to-latest-button";
 import {
-    RefreshFeedbackPill,
-    type RefreshFeedback,
+  RefreshFeedbackPill,
+  type RefreshFeedback,
 } from "@/domains/chat/refresh-feedback-pill";
 import { Button, Notice, type NoticeTone } from "@vellumai/design-library";
 
@@ -172,9 +175,9 @@ export interface ChatBodyProps {
   dockStartersToBottom?: boolean;
 
   /**
-   * Top-center floating overlay; shown only when scrolled up. Visibility on
-   * scroll is gated here on `showScrollToLatest`; the caller passes the slot
-   * only when there is ≥1 active subagent.
+   * Top-center floating overlay. Shown whenever there is ≥1 active subagent,
+   * independent of scroll position; the caller passes the slot only when its
+   * active list is non-empty.
    */
   activeSubagentsSlot?: ReactNode;
 
@@ -470,10 +473,11 @@ export function ChatBody({
       />
 
       {!isEmptyState &&
-        showScrollToLatest &&
         (activeSubagentsSlot || activeAcpRunsSlot || activeWorkflowsSlot) && (
           <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center gap-2 px-3 pt-2">
-            {/* subagents, then active acp runs, then workflows (do not reorder) */}
+            {/* Always shown while a background process of that type is running,
+                independent of scroll position. subagents, then active acp runs,
+                then workflows (do not reorder). */}
             {activeSubagentsSlot}
             {activeAcpRunsSlot}
             {activeWorkflowsSlot}

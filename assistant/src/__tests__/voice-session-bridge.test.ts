@@ -34,6 +34,17 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => mockedConfig,
 }));
 
+let voiceConversationFactory: (() => Conversation) | null = null;
+
+mock.module("../daemon/conversation-store.js", () => ({
+  getOrCreateConversation: async () => {
+    if (!voiceConversationFactory) {
+      throw new Error("voiceConversationFactory not set for test");
+    }
+    return voiceConversationFactory();
+  },
+}));
+
 import {
   setVoiceBridgeDeps,
   startVoiceTurn,
@@ -168,8 +179,8 @@ function parsePersistedMetadata(
  * Helper to inject voice bridge deps with a given conversation factory.
  */
 function injectDeps(conversationFactory: () => Conversation): void {
+  voiceConversationFactory = conversationFactory;
   setVoiceBridgeDeps({
-    getOrCreateConversation: async () => conversationFactory(),
     resolveAttachments: () => [],
   });
 }
@@ -499,7 +510,6 @@ describe("voice-session-bridge", () => {
       },
     ];
 
-    let capturedTransport: { channelId: string } | undefined;
     let capturedVoiceSessionId: string | undefined;
     const capturedPrompts: Array<string | null> = [];
     const session = makePersistingStreamingSession(conversation.id, events);
@@ -507,11 +517,8 @@ describe("voice-session-bridge", () => {
       capturedPrompts.push(prompt);
     };
 
+    voiceConversationFactory = () => session;
     setVoiceBridgeDeps({
-      getOrCreateConversation: async (_conversationId, transport) => {
-        capturedTransport = transport;
-        return session;
-      },
       resolveAttachments: () => [],
     });
 
@@ -546,7 +553,6 @@ describe("voice-session-bridge", () => {
 
     await new Promise((r) => setTimeout(r, 50));
 
-    expect(capturedTransport).toEqual({ channelId: "vellum" });
     expect(capturedVoiceSessionId).toBe("local-live-voice-session-1");
     expect(capturedPrompts[0]).toBe(
       "You are speaking in a local live voice session. Keep replies brief and conversational.",

@@ -4152,6 +4152,15 @@ paths:
                       properties:
                         channel:
                           type: string
+                          enum:
+                            - telegram
+                            - phone
+                            - vellum
+                            - whatsapp
+                            - slack
+                            - email
+                            - platform
+                            - a2a
                         ready:
                           type: boolean
                         setupStatus:
@@ -4230,14 +4239,20 @@ paths:
               type: object
               properties:
                 channel:
-                  type: string
                   description: Optional channel ID to refresh
+                  type: string
+                  enum:
+                    - telegram
+                    - phone
+                    - vellum
+                    - whatsapp
+                    - slack
+                    - email
+                    - platform
+                    - a2a
                 includeRemote:
-                  type: boolean
                   description: Include remote checks (default true)
-              required:
-                - channel
-                - includeRemote
+                  type: boolean
       responses:
         "200":
           description: Successful response
@@ -4255,6 +4270,15 @@ paths:
                       properties:
                         channel:
                           type: string
+                          enum:
+                            - telegram
+                            - phone
+                            - vellum
+                            - whatsapp
+                            - slack
+                            - email
+                            - platform
+                            - a2a
                         ready:
                           type: boolean
                         setupStatus:
@@ -17575,6 +17599,16 @@ paths:
                             - label
                             - status
                           additionalProperties: false
+                        acpNotification:
+                          type: object
+                          properties:
+                            acpSessionId:
+                              type: string
+                            agent:
+                              type: string
+                          required:
+                            - acpSessionId
+                          additionalProperties: false
                         slackMessage:
                           type: object
                           properties:
@@ -24289,7 +24323,7 @@ paths:
           required: false
           schema:
             type: string
-          description: Filter by skill origin (e.g. 'vellum', 'clawhub', 'skillssh', 'custom').
+          description: Filter by skill origin (e.g. 'vellum', 'clawhub', 'skillssh', 'custom', 'assistant-memory').
         - name: kind
           in: query
           required: false
@@ -24582,6 +24616,60 @@ paths:
                             origin:
                               type: string
                               const: custom
+                          required:
+                            - id
+                            - name
+                            - description
+                            - kind
+                            - status
+                            - category
+                            - origin
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                            name:
+                              type: string
+                            description:
+                              type: string
+                            icon:
+                              type: string
+                            emoji:
+                              type: string
+                            kind:
+                              type: string
+                              enum:
+                                - bundled
+                                - installed
+                                - catalog
+                            status:
+                              type: string
+                              enum:
+                                - enabled
+                                - disabled
+                                - available
+                            category:
+                              type: string
+                            owner:
+                              type: object
+                              properties:
+                                kind:
+                                  type: string
+                                  enum:
+                                    - skill
+                                    - mcp
+                                    - plugin
+                                    - workspace
+                                id:
+                                  type: string
+                              required:
+                                - kind
+                                - id
+                              additionalProperties: false
+                            origin:
+                              type: string
+                              const: assistant-memory
                           required:
                             - id
                             - name
@@ -24967,6 +25055,60 @@ paths:
                           origin:
                             type: string
                             const: custom
+                        required:
+                          - id
+                          - name
+                          - description
+                          - kind
+                          - status
+                          - category
+                          - origin
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          id:
+                            type: string
+                          name:
+                            type: string
+                          description:
+                            type: string
+                          icon:
+                            type: string
+                          emoji:
+                            type: string
+                          kind:
+                            type: string
+                            enum:
+                              - bundled
+                              - installed
+                              - catalog
+                          status:
+                            type: string
+                            enum:
+                              - enabled
+                              - disabled
+                              - available
+                          category:
+                            type: string
+                          owner:
+                            type: object
+                            properties:
+                              kind:
+                                type: string
+                                enum:
+                                  - skill
+                                  - mcp
+                                  - plugin
+                                  - workspace
+                              id:
+                                type: string
+                            required:
+                              - kind
+                              - id
+                            additionalProperties: false
+                          origin:
+                            type: string
+                            const: assistant-memory
                         required:
                           - id
                           - name
@@ -25367,6 +25509,60 @@ paths:
                           origin:
                             type: string
                             const: custom
+                        required:
+                          - id
+                          - name
+                          - description
+                          - kind
+                          - status
+                          - category
+                          - origin
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          id:
+                            type: string
+                          name:
+                            type: string
+                          description:
+                            type: string
+                          icon:
+                            type: string
+                          emoji:
+                            type: string
+                          kind:
+                            type: string
+                            enum:
+                              - bundled
+                              - installed
+                              - catalog
+                          status:
+                            type: string
+                            enum:
+                              - enabled
+                              - disabled
+                              - available
+                          category:
+                            type: string
+                          owner:
+                            type: object
+                            properties:
+                              kind:
+                                type: string
+                                enum:
+                                  - skill
+                                  - mcp
+                                  - plugin
+                                  - workspace
+                              id:
+                                type: string
+                            required:
+                              - kind
+                              - id
+                            additionalProperties: false
+                          origin:
+                            type: string
+                            const: assistant-memory
                         required:
                           - id
                           - name
@@ -25954,6 +26150,60 @@ paths:
                             origin:
                               type: string
                               const: custom
+                          required:
+                            - id
+                            - name
+                            - description
+                            - kind
+                            - status
+                            - category
+                            - origin
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                            name:
+                              type: string
+                            description:
+                              type: string
+                            icon:
+                              type: string
+                            emoji:
+                              type: string
+                            kind:
+                              type: string
+                              enum:
+                                - bundled
+                                - installed
+                                - catalog
+                            status:
+                              type: string
+                              enum:
+                                - enabled
+                                - disabled
+                                - available
+                            category:
+                              type: string
+                            owner:
+                              type: object
+                              properties:
+                                kind:
+                                  type: string
+                                  enum:
+                                    - skill
+                                    - mcp
+                                    - plugin
+                                    - workspace
+                                id:
+                                  type: string
+                              required:
+                                - kind
+                                - id
+                              additionalProperties: false
+                            origin:
+                              type: string
+                              const: assistant-memory
                           required:
                             - id
                             - name

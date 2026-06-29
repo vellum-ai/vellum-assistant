@@ -240,6 +240,49 @@ describe("AcpSessionManager — terminal persistence", () => {
     expect(eventBuffers.has(id)).toBe(false);
   });
 
+  test("persists tool_call rawInput/rawOutput verbatim through the event log", async () => {
+    const id = "session-raw-io-1";
+    const handles = buildSessionWithFakeProcess({
+      id,
+      agentId: "agent-raw",
+      protocolSessionId: "proto-raw",
+      parentConversationId: "conv-raw",
+    });
+
+    const rawInput = { command: "ls -la", args: ["-la"] };
+    const rawOutput = "total 0\ndrwxr-xr-x  2 user  staff  64 .";
+
+    handles.emitUpdate({
+      type: "acp_session_update",
+      acpSessionId: id,
+      updateType: "tool_call",
+      toolCallId: "tc-raw",
+      toolTitle: "Run command",
+      toolKind: "execute",
+      toolStatus: "running",
+      rawInput,
+    });
+    handles.emitUpdate({
+      type: "acp_session_update",
+      acpSessionId: id,
+      updateType: "tool_call_update",
+      toolCallId: "tc-raw",
+      toolStatus: "completed",
+      rawOutput,
+    });
+
+    handles.resolvePrompt({ stopReason: "end_turn" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const row = readHistoryRow(id);
+    expect(row).not.toBeNull();
+    const log = JSON.parse(row!.event_log_json) as AcpSessionUpdate[];
+    expect(log).toHaveLength(2);
+    expect(log[0]!.rawInput).toEqual(rawInput);
+    expect(log[1]!.rawOutput).toBe(rawOutput);
+  });
+
   test("persists status='failed' with the error message on prompt rejection", async () => {
     const id = "session-failed-1";
     const handles = buildSessionWithFakeProcess({

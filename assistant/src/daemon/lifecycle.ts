@@ -54,8 +54,10 @@ import {
   startConsentRefresh,
   stopConsentRefresh,
 } from "../platform/consent-cache.js";
+import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
+import { initializeProviders } from "../providers/registry.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import {
   initAuthSigningKey,
@@ -94,6 +96,7 @@ import { runWorkspaceMigrations } from "../workspace/migrations/runner.js";
 import { startAppSourceWatcher } from "./app-source-watcher.js";
 import { startConfigWatcher } from "./config-watcher.js";
 import { startConversationEvictor } from "./conversation-evictor.js";
+import { getOrCreateConversation } from "./conversation-store.js";
 import { writePid } from "./daemon-control.js";
 import { setDbReady, setStartupComplete } from "./daemon-readiness.js";
 import {
@@ -118,10 +121,10 @@ import {
   registerMessagingProviders,
   registerWatcherProviders,
 } from "./providers-setup.js";
-import { DaemonServer } from "./server.js";
 import { installShutdownHandlers } from "./shutdown-handlers.js";
 import { registerShutdownHook } from "./shutdown-registry.js";
 import { refreshSkillCapabilityMemories } from "./skill-memory-refresh.js";
+import { broadcastDaemonStatus } from "./status.js";
 
 const log = getLogger("lifecycle");
 let diskPressureStartupSampleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -606,12 +609,11 @@ export async function runDaemon(): Promise<void> {
   // they can't block daemon startup.
   await initializePlugins();
 
-  // Start the DaemonServer (conversation manager) before Qdrant so HTTP
-  // routes can begin accepting requests while Qdrant initializes.
-  log.info("Daemon startup: starting DaemonServer");
-  const server = new DaemonServer();
-  await server.start();
-  log.info("Daemon startup: DaemonServer started");
+  // Initialize providers before Qdrant so HTTP routes can begin accepting
+  // requests while Qdrant initializes, then best-effort sync the workspace
+  // identity name to the platform record.
+  await initializeProviders(config);
+  syncWorkspaceIdentityToPlatform();
 
   // Start the idle/LRU/memory-pressure sweep over the in-memory conversation
   // pool.
@@ -819,7 +821,7 @@ export async function runDaemon(): Promise<void> {
   registerMessagingProviders();
 
   try {
-    recoverStaleSchedules();
+    await recoverStaleSchedules();
   } catch (err) {
     log.error({ err }, "Schedule recovery failed — continuing startup");
   }
@@ -934,12 +936,10 @@ export async function runDaemon(): Promise<void> {
     log.warn({ err }, "Background Qdrant init failed"),
   );
 
-  // Inject voice bridge deps so route handlers + the relay pipeline can
-  // resolve a conversation by ID once a call lands. Module-level state,
-  // so available even when the HTTP server failed to bind.
+  // Inject voice bridge deps so the relay pipeline can resolve attachments
+  // once a call lands. Module-level state, so available even when the HTTP
+  // server failed to bind.
   setVoiceBridgeDeps({
-    getOrCreateConversation: (conversationId, _transport) =>
-      server.getConversationForMessages(conversationId),
     resolveAttachments: (attachmentIds) => {
       const resolved = getAttachmentsByIds(attachmentIds, {
         hydrateFileData: true,
@@ -958,8 +958,7 @@ export async function runDaemon(): Promise<void> {
     setRelayBroadcast((msg) => broadcastMessage(msg));
     setPointerMessageProcessor(
       async (conversationId, instruction, requiredFacts) => {
-        const conversation =
-          await server.getConversationForMessages(conversationId);
+        const conversation = await getOrCreateConversation(conversationId);
 
         // Pointer turns are guardian-gated owner self-maintenance: elevate to
         // the internal guardian context and rehydrate history so a cold
@@ -1099,7 +1098,7 @@ export async function runDaemon(): Promise<void> {
         }
       },
     );
-    server.broadcastStatus();
+    broadcastDaemonStatus();
   } catch (err) {
     log.warn(
       { err },
@@ -1121,8 +1120,8 @@ export async function runDaemon(): Promise<void> {
   // Initialize providers and tools after the HTTP server is listening so
   // health-check and pairing requests can be served immediately.  Wrapped in
   // its own try/catch so a failure here doesn't tear down the running HTTP
-  // server (DaemonServer.start() already calls initializeProviders internally
-  // and tools are resolved lazily at conversation creation time).
+  // server (providers were already initialized earlier in startup and tools
+  // are resolved lazily at conversation creation time).
   try {
     log.info("Daemon startup: initializing providers and tools");
     await initializeProvidersAndTools(config);
@@ -1185,7 +1184,7 @@ export async function runDaemon(): Promise<void> {
   // (see `maybeEnqueueGraphMaintenanceJobs`).
   startFilingService();
 
-  installShutdownHandlers({ server });
+  installShutdownHandlers();
 
   // The critical startup await-chain has completed and the daemon can serve
   // requests, so latch readiness before logging "Daemon started". Any fatal

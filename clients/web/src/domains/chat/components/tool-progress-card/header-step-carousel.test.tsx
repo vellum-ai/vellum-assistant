@@ -46,7 +46,10 @@ describe("HeaderStepCarousel — empty title", () => {
 describe("HeaderStepCarousel — with title", () => {
   test("renders the title, a pipe separator, and the info as tertiary subtext", () => {
     const { getByText, container } = render(
-      <HeaderStepCarousel currentStepTitle="Reading" currentStepInfo="foo.ts" />,
+      <HeaderStepCarousel
+        currentStepTitle="Reading"
+        currentStepInfo="foo.ts"
+      />,
     );
 
     expect(getByText("Reading")).toBeTruthy();
@@ -57,5 +60,33 @@ describe("HeaderStepCarousel — with title", () => {
     // Info stays de-emphasised subtext when a title is present.
     expect(info.className).toContain("content-tertiary");
     expect(info.className).not.toContain("content-emphasised");
+  });
+
+  test("keeps the title a non-shrinking anchor when info is present", () => {
+    const { getByText } = render(
+      <HeaderStepCarousel
+        currentStepTitle="Reading"
+        currentStepInfo="foo.ts"
+      />,
+    );
+
+    const title = getByText("Reading");
+    expect(title.className).toContain("shrink-0");
+    expect(title.className).not.toContain("truncate");
+  });
+
+  test("truncates a title-only label so a long one can't overflow the row", () => {
+    const longCommand =
+      "cd /Users/me/.local/share/vellum-local/assistants/vellum-faint-asp/workspace &&";
+    const { getByText } = render(
+      <HeaderStepCarousel currentStepTitle={longCommand} currentStepInfo="" />,
+    );
+
+    const title = getByText(longCommand);
+    // Title becomes the truncating primary (bounded, min-w-0) instead of a
+    // shrink-0/nowrap anchor that would push past the trailing controls.
+    expect(title.className).toContain("truncate");
+    expect(title.className).toContain("min-w-0");
+    expect(title.className).not.toContain("shrink-0");
   });
 });

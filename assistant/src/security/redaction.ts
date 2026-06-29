@@ -58,10 +58,23 @@ function isSensitiveKey(key: string): boolean {
 }
 
 /**
+ * Recurse a value of any shape, redacting sensitive fields within. Walks
+ * arrays at every depth (including arrays nested in arrays) so a sensitive
+ * key buried under array nesting can't bypass field-name redaction.
+ */
+function redactValue(val: unknown): unknown {
+  if (Array.isArray(val)) return val.map(redactValue);
+  if (val != null && typeof val === "object") {
+    return redactSensitiveFields(val as Record<string, unknown>);
+  }
+  return val;
+}
+
+/**
  * Recursively redact sensitive fields from an object.
  *
  * - Replaces values of sensitive keys with `<redacted />` regardless of type
- * - Recurses into nested objects and arrays
+ * - Recurses into nested objects and arrays at any depth
  * - Returns a shallow copy — never mutates the original
  */
 export function redactSensitiveFields(
@@ -70,19 +83,10 @@ export function redactSensitiveFields(
   const result: Record<string, unknown> = {};
 
   for (const [key, val] of Object.entries(obj)) {
-    if (isSensitiveKey(key) && val != null) {
-      result[key] = REDACTION_PLACEHOLDER;
-    } else if (Array.isArray(val)) {
-      result[key] = val.map((item) =>
-        item != null && typeof item === "object" && !Array.isArray(item)
-          ? redactSensitiveFields(item as Record<string, unknown>)
-          : item,
-      );
-    } else if (val != null && typeof val === "object") {
-      result[key] = redactSensitiveFields(val as Record<string, unknown>);
-    } else {
-      result[key] = val;
-    }
+    result[key] =
+      isSensitiveKey(key) && val != null
+        ? REDACTION_PLACEHOLDER
+        : redactValue(val);
   }
 
   return result;

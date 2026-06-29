@@ -161,7 +161,7 @@ describe("scheduler conversation reuse", () => {
 
     // GIVEN a recurring schedule with reuseConversation enabled
     const rruleExpr = buildEveryMinuteRrule();
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Reuse Test",
       cronExpression: rruleExpr,
       message: "Reuse conversation message",
@@ -221,7 +221,7 @@ describe("scheduler conversation reuse", () => {
 
     // GIVEN a recurring schedule with no explicit reuseConversation
     const rruleExpr = buildEveryMinuteRrule();
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Default Reuse Test",
       cronExpression: rruleExpr,
       message: "Default reuse message",
@@ -265,7 +265,7 @@ describe("scheduler conversation reuse", () => {
 
     // GIVEN a recurring schedule with reuseConversation explicitly disabled
     const rruleExpr = buildEveryMinuteRrule();
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "No Reuse Test",
       cronExpression: rruleExpr,
       message: "New conv each run",
@@ -309,7 +309,7 @@ describe("scheduler conversation reuse", () => {
 
     // GIVEN a recurring schedule with reuseConversation enabled that has already run once
     const rruleExpr = buildEveryMinuteRrule();
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Deleted Conv Test",
       cronExpression: rruleExpr,
       message: "Handle deleted conv",
@@ -354,7 +354,7 @@ describe("scheduler conversation reuse", () => {
      */
 
     // GIVEN a one-shot schedule with reuseConversation enabled
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "One-shot Reuse Ignored",
       message: "One-shot with reuse flag",
       mode: "execute",
@@ -390,7 +390,7 @@ describe("scheduler conversation reuse", () => {
 
     // GIVEN a recurring schedule with reuseConversation enabled
     const rruleExpr = buildEveryMinuteRrule();
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Most Recent Success Test",
       cronExpression: rruleExpr,
       message: "Pick latest success",
@@ -460,7 +460,7 @@ describe("scheduler talk-mode runner option propagation", () => {
 
   test("talk-mode propagates conversationType=scheduled, scheduleJobId, and quiet=>suppressFailureNotifications", async () => {
     const rruleExpr = buildEveryMinuteRrule();
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Quiet Talk Mode",
       cronExpression: rruleExpr,
       message: "Background work",
@@ -485,7 +485,7 @@ describe("scheduler talk-mode runner option propagation", () => {
 
   test("talk-mode without quiet leaves suppressFailureNotifications=false", async () => {
     const rruleExpr = buildEveryMinuteRrule();
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Loud Talk Mode",
       cronExpression: rruleExpr,
       message: "Background work",
@@ -514,7 +514,7 @@ describe("scheduler talk-mode runner option propagation", () => {
      * Guard ensures we substitute a recognizable sentinel.
      */
     const rruleExpr = buildEveryMinuteRrule();
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Bootstrap Failure",
       cronExpression: rruleExpr,
       message: "x",
@@ -540,7 +540,7 @@ describe("scheduler talk-mode runner option propagation", () => {
 
   test("talk-mode fires onScheduleConversationCreated synchronously via runner callback (BEFORE the runner returns)", async () => {
     const rruleExpr = buildEveryMinuteRrule();
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "SSE timing",
       cronExpression: rruleExpr,
       message: "x",

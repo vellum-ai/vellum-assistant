@@ -1,14 +1,13 @@
 /**
- * Lightweight autocomplete fields for the research-onboarding form.
+ * Lightweight autocomplete field for the research-onboarding form.
  *
  * SPIKE — research-onboarding flow.
  *
- * The design library has no combobox primitive, so these are purpose-built on
- * top of plain inputs styled to match the design-library `Input` (same
- * `--field-bg` / `--field-border` / focus tokens). Both accept free text — the
+ * The design library has no combobox primitive, so this is purpose-built on
+ * top of a plain input styled to match the design-library `Input` (same
+ * `--field-bg` / `--field-border` / focus tokens). It accepts free text — the
  * suggestion dropdown only exists to make the common cases a single keystroke.
  *
- *   - `AutocompleteInput`   single free-text value + suggestion dropdown (Role)
  *   - `TagAutocompleteInput` multi-select chips + suggestion dropdown (Hobbies)
  *
  * Keyboard: ↑/↓ move the highlight, Enter commits the highlighted suggestion
@@ -153,115 +152,6 @@ function useDismiss(
     document.addEventListener("mousedown", onPointerDown);
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, [ref, close]);
-}
-
-// ---------------------------------------------------------------------------
-// Single-value autocomplete (Role)
-// ---------------------------------------------------------------------------
-
-export interface AutocompleteInputProps {
-  label: string;
-  placeholder?: string;
-  value: string;
-  onChange: (value: string) => void;
-  suggestions: readonly string[];
-  autoFocus?: boolean;
-  required?: boolean;
-}
-
-export function AutocompleteInput({
-  label,
-  placeholder,
-  value,
-  onChange,
-  suggestions,
-  autoFocus,
-  required,
-}: AutocompleteInputProps) {
-  const reactId = useId();
-  const inputId = `ac-${reactId}`;
-  const listId = `ac-list-${reactId}`;
-  const wrapperRef = useRef<HTMLDivElement>(null);
-
-  const [open, setOpen] = useState(false);
-  const [highlighted, setHighlighted] = useState(-1);
-
-  const items = useMemo(
-    () => filterSuggestions(suggestions, value),
-    [suggestions, value],
-  );
-
-  useDismiss(wrapperRef, () => setOpen(false));
-
-  // Keep the highlight in range as the filtered list changes.
-  useEffect(() => {
-    setHighlighted((h) => (h >= items.length ? items.length - 1 : h));
-  }, [items.length]);
-
-  const showList = open && items.length > 0;
-
-  function pick(next: string) {
-    onChange(next);
-    setOpen(false);
-    setHighlighted(-1);
-  }
-
-  function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setOpen(true);
-      setHighlighted((h) => Math.min(h + 1, items.length - 1));
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setHighlighted((h) => Math.max(h - 1, 0));
-    } else if (e.key === "Enter" && showList && highlighted >= 0) {
-      e.preventDefault();
-      pick(items[highlighted]!);
-    } else if (e.key === "Escape") {
-      setOpen(false);
-    }
-  }
-
-  return (
-    <div ref={wrapperRef} className="relative flex flex-col gap-1.5">
-      <FieldLabel htmlFor={inputId} required={required}>
-        {label}
-      </FieldLabel>
-      <div className={cn(FIELD_BOX, "h-9")}>
-        <input
-          id={inputId}
-          role="combobox"
-          aria-required={required}
-          aria-expanded={showList}
-          aria-controls={listId}
-          aria-autocomplete="list"
-          aria-activedescendant={
-            highlighted >= 0 ? `${listId}-opt-${highlighted}` : undefined
-          }
-          autoComplete="off"
-          autoFocus={autoFocus}
-          className={BARE_INPUT}
-          placeholder={placeholder}
-          value={value}
-          onChange={(e) => {
-            onChange(e.target.value);
-            setOpen(true);
-          }}
-          onFocus={() => setOpen(true)}
-          onKeyDown={handleKeyDown}
-        />
-      </div>
-      {showList && (
-        <SuggestionList
-          id={listId}
-          items={items}
-          highlighted={highlighted}
-          onPick={pick}
-          onHover={setHighlighted}
-        />
-      )}
-    </div>
-  );
 }
 
 // ---------------------------------------------------------------------------

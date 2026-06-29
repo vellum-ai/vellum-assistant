@@ -29,6 +29,7 @@ import type {
     ContactPayload,
     ContactSelection,
 } from "@/domains/contacts/types";
+import { SETUP_CHANNEL_IDS } from "@/domains/contacts/types";
 import {
     channelsAvailableGetOptions,
     channelsReadinessGetOptions,
@@ -755,13 +756,12 @@ function ContactsEmptyState() {
 function deriveChannelStates(
   snapshots: ChannelReadinessSnapshot[],
 ): AssistantChannelState[] {
-  const byChannel = new Map<string, ChannelReadinessSnapshot>();
+  const byChannel = new Map<ChannelReadinessSnapshot["channel"], ChannelReadinessSnapshot>();
   for (const snap of snapshots) {
     byChannel.set(snap.channel, snap);
   }
 
-  const order: AssistantChannelState["key"][] = ["slack", "telegram", "phone"];
-  return order.map((key) => {
+  return SETUP_CHANNEL_IDS.map((key) => {
     const snap = byChannel.get(key);
     const status = toChannelStatus(snap);
     return {

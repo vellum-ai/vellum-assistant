@@ -188,7 +188,7 @@ describe("background wake intent publisher hooks", () => {
   });
 
   test("schedule create, update, and delete mutations refresh the wake intent", async () => {
-    const job = createSchedule({
+    const job = await createSchedule({
       name: "Wake hook",
       cronExpression: "* * * * *",
       message: "wake",
@@ -197,11 +197,11 @@ describe("background wake intent publisher hooks", () => {
     await flushQueuedWakeRefresh();
     expect(mockPublishBackgroundWakeIntent).toHaveBeenCalledTimes(1);
 
-    updateSchedule(job.id, { name: "Wake hook updated" });
+    await updateSchedule(job.id, { name: "Wake hook updated" });
     await flushQueuedWakeRefresh();
     expect(mockPublishBackgroundWakeIntent).toHaveBeenCalledTimes(2);
 
-    expect(deleteSchedule(job.id)).toBe(true);
+    expect(await deleteSchedule(job.id)).toBe(true);
     await flushQueuedWakeRefresh();
     expect(mockPublishBackgroundWakeIntent).toHaveBeenCalledTimes(3);
   });

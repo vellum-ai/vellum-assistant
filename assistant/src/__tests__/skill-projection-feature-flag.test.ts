@@ -230,6 +230,7 @@ mock.module("../skills/catalog-cache.js", () => ({
 }));
 mock.module("../skills/install-meta.js", () => ({
   readInstallMeta: () => null,
+  touchSkillLastUsed: () => false,
 }));
 mock.module("../telemetry/skill-loaded-events-store.js", () => ({
   recordSkillLoadedEvent: () => {},

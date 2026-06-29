@@ -43,7 +43,7 @@ export function OnboardingTopBar({
         type="button"
         onClick={onBack}
         aria-label="Back"
-        className="flex h-8 w-8 items-center justify-center rounded-md transition-colors duration-150"
+        className="flex cursor-pointer h-8 w-8 items-center justify-center rounded-md transition-colors duration-150"
         style={{ color: fg }}
         onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = hoverBg)}
         onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
@@ -56,7 +56,7 @@ export function OnboardingTopBar({
           type="button"
           onClick={onNext}
           aria-label="Forward"
-          className="flex h-8 w-8 items-center justify-center rounded-md transition-colors duration-150"
+          className="flex cursor-pointer h-8 w-8 items-center justify-center rounded-md transition-colors duration-150"
           style={{ color: fg }}
           onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = hoverBg)}
           onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}

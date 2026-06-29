@@ -390,6 +390,7 @@ export class Conversation {
   /** @internal */ currentTurnOverrideProfile?: string;
   /** @internal */ currentTurnIsNonInteractive?: boolean;
   /** @internal */ currentTurnModelProfileNoticeKey?: string;
+  /** @internal */ currentTurnRequestOrigin?: string;
   /** @internal */ authContext?: AuthContext;
   /** @internal */ currentTurnAuthContext?: AuthContext;
   /** @internal */ currentTurnSourceActorPrincipalId?: string;
