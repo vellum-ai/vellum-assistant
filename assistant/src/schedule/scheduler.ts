@@ -92,13 +92,13 @@ const WAKE_MAX_RETRIES = 20;
  * fires an `activity.failed` notification so the user sees that a job
  * permanently failed rather than just silently disappearing.
  */
-function handleExecutionFailure(params: {
+async function handleExecutionFailure(params: {
   job: ScheduleJob;
   errorMsg: string;
   isOneShot: boolean;
-}): void {
+}): Promise<void> {
   const decision = decideRetry(params.job);
-  applyRetryDecision({
+  await applyRetryDecision({
     job: params.job,
     isOneShot: params.isOneShot,
     errorMsg: params.errorMsg,
@@ -256,7 +256,7 @@ export async function runScheduleDueWorkOnce(
   }
 
   // ── Schedules (recurring cron/RRULE + one-shot) ─────────────────────
-  const jobs = claimDueSchedules(now);
+  const jobs = await claimDueSchedules(now);
   result.claimed = jobs.length;
   for (const job of jobs) {
     const isOneShot = job.expression == null;
@@ -277,14 +277,17 @@ export async function runScheduleDueWorkOnce(
           routingHints: job.routingHints,
         });
         if (isOneShot) {
-          const successRunId = createScheduleRun(job.id, `notify-ok:${job.id}`);
-          completeScheduleRun(successRunId, { status: "ok" });
-          completeOneShot(job.id);
+          const successRunId = await createScheduleRun(
+            job.id,
+            `notify-ok:${job.id}`,
+          );
+          await completeScheduleRun(successRunId, { status: "ok" });
+          await completeOneShot(job.id);
         } else {
           // Track recurring notify-mode success so lastStatus resets to ok
           // and retryCount clears after a transient failure.
-          const runId = createScheduleRun(job.id, `notify-ok:${job.id}`);
-          completeScheduleRun(runId, { status: "ok" });
+          const runId = await createScheduleRun(job.id, `notify-ok:${job.id}`);
+          await completeScheduleRun(runId, { status: "ok" });
         }
       } catch (err) {
         log.warn(
@@ -292,9 +295,15 @@ export async function runScheduleDueWorkOnce(
           "Schedule notification failed",
         );
         const errorMsg = err instanceof Error ? err.message : String(err);
-        const errorRunId = createScheduleRun(job.id, `notify-error:${job.id}`);
-        completeScheduleRun(errorRunId, { status: "error", error: errorMsg });
-        handleExecutionFailure({ job, errorMsg, isOneShot });
+        const errorRunId = await createScheduleRun(
+          job.id,
+          `notify-error:${job.id}`,
+        );
+        await completeScheduleRun(errorRunId, {
+          status: "error",
+          error: errorMsg,
+        });
+        await handleExecutionFailure({ job, errorMsg, isOneShot });
         failed = true;
       }
       mark(failed ? "failed" : "completed");
@@ -311,7 +320,7 @@ export async function runScheduleDueWorkOnce(
         mark("skipped");
         continue;
       }
-      const runId = createScheduleRun(job.id, `script:${job.id}`);
+      const runId = await createScheduleRun(job.id, `script:${job.id}`);
       let failed = false;
       try {
         log.info(
@@ -322,17 +331,17 @@ export async function runScheduleDueWorkOnce(
           timeoutMs: job.timeoutMs ?? undefined,
           scheduleRunId: runId,
         });
-        completeScheduleRun(runId, {
+        await completeScheduleRun(runId, {
           status: result.exitCode === 0 ? "ok" : "error",
           output: result.stdout || undefined,
           error: result.stderr || undefined,
         });
         if (result.exitCode === 0) {
-          if (isOneShot) completeOneShot(job.id);
+          if (isOneShot) await completeOneShot(job.id);
         } else {
           const errorMsg =
             result.stderr || "Script exited with non-zero status";
-          handleExecutionFailure({ job, errorMsg, isOneShot });
+          await handleExecutionFailure({ job, errorMsg, isOneShot });
           failed = true;
         }
       } catch (err) {
@@ -341,8 +350,8 @@ export async function runScheduleDueWorkOnce(
           { err, jobId: job.id, name: job.name, isOneShot },
           "Script schedule execution failed",
         );
-        completeScheduleRun(runId, { status: "error", error: errorMsg });
-        handleExecutionFailure({ job, errorMsg, isOneShot });
+        await completeScheduleRun(runId, { status: "error", error: errorMsg });
+        await handleExecutionFailure({ job, errorMsg, isOneShot });
         failed = true;
       }
       mark(failed ? "failed" : "completed");
@@ -357,7 +366,7 @@ export async function runScheduleDueWorkOnce(
           { jobId: job.id, name: job.name },
           "Wake schedule missing wakeConversationId — completing as no-op",
         );
-        if (isOneShot) completeOneShot(job.id);
+        if (isOneShot) await completeOneShot(job.id);
         mark("skipped");
         continue;
       }
@@ -391,7 +400,7 @@ export async function runScheduleDueWorkOnce(
               },
               "Wake timed out and exceeded max retries — permanently failing",
             );
-            failOneShotPermanently(job.id);
+            await failOneShotPermanently(job.id);
           } else {
             log.warn(
               {
@@ -402,7 +411,7 @@ export async function runScheduleDueWorkOnce(
               },
               "Wake timed out waiting for idle conversation — will retry on next tick",
             );
-            retryOneShot(job.id);
+            await retryOneShot(job.id);
           }
           mark("skipped");
           continue;
@@ -421,15 +430,18 @@ export async function runScheduleDueWorkOnce(
             },
             "Wake not invoked; skipping feed event",
           );
-          if (isOneShot) completeOneShot(job.id);
+          if (isOneShot) await completeOneShot(job.id);
           mark("skipped");
           continue;
         }
 
         if (isOneShot) {
-          const successRunId = createScheduleRun(job.id, `wake-ok:${job.id}`);
-          completeScheduleRun(successRunId, { status: "ok" });
-          completeOneShot(job.id);
+          const successRunId = await createScheduleRun(
+            job.id,
+            `wake-ok:${job.id}`,
+          );
+          await completeScheduleRun(successRunId, { status: "ok" });
+          await completeOneShot(job.id);
         }
       } catch (err) {
         log.warn(
@@ -437,15 +449,15 @@ export async function runScheduleDueWorkOnce(
           "Wake schedule execution failed",
         );
         const errorMsg = err instanceof Error ? err.message : String(err);
-        const wakeErrorRunId = createScheduleRun(
+        const wakeErrorRunId = await createScheduleRun(
           job.id,
           `wake-error:${job.id}`,
         );
-        completeScheduleRun(wakeErrorRunId, {
+        await completeScheduleRun(wakeErrorRunId, {
           status: "error",
           error: errorMsg,
         });
-        handleExecutionFailure({ job, errorMsg, isOneShot });
+        await handleExecutionFailure({ job, errorMsg, isOneShot });
         failed = true;
       }
       mark(failed ? "failed" : "completed");
@@ -474,11 +486,11 @@ export async function runScheduleDueWorkOnce(
           { jobId: job.id, name: job.name, workflowName: job.workflowName },
           "Deferring workflow schedule until tools are registered",
         );
-        deferClaimedSchedule(job.id);
+        await deferClaimedSchedule(job.id);
         mark("skipped");
         continue;
       }
-      const runId = createScheduleRun(job.id, `workflow:${job.id}`);
+      const runId = await createScheduleRun(job.id, `workflow:${job.id}`);
       let failed = false;
       try {
         log.info(
@@ -512,19 +524,19 @@ export async function runScheduleDueWorkOnce(
         // `start` launches the run fire-and-forget and returns synchronously;
         // a successful trigger is recorded as ok. Workflow completion/failure
         // is surfaced out-of-band via workflow events and the completion wake.
-        completeScheduleRun(runId, {
+        await completeScheduleRun(runId, {
           status: "ok",
           output: `workflow run ${workflowRunId} started`,
         });
-        if (isOneShot) completeOneShot(job.id);
+        if (isOneShot) await completeOneShot(job.id);
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err);
         log.warn(
           { err, jobId: job.id, name: job.name, isOneShot },
           "Workflow schedule trigger failed",
         );
-        completeScheduleRun(runId, { status: "error", error: errorMsg });
-        handleExecutionFailure({ job, errorMsg, isOneShot });
+        await completeScheduleRun(runId, { status: "error", error: errorMsg });
+        await handleExecutionFailure({ job, errorMsg, isOneShot });
         failed = true;
       }
       mark(failed ? "failed" : "completed");
@@ -541,7 +553,7 @@ export async function runScheduleDueWorkOnce(
         job.syntax === "rrule" &&
         job.expression != null &&
         hasSetConstructs(job.expression);
-      const runId = createScheduleRun(job.id, null);
+      const runId = await createScheduleRun(job.id, null);
       let failed = false;
       try {
         log.info(
@@ -576,7 +588,7 @@ export async function runScheduleDueWorkOnce(
           },
         );
 
-        setScheduleRunConversationId(runId, result.conversationId);
+        await setScheduleRunConversationId(runId, result.conversationId);
         onScheduleConversationCreated?.({
           conversationId: result.conversationId,
           scheduleJobId: job.id,
@@ -585,7 +597,7 @@ export async function runScheduleDueWorkOnce(
 
         if (result.status === "failed") {
           const errorMessage = result.error ?? "Task run failed";
-          completeScheduleRun(runId, {
+          await completeScheduleRun(runId, {
             status: "error",
             error: errorMessage,
           });
@@ -594,15 +606,15 @@ export async function runScheduleDueWorkOnce(
             conversationId: result.conversationId,
             errorMessage,
           });
-          handleExecutionFailure({
+          await handleExecutionFailure({
             job,
             errorMsg: errorMessage,
             isOneShot,
           });
           failed = true;
         } else {
-          completeScheduleRun(runId, { status: "ok" });
-          if (isOneShot) completeOneShot(job.id);
+          await completeScheduleRun(runId, { status: "ok" });
+          if (isOneShot) await completeOneShot(job.id);
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -620,7 +632,7 @@ export async function runScheduleDueWorkOnce(
           "Scheduled task execution failed",
         );
         // Create a fallback conversation for the schedule run record
-        const fallbackConversation = bootstrapConversation({
+        const fallbackConversation = await bootstrapConversation({
           conversationType: "scheduled",
           source: "schedule",
           scheduleJobId: job.id,
@@ -633,14 +645,14 @@ export async function runScheduleDueWorkOnce(
           scheduleJobId: job.id,
           title: `${job.name}: Error`,
         });
-        setScheduleRunConversationId(runId, fallbackConversation.id);
-        completeScheduleRun(runId, { status: "error", error: message });
+        await setScheduleRunConversationId(runId, fallbackConversation.id);
+        await completeScheduleRun(runId, { status: "error", error: message });
         emitTaskActivityFailed({
           taskId,
           conversationId: fallbackConversation.id,
           errorMessage: message,
         });
-        handleExecutionFailure({
+        await handleExecutionFailure({
           job,
           errorMsg: message,
           isOneShot,
@@ -688,7 +700,7 @@ export async function runScheduleDueWorkOnce(
     let errorMsg: string | undefined;
     const conversationReused = reusedConversationId != null;
     let runConversationId = reusedConversationId;
-    const runId = createScheduleRun(job.id, reusedConversationId);
+    const runId = await createScheduleRun(job.id, reusedConversationId);
 
     if (reusedConversationId) {
       // Reuse path: keep using the injected `processMessage` callback so the
@@ -741,9 +753,9 @@ export async function runScheduleDueWorkOnce(
         conversationType: "scheduled",
         scheduleJobId: job.id,
         suppressFailureNotifications: job.quiet === true,
-        onConversationCreated: (newConversationId) => {
+        onConversationCreated: async (newConversationId) => {
           runConversationId = newConversationId;
-          setScheduleRunConversationId(runId, newConversationId);
+          await setScheduleRunConversationId(runId, newConversationId);
           onScheduleConversationCreated?.({
             conversationId: newConversationId,
             scheduleJobId: job.id,
@@ -762,15 +774,15 @@ export async function runScheduleDueWorkOnce(
           : result.conversationId;
       if (runConversationId !== conversationId) {
         runConversationId = conversationId;
-        setScheduleRunConversationId(runId, conversationId);
+        await setScheduleRunConversationId(runId, conversationId);
       }
       ok = result.ok;
       errorMsg = result.error?.message;
     }
 
     if (ok) {
-      completeScheduleRun(runId, { status: "ok" });
-      if (isOneShot) completeOneShot(job.id);
+      await completeScheduleRun(runId, { status: "ok" });
+      if (isOneShot) await completeOneShot(job.id);
       mark("completed");
     } else {
       log.warn(
@@ -787,8 +799,8 @@ export async function runScheduleDueWorkOnce(
           ? "One-shot schedule execution failed"
           : "Schedule execution failed",
       );
-      completeScheduleRun(runId, { status: "error", error: errorMsg });
-      handleExecutionFailure({
+      await completeScheduleRun(runId, { status: "error", error: errorMsg });
+      await handleExecutionFailure({
         job,
         errorMsg: errorMsg ?? "Schedule run failed",
         isOneShot,

@@ -164,6 +164,24 @@ export function applyAcpEvent(
         };
         return;
       }
+      // Some agents stream a message as id-less deltas, then re-send the whole
+      // message as one chunk that finally carries a messageId. Adopt the id
+      // onto the streamed step rather than opening a duplicate of it.
+      if (
+        messageId !== ANONYMOUS_MESSAGE_ID &&
+        last &&
+        last.kind === "message" &&
+        last.messageId === ANONYMOUS_MESSAGE_ID &&
+        !last.isComplete &&
+        last.content === (event.content ?? "")
+      ) {
+        steps[steps.length - 1] = {
+          ...last,
+          messageId,
+          detailKey: `msg:${messageId}`,
+        };
+        return;
+      }
       closeTrailingMessage(steps);
       steps.push({
         kind: "message",

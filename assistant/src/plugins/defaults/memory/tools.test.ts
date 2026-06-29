@@ -11,13 +11,13 @@ import {
   test,
 } from "bun:test";
 
-import { PKB_WORKSPACE_SCOPE } from "../../memory/pkb/types.js";
-import type { ToolContext } from "../types.js";
+import { PKB_WORKSPACE_SCOPE } from "../../../memory/pkb/types.js";
+import type { ToolContext } from "../../../tools/types.js";
 
 // This test exercises v1 PKB re-index enqueue. `config.memory.v2.enabled`
 // (default `true`) makes the enqueue path skipped — force it off so the
 // v1 PKB index path stays under test.
-mock.module("../../config/loader.js", () => ({
+mock.module("../../../config/loader.js", () => ({
   getConfig: () => ({ memory: { v2: { enabled: false } } }),
   loadConfig: () => ({ memory: { v2: { enabled: false } } }),
 }));
@@ -41,7 +41,7 @@ const recallCalls: Array<{
 }> = [];
 let recallContent = "agentic recall answer";
 
-mock.module("../../memory/jobs/embed-pkb-file.js", () => ({
+mock.module("../../../memory/jobs/embed-pkb-file.js", () => ({
   enqueuePkbIndexJob: (input: {
     pkbRoot: string;
     absPath: string;
@@ -55,7 +55,7 @@ mock.module("../../memory/jobs/embed-pkb-file.js", () => ({
   },
 }));
 
-mock.module("../../memory/context-search/agent-runner.js", () => ({
+mock.module("../../../memory/context-search/agent-runner.js", () => ({
   runAgenticRecall: async (
     input: Record<string, unknown>,
     context: Record<string, unknown>,
@@ -86,8 +86,8 @@ afterAll(() => {
 });
 
 // Import after the env var is set so getWorkspaceDir() resolves to the tmpdir.
-const { recallTool, rememberTool } = await import("./register.js");
-const { getConfig } = await import("../../config/loader.js");
+const { recallTool, rememberTool } = await import("./tools.js");
+const { getConfig } = await import("../../../config/loader.js");
 
 function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {

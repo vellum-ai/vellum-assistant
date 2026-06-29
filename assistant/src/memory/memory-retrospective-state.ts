@@ -24,7 +24,7 @@ import { eq } from "drizzle-orm";
 
 import { type DrizzleDb, getDb } from "../persistence/db-connection.js";
 import { memoryRetrospectiveState } from "../persistence/schema/index.js";
-import { withSqliteRetrySync } from "../util/sqlite-retry.js";
+import { withSqliteRetry } from "../util/sqlite-retry.js";
 
 export interface MemoryRetrospectiveState {
   conversationId: string;
@@ -113,17 +113,17 @@ export function getRetrospectiveState(
  * against. When omitted, the stored log is left untouched (and seeded NULL on
  * first insert).
  */
-export function upsertRetrospectiveState(
+export async function upsertRetrospectiveState(
   args: Omit<MemoryRetrospectiveState, "rememberedLog"> & {
     rememberedLog?: string[];
   },
-): void {
+): Promise<void> {
   const db = getDb();
   const serializedLog =
     args.rememberedLog === undefined
       ? undefined
       : serializeRememberedLog(args.rememberedLog);
-  withSqliteRetrySync(
+  await withSqliteRetry(
     () =>
       db
         .insert(memoryRetrospectiveState)
@@ -235,12 +235,12 @@ export function forkRetrospectiveState(args: {
  * `getMessagesSince(...)` queries treat the same as a missing row. An
  * existing row's `rememberedLog` is left untouched.
  */
-export function bumpRetrospectiveLastRunAt(
+export async function bumpRetrospectiveLastRunAt(
   conversationId: string,
   lastRunAt: number,
-): void {
+): Promise<void> {
   const db = getDb();
-  withSqliteRetrySync(
+  await withSqliteRetry(
     () =>
       db
         .insert(memoryRetrospectiveState)

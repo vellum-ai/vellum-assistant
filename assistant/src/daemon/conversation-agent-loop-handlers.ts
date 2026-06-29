@@ -99,6 +99,7 @@ import type {
   WebSearchMetadata,
   WebSearchResultItem,
 } from "./message-types/web-activity.js";
+import type { TurnLatencyTracker } from "./turn-latency-tracker.js";
 
 const log = getLogger("agent-loop-handlers");
 
@@ -310,6 +311,12 @@ export interface EventHandlerState {
    * consumed (deleted) when the end event dispatches.
    */
   readonly compactionStartMessages: Map<string, Message[]>;
+  /**
+   * Cursor into the turn's latency-mark list marking how far prior calls have
+   * already been serialized, so each `usage` event emits only its own call's
+   * latency segment. Advances on every `handleUsage`.
+   */
+  latencyCursor: number;
 }
 
 /** Immutable context shared across event handlers within a single agent loop run. */
@@ -335,6 +342,15 @@ export interface EventHandlerDeps {
     result: ContextWindowResult,
     messages: Message[],
   ) => Promise<void>;
+  /**
+   * Per-turn first-token latency instrumentation. The orchestrator stamps the
+   * turn-level marks; the agent loop stamps the per-call marks. `handleUsage`
+   * serializes the breakdown for each call and persists it on the request log.
+   * Optional: a pure observability hook that the production orchestrator always
+   * supplies, but test fixtures and any future caller may omit — `handleUsage`
+   * degrades gracefully when it's absent.
+   */
+  readonly latencyTracker?: TurnLatencyTracker;
 }
 
 // ── Factory ──────────────────────────────────────────────────────────
@@ -388,6 +404,7 @@ export function createEventHandlerState(): EventHandlerState {
     currentThinkingTimestamps: [],
     lastPersistedContentSeq: undefined,
     compactionStartMessages: new Map(),
+    latencyCursor: 0,
   };
 }
 
@@ -2119,6 +2136,27 @@ function handleUsage(
     state.exchangeRawResponses.push(event.rawResponse);
   }
 
+  // Serialize this call's first-token latency segment and advance the cursor
+  // so the next call in the turn serializes only its own marks. Non-fatal: a
+  // tracking hiccup must never escalate into a turn-level throw.
+  let latencyBreakdownJson: string | undefined;
+  let ttftMs: number | undefined;
+  try {
+    const segment = deps.latencyTracker?.serializeSince(state.latencyCursor);
+    if (segment) {
+      state.latencyCursor = segment.cursor;
+      if (segment.breakdown) {
+        latencyBreakdownJson = JSON.stringify(segment.breakdown);
+        ttftMs = segment.breakdown.ttftMs ?? undefined;
+      }
+    }
+  } catch (err) {
+    deps.rlog.warn(
+      { err },
+      "Failed to serialize latency breakdown (non-fatal)",
+    );
+  }
+
   if (event.rawRequest && event.rawResponse) {
     try {
       recordRequestLog(
@@ -2128,6 +2166,7 @@ function handleUsage(
         undefined,
         providerName,
         "mainAgent",
+        latencyBreakdownJson,
       );
     } catch (err) {
       deps.rlog.warn({ err }, "Failed to persist LLM request log (non-fatal)");
@@ -2150,6 +2189,10 @@ function handleUsage(
         inputTokens: event.inputTokens,
         outputTokens: event.outputTokens,
         latencyMs: event.providerDurationMs,
+        // Time-to-first-token for this call (network + provider queue + first
+        // token), so the Logs-tab trace timeline reflects TTFT alongside the
+        // whole-call latency. Omitted when no token streamed (pure tool call).
+        ...(ttftMs != null ? { ttftMs } : {}),
       },
     },
   );
