@@ -28,8 +28,8 @@ import {
   buildForkCopyScript,
   copyForkMessagesViaSubprocess,
   type ForkIdPair,
-} from "../fork-message-copy.js";
-import { messages as messagesTable } from "../schema.js";
+} from "../../persistence/fork-message-copy.js";
+import { messages as messagesTable } from "../../persistence/schema/index.js";
 
 await initializeDb();
 

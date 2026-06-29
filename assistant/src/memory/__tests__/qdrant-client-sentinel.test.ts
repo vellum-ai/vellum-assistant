@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { stripLegacySparseSuffix } from "../qdrant-client.js";
+import { stripLegacySparseSuffix } from "../../persistence/embeddings/qdrant-client.js";
 
 describe("stripLegacySparseSuffix", () => {
   test("strips a trailing :sparse-v<digit> suffix", () => {

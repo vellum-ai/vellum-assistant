@@ -18,19 +18,9 @@ import { getConfig } from "../config/loader.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import { getCalibrationProviderKey } from "../context/token-estimator.js";
-import {
-  recordCompactionEndBestEffort,
-  recordCompactionStartBestEffort,
-} from "../memory/compaction-log-store-clickhouse.js";
 import { projectAssistantMessage } from "../memory/conversation-attention-store.js";
 import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
 import { indexMessageNow } from "../memory/indexer.js";
-import {
-  backfillMessageIdOnLogs,
-  buildProviderErrorResponsePayload,
-  recordRequestLog,
-  setAgentLoopExitReasonOnLatestLog,
-} from "../memory/llm-request-log-store.js";
 import { backfillMemoryRecallLogMessageId } from "../memory/memory-recall-log-store.js";
 import { backfillMemoryV2ActivationMessageId } from "../memory/memory-v2-activation-log-store.js";
 import { getThreadTs } from "../memory/slack-thread-store.js";
@@ -39,6 +29,10 @@ import {
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
+import {
+  recordCompactionEndBestEffort,
+  recordCompactionStartBestEffort,
+} from "../persistence/compaction-log-store-clickhouse.js";
 import {
   deleteMessageById,
   getConversation,
@@ -51,6 +45,12 @@ import {
   setLastNotifiedInferenceProfile,
   updateMessageContent,
 } from "../persistence/conversation-crud.js";
+import {
+  backfillMessageIdOnLogs,
+  buildProviderErrorResponsePayload,
+  recordRequestLog,
+  setAgentLoopExitReasonOnLatestLog,
+} from "../persistence/llm-request-log-store.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import { backfillMemoryV3SelectionMessageId } from "../plugins/defaults/memory-v3-shadow/shadow-plugin.js";
 import type {

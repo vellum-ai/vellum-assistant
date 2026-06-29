@@ -65,7 +65,7 @@ mock.module("../memory/conversation-key-store.js", () => ({
   getConversationByKey: () => null,
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
 }));
 

@@ -134,7 +134,6 @@ import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { getPkbRoot } from "../memory/pkb/types.js";
-import { conversations, messages } from "../memory/schema.js";
 import {
   type SlackMessageMetadata,
   writeSlackMetadata,
@@ -143,6 +142,7 @@ import { parentAlias } from "../messaging/providers/slack/render-transcript.js";
 import type { MessageRow } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { conversations, messages } from "../persistence/schema/index.js";
 import postCompact from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import {
   buildUnifiedTurnContextBlock,

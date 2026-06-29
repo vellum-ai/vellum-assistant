@@ -24,11 +24,11 @@ import {
   getOrCreateConversation,
   setConversationKeyIfAbsent,
 } from "./memory/conversation-key-store.js";
-import { listConversations } from "./memory/conversation-queries.js";
 import {
   getConversation,
   getMessages,
 } from "./persistence/conversation-crud.js";
+import { listConversations } from "./persistence/conversation-queries.js";
 import {
   type EventStreamWatcher,
   watchEventStream,

@@ -14,7 +14,7 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-mock.module("../memory/jobs-store.js", () => ({
+mock.module("../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: () => {},
 }));
 

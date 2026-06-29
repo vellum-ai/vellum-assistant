@@ -20,13 +20,13 @@ mock.module("../../config/loader.js", () => ({
 
 import { getDb } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
+import { memoryV2ActivationLogs } from "../../persistence/schema/index.js";
 import {
   backfillMemoryV2ActivationMessageId,
   getMemoryV2ActivationLogByMessageIds,
   type MemoryV2ConceptRowRecord,
   recordMemoryV2ActivationLog,
 } from "../memory-v2-activation-log-store.js";
-import { memoryV2ActivationLogs } from "../schema.js";
 import {
   sampleConcepts,
   sampleConfig,

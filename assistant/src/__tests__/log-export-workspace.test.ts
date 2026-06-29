@@ -38,13 +38,13 @@ mock.module("../util/secure-keys.js", () => ({
   getSecureKeyAsync: async () => undefined,
 }));
 
+import { getDb, getLogsDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   conversations,
   llmRequestLogs,
   toolInvocations,
-} from "../memory/schema.js";
-import { getDb, getLogsDb } from "../persistence/db-connection.js";
-import { initializeDb } from "../persistence/db-init.js";
+} from "../persistence/schema/index.js";
 import { RouteError } from "../runtime/routes/errors.js";
 import {
   MAX_EXPORT_LLM_REQUEST_LOG_ROWS,

@@ -40,7 +40,9 @@ mock.module("../../../contacts/guardian-delivery-reader.js", () => ({
 
 mock.module("../../../prompts/user-reference.js", () => ({
   resolveGuardianName: (displayName?: string | null) =>
-    displayName && displayName.trim().length > 0 ? displayName.trim() : "my human",
+    displayName && displayName.trim().length > 0
+      ? displayName.trim()
+      : "my human",
 }));
 
 const deliverReplyCalls: Array<{ url: string; payload: unknown }> = [];
@@ -83,12 +85,12 @@ mock.module("../../invite-redemption-templates.js", () => ({
   getInviteRedemptionReply: () => "redeemed reply",
 }));
 
-mock.module("../../../memory/delivery-crud.js", () => ({
+mock.module("../../../persistence/delivery-crud.js", () => ({
   recordInbound: () => ({ duplicate: false, eventId: "evt-1" }),
   deleteInbound: () => {},
 }));
 
-mock.module("../../../memory/delivery-status.js", () => ({
+mock.module("../../../persistence/delivery-status.js", () => ({
   markProcessed: () => {},
 }));
 
@@ -365,7 +367,9 @@ describe("enforceIngressAcl — fail-closed on malformed member verdict", () => 
     const result = await enforceIngressAcl(
       makeParams({
         sourceMetadata: withVerdict(
-          memberVerdict({ status: undefined as unknown as TrustVerdict["status"] }),
+          memberVerdict({
+            status: undefined as unknown as TrustVerdict["status"],
+          }),
         ),
         effectiveAdmissionPolicy: "strangers",
       }),

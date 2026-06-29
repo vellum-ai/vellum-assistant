@@ -26,7 +26,7 @@
 
 import { readFile } from "node:fs/promises";
 
-import type { SparseEmbedding } from "../embedding-types.js";
+import type { SparseEmbedding } from "../../persistence/embeddings/embedding-types.js";
 import {
   SPARSE_VOCAB_SIZE,
   tokenHash,

@@ -41,7 +41,7 @@ mock.module("../config/env.js", () => ({
 mock.module("../memory/conversation-key-store.js", () => ({
   getOrCreateConversation: async () => "conv-1",
 }));
-mock.module("../memory/external-conversation-store.js", () => ({
+mock.module("../persistence/external-conversation-store.js", () => ({
   getExternalConversation: () => undefined,
   setExternalConversation: () => {},
 }));

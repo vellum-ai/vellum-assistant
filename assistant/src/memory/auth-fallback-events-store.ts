@@ -2,8 +2,8 @@ import { and, asc, eq, gt, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../persistence/db-connection.js";
+import { authFallbackEvents } from "../persistence/schema/index.js";
 import { getCachedShareAnalytics } from "../platform/consent-cache.js";
-import { authFallbackEvents } from "./schema.js";
 
 /** A single aggregated auth-fallback count for one (guard, path, failure_kind). */
 export interface AuthFallbackCount {

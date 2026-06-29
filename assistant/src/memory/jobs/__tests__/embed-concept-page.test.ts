@@ -47,7 +47,7 @@ const embedWithBackendCalls: Array<{
   options: unknown;
 }> = [];
 
-mock.module("../../embedding-backend.js", () => ({
+mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
   getMemoryBackendStatus: async () => ({
     enabled: true,
     degraded: false,
@@ -147,15 +147,16 @@ const { getDb, getMemoryDb } =
 const { resetDbForTesting } =
   await import("../../../__tests__/db-test-helpers.js");
 const { initializeDb } = await import("../../../persistence/db-init.js");
-const { memoryEmbeddings, memoryJobs } = await import("../../schema.js");
-const { claimMemoryJobs } = await import("../../jobs-store.js");
-type MemoryJobMod = typeof import("../../jobs-store.js");
+const { memoryEmbeddings, memoryJobs } =
+  await import("../../../persistence/schema/index.js");
+const { claimMemoryJobs } = await import("../../../persistence/jobs-store.js");
+type MemoryJobMod = typeof import("../../../persistence/jobs-store.js");
 type MemoryJob = ReturnType<MemoryJobMod["claimMemoryJobs"]>[number];
 const { embedConceptPageJob, enqueueEmbedConceptPageJob } =
   await import("../embed-concept-page.js");
 const { writePage } = await import("../../v2/page-store.js");
 const { _resetQdrantBreaker, isQdrantBreakerOpen, withQdrantBreaker } =
-  await import("../../qdrant-circuit-breaker.js");
+  await import("../../../persistence/embeddings/qdrant-circuit-breaker.js");
 
 // Use a tiny vectorSize so the cache-dim check matches our stub vector.
 const TEST_CONFIG = {

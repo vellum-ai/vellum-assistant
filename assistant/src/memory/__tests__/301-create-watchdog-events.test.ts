@@ -28,7 +28,7 @@ mock.module("../../persistence/db-connection.js", () => ({
 }));
 
 import { createWatchdogEventsTable } from "../../persistence/migrations/301-create-watchdog-events.js";
-import * as schema from "../schema.js";
+import * as schema from "../../persistence/schema/index.js";
 
 function createTestDb() {
   const sqlite = new Database(":memory:");

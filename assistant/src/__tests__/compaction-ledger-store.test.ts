@@ -12,13 +12,13 @@ import {
   appendCompactionEvent,
   forkCompactionLedger,
   getLatestCompactionEventAtOrBefore,
-} from "../memory/compaction-ledger-store.js";
+} from "../persistence/compaction-ledger-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   conversationCompactionEvents,
   conversations,
-} from "../memory/schema.js";
-import { getDb } from "../persistence/db-connection.js";
-import { initializeDb } from "../persistence/db-init.js";
+} from "../persistence/schema/index.js";
 
 await initializeDb();
 

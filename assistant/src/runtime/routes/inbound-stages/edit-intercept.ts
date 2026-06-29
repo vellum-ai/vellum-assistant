@@ -16,10 +16,6 @@
  */
 import type { ChannelId } from "../../../channels/types.js";
 import {
-  findMessageBySourceId,
-  recordInbound,
-} from "../../../memory/delivery-crud.js";
-import {
   mergeSlackMetadata,
   readSlackMetadata,
 } from "../../../messaging/providers/slack/message-metadata.js";
@@ -28,6 +24,10 @@ import {
   updateMessageContent,
   updateMessageContentAndMetadata,
 } from "../../../persistence/conversation-crud.js";
+import {
+  findMessageBySourceId,
+  recordInbound,
+} from "../../../persistence/delivery-crud.js";
 import { safeParseRecord } from "../../../util/json.js";
 import { getLogger } from "../../../util/logger.js";
 

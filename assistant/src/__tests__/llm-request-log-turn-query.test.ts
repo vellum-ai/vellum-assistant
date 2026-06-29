@@ -21,19 +21,22 @@ mock.module("../config/loader.js", () => ({
 import { sql } from "drizzle-orm";
 
 import {
-  backfillMessageIdOnLogs,
-  getRequestLogsByMessageId,
-  recordRequestLog,
-  relinkLlmRequestLogs,
-} from "../memory/llm-request-log-store.js";
-import { llmRequestLogs, toolInvocations } from "../memory/schema.js";
-import {
   addMessage,
   createConversation,
   forkConversation,
 } from "../persistence/conversation-crud.js";
 import { getDb, getLogsDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import {
+  backfillMessageIdOnLogs,
+  getRequestLogsByMessageId,
+  recordRequestLog,
+  relinkLlmRequestLogs,
+} from "../persistence/llm-request-log-store.js";
+import {
+  llmRequestLogs,
+  toolInvocations,
+} from "../persistence/schema/index.js";
 
 await initializeDb();
 

@@ -11,7 +11,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-mock.module("../memory/qdrant-client.js", () => ({
+mock.module("../persistence/embeddings/qdrant-client.js", () => ({
   getQdrantClient: () => ({
     searchWithFilter: async () => [],
     upsertPoints: async () => {},
@@ -40,7 +40,13 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-import { enqueueMemoryJob } from "../memory/jobs-store.js";
+import {
+  invalidateAssistantInferredItemsForConversation,
+  isConversationFailed,
+} from "../memory/task-memory-cleanup.js";
+import { getDb, getMemoryDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { enqueueMemoryJob } from "../persistence/jobs-store.js";
 import {
   conversations,
   cronJobs,
@@ -50,13 +56,7 @@ import {
   messages,
   taskRuns,
   tasks,
-} from "../memory/schema.js";
-import {
-  invalidateAssistantInferredItemsForConversation,
-  isConversationFailed,
-} from "../memory/task-memory-cleanup.js";
-import { getDb, getMemoryDb } from "../persistence/db-connection.js";
-import { initializeDb } from "../persistence/db-init.js";
+} from "../persistence/schema/index.js";
 
 const DEFAULT_EMOTIONAL_CHARGE =
   '{"valence":0,"intensity":0.1,"decayCurve":"linear","decayRate":0.05,"originalIntensity":0.1}';

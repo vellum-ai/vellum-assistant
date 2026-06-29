@@ -13,7 +13,7 @@ import {
   getAttachmentsForMessage,
   linkAttachmentToMessage,
   uploadAttachment,
-} from "../memory/attachments-store.js";
+} from "../persistence/attachments-store.js";
 import {
   addMessage,
   createConversation,

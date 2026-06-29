@@ -63,9 +63,6 @@ import {
   log,
 } from "../../daemon/handlers/shared.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
-import { clearEmbeddingBackendCache } from "../../memory/embedding-backend.js";
-import { getLlmRequestLogSource } from "../../memory/llm-request-log-source.js";
-import { type LogRow } from "../../memory/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../memory/memory-v2-activation-log-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
@@ -75,6 +72,9 @@ import {
   getMessageById,
 } from "../../persistence/conversation-crud.js";
 import { getDb } from "../../persistence/db-connection.js";
+import { clearEmbeddingBackendCache } from "../../persistence/embeddings/embedding-backend.js";
+import { getLlmRequestLogSource } from "../../persistence/llm-request-log-source.js";
+import { type LogRow } from "../../persistence/llm-request-log-store.js";
 import { getMemoryV3SelectionForInspectorByMessageIds } from "../../plugins/defaults/memory-v3-shadow/selection-log-store.js";
 import {
   createConnection,

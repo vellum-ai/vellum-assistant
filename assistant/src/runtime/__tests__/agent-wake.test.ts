@@ -304,7 +304,7 @@ mock.module("../../daemon/conversation-usage.js", () => ({
     });
   },
 }));
-mock.module("../../memory/llm-request-log-store.js", () => ({
+mock.module("../../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: (
     conversationId: string,
     requestPayload: string,

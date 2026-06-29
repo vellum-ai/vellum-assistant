@@ -13,8 +13,6 @@ import { clearAllConversations as clearAllActive } from "../../daemon/handlers/c
 import { formatJson, formatMarkdown } from "../../export/formatter.js";
 import { ipcCall as ipcCallGateway } from "../../ipc/gateway-client.js";
 import { setConversationKey } from "../../memory/conversation-key-store.js";
-import { listConversations } from "../../memory/conversation-queries.js";
-import { getBindingByConversation } from "../../memory/external-conversation-store.js";
 import { sendSlackReply } from "../../messaging/providers/slack/send.js";
 import type { ConversationCreateType } from "../../persistence/conversation-crud.js";
 import { isConversationProcessing } from "../../persistence/conversation-crud.js";
@@ -24,6 +22,8 @@ import {
   getConversation,
   getMessages,
 } from "../../persistence/conversation-crud.js";
+import { listConversations } from "../../persistence/conversation-queries.js";
+import { getBindingByConversation } from "../../persistence/external-conversation-store.js";
 import { getLogger } from "../../util/logger.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadGatewayError, BadRequestError, NotFoundError } from "./errors.js";

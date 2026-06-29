@@ -2,7 +2,7 @@ import { and, desc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../persistence/db-connection.js";
-import { memoryV2ActivationLogs } from "./schema.js";
+import { memoryV2ActivationLogs } from "../persistence/schema/index.js";
 
 export interface MemoryV2ConceptRowRecord {
   slug: string;

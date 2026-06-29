@@ -18,11 +18,14 @@
 import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 
 import type { DrizzleDb } from "../../../persistence/db-connection.js";
+import {
+  memoryV2ActivationLogs,
+  messages,
+} from "../../../persistence/schema/index.js";
 import type {
   MemoryV2ConceptRowRecord,
   MemoryV2ConfigSnapshot,
 } from "../../memory-v2-activation-log-store.js";
-import { memoryV2ActivationLogs, messages } from "../../schema.js";
 
 export interface OracleTurn {
   conversationId: string;

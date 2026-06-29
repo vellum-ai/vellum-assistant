@@ -4,16 +4,16 @@ import { eq } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../config/types.js";
 import { getDb } from "../../persistence/db-connection.js";
-import type { EmbeddingInput } from "../embedding-types.js";
-import { asString, embedAndUpsert } from "../job-utils.js";
-import type { MemoryJob } from "../jobs-store.js";
-import { extractMediaBlocks } from "../message-content.js";
+import type { EmbeddingInput } from "../../persistence/embeddings/embedding-types.js";
+import { asString, embedAndUpsert } from "../../persistence/job-utils.js";
+import type { MemoryJob } from "../../persistence/jobs-store.js";
 import {
   mediaAssets,
   memorySegments,
   memorySummaries,
   messages,
-} from "../schema.js";
+} from "../../persistence/schema/index.js";
+import { extractMediaBlocks } from "../message-content.js";
 
 export async function embedSegmentJob(
   job: MemoryJob,

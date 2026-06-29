@@ -55,11 +55,11 @@ import {
   unwrapMemoryBlock,
   wrapMemoryBlock,
 } from "../../../../memory/memory-marker.js";
-import * as schema from "../../../../memory/schema.js";
 import type { PageIndexEntry } from "../../../../memory/v2/page-index.js";
 import { migrateAddMemoryV3Selections } from "../../../../persistence/migrations/268-add-memory-v3-selections.js";
 import { migrateAddMemoryV3EverInjected } from "../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
 import { migrateMemoryV3SelectionsMessageIdAndSections } from "../../../../persistence/migrations/283-memory-v3-selections-message-id-and-sections.js";
+import * as schema from "../../../../persistence/schema/index.js";
 import type {
   ContentBlock,
   Message,

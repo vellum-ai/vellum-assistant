@@ -15,8 +15,8 @@ import {
 } from "../../persistence/conversation-crud.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
+import { conversations } from "../../persistence/schema/index.js";
 import { MEMORY_RETROSPECTIVE_SOURCE } from "../memory-retrospective-constants.js";
-import { conversations } from "../schema.js";
 
 await initializeDb();
 

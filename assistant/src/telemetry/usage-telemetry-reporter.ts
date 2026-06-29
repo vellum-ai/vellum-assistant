@@ -18,8 +18,6 @@ import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
 } from "../memory/checkpoints.js";
-import { queryUnreportedLifecycleEvents } from "../memory/lifecycle-events-store.js";
-import { queryUnreportedUsageEvents } from "../memory/llm-usage-store.js";
 import { queryUnreportedOnboardingEvents } from "../memory/onboarding-events-store.js";
 import { queryUnreportedSkillLoadedEvents } from "../memory/skill-loaded-events-store.js";
 import { queryUnreportedToolExecutedEvents } from "../memory/tool-executed-events-store.js";
@@ -29,6 +27,8 @@ import {
   isTurnSettled,
 } from "../memory/turn-trace-store.js";
 import { queryUnreportedWatchdogEvents } from "../memory/watchdog-events-store.js";
+import { queryUnreportedLifecycleEvents } from "../persistence/lifecycle-events-store.js";
+import { queryUnreportedUsageEvents } from "../persistence/llm-usage-store.js";
 import { VellumPlatformClient } from "../platform/client.js";
 import {
   getCachedShareAnalytics,

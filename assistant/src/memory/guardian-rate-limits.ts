@@ -9,7 +9,7 @@ import { and, eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../persistence/db-connection.js";
-import { channelGuardianRateLimits } from "./schema.js";
+import { channelGuardianRateLimits } from "../persistence/schema/index.js";
 
 // ---------------------------------------------------------------------------
 // Types

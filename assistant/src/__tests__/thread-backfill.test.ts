@@ -102,7 +102,6 @@ import {
   type ChannelCapabilities,
   loadSlackChronologicalContext,
 } from "../daemon/conversation-runtime-assembly.js";
-import { recordInbound } from "../memory/delivery-crud.js";
 import type { Message as MessagingMessage } from "../messaging/provider-types.js";
 import * as slackBackfill from "../messaging/providers/slack/backfill.js";
 import {
@@ -113,6 +112,7 @@ import {
 import type { MessageRow } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { recordInbound } from "../persistence/delivery-crud.js";
 import type { Message } from "../providers/types.js";
 import {
   _backfillTriggerCache,

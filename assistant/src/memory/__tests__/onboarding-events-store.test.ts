@@ -16,11 +16,11 @@ mock.module("../../platform/consent-cache.js", () => ({
 
 import { getDb } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
+import { onboardingEvents } from "../../persistence/schema/index.js";
 import {
   queryUnreportedOnboardingEvents,
   recordActivationEvent,
 } from "../onboarding-events-store.js";
-import { onboardingEvents } from "../schema.js";
 
 await initializeDb();
 

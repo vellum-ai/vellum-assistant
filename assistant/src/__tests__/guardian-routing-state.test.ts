@@ -15,10 +15,10 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import type { TrustContext } from "../daemon/trust-context.js";
-import * as deliveryCrud from "../memory/delivery-crud.js";
-import { channelInboundEvents, messages } from "../memory/schema.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import * as deliveryCrud from "../persistence/delivery-crud.js";
+import { channelInboundEvents, messages } from "../persistence/schema/index.js";
 import { sweepFailedEvents } from "../runtime/channel-retry-sweep.js";
 import {
   resolveRoutingState,

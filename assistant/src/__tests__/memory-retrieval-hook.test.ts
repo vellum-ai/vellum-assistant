@@ -73,7 +73,7 @@ import type { AssistantConfig } from "../config/schema.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
-import type { QdrantSparseVector } from "../memory/qdrant-client.js";
+import type { QdrantSparseVector } from "../persistence/embeddings/qdrant-client.js";
 import userPromptSubmitMemoryRetrieval from "../plugins/defaults/memory-retrieval/hooks/user-prompt-submit.js";
 import type { Message } from "../providers/types.js";
 

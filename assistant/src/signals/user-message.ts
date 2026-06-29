@@ -22,11 +22,11 @@ import {
   resolveTurnChannel,
   resolveTurnInterface,
 } from "../daemon/process-message.js";
+import { getOrCreateConversation as getOrCreateConversationKey } from "../memory/conversation-key-store.js";
 import {
   uploadFileBackedAttachment,
   validateAttachmentUpload,
-} from "../memory/attachments-store.js";
-import { getOrCreateConversation as getOrCreateConversationKey } from "../memory/conversation-key-store.js";
+} from "../persistence/attachments-store.js";
 import { checkIngressForSecrets } from "../security/secret-ingress.js";
 import { getLogger } from "../util/logger.js";
 import { getSignalsDir } from "../util/platform.js";

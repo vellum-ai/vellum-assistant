@@ -8,7 +8,7 @@
 import { and, eq } from "drizzle-orm";
 
 import { getDb } from "../persistence/db-connection.js";
-import { publishedPages } from "./schema.js";
+import { publishedPages } from "../persistence/schema/index.js";
 
 export interface PublishedPageRecord {
   id: string;

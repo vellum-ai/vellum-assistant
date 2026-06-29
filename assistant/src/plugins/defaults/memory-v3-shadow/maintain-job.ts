@@ -57,14 +57,14 @@ import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
 } from "../../../memory/checkpoints.js";
+import { getPageIndex } from "../../../memory/v2/page-index.js";
+import { readPage } from "../../../memory/v2/page-store.js";
 import {
   EmbeddingBackendUnavailableError,
   embedWithBackend,
-} from "../../../memory/embedding-backend.js";
-import { EmbeddingBillingBlockError } from "../../../memory/embedding-billing-breaker.js";
-import type { MemoryJob } from "../../../memory/jobs-store.js";
-import { getPageIndex } from "../../../memory/v2/page-index.js";
-import { readPage } from "../../../memory/v2/page-store.js";
+} from "../../../persistence/embeddings/embedding-backend.js";
+import { EmbeddingBillingBlockError } from "../../../persistence/embeddings/embedding-billing-breaker.js";
+import type { MemoryJob } from "../../../persistence/jobs-store.js";
 import { getLogger } from "../../../util/logger.js";
 import { getWorkspaceDir } from "../../../util/platform.js";
 import { capabilityOrDiskBody, isCapabilitySlug } from "./capabilities.js";

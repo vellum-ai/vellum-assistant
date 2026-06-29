@@ -18,13 +18,6 @@ import type {
 } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import {
-  attachInlineAttachmentToMessage,
-  attachmentExists,
-  AttachmentUploadError,
-  linkAttachmentToMessage,
-  validateAttachmentUpload,
-} from "../memory/attachments-store.js";
-import {
   syncMessageToDisk,
   updateMetaFile,
 } from "../memory/conversation-disk-view.js";
@@ -34,6 +27,13 @@ import {
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
+import {
+  attachInlineAttachmentToMessage,
+  attachmentExists,
+  AttachmentUploadError,
+  linkAttachmentToMessage,
+  validateAttachmentUpload,
+} from "../persistence/attachments-store.js";
 import {
   addMessage,
   extractImageSourcePaths,

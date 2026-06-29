@@ -28,9 +28,9 @@ mock.module("../runtime/gateway-client.js", () => ({
 import type { TrustVerdict } from "@vellumai/gateway-client";
 
 import type { TrustContext } from "../daemon/trust-context.js";
-import { messages } from "../memory/schema.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { messages } from "../persistence/schema/index.js";
 import {
   handleChannelInbound,
   setAdapterProcessMessage,

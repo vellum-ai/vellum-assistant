@@ -126,7 +126,7 @@ mock.module("../../../config/loader.js", () => ({
 // Embedding backend — `activation` calls `embedWithBackend` and
 // `generateSparseEmbedding` to build the ANN candidate query. Stub both so
 // the suite runs without an embedding backend.
-mock.module("../../embedding-backend.js", () => ({
+mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
   embedWithBackend: async () => ({
     provider: "local",
     model: "test-model",
@@ -170,8 +170,9 @@ mock.module("@qdrant/js-client-rest", () => ({
   QdrantClient: StubQdrantClient,
 }));
 
-const realQdrantClient = await import("../../qdrant-client.js");
-mock.module("../../qdrant-client.js", () => ({
+const realQdrantClient =
+  await import("../../../persistence/embeddings/qdrant-client.js");
+mock.module("../../../persistence/embeddings/qdrant-client.js", () => ({
   ...realQdrantClient,
   resolveQdrantUrl: () => "http://127.0.0.1:6333",
 }));
@@ -208,7 +209,8 @@ const { resetDbForTesting } =
   await import("../../../__tests__/db-test-helpers.js");
 const { initializeDb } = await import("../../../persistence/db-init.js");
 const { rawExec } = await import("../../raw-query.js");
-const { conversations, memoryJobs, messages } = await import("../../schema.js");
+const { conversations, memoryJobs, messages } =
+  await import("../../../persistence/schema/index.js");
 const { writePage } = await import("../page-store.js");
 const { save: saveActivation, hydrate: hydrateActivation } =
   await import("../activation-store.js");

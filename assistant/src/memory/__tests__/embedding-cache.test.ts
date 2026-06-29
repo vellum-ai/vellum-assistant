@@ -45,9 +45,9 @@ const { getDb } = await import("../../persistence/db-connection.js");
 const { resetDbForTesting } =
   await import("../../__tests__/db-test-helpers.js");
 const { initializeDb } = await import("../../persistence/db-init.js");
-const { memoryEmbeddings } = await import("../schema.js");
+const { memoryEmbeddings } = await import("../../persistence/schema/index.js");
 const { readEmbeddingCache, writeEmbeddingCache } =
-  await import("../embedding-cache.js");
+  await import("../../persistence/embeddings/embedding-cache.js");
 
 beforeEach(async () => {
   resetDbForTesting();

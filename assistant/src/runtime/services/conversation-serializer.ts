@@ -15,8 +15,6 @@ import {
   getAttentionStateByConversationIds,
   type SignalType,
 } from "../../memory/conversation-attention-store.js";
-import type { ExternalConversationBinding } from "../../memory/external-conversation-store.js";
-import { getBindingsForConversations } from "../../memory/external-conversation-store.js";
 import { buildChannelBindingMetadata } from "../../messaging/channel-binding-metadata.js";
 import {
   type ConversationRow,
@@ -24,6 +22,8 @@ import {
   getDisplayMetaForConversations,
   isConversationProcessing,
 } from "../../persistence/conversation-crud.js";
+import type { ExternalConversationBinding } from "../../persistence/external-conversation-store.js";
+import { getBindingsForConversations } from "../../persistence/external-conversation-store.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

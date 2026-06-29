@@ -26,7 +26,6 @@ mock.module("../../../util/logger.js", () => ({
 }));
 
 import { invalidateConfigCache } from "../../../config/loader.js";
-import { recordUsageEvent } from "../../../memory/llm-usage-store.js";
 import {
   MEMORY_RETROSPECTIVE_FORK_SOURCE,
   MEMORY_RETROSPECTIVE_SOURCE,
@@ -35,6 +34,7 @@ import { rawRun } from "../../../memory/raw-query.js";
 import { createConversation } from "../../../persistence/conversation-crud.js";
 import { getDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
+import { recordUsageEvent } from "../../../persistence/llm-usage-store.js";
 import { ROUTES } from "../retrospective-routes.js";
 import type { RouteDefinition } from "../types.js";
 

@@ -54,10 +54,10 @@ import {
 import { getConfig } from "../config/loader.js";
 import { deleteConversation } from "../persistence/conversation-crud.js";
 import { getDb, getMemoryDb } from "../persistence/db-connection.js";
+import { conversations, memoryJobs } from "../persistence/schema/index.js";
 import { getLogger } from "../util/logger.js";
 import { MEMORY_RETROSPECTIVE_SOURCES } from "./memory-retrospective-constants.js";
 import { loadRetrospectiveRunMessages } from "./memory-retrospective-fork-boundary.js";
-import { conversations, memoryJobs } from "./schema.js";
 
 const log = getLogger("memory-retrospective-startup-cleanup");
 

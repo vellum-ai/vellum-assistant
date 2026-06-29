@@ -18,7 +18,7 @@ import {
 } from "../../contacts/guardian-delivery-reader.js";
 import type { ContactChannel } from "../../contacts/types.js";
 import { ipcCallPersistent } from "../../ipc/gateway-client.js";
-import { getBindingByChannelChat } from "../../memory/external-conversation-store.js";
+import { getBindingByChannelChat } from "../../persistence/external-conversation-store.js";
 import { resolveGuardianName } from "../../prompts/user-reference.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
@@ -149,7 +149,10 @@ export async function getVerificationStatus(
   const resolvedAssistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const resolvedChannel = channel ?? "telegram";
 
-  const binding = await getGuardianBinding(resolvedAssistantId, resolvedChannel);
+  const binding = await getGuardianBinding(
+    resolvedAssistantId,
+    resolvedChannel,
+  );
 
   // Read the guardian displayName from the gateway delivery — getGuardianBinding
   // is a compatibility shim that doesn't carry metadataJson.

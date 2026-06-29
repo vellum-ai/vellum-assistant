@@ -14,6 +14,11 @@ import { resolveSkillStates } from "../../config/skill-state.js";
 import { loadSkillCatalog } from "../../config/skills.js";
 import { getDb } from "../../persistence/db-connection.js";
 import {
+  enqueueMemoryJob,
+  isMemoryEnabled,
+} from "../../persistence/jobs-store.js";
+import { memoryGraphNodes } from "../../persistence/schema/index.js";
+import {
   getCachedCatalogSync,
   getCatalog,
 } from "../../skills/catalog-cache.js";
@@ -23,8 +28,6 @@ import {
   type SkillCapabilityInput,
 } from "../../skills/skill-memory.js";
 import { getLogger } from "../../util/logger.js";
-import { enqueueMemoryJob, isMemoryEnabled } from "../jobs-store.js";
-import { memoryGraphNodes } from "../schema.js";
 import { createNode } from "./store.js";
 
 const log = getLogger("graph-capability-seed");

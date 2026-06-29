@@ -103,9 +103,9 @@ import {
   createPendingQuestion,
   updateCallSession,
 } from "../calls/call-store.js";
-import { conversations } from "../memory/schema.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { conversations } from "../persistence/schema/index.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 
 import "../calls/call-state.js";

@@ -63,7 +63,7 @@ mock.module("../memory/conversation-disk-view.js", () => ({
   updateMetaFile: () => {},
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   attachmentExists: () => false,
   linkAttachmentToMessage: () => {},
   attachInlineAttachmentToMessage: () => {},

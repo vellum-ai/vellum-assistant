@@ -3,8 +3,8 @@ import * as path from "node:path";
 
 import { v4 as uuid } from "uuid";
 
-import { attachFileBackedAttachmentToMessage } from "../../memory/attachments-store.js";
 import { syncMessageToDisk } from "../../memory/conversation-disk-view.js";
+import { attachFileBackedAttachmentToMessage } from "../../persistence/attachments-store.js";
 import {
   addMessage,
   getConversation,

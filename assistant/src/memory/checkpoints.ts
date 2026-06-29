@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 
 import { getDb } from "../persistence/db-connection.js";
-import { memoryCheckpoints } from "./schema.js";
+import { memoryCheckpoints } from "../persistence/schema/index.js";
 
 export interface MessageCursorCheckpoint {
   createdAt: number;

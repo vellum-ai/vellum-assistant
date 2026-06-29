@@ -29,16 +29,7 @@ import { findConversation } from "../daemon/conversation-registry.js";
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
-import {
-  deleteOrphanAttachments,
-  linkAttachmentToMessage,
-} from "../memory/attachments-store.js";
 import { AUTO_ANALYSIS_SOURCE } from "../memory/auto-analysis-constants.js";
-import {
-  appendCompactionEvent,
-  forkCompactionLedger,
-  getLatestCompactionEventAtOrBefore,
-} from "../memory/compaction-ledger-store.js";
 import {
   projectAssistantMessage,
   seedForkedConversationAttention,
@@ -80,6 +71,15 @@ import { safeParseRecord } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
 import { getConversationsDir } from "../util/platform.js";
 import { createRowMapper } from "../util/row-mapper.js";
+import {
+  deleteOrphanAttachments,
+  linkAttachmentToMessage,
+} from "./attachments-store.js";
+import {
+  appendCompactionEvent,
+  forkCompactionLedger,
+  getLatestCompactionEventAtOrBefore,
+} from "./compaction-ledger-store.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import {
   type DrizzleDb,

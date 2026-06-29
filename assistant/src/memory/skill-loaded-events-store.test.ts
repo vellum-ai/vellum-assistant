@@ -16,7 +16,7 @@ mock.module("../platform/consent-cache.js", () => ({
 
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { skillLoadedEvents } from "./schema.js";
+import { skillLoadedEvents } from "../persistence/schema/index.js";
 import {
   queryUnreportedSkillLoadedEvents,
   recordSkillLoadedEvent,

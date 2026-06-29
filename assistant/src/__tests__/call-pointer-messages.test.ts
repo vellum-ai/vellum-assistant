@@ -13,10 +13,10 @@ import {
   resetPointerMessageProcessor,
   setPointerMessageProcessor,
 } from "../calls/call-pointer-messages.js";
-import { conversations } from "../memory/schema.js";
 import { addMessage, getMessages } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { conversations } from "../persistence/schema/index.js";
 
 await initializeDb();
 

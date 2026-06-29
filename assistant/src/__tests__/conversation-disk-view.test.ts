@@ -40,10 +40,6 @@ mock.module("../config/loader.js", () => ({
 // ---------------------------------------------------------------------------
 
 import {
-  linkAttachmentToMessage,
-  uploadAttachment,
-} from "../memory/attachments-store.js";
-import {
   flattenContentBlocks,
   getConversationDirName,
   getConversationDirPath,
@@ -55,6 +51,10 @@ import {
   updateMetaFile,
 } from "../memory/conversation-disk-view.js";
 import { rawRun } from "../memory/raw-query.js";
+import {
+  linkAttachmentToMessage,
+  uploadAttachment,
+} from "../persistence/attachments-store.js";
 import {
   addMessage,
   createConversation,

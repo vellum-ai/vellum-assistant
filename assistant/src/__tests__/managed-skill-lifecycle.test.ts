@@ -60,7 +60,7 @@ mock.module("../skills/catalog-cache.js", () => ({
   getCatalog: async () => [],
 }));
 
-mock.module("../memory/embedding-backend.js", () => ({
+mock.module("../persistence/embeddings/embedding-backend.js", () => ({
   embedWithBackend: async (_config: unknown, inputs: unknown[]) => ({
     provider: "local",
     model: "test-model",

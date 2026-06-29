@@ -16,11 +16,11 @@ import {
   parseChannelId,
   parseInterfaceId,
 } from "../channels/types.js";
+import { updateMetaFile } from "../memory/conversation-disk-view.js";
 import {
   getAttachmentsByIds,
   getSourcePathsForAttachments,
-} from "../memory/attachments-store.js";
-import { updateMetaFile } from "../memory/conversation-disk-view.js";
+} from "../persistence/attachments-store.js";
 import {
   addMessage,
   getConversation,

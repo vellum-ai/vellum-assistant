@@ -10,8 +10,9 @@ mock.module("../../../../util/logger.js", () => ({
 // Keep the real exports (e.g. getQdrantClient) so this partial mock is harmless
 // when section-dense-store's transitive imports pull them in; only
 // resolveQdrantUrl is pinned to a fixed URL.
-const realQdrantClient = await import("../../../../memory/qdrant-client.js");
-mock.module("../../../../memory/qdrant-client.js", () => ({
+const realQdrantClient =
+  await import("../../../../persistence/embeddings/qdrant-client.js");
+mock.module("../../../../persistence/embeddings/qdrant-client.js", () => ({
   ...realQdrantClient,
   resolveQdrantUrl: () => "http://127.0.0.1:6333",
 }));
@@ -22,12 +23,12 @@ mock.module("../../../../memory/qdrant-client.js", () => ({
 // harmless when section-dense-store's transitive imports pull them in; only
 // embedWithBackend is replaced.
 const realEmbeddingBackend =
-  await import("../../../../memory/embedding-backend.js");
+  await import("../../../../persistence/embeddings/embedding-backend.js");
 const embedState = {
   calls: [] as string[][],
   throws: null as Error | null,
 };
-mock.module("../../../../memory/embedding-backend.js", () => ({
+mock.module("../../../../persistence/embeddings/embedding-backend.js", () => ({
   ...realEmbeddingBackend,
   embedWithBackend: async (_config: unknown, inputs: string[]) => {
     embedState.calls.push(inputs);

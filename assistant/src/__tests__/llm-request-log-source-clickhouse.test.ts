@@ -21,7 +21,7 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeLoggerStub(),
 }));
 
-import { ClickHouseLlmRequestLogSource } from "../memory/llm-request-log-source-clickhouse.js";
+import { ClickHouseLlmRequestLogSource } from "../persistence/llm-request-log-source-clickhouse.js";
 
 const DEFAULT_CONFIG = {
   database: "default",

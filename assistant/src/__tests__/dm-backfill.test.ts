@@ -78,13 +78,13 @@ import {
   saveRawConfig,
   setNestedValue,
 } from "../config/loader.js";
-import { messages } from "../memory/schema/conversations.js";
 import {
   readSlackMetadata,
   type SlackMessageMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { messages } from "../persistence/schema/conversations.js";
 import {
   handleChannelInbound,
   seedContactChannel,

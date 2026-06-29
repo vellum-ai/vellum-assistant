@@ -16,7 +16,6 @@ import { describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import * as schema from "../memory/schema.js";
 import { type DrizzleDb, getSqliteFrom } from "../persistence/db-connection.js";
 import {
   downJobDeferrals,
@@ -78,6 +77,7 @@ import {
   rollbackMemoryMigration,
   validateMigrationState,
 } from "../persistence/migrations/validate-migration-state.js";
+import * as schema from "../persistence/schema/index.js";
 import { migrationSteps } from "../persistence/steps.js";
 
 // ---------------------------------------------------------------------------

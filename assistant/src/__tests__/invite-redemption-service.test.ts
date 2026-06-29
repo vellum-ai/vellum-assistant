@@ -179,12 +179,12 @@ import {
   getContact,
   upsertContact,
 } from "../contacts/contact-store.js";
+import { getSqlite } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   createInvite,
   revokeInvite as revokeStoreFn,
-} from "../memory/invite-store.js";
-import { getSqlite } from "../persistence/db-connection.js";
-import { initializeDb } from "../persistence/db-init.js";
+} from "../persistence/invite-store.js";
 import {
   type InviteRedemptionOutcome,
   redeemInvite,

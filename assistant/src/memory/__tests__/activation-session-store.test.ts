@@ -9,11 +9,11 @@ mock.module("../../util/logger.js", () => ({
 
 import { getDb } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
+import { activationSessions } from "../../persistence/schema/index.js";
 import {
   isActivationSession,
   markActivationSession,
 } from "../activation-session-store.js";
-import { activationSessions } from "../schema.js";
 
 await initializeDb();
 

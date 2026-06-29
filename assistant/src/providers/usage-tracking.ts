@@ -1,4 +1,4 @@
-import { recordUsageEvent } from "../memory/llm-usage-store.js";
+import { recordUsageEvent } from "../persistence/llm-usage-store.js";
 import { resolveUsageAttribution } from "../usage/attribution.js";
 import {
   buildPricingUsageFromResponse,

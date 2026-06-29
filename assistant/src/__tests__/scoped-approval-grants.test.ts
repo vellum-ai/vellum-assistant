@@ -8,7 +8,6 @@ mock.module("../util/logger.js", () => ({
   truncateForLog: (value: string) => value,
 }));
 
-import { scopedApprovalGrants } from "../memory/schema.js";
 import {
   _internal,
   type CreateScopedApprovalGrantParams,
@@ -17,6 +16,7 @@ import {
 } from "../memory/scoped-approval-grants.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { scopedApprovalGrants } from "../persistence/schema/index.js";
 
 const {
   consumeScopedApprovalGrantByRequestId,

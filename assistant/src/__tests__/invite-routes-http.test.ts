@@ -69,9 +69,9 @@ mock.module("../ipc/gateway-client.js", () => ({
 }));
 
 import { upsertContact } from "../contacts/contact-store.js";
-import { revokeInvite } from "../memory/invite-store.js";
 import { getSqlite } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { revokeInvite } from "../persistence/invite-store.js";
 import {
   createIngressInvite,
   triggerInviteCall,

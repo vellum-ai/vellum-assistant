@@ -110,7 +110,7 @@ mock.module("../../../messaging/providers/slack/send.js", () => ({
   }),
 }));
 
-mock.module("../../../memory/external-conversation-store.js", () => ({
+mock.module("../../../persistence/external-conversation-store.js", () => ({
   upsertBinding: () => {},
   upsertOutboundBinding: () => {},
   updateExternalChatName: () => {},

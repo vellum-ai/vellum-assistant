@@ -36,7 +36,7 @@ import {
   downMemoryV2InjectionEvents,
   migrateMemoryV2InjectionEvents,
 } from "../../../persistence/migrations/256-memory-v2-injection-events.js";
-import * as schema from "../../schema.js";
+import * as schema from "../../../persistence/schema/index.js";
 import {
   computeInjectionScore,
   computeInjectionScores,

@@ -4,7 +4,7 @@ import type {
   UsageBucketOptions,
   UsageDayBucket,
   UsageTimeRange,
-} from "./llm-usage-store.js";
+} from "../persistence/llm-usage-store.js";
 import {
   bucketEventsByDay,
   bucketEventsByHour,

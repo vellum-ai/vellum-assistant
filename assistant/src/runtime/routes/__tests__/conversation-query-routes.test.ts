@@ -50,7 +50,7 @@ mock.module("../../../providers/registry.js", () => ({
   },
 }));
 
-mock.module("../../../memory/embedding-backend.js", () => ({
+mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
   clearEmbeddingBackendCache: () => {
     clearEmbeddingBackendCacheCalls += 1;
   },
@@ -62,16 +62,16 @@ import {
   type MemoryV2ConfigSnapshot,
   recordMemoryV2ActivationLog,
 } from "../../../memory/memory-v2-activation-log-store.js";
+import type { ConversationCreateType } from "../../../persistence/conversation-crud.js";
+import { getDb, getLogsDb } from "../../../persistence/db-connection.js";
+import { initializeDb } from "../../../persistence/db-init.js";
 import {
   conversationKeys,
   conversations,
   llmRequestLogs,
   memoryV2ActivationLogs,
   messages,
-} from "../../../memory/schema.js";
-import type { ConversationCreateType } from "../../../persistence/conversation-crud.js";
-import { getDb, getLogsDb } from "../../../persistence/db-connection.js";
-import { initializeDb } from "../../../persistence/db-init.js";
+} from "../../../persistence/schema/index.js";
 import {
   createConnection,
   getConnection,

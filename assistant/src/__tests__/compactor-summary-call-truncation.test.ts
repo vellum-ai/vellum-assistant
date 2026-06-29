@@ -37,12 +37,12 @@ mock.module("../persistence/conversation-crud.js", () => ({
   getMessages: () => [],
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentMetadataForMessage: () => [],
   getAttachmentContent: () => null,
 }));
 
-mock.module("../memory/llm-request-log-store.js", () => ({
+mock.module("../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: () => {},
 }));
 

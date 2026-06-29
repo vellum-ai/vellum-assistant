@@ -17,14 +17,14 @@ import {
   projectAssistantMessage,
   recordConversationSeenSignal,
 } from "../memory/conversation-attention-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   conversationAssistantAttentionState,
   conversationAttentionEvents,
   conversations,
   messages,
-} from "../memory/schema.js";
-import { getDb } from "../persistence/db-connection.js";
-import { initializeDb } from "../persistence/db-init.js";
+} from "../persistence/schema/index.js";
 
 await initializeDb();
 

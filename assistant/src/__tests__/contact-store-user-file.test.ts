@@ -14,11 +14,11 @@ import {
   generateUserFileSlug,
   upsertContact,
 } from "../contacts/contact-store.js";
-import * as schema from "../memory/schema.js";
 import type { DrizzleDb } from "../persistence/db-connection.js";
 import { getSqlite } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { migrateNormalizeUserFileByPrincipal } from "../persistence/migrations/220-normalize-user-file-by-principal.js";
+import * as schema from "../persistence/schema/index.js";
 
 await initializeDb();
 

@@ -20,7 +20,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 import { collectImageManifest } from "../context/compactor.js";
-import { attachInlineAttachmentToMessage } from "../memory/attachments-store.js";
+import { attachInlineAttachmentToMessage } from "../persistence/attachments-store.js";
 import {
   addMessage,
   createConversation,

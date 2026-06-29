@@ -66,16 +66,16 @@ import { dirname, join } from "node:path";
 
 import { isMemoryV3Live } from "../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../config/types.js";
+import {
+  enqueueMemoryJob,
+  type MemoryJob,
+  type MemoryJobType,
+} from "../../persistence/jobs-store.js";
 import { runBackgroundJob } from "../../runtime/background-job-runner.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { isProcessAlive } from "../../util/process-liveness.js";
 import { formatBufferTimestamp } from "../graph/tool-handlers.js";
-import {
-  enqueueMemoryJob,
-  type MemoryJob,
-  type MemoryJobType,
-} from "../jobs-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./constants.js";
 import { resolveConsolidationPrompt } from "./prompts/consolidation.js";
 

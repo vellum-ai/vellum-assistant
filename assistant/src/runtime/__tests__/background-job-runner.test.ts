@@ -21,7 +21,7 @@ let bootstrapCalls = 0;
 let bootstrapLastArgs: Record<string, unknown> | null = null;
 const STUB_CONVERSATION_ID = "conv-test-1";
 
-mock.module("../../memory/conversation-bootstrap.js", () => ({
+mock.module("../../persistence/conversation-bootstrap.js", () => ({
   bootstrapConversation: (opts: Record<string, unknown>) => {
     bootstrapCalls += 1;
     bootstrapLastArgs = opts;

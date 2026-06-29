@@ -89,13 +89,13 @@ import {
 import {
   recordCompactionEndBestEffort,
   recordCompactionStartBestEffort,
-} from "../memory/compaction-log-store-clickhouse.js";
+} from "../persistence/compaction-log-store-clickhouse.js";
+import { getConversationOverrideProfile } from "../persistence/conversation-crud.js";
 import {
   buildProviderErrorResponsePayload,
   recordRequestLog,
   setAgentLoopExitReasonOnLatestLog,
-} from "../memory/llm-request-log-store.js";
-import { getConversationOverrideProfile } from "../persistence/conversation-crud.js";
+} from "../persistence/llm-request-log-store.js";
 import type { SystemPromptPersonaOverride } from "../prompts/system-prompt.js";
 import type { Message } from "../providers/types.js";
 import {
