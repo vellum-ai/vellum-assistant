@@ -310,14 +310,22 @@ export const hostShellTool = {
               : result.isError
                 ? "failed"
                 : "completed";
-            broadcastMessage({
-              type: "background_tool_completed",
-              id: bgId,
-              conversationId: context.conversationId,
-              status,
-              output: result.content,
-              completedAt: Date.now(),
-            });
+            broadcastMessage(
+              {
+                type: "background_tool_completed",
+                id: bgId,
+                conversationId: context.conversationId,
+                status,
+                // A cancelled command's proxy result carries SIGKILL/"failed"
+                // framing; surface the cancellation instead (see shell.ts).
+                output:
+                  status === "cancelled"
+                    ? `Background host command cancelled (id=${bgId}).`
+                    : result.content,
+                completedAt: Date.now(),
+              },
+              context.conversationId,
+            );
             const framing = result.isError
               ? `Background host command failed (id=${bgId}):`
               : `Background host command completed (id=${bgId}):`;
@@ -335,14 +343,25 @@ export const hostShellTool = {
             });
           })
           .catch((err) => {
-            broadcastMessage({
-              type: "background_tool_completed",
-              id: bgId,
-              conversationId: context.conversationId,
-              status: abortController.signal.aborted ? "cancelled" : "failed",
-              output: err instanceof Error ? err.message : String(err),
-              completedAt: Date.now(),
-            });
+            const status = abortController.signal.aborted
+              ? "cancelled"
+              : "failed";
+            broadcastMessage(
+              {
+                type: "background_tool_completed",
+                id: bgId,
+                conversationId: context.conversationId,
+                status,
+                output:
+                  status === "cancelled"
+                    ? `Background host command cancelled (id=${bgId}).`
+                    : err instanceof Error
+                      ? err.message
+                      : String(err),
+                completedAt: Date.now(),
+              },
+              context.conversationId,
+            );
             void wakeAgentForOpportunity({
               conversationId: context.conversationId,
               hint: `Background host command failed (id=${bgId}): ${err instanceof Error ? err.message : String(err)}`,
@@ -361,14 +380,17 @@ export const hostShellTool = {
           cancel: (reason?: string) => abortController.abort(reason),
         });
 
-        broadcastMessage({
-          type: "background_tool_started",
-          id: bgId,
-          toolName: "host_bash",
-          conversationId: context.conversationId,
-          command,
-          startedAt,
-        });
+        broadcastMessage(
+          {
+            type: "background_tool_started",
+            id: bgId,
+            toolName: "host_bash",
+            conversationId: context.conversationId,
+            command,
+            startedAt,
+          },
+          context.conversationId,
+        );
 
         return {
           content: JSON.stringify({ backgrounded: true, id: bgId }),
@@ -497,15 +519,23 @@ export const hostShellTool = {
           : result.isError
             ? "failed"
             : "completed";
-        broadcastMessage({
-          type: "background_tool_completed",
-          id: bgId,
-          conversationId: context.conversationId,
-          status,
-          exitCode: code,
-          output: result.content,
-          completedAt: Date.now(),
-        });
+        broadcastMessage(
+          {
+            type: "background_tool_completed",
+            id: bgId,
+            conversationId: context.conversationId,
+            status,
+            exitCode: code,
+            // A cancelled command's SIGKILL output is framed as "failed";
+            // surface the cancellation instead (see shell.ts).
+            output:
+              status === "cancelled"
+                ? `Background host command cancelled (id=${bgId}).`
+                : result.content,
+            completedAt: Date.now(),
+          },
+          context.conversationId,
+        );
         const framing = result.isError
           ? `Background host command failed (id=${bgId}):`
           : `Background host command completed (id=${bgId}):`;
@@ -528,14 +558,21 @@ export const hostShellTool = {
         if (completed) return;
         completed = true;
         clearTimeout(timer);
-        broadcastMessage({
-          type: "background_tool_completed",
-          id: bgId,
-          conversationId: context.conversationId,
-          status: aborted ? "cancelled" : "failed",
-          output: err.message,
-          completedAt: Date.now(),
-        });
+        const status = aborted ? "cancelled" : "failed";
+        broadcastMessage(
+          {
+            type: "background_tool_completed",
+            id: bgId,
+            conversationId: context.conversationId,
+            status,
+            output:
+              status === "cancelled"
+                ? `Background host command cancelled (id=${bgId}).`
+                : err.message,
+            completedAt: Date.now(),
+          },
+          context.conversationId,
+        );
         void wakeAgentForOpportunity({
           conversationId: context.conversationId,
           hint: `Background host command failed (id=${bgId}): ${err.message}`,
@@ -557,14 +594,17 @@ export const hostShellTool = {
         },
       });
 
-      broadcastMessage({
-        type: "background_tool_started",
-        id: bgId,
-        toolName: "host_bash",
-        conversationId: context.conversationId,
-        command,
-        startedAt,
-      });
+      broadcastMessage(
+        {
+          type: "background_tool_started",
+          id: bgId,
+          toolName: "host_bash",
+          conversationId: context.conversationId,
+          command,
+          startedAt,
+        },
+        context.conversationId,
+      );
 
       return {
         content: JSON.stringify({ backgrounded: true, id: bgId }),

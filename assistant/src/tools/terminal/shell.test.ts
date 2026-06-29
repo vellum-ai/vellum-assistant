@@ -135,6 +135,30 @@ describe("background bash lifecycle events", () => {
     });
   });
 
+  test("timed-out background command broadcasts completed with status failed", async () => {
+    // A 1s timeout against a long-running command forces the timeout watcher
+    // to SIGKILL the process group (timedOut=true, aborted=false), which must
+    // map to "failed" — distinct from a cancel's "cancelled".
+    const result = await shellTool.execute(
+      {
+        command: "sleep 30",
+        activity: "test",
+        background: true,
+        timeout_seconds: 1,
+      },
+      makeContext(),
+    );
+    const { id } = JSON.parse(result.content) as { id: string };
+
+    await waitFor(() => completedEvents().length > 0);
+    const completed = completedEvents();
+    expect(completed).toHaveLength(1);
+    expect(completed[0]).toMatchObject({ id, status: "failed" });
+    expect(completed[0]?.exitCode).toBeNull();
+    // A timeout is not a cancel: it must not carry the cancellation message.
+    expect(completed[0]?.output).not.toContain("cancelled");
+  });
+
   test("cancelled background command broadcasts completed with status cancelled", async () => {
     const id = await startBackground("sleep 30");
 
