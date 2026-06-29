@@ -30,6 +30,19 @@ let workerProbe: { status: "running" | "not_running"; pid?: number } = {
 };
 let configEnabled = false;
 let memoryEnabled = true;
+let backendStatus: {
+  enabled: boolean;
+  degraded: boolean;
+  provider: string | null;
+  model: string | null;
+  reason: string | null;
+} = {
+  enabled: true,
+  degraded: false,
+  provider: "openai",
+  model: "text-embedding-3-small",
+  reason: null,
+};
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -46,6 +59,10 @@ mock.module("../../../persistence/worker-control.js", () => ({
   },
   stopMemoryWorkerProcess: () => stopImpl(),
   probeMemoryWorker: () => workerProbe,
+}));
+
+mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
+  getMemoryBackendStatus: async () => backendStatus,
 }));
 
 // Spread the real loader so the route-policy import chain keeps every other
@@ -82,6 +99,13 @@ beforeEach(() => {
   workerProbe = { status: "not_running" };
   configEnabled = false;
   memoryEnabled = true;
+  backendStatus = {
+    enabled: true,
+    degraded: false,
+    provider: "openai",
+    model: "text-embedding-3-small",
+    reason: null,
+  };
 });
 
 // ---------------------------------------------------------------------------
@@ -169,6 +193,13 @@ describe("memory_worker_status", () => {
       pid: 321,
       workerEnabled: true,
       syncRunner: { status: "not_running" },
+      embedding: {
+        enabled: true,
+        degraded: false,
+        provider: "openai",
+        model: "text-embedding-3-small",
+        reason: null,
+      },
     });
   });
 
@@ -182,6 +213,55 @@ describe("memory_worker_status", () => {
       status: "not_running",
       workerEnabled: false,
       syncRunner: { status: "running", pid: process.pid },
+      embedding: {
+        enabled: true,
+        degraded: false,
+        provider: "openai",
+        model: "text-embedding-3-small",
+        reason: null,
+      },
+    });
+  });
+
+  test("surfaces a resolved embedding backend", async () => {
+    workerProbe = { status: "not_running" };
+    configEnabled = false;
+    backendStatus = {
+      enabled: true,
+      degraded: false,
+      provider: "gemini",
+      model: "text-embedding-004",
+      reason: null,
+    };
+
+    const res = await handler("memory_worker_status")();
+
+    expect(res).toMatchObject({
+      embedding: { degraded: false, provider: "gemini" },
+    });
+  });
+
+  test("surfaces a degraded embedding backend with a reason when none is configured", async () => {
+    workerProbe = { status: "not_running" };
+    configEnabled = false;
+    backendStatus = {
+      enabled: true,
+      degraded: true,
+      provider: null,
+      model: null,
+      reason: "No embedding backend configured",
+    };
+
+    const res = await handler("memory_worker_status")();
+
+    expect(res).toMatchObject({
+      embedding: {
+        enabled: true,
+        degraded: true,
+        provider: null,
+        model: null,
+        reason: "No embedding backend configured",
+      },
     });
   });
 
