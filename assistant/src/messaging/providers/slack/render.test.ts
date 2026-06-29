@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { TableBlock } from "@slack/types";
+import type { ImageBlock, TableBlock } from "@slack/types";
 
 import { renderSlackBlocks } from "./render.js";
 
@@ -156,6 +156,14 @@ describe("renderSlackBlocks", () => {
         text: "Look: ![a cat](https://example.com/cat.png) cute.",
       },
     ]);
+  });
+
+  test("truncates image alt_text to Slack's 2000-char cap", () => {
+    const alt = "x".repeat(2500);
+    const blocks = renderSlackBlocks(`![${alt}](https://example.com/cat.png)`);
+    const image = blocks![0] as ImageBlock;
+    expect(image.type).toBe("image");
+    expect(image.alt_text).toBe("x".repeat(2000));
   });
 
   test("leaves a non-hostable image URL in the markdown block", () => {

@@ -64,6 +64,8 @@ const SLACK_TABLE_MAX_COLUMNS = 20;
 const SLACK_TABLE_MAX_TOTAL_CHARS = 10_000;
 /** An `image` block's `image_url` must be a publicly hosted URL of ≤3000 chars. */
 const SLACK_IMAGE_URL_MAX_CHARS = 3000;
+/** An `image` block's `alt_text` is capped at 2000 characters. */
+const SLACK_IMAGE_ALT_MAX_CHARS = 2000;
 
 /** Inline mdast node types that a `header` block (plain_text only) cannot represent. */
 const HEADING_FORMATTING_TYPES = new Set([
@@ -213,7 +215,7 @@ function imageBlocksFromParagraph(node: Paragraph): ImageBlock[] | null {
   return images.map((img) => ({
     type: "image",
     image_url: img.url,
-    alt_text: img.alt ?? "",
+    alt_text: (img.alt ?? "").slice(0, SLACK_IMAGE_ALT_MAX_CHARS),
   }));
 }
 
