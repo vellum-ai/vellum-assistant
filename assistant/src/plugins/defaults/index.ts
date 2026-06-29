@@ -28,6 +28,10 @@ import {
   clearInjectorRegistry,
   registerPluginInjectors,
 } from "../injector-registry.js";
+import {
+  clearJobHandlerRegistry,
+  registerPluginJobHandlers,
+} from "../job-handler-registry.js";
 import { registerPlugin, resetPluginRegistryForTests } from "../registry.js";
 import { type Plugin, PluginExecutionError } from "../types.js";
 import { channelInjectors } from "./channel/injectors.js";
@@ -63,6 +67,7 @@ import maxTokensContinuePkg from "./max-tokens-continue/package.json" with { typ
 import memoryPostCompact from "./memory/hooks/post-compact.js";
 import memoryUserPromptSubmit from "./memory/hooks/user-prompt-submit.js";
 import { memoryInjectors } from "./memory/injectors.js";
+import { memoryJobHandlers } from "./memory/job-handlers.js";
 import memoryPkg from "./memory/package.json" with { type: "json" };
 import {
   memoryV3Injector,
@@ -168,6 +173,7 @@ export const defaultMemoryPlugin: Plugin = {
     "post-compact": memoryPostCompact,
   },
   injectors: [...memoryInjectors, memoryV3Injector, memoryV3SpotlightInjector],
+  jobHandlers: memoryJobHandlers,
 };
 
 /**
@@ -470,6 +476,26 @@ export function registerDefaultPluginInjectors(): void {
 }
 
 /**
+ * Register every default plugin's background-job handlers into the global
+ * job-handler registry — the job-handler analog of
+ * {@link registerDefaultPluginInjectors}. `bootstrapPlugins` calls this before
+ * the per-plugin init loop so a default plugin's handlers are present
+ * regardless of its disabled-state. The standalone memory-worker process does
+ * not run plugin bootstrap, so `registerMemoryJobHandlers`
+ * (`jobs/register-job-handlers.ts`) calls this directly before forwarding the
+ * registry union into the worker dispatch table. Idempotent:
+ * `registerPluginJobHandlers` replaces a plugin's prior set, so the per-plugin
+ * re-registration in `initializePlugin` is a harmless no-op replace.
+ */
+export function registerDefaultPluginJobHandlers(): void {
+  for (const plugin of getAllDefaultPlugins()) {
+    if (plugin.jobHandlers && plugin.jobHandlers.length > 0) {
+      registerPluginJobHandlers(plugin.manifest.name, plugin.jobHandlers);
+    }
+  }
+}
+
+/**
  * Test-only helper: clear the hook registry and re-register every default
  * so integration tests that exercise the full agent loop have a
  * production-parity plugin stack. Use this in `beforeEach` of tests that
@@ -492,4 +518,6 @@ export function resetPluginRegistryAndRegisterDefaults(): void {
   registerDefaultPlugins();
   clearInjectorRegistry();
   registerDefaultPluginInjectors();
+  clearJobHandlerRegistry();
+  registerDefaultPluginJobHandlers();
 }
