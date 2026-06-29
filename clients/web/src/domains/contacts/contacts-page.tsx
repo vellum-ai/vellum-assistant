@@ -22,13 +22,15 @@ import {
     upsertContact,
     verifyContactChannel,
 } from "@/domains/contacts/contacts-gateway";
-import type {
-    AssistantChannelState,
-    ChannelInfo,
-    ChannelReadinessSnapshot,
-    ContactChannelPayload,
-    ContactPayload,
-    ContactSelection,
+import {
+    SETUP_CHANNEL_IDS,
+    isSetupChannelId,
+    type AssistantChannelState,
+    type ChannelInfo,
+    type ChannelReadinessSnapshot,
+    type ContactChannelPayload,
+    type ContactPayload,
+    type ContactSelection,
 } from "@/domains/contacts/types";
 import {
     channelsAvailableGetOptions,
@@ -131,7 +133,8 @@ export function ContactsPage({
   const identityName = useAssistantIdentityStore.use.name();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
-  const setupChannel = searchParams.get("setup") as "slack" | "telegram" | "phone" | null;
+  const rawSetup = searchParams.get("setup");
+  const setupChannel = rawSetup && isSetupChannelId(rawSetup) ? rawSetup : null;
 
   // Consume the `?setup=` param once on mount so it doesn't persist across navigations.
   useEffect(() => {
@@ -252,7 +255,7 @@ export function ContactsPage({
     select: (data: IntegrationsSlackChannelConfigGetResponse) => data.threadMode,
   });
 
-  const slackThreadMode = slackConfigQuery.data as SlackThreadMode | undefined;
+  const slackThreadMode = slackConfigQuery.data;
 
   // Per-channel trust floors (admission policy), shown inline on each connected
   // channel when the `channelTrustFloors` flag is on.
@@ -758,13 +761,12 @@ function ContactsEmptyState() {
 function deriveChannelStates(
   snapshots: ChannelReadinessSnapshot[],
 ): AssistantChannelState[] {
-  const byChannel = new Map<string, ChannelReadinessSnapshot>();
+  const byChannel = new Map<ChannelReadinessSnapshot["channel"], ChannelReadinessSnapshot>();
   for (const snap of snapshots) {
     byChannel.set(snap.channel, snap);
   }
 
-  const order: AssistantChannelState["key"][] = ["slack", "telegram", "phone"];
-  return order.map((key) => {
+  return SETUP_CHANNEL_IDS.map((key) => {
     const snap = byChannel.get(key);
     const status = toChannelStatus(snap);
     return {

@@ -25,6 +25,7 @@
 import { captureError } from "@/lib/sentry/capture-error";
 import { create } from "zustand";
 
+import type { SetupChannelId } from "@/types/channel-types";
 import { appsByIdOpenPost, documentsByIdGet } from "@/generated/daemon/sdk.gen";
 import { primeAppHtmlCache } from "@/utils/app-html-cache";
 
@@ -147,7 +148,7 @@ export interface OpenedDocumentState {
   content: string;
 }
 
-export type ChannelSetupType = "slack";
+export type ChannelSetupType = SetupChannelId;
 
 export interface ChannelSetupPayload {
   channel: ChannelSetupType;
