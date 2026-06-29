@@ -20,6 +20,8 @@ export interface SlackSetupWizardProps {
   assistantName: string;
   initialStepId?: WizardStepId;
   connected?: boolean;
+  /** Compact stepper for constrained containers (e.g. side drawer). */
+  compact?: boolean;
   threadMode?: SlackThreadMode;
   threadModePending?: boolean;
   onThreadModeChange?: (mode: SlackThreadMode) => void;
@@ -30,6 +32,7 @@ export function SlackSetupWizard({
   assistantName,
   initialStepId = "create-app",
   connected = false,
+  compact = false,
   threadMode,
   threadModePending = false,
   onThreadModeChange,
@@ -126,6 +129,7 @@ export function SlackSetupWizard({
           current={stepIndex}
           onStepSelect={handleStepSelect}
           disabled={saving}
+          compact={compact}
         />
 
         <div className="rounded-lg bg-[var(--surface-sunken)] p-4">

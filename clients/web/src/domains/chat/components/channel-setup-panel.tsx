@@ -73,6 +73,7 @@ export function ChannelSetupPanel({ payload, onClose }: ChannelSetupPanelProps) 
       ) : payload.channel === "slack" ? (
         <SlackSetupWizard
           assistantName={payload.assistantName}
+          compact
           onSave={handleSave}
         />
       ) : null}
