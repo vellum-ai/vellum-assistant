@@ -1,0 +1,203 @@
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+import type {
+  ApprovalUIMetadata,
+  ChannelReplyPayload,
+} from "@vellumai/gateway-client";
+
+import type { CallbackContext } from "../channel-transport.js";
+
+// Derive the mock signature from the real export so the test cannot drift from
+// the production call signature.
+type CallTelegramBotApi = typeof import("./api.js").callTelegramBotApi;
+
+const callTelegramBotApiMock = mock<CallTelegramBotApi>(
+  async () => ({}) as never,
+);
+const isRichEnabledMock = mock(() => false);
+
+mock.module("../../../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
+}));
+
+mock.module("../../../config/loader.js", () => ({
+  getConfig: () => ({}),
+}));
+
+mock.module("./feature-flags.js", () => ({
+  isTelegramRichMessagesEnabled: () => isRichEnabledMock(),
+}));
+
+mock.module("./api.js", () => ({
+  callTelegramBotApi: (method: string, body: Record<string, unknown>) =>
+    callTelegramBotApiMock(method, body),
+  callTelegramBotApiMultipart: async () => ({}),
+  TelegramNonRetryableError: class TelegramNonRetryableError extends Error {
+    readonly description: string | undefined;
+    constructor(message: string, description?: string) {
+      super(message);
+      this.name = "TelegramNonRetryableError";
+      this.description = description;
+    }
+  },
+}));
+
+const { TelegramNonRetryableError } = await import("./api.js");
+const { sendTelegramRichReply } = await import("./send.js");
+const { telegramTransport } = await import("./transport.js");
+
+const approval: ApprovalUIMetadata = {
+  requestId: "req-1",
+  plainTextFallback: "Approve?",
+  actions: [
+    { id: "approve", label: "Approve" },
+    { id: "deny", label: "Deny" },
+  ],
+};
+
+const expectedKeyboard = {
+  inline_keyboard: [
+    [{ text: "Approve", callback_data: "apr:req-1:approve" }],
+    [{ text: "Deny", callback_data: "apr:req-1:deny" }],
+  ],
+};
+
+const callsTo = (method: string) =>
+  callTelegramBotApiMock.mock.calls.filter((call) => call[0] === method);
+
+beforeEach(() => {
+  callTelegramBotApiMock.mockReset();
+  callTelegramBotApiMock.mockImplementation(async () => ({}) as never);
+  isRichEnabledMock.mockReset();
+  isRichEnabledMock.mockImplementation(() => false);
+});
+
+describe("sendTelegramRichReply", () => {
+  test("forwards markdown via sendRichMessage's nested rich_message object", async () => {
+    await sendTelegramRichReply("123", "# Heading\n\n| a | b |\n| - | - |");
+
+    expect(callsTo("sendRichMessage")).toHaveLength(1);
+    expect(callsTo("sendMessage")).toHaveLength(0);
+    expect(callTelegramBotApiMock).toHaveBeenCalledWith("sendRichMessage", {
+      chat_id: "123",
+      rich_message: { markdown: "# Heading\n\n| a | b |\n| - | - |" },
+    });
+  });
+
+  test("attaches the approval inline keyboard as reply_markup on the rich send", async () => {
+    await sendTelegramRichReply("123", "Please approve", approval);
+
+    expect(callTelegramBotApiMock).toHaveBeenCalledWith("sendRichMessage", {
+      chat_id: "123",
+      rich_message: { markdown: "Please approve" },
+      reply_markup: expectedKeyboard,
+    });
+  });
+
+  test("falls back to plain sendMessage when the rich send is rejected", async () => {
+    callTelegramBotApiMock.mockImplementationOnce(async () => {
+      throw new TelegramNonRetryableError(
+        "Telegram sendRichMessage failed: BLOCK_LIMIT_EXCEEDED",
+        "BLOCK_LIMIT_EXCEEDED",
+      );
+    });
+
+    await sendTelegramRichReply("123", "Too rich for this server");
+
+    // One rejected rich attempt, then one plain-text retry — the user still
+    // receives the message.
+    expect(callsTo("sendRichMessage")).toHaveLength(1);
+    expect(callsTo("sendMessage")).toHaveLength(1);
+    expect(callTelegramBotApiMock).toHaveBeenNthCalledWith(2, "sendMessage", {
+      chat_id: "123",
+      text: "Too rich for this server",
+    });
+  });
+
+  test("preserves the approval keyboard when falling back to plain text", async () => {
+    callTelegramBotApiMock.mockImplementationOnce(async () => {
+      throw new TelegramNonRetryableError("rejected", "rejected");
+    });
+
+    await sendTelegramRichReply("123", "Please approve", approval);
+
+    expect(callsTo("sendMessage")).toHaveLength(1);
+    expect(callTelegramBotApiMock).toHaveBeenNthCalledWith(2, "sendMessage", {
+      chat_id: "123",
+      text: "Please approve",
+      reply_markup: expectedKeyboard,
+    });
+  });
+
+  test("propagates non-client errors without a plain-text retry", async () => {
+    callTelegramBotApiMock.mockImplementationOnce(async () => {
+      throw new Error("network down");
+    });
+
+    await expect(sendTelegramRichReply("123", "Hello")).rejects.toThrow(
+      "network down",
+    );
+
+    expect(callsTo("sendRichMessage")).toHaveLength(1);
+    expect(callsTo("sendMessage")).toHaveLength(0);
+  });
+});
+
+describe("telegramTransport.deliver routing", () => {
+  const ctx: CallbackContext = { callbackUrl: "/deliver/telegram", params: {} };
+
+  function payload(
+    overrides: Partial<ChannelReplyPayload>,
+  ): ChannelReplyPayload {
+    return {
+      chatId: "123",
+      text: "hello",
+      ...overrides,
+    } as ChannelReplyPayload;
+  }
+
+  test("routes to the rich send when useBlocks is set and the flag is on", async () => {
+    isRichEnabledMock.mockImplementation(() => true);
+
+    await telegramTransport.deliver(ctx, payload({ useBlocks: true }));
+
+    expect(callsTo("sendRichMessage")).toHaveLength(1);
+    expect(callsTo("sendMessage")).toHaveLength(0);
+  });
+
+  test("stays on the plain send when the flag is off even with useBlocks", async () => {
+    isRichEnabledMock.mockImplementation(() => false);
+
+    await telegramTransport.deliver(ctx, payload({ useBlocks: true }));
+
+    expect(callsTo("sendRichMessage")).toHaveLength(0);
+    expect(callsTo("sendMessage")).toHaveLength(1);
+  });
+
+  test("stays on the plain send when useBlocks is absent even with the flag on", async () => {
+    isRichEnabledMock.mockImplementation(() => true);
+
+    await telegramTransport.deliver(ctx, payload({ useBlocks: false }));
+
+    expect(callsTo("sendRichMessage")).toHaveLength(0);
+    expect(callsTo("sendMessage")).toHaveLength(1);
+  });
+
+  test("forwards approval metadata through the rich path", async () => {
+    isRichEnabledMock.mockImplementation(() => true);
+
+    await telegramTransport.deliver(
+      ctx,
+      payload({ useBlocks: true, approval } as Partial<ChannelReplyPayload>),
+    );
+
+    expect(callTelegramBotApiMock).toHaveBeenCalledWith("sendRichMessage", {
+      chat_id: "123",
+      rich_message: { markdown: "hello" },
+      reply_markup: expectedKeyboard,
+    });
+  });
+});

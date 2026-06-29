@@ -1,10 +1,13 @@
 import { ChannelDeliveryError } from "@vellumai/gateway-client/http-delivery";
 
+import { getConfig } from "../../../config/loader.js";
 import { getLogger } from "../../../util/logger.js";
 import type { ChannelTransport } from "../channel-transport.js";
+import { isTelegramRichMessagesEnabled } from "./feature-flags.js";
 import {
   sendTelegramAttachments,
   sendTelegramReply,
+  sendTelegramRichReply,
   sendTelegramTypingIndicator,
 } from "./send.js";
 
@@ -17,7 +20,15 @@ export const telegramTransport: ChannelTransport = {
     const { chatId, text, attachments, approval } = payload;
 
     if (text) {
-      await sendTelegramReply(chatId, text, approval);
+      // `useBlocks` is the channel-neutral "render richly" intent set by the
+      // delivery layer; the Telegram adapter honors it by forwarding markdown
+      // to `sendRichMessage` when the rich-messages flag is on, degrading to
+      // plain text otherwise (and on any rich-send rejection).
+      if (payload.useBlocks && isTelegramRichMessagesEnabled(getConfig())) {
+        await sendTelegramRichReply(chatId, text, approval);
+      } else {
+        await sendTelegramReply(chatId, text, approval);
+      }
     } else if (approval) {
       await sendTelegramReply(
         chatId,
