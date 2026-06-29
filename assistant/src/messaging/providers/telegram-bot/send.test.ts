@@ -86,7 +86,11 @@ describe("sendTelegramRichReply", () => {
 
     const [, body] = callsTo("sendRichMessage")[0] ?? [];
     const html = (body?.rich_message as { html: string }).html;
-    expect(html).toContain("$100 to $200 ==x== ||y|| &lt;b&gt;");
+    // The Rich-Markdown extensions survive verbatim, and the angle brackets are
+    // escaped rather than emitted as a live <b> tag. (render.test.ts pins the
+    // exact character-reference form.)
+    expect(html).toContain("$100 to $200 ==x== ||y||");
+    expect(html).not.toContain("<b>");
   });
 
   test("attaches the approval inline keyboard as reply_markup on the rich send", async () => {

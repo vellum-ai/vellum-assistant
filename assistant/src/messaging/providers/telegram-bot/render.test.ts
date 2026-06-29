@@ -2,6 +2,14 @@ import { describe, expect, test } from "bun:test";
 
 import { renderTelegramHtml } from "./render.js";
 
+// Expected values are derived from Telegram's documented Rich HTML vocabulary
+// (https://core.telegram.org/bots/api#rich-html-style), not from the renderer's
+// output. Notable doc-grounded choices:
+//   - `<strong>`/`<em>`/`<del>` are listed as supported alongside `<b>`/`<i>`/
+//     `<s>`, so the serializer's defaults need no remapping.
+//   - Character references are numeric (`&#x26;`) because Telegram supports all
+//     numeric references but only 13 named ones; numeric is unambiguously safe.
+//   - `<img src>` is a supported tag, so images render rather than degrading.
 describe("renderTelegramHtml", () => {
   test("returns undefined for empty or whitespace-only input", () => {
     expect(renderTelegramHtml("")).toBeUndefined();
@@ -19,23 +27,23 @@ describe("renderTelegramHtml", () => {
 
   test("maps inline emphasis to Telegram's supported tags", () => {
     expect(renderTelegramHtml("**b** _i_ ~~d~~ `c`")).toBe(
-      "<p><b>b</b> <i>i</i> <s>d</s> <code>c</code></p>",
+      "<p><strong>b</strong> <em>i</em> <del>d</del> <code>c</code></p>",
     );
   });
 
-  test("renders links with an escaped href", () => {
+  test("renders links with a numeric-escaped href", () => {
     expect(renderTelegramHtml("[text](https://x.test/?a=1&b=2)")).toBe(
-      '<p><a href="https://x.test/?a=1&amp;b=2">text</a></p>',
+      '<p><a href="https://x.test/?a=1&#x26;b=2">text</a></p>',
     );
   });
 
   test("renders fenced code with a language class and escaped body", () => {
     expect(renderTelegramHtml("```ts\nconst a = 1 < 2;\n```")).toBe(
-      '<pre><code class="language-ts">const a = 1 &lt; 2;</code></pre>',
+      '<pre><code class="language-ts">const a = 1 &#x3C; 2;</code></pre>',
     );
   });
 
-  test("renders a fenceless/no-language code block as bare pre", () => {
+  test("renders a no-language code block as a bare pre", () => {
     expect(renderTelegramHtml("```\nplain\n```")).toBe("<pre>plain</pre>");
   });
 
@@ -48,7 +56,9 @@ describe("renderTelegramHtml", () => {
     );
   });
 
-  test("renders GFM task lists with checkbox inputs", () => {
+  test("renders GFM task lists with bare checkbox inputs", () => {
+    // Telegram's documented form is `<input type="checkbox" checked>` with no
+    // `disabled` attribute and no list classes.
     expect(renderTelegramHtml("- [x] done\n- [ ] todo")).toBe(
       '<ul><li><input type="checkbox" checked>done</li>' +
         '<li><input type="checkbox">todo</li></ul>',
@@ -71,14 +81,23 @@ describe("renderTelegramHtml", () => {
     );
   });
 
-  test("renders blockquotes", () => {
+  test("renders blockquotes, preserving paragraph structure", () => {
     expect(renderTelegramHtml("> quoted")).toBe(
-      "<blockquote>quoted</blockquote>",
+      "<blockquote><p>quoted</p></blockquote>",
+    );
+    expect(renderTelegramHtml("> line one\n>\n> line two")).toBe(
+      "<blockquote><p>line one</p><p>line two</p></blockquote>",
     );
   });
 
   test("renders a thematic break", () => {
-    expect(renderTelegramHtml("---")).toBe("<hr/>");
+    expect(renderTelegramHtml("---")).toBe("<hr>");
+  });
+
+  test("renders an image with its source and alt text", () => {
+    expect(renderTelegramHtml("![alt text](https://x.test/i.png)")).toBe(
+      '<p><img src="https://x.test/i.png" alt="alt text"></p>',
+    );
   });
 
   // Fidelity: characters that Telegram's Rich *Markdown* dialect reinterprets
@@ -96,19 +115,13 @@ describe("renderTelegramHtml", () => {
 
   test("escapes raw HTML so it renders verbatim", () => {
     expect(renderTelegramHtml("a <b>not bold</b> z")).toBe(
-      "<p>a &lt;b&gt;not bold&lt;/b&gt; z</p>",
+      "<p>a &#x3C;b>not bold&#x3C;/b> z</p>",
     );
   });
 
-  test("escapes the five reserved characters in text", () => {
-    expect(renderTelegramHtml(`& < > " '`)).toBe(
-      "<p>&amp; &lt; &gt; &quot; &apos;</p>",
-    );
-  });
-
-  test("degrades an inline image to its alt text", () => {
-    expect(renderTelegramHtml("![alt text](https://x.test/i.png)")).toBe(
-      "<p>alt text</p>",
-    );
+  test("emits numeric references for the characters HTML must escape", () => {
+    // Only `&` and `<` require escaping in element text; `>`, `"`, and `'` are
+    // left literal. Escaped characters use numeric references.
+    expect(renderTelegramHtml(`& < > " '`)).toBe(`<p>&#x26; &#x3C; > " '</p>`);
   });
 });

@@ -1,47 +1,37 @@
 /**
- * Telegram rich-message rendering: mdast → Telegram rich HTML.
+ * Telegram rich-message rendering: canonical mdast → Telegram rich HTML.
  *
  * The channel-neutral parse (markdown → mdast) lives in `messaging/content`;
  * this module is Telegram's "how". Telegram Bot API 10.1 rich messages accept
- * either an `html` or a `markdown` field, but Telegram's "Rich Markdown" is a
- * *superset* of GFM: it reinterprets `$…$` as math, `==x==` as highlight,
- * `||x||` as spoiler, and parses inline HTML. Forwarding canonical GFM into that
- * dialect would silently change content (a `$100` currency range becomes math),
- * and the send still succeeds so the plain-text fallback never fires.
+ * an `html` field whose text content is literal — so `$100`, `==x==`, `||y||`,
+ * and `<` render exactly as the agent wrote them. The sibling `markdown` field
+ * is a GFM *superset* that would instead reinterpret those as math, highlight,
+ * spoiler, and inline HTML, silently changing content.
  *
- * HTML mode avoids this entirely: the docs state *"Markdown isn't parsed inside
- * block HTML tags"*, so text content between tags is literal — `$100`, `==`,
- * `||`, and escaped `<` render exactly as written. We therefore render each
- * mdast node to Telegram's documented HTML vocabulary and HTML-escape every text
- * run, giving exact fidelity to what the agent emitted.
+ * Rendering goes through the standard unified pipeline — `mdast-util-to-hast`
+ * then `hast-util-to-html` — so HTML escaping and serialization are owned by the
+ * maintained serializer rather than hand-written. `telegramizeHast` then applies
+ * the few documented places where Telegram's vocabulary differs from generic
+ * HTML:
+ *   - tables use `<tr>` directly, with no `<thead>`/`<tbody>` wrappers;
+ *   - task-list items use a bare `<input type="checkbox">` — no `disabled`
+ *     attribute and no list classes;
+ *   - a code block without a language is a bare `<pre>`; a language is carried
+ *     on a nested `<code class="language-…">`.
  *
- * Why a hand-rolled serializer instead of `mdast-util-to-hast` + a generic HTML
- * stringifier: Telegram supports only a fixed, non-standard tag set — tables use
- * `<table><tr><th|td>` with **no** `<thead>`/`<tbody>` wrappers, and only a
- * handful of named entities are allowed. A general mdast→HTML converter emits
- * the wrapper tags and a broader entity set, so it would need post-processing
- * that is more code (and more surprising) than mapping the nodes we actually
- * emit directly to Telegram's vocabulary — the same approach the Slack adapter
- * takes for Block Kit.
+ * `useNamedReferences: false` emits numeric character references. Telegram
+ * supports every numeric reference but only a fixed set of 13 named entities,
+ * and its docs are ambiguous about whether `&quot;` is among them, so numeric
+ * references are the unambiguously-safe choice.
  *
- * Wire shapes verified against the official Bot API docs:
- *   - Rich HTML tag set / entities: https://core.telegram.org/bots/api#rich-message-formatting-options
- *   - InputRichMessage (html field): https://core.telegram.org/bots/api#inputrichmessage
+ * Verified against the official Bot API docs:
+ *   https://core.telegram.org/bots/api#rich-html-style
+ *   https://core.telegram.org/bots/api#inputrichmessage
  */
 
-import type {
-  AlignType,
-  Blockquote,
-  Code,
-  Heading,
-  List,
-  ListItem,
-  PhrasingContent,
-  RootContent,
-  Table,
-  TableCell,
-  TableRow,
-} from "mdast";
+import type { Element, ElementContent, Root } from "hast";
+import { toHtml } from "hast-util-to-html";
+import { toHast } from "mdast-util-to-hast";
 
 import { parseMarkdown } from "../../content/parse.js";
 
@@ -52,192 +42,139 @@ import { parseMarkdown } from "../../content/parse.js";
  */
 export function renderTelegramHtml(text: string): string | undefined {
   if (!text || text.trim().length === 0) return undefined;
-  const html = renderFlow(parseMarkdown(text).children);
+
+  const hast = toHast(parseMarkdown(text), {
+    handlers: {
+      // remark-gfm parses literal `<tag>` markup the agent typed as `html`
+      // nodes. Agent-authored HTML is not executed as Telegram markup; emitting
+      // it as text makes the serializer escape it so it renders verbatim — the
+      // same outcome as the web client, which parses with remark-gfm and no
+      // `rehype-raw`.
+      html: (_state, node: { value: string }) => ({
+        type: "text",
+        value: node.value,
+      }),
+    },
+  });
+
+  // `toHast` is typed to return any hast node, but a root input always yields a
+  // root; the guard narrows the type without changing behaviour.
+  if (hast.type !== "root") return undefined;
+
+  telegramizeHast(hast);
+
+  const html = toHtml(hast, {
+    characterReferences: { useNamedReferences: false },
+  });
   return html.length > 0 ? html : undefined;
 }
 
 // ---------------------------------------------------------------------------
-// Escaping
+// Telegram-specific hast adjustments
 // ---------------------------------------------------------------------------
 
-/**
- * Escape text for Telegram rich HTML. Telegram accepts all numeric character
- * references but only a small set of named ones; `&`, `<`, `>`, `"`, and `'`
- * all map to supported named entities, which covers everything that needs
- * escaping in element text and attribute values.
- */
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
+/** Container elements whose inter-child whitespace is layout-insignificant. */
+const WHITESPACE_CONTAINERS = new Set([
+  "ul",
+  "ol",
+  "li",
+  "table",
+  "thead",
+  "tbody",
+  "tr",
+  "blockquote",
+]);
+
+function telegramizeHast(root: Root): void {
+  processNode(root);
 }
 
-// ---------------------------------------------------------------------------
-// Block-level rendering
-// ---------------------------------------------------------------------------
-
-/** Render a sequence of block-level nodes to concatenated HTML. */
-function renderFlow(nodes: RootContent[]): string {
-  let out = "";
-  for (const node of nodes) out += renderBlock(node);
-  return out;
-}
-
-function renderBlock(node: RootContent): string {
-  switch (node.type) {
-    case "paragraph":
-      return `<p>${renderPhrasing(node.children)}</p>`;
-    case "heading":
-      return renderHeading(node);
-    case "blockquote":
-      return `<blockquote>${renderContainer(node)}</blockquote>`;
-    case "list":
-      return renderList(node);
-    case "code":
-      return renderCode(node);
-    case "table":
-      return renderTable(node);
-    case "thematicBreak":
-      return "<hr/>";
-    // Raw HTML authored in the markdown is treated as literal text so a stray
-    // `<tag>` renders verbatim rather than injecting unsupported markup.
-    case "html":
-      return escapeHtml(node.value);
-    default:
-      return "";
-  }
-}
-
-function renderHeading(node: Heading): string {
-  const depth = node.depth;
-  return `<h${depth}>${renderPhrasing(node.children)}</h${depth}>`;
-}
-
-function renderCode(node: Code): string {
-  const lang = node.lang?.trim();
-  const body = escapeHtml(node.value);
-  // Per the docs, a programming language is specified via nested pre + code; a
-  // standalone code tag cannot carry one.
-  if (lang) {
-    return `<pre><code class="language-${escapeHtml(lang)}">${body}</code></pre>`;
-  }
-  return `<pre>${body}</pre>`;
-}
-
-function renderList(node: List): string {
-  const tag = node.ordered ? "ol" : "ul";
-  const items = node.children.map(renderListItem).join("");
-  if (node.ordered && node.start != null && node.start !== 1) {
-    return `<ol start="${node.start}">${items}</ol>`;
-  }
-  return `<${tag}>${items}</${tag}>`;
-}
-
-function renderListItem(node: ListItem): string {
-  // GFM task-list items carry a boolean `checked`; render Telegram's supported
-  // checkbox input ahead of the item content.
-  const checkbox =
-    node.checked == null
-      ? ""
-      : `<input type="checkbox"${node.checked ? " checked" : ""}>`;
-  return `<li>${checkbox}${renderContainer(node)}</li>`;
-}
-
-/**
- * Render the children of a list item or blockquote. Top-level paragraphs are
- * emitted inline (separated by `<br>` so loose items keep their spacing) rather
- * than wrapped in `<p>`, matching Telegram's examples; nested block content
- * (sub-lists, code, quotes) renders as its own block.
- */
-function renderContainer(node: ListItem | Blockquote): string {
-  let out = "";
-  let prevInline = false;
+function processNode(node: Root | Element): void {
   for (const child of node.children) {
-    if (child.type === "paragraph") {
-      if (prevInline) out += "<br><br>";
-      out += renderPhrasing(child.children);
-      prevInline = true;
+    if (child.type === "element") processNode(child);
+  }
+
+  if (node.type === "element") {
+    switch (node.tagName) {
+      case "table":
+        unwrapTableSections(node);
+        break;
+      case "pre":
+        normalizeCodeBlock(node);
+        break;
+      case "input":
+        if (node.properties) delete node.properties.disabled;
+        break;
+      case "ul":
+      case "ol":
+      case "li":
+        stripTaskListClasses(node);
+        break;
+    }
+  }
+
+  stripInsignificantWhitespace(node);
+}
+
+/** Lift `<tr>` rows out of `<thead>`/`<tbody>`, which Telegram does not support. */
+function unwrapTableSections(table: Element): void {
+  const rows: ElementContent[] = [];
+  for (const child of table.children) {
+    if (
+      child.type === "element" &&
+      (child.tagName === "thead" || child.tagName === "tbody")
+    ) {
+      rows.push(...child.children);
     } else {
-      out += renderBlock(child);
-      prevInline = false;
+      rows.push(child);
     }
   }
-  return out;
+  table.children = rows;
 }
 
-function renderTable(node: Table): string {
-  const rows = node.children
-    .map((row, index) => renderTableRow(row, index === 0, node.align))
-    .join("");
-  return `<table>${rows}</table>`;
-}
+function normalizeCodeBlock(pre: Element): void {
+  const code = pre.children.find(
+    (child): child is Element =>
+      child.type === "element" && child.tagName === "code",
+  );
+  if (!code) return;
 
-function renderTableRow(
-  row: TableRow,
-  isHeader: boolean,
-  align: (AlignType | null | undefined)[] | null | undefined,
-): string {
-  const tag = isHeader ? "th" : "td";
-  const cells = row.children
-    .map((cell, column) => renderTableCell(cell, tag, align?.[column]))
-    .join("");
-  return `<tr>${cells}</tr>`;
-}
-
-function renderTableCell(
-  cell: TableCell,
-  tag: "th" | "td",
-  align: AlignType | null | undefined,
-): string {
-  const attr = align ? ` align="${align}"` : "";
-  return `<${tag}${attr}>${renderPhrasing(cell.children)}</${tag}>`;
-}
-
-// ---------------------------------------------------------------------------
-// Inline (phrasing) rendering
-// ---------------------------------------------------------------------------
-
-function renderPhrasing(nodes: PhrasingContent[]): string {
-  let out = "";
-  for (const node of nodes) {
-    switch (node.type) {
-      case "text":
-        out += escapeHtml(node.value);
-        break;
-      case "strong":
-        out += `<b>${renderPhrasing(node.children)}</b>`;
-        break;
-      case "emphasis":
-        out += `<i>${renderPhrasing(node.children)}</i>`;
-        break;
-      case "delete":
-        out += `<s>${renderPhrasing(node.children)}</s>`;
-        break;
-      case "inlineCode":
-        out += `<code>${escapeHtml(node.value)}</code>`;
-        break;
-      case "link":
-        out += `<a href="${escapeHtml(node.url)}">${renderPhrasing(node.children)}</a>`;
-        break;
-      // Telegram renders images only as standalone media blocks, not inline, so
-      // an inline image degrades to its alt text.
-      case "image":
-        out += escapeHtml(node.alt ?? "");
-        break;
-      case "break":
-        out += "<br/>";
-        break;
-      case "html":
-        out += escapeHtml(node.value);
-        break;
-      default:
-        if ("children" in node) {
-          out += renderPhrasing(node.children as PhrasingContent[]);
-        }
-    }
+  const last = code.children[code.children.length - 1];
+  if (last?.type === "text" && last.value.endsWith("\n")) {
+    last.value = last.value.slice(0, -1);
   }
-  return out;
+
+  const className = code.properties?.className;
+  const hasLanguage =
+    Array.isArray(className) &&
+    className.some(
+      (name) => typeof name === "string" && name.startsWith("language-"),
+    );
+  // A bare code block has no language to carry, so the `<code>` wrapper is
+  // dropped — Telegram renders fixed-width text from `<pre>` alone and only
+  // honours a language on a nested `<code>`.
+  if (!hasLanguage) {
+    pre.children = code.children;
+  }
+}
+
+function stripTaskListClasses(element: Element): void {
+  const className = element.properties?.className;
+  if (!Array.isArray(className) || !element.properties) return;
+  const kept = className.filter(
+    (name) => name !== "contains-task-list" && name !== "task-list-item",
+  );
+  if (kept.length > 0) {
+    element.properties.className = kept;
+  } else {
+    delete element.properties.className;
+  }
+}
+
+function stripInsignificantWhitespace(node: Root | Element): void {
+  const tag = node.type === "root" ? "root" : node.tagName;
+  if (tag !== "root" && !WHITESPACE_CONTAINERS.has(tag)) return;
+  node.children = node.children.filter(
+    (child) => !(child.type === "text" && child.value.trim().length === 0),
+  ) as Element["children"];
 }
