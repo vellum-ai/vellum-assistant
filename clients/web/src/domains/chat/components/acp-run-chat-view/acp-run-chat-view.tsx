@@ -53,11 +53,7 @@ import { useStickToBottom } from "@/domains/chat/components/acp-run-chat-view/us
 import { AcpAgentIcon } from "@/domains/chat/components/acp-run-inline-card/acp-agent-icon";
 import { StatusBadgePill } from "@/domains/chat/components/status-badge-pill";
 import { steerAcpRun, stopAcpRun } from "@/domains/chat/utils/acp-run-actions";
-import {
-  acpRunStatusColor,
-  acpRunStatusLabel,
-  isActiveAcpStatus,
-} from "@/utils/acp-run-status";
+import { acpRunStatusBadge, isActiveAcpStatus } from "@/utils/acp-run-status";
 import { captureError } from "@/lib/sentry/capture-error";
 
 /** Stable per-block key so React reconciles blocks across streamed re-renders. */
@@ -323,6 +319,10 @@ function ChatViewHeader({
 }) {
   const [stopping, setStopping] = useState(false);
 
+  // Stop-reason-aware so a run cancelled mid-flight (completed + cancelled)
+  // shows "Cancelled", not a green "Completed".
+  const statusBadge = acpRunStatusBadge(entry.status, entry.stopReason);
+
   const handleStop = useCallback(() => {
     setStopping(true);
     void stopAcpRun(entry.acpSessionId).catch((err) => {
@@ -352,10 +352,7 @@ function ChatViewHeader({
       >
         {entry.agent}
       </Typography>
-      <StatusBadgePill
-        color={acpRunStatusColor(entry.status)}
-        label={acpRunStatusLabel(entry.status)}
-      />
+      <StatusBadgePill color={statusBadge.color} label={statusBadge.label} />
       <span className="flex-1" />
       <AcpUsageMeter entry={entry} />
       {isRunning && (

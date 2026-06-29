@@ -133,6 +133,17 @@ describe("AcpRunChatView", () => {
     expect(screen.getByTestId("acp-usage-meter")).toBeDefined();
   });
 
+  test("header badge reads 'Cancelled', not 'Completed', for a run cancelled mid-flight", () => {
+    const e = entry({ status: "completed", stopReason: "cancelled" });
+    seed(e, []);
+
+    render(<AcpRunChatView entry={e} onClose={() => {}} />);
+
+    // The badge previously read the bare status and showed a green "Completed".
+    expect(screen.queryByText("Completed")).toBeNull();
+    expect(screen.getAllByText("Cancelled").length).toBeGreaterThan(0);
+  });
+
   test("renders the agent brand mark in the header", () => {
     const e = entry({ agent: "claude" });
     seed(e, []);
