@@ -617,4 +617,55 @@ describe("VellumAcpClientHandler seq + enriched fields", () => {
     expect(msg.locations).toBeUndefined();
     expect("locations" in msg && msg.locations !== undefined).toBe(false);
   });
+
+  test("tool_call redacts secrets in rawInput/rawOutput before forwarding", async () => {
+    const { handler, sent } = makeHandler();
+
+    // AWS access key id — a high-confidence prefix-based secret pattern.
+    const secret = "AKIAIOSFODNN7REALKEY";
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tc-secret",
+        title: "Configure AWS",
+        kind: "execute",
+        status: "completed",
+        rawInput: { env: { AWS_ACCESS_KEY_ID: secret } },
+        rawOutput: { echoed: `key is ${secret}` },
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    // The raw secret must not survive into the forwarded event, which flows
+    // into the session buffer and the persisted event_log_json.
+    expect(JSON.stringify(sent[0])).not.toContain(secret);
+    const msg = sent[0] as { rawInput?: unknown; rawOutput?: unknown };
+    expect(JSON.stringify(msg.rawInput)).toContain("<redacted");
+    expect(JSON.stringify(msg.rawOutput)).toContain("<redacted");
+  });
+
+  test("tool_call_update redacts secrets in rawInput/rawOutput before forwarding", async () => {
+    const { handler, sent } = makeHandler();
+
+    const secret = "AKIAIOSFODNN7REALKEY";
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tc-secret-update",
+        status: "completed",
+        rawInput: { token: secret },
+        rawOutput: { stdout: secret },
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    expect(JSON.stringify(sent[0])).not.toContain(secret);
+    const msg = sent[0] as { rawInput?: unknown; rawOutput?: unknown };
+    expect(JSON.stringify(msg.rawInput)).toContain("<redacted");
+    expect(JSON.stringify(msg.rawOutput)).toContain("<redacted");
+  });
 });

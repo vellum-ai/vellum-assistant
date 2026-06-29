@@ -33,6 +33,7 @@ import type {
 
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { AcpSessionUpdate } from "../daemon/message-types/acp.js";
+import { redactJsonStringLeaves } from "../security/redact-json.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("acp:client-handler");
@@ -109,6 +110,18 @@ export class VellumAcpClientHandler implements Client {
     }
     if (serialized.length <= CAP_BYTES) return value;
     return `[raw payload omitted: ${serialized.length} bytes exceeds ${CAP_BYTES}-byte cap]`;
+  }
+
+  /**
+   * Redact secrets from a raw tool payload, then cap its size. Redaction runs
+   * first so a leaked credential (API key, token, connection string) can never
+   * reach the forwarded SSE stream, the session buffer, or the persisted
+   * `event_log_json` — matching how the rest of the daemon scrubs tool I/O
+   * before it is logged or stored. `undefined` passes straight through.
+   */
+  private prepareRawPayload(value: unknown): unknown {
+    if (value === undefined) return undefined;
+    return this.capRawPayload(redactJsonStringLeaves(value).value);
   }
 
   /**
@@ -192,10 +205,11 @@ export class VellumAcpClientHandler implements Client {
           // chat/file-diff UI has content to render.
           content: update.content ? JSON.stringify(update.content) : undefined,
           // rawInput/rawOutput are unknown-shaped; forward them structurally
-          // (the SSE layer serializes the message), capped so a single large
-          // payload can't evict real transcript events from the session buffer.
-          rawInput: this.capRawPayload(update.rawInput),
-          rawOutput: this.capRawPayload(update.rawOutput),
+          // (the SSE layer serializes the message) after redacting secrets and
+          // capping size — so leaked credentials never persist and a single
+          // large payload can't evict real transcript events from the buffer.
+          rawInput: this.prepareRawPayload(update.rawInput),
+          rawOutput: this.prepareRawPayload(update.rawOutput),
           locations: mapLocations(update.locations),
         });
         break;
@@ -209,8 +223,8 @@ export class VellumAcpClientHandler implements Client {
           toolKind: update.kind ?? undefined,
           toolStatus: update.status ?? undefined,
           content: update.content ? JSON.stringify(update.content) : undefined,
-          rawInput: this.capRawPayload(update.rawInput),
-          rawOutput: this.capRawPayload(update.rawOutput),
+          rawInput: this.prepareRawPayload(update.rawInput),
+          rawOutput: this.prepareRawPayload(update.rawOutput),
           locations: mapLocations(update.locations),
         });
         break;
