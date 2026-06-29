@@ -75,9 +75,9 @@ let exists = true;
 // getMacHelperPath reads CFBundleExecutable from the bundle's Info.plist to
 // resolve the (per-environment) executable filename. getMacHelperAppPath
 // reads a sidecar (.vellum-mac-helper.bundle-name) to discover the .app
-// folder name — the same pattern, lifted one level. Default bundle name
-// matches the legacy `vellum-mac-helper.app` so tests that don't set it
-// produce the pre-rename path.
+// folder name — the same pattern, lifted one level. The default bundle name
+// is `vellum-mac-helper`, so tests that don't override it resolve the
+// `vellum-mac-helper.app` path.
 let helperExecutableName = "vellum-mac-helper";
 let helperBundleName = "vellum-mac-helper";
 mock.module("node:fs", () => ({

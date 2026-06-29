@@ -84,9 +84,9 @@ BUILD_ARGS+=(
   -Xlinker "$RENDERED_PLIST"
 )
 
-# Legacy layouts (bare binary / old name) — always clear. The .app folder is
-# removed so users upgrading don't keep an orphan bundle on disk; the
-# corresponding TCC row in Settings persists until manually toggled off (or
+# Clear any bare binary / `vellum-mac-helper.app` outputs so a rebuild never
+# leaves an orphan bundle on disk next to the per-env one; the corresponding
+# TCC row in Settings persists until manually toggled off (or
 # `tccutil reset Accessibility ai.vellum.assistant.mac-helper`).
 rm -f "$OUTPUT_DIR/hotkey-helper" "$OUTPUT_DIR/vellum-mac-helper" "$OUTPUT_DIR/Info.plist"
 rm -rf "$OUTPUT_DIR/vellum-mac-helper.app"

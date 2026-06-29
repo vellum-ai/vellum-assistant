@@ -129,7 +129,7 @@ exports.default = async function afterSign(context) {
         helperAppName = discovered.name.replace(/\.app$/, "");
       }
     } catch {
-      // fall through to the legacy hardcoded name
+      // fall through to the default `vellum-mac-helper.app` name
     }
   }
   const helperAppPath = helperAppName
