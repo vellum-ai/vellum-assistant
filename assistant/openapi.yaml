@@ -16563,7 +16563,9 @@ paths:
     get:
       operationId: memory_worker_status_get
       summary: Memory worker status
-      description: Reports the memory worker process state, memory.worker.enabled, and the synchronous in-process runner.
+      description:
+        Reports the memory worker process state, memory.worker.enabled, the synchronous in-process runner, and the
+        embedding-backend status (including a degraded flag and reason when no backend resolves).
       tags:
         - system
       responses:
@@ -16596,10 +16598,41 @@ paths:
                     required:
                       - status
                     additionalProperties: false
+                  embedding:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      degraded:
+                        type: boolean
+                      provider:
+                        anyOf:
+                          - type: string
+                            enum:
+                              - openai
+                              - gemini
+                              - ollama
+                          - type: "null"
+                      model:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      reason:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                    required:
+                      - enabled
+                      - degraded
+                      - provider
+                      - model
+                      - reason
+                    additionalProperties: false
                 required:
                   - status
                   - workerEnabled
                   - syncRunner
+                  - embedding
                 additionalProperties: false
   /v1/memory/worker/stop:
     post:
