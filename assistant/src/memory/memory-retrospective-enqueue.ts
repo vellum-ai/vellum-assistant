@@ -19,10 +19,13 @@ import {
   getConversation,
   getConversationSource,
 } from "../persistence/conversation-crud.js";
+import {
+  isMemoryEnabled,
+  upsertMemoryRetrospectiveJob,
+} from "../persistence/jobs-store.js";
 import { type TrustClass } from "../runtime/actor-trust-resolver.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
 import { getLogger } from "../util/logger.js";
-import { isMemoryEnabled, upsertMemoryRetrospectiveJob } from "./jobs-store.js";
 import { isMemoryRetrospectiveSource } from "./memory-retrospective-constants.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./v2/constants.js";
 

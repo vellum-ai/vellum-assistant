@@ -21,12 +21,12 @@
 //     summary.
 
 import { getConfig } from "../../config/loader.js";
-import { getLogger } from "../../util/logger.js";
-import { applyCorrectionIfCalibrated } from "../anisotropy.js";
 import {
   embedWithBackend,
   generateSparseEmbedding,
-} from "../embedding-backend.js";
+} from "../../persistence/embeddings/embedding-backend.js";
+import { getLogger } from "../../util/logger.js";
+import { applyCorrectionIfCalibrated } from "../anisotropy.js";
 import { buildCliCommandContent } from "./cli-command-content.js";
 import { invalidatePageIndex } from "./page-index.js";
 import {

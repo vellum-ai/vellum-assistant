@@ -37,7 +37,6 @@ import {
   resolveConversationId,
   setConversationKeyIfAbsent,
 } from "../../memory/conversation-key-store.js";
-import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import {
   archiveConversation,
   batchSetDisplayOrders,
@@ -50,6 +49,7 @@ import {
   updateConversationTitle,
   wipeConversation,
 } from "../../persistence/conversation-crud.js";
+import { enqueueMemoryJob } from "../../persistence/jobs-store.js";
 import { deleteSchedule } from "../../schedule/schedule-store.js";
 import { UserError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";

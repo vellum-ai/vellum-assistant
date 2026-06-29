@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 
 import { getDb } from "../../persistence/db-connection.js";
-import { conversationGraphMemoryState } from "../schema.js";
+import { conversationGraphMemoryState } from "../../persistence/schema/index.js";
 
 /**
  * Persist graph memory state for a conversation (upsert).

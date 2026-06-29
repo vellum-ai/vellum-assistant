@@ -10,7 +10,7 @@
 import { and, eq, sql } from "drizzle-orm";
 
 import { getDb } from "../../persistence/db-connection.js";
-import { memoryGraphNodes } from "../schema.js";
+import { memoryGraphNodes } from "../../persistence/schema/index.js";
 import type { EmotionalCharge, Fidelity } from "./types.js";
 
 // ---------------------------------------------------------------------------

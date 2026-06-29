@@ -45,13 +45,13 @@ mock.module("../config/loader.js", () => ({
 // ---------------------------------------------------------------------------
 
 import {
-  linkAttachmentToMessage,
-  uploadAttachment,
-} from "../memory/attachments-store.js";
-import {
   getConversationDirPath,
   syncMessageToDisk,
 } from "../memory/conversation-disk-view.js";
+import {
+  linkAttachmentToMessage,
+  uploadAttachment,
+} from "../persistence/attachments-store.js";
 import {
   addMessage,
   clearAll,

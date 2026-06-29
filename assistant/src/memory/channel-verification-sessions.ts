@@ -9,7 +9,7 @@
 import { and, count, desc, eq, gt, gte, inArray, or } from "drizzle-orm";
 
 import { getDb } from "../persistence/db-connection.js";
-import { channelVerificationSessions } from "./schema.js";
+import { channelVerificationSessions } from "../persistence/schema/index.js";
 
 // ---------------------------------------------------------------------------
 // Types

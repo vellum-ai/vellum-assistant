@@ -2,7 +2,6 @@ import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
 
 import { syncMessageToDisk } from "../../../../memory/conversation-disk-view.js";
-import { getBindingByChannelChat } from "../../../../memory/external-conversation-store.js";
 import {
   createDraft,
   createDraftRaw,
@@ -14,6 +13,7 @@ import {
   addMessage,
   getConversation,
 } from "../../../../persistence/conversation-crud.js";
+import { getBindingByChannelChat } from "../../../../persistence/external-conversation-store.js";
 import type {
   ToolContext,
   ToolExecutionResult,

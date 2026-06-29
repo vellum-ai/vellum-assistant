@@ -9,12 +9,12 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import type { ContextWindowResult } from "../../plugins/defaults/compaction/window-manager.js";
 import {
   ClickHouseCompactionLogStore,
   type CompactionEndEvent,
   type CompactionStartEvent,
-} from "../compaction-log-store-clickhouse.js";
+} from "../../persistence/compaction-log-store-clickhouse.js";
+import type { ContextWindowResult } from "../../plugins/defaults/compaction/window-manager.js";
 
 interface CapturedRequest {
   url: URL;

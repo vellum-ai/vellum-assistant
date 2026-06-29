@@ -22,14 +22,14 @@ import type { ConversationStrategy } from "../channels/config.js";
 import { getConversationStrategy } from "../channels/config.js";
 import type { ChannelId } from "../channels/types.js";
 import {
-  getBindingByChannelChat,
-  upsertOutboundBinding,
-} from "../memory/external-conversation-store.js";
-import {
   addMessage,
   createConversation,
   getConversation,
 } from "../persistence/conversation-crud.js";
+import {
+  getBindingByChannelChat,
+  upsertOutboundBinding,
+} from "../persistence/external-conversation-store.js";
 import { getLogger } from "../util/logger.js";
 import {
   composeConversationSeed,

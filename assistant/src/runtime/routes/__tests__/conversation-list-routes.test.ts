@@ -25,10 +25,10 @@ mock.module("../../assistant-event-hub.js", () => ({
 
 import { findConversation } from "../../../daemon/conversation-registry.js";
 import { rawRun } from "../../../memory/raw-query.js";
-import { conversations } from "../../../memory/schema.js";
 import { createConversation } from "../../../persistence/conversation-crud.js";
 import { getDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
+import { conversations } from "../../../persistence/schema/index.js";
 import { ROUTES as CONVERSATION_LIST_ROUTES } from "../conversation-list-routes.js";
 import { BadRequestError } from "../errors.js";
 import type { RouteDefinition } from "../types.js";

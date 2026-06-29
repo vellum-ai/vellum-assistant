@@ -6,13 +6,13 @@ import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../../persistence/db-connection.js";
-import { enqueueMemoryJob } from "../jobs-store.js";
+import { enqueueMemoryJob } from "../../persistence/jobs-store.js";
 import {
   memoryGraphEdges,
   memoryGraphNodeEdits,
   memoryGraphNodes,
   memoryGraphTriggers,
-} from "../schema.js";
+} from "../../persistence/schema/index.js";
 import type {
   ApplyDiffResult,
   EmotionalCharge,

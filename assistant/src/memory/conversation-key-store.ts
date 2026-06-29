@@ -11,10 +11,13 @@ import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../persistence/db-connection.js";
+import {
+  conversationKeys,
+  conversations,
+} from "../persistence/schema/index.js";
 import { cleanupBootstrapFiles } from "../prompts/bootstrap-cleanup.js";
 import { initConversationDir } from "./conversation-disk-view.js";
 import { GENERATING_TITLE } from "./conversation-title-service.js";
-import { conversationKeys, conversations } from "./schema.js";
 
 /** Set after the first conversation is created so BOOTSTRAP.md is deleted on the second. */
 let firstConversationSeen = false;

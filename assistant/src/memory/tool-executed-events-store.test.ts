@@ -24,8 +24,8 @@ import {
 import { createToolAuditListener } from "../events/tool-audit-listener.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { conversations, toolInvocations } from "../persistence/schema/index.js";
 import type { ToolLifecycleEvent } from "../tools/types.js";
-import { conversations, toolInvocations } from "./schema.js";
 import { queryUnreportedToolExecutedEvents } from "./tool-executed-events-store.js";
 
 await initializeDb();

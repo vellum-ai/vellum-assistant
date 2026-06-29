@@ -2,9 +2,9 @@ import { and, asc, eq, gt, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../persistence/db-connection.js";
+import { skillLoadedEvents } from "../persistence/schema/index.js";
 import { getCachedShareAnalytics } from "../platform/consent-cache.js";
 import type { UsageAttributionColumns } from "../usage/attribution.js";
-import { skillLoadedEvents } from "./schema.js";
 
 /**
  * Input for one `skill_loaded` telemetry event. Metadata only — never skill

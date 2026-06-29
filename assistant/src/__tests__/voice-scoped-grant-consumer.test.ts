@@ -82,7 +82,6 @@ import {
   startVoiceTurn,
 } from "../calls/voice-session-bridge.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import { scopedApprovalGrants } from "../memory/schema.js";
 import {
   _internal,
   type CreateScopedApprovalGrantParams,
@@ -90,6 +89,7 @@ import {
 } from "../memory/scoped-approval-grants.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { scopedApprovalGrants } from "../persistence/schema/index.js";
 
 const { createScopedApprovalGrant } = _internal;
 import type { TrustContext } from "../daemon/trust-context.js";

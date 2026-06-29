@@ -3,6 +3,11 @@ import { and, asc, eq, gt, or } from "drizzle-orm";
 import type { AssistantConfig } from "../../config/types.js";
 import { messageMetadataSchema } from "../../persistence/conversation-crud.js";
 import { getDb } from "../../persistence/db-connection.js";
+import {
+  enqueueMemoryJob,
+  type MemoryJob,
+} from "../../persistence/jobs-store.js";
+import { messages } from "../../persistence/schema/index.js";
 import type { TrustClass } from "../../runtime/actor-trust-resolver.js";
 import {
   readMessageCursorCheckpoint,
@@ -10,8 +15,6 @@ import {
   writeMessageCursorCheckpoint,
 } from "../checkpoints.js";
 import { indexMessageNow } from "../indexer.js";
-import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
-import { messages } from "../schema.js";
 
 const BACKFILL_CHECKPOINT_KEY = "memory:backfill:last_created_at";
 const BACKFILL_CHECKPOINT_ID_KEY = "memory:backfill:last_message_id";

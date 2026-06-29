@@ -23,13 +23,13 @@ import {
   applyRuntimeInjections,
   stripInjectionsForCompaction,
 } from "../daemon/conversation-runtime-assembly.js";
-import { conversations, messages } from "../memory/schema.js";
 import {
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { conversations, messages } from "../persistence/schema/index.js";
 import {
   DEFAULT_INJECTOR_ORDER,
   defaultInjectors,

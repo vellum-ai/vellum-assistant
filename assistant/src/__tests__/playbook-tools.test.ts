@@ -15,7 +15,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 // Stub memory job queue to avoid side effects
-mock.module("../memory/jobs-store.js", () => ({
+mock.module("../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: () => {},
 }));
 

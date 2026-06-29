@@ -26,11 +26,6 @@ import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
 import {
-  embedWithBackend,
-  generateSparseEmbedding,
-  getMemoryBackendStatus,
-} from "../../memory/embedding-backend.js";
-import {
   createNode,
   deleteNode,
   getNode,
@@ -43,11 +38,19 @@ import type {
   MemoryType,
   NewNode,
 } from "../../memory/graph/types.js";
-import { enqueueMemoryJob, isMemoryEnabled } from "../../memory/jobs-store.js";
-import { withQdrantBreaker } from "../../memory/qdrant-circuit-breaker.js";
-import { getQdrantClient } from "../../memory/qdrant-client.js";
-import { memoryGraphNodes } from "../../memory/schema.js";
 import { getDb } from "../../persistence/db-connection.js";
+import {
+  embedWithBackend,
+  generateSparseEmbedding,
+  getMemoryBackendStatus,
+} from "../../persistence/embeddings/embedding-backend.js";
+import { withQdrantBreaker } from "../../persistence/embeddings/qdrant-circuit-breaker.js";
+import { getQdrantClient } from "../../persistence/embeddings/qdrant-client.js";
+import {
+  enqueueMemoryJob,
+  isMemoryEnabled,
+} from "../../persistence/jobs-store.js";
+import { memoryGraphNodes } from "../../persistence/schema/index.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";

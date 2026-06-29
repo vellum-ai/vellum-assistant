@@ -9,7 +9,10 @@
  * and DST transitions.
  */
 
-import type { UsageDayBucket, UsageTimeRange } from "./llm-usage-store.js";
+import type {
+  UsageDayBucket,
+  UsageTimeRange,
+} from "../persistence/llm-usage-store.js";
 
 /** Minimal raw row shape needed for bucketing. */
 export interface UsageEventBucketRow {

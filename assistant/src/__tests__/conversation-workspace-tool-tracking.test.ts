@@ -144,11 +144,11 @@ mock.module("../persistence/conversation-crud.js", () => ({
   updateMessageContent: mock(() => {}),
 }));
 
-mock.module("../memory/conversation-queries.js", () => ({
+mock.module("../persistence/conversation-queries.js", () => ({
   isLastUserMessageToolResult: () => false,
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   uploadAttachment: () => ({ id: "att-1" }),
   linkAttachmentToMessage: () => {},
 }));
@@ -198,7 +198,7 @@ mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   }),
   getSummaryFromContextMessage: () => null,
 }));
-mock.module("../memory/llm-usage-store.js", () => ({
+mock.module("../persistence/llm-usage-store.js", () => ({
   recordUsageEvent: () => ({ id: "usage-1", createdAt: Date.now() }),
 }));
 mock.module("../memory/app-store.js", () => ({

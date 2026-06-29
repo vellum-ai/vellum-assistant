@@ -37,7 +37,6 @@ mock.module("../daemon/identity-helpers.js", () => ({
   getAssistantName: () => mockAssistantName,
 }));
 
-import { messages } from "../memory/schema.js";
 import { writeSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import {
   createConversation,
@@ -46,6 +45,7 @@ import {
 } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { messages } from "../persistence/schema/index.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import {
   _resetStreamStateForTesting,

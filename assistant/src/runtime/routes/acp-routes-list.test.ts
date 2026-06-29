@@ -32,9 +32,9 @@ mock.module("../../acp/index.js", () => ({
 // acp-routes suite) rather than stubbing `db-connection`. A process-global
 // module stub would omit named exports and poison `getDb` for adjacent route
 // tests that call `initializeDb()` in the same Bun invocation.
-import { acpSessionHistory } from "../../memory/schema.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
+import { acpSessionHistory } from "../../persistence/schema/index.js";
 
 await initializeDb();
 

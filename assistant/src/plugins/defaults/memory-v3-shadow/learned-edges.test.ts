@@ -12,8 +12,8 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import * as schema from "../../../memory/schema.js";
 import { migrateAddMemoryV3Selections } from "../../../persistence/migrations/268-add-memory-v3-selections.js";
+import * as schema from "../../../persistence/schema/index.js";
 import {
   computeLearnedEdgeGraph,
   type LearnedEdgesOptions,

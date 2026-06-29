@@ -5,24 +5,24 @@ import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags
 import { getConfig } from "../config/loader.js";
 import type { MemoryConfig } from "../config/types.js";
 import { getDb } from "../persistence/db-connection.js";
+import { selectedBackendSupportsMultimodal } from "../persistence/embeddings/embedding-backend.js";
+import {
+  enqueueMemoryJob,
+  isMemoryEnabled,
+  upsertDebouncedJob,
+} from "../persistence/jobs-store.js";
+import { memorySegments } from "../persistence/schema/index.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { getLogger } from "../util/logger.js";
 import { enqueueAutoAnalysisIfEnabled } from "./auto-analysis-enqueue.js";
 import { isAutoAnalysisConversation } from "./auto-analysis-guard.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
-import { selectedBackendSupportsMultimodal } from "./embedding-backend.js";
-import {
-  enqueueMemoryJob,
-  isMemoryEnabled,
-  upsertDebouncedJob,
-} from "./jobs-store.js";
 import { isMemoryRetrospectiveConversation } from "./memory-retrospective-enqueue.js";
 import { maybeEnqueueRetrospective } from "./memory-retrospective-trigger-check.js";
 import {
   extractMediaBlockMeta,
   extractTextFromStoredMessageContent,
 } from "./message-content.js";
-import { memorySegments } from "./schema.js";
 import { segmentText } from "./segmenter.js";
 
 const log = getLogger("memory-indexer");

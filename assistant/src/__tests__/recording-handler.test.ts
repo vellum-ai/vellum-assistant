@@ -80,7 +80,7 @@ const mockAttachments: Array<{
 }> = [];
 let mockAttachmentIdCounter = 0;
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   attachFileBackedAttachmentToMessage: (
     _messageId: string,
     _position: number,

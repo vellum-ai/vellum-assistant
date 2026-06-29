@@ -90,7 +90,7 @@ mock.module("../memory/conversation-disk-view.js", () => ({
   syncMessageToDisk: syncMessageToDiskMock,
 }));
 
-mock.module("../memory/external-conversation-store.js", () => ({
+mock.module("../persistence/external-conversation-store.js", () => ({
   getBindingByChannelChat: getBindingByChannelChatMock,
 }));
 

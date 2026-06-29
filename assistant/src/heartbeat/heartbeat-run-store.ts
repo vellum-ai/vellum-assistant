@@ -2,8 +2,8 @@ import { desc, eq, lt, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { rawChanges } from "../memory/raw-query.js";
-import { heartbeatRuns } from "../memory/schema.js";
 import { getDb } from "../persistence/db-connection.js";
+import { heartbeatRuns } from "../persistence/schema/index.js";
 
 // ---------------------------------------------------------------------------
 // Types

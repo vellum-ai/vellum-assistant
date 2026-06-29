@@ -41,21 +41,17 @@ import { startHeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
-import {
-  getAttachmentsByIds,
-  getSourcePathsForAttachments,
-} from "../memory/attachments-store.js";
 import { expireAllPendingCanonicalRequests } from "../memory/canonical-guardian-store.js";
-import { selectEmbeddingBackend } from "../memory/embedding-backend.js";
-import { enqueueMemoryJob, isMemoryEnabled } from "../memory/jobs-store.js";
-import { startMemoryJobsWorker } from "../memory/jobs-worker.js";
-import { initQdrantClient, resolveQdrantUrl } from "../memory/qdrant-client.js";
-import { createQdrantManager } from "../memory/qdrant-manager.js";
+import { registerMemoryJobHandlers } from "../memory/register-job-handlers.js";
 import { rotateToolInvocations } from "../memory/tool-usage-store.js";
 import { sweepConceptPageFrontmatter } from "../memory/v2/frontmatter-sweep.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
+import {
+  getAttachmentsByIds,
+  getSourcePathsForAttachments,
+} from "../persistence/attachments-store.js";
 import {
   clearStaleProcessingFlags,
   deleteMessageById,
@@ -63,6 +59,17 @@ import {
 } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { selectEmbeddingBackend } from "../persistence/embeddings/embedding-backend.js";
+import {
+  initQdrantClient,
+  resolveQdrantUrl,
+} from "../persistence/embeddings/qdrant-client.js";
+import { createQdrantManager } from "../persistence/embeddings/qdrant-manager.js";
+import {
+  enqueueMemoryJob,
+  isMemoryEnabled,
+} from "../persistence/jobs-store.js";
+import { startMemoryJobsWorker } from "../persistence/jobs-worker.js";
 import {
   startConsentRefresh,
   stopConsentRefresh,
@@ -936,6 +943,7 @@ export async function runDaemon(): Promise<void> {
     // `memory.worker.enabled` is set. Shutdown stops whichever worker is
     // actually running — see shutdown-handlers.ts.
     log.info("Daemon startup: starting memory worker");
+    registerMemoryJobHandlers();
     startMemoryJobsWorker();
 
     // Seed capability graph nodes (new memory graph system)
@@ -1309,7 +1317,7 @@ export async function runDaemon(): Promise<void> {
   void (async () => {
     try {
       const { EmbeddingRuntimeManager } =
-        await import("../memory/embedding-runtime-manager.js");
+        await import("../persistence/embeddings/embedding-runtime-manager.js");
       const runtimeManager = new EmbeddingRuntimeManager();
       if (!runtimeManager.isReady()) {
         log.info("Downloading embedding runtime in background...");
@@ -1317,7 +1325,7 @@ export async function runDaemon(): Promise<void> {
         // Reset the sticky local-backend failure flag so auto mode retries
         // local embeddings without evicting a worker that may already be live.
         const { resetLocalEmbeddingFailureState } =
-          await import("../memory/embedding-backend.js");
+          await import("../persistence/embeddings/embedding-backend.js");
         resetLocalEmbeddingFailureState();
         log.info("Embedding runtime download complete");
       }

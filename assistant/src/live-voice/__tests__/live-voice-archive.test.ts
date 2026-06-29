@@ -9,11 +9,11 @@ mock.module("../../util/logger.js", () => ({
     }),
 }));
 
+import { rawAll, rawGet, rawRun } from "../../memory/raw-query.js";
 import {
   getAttachmentContent,
   getAttachmentsForMessage,
-} from "../../memory/attachments-store.js";
-import { rawAll, rawGet, rawRun } from "../../memory/raw-query.js";
+} from "../../persistence/attachments-store.js";
 import {
   addMessage,
   createConversation,

@@ -52,7 +52,7 @@ mock.module("../memory-retrospective-enqueue.js", () => ({
     isRetrospective,
 }));
 
-mock.module("../jobs-store.js", () => ({
+mock.module("../../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: (
     type: string,
     payload: Record<string, unknown>,

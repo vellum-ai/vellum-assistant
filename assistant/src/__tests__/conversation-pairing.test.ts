@@ -92,7 +92,7 @@ const upsertOutboundBindingMock = mock(
   }) => {},
 );
 
-mock.module("../memory/external-conversation-store.js", () => ({
+mock.module("../persistence/external-conversation-store.js", () => ({
   getBindingByChannelChat: getBindingByChannelChatMock,
   upsertOutboundBinding: upsertOutboundBindingMock,
 }));

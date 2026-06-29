@@ -29,7 +29,7 @@ mock.module("../config/loader.js", () => ({
 import {
   linkAttachmentToMessage,
   uploadAttachment,
-} from "../memory/attachments-store.js";
+} from "../persistence/attachments-store.js";
 import {
   addMessage,
   createConversation,

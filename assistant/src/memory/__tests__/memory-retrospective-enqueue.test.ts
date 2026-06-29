@@ -28,7 +28,7 @@ mock.module("../../persistence/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../jobs-store.js", () => ({
+mock.module("../../persistence/jobs-store.js", () => ({
   upsertMemoryRetrospectiveJob: (
     payload: { conversationId: string },
     runAfter: number,

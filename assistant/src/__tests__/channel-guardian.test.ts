@@ -130,18 +130,18 @@ import {
   updateSessionDelivery as storeUpdateSessionDelivery,
   updateSessionStatus as _storeUpdateSessionStatus,
 } from "../memory/channel-verification-sessions.js";
-import { upsertBinding as upsertExternalBinding } from "../memory/external-conversation-store.js";
 import {
   getRateLimit,
   recordInvalidAttempt,
   resetRateLimit,
 } from "../memory/guardian-rate-limits.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { upsertBinding as upsertExternalBinding } from "../persistence/external-conversation-store.js";
 import {
   channelVerificationSessions,
   conversations,
-} from "../memory/schema.js";
-import { getDb } from "../persistence/db-connection.js";
-import { initializeDb } from "../persistence/db-init.js";
+} from "../persistence/schema/index.js";
 import {
   bindSessionIdentity as serviceBindSessionIdentity,
   createInboundVerificationSession,

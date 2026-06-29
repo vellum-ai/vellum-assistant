@@ -20,6 +20,8 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
+import { getConversationDirPath } from "../memory/conversation-disk-view.js";
+import { rawGet, rawRun } from "../memory/raw-query.js";
 import {
   AttachmentUploadError,
   deleteAttachment,
@@ -34,9 +36,7 @@ import {
   MAX_UPLOAD_BYTES,
   uploadAttachment,
   validateAttachmentUpload,
-} from "../memory/attachments-store.js";
-import { getConversationDirPath } from "../memory/conversation-disk-view.js";
-import { rawGet, rawRun } from "../memory/raw-query.js";
+} from "../persistence/attachments-store.js";
 import {
   addMessage,
   createConversation,

@@ -19,9 +19,9 @@ mock.module("../platform/consent-cache.js", () => ({
 }));
 
 import { queryUnreportedAuthFallbackEvents } from "../memory/auth-fallback-events-store.js";
-import { authFallbackEvents } from "../memory/schema.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { authFallbackEvents } from "../persistence/schema/index.js";
 import { GATEWAY_PRINCIPALS } from "../runtime/auth/route-policy.js";
 import { RouteError } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/internal-telemetry-routes.js";

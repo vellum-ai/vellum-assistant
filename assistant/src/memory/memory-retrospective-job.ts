@@ -62,15 +62,15 @@ import {
   isConversationProcessing,
   resolveOverrideProfile,
 } from "../persistence/conversation-crud.js";
-import { resolveUserSlug } from "../prompts/persona-resolver.js";
-import type { SystemPromptPersonaOverride } from "../prompts/system-prompt.js";
-import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
-import { getLogger } from "../util/logger.js";
 import {
   enqueueMemoryJob,
   type MemoryJob,
   type MemoryJobType,
-} from "./jobs-store.js";
+} from "../persistence/jobs-store.js";
+import { resolveUserSlug } from "../prompts/persona-resolver.js";
+import type { SystemPromptPersonaOverride } from "../prompts/system-prompt.js";
+import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
+import { getLogger } from "../util/logger.js";
 import {
   MEMORY_RETROSPECTIVE_FORK_SOURCE,
   MEMORY_RETROSPECTIVE_GROUP_ID,

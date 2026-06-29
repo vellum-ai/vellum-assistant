@@ -1,7 +1,7 @@
 import { and, asc, eq, gt, isNotNull, ne, or } from "drizzle-orm";
 
 import { getDb } from "../persistence/db-connection.js";
-import { toolInvocations } from "./schema.js";
+import { toolInvocations } from "../persistence/schema/index.js";
 
 /**
  * A `tool_invocations` audit row projected for `tool_executed` telemetry

@@ -42,7 +42,7 @@ let mockHybridSearchResults: Array<{
   payload: Record<string, unknown>;
 }> = [];
 
-mock.module("../../memory/embedding-backend.js", () => ({
+mock.module("../../persistence/embeddings/embedding-backend.js", () => ({
   getMemoryBackendStatus: async () => mockBackendStatus,
   embedWithBackend: async () => mockEmbedResult,
   generateSparseEmbedding: () => ({
@@ -51,7 +51,7 @@ mock.module("../../memory/embedding-backend.js", () => ({
   }),
 }));
 
-mock.module("../../memory/qdrant-client.js", () => ({
+mock.module("../../persistence/embeddings/qdrant-client.js", () => ({
   getQdrantClient: () => ({
     hybridSearch: async () => [...mockHybridSearchResults],
     searchWithFilter: async () => [...mockHybridSearchResults],
@@ -60,19 +60,22 @@ mock.module("../../memory/qdrant-client.js", () => ({
   resolveQdrantUrl: () => "http://127.0.0.1:6333",
 }));
 
-mock.module("../../memory/qdrant-circuit-breaker.js", () => ({
+mock.module("../../persistence/embeddings/qdrant-circuit-breaker.js", () => ({
   withQdrantBreaker: async (fn: () => Promise<unknown>) => fn(),
 }));
 
 import { eq } from "drizzle-orm";
 
-import { memoryGraphNodes, memoryJobs } from "../../memory/schema.js";
 import {
   getDb,
   getMemoryDb,
   getMemorySqlite,
 } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
+import {
+  memoryGraphNodes,
+  memoryJobs,
+} from "../../persistence/schema/index.js";
 import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
 import { ROUTES } from "./memory-item-routes.js";
 import type { RouteDefinition } from "./types.js";

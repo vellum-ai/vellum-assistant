@@ -9,9 +9,9 @@ import { z } from "zod";
 
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../daemon/trust-context.js";
-import { bootstrapConversation } from "../../memory/conversation-bootstrap.js";
-import { getUsageCostForRun } from "../../memory/llm-usage-store.js";
+import { bootstrapConversation } from "../../persistence/conversation-bootstrap.js";
 import { getConversation } from "../../persistence/conversation-crud.js";
+import { getUsageCostForRun } from "../../persistence/llm-usage-store.js";
 import { validateScheduleInferenceProfile } from "../../schedule/inference-profile.js";
 import {
   describeRRuleExpression,

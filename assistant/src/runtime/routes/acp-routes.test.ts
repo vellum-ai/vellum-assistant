@@ -197,9 +197,9 @@ mock.module("../../runtime/assistant-event-hub.js", () => ({
 
 import { eq } from "drizzle-orm";
 
-import { acpSessionHistory } from "../../memory/schema.js";
 import { getDb, getSqlite } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
+import { acpSessionHistory } from "../../persistence/schema/index.js";
 
 const { ROUTES } = await import("./acp-routes.js");
 

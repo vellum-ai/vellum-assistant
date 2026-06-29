@@ -47,10 +47,6 @@ import { getResolvedConversationDirPath } from "../memory/conversation-directori
 import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
 import { isReplaceableTitle } from "../memory/conversation-title-service.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
-import {
-  backfillMessageIdOnLogs,
-  recordSyntheticAgentErrorMessageLog,
-} from "../memory/llm-request-log-store.js";
 import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
 import {
   addMessage,
@@ -65,6 +61,10 @@ import {
   updateConversationContextWindow,
   updateConversationSlackContextWatermark,
 } from "../persistence/conversation-crud.js";
+import {
+  backfillMessageIdOnLogs,
+  recordSyntheticAgentErrorMessageLog,
+} from "../persistence/llm-request-log-store.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { runHook } from "../plugins/pipeline.js";

@@ -22,17 +22,17 @@ import { getGuardianDeliveryFresh } from "../../../contacts/guardian-delivery-re
 import { getDiskPressureStatus } from "../../../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../../../daemon/disk-pressure-policy.js";
 import {
-  clearPayload,
-  linkMessage,
-  recordInbound,
-} from "../../../memory/delivery-crud.js";
-import { markProcessed } from "../../../memory/delivery-status.js";
-import { upsertBinding } from "../../../memory/external-conversation-store.js";
-import {
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../../../messaging/providers/slack/message-metadata.js";
 import { addMessage } from "../../../persistence/conversation-crud.js";
+import {
+  clearPayload,
+  linkMessage,
+  recordInbound,
+} from "../../../persistence/delivery-crud.js";
+import { markProcessed } from "../../../persistence/delivery-status.js";
+import { upsertBinding } from "../../../persistence/external-conversation-store.js";
 import { getLogger } from "../../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
 import type { ApprovalConversationGenerator } from "../../http-types.js";

@@ -8,7 +8,7 @@ mock.module("../../../../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
 }));
 
-mock.module("../../../../memory/qdrant-client.js", () => ({
+mock.module("../../../../persistence/embeddings/qdrant-client.js", () => ({
   resolveQdrantUrl: () => "http://127.0.0.1:6333",
 }));
 
@@ -31,7 +31,7 @@ const embedState = {
   geminiTaskType: undefined as string | undefined,
   geminiDimensions: undefined as number | undefined,
 };
-mock.module("../../../../memory/embedding-backend.js", () => ({
+mock.module("../../../../persistence/embeddings/embedding-backend.js", () => ({
   getMemoryBackendStatus: async () => ({
     enabled: true,
     degraded: false,
@@ -80,7 +80,7 @@ function cacheKey(k: {
 }): string {
   return `${k.targetType}|${k.targetId}|${k.provider}|${k.model}`;
 }
-mock.module("../../../../memory/embedding-cache.js", () => ({
+mock.module("../../../../persistence/embeddings/embedding-cache.js", () => ({
   readEmbeddingCache: (
     _db: unknown,
     key: {

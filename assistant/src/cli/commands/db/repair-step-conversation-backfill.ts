@@ -28,11 +28,11 @@ import { Database } from "bun:sqlite";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import * as schema from "../../../memory/schema.js";
 import {
   conversations,
   messages,
-} from "../../../memory/schema/conversations.js";
+} from "../../../persistence/schema/conversations.js";
+import * as schema from "../../../persistence/schema/index.js";
 import { getWorkspaceDir } from "../../../util/platform.js";
 import type { RepairContext, RepairStep, StepResult } from "./repair-steps.js";
 

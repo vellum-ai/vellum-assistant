@@ -26,9 +26,9 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { wrapMemoryBlock } from "../../../../memory/memory-marker.js";
-import * as schema from "../../../../memory/schema.js";
 import type { PageIndexEntry } from "../../../../memory/v2/page-index.js";
 import { migrateAddMemoryV3EverInjected } from "../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
+import * as schema from "../../../../persistence/schema/index.js";
 import type {
   ContentBlock,
   Message,

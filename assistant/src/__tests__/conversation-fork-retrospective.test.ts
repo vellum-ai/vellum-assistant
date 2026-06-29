@@ -19,27 +19,16 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-import {
-  getAttachmentsForMessage,
-  linkAttachmentToMessage,
-  uploadAttachment,
-} from "../memory/attachments-store.js";
 import { getConversationDirPath } from "../memory/conversation-disk-view.js";
 import {
   loadGraphMemoryState,
   saveGraphMemoryState,
 } from "../memory/graph/graph-memory-state-store.js";
 import {
-  activationState,
-  channelInboundEvents,
-  conversationAssistantAttentionState,
-  conversationGraphMemoryState,
-  externalConversationBindings,
-  llmRequestLogs,
-  memoryJobs,
-  memoryRetrospectiveState,
-  toolInvocations,
-} from "../memory/schema.js";
+  getAttachmentsForMessage,
+  linkAttachmentToMessage,
+  uploadAttachment,
+} from "../persistence/attachments-store.js";
 import {
   addMessage,
   createConversation,
@@ -54,6 +43,17 @@ import {
   getSqlite,
 } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import {
+  activationState,
+  channelInboundEvents,
+  conversationAssistantAttentionState,
+  conversationGraphMemoryState,
+  externalConversationBindings,
+  llmRequestLogs,
+  memoryJobs,
+  memoryRetrospectiveState,
+  toolInvocations,
+} from "../persistence/schema/index.js";
 
 await initializeDb();
 

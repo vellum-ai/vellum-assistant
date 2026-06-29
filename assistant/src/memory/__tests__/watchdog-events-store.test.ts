@@ -16,7 +16,7 @@ mock.module("../../platform/consent-cache.js", () => ({
 
 import { getTelemetryDb } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
-import { watchdogEvents } from "../schema.js";
+import { watchdogEvents } from "../../persistence/schema/index.js";
 import {
   queryUnreportedWatchdogEvents,
   recordWatchdogEvent,

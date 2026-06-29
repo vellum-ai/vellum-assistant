@@ -24,7 +24,7 @@ import {
   hashToken,
   markInviteExpired,
   recordInviteUse,
-} from "../memory/invite-store.js";
+} from "../persistence/invite-store.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
 import { hashVoiceCode } from "../util/voice-code.js";
@@ -308,7 +308,11 @@ export async function redeemInvite(params: {
     // active member behind.
     try {
       if (
-        !recordInviteUse({ inviteId: invite.id, externalUserId, externalChatId })
+        !recordInviteUse({
+          inviteId: invite.id,
+          externalUserId,
+          externalChatId,
+        })
       ) {
         // Invite revoked/expired between pre-validation and write.
         return { ok: false, reason: "invalid_token" };
@@ -718,7 +722,11 @@ export async function redeemInviteByCode(params: {
     // active member behind.
     try {
       if (
-        !recordInviteUse({ inviteId: invite.id, externalUserId, externalChatId })
+        !recordInviteUse({
+          inviteId: invite.id,
+          externalUserId,
+          externalChatId,
+        })
       ) {
         // Invite revoked/expired between pre-validation and write.
         return { ok: false, reason: "invalid_token" };

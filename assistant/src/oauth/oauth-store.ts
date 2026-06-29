@@ -20,12 +20,12 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { rawChanges } from "../memory/raw-query.js";
+import { getDb } from "../persistence/db-connection.js";
 import {
   oauthApps,
   oauthConnections,
   oauthProviders,
-} from "../memory/schema/oauth.js";
-import { getDb } from "../persistence/db-connection.js";
+} from "../persistence/schema/oauth.js";
 import {
   deleteSecureKeyAsync,
   getSecureKeyAsync,

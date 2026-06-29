@@ -44,16 +44,16 @@ mock.module("../daemon/approval-generators.js", () => ({
   createApprovalConversationGenerator: () => undefined,
 }));
 
+import { getOrCreateConversation } from "../memory/conversation-key-store.js";
+import { resetTestTables } from "../memory/raw-query.js";
 import {
   linkAttachmentToMessage,
   uploadAttachment,
-} from "../memory/attachments-store.js";
-import { getOrCreateConversation } from "../memory/conversation-key-store.js";
-import * as deliveryChannels from "../memory/delivery-channels.js";
-import { resetTestTables } from "../memory/raw-query.js";
+} from "../persistence/attachments-store.js";
 import * as conversationStore from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import * as deliveryChannels from "../persistence/delivery-channels.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { resetDbForTesting } from "./db-test-helpers.js";

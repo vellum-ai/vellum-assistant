@@ -24,9 +24,12 @@ import { and, asc, desc, eq, lt, lte } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../../config/types.js";
 import type { DrizzleDb } from "../../../persistence/db-connection.js";
+import {
+  memoryV2ActivationLogs,
+  messages,
+} from "../../../persistence/schema/index.js";
 import type { ContentBlock } from "../../../providers/types.js";
 import type { MemoryV2ConceptRowRecord } from "../../memory-v2-activation-log-store.js";
-import { memoryV2ActivationLogs, messages } from "../../schema.js";
 import { loadNowText } from "../now-text.js";
 import type { RouterTurnPair } from "../router.js";
 import type { EverInjectedEntry } from "../types.js";

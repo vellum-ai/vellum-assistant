@@ -2,13 +2,16 @@ import { inArray } from "drizzle-orm";
 
 import { getConfig } from "../../config/loader.js";
 import { getDb } from "../../persistence/db-connection.js";
-import { withQdrantBreaker } from "../qdrant-circuit-breaker.js";
+import { withQdrantBreaker } from "../../persistence/embeddings/qdrant-circuit-breaker.js";
 import type {
   QdrantSearchResult,
   QdrantSparseVector,
-} from "../qdrant-client.js";
-import { getQdrantClient } from "../qdrant-client.js";
-import { memorySegments, memorySummaries } from "../schema.js";
+} from "../../persistence/embeddings/qdrant-client.js";
+import { getQdrantClient } from "../../persistence/embeddings/qdrant-client.js";
+import {
+  memorySegments,
+  memorySummaries,
+} from "../../persistence/schema/index.js";
 import { mapCosineToUnit } from "../validation.js";
 // ── Types (inlined from deleted types.ts) ──────────────────────────
 

@@ -17,7 +17,7 @@ import {
   createBookmark,
   deleteBookmarkByMessageId,
   listBookmarks,
-} from "../../memory/bookmark-crud.js";
+} from "../../persistence/bookmark-crud.js";
 import { getMessageById } from "../../persistence/conversation-crud.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { getLogger } from "../../util/logger.js";

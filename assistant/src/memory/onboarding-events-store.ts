@@ -2,6 +2,7 @@ import { and, asc, eq, gt, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../persistence/db-connection.js";
+import { onboardingEvents } from "../persistence/schema/index.js";
 import { getCachedShareAnalytics } from "../platform/consent-cache.js";
 import {
   ACTIVATION_AB_VARIANT,
@@ -9,7 +10,6 @@ import {
   activationStepIndex,
   type ActivationStepName,
 } from "../telemetry/activation-funnel.js";
-import { onboardingEvents } from "./schema.js";
 
 export interface OnboardingEvent {
   id: string;

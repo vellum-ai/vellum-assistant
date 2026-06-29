@@ -37,7 +37,7 @@ mock.module("../../persistence/conversation-crud.js", () => ({
   updateMessageContent: () => {},
 }));
 
-mock.module("../../memory/llm-request-log-store.js", () => ({
+mock.module("../../persistence/llm-request-log-store.js", () => ({
   backfillMessageIdOnLogs: () => {},
   buildProviderErrorResponsePayload: () => ({}),
   recordRequestLog: () => {},

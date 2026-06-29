@@ -20,7 +20,7 @@ const embedAndUpsertCalls: Array<{
   extraPayload: unknown;
 }> = [];
 
-mock.module("../job-utils.js", () => ({
+mock.module("../../persistence/job-utils.js", () => ({
   asString: (value: unknown) =>
     typeof value === "string" && value.length > 0 ? value : null,
   embedAndUpsert: async (
@@ -45,8 +45,8 @@ import { DEFAULT_CONFIG } from "../../config/defaults.js";
 import type { AssistantConfig } from "../../config/types.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
-import type { MemoryJob } from "../jobs-store.js";
-import { mediaAssets } from "../schema.js";
+import type { MemoryJob } from "../../persistence/jobs-store.js";
+import { mediaAssets } from "../../persistence/schema/index.js";
 import { embedMediaJob } from "./embedding.js";
 
 const TEST_CONFIG: AssistantConfig = {

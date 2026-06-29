@@ -72,8 +72,8 @@ mock.module("../../memory/auto-analysis-guard.js", () => ({
     autoAnalysisConversations.has(conversationId),
 }));
 
-const realJobsStore = await import("../../memory/jobs-store.js");
-mock.module("../../memory/jobs-store.js", () => ({
+const realJobsStore = await import("../../persistence/jobs-store.js");
+mock.module("../../persistence/jobs-store.js", () => ({
   ...realJobsStore,
   enqueueMemoryJob: (type: string, payload: Record<string, unknown>) => {
     memoryJobCalls.push({ type, payload });

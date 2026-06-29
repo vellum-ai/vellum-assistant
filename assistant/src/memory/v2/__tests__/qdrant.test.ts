@@ -38,7 +38,7 @@ mock.module("../../../config/loader.js", () => ({
   }),
 }));
 
-mock.module("../../qdrant-client.js", () => ({
+mock.module("../../../persistence/embeddings/qdrant-client.js", () => ({
   resolveQdrantUrl: () => "http://127.0.0.1:6333",
 }));
 

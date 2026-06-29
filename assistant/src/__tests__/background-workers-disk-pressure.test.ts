@@ -173,7 +173,7 @@ mock.module("../memory/conversation-title-service.js", () => ({
 
 const mockFailStalledJobs = mock(() => 0);
 const mockClaimMemoryJobs = mock(() => []);
-mock.module("../memory/jobs-store.js", () => ({
+mock.module("../persistence/jobs-store.js", () => ({
   claimMemoryJobs: mockClaimMemoryJobs,
   completeMemoryJob: mock(() => {}),
   deferMemoryJob: mock(() => "deferred"),
@@ -208,7 +208,7 @@ mock.module("../memory/cleanup-schedule-state.js", () => ({
   markScheduledCleanupEnqueued: mock(() => {}),
 }));
 
-const { runMemoryJobsOnce } = await import("../memory/jobs-worker.js");
+const { runMemoryJobsOnce } = await import("../persistence/jobs-worker.js");
 const { FilingService } = await import("../filing/filing-service.js");
 const { WorkspaceHeartbeatService } =
   await import("../workspace/heartbeat-service.js");

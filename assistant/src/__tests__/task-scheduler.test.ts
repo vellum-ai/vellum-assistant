@@ -85,9 +85,9 @@ mock.module("../tools/registry.js", () => ({
   areCoreToolsInitialized: () => coreToolsReady,
 }));
 
-import { recordUsageEvent } from "../memory/llm-usage-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { recordUsageEvent } from "../persistence/llm-usage-store.js";
 import {
   createSchedule,
   deferClaimedSchedule,

@@ -62,7 +62,7 @@ mock.module("../auto-analysis-guard.js", () => ({
 }));
 
 // Stub the qdrant breaker so `enqueueMemoryJob` doesn't trip on it.
-mock.module("../qdrant-circuit-breaker.js", () => ({
+mock.module("../../persistence/embeddings/qdrant-circuit-breaker.js", () => ({
   isQdrantBreakerOpen: () => false,
   shouldAllowQdrantProbe: () => true,
 }));
@@ -117,7 +117,7 @@ mock.module("../../persistence/db-connection.js", () => ({
 }));
 
 // Now load the real modules under test.
-const { isMemoryEnabled } = await import("../jobs-store.js");
+const { isMemoryEnabled } = await import("../../persistence/jobs-store.js");
 const { enqueueAutoAnalysisIfEnabled } =
   await import("../auto-analysis-enqueue.js");
 const { enqueueMemoryRetrospectiveIfEnabled } =

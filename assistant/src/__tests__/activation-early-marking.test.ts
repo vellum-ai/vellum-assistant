@@ -34,7 +34,7 @@ const { ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE } =
   await import("../telemetry/activation-funnel.js");
 const { getDb } = await import("../persistence/db-connection.js");
 const { initializeDb } = await import("../persistence/db-init.js");
-const { activationSessions } = await import("../memory/schema.js");
+const { activationSessions } = await import("../persistence/schema/index.js");
 
 await initializeDb();
 

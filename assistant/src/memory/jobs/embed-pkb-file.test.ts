@@ -39,8 +39,8 @@ import {
   claimMemoryJobs,
   type MemoryJob,
   type MemoryJobType,
-} from "../jobs-store.js";
-import { memoryJobs } from "../schema.js";
+} from "../../persistence/jobs-store.js";
+import { memoryJobs } from "../../persistence/schema/index.js";
 import { embedPkbFileJob, enqueuePkbIndexJob } from "./embed-pkb-file.js";
 
 const TEST_CONFIG: AssistantConfig = DEFAULT_CONFIG;
