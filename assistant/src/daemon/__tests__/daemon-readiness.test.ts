@@ -17,8 +17,8 @@ describe("daemon-readiness", () => {
     resetReadinessForTest();
   });
 
-  test("defaults are false", () => {
-    expect(isDbReady()).toBe(false);
+  test("defaults to DB ready outside lifecycle", () => {
+    expect(isDbReady()).toBe(true);
     expect(isStartupComplete()).toBe(false);
   });
 
@@ -41,11 +41,11 @@ describe("daemon-readiness", () => {
     expect(isStartupComplete()).toBe(true);
   });
 
-  test("resetReadinessForTest clears both latches", () => {
-    setDbReady(true);
+  test("resetReadinessForTest restores default readiness", () => {
+    setDbReady(false);
     setStartupComplete();
     resetReadinessForTest();
-    expect(isDbReady()).toBe(false);
+    expect(isDbReady()).toBe(true);
     expect(isStartupComplete()).toBe(false);
   });
 });

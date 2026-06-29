@@ -236,6 +236,8 @@ export async function runDaemon(): Promise<void> {
   const signingKey = resolveSigningKey();
   initAuthSigningKey(signingKey);
 
+  setDbMigrating();
+
   // Start the runtime HTTP server early so /healthz answers ASAP. A bind
   // failure is non-fatal — the daemon falls back to IPC-only operation.
   await startRuntimeHttpServer();
@@ -294,7 +296,6 @@ export async function runDaemon(): Promise<void> {
   // downstream best-effort seeding / workspace migrations, while readiness
   // records the failed migration state so /readyz returns 503.
   let dbReady = false;
-  setDbMigrating();
   try {
     const { migrationsOk } = await initializeDb();
     dbReady = true;

@@ -461,6 +461,7 @@ describe("identity routes — /readyz readiness gate", () => {
 
   test("returns 200 before startup and DB readiness", async () => {
     resetReadinessForTest();
+    setDbReady(false);
     const res = handleReadyz();
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;

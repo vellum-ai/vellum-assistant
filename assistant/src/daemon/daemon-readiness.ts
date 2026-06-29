@@ -21,9 +21,8 @@ export type DbMigrationReadiness =
     };
 
 let dbMigrationReadiness: DbMigrationReadiness = {
-  ready: false,
-  state: "not_started",
-  reason: "db_migrations_not_started",
+  ready: true,
+  state: "ready",
 };
 
 export function setDbReady(v: boolean): void {
@@ -74,6 +73,6 @@ export function isStartupComplete(): boolean {
 }
 
 export function resetReadinessForTest(): void {
-  setDbReady(false);
+  setDbReady(true);
   startupComplete = false;
 }
