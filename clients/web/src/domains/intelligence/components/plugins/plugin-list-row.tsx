@@ -45,6 +45,9 @@ export function PluginListRow({
   const updateAvailable = drift?.status === "update-available";
 
   const handleRowKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    // Ignore key events bubbling up from a focused inline action button —
+    // otherwise Enter/Space on Install/Remove/Upgrade would also select the row.
+    if (e.target !== e.currentTarget) return;
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       onSelect();

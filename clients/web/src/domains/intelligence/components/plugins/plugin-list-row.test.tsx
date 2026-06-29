@@ -106,6 +106,25 @@ describe("PluginListRow", () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
+  test("Enter on a focused inline action does not also select the row", () => {
+    const onSelect = mock(() => {});
+    const onRemove = mock(() => {});
+
+    render(
+      <PluginListRow
+        item={makeItem({ status: "installed" })}
+        onSelect={onSelect}
+        onRemove={onRemove}
+      />,
+    );
+
+    // Key events originating on the action button must not bubble into the
+    // row's keydown handler and trigger selection.
+    fireEvent.keyDown(getButton("Remove plugin"), { key: "Enter" });
+
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
   test("update-available drift: upgrade control upgrades without selecting", () => {
     const onSelect = mock(() => {});
     const onUpgrade = mock(() => {});
