@@ -38,8 +38,8 @@ const MEMORY_DIR = join(ASSISTANT_SRC, "memory");
  * These are genuine couplings to the memory *feature* (conversation
  * title/disk-view services, conversation/group migrations, retrospective +
  * v2 state, the graph bootstrap, the conversation-key store, raw-query helpers,
- * usage bucketers, the sparse tokenizer, the job checkpoint/cleanup/worker
- * controls) that the persistence layer still depends on. They violate the
+ * the sparse tokenizer, the job checkpoint/cleanup/worker controls) that the
+ * persistence layer still depends on. They violate the
  * one-way memory → persistence direction and are scheduled for decoupling in a
  * follow-up (move the depended-on feature logic behind a persistence-owned
  * seam, or invert the dependency so memory injects it). Until then they are
@@ -69,11 +69,6 @@ const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
     "memory-retrospective-startup-cleanup",
     "v2/consolidation-job",
     "worker-control",
-  ]),
-  "assistant/src/persistence/llm-usage-store.ts": new Set([
-    "schedule-attribution-sql",
-    "usage-buckets",
-    "usage-grouped-buckets",
   ]),
   "assistant/src/persistence/steps.ts": new Set([
     "app-store",

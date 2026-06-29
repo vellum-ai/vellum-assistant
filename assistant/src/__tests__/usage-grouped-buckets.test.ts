@@ -4,7 +4,7 @@ import {
   bucketGroupedUsageEvents,
   displayUsageGroup,
   stableUsageSeriesGroupKey,
-} from "../memory/usage-grouped-buckets.js";
+} from "../persistence/usage-grouped-buckets.js";
 
 describe("usage grouped buckets", () => {
   test("uses canonical labels for call-site groups and fallbacks", () => {
