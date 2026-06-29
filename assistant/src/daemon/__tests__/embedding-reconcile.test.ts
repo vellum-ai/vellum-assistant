@@ -144,3 +144,171 @@ describe("reconcileEmbeddingIdentity", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Default side-effecting deps: v2-reembed dedup + v3 section-collection gating
+// ---------------------------------------------------------------------------
+//
+// These build the real `defaultDeps` and override ONLY the read primitives +
+// decision so the production side-effecting wiring (config write, collection
+// ensure/recreate, reembed enqueue) runs against mocked collaborator modules —
+// asserting the enqueue dedup and the `isMemoryV3Live` gate on the v3
+// section-collection lifecycle without touching Qdrant, a backend, or config I/O.
+
+/**
+ * Reset and re-install the mocks for the collaborator modules `defaultDeps`
+ * pulls in, then re-import the module under test so its default deps close over
+ * the freshly-mocked collaborators. Returns the spies plus a `defaultDeps`
+ * factory bound to the re-imported module.
+ */
+async function withDefaultDepsMocks(opts: {
+  v3Live: boolean;
+  pendingTypes?: ReadonlyArray<string>;
+}) {
+  const pending = new Set(opts.pendingTypes ?? []);
+  const spies = {
+    enqueueMemoryJob: mock(() => "job-id"),
+    hasActiveJobOfType: mock((type: string) => pending.has(type)),
+    ensureSectionCollection: mock(async () => {}),
+    recreateSectionCollection: mock(async () => {}),
+    ensureConceptPageCollection: mock(async () => ({ migrated: false })),
+    recreateConceptPageCollection: mock(async () => {}),
+  };
+
+  mock.module("../../persistence/jobs-store.js", () => ({
+    enqueueMemoryJob: spies.enqueueMemoryJob,
+    hasActiveJobOfType: spies.hasActiveJobOfType,
+  }));
+  mock.module("../../config/memory-v3-gate.js", () => ({
+    isMemoryV3Live: () => opts.v3Live,
+  }));
+  mock.module("../../memory/v2/qdrant.js", () => ({
+    ensureConceptPageCollection: spies.ensureConceptPageCollection,
+    recreateConceptPageCollection: spies.recreateConceptPageCollection,
+  }));
+  mock.module("../../config/loader.js", () => ({
+    loadRawConfig: () => ({}),
+    saveRawConfig: () => {},
+    setNestedValue: () => {},
+    invalidateConfigCache: () => {},
+  }));
+  mock.module(
+    "../../plugins/defaults/memory/v3/section-dense-store.js",
+    () => ({
+      ensureSectionCollection: spies.ensureSectionCollection,
+      recreateSectionCollection: spies.recreateSectionCollection,
+    }),
+  );
+
+  const mod = await import("../embedding-reconcile.js");
+  return {
+    spies,
+    reconcile: mod.reconcileEmbeddingIdentity,
+    defaultDeps: mod.defaultDeps,
+  };
+}
+
+/** Read-primitive + decision overrides that drive a chosen branch. */
+function driveBranch(
+  decision: ReconcileAction,
+  committedDim: number | null,
+): Partial<ReconcileDeps> {
+  return {
+    probeBackendDimension: mock(async () => ({
+      provider: "gemini" as const,
+      model: "m",
+      dim: 3072,
+    })),
+    readConceptPageCollectionDim: mock(async () => committedDim),
+    decideEmbeddingReconcile: mock(() => decision),
+  };
+}
+
+describe("reconcileEmbeddingIdentity default side-effecting deps", () => {
+  test("v2 reembed enqueue dedups against an already-pending reembed", async () => {
+    const config = fakeConfig("gemini");
+
+    // No pending reembed: enqueues exactly once.
+    const first = await withDefaultDepsMocks({ v3Live: false });
+    await first.reconcile(config, {
+      ...first.defaultDeps(config),
+      ...driveBranch({ kind: "commit-fresh", dim: 3072 }, null),
+    });
+    expect(first.spies.enqueueMemoryJob).toHaveBeenCalledTimes(1);
+    expect(first.spies.enqueueMemoryJob).toHaveBeenCalledWith(
+      "memory_v2_reembed",
+      {},
+    );
+
+    // A reembed is already pending: a second reconcile must not enqueue again.
+    const second = await withDefaultDepsMocks({
+      v3Live: false,
+      pendingTypes: ["memory_v2_reembed"],
+    });
+    await second.reconcile(config, {
+      ...second.defaultDeps(config),
+      ...driveBranch({ kind: "commit-fresh", dim: 3072 }, null),
+    });
+    expect(second.spies.enqueueMemoryJob).toHaveBeenCalledTimes(0);
+  });
+
+  test("commit-fresh skips the v3 section ensure when v3 is not live", async () => {
+    const config = fakeConfig("gemini");
+    const { spies, reconcile, defaultDeps } = await withDefaultDepsMocks({
+      v3Live: false,
+    });
+
+    await reconcile(config, {
+      ...defaultDeps(config),
+      ...driveBranch({ kind: "commit-fresh", dim: 3072 }, null),
+    });
+
+    expect(spies.ensureConceptPageCollection).toHaveBeenCalledTimes(1);
+    expect(spies.ensureSectionCollection).toHaveBeenCalledTimes(0);
+  });
+
+  test("commit-fresh ensures the v3 section collection when v3 is live", async () => {
+    const config = fakeConfig("gemini");
+    const { spies, reconcile, defaultDeps } = await withDefaultDepsMocks({
+      v3Live: true,
+    });
+
+    await reconcile(config, {
+      ...defaultDeps(config),
+      ...driveBranch({ kind: "commit-fresh", dim: 3072 }, null),
+    });
+
+    expect(spies.ensureConceptPageCollection).toHaveBeenCalledTimes(1);
+    expect(spies.ensureSectionCollection).toHaveBeenCalledTimes(1);
+  });
+
+  test("migrate skips the v3 section recreate when v3 is not live", async () => {
+    const config = fakeConfig("gemini");
+    const { spies, reconcile, defaultDeps } = await withDefaultDepsMocks({
+      v3Live: false,
+    });
+
+    await reconcile(config, {
+      ...defaultDeps(config),
+      ...driveBranch({ kind: "migrate", fromDim: 384, toDim: 3072 }, 384),
+    });
+
+    expect(spies.recreateConceptPageCollection).toHaveBeenCalledTimes(1);
+    expect(spies.recreateSectionCollection).toHaveBeenCalledTimes(0);
+  });
+
+  test("migrate recreates the v3 section collection when v3 is live", async () => {
+    const config = fakeConfig("gemini");
+    const { spies, reconcile, defaultDeps } = await withDefaultDepsMocks({
+      v3Live: true,
+    });
+
+    await reconcile(config, {
+      ...defaultDeps(config),
+      ...driveBranch({ kind: "migrate", fromDim: 384, toDim: 3072 }, 384),
+    });
+
+    expect(spies.recreateConceptPageCollection).toHaveBeenCalledTimes(1);
+    expect(spies.recreateSectionCollection).toHaveBeenCalledTimes(1);
+  });
+});
