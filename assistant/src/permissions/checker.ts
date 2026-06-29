@@ -681,14 +681,14 @@ export async function classifyRisk(
 // prompt. The grant resolves these tools to ALLOW non-interactively, and ONLY
 // when all of these hold:
 //   - procedural-memory-as-skills is active (`policyContext.procToSkillsActive`,
-//     precomputed by buildPolicyContext: the flag is on AND memory-v3 is live),
+//     precomputed by buildPolicyContext: memory-v3 is live),
 //   - the turn is the retrospective background source — guardian trust, `vellum`
 //     source channel, `memory_retrospective` origin (set in
 //     memory-retrospective-job.ts).
 //
 // The grant is intentionally narrow: it matches exactly these tools AND the
-// retrospective origin under the active flag, so no interactive session, other
-// origin, or feature-off install is affected.
+// retrospective origin on a v3-live assistant, so no interactive session, other
+// origin, or non-v3-live install is affected.
 const SKILL_MANAGEMENT_SKILL_ID = "skill-management";
 
 function isRetrospectiveSkillAuthoringGrant(

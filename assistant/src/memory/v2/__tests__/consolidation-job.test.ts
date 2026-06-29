@@ -122,20 +122,13 @@ mock.module("../../../config/assistant-feature-flags.js", () => ({
 // driving live through `flagStates["memory-v3-live"]` (and `v3FlagOn` toggles
 // it alongside shadow for the existing on/off tests).
 const procToSkillsLive = () => flagStates["memory-v3-live"] ?? v3FlagOn;
-const procToSkillsFlagOn = () =>
-  flagStates["procedural-memory-as-skills"] ?? false;
 mock.module("../../../config/memory-v3-gate.js", () => ({
   isMemoryV3Live: () => procToSkillsLive(),
-  // Proc-to-skills is gated by the `procedural-memory-as-skills` assistant flag
-  // (default off). Drive it through `flagStates` so suites can flip it the same
-  // way they flip the other gates, while existing cases keep the default-off
-  // shape.
-  isProcToSkillsEnabled: () => procToSkillsFlagOn(),
-  // Active = flag on AND v3 live. The retrospective skill-authoring step and its
-  // skill-authoring grant gate on this combined predicate, so drive it from the
-  // same flag slots. (The v2 consolidation job itself only reads
-  // `isMemoryV3Live`; these are mocked to satisfy the module shape.)
-  isProcToSkillsActive: () => procToSkillsFlagOn() && procToSkillsLive(),
+  // Active whenever v3 is live. The retrospective skill-authoring step and its
+  // skill-authoring grant gate on this predicate. (The v2 consolidation job
+  // itself only reads `isMemoryV3Live`; this is mocked to satisfy the module
+  // shape.)
+  isProcToSkillsActive: () => procToSkillsLive(),
 }));
 
 // ── Workspace pin ───────────────────────────────────────────────────

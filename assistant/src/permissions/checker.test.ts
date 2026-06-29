@@ -42,7 +42,6 @@ mock.module("../config/assistant-feature-flags.js", () => ({
 let mockProcToSkillsActive = true;
 mock.module("../config/memory-v3-gate.js", () => ({
   isProcToSkillsActive: () => mockProcToSkillsActive,
-  isProcToSkillsEnabled: () => mockProcToSkillsActive,
   isMemoryV3Live: () => mockProcToSkillsActive,
 }));
 
