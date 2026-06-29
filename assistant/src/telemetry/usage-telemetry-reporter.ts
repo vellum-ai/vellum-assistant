@@ -19,8 +19,6 @@ import {
   setMemoryCheckpoint,
 } from "../memory/checkpoints.js";
 import { queryUnreportedOnboardingEvents } from "../memory/onboarding-events-store.js";
-import { queryUnreportedSkillLoadedEvents } from "../memory/skill-loaded-events-store.js";
-import { queryUnreportedToolExecutedEvents } from "../memory/tool-executed-events-store.js";
 import { queryUnreportedTurnEvents } from "../memory/turn-events-store.js";
 import {
   assembleBoundedTurnTrace,
@@ -44,6 +42,8 @@ import {
   type ActivationStepName,
   buildActivationDaemonEventId,
 } from "./activation-funnel.js";
+import { queryUnreportedSkillLoadedEvents } from "./skill-loaded-events-store.js";
+import { queryUnreportedToolExecutedEvents } from "./tool-executed-events-store.js";
 import { isDiagnosticsConsentVersionEligible } from "./trace-collection-policy.js";
 import type { TelemetryEvent, TurnTelemetryClientInfo } from "./types.js";
 

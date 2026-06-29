@@ -6,7 +6,7 @@
 
 import { z } from "zod";
 
-import { getTraceEvents } from "../../memory/trace-event-store.js";
+import { getTraceEvents } from "../../telemetry/trace-event-store.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";

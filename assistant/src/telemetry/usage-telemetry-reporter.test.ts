@@ -225,7 +225,6 @@ import {
   type ToolInvocationSeedSpec,
 } from "../__tests__/test-support/tool-invocation-seed.js";
 import { recordAuthFallbackCounts } from "../memory/auth-fallback-events-store.js";
-import { recordSkillLoadedEvent } from "../memory/skill-loaded-events-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {
@@ -239,6 +238,7 @@ import {
   ACTIVATION_FUNNEL_VERSION,
   buildActivationDaemonEventId,
 } from "./activation-funnel.js";
+import { recordSkillLoadedEvent } from "./skill-loaded-events-store.js";
 import { UsageTelemetryReporter } from "./usage-telemetry-reporter.js";
 
 await initializeDb();

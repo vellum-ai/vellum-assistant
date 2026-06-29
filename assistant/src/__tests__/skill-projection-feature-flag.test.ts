@@ -231,7 +231,7 @@ mock.module("../skills/catalog-cache.js", () => ({
 mock.module("../skills/install-meta.js", () => ({
   readInstallMeta: () => null,
 }));
-mock.module("../memory/skill-loaded-events-store.js", () => ({
+mock.module("../telemetry/skill-loaded-events-store.js", () => ({
   recordSkillLoadedEvent: () => {},
 }));
 
