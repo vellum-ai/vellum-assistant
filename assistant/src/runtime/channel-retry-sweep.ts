@@ -423,6 +423,7 @@ export async function sweepFailedEvents(
         assistantId,
         {
           messageId: replyMessageId,
+          sinceMessageId: event.messageId ?? undefined,
           startFromSegment: event.deliveredSegmentCount,
           onSegmentDelivered: (count) =>
             updateDeliveredSegmentCount(event.id, count),

@@ -355,13 +355,31 @@ export async function deliverReplyViaCallback(
         `Target assistant reply message not found: ${options.messageId}`,
       );
     }
-    await deliverPersistedAssistantMessageViaCallback(
+    const delivered = await deliverPersistedAssistantMessageViaCallback(
       msg,
       externalChatId,
       callbackUrl,
       assistantId,
       options,
     );
+    if (!delivered && options.sinceMessageId) {
+      const replyMessageId = findAssistantReplyMessageIdForTurn(
+        conversationId,
+        options.sinceMessageId,
+      );
+      if (replyMessageId && replyMessageId !== options.messageId) {
+        const fallbackMsg = getMessageById(replyMessageId, conversationId);
+        if (fallbackMsg && fallbackMsg.role === "assistant") {
+          await deliverPersistedAssistantMessageViaCallback(
+            fallbackMsg,
+            externalChatId,
+            callbackUrl,
+            assistantId,
+            options,
+          );
+        }
+      }
+    }
     return;
   }
 

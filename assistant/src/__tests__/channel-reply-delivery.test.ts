@@ -398,6 +398,71 @@ describe("channel-reply-delivery", () => {
     expect(deliveryCalls[0].payload.text).toBe("Current answer.");
   });
 
+  it("falls back to current-turn assistant text when an explicit final assistant row is empty", async () => {
+    conversationMessages.push(
+      { id: "msg-old-user", role: "user", content: "old prompt" },
+      {
+        id: "msg-old-assistant",
+        role: "assistant",
+        content: '[{"type":"text","text":"old answer"}]',
+      },
+      { id: "msg-current-user", role: "user", content: "current prompt" },
+      {
+        id: "msg-current-text",
+        role: "assistant",
+        content: '[{"type":"text","text":"current answer before tool"}]',
+      },
+      {
+        id: "msg-current-tool-result",
+        role: "user",
+        content: '[{"type":"tool_result","tool_use_id":"tu-1","content":"ok"}]',
+      },
+      {
+        id: "msg-current-empty-final",
+        role: "assistant",
+        content: "[]",
+      },
+    );
+    const emptyRendered = {
+      text: "",
+      textSegments: [],
+      toolCalls: [],
+      toolCallsBeforeText: false,
+      contentOrder: [],
+      surfaces: [],
+      thinkingSegments: [],
+    };
+    const textRendered = {
+      text: "Current answer before tool.",
+      textSegments: ["Current answer before tool."],
+      toolCalls: [],
+      toolCallsBeforeText: false,
+      contentOrder: ["text:0"],
+      surfaces: [],
+      thinkingSegments: [],
+    };
+    renderedHistoryContentQueue.push(
+      emptyRendered,
+      emptyRendered,
+      textRendered,
+      textRendered,
+    );
+
+    await deliverReplyViaCallback(
+      "conv-1",
+      "chat-current",
+      "http://gateway/deliver/slack",
+      "assistant-current",
+      {
+        messageId: "msg-current-empty-final",
+        sinceMessageId: "msg-current-user",
+      },
+    );
+
+    expect(deliveryCalls).toHaveLength(1);
+    expect(deliveryCalls[0].payload.text).toBe("Current answer before tool.");
+  });
+
   it("does not cross the current user boundary when no current-turn assistant text exists", async () => {
     conversationMessages.push(
       { id: "msg-old-user", role: "user", content: "old prompt" },

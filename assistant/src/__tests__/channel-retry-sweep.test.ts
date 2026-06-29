@@ -15,6 +15,7 @@ const deliveryCalls: Array<{
   callbackUrl: string;
   assistantId?: string;
   messageId?: string;
+  sinceMessageId?: string;
   startFromSegment?: number;
   messageTs?: string;
 }> = [];
@@ -38,6 +39,7 @@ mock.module("../runtime/channel-reply-delivery.js", () => ({
     assistantId?: string,
     options?: {
       messageId?: string;
+      sinceMessageId?: string;
       startFromSegment?: number;
       messageTs?: string;
     },
@@ -50,6 +52,9 @@ mock.module("../runtime/channel-reply-delivery.js", () => ({
       messageId: options?.messageId,
       startFromSegment: options?.startFromSegment,
     };
+    if (options?.sinceMessageId !== undefined) {
+      call.sinceMessageId = options.sinceMessageId;
+    }
     if (options?.messageTs !== undefined) {
       call.messageTs = options.messageTs;
     }
@@ -542,6 +547,7 @@ describe("channel-retry-sweep", () => {
         callbackUrl: "https://example.test/deliver/slack",
         assistantId: undefined,
         messageId: "assistant-live-retry-final",
+        sinceMessageId: "user-live-retry",
         startFromSegment: 2,
       },
     ]);
@@ -631,6 +637,7 @@ describe("channel-retry-sweep", () => {
         callbackUrl: "https://example.test/deliver/slack",
         assistantId: undefined,
         messageId: "assistant-live-retry-same-reply",
+        sinceMessageId: "user-live-retry-same-reply",
         startFromSegment: 1,
         messageTs: "1700000000.000044",
       },
@@ -727,6 +734,7 @@ describe("channel-retry-sweep", () => {
         callbackUrl: "https://example.test/deliver/slack",
         assistantId: undefined,
         messageId: "assistant-live-retry-final-fails",
+        sinceMessageId: "user-live-retry-final-fails",
         startFromSegment: 1,
         messageTs: "1700000000.000055",
       },
@@ -870,6 +878,7 @@ describe("channel-retry-sweep", () => {
         callbackUrl: "https://example.test/deliver/telegram",
         assistantId: "assistant-1",
         messageId: "assistant-delivery-fallback",
+        sinceMessageId: "user-delivery-fallback",
         startFromSegment: 0,
       },
     ]);
@@ -877,5 +886,76 @@ describe("channel-retry-sweep", () => {
       row?.rawPayload ? JSON.parse(row.rawPayload).replyMessageId : undefined,
     ).toBe("assistant-delivery-fallback");
     expect(row?.deliveryStatus).toBe("delivered");
+  });
+
+  test("delivery retry passes linked user id when stored reply id is a final empty assistant row", async () => {
+    const inbound = deliveryCrud.recordInbound(
+      "telegram",
+      "chat-delivery-empty-final",
+      "msg-delivery-empty-final",
+    );
+    deliveryCrud.storePayload(inbound.eventId, {
+      content: "already processed",
+      sourceChannel: "telegram",
+      interface: "telegram",
+      externalChatId: "chat-delivery-empty-final",
+      replyCallbackUrl: "https://example.test/deliver/telegram",
+      assistantId: "assistant-1",
+      replyMessageId: "assistant-empty-final",
+    });
+
+    const db = getDb();
+    db.insert(messages)
+      .values([
+        {
+          id: "user-delivery-empty-final",
+          conversationId: inbound.conversationId,
+          role: "user",
+          content: JSON.stringify([
+            { type: "text", text: "already processed" },
+          ]),
+          createdAt: 1_000,
+        },
+        {
+          id: "assistant-visible-before-tool",
+          conversationId: inbound.conversationId,
+          role: "assistant",
+          content: JSON.stringify([{ type: "text", text: "visible reply" }]),
+          createdAt: 1_001,
+        },
+        {
+          id: "assistant-empty-final",
+          conversationId: inbound.conversationId,
+          role: "assistant",
+          content: JSON.stringify([]),
+          createdAt: 1_002,
+        },
+      ])
+      .run();
+    deliveryCrud.linkMessage(inbound.eventId, "user-delivery-empty-final");
+    db.update(channelInboundEvents)
+      .set({
+        processingStatus: "processed",
+        deliveryStatus: "failed",
+        retryAfter: Date.now() - 1,
+      })
+      .where(eq(channelInboundEvents.id, inbound.eventId))
+      .run();
+
+    await sweepFailedEvents(async () => {
+      throw new Error("processMessage should not be called");
+    });
+
+    expect(deliveryCalls).toEqual([
+      {
+        conversationId: inbound.conversationId,
+        externalChatId: "chat-delivery-empty-final",
+        callbackUrl: "https://example.test/deliver/telegram",
+        assistantId: "assistant-1",
+        messageId: "assistant-empty-final",
+        sinceMessageId: "user-delivery-empty-final",
+        startFromSegment: 0,
+      },
+    ]);
   });
 });
