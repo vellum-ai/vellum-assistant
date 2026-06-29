@@ -939,6 +939,8 @@ When you do capture a procedure:
 
 2. Capture procedure-scoped knowledge alongside the body. Failure modes, gotchas, and cached values you observed in the trace (error signatures and how you recovered, preconditions, IDs/paths/endpoints that held steady) belong in companion files passed via \`scaffold_managed_skill\`'s \`files\` input (for example \`references/failure-modes.md\`), and the SKILL.md body should reference them so a future load surfaces them.
 
+3. Set \`category\` to the single best-fitting value from browsing, calendar, commerce, content, development, email, health, integrations, messaging, productivity, system, voice — only invent a new lowercase category if none fit — so the skill lands in the right Skills-UI bucket.
+
 Ordinary facts still go through \`remember\` (unlinked) exactly as above — skills are for executed, reusable procedures, not for facts.
 `;
 }

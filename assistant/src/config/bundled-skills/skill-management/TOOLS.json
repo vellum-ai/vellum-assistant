@@ -29,6 +29,10 @@
             "type": "string",
             "description": "Optional emoji icon for the skill."
           },
+          "category": {
+            "type": "string",
+            "description": "Optional single lowercase category for grouping the skill in the Skills UI sidebar. Choose the best fit from: browsing, calendar, commerce, content, development, email, health, integrations, messaging, productivity, system, voice. Only coin a new lowercase category if none fit."
+          },
           "overwrite": {
             "type": "boolean",
             "description": "Whether to overwrite an existing skill with the same ID (default: false)."

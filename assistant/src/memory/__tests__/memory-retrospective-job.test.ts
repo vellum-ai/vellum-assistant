@@ -1528,6 +1528,10 @@ describe("memoryRetrospectiveJob", () => {
     expect(instructionText).toContain("references/failure-modes.md");
     expect(instructionText).toContain("`files`");
 
+    // Category directive: pick the best-fitting canonical Skills-UI bucket.
+    expect(instructionText).toContain("`category`");
+    expect(instructionText).toContain("Skills-UI bucket");
+
     // Ownership directive: only overwrite/refine your own skills; skip
     // (don't shadow or duplicate) a match of any other source.
     expect(instructionText).toContain(

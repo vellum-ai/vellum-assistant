@@ -107,6 +107,7 @@ interface BuildSkillMarkdownInput {
   bodyMarkdown: string;
   emoji?: string;
   includes?: string[];
+  category?: string;
 }
 
 export function buildSkillMarkdown(input: BuildSkillMarkdownInput): string {
@@ -130,6 +131,11 @@ export function buildSkillMarkdown(input: BuildSkillMarkdownInput): string {
   }
   if (input.includes && input.includes.length > 0) {
     vellum.includes = input.includes;
+  }
+  // The web Skills UI groups skills into a category sidebar by this value;
+  // skip it when blank so an empty bucket assignment never lands in frontmatter.
+  if (input.category?.trim()) {
+    vellum.category = input.category.trim();
   }
 
   if (Object.keys(vellum).length > 0) {
@@ -174,6 +180,7 @@ interface CreateManagedSkillParams {
   emoji?: string;
   overwrite?: boolean;
   includes?: string[];
+  category?: string;
   version?: string;
   contactId?: string;
   author?: "assistant" | "user";
@@ -255,6 +262,7 @@ export function createManagedSkill(
     bodyMarkdown: params.bodyMarkdown,
     emoji: params.emoji,
     includes: params.includes,
+    category: params.category,
   });
 
   mkdirSync(skillDir, { recursive: true });
