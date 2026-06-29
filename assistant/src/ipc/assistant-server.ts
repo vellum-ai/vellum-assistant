@@ -630,15 +630,23 @@ export class AssistantIpcServer {
  * request) are preserved — we only fill in the gap for direct CLI/local
  * IPC callers.
  */
-function injectLocalActorHeader(
+export function injectLocalActorHeader(
   params: Record<string, unknown> | undefined,
 ): RouteHandlerArgs {
   const args = (params ?? {}) as RouteHandlerArgs;
   const existingHeaders = args.headers;
+  const forwardedPrincipal = existingHeaders?.["x-vellum-principal-type"] as
+    | PrincipalType
+    | undefined;
+  // A gateway-proxied request carries `x-vellum-proxy-server: ipc` (forwarded
+  // as an `x-vellum-*` header); a direct CLI on the local IPC socket never
+  // sends it. Default to `local` ONLY for genuinely-direct callers — a proxied
+  // request with no verified principal (e.g. `runtimeProxyRequireAuth`
+  // disabled) is remote: it resolves to `svc_gateway` (matching the gateway's
+  // HTTP proxy path), never `local`.
+  const isGatewayProxied = existingHeaders?.["x-vellum-proxy-server"] === "ipc";
   const principalType: PrincipalType =
-    (existingHeaders?.["x-vellum-principal-type"] as
-      | PrincipalType
-      | undefined) ?? "local";
+    forwardedPrincipal ?? (isGatewayProxied ? "svc_gateway" : "local");
 
   if (existingHeaders?.["x-vellum-actor-principal-id"]) {
     return { ...args, principalType };
