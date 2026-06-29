@@ -40,7 +40,10 @@ import {
   executeAuthenticatedCommand,
   type CommandExecutorDeps,
   type ExecuteCommandRequest,
+  type MaterializeCredentialResult,
 } from "./commands/executor.js";
+
+import type { ManagedOptionsPair } from "./managed-lazy-getters.js";
 
 import { validateContainedPath } from "./commands/workspace.js";
 
@@ -54,20 +57,43 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
- * Mutable reference to the current session ID. Allows handlers that are
- * registered before the RPC handshake to read the actual handshake session
- * ID at call time (after the handshake completes and sets `.current`).
+ * Per-connection session context.
+ *
+ * Each accepted connection owns one `SessionContext`. It is created empty when
+ * the server is constructed, populated when that connection completes its
+ * handshake, and updated by `update_managed_credential`. Handlers receive it
+ * as their second argument and read identity from it at call time — so a
+ * handler registry that is shared across connections still resolves each call
+ * against the originating connection's identity rather than process-global
+ * state.
  */
-export interface SessionIdRef {
-  current: string;
+export interface SessionContext {
+  /** The RPC session ID negotiated at handshake. */
+  sessionId: string;
+  /**
+   * Assistant API key forwarded by this connection (via the handshake or a
+   * later `update_managed_credential`). Empty string when absent — managed
+   * materialization then falls back to the env key or fails closed, never
+   * inheriting another connection's key.
+   */
+  assistantApiKey: string;
+  /**
+   * Platform assistant ID forwarded by this connection. Empty string when
+   * absent — managed materialization fails closed rather than reusing a stale
+   * ID.
+   */
+  assistantId: string;
 }
 
 /**
- * Handler function for a single RPC method. Receives the validated
- * request payload and returns the response payload (or throws).
+ * Handler function for a single RPC method. Receives the validated request
+ * payload and the originating connection's `SessionContext`, and returns the
+ * response payload (or throws). Handlers that don't need identity may omit the
+ * second parameter.
  */
 export type RpcMethodHandler<TReq = unknown, TRes = unknown> = (
   request: TReq,
+  ctx: SessionContext,
 ) => Promise<TRes> | TRes;
 
 /**
@@ -112,7 +138,16 @@ export class CesRpcServer {
   private readonly onHandshakeComplete?: (sessionId: string, assistantApiKey?: string, assistantId?: string) => void;
 
   private handshakeComplete = false;
-  private sessionId: string | null = null;
+  /**
+   * This connection's session context. The object identity is stable for the
+   * life of the server and passed by reference to every handler; its fields are
+   * mutated on handshake and on `update_managed_credential`.
+   */
+  private readonly sessionContext: SessionContext = {
+    sessionId: "",
+    assistantApiKey: "",
+    assistantId: "",
+  };
   private buffer = "";
   private closed = false;
 
@@ -124,15 +159,27 @@ export class CesRpcServer {
     this.signal = options.signal;
     this.onHandshakeComplete = options.onHandshakeComplete;
 
-    // Auto-register the update_managed_credential handler if a callback is provided.
-    if (options.onApiKeyUpdate) {
-      const onUpdate = options.onApiKeyUpdate;
-      this.handlers[CesRpcMethod.UpdateManagedCredential] = (request: unknown) => {
-        const { assistantApiKey, assistantId } = request as { assistantApiKey: string; assistantId?: string };
-        onUpdate(assistantApiKey, assistantId);
-        return { updated: true };
+    // Always register the update_managed_credential handler. It updates the
+    // calling connection's SessionContext in place — so a handler registry
+    // shared across connections still routes the update to the right
+    // connection — then invokes the optional observational callback. The
+    // update fully overwrites the credential fields, including clearing them
+    // when a value is absent, so a reprovisioned connection can never keep
+    // materializing with stale credentials (fail closed).
+    const onUpdate = options.onApiKeyUpdate;
+    this.handlers[CesRpcMethod.UpdateManagedCredential] = (
+      request: unknown,
+      ctx: SessionContext,
+    ) => {
+      const { assistantApiKey, assistantId } = request as {
+        assistantApiKey: string;
+        assistantId?: string;
       };
-    }
+      ctx.assistantApiKey = assistantApiKey ?? "";
+      ctx.assistantId = assistantId ?? "";
+      onUpdate?.(assistantApiKey, assistantId);
+      return { updated: true };
+    };
   }
 
   /**
@@ -187,7 +234,7 @@ export class CesRpcServer {
 
   /** The session ID established during handshake (null before handshake). */
   get currentSessionId(): string | null {
-    return this.sessionId;
+    return this.sessionContext.sessionId || null;
   }
 
   /** Shut down the server gracefully, destroying transport streams. */
@@ -270,7 +317,12 @@ export class CesRpcServer {
 
     if (accepted) {
       this.handshakeComplete = true;
-      this.sessionId = req.sessionId;
+      // Populate this connection's SessionContext. Credential fields fall back
+      // to "" when absent so managed materialization fails closed (or uses the
+      // env key) rather than inheriting another connection's credentials.
+      this.sessionContext.sessionId = req.sessionId;
+      this.sessionContext.assistantApiKey = req.assistantApiKey ?? "";
+      this.sessionContext.assistantId = req.assistantId ?? "";
       this.logger.log(`[ces-server] Handshake accepted for session ${req.sessionId}`);
       this.onHandshakeComplete?.(req.sessionId, req.assistantApiKey, req.assistantId);
     } else {
@@ -320,7 +372,7 @@ export class CesRpcServer {
     }
 
     try {
-      const result = await handler(validatedPayload);
+      const result = await handler(validatedPayload, this.sessionContext);
       this.sendRpcResponse(envelope, result);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -371,19 +423,44 @@ export class CesRpcServer {
 // ---------------------------------------------------------------------------
 
 /**
+ * HTTP executor dependencies that are shared across all connections — i.e.
+ * everything except the per-connection fields (`sessionId` and the managed
+ * options), which are supplied per call from the dispatching connection's
+ * SessionContext.
+ */
+export type HttpHandlerBaseDeps = Omit<
+  HttpExecutorDeps,
+  "sessionId" | "managedSubjectOptions" | "managedMaterializerOptions"
+>;
+
+/**
+ * Resolve managed subject/materializer options for a given connection's
+ * SessionContext. Returns undefined when managed materialization is not
+ * available for that connection (e.g. missing platform URL, API key, or
+ * assistant ID). Local mode passes no resolver.
+ */
+export type ResolveManagedOptions = (
+  ctx: SessionContext,
+) => ManagedOptionsPair | undefined;
+
+/**
  * Create a handler function for the `make_authenticated_request` RPC method.
  *
- * Binds the executor to the provided dependencies so it can be registered
- * in the RPC handler registry.
+ * Binds the executor to the shared dependencies; the per-connection session ID
+ * and managed options are merged in from the SessionContext at call time.
  */
 export function createMakeAuthenticatedRequestHandler(
-  deps: HttpExecutorDeps,
+  base: HttpHandlerBaseDeps,
+  resolveManaged?: ResolveManagedOptions,
 ): RpcMethodHandler {
-  return async (request: unknown) => {
-    return executeAuthenticatedHttpRequest(
-      request as MakeAuthenticatedRequest,
-      deps,
-    );
+  return async (request: unknown, ctx: SessionContext) => {
+    const managed = resolveManaged?.(ctx);
+    return executeAuthenticatedHttpRequest(request as MakeAuthenticatedRequest, {
+      ...base,
+      sessionId: ctx.sessionId,
+      managedSubjectOptions: managed?.subjectOptions,
+      managedMaterializerOptions: managed?.materializerOptions,
+    });
   };
 }
 
@@ -395,13 +472,14 @@ export function createMakeAuthenticatedRequestHandler(
  * executor without manually constructing the registry.
  */
 export function buildHandlersWithHttp(
-  httpDeps: HttpExecutorDeps,
+  base: HttpHandlerBaseDeps,
+  resolveManaged?: ResolveManagedOptions,
   additionalHandlers?: RpcHandlerRegistry,
 ): RpcHandlerRegistry {
   return {
     ...additionalHandlers,
     [CesRpcMethod.MakeAuthenticatedRequest]:
-      createMakeAuthenticatedRequestHandler(httpDeps),
+      createMakeAuthenticatedRequestHandler(base, resolveManaged),
   };
 }
 
@@ -427,8 +505,17 @@ export function createCesServer(options: CesServerOptions): CesRpcServer {
  * Options for creating the `run_authenticated_command` RPC handler.
  */
 export interface RunAuthenticatedCommandHandlerOptions {
-  /** Dependencies for the command executor. */
-  executorDeps: CommandExecutorDeps;
+  /**
+   * Dependencies for the command executor, minus the per-connection fields.
+   * The session ID and a context-aware credential materializer are supplied
+   * per call from the dispatching connection's SessionContext.
+   */
+  executorDeps: Omit<CommandExecutorDeps, "materializeCredential" | "sessionId"> & {
+    materializeCredential: (
+      credentialHandle: string,
+      ctx: SessionContext,
+    ) => Promise<MaterializeCredentialResult>;
+  };
   /**
    * Default workspace directory for commands that don't specify one.
    * Typically the assistant's workspace root.
@@ -452,7 +539,7 @@ export interface RunAuthenticatedCommandHandlerOptions {
 export function createRunAuthenticatedCommandHandler(
   options: RunAuthenticatedCommandHandlerOptions,
 ): RpcMethodHandler<RunAuthenticatedCommand, RunAuthenticatedCommandResponse> {
-  return async (request) => {
+  return async (request, ctx) => {
     // Parse the command string into bundle-digest/profile and argv
     const parseResult = parseCommandString(request.command);
     if (!parseResult.ok) {
@@ -504,10 +591,16 @@ export function createRunAuthenticatedCommandHandler(
       conversationId: request.conversationId,
     };
 
-    const result = await executeAuthenticatedCommand(
-      execRequest,
-      options.executorDeps,
-    );
+    // Build per-call executor deps: bind the session ID and a context-aware
+    // credential materializer from the dispatching connection's SessionContext.
+    const perCallDeps: CommandExecutorDeps = {
+      ...options.executorDeps,
+      sessionId: ctx.sessionId,
+      materializeCredential: (credentialHandle) =>
+        options.executorDeps.materializeCredential(credentialHandle, ctx),
+    };
+
+    const result = await executeAuthenticatedCommand(execRequest, perCallDeps);
 
     // If the failure was due to a missing grant, return a structured
     // APPROVAL_REQUIRED response with the proposal so the approval

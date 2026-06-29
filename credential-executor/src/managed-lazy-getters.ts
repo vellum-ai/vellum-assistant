@@ -1,106 +1,59 @@
 /**
- * Lazy getter pattern for managed CES API key propagation.
+ * Per-connection managed credential option resolution.
  *
- * In managed mode the assistant API key may arrive after CES handlers are
- * registered (via the handshake callback or a later RPC update). The
- * `ApiKeyRef` + `buildLazyGetters` pattern allows handlers to resolve
- * the key at call time rather than at registration time.
+ * In managed mode the assistant API key and assistant ID arrive after CES
+ * handlers are registered (via the handshake or a later RPC update) and differ
+ * per connection. Rather than reading process-global mutable refs, handlers
+ * resolve managed subject/materializer options from the calling connection's
+ * `SessionContext` at call time via `resolveManagedOptions`.
  *
- * Extracted from `managed-main.ts` so the behavioral contract can be
- * tested directly without exercising the full managed bootstrap lifecycle.
+ * Extracted from `managed-main.ts` so the behavioral contract can be tested
+ * directly without exercising the full managed bootstrap lifecycle.
  */
 
+import type { SessionContext } from "./server.js";
 import type { ManagedSubjectResolverOptions } from "./subjects/managed.js";
 import type { ManagedMaterializerOptions } from "./materializers/managed-platform.js";
 
 /**
- * Mutable reference to the assistant API key. Allows the handshake callback
- * to inject the key provisioned at runtime (which arrives after handlers are
- * built). Handlers read `.current` at call time, not at registration time.
+ * The managed subject- and materializer-resolution options for a single
+ * connection. Both carry the same `{ platformBaseUrl, assistantApiKey,
+ * assistantId }` shape, so they reference one underlying object.
  */
-export interface ApiKeyRef {
-  current: string;
+export interface ManagedOptionsPair {
+  subjectOptions: ManagedSubjectResolverOptions;
+  materializerOptions: ManagedMaterializerOptions;
 }
 
-/**
- * Mutable reference to the platform assistant ID. The assistant ID is not
- * available at CES startup (warm-pool pods); the assistant forwards it via
- * the handshake or update_managed_credential RPC after provisioning, and
- * `.current` is updated so lazy getters pick it up.
- */
-export interface AssistantIdRef {
-  current: string;
-}
-
-/**
- * Overwrite the session-scoped managed credential refs.
- *
- * The managed handler registry is long-lived — it persists across assistant
- * reconnects — so every handshake and every `update_managed_credential` must
- * fully overwrite these refs, including clearing them when a value is absent.
- * Otherwise a new or reprovisioned session could keep materializing platform
- * credentials with the previous session's API key or assistant ID. Absent
- * values fall back to "" (fail closed): the lazy getters then return no
- * materialization options, and `getAssistantApiKey` falls back to the env key.
- */
-export function applyManagedCredentialRefs(
-  apiKeyRef: ApiKeyRef,
-  assistantIdRef: AssistantIdRef,
-  apiKey: string | undefined,
-  assistantId: string | undefined,
-): void {
-  apiKeyRef.current = apiKey ?? "";
-  assistantIdRef.current = assistantId ?? "";
-}
-
-export interface LazyGetterOptions {
+export interface ResolveManagedOptionsInput {
+  /** Platform base URL (from `VELLUM_PLATFORM_URL`); "" when unset. */
   platformBaseUrl: string;
-  assistantIdRef: AssistantIdRef;
-  apiKeyRef: ApiKeyRef;
+  /** Env-var API key fallback (`ASSISTANT_API_KEY`), used when the connection forwarded none. */
   envApiKey?: string;
-}
-
-export interface LazyGetters {
-  getAssistantApiKey: () => string;
-  getManagedSubjectOptions: () => ManagedSubjectResolverOptions | undefined;
-  getManagedMaterializerOptions: () => ManagedMaterializerOptions | undefined;
+  /** The calling connection's session context. */
+  ctx: SessionContext;
 }
 
 /**
- * Build lazy getter functions that resolve the API key at call time.
+ * Resolve managed subject/materializer options from a connection's context.
  *
- * Prefers the handshake-provided key (via `apiKeyRef.current`) over the
- * env-var fallback, since in managed mode the env var may not be set
- * (chicken-and-egg: key is provisioned after hatch).
+ * The API key prefers the connection's handshake-provided key, falling back to
+ * the env var (in managed mode the env var may be unset — the key is
+ * provisioned after hatch). Returns undefined when any required value is
+ * missing (no platform URL, no key, or no assistant ID) so materialization
+ * fails closed rather than proceeding with incomplete or stale identity.
  */
-export function buildLazyGetters(opts: LazyGetterOptions): LazyGetters {
-  const { platformBaseUrl, assistantIdRef, apiKeyRef, envApiKey } = opts;
+export function resolveManagedOptions(
+  input: ResolveManagedOptionsInput,
+): ManagedOptionsPair | undefined {
+  const { platformBaseUrl, envApiKey, ctx } = input;
+  const assistantApiKey = ctx.assistantApiKey || envApiKey || "";
+  const assistantId = ctx.assistantId;
 
-  const getAssistantApiKey = (): string => apiKeyRef.current || envApiKey || "";
+  if (!platformBaseUrl || !assistantApiKey || !assistantId) {
+    return undefined;
+  }
 
-  const getManagedSubjectOptions = ():
-    | ManagedSubjectResolverOptions
-    | undefined => {
-    const key = getAssistantApiKey();
-    const id = assistantIdRef.current;
-    return platformBaseUrl && key && id
-      ? { platformBaseUrl, assistantApiKey: key, assistantId: id }
-      : undefined;
-  };
-
-  const getManagedMaterializerOptions = ():
-    | ManagedMaterializerOptions
-    | undefined => {
-    const key = getAssistantApiKey();
-    const id = assistantIdRef.current;
-    return platformBaseUrl && key && id
-      ? { platformBaseUrl, assistantApiKey: key, assistantId: id }
-      : undefined;
-  };
-
-  return {
-    getAssistantApiKey,
-    getManagedSubjectOptions,
-    getManagedMaterializerOptions,
-  };
+  const options = { platformBaseUrl, assistantApiKey, assistantId };
+  return { subjectOptions: options, materializerOptions: options };
 }

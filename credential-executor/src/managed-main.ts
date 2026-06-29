@@ -57,7 +57,7 @@ import {
   registerManageSecureCommandToolHandler,
   type RpcHandlerRegistry,
   type ServeEndReason,
-  type SessionIdRef,
+  type SessionContext,
 } from "./server.js";
 import {
   deleteBundleFromToolstore,
@@ -71,12 +71,7 @@ import {
   HandleType,
   parseHandle,
 } from "@vellumai/service-contracts/credential-rpc";
-import {
-  applyManagedCredentialRefs,
-  buildLazyGetters,
-  type ApiKeyRef,
-  type AssistantIdRef,
-} from "./managed-lazy-getters.js";
+import { resolveManagedOptions } from "./managed-lazy-getters.js";
 import { MANAGED_LOCAL_STATIC_REJECTION_ERROR } from "./managed-errors.js";
 import type { SecureKeyBackend } from "@vellumai/credential-storage";
 import { createLocalSecureKeyBackend } from "./materializers/local-secure-key-backend.js";
@@ -120,9 +115,6 @@ function ensureDataDirs(): void {
 // ---------------------------------------------------------------------------
 
 function buildHandlers(
-  sessionIdRef: SessionIdRef,
-  apiKeyRef: ApiKeyRef,
-  assistantIdRef: AssistantIdRef,
   secureKeyBackend: SecureKeyBackend,
 ): { handlers: RpcHandlerRegistry; temporaryGrantStore: TemporaryGrantStore } {
   // -- Grant stores ----------------------------------------------------------
@@ -139,20 +131,13 @@ function buildHandlers(
 
   // -- Managed credential options --------------------------------------------
   // In managed mode, credentials are obtained from the platform via its
-  // token-materialization endpoint. The platform URL and assistant ID come
-  // from environment variables. The API key may come from the env var OR
-  // from the bootstrap handshake (the assistant forwards it after hatch).
-  // We use a lazy getter so the handshake-provided key takes effect even
-  // though handlers are built before the handshake completes.
+  // token-materialization endpoint. The platform URL comes from an env var.
+  // The API key and assistant ID arrive per connection (via the handshake or a
+  // later RPC update) and are read from each call's SessionContext, so managed
+  // options are resolved per call via `resolveManagedOptions` rather than from
+  // process-global state.
   const platformBaseUrl = process.env["VELLUM_PLATFORM_URL"] ?? "";
-
-  const { getManagedSubjectOptions, getManagedMaterializerOptions } =
-    buildLazyGetters({
-      platformBaseUrl,
-      assistantIdRef,
-      apiKeyRef,
-      envApiKey: process.env["ASSISTANT_API_KEY"] || "",
-    });
+  const envApiKey = process.env["ASSISTANT_API_KEY"] || "";
 
   if (!platformBaseUrl) {
     log.warn(
@@ -200,31 +185,26 @@ function buildHandlers(
     oauthConnections: { getById: () => undefined },
   };
 
-  // Use a deps object with getters so the handshake-provided API key
-  // is resolved lazily at RPC call time (after the handshake completes).
-  const httpDeps = {
+  // Shared (connection-independent) HTTP executor deps. The session ID and
+  // managed options are supplied per call from the connection's SessionContext.
+  const baseHttpDeps = {
     persistentGrantStore,
     temporaryGrantStore,
     localMaterialiser: localMaterialiserStub as unknown as LocalMaterialiser,
     localSubjectDeps: localSubjectDepsStub,
-    get managedSubjectOptions() {
-      return getManagedSubjectOptions();
-    },
-    get managedMaterializerOptions() {
-      return getManagedMaterializerOptions();
-    },
     auditStore,
-    sessionId: sessionIdRef,
   };
 
-  const handlers = buildHandlersWithHttp(httpDeps);
+  const handlers = buildHandlersWithHttp(baseHttpDeps, (ctx) =>
+    resolveManagedOptions({ platformBaseUrl, envApiKey, ctx }),
+  );
 
   // Register run_authenticated_command handler with managed platform materializer
   registerCommandExecutionHandler(handlers, {
     executorDeps: {
       persistentStore: persistentGrantStore,
       temporaryStore: temporaryGrantStore,
-      materializeCredential: async (handle) => {
+      materializeCredential: async (handle, ctx: SessionContext) => {
         // Parse handle to determine type
         const parseResult = parseHandle(handle);
         if (!parseResult.ok) {
@@ -242,9 +222,12 @@ function buildHandlers(
 
           // -- Platform OAuth: materialise via the platform endpoint ----------
           case HandleType.PlatformOAuth: {
-            const matOpts = getManagedMaterializerOptions();
-            const subOpts = getManagedSubjectOptions();
-            if (!matOpts || !subOpts) {
+            const managed = resolveManagedOptions({
+              platformBaseUrl,
+              envApiKey,
+              ctx,
+            });
+            if (!managed) {
               return {
                 ok: false as const,
                 error:
@@ -253,14 +236,17 @@ function buildHandlers(
               };
             }
 
-            const subjectResult = await resolveManagedSubject(handle, subOpts);
+            const subjectResult = await resolveManagedSubject(
+              handle,
+              managed.subjectOptions,
+            );
             if (!subjectResult.ok) {
               return { ok: false as const, error: subjectResult.error.message };
             }
 
             const matResult = await materializeManagedToken(
               subjectResult.subject,
-              matOpts,
+              managed.materializerOptions,
             );
             if (!matResult.ok) {
               return { ok: false as const, error: matResult.error.message };
@@ -283,7 +269,6 @@ function buildHandlers(
         }
       },
       auditStore,
-      sessionId: sessionIdRef,
       cesMode: "managed",
       egressHooks: buildCesEgressHooks(),
     },
@@ -677,18 +662,11 @@ async function main(): Promise<void> {
   // would otherwise leak ephemeral approvals across sessions. It is cleared at
   // the end of every session below so a reconnecting assistant must re-prompt.
   //
-  // The mutable refs carry the handshake-provided session ID, API key, and
-  // assistant ID; handlers read them at call time, so updating the refs when
-  // each session's handshake completes is all that's needed per connection.
-  const sessionIdRef: SessionIdRef = { current: `ces-managed-${Date.now()}` };
-  const apiKeyRef: ApiKeyRef = { current: "" };
-  const assistantIdRef: AssistantIdRef = { current: "" };
-  const { handlers, temporaryGrantStore } = buildHandlers(
-    sessionIdRef,
-    apiKeyRef,
-    assistantIdRef,
-    secureKeyBackend,
-  );
+  // Per-connection identity (session ID, API key, assistant ID) no longer
+  // lives in process-global refs: each connection's CesRpcServer owns a
+  // SessionContext that handlers read at call time, so the shared registry
+  // resolves every call against the originating connection's identity.
+  const { handlers, temporaryGrantStore } = buildHandlers(secureKeyBackend);
 
   // Serve loop. CES is a long-lived sidecar that must outlive any single
   // assistant session: the assistant container can crash and be restarted
@@ -726,19 +704,10 @@ async function main(): Promise<void> {
         error: (msg: string, ...args: unknown[]) => rpcLog.error({ args }, msg),
       },
       signal: controller.signal,
-      onHandshakeComplete: (hsSessionId, hsApiKey, hsAssistantId) => {
-        sessionIdRef.current = hsSessionId;
-        // Overwrite the credential refs on every handshake. The handler
-        // registry persists across reconnects, so a new session that omits
-        // the API key / assistant ID must fail closed (falling back to the
-        // env key, or no key) rather than reusing the previous session's
-        // credentials.
-        applyManagedCredentialRefs(
-          apiKeyRef,
-          assistantIdRef,
-          hsApiKey,
-          hsAssistantId,
-        );
+      // The server populates this connection's SessionContext from the
+      // handshake / update_managed_credential payloads; these callbacks are
+      // purely observational (logging).
+      onHandshakeComplete: (_hsSessionId, hsApiKey, hsAssistantId) => {
         if (hsApiKey) {
           log.info("Received assistant API key via handshake");
         }
@@ -746,18 +715,7 @@ async function main(): Promise<void> {
           log.info("Received assistant ID via handshake");
         }
       },
-      onApiKeyUpdate: (newKey, newAssistantId) => {
-        // Overwrite both refs on every credential update, for the same
-        // fail-closed reason as the handshake: the assistant sources the
-        // assistant ID from the same place it sources the key, so an update
-        // that omits the ID means it has none — CES must clear the stale ID
-        // rather than keep materializing for the previous session's assistant.
-        applyManagedCredentialRefs(
-          apiKeyRef,
-          assistantIdRef,
-          newKey,
-          newAssistantId,
-        );
+      onApiKeyUpdate: (_newKey, newAssistantId) => {
         log.info("Assistant API key updated via RPC");
         if (newAssistantId) {
           log.info("Assistant ID updated via RPC");

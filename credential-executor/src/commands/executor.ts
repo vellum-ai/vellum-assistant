@@ -79,7 +79,6 @@ import { hashProposal, type AuditRecordSummary, type CommandGrantProposal } from
 import type { AuditStore } from "../audit/store.js";
 import type { PersistentGrantStore } from "../grants/persistent-store.js";
 import type { TemporaryGrantStore } from "../grants/temporary-store.js";
-import type { SessionIdRef } from "../server.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -171,8 +170,8 @@ export interface CommandExecutorDeps {
   materializeCredential: MaterializeCredentialFn;
   /** Audit store for persisting token-free audit records. */
   auditStore?: AuditStore;
-  /** Mutable reference to the session ID for audit records. Updated to the handshake session ID once the RPC handshake completes. */
-  sessionId?: SessionIdRef;
+  /** Session ID for audit records, taken from the calling connection's SessionContext at dispatch time. */
+  sessionId?: string;
   /** CES operating mode (for toolstore path resolution). */
   cesMode?: CesMode;
   /** Egress proxy session start hooks (for creating the proxy server). */
@@ -567,7 +566,7 @@ export async function executeAuthenticatedCommand(
       credentialHandle: request.credentialHandle,
       toolName: "command",
       target: `${request.bundleDigest}/${request.profileName}`,
-      sessionId: deps.sessionId?.current ?? "unknown",
+      sessionId: deps.sessionId ?? "unknown",
       success: execResult.success,
       ...(execResult.error ? { errorMessage: execResult.error } : {}),
       timestamp: new Date().toISOString(),
