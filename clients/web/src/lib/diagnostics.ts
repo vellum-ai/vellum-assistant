@@ -6,8 +6,7 @@
  * snapshot. Data survives navigation but not tab close.
  */
 
-import { Capacitor } from "@capacitor/core";
-
+import { detectClientOs } from "@/runtime/platform-detection";
 import type { AssistantEvent } from "@/types/event-types";
 
 // ---------------------------------------------------------------------------
@@ -146,19 +145,22 @@ function snapshotRing(ring: Ring): DiagnosticsEvent[] {
 // Platform detection
 // ---------------------------------------------------------------------------
 
-/** Resolve the runtime platform tag (ios, android, or web). */
+/**
+ * Resolve the runtime platform tag for telemetry ("web" | "ios" | "macos" |
+ * "android").
+ *
+ * Shares the product `detectClientOs()` so analytics and the assistant's
+ * `client_os` context agree — notably it distinguishes mobile-web (iOS/Android
+ * phone browsers) and the macOS Electron app, which the previous
+ * `Capacitor.getPlatform()`-only tag collapsed into `web`. Wrapped so a
+ * telemetry tag never throws into the calling hot path.
+ */
 export function resolvePlatformTag(): string {
   try {
-    const platform = (
-      Capacitor as unknown as { getPlatform?: () => string }
-    ).getPlatform?.();
-    if (typeof platform === "string" && platform.length > 0) {
-      return platform;
-    }
+    return detectClientOs();
   } catch {
-    // fall through
+    return "web";
   }
-  return "web";
 }
 
 // ---------------------------------------------------------------------------

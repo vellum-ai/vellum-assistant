@@ -16,10 +16,16 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 let electron = false;
 let nativePlatform = false;
+// What `Capacitor.getPlatform()` reports inside a native shell ("ios" |
+// "android"). Only consulted when `nativePlatform` is true.
+let nativeOsPlatform = "web";
 
 mock.module("@/runtime/is-electron", () => ({ isElectron: () => electron }));
 mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => nativePlatform,
+}));
+mock.module("@capacitor/core", () => ({
+  Capacitor: { getPlatform: () => nativeOsPlatform },
 }));
 
 const { detectClientOs } = await import("@/runtime/platform-detection");
@@ -42,6 +48,7 @@ function setUserAgent(ua: string): void {
 afterEach(() => {
   electron = false;
   nativePlatform = false;
+  nativeOsPlatform = "web";
   setUserAgent(ORIGINAL_UA);
 });
 
@@ -51,9 +58,18 @@ describe("detectClientOs", () => {
     expect(detectClientOs()).toBe("macos");
   });
 
-  test("returns 'ios' inside the Capacitor native shell", () => {
+  test("returns 'ios' inside the Capacitor iOS native shell", () => {
     nativePlatform = true;
+    nativeOsPlatform = "ios";
     expect(detectClientOs()).toBe("ios");
+  });
+
+  test("returns 'android' inside the Capacitor Android native shell", () => {
+    // `isNativePlatform()` is true for both shells, so the native branch must
+    // read `Capacitor.getPlatform()` to avoid mislabeling Android as iOS.
+    nativePlatform = true;
+    nativeOsPlatform = "android";
+    expect(detectClientOs()).toBe("android");
   });
 
   test("returns 'ios' for a mobile iOS browser when Capacitor is absent", () => {

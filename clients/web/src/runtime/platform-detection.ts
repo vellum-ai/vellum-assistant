@@ -1,3 +1,4 @@
+import { Capacitor } from "@capacitor/core";
 import { useSyncExternalStore } from "react";
 
 import { isElectron } from "@/runtime/is-electron";
@@ -123,18 +124,24 @@ export type ClientOs = "macos" | "ios" | "android" | "web";
  * identity.
  *
  * Order matters: the Electron macOS shell also satisfies the desktop-browser
- * heuristics, so `isElectron()` is checked first or macOS would be
- * misreported as `web`. The Capacitor iOS shell (`isNativePlatform()`) is
- * checked alongside the UA-based `isIOSBrowser()` so both the native wrapper
- * and a mobile-Safari tab report `ios`; Android phone-web reports `android`.
- * Everything else is `web`.
+ * heuristics, so `isElectron()` is checked first or macOS would be misreported
+ * as `web`. A native Capacitor shell (`isNativePlatform()`, true for iOS AND
+ * Android) is resolved via `Capacitor.getPlatform()` so the wrapper reports
+ * its real OS. The remaining browser surfaces fall to the UA-based
+ * `isIOSBrowser()` / `isAndroidBrowser()` (so mobile-Safari → `ios`, Android
+ * Chrome → `android`); everything else is `web`.
  *
  * Safe to call before hydration: each underlying helper falls through to
  * `false` when `window`/`navigator` are undefined, so SSR resolves to `web`.
  */
 export function detectClientOs(): ClientOs {
   if (isElectron()) return "macos";
-  if (isNativePlatform() || isIOSBrowser()) return "ios";
+  if (isNativePlatform()) {
+    // `isNativePlatform()` is true for the iOS AND Android Capacitor shells,
+    // so distinguish them explicitly rather than assuming iOS.
+    return Capacitor.getPlatform() === "android" ? "android" : "ios";
+  }
+  if (isIOSBrowser()) return "ios";
   if (isAndroidBrowser()) return "android";
   return "web";
 }
