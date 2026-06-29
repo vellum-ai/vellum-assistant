@@ -20,7 +20,12 @@ import { fileListTool } from "./filesystem/list.js";
 import { fileReadTool } from "./filesystem/read.js";
 import { codeSearchTool } from "./filesystem/search.js";
 import { fileWriteTool } from "./filesystem/write.js";
-import { recallTool, rememberTool } from "./memory/register.js";
+import {
+  deleteMemoryTool,
+  recallTool,
+  rememberTool,
+  updateMemoryTool,
+} from "./memory/register.js";
 import { webFetchTool } from "./network/web-fetch.js";
 import { webSearchTool } from "./network/web-search.js";
 import { skillExecuteTool } from "./skills/execute.js";
@@ -92,6 +97,8 @@ export const explicitTools: ToolDefinition[] = [
   // Always-explicit tools
   rememberTool,
   recallTool,
+  deleteMemoryTool,
+  updateMemoryTool,
   notifyParentTool,
   askQuestionTool,
   // NOTE: external skill tools (registered via registerExternalTools in
