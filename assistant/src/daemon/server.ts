@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { disposeAcpSessionManager } from "../acp/index.js";
 import { getConfig } from "../config/loader.js";
 import { syncIdentityNameToPlatform } from "../platform/sync-identity.js";
 import { initializeProviders } from "../providers/registry.js";
@@ -61,7 +60,6 @@ export class DaemonServer {
 
   async stop(): Promise<void> {
     getSubagentManager().disposeAll();
-    disposeAcpSessionManager();
 
     log.info("Daemon server stopped");
   }
