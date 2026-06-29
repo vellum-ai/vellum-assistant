@@ -41,6 +41,16 @@ interface BaseTransportMetadata {
   chatType?: string;
   /** IANA timezone reported by the active client for the current turn. */
   clientTimezone?: string;
+  /**
+   * The client's operating-system surface ("web" | "ios" | "macos"),
+   * reported independently of {@link interfaceId}. The web bundle ships to a
+   * browser, the Capacitor iOS shell, and the Electron macOS app, all on the
+   * same `"web"` transport interface — `clientOs` is what tells the assistant
+   * which OS it is actually talking to (rendered as the `client_os:` line in
+   * the per-turn context) WITHOUT perturbing transport/host-proxy capability
+   * inference, which keys off `interfaceId`.
+   */
+  clientOs?: string;
 }
 
 /**

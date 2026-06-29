@@ -415,10 +415,12 @@ export function useResearchRunner(): UseResearchRunner {
               conversationId: cid,
               content: buildResearchPrompt(subject, capabilities),
               sourceChannel: "vellum",
-              // Report the real platform so the assistant's `client_os` context
-              // is correct for this onboarding side conversation too (mirrors
-              // the main send path in `domains/chat/api/messages.ts`).
-              interface: detectInterfaceId(),
+              // `interface` is the transport ("web"); the real OS travels in
+              // `clientOs` so the assistant's `client_os` context is correct
+              // for this onboarding side conversation too, without affecting
+              // transport/host-proxy gating (mirrors `chat/api/messages.ts`).
+              interface: "web",
+              clientOs: detectInterfaceId(),
               clientMessageId: crypto.randomUUID(),
             };
             // Carry the browser timezone so any time-relative reasoning resolves

@@ -268,19 +268,10 @@ export function resolveChannelCapabilities(
   switch (channel) {
     case "vellum": {
       const supportsDesktopUi = iface === "macos";
-      // The web, iOS (Capacitor), and macOS (Electron) clients all load the
-      // same `clients/web` renderer, which can mount dynamic UI
-      // (ui_show / ui_update / app_create). iOS must be listed explicitly:
-      // it now reports its real `interface: "ios"` so `client_os` is accurate,
-      // but it previously rode in as the legacy "vellum" alias (normalized to
-      // "web"). Without "ios" here it would silently lose dynamic UI even
-      // though the renderer fully supports it. Desktop-only capabilities
-      // (dashboard, voice input) remain gated on macOS.
       return {
         channel,
         dashboardCapable: supportsDesktopUi,
-        supportsDynamicUi:
-          supportsDesktopUi || iface === "web" || iface === "ios",
+        supportsDynamicUi: supportsDesktopUi || iface === "web",
         supportsVoiceInput: supportsDesktopUi,
         clientOS: iface ?? undefined,
         chatType: resolvedChatType,
@@ -1955,6 +1946,11 @@ export async function applyRuntimeInjections(
       liveConversation.originInterface ??
       "web")
     : undefined;
+  // OS surface reported by the client, independent of the transport interface
+  // above. Drives the per-turn `client_os:` line so the model knows whether it
+  // is talking to the web, iOS, or macOS app (all sharing the `"web"`
+  // transport interface).
+  const clientOs = liveConversation?.clientOs ?? undefined;
   const channelName = liveConversation
     ? (liveConversation.currentTurnChannelContext?.userMessageChannel ??
       liveConversation.originChannel ??
@@ -2063,6 +2059,7 @@ export async function applyRuntimeInjections(
     activeDocuments,
     timestamp,
     interfaceName,
+    clientOs,
     channelName,
     actorContext: options.actorContext,
     configuredUserTimezone,

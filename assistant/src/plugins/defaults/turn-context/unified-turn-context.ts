@@ -18,6 +18,7 @@ import { resolveCapabilities } from "../../../runtime/capabilities.js";
 export interface UnifiedTurnContextOptions {
   timestamp: string;
   interfaceName?: string;
+  clientOs?: string;
   channelName?: string;
   actorContext?: InboundActorContext | null;
   configuredUserTimezone?: string | null;
@@ -99,6 +100,9 @@ export function buildUnifiedTurnContextBlock(
   }
   if (options.interfaceName) {
     lines.push(`interface: ${options.interfaceName}`);
+  }
+  if (options.clientOs) {
+    lines.push(`client_os: ${options.clientOs}`);
   }
 
   // Actor identity and trust fields — only for non-guardian turns.

@@ -529,6 +529,13 @@ export class Conversation {
   hostUsername?: string;
   /** @internal */ clientTimezone?: string;
   /**
+   * @internal
+   * The client's OS surface ("web" | "ios" | "macos"), reported separately
+   * from the transport `interfaceId` so the assistant's per-turn context can
+   * show the real platform without affecting host-proxy/transport gating.
+   */
+  clientOs?: string;
+  /**
    * Per-turn temporal snapshot frozen by the agent loop and read by
    * `applyRuntimeInjections` to build the `<turn_context>` timezone-mismatch
    * affordance and `time_since_last_message` line. Holds the client-reported
@@ -1947,6 +1954,10 @@ export class Conversation {
   ): void {
     this.clientTimezone =
       canonicalizeTimeZone(transport.clientTimezone) ?? undefined;
+  }
+
+  applyClientOsFromTransport(transport: ConversationTransportMetadata): void {
+    this.clientOs = transport.clientOs ?? undefined;
   }
 
   setAssistantId(assistantId: string | null): void {

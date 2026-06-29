@@ -473,12 +473,13 @@ export async function postChatMessage(
   const body: MessagesPostData["body"] = {
     content,
     sourceChannel: "vellum",
-    // Report the real platform so the assistant's per-turn `client_os`
-    // context distinguishes web / iOS / macOS. All three load this same
-    // bundle, so the value must be detected at runtime rather than hardcoded
-    // (see `detectInterfaceId`). The backend normalizes the legacy "vellum"
-    // alias to "web"; we now send the canonical value directly.
-    interface: detectInterfaceId(),
+    // `interface` is the transport surface, not the OS: the web/iOS/macOS apps
+    // all run this same web renderer, so the transport is always "web". The
+    // daemon keys host-proxy/transport capability off this value, so it must
+    // NOT carry the OS. The real platform travels in `clientOs` below and only
+    // feeds the assistant's per-turn `client_os` context.
+    interface: "web",
+    clientOs: detectInterfaceId(),
   };
   // Read the effective timezone LIVE at send time (not from cached state) so
   // every message carries the user's current zone, keeping the assistant's

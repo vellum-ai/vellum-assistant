@@ -286,18 +286,6 @@ describe("resolveChannelCapabilities", () => {
     expect(caps.supportsVoiceInput).toBe(false);
   });
 
-  test("vellum channel with ios interface keeps dynamic UI but no desktop caps", () => {
-    // The iOS Capacitor app loads the same web renderer, so it can mount
-    // dynamic UI even though it now reports its real `interface: "ios"`.
-    // Desktop-only capabilities (dashboard, voice) stay off.
-    const caps = resolveChannelCapabilities("vellum", "ios");
-    expect(caps.channel).toBe("vellum");
-    expect(caps.dashboardCapable).toBe(false);
-    expect(caps.supportsDynamicUi).toBe(true);
-    expect(caps.supportsVoiceInput).toBe(false);
-    expect(caps.clientOS).toBe("ios");
-  });
-
   test("defaults to vellum for null source channel", () => {
     const caps = resolveChannelCapabilities(null);
     expect(caps.channel).toBe("vellum");
