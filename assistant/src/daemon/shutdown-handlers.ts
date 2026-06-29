@@ -4,6 +4,7 @@ import { stopCes } from "../credential-execution/ces-runtime.js";
 import { stopFilingService } from "../filing/filing-service.js";
 import { stopHeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { stopGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
+import { stopSkillIpcServer } from "../ipc/skill-server.js";
 import { stopMcpServerManager } from "../mcp/manager.js";
 import { stopMemoryWorkerProcess } from "../memory/worker-control.js";
 import { getSqlite, resetDb } from "../persistence/db-connection.js";
@@ -95,6 +96,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     }
 
     await deps.server.stop();
+    stopSkillIpcServer();
     stopConversations();
     await stopCes();
 
