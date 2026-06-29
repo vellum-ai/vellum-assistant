@@ -215,9 +215,10 @@ export async function checkpointWalBeforeOpen(): Promise<void> {
 
 // ---------------------------------------------------------------------------
 
-export async function initializeDb(): Promise<void> {
+export async function initializeDb(): Promise<{ migrationsOk: boolean }> {
   if (process.env.BUN_TEST === "1" && tryRestoreTemplate()) {
-    return;
+    // A restored template is fully migrated.
+    return { migrationsOk: true };
   }
 
   // Fold any post-crash WAL back into the database off the main event loop
@@ -260,13 +261,22 @@ export async function initializeDb(): Promise<void> {
     );
   }
 
+  // A passing post-run validation is part of readiness: validateMigrationState
+  // flags schema inconsistencies (e.g. a completed step missing a declared
+  // dependsOn checkpoint) that no individual step body surfaces as a failure.
+  let validationOk = true;
   try {
     validateMigrationState(database, migrationSteps);
   } catch (err) {
+    validationOk = false;
     log.error({ err }, "validateMigrationState failed");
   }
 
   if (process.env.BUN_TEST === "1") {
     saveTemplate();
   }
+
+  // migrationsOk reflects BOTH no failed migration steps AND a passing
+  // post-run validation, so an inconsistent schema keeps /readyz at 503.
+  return { migrationsOk: failed.length === 0 && validationOk };
 }
