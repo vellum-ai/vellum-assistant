@@ -176,6 +176,28 @@ export async function ensureSectionCollection(
 }
 
 /**
+ * Destructively delete and recreate the section-grain collection at the
+ * configured `config.memory.qdrant.vectorSize`. Owned by the probe-gated
+ * startup reconcile, the only path permitted to make the destroy-before-confirm
+ * decision for a dimension migration (the lazy `ensureSectionCollection` path
+ * explicitly defers dimension drift). Resets the in-process readiness latch and
+ * delegates creation to `ensureSectionCollection` so the vector layout and
+ * payload index flow through the single creation code path. Idempotent against
+ * an absent collection.
+ */
+export async function recreateSectionCollection(
+  config: AssistantConfig,
+): Promise<void> {
+  const client = getSectionDenseClient(config);
+  const exists = await client.collectionExists(SECTION_COLLECTION);
+  if (exists.exists) {
+    await client.deleteCollection(SECTION_COLLECTION);
+  }
+  _collectionReady = false;
+  await ensureSectionCollection(config);
+}
+
+/**
  * `target_type` marker on `memory_embeddings` rows that cache section vectors.
  * Distinct from the v2 `concept_page` rows so the two caches never collide on a
  * shared `(targetType, targetId, provider, model)` key.
