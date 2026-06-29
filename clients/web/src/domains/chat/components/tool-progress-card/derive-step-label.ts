@@ -25,6 +25,7 @@ import { truncate } from "@/domains/chat/utils/truncate";
  */
 export type IconName =
   | "code"
+  | "terminal"
   | "file"
   | "pen"
   | "monitor"
@@ -133,7 +134,7 @@ export function deriveStepLabelFromName(
         title: "Working",
         info: truncate(cleaned, INFO_MAX_LENGTH),
         activity,
-        iconName: "code",
+        iconName: "terminal",
       };
     }
 

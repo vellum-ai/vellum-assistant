@@ -18,7 +18,7 @@ function toolStep(overrides: Partial<
     title: "Working",
     info: "date",
     activity: "Checking the current time",
-    iconName: "code",
+    iconName: "terminal",
     toolCallId: `tc-${Math.random().toString(36).slice(2, 8)}`,
     status: "completed",
     ...overrides,
