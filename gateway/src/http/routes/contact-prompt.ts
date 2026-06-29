@@ -193,6 +193,14 @@ export async function handleContactPromptSubmit(
         ],
       });
       contactId = contact.id;
+
+      // Invalidate the daemon guardian-id/role caches after the committed
+      // gateway contact write — before the read-back guard, so a
+      // resolveChannelId miss still drops the stale caches.
+      void ipcCallAssistant("emit_event", {
+        body: { kind: "contacts_changed" },
+      } as unknown as Record<string, unknown>).catch(() => {});
+
       channelId = resolveChannelId(contactId, channelType, normalizedAddress);
 
       log.info(
@@ -207,12 +215,6 @@ export async function handleContactPromptSubmit(
         );
         return await channelResolutionError(requestId);
       }
-
-      // Invalidate the daemon guardian-id/role caches after a gateway-owned
-      // contact write.
-      void ipcCallAssistant("emit_event", {
-        body: { kind: "contacts_changed" },
-      } as unknown as Record<string, unknown>).catch(() => {});
 
       // Non-guardian is fully resolved by upsertContact; skip the guardian-only
       // Phase 2 channel-creation block below and go straight to resolve.

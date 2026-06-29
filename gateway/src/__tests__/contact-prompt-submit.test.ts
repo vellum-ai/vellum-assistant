@@ -800,13 +800,14 @@ describe("handleContactPromptSubmit", () => {
     expect(body.accepted).toBe(false);
 
     // Daemon was notified with an error (not a success resolve with empty id).
-    expect(ipcMock).toHaveBeenCalledTimes(1);
     const ipcCall = resolveCall(ipcMock);
     expect(typeof ipcCall.body.error).toBe("string");
     expect(ipcCall.body.channelId).toBeUndefined();
 
-    // Failed resolution mutated nothing — no cache-invalidation broadcast.
-    expectNoEmit(ipcMock);
+    // The non-guardian upsert already committed (no rollback on this path)
+    // before the read-back miss, so the caches are still invalidated — the
+    // emit fires before the channel-id guard.
+    expectEmittedContactsChanged(ipcMock);
   });
 
   test("guardian bind — rolls back freshly-created guardian + 500 when channel can't be resolved", async () => {
