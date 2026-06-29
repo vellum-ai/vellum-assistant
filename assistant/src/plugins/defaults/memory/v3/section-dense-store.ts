@@ -98,14 +98,19 @@ export async function ensureSectionCollection(
   const onDisk = config.memory.qdrant.onDisk;
 
   const exists = await client.collectionExists(SECTION_COLLECTION);
+  let needsCreate = !exists.exists;
 
   // An existing collection sized to a different embedding dimension (e.g. a
   // 384-dim collection serving a 3072-dim embedder) carries the right vector
-  // at the wrong size. This lazy path runs on hot upsert/query calls and
-  // cannot run an embed probe to confirm the new dimension, so it must not
-  // make the destroy-before-confirm decision. Destructive dimension migration
-  // for `memory_v3_sections` is owned by the probe-gated startup reconcile;
-  // log the drift here and leave the collection in place.
+  // at the wrong size, so every upsert fails with HTTP 400 until it is rebuilt.
+  // Recreate on drift: unlike the v2 concept-page collection (which holds the
+  // only copy of segment/item embeddings and so is migrated by the probe-gated
+  // startup reconcile), `memory_v3_sections` is entirely page-derived and is
+  // repopulated by the probe-gated maintain/backfill pass, so recreating it
+  // here loses no durable data. The startup reconcile reads only the v2
+  // collection's dimension, so a v3-only drift would otherwise never be
+  // repaired. On a probe failure, assume compatible rather than risk a
+  // destructive recreate.
   if (exists.exists) {
     try {
       const info = await client.getCollection(SECTION_COLLECTION);
@@ -117,8 +122,10 @@ export async function ensureSectionCollection(
       if (typeof size === "number" && size !== vectorSize) {
         log.warn(
           { collection: SECTION_COLLECTION, expected: vectorSize, found: size },
-          "Memory v3 section collection dimension drift — deferring to startup reconcile; not recreating in the request path",
+          "Memory v3 section collection dimension drift — deleting and recreating; sections are page-derived and repopulated by the next maintain/backfill",
         );
+        await client.deleteCollection(SECTION_COLLECTION);
+        needsCreate = true;
       }
     } catch (err) {
       log.warn(
@@ -128,7 +135,7 @@ export async function ensureSectionCollection(
     }
   }
 
-  if (!exists.exists) {
+  if (needsCreate) {
     log.info(
       { collection: SECTION_COLLECTION, vectorSize },
       "Creating Qdrant collection for memory v3 sections",

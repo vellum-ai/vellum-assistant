@@ -65,7 +65,7 @@ export interface ReconcileDeps {
   /** Destroy + recreate the v2 and v3 collections at `dim` (the only destructive path). */
   recreateCollectionsAtDim: (dim: number) => Promise<void>;
   /** Ensure the v2 + v3 collections exist at the committed dim without destroying. */
-  ensureCollections: () => Promise<void>;
+  ensureCollections: (dim: number) => Promise<void>;
   /** Enqueue the reembed jobs that repopulate the (re)created collections. */
   enqueueReembed: () => void;
 }
@@ -85,22 +85,47 @@ function defaultPersistVectorSize(dim: number): void {
 }
 
 /**
+ * Shallow-clone `config` with `memory.qdrant.vectorSize` overridden to `dim`.
+ *
+ * The v2 concept-page recreate reads the freshly-persisted dimension via its own
+ * `getConfig()` (the reconcile calls `persistVectorSize` + cache invalidation
+ * first), but the v3 section-store collaborators size their collection from the
+ * `config` argument passed in — which is the PRE-persist snapshot the reconcile
+ * was invoked with. Handing them that snapshot would build `memory_v3_sections`
+ * at the OLD dimension while the queued maintain embeds at the new one, so the
+ * v3 collaborators are given a config carrying the reconciled `dim`.
+ */
+function configWithVectorSize(
+  config: AssistantConfig,
+  dim: number,
+): AssistantConfig {
+  return {
+    ...config,
+    memory: {
+      ...config.memory,
+      qdrant: { ...config.memory.qdrant, vectorSize: dim },
+    },
+  };
+}
+
+/**
  * Default `recreateCollectionsAtDim`: destroy + recreate the v2 concept-page
  * collection at `dim`, plus the v3 section collection when v3 is the live
  * injected source. Reuses the recreate helpers each store exports so the
  * named-vector layout and payload indexes flow through the single creation code
- * path. The `dim` is read from config (which the caller has already committed
- * via `persistVectorSize` + cache invalidation) by the underlying `ensure*`
- * calls. The v3 section collection's lifecycle is gated on `isMemoryV3Live` to
- * match its population gate — a v2-only install never populates it, so it must
- * not be created.
+ * path. The v2 recreate reads the committed dim from config (already persisted
+ * by the caller); the v3 recreate is handed a config carrying `dim` directly
+ * (see {@link configWithVectorSize}). The v3 section collection's lifecycle is
+ * gated on `isMemoryV3Live` to match its population gate — a v2-only install
+ * never populates it, so it must not be created.
  */
 async function defaultRecreateCollectionsAtDim(
   config: AssistantConfig,
+  dim: number,
 ): Promise<void> {
   await recreateConceptPageCollection();
   if (isMemoryV3Live(config)) {
-    await recreateSectionCollection(config);
+    await recreateSectionCollection(configWithVectorSize(config, dim));
   }
 }
 
@@ -142,13 +167,14 @@ export function defaultDeps(config: AssistantConfig): ReconcileDeps {
     // the cache invalidation in `persistVectorSize`; the in-memory commit is an
     // alias of that write rather than a separate mutation.
     setInMemoryVectorSize: () => {},
-    recreateCollectionsAtDim: () => defaultRecreateCollectionsAtDim(config),
-    ensureCollections: async () => {
+    recreateCollectionsAtDim: (dim) =>
+      defaultRecreateCollectionsAtDim(config, dim),
+    ensureCollections: async (dim) => {
       await ensureConceptPageCollection();
       // The v3 section collection's lifecycle matches its population gate: a
       // v2-only install never writes to it, so it must not be created.
       if (isMemoryV3Live(config)) {
-        await ensureSectionCollection(config);
+        await ensureSectionCollection(configWithVectorSize(config, dim));
       }
     },
     enqueueReembed: () => defaultEnqueueReembed(config),
@@ -192,7 +218,7 @@ export async function reconcileEmbeddingIdentity(
     case "commit-fresh": {
       deps.setInMemoryVectorSize(action.dim);
       deps.persistVectorSize(action.dim);
-      await deps.ensureCollections();
+      await deps.ensureCollections(action.dim);
       deps.enqueueReembed();
       log.info(
         { dim: action.dim },
