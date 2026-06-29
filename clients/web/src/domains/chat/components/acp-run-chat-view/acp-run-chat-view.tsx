@@ -459,7 +459,11 @@ function SteerComposer({ acpSessionId }: { acpSessionId: string }) {
     <form
       onSubmit={handleSubmit}
       data-testid="acp-chat-steer-form"
-      className="shrink-0 border-t border-[var(--border-hover)] px-5 py-3"
+      // Sticky footer: pinned as a shrink-0 flex child in the bounded side
+      // panel, and `sticky bottom-0` keeps it on-screen in any context where an
+      // unbounded-height ancestor would otherwise let it scroll past the fold.
+      // The solid panel background prevents transcript content showing through.
+      className="sticky bottom-0 z-10 shrink-0 border-t border-[var(--border-hover)] bg-[var(--surface-lift)] px-5 py-3"
     >
       <div className="flex items-center gap-2 rounded-md bg-[var(--surface-base)] px-3 py-2">
         <input
