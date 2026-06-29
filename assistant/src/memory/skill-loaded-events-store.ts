@@ -1,9 +1,9 @@
 import { and, asc, eq, gt, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { getDb } from "../persistence/db-connection.js";
 import { getCachedShareAnalytics } from "../platform/consent-cache.js";
 import type { UsageAttributionColumns } from "../usage/attribution.js";
-import { getDb } from "./db-connection.js";
 import { skillLoadedEvents } from "./schema.js";
 
 /**

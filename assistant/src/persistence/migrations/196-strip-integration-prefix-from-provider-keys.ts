@@ -38,9 +38,7 @@ export function migrateStripIntegrationPrefixFromProviderKeys(
 
       // Check if the bare-name key already exists (seed data may have created it).
       const bareExists = raw
-        .prepare(
-          /*sql*/ `SELECT 1 FROM oauth_providers WHERE provider_key = ?`,
-        )
+        .prepare(/*sql*/ `SELECT 1 FROM oauth_providers WHERE provider_key = ?`)
         .get(newKey);
 
       if (bareExists) {
@@ -55,9 +53,7 @@ export function migrateStripIntegrationPrefixFromProviderKeys(
           .prepare(/*sql*/ `DELETE FROM oauth_apps WHERE provider_key = ?`)
           .run(oldKey);
         raw
-          .prepare(
-            /*sql*/ `DELETE FROM oauth_providers WHERE provider_key = ?`,
-          )
+          .prepare(/*sql*/ `DELETE FROM oauth_providers WHERE provider_key = ?`)
           .run(oldKey);
       } else {
         // Rename: update child tables first, then parent.

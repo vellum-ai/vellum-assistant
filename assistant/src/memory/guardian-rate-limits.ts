@@ -8,7 +8,7 @@
 import { and, eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb } from "./db-connection.js";
+import { getDb } from "../persistence/db-connection.js";
 import { channelGuardianRateLimits } from "./schema.js";
 
 // ---------------------------------------------------------------------------

@@ -31,6 +31,7 @@ import {
   resolveUserName,
 } from "../../daemon/identity-helpers.js";
 import { emitNotificationSignal } from "../../notifications/emit-signal.js";
+import { getDb } from "../../persistence/db-connection.js";
 import {
   extractToolUse,
   getConfiguredProvider,
@@ -39,7 +40,6 @@ import {
 import type { ToolDefinition } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
-import { getDb } from "../db-connection.js";
 import {
   appendBufferAndArchive,
   formatRememberEntry,

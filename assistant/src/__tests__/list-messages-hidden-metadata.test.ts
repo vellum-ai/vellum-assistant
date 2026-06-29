@@ -25,8 +25,6 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
 import {
   MEMORY_RETROSPECTIVE_FORK_SOURCE,
   MEMORY_RETROSPECTIVE_INSTRUCTION_KIND,
@@ -38,6 +36,8 @@ import {
   createConversation,
   getMessages,
 } from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { handleListMessages } from "../runtime/routes/conversation-routes.js";
 
 await initializeDb();

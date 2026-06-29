@@ -2,13 +2,13 @@ import { and, asc, eq, gt, or } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../config/types.js";
 import { messageMetadataSchema } from "../../persistence/conversation-crud.js";
+import { getDb } from "../../persistence/db-connection.js";
 import type { TrustClass } from "../../runtime/actor-trust-resolver.js";
 import {
   readMessageCursorCheckpoint,
   resetMessageCursorCheckpoint,
   writeMessageCursorCheckpoint,
 } from "../checkpoints.js";
-import { getDb } from "../db-connection.js";
 import { indexMessageNow } from "../indexer.js";
 import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
 import { messages } from "../schema.js";

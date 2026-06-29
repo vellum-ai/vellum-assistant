@@ -36,13 +36,13 @@ import {
   validateAttachmentUpload,
 } from "../memory/attachments-store.js";
 import { getConversationDirPath } from "../memory/conversation-disk-view.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
 import { rawGet, rawRun } from "../memory/raw-query.js";
 import {
   addMessage,
   createConversation,
 } from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { getConversationsDir } from "../util/platform.js";
 
 await initializeDb();

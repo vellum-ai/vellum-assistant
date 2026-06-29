@@ -44,13 +44,13 @@ mock.module("../../sync/resource-sync-events.js", () => ({
   },
 }));
 
-import { getDb } from "../../../memory/db-connection.js";
-import { initializeDb } from "../../../memory/db-init.js";
 import { conversations } from "../../../memory/schema.js";
 import {
   createConversation,
   getConversation,
 } from "../../../persistence/conversation-crud.js";
+import { getDb } from "../../../persistence/db-connection.js";
+import { initializeDb } from "../../../persistence/db-init.js";
 import { ROUTES as CONVERSATION_LIST_ROUTES } from "../conversation-list-routes.js";
 import { ROUTES as CONVERSATION_MANAGEMENT_ROUTES } from "../conversation-management-routes.js";
 import { BadRequestError, NotFoundError } from "../errors.js";

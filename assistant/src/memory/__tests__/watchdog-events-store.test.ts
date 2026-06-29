@@ -14,8 +14,8 @@ mock.module("../../platform/consent-cache.js", () => ({
   getCachedShareAnalytics: () => shareAnalytics,
 }));
 
-import { getTelemetryDb } from "../db-connection.js";
-import { initializeDb } from "../db-init.js";
+import { getTelemetryDb } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
 import { watchdogEvents } from "../schema.js";
 import {
   queryUnreportedWatchdogEvents,

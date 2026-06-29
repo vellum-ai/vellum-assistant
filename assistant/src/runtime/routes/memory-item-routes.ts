@@ -25,7 +25,6 @@ import {
 import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
-import { getDb } from "../../memory/db-connection.js";
 import {
   embedWithBackend,
   generateSparseEmbedding,
@@ -44,13 +43,11 @@ import type {
   MemoryType,
   NewNode,
 } from "../../memory/graph/types.js";
-import {
-  enqueueMemoryJob,
-  isMemoryEnabled,
-} from "../../memory/jobs-store.js";
+import { enqueueMemoryJob, isMemoryEnabled } from "../../memory/jobs-store.js";
 import { withQdrantBreaker } from "../../memory/qdrant-circuit-breaker.js";
 import { getQdrantClient } from "../../memory/qdrant-client.js";
 import { memoryGraphNodes } from "../../memory/schema.js";
+import { getDb } from "../../persistence/db-connection.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";

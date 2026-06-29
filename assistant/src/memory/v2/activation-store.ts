@@ -9,7 +9,7 @@
 
 import { eq } from "drizzle-orm";
 
-import type { DrizzleDb } from "../db-connection.js";
+import type { DrizzleDb } from "../../persistence/db-connection.js";
 import { activationState } from "../schema.js";
 import {
   type ActivationState,

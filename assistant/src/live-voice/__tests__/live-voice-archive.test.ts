@@ -13,13 +13,13 @@ import {
   getAttachmentContent,
   getAttachmentsForMessage,
 } from "../../memory/attachments-store.js";
-import { getDb } from "../../memory/db-connection.js";
-import { initializeDb } from "../../memory/db-init.js";
 import { rawAll, rawGet, rawRun } from "../../memory/raw-query.js";
 import {
   addMessage,
   createConversation,
 } from "../../persistence/conversation-crud.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import type { LiveVoiceAudioArtifactMetadata } from "../live-voice-archive.js";
 import {

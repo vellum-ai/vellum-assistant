@@ -7,12 +7,12 @@ mock.module("../../util/logger.js", () => ({
     }),
 }));
 
+import { getDb } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
 import {
   isActivationSession,
   markActivationSession,
 } from "../activation-session-store.js";
-import { getDb } from "../db-connection.js";
-import { initializeDb } from "../db-init.js";
 import { activationSessions } from "../schema.js";
 
 await initializeDb();

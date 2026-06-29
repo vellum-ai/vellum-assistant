@@ -59,8 +59,8 @@ afterAll(() => {
   rmSync(tmpWorkspace, { recursive: true, force: true });
 });
 
-const { getMemoryDb } = await import("../db-connection.js");
-const { initializeDb } = await import("../db-init.js");
+const { getMemoryDb } = await import("../../persistence/db-connection.js");
+const { initializeDb } = await import("../../persistence/db-init.js");
 const { resetTestTables } = await import("../raw-query.js");
 const { memoryJobs } = await import("../schema.js");
 const { applyNestedDefaults } = await import("../../config/loader.js");

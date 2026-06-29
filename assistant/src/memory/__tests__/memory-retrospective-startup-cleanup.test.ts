@@ -112,7 +112,7 @@ const makeFakeDb = () => ({
   }),
 });
 
-mock.module("../db-connection.js", () => ({
+mock.module("../../persistence/db-connection.js", () => ({
   getDb: makeFakeDb,
   getMemoryDb: makeFakeDb,
 }));

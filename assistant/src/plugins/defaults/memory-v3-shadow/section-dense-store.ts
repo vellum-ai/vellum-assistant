@@ -25,7 +25,6 @@ import { QdrantClient as QdrantRestClient } from "@qdrant/js-client-rest";
 import { v5 as uuidv5 } from "uuid";
 
 import type { AssistantConfig } from "../../../config/types.js";
-import { getDb } from "../../../memory/db-connection.js";
 import {
   embedWithBackend,
   geminiCacheExtras,
@@ -37,6 +36,7 @@ import {
 } from "../../../memory/embedding-cache.js";
 import { embeddingInputContentHash } from "../../../memory/embedding-types.js";
 import { resolveQdrantUrl } from "../../../memory/qdrant-client.js";
+import { getDb } from "../../../persistence/db-connection.js";
 import { getLogger } from "../../../util/logger.js";
 import type { Section } from "./types.js";
 

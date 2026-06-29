@@ -52,8 +52,6 @@ import {
   getConversationDirPath,
   syncMessageToDisk,
 } from "../memory/conversation-disk-view.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
 import {
   addMessage,
   clearAll,
@@ -61,6 +59,8 @@ import {
   deleteConversation,
   updateConversationTitle,
 } from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 await initializeDb();
 
 function resetTables() {

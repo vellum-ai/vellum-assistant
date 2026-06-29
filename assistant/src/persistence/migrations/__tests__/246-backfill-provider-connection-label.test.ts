@@ -57,7 +57,16 @@ describe("migration 246 — backfill provider_connection label", () => {
       .query(
         `INSERT INTO provider_connections (name, provider, auth, status, label, created_at, updated_at) VALUES (?, ?, ?, 'active', NULL, ?, ?)`,
       )
-      .run("anthropic-personal", "anthropic", JSON.stringify({ type: "api_key", credential: "credential/anthropic/api_key" }), now, now);
+      .run(
+        "anthropic-personal",
+        "anthropic",
+        JSON.stringify({
+          type: "api_key",
+          credential: "credential/anthropic/api_key",
+        }),
+        now,
+        now,
+      );
 
     migrateBackfillProviderConnectionLabel(db);
 
@@ -77,12 +86,32 @@ describe("migration 246 — backfill provider_connection label", () => {
       .query(
         `INSERT INTO provider_connections (name, provider, auth, status, label, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?, ?)`,
       )
-      .run("openai-empty", "openai", JSON.stringify({ type: "api_key", credential: "credential/openai/api_key" }), "", now, now);
+      .run(
+        "openai-empty",
+        "openai",
+        JSON.stringify({
+          type: "api_key",
+          credential: "credential/openai/api_key",
+        }),
+        "",
+        now,
+        now,
+      );
     raw
       .query(
         `INSERT INTO provider_connections (name, provider, auth, status, label, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?, ?)`,
       )
-      .run("openai-whitespace", "openai", JSON.stringify({ type: "api_key", credential: "credential/openai/api_key" }), "   ", now, now);
+      .run(
+        "openai-whitespace",
+        "openai",
+        JSON.stringify({
+          type: "api_key",
+          credential: "credential/openai/api_key",
+        }),
+        "   ",
+        now,
+        now,
+      );
 
     migrateBackfillProviderConnectionLabel(db);
 
@@ -106,7 +135,17 @@ describe("migration 246 — backfill provider_connection label", () => {
       .query(
         `INSERT INTO provider_connections (name, provider, auth, status, label, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?, ?)`,
       )
-      .run("anthropic-work", "anthropic", JSON.stringify({ type: "api_key", credential: "credential/anthropic/api_key" }), "Anthropic — Work", now, now);
+      .run(
+        "anthropic-work",
+        "anthropic",
+        JSON.stringify({
+          type: "api_key",
+          credential: "credential/anthropic/api_key",
+        }),
+        "Anthropic — Work",
+        now,
+        now,
+      );
 
     migrateBackfillProviderConnectionLabel(db);
 
@@ -126,22 +165,41 @@ describe("migration 246 — backfill provider_connection label", () => {
       .query(
         `INSERT INTO provider_connections (name, provider, auth, status, label, created_at, updated_at) VALUES (?, ?, ?, 'active', NULL, ?, ?)`,
       )
-      .run("anthropic-personal", "anthropic", JSON.stringify({ type: "api_key", credential: "credential/anthropic/api_key" }), now, now);
+      .run(
+        "anthropic-personal",
+        "anthropic",
+        JSON.stringify({
+          type: "api_key",
+          credential: "credential/anthropic/api_key",
+        }),
+        now,
+        now,
+      );
 
     // First run: backfills NULL → "anthropic-personal".
     migrateBackfillProviderConnectionLabel(db);
     expect(
-      (raw.query(`SELECT label FROM provider_connections WHERE name = ?`).get("anthropic-personal") as ConnectionRow).label,
+      (
+        raw
+          .query(`SELECT label FROM provider_connections WHERE name = ?`)
+          .get("anthropic-personal") as ConnectionRow
+      ).label,
     ).toBe("anthropic-personal");
 
     // User clears the label after the backfill ran.
-    raw.query(`UPDATE provider_connections SET label = NULL WHERE name = ?`).run("anthropic-personal");
+    raw
+      .query(`UPDATE provider_connections SET label = NULL WHERE name = ?`)
+      .run("anthropic-personal");
 
     // Second run: should NOT re-clobber the user's deliberate clear, because
     // the checkpoint was set on the first successful run.
     migrateBackfillProviderConnectionLabel(db);
     expect(
-      (raw.query(`SELECT label FROM provider_connections WHERE name = ?`).get("anthropic-personal") as ConnectionRow).label,
+      (
+        raw
+          .query(`SELECT label FROM provider_connections WHERE name = ?`)
+          .get("anthropic-personal") as ConnectionRow
+      ).label,
     ).toBeNull();
   });
 

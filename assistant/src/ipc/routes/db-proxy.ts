@@ -17,7 +17,7 @@
  * Tracking: ATL-XXX (gateway security migration)
  */
 
-import { getSqlite } from "../../memory/db-connection.js";
+import { getSqlite } from "../../persistence/db-connection.js";
 import { getLogger } from "../../util/logger.js";
 
 const log = getLogger("db-proxy");
@@ -51,7 +51,9 @@ export function handleDbProxy(params: DbProxyParams): DbProxyResult {
   switch (params.mode) {
     case "query": {
       const stmt = db.prepare(params.sql);
-      const rows = (params.bind ? stmt.all(...params.bind) : stmt.all()) as Record<string, SqliteValue>[];
+      const rows = (
+        params.bind ? stmt.all(...params.bind) : stmt.all()
+      ) as Record<string, SqliteValue>[];
       log.debug({ sql: params.sql, rowCount: rows.length }, "db-proxy query");
       return { rows };
     }

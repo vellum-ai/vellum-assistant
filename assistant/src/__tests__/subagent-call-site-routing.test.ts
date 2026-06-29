@@ -149,7 +149,7 @@ mock.module("../providers/inference/connections.js", () => ({
   },
 }));
 
-mock.module("../memory/db-connection.js", () => ({
+mock.module("../persistence/db-connection.js", () => ({
   getDb: () => ({}),
 }));
 

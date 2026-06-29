@@ -75,10 +75,7 @@ export function migrateScrubCorruptedImageAttachments(
     for (const row of rows) {
       lastRowid = row.rowid;
       try {
-        const decoded = Buffer.from(
-          row.data_base64.slice(0, 200),
-          "base64",
-        );
+        const decoded = Buffer.from(row.data_base64.slice(0, 200), "base64");
         if (looksLikeHtml(decoded)) {
           deleteCorruptedAttachment(row.id, row.file_path);
         }

@@ -12,8 +12,8 @@
 import { expect, test } from "bun:test";
 
 const { getSqlite, SQLITE_BUSY_TIMEOUT_MS } =
-  await import("../db-connection.js");
-const { initializeDb } = await import("../db-init.js");
+  await import("../../persistence/db-connection.js");
+const { initializeDb } = await import("../../persistence/db-init.js");
 
 await initializeDb();
 

@@ -354,9 +354,10 @@ describe("runMigrationSteps — checkpointing", () => {
     const steps: MigrationStep[] = [
       async function asyncWithInspection() {
         const row = raw
-          .query<{ value: string }, []>(
-            `SELECT value FROM memory_checkpoints WHERE key = 'step:asyncWithInspection'`,
-          )
+          .query<
+            { value: string },
+            []
+          >(`SELECT value FROM memory_checkpoints WHERE key = 'step:asyncWithInspection'`)
           .get();
         seen.marker = row?.value ?? null;
         await Promise.resolve();
@@ -369,9 +370,10 @@ describe("runMigrationSteps — checkpointing", () => {
     expect(seen.marker).toBe("started");
 
     const final = raw
-      .query<{ value: string }, []>(
-        `SELECT value FROM memory_checkpoints WHERE key = 'step:asyncWithInspection'`,
-      )
+      .query<
+        { value: string },
+        []
+      >(`SELECT value FROM memory_checkpoints WHERE key = 'step:asyncWithInspection'`)
       .get();
     expect(final?.value).toBe("1");
   });

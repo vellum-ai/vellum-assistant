@@ -199,7 +199,7 @@ mock.module("../memory/jobs-store.js", () => ({
 }));
 
 const mockMaybeRunDbMaintenance = mock(() => {});
-mock.module("../memory/db-maintenance.js", () => ({
+mock.module("../persistence/db-maintenance.js", () => ({
   maybeRunDbMaintenance: mockMaybeRunDbMaintenance,
 }));
 

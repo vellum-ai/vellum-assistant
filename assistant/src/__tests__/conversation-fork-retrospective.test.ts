@@ -26,13 +26,6 @@ import {
 } from "../memory/attachments-store.js";
 import { getConversationDirPath } from "../memory/conversation-disk-view.js";
 import {
-  getDb,
-  getLogsDb,
-  getMemoryDb,
-  getSqlite,
-} from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import {
   loadGraphMemoryState,
   saveGraphMemoryState,
 } from "../memory/graph/graph-memory-state-store.js";
@@ -54,6 +47,13 @@ import {
   forkConversationForRetrospective,
   getMessages,
 } from "../persistence/conversation-crud.js";
+import {
+  getDb,
+  getLogsDb,
+  getMemoryDb,
+  getSqlite,
+} from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 
 await initializeDb();
 

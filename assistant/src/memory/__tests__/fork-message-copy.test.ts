@@ -22,8 +22,8 @@ import {
   createConversation,
   getMessages,
 } from "../../persistence/conversation-crud.js";
-import { getDb, getSqlite } from "../db-connection.js";
-import { initializeDb } from "../db-init.js";
+import { getDb, getSqlite } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
 import {
   buildForkCopyScript,
   copyForkMessagesViaSubprocess,

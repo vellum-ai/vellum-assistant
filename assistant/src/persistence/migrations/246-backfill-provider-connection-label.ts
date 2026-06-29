@@ -23,7 +23,9 @@ import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
  * backfill ran. New rows created post-backfill follow the normal
  * label-is-optional contract.
  */
-export function migrateBackfillProviderConnectionLabel(database: DrizzleDb): void {
+export function migrateBackfillProviderConnectionLabel(
+  database: DrizzleDb,
+): void {
   const raw = getSqliteFrom(database);
   const checkpointKey = "backfill_provider_connection_label";
 

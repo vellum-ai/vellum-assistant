@@ -76,7 +76,7 @@ mock.module("../../../memory/v2/injection-events.js", () => ({
 // Database handle: the simulate route only passes this through to
 // `runRouter` and `computeInjectionScores`. Both are stubbed above, so a
 // sentinel object is sufficient.
-mock.module("../../../memory/db-connection.js", () => ({
+mock.module("../../../persistence/db-connection.js", () => ({
   getDb: () => ({ __stub: true }),
   getSqlite: () => ({ __stub: true }),
   getSqliteFrom: () => ({ __stub: true }),

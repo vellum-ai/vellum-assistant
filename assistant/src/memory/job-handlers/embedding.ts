@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { eq } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../config/types.js";
-import { getDb } from "../db-connection.js";
+import { getDb } from "../../persistence/db-connection.js";
 import type { EmbeddingInput } from "../embedding-types.js";
 import { asString, embedAndUpsert } from "../job-utils.js";
 import type { MemoryJob } from "../jobs-store.js";

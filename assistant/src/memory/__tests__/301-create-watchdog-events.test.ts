@@ -18,7 +18,7 @@ mock.module("../../util/telemetry-db-path.js", () => ({
   getTelemetryDbPath: () => telemetryPath,
 }));
 
-mock.module("../db-connection.js", () => ({
+mock.module("../../persistence/db-connection.js", () => ({
   // The migration calls getTelemetrySqlite(); return our temp Database so the
   // DDL runs against it. getSqliteFrom is used in other contexts but not by
   // this migration when the mock is active.
@@ -27,7 +27,7 @@ mock.module("../db-connection.js", () => ({
     (db as unknown as { $client: Database }).$client,
 }));
 
-import { createWatchdogEventsTable } from "../migrations/301-create-watchdog-events.js";
+import { createWatchdogEventsTable } from "../../persistence/migrations/301-create-watchdog-events.js";
 import * as schema from "../schema.js";
 
 function createTestDb() {

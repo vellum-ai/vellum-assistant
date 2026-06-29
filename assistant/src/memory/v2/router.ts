@@ -39,6 +39,7 @@ import {
   getAssistantName,
   resolveUserName,
 } from "../../daemon/identity-helpers.js";
+import type { DrizzleDb } from "../../persistence/db-connection.js";
 import { cachedTextBlock } from "../../providers/cache-control.js";
 import {
   extractToolUse,
@@ -46,7 +47,6 @@ import {
 } from "../../providers/provider-send-message.js";
 import type { Message, ToolDefinition } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
-import type { DrizzleDb } from "../db-connection.js";
 import { computeInjectionScores } from "./injection-events.js";
 import type { PageIndex } from "./page-index.js";
 import {

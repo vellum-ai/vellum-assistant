@@ -24,14 +24,14 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-import { getLogsDb, getSqliteFrom } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
 import {
   getRequestLogById,
   recordRequestLog,
 } from "../memory/llm-request-log-store.js";
-import { migrateLlmRequestLogCallSite } from "../memory/migrations/264-llm-request-log-call-site.js";
 import { llmRequestLogs } from "../memory/schema.js";
+import { getLogsDb, getSqliteFrom } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { migrateLlmRequestLogCallSite } from "../persistence/migrations/264-llm-request-log-call-site.js";
 
 await initializeDb();
 

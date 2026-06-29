@@ -115,7 +115,7 @@ mock.module("../../../../memory/embedding-cache.js", () => ({
   },
 }));
 
-mock.module("../../../../memory/db-connection.js", () => ({
+mock.module("../../../../persistence/db-connection.js", () => ({
   getDb: () => ({}),
 }));
 

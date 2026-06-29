@@ -9,8 +9,6 @@ import { tableHasColumn } from "./schema-introspection.js";
 export function migrateMemoryRecallLogsQueryContext(database: DrizzleDb): void {
   if (!tableHasColumn(database, "memory_recall_logs", "query_context")) {
     const raw = getSqliteFrom(database);
-    raw.exec(
-      `ALTER TABLE memory_recall_logs ADD COLUMN query_context TEXT`,
-    );
+    raw.exec(`ALTER TABLE memory_recall_logs ADD COLUMN query_context TEXT`);
   }
 }

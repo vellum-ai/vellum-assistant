@@ -10,8 +10,8 @@ mock.module("../../../config/loader.js", () => ({
 }));
 
 import type { AssistantConfig } from "../../../config/types.js";
-import { getDb } from "../../db-connection.js";
-import { initializeDb } from "../../db-init.js";
+import { getDb } from "../../../persistence/db-connection.js";
+import { initializeDb } from "../../../persistence/db-init.js";
 import type { MemoryV2ConceptRowRecord } from "../../memory-v2-activation-log-store.js";
 import {
   conversations,

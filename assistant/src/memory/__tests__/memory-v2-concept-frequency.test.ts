@@ -24,8 +24,8 @@ mock.module("../v2/page-store.js", () => ({
   listPages: (workspaceDir: string) => listPagesImpl(workspaceDir),
 }));
 
-import { getDb } from "../db-connection.js";
-import { initializeDb } from "../db-init.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
 import {
   type MemoryV2ConceptRowRecord,
   recordMemoryV2ActivationLog,

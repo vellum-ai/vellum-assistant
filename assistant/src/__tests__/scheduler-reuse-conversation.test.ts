@@ -86,9 +86,9 @@ mock.module("../runtime/background-job-runner.js", () => ({
   },
 }));
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
 import { deleteConversation } from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { createSchedule, getScheduleRuns } from "../schedule/schedule-store.js";
 import { startScheduler } from "../schedule/scheduler.js";
 

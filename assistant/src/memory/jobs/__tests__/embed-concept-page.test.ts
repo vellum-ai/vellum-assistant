@@ -142,10 +142,11 @@ afterAll(() => {
 // Imports are deferred to after the env var is set so any internal use of
 // `getWorkspaceDir()` resolves to the tmpdir.
 const { DEFAULT_CONFIG } = await import("../../../config/defaults.js");
-const { getDb, getMemoryDb } = await import("../../db-connection.js");
+const { getDb, getMemoryDb } =
+  await import("../../../persistence/db-connection.js");
 const { resetDbForTesting } =
   await import("../../../__tests__/db-test-helpers.js");
-const { initializeDb } = await import("../../db-init.js");
+const { initializeDb } = await import("../../../persistence/db-init.js");
 const { memoryEmbeddings, memoryJobs } = await import("../../schema.js");
 const { claimMemoryJobs } = await import("../../jobs-store.js");
 type MemoryJobMod = typeof import("../../jobs-store.js");

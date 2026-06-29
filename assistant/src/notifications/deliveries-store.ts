@@ -8,9 +8,9 @@
 
 import { and, eq } from "drizzle-orm";
 
-import { getDb } from "../memory/db-connection.js";
 import { rawChanges } from "../memory/raw-query.js";
 import { notificationDeliveries } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
 import type {
   NotificationChannel,
   NotificationDeliveryStatus,

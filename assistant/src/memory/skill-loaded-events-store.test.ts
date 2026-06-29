@@ -14,8 +14,8 @@ mock.module("../platform/consent-cache.js", () => ({
   getCachedShareAnalytics: () => shareAnalytics,
 }));
 
-import { getDb } from "./db-connection.js";
-import { initializeDb } from "./db-init.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { skillLoadedEvents } from "./schema.js";
 import {
   queryUnreportedSkillLoadedEvents,

@@ -165,16 +165,16 @@ afterAll(() => {
 // bindings resolve through the stubs.
 // ---------------------------------------------------------------------------
 
-import type { DrizzleDb } from "../../db-connection.js";
+import type { DrizzleDb } from "../../../persistence/db-connection.js";
 
 const { ConversationGraphMemory } =
   await import("../conversation-graph-memory.js");
 const { applyNestedDefaults } = await import("../../../config/loader.js");
-const { getSqliteFrom } = await import("../../db-connection.js");
+const { getSqliteFrom } = await import("../../../persistence/db-connection.js");
 const { migrateActivationState } =
-  await import("../../migrations/232-activation-state.js");
+  await import("../../../persistence/migrations/232-activation-state.js");
 const { migrateAddMemoryV3EverInjected } =
-  await import("../../migrations/277-add-memory-v3-ever-injected.js");
+  await import("../../../persistence/migrations/277-add-memory-v3-ever-injected.js");
 const { getActiveSlugs: getV3ActiveSlugs, recordInjected: recordV3Injected } =
   await import("../../../plugins/defaults/memory-v3-shadow/ever-injected-store.js");
 const schema = await import("../../schema.js");
@@ -188,8 +188,8 @@ const { hydrate: hydrateActivationState, save: saveActivationState } =
 // others. A live mutable holder lets each `beforeEach` swap the handle
 // without re-registering the mock.
 let testDbHandle: DrizzleDb | null = null;
-const realDbModule = await import("../../db-connection.js");
-mock.module("../../db-connection.js", () => ({
+const realDbModule = await import("../../../persistence/db-connection.js");
+mock.module("../../../persistence/db-connection.js", () => ({
   ...realDbModule,
   getDb: () => {
     if (!testDbHandle) throw new Error("test db not initialized");

@@ -4,7 +4,7 @@ import type {
   TraceEvent,
   TraceEventKind,
 } from "../daemon/message-types/messages.js";
-import { getDb } from "./db-connection.js";
+import { getDb } from "../persistence/db-connection.js";
 import { traceEvents } from "./schema.js";
 
 // ---------------------------------------------------------------------------

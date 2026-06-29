@@ -40,8 +40,6 @@ mock.module("../config/loader.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { getConversationDirPath } from "../memory/conversation-disk-view.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
 import { rawRun } from "../memory/raw-query.js";
 import {
   attachments,
@@ -49,6 +47,8 @@ import {
   messageAttachments,
   messages,
 } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { repairConversationDiskViewMigration } from "../workspace/migrations/013-repair-conversation-disk-view.js";
 
 await initializeDb();

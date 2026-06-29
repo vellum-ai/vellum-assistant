@@ -19,31 +19,21 @@ export function migrateGuardianRequestEnrichmentColumns(
   const raw = getSqliteFrom(database);
 
   if (
-    !tableHasColumn(
-      database,
-      "canonical_guardian_requests",
-      "command_preview",
-    )
+    !tableHasColumn(database, "canonical_guardian_requests", "command_preview")
   ) {
     raw.exec(
       /*sql*/ `ALTER TABLE canonical_guardian_requests ADD COLUMN command_preview TEXT`,
     );
   }
 
-  if (
-    !tableHasColumn(database, "canonical_guardian_requests", "risk_level")
-  ) {
+  if (!tableHasColumn(database, "canonical_guardian_requests", "risk_level")) {
     raw.exec(
       /*sql*/ `ALTER TABLE canonical_guardian_requests ADD COLUMN risk_level TEXT`,
     );
   }
 
   if (
-    !tableHasColumn(
-      database,
-      "canonical_guardian_requests",
-      "activity_text",
-    )
+    !tableHasColumn(database, "canonical_guardian_requests", "activity_text")
   ) {
     raw.exec(
       /*sql*/ `ALTER TABLE canonical_guardian_requests ADD COLUMN activity_text TEXT`,
@@ -51,11 +41,7 @@ export function migrateGuardianRequestEnrichmentColumns(
   }
 
   if (
-    !tableHasColumn(
-      database,
-      "canonical_guardian_requests",
-      "execution_target",
-    )
+    !tableHasColumn(database, "canonical_guardian_requests", "execution_target")
   ) {
     raw.exec(
       /*sql*/ `ALTER TABLE canonical_guardian_requests ADD COLUMN execution_target TEXT`,

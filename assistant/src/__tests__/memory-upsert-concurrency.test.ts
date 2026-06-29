@@ -60,10 +60,10 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-import { getDb, getMemorySqlite } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
 import { indexMessageNow } from "../memory/indexer.js";
 import { conversations, memorySegments, messages } from "../memory/schema.js";
+import { getDb, getMemorySqlite } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 
 // Initialize DB once for the entire file. Each test cleans its own tables.
 await initializeDb();

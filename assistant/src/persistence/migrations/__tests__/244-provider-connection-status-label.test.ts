@@ -32,14 +32,18 @@ describe("migration 244 — provider_connection status + label", () => {
     migrateCreateProviderConnections(db);
 
     // Verify the new columns are absent before migration 244.
-    const colsBefore = raw.query(`PRAGMA table_info(provider_connections)`).all() as ColumnRow[];
+    const colsBefore = raw
+      .query(`PRAGMA table_info(provider_connections)`)
+      .all() as ColumnRow[];
     const namesBefore = colsBefore.map((c) => c.name);
     expect(namesBefore).not.toContain("status");
     expect(namesBefore).not.toContain("label");
 
     migrateProviderConnectionStatusLabel(db);
 
-    const cols = raw.query(`PRAGMA table_info(provider_connections)`).all() as ColumnRow[];
+    const cols = raw
+      .query(`PRAGMA table_info(provider_connections)`)
+      .all() as ColumnRow[];
     const colMap = Object.fromEntries(cols.map((c) => [c.name, c]));
 
     // status: NOT NULL, default 'active'
@@ -70,7 +74,9 @@ describe("migration 244 — provider_connection status + label", () => {
     // Verify canonical connections got the default.
     migrateProviderConnectionStatusLabel(db);
 
-    const rows = raw.query(`SELECT name, status, label FROM provider_connections`).all() as Array<{
+    const rows = raw
+      .query(`SELECT name, status, label FROM provider_connections`)
+      .all() as Array<{
       name: string;
       status: string;
       label: string | null;

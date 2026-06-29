@@ -22,8 +22,6 @@ import {
   getConversationByKey,
   setConversationKey,
 } from "../memory/conversation-key-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
 import {
   clearPayload,
   findMessageBySourceId,
@@ -54,6 +52,8 @@ import {
   externalConversationBindings,
   messages,
 } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { buildConversationDetailResponse } from "../runtime/services/conversation-serializer.js";
 import { handleDeleteConversation } from "./helpers/channel-test-adapter.js";
 

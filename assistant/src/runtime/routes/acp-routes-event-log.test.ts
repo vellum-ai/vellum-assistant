@@ -34,7 +34,7 @@ import {
   clearHistory,
   insertHistoryRow,
 } from "../../acp/__tests__/helpers/acp-history-db.js";
-import { initializeDb } from "../../memory/db-init.js";
+import { initializeDb } from "../../persistence/db-init.js";
 
 const { ROUTES } = await import("./acp-routes.js");
 

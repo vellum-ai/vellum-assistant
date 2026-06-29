@@ -1,10 +1,7 @@
 import { Database } from "bun:sqlite";
 
 import { getTelemetryDbPath } from "../../util/telemetry-db-path.js";
-import {
-  type DrizzleDb,
-  getTelemetrySqlite,
-} from "../db-connection.js";
+import { type DrizzleDb, getTelemetrySqlite } from "../db-connection.js";
 
 /**
  * Create the `watchdog_events` table on the dedicated telemetry database

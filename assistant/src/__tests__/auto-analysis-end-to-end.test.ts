@@ -131,12 +131,12 @@ mock.module("../runtime/services/analyze-conversation.js", () => ({
 // ── Real imports ──────────────────────────────────────────────────
 
 import { conversationAnalyzeJob } from "../memory/conversation-analyze-job.js";
-import { getDb, getMemoryDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
 import { indexMessageNow } from "../memory/indexer.js";
 import type { MemoryJob } from "../memory/jobs-store.js";
 import { conversations, memoryJobs, messages } from "../memory/schema.js";
 import { createConversation } from "../persistence/conversation-crud.js";
+import { getDb, getMemoryDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 // ── Helpers ───────────────────────────────────────────────────────

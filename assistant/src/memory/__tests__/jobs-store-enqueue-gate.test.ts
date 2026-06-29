@@ -111,7 +111,7 @@ function makeStubDb() {
   };
 }
 const stubDb = makeStubDb();
-mock.module("../db-connection.js", () => ({
+mock.module("../../persistence/db-connection.js", () => ({
   getDb: () => stubDb,
   getMemoryDb: () => stubDb,
 }));

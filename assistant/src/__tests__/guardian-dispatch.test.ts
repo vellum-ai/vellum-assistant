@@ -32,16 +32,16 @@ mock.module("../config/loader.js", () => ({
 // by reseeding or clearing the local binding directly.
 mock.module("../contacts/guardian-delivery-reader.js", () => ({
   getGuardianDelivery: async (input?: { channelTypes?: string[] }) => {
-    const { deriveGuardianDeliveries } = await import(
-      "./helpers/derive-guardian-delivery.js"
-    );
-    return deriveGuardianDeliveries({ channelTypes: input?.channelTypes ?? [] });
+    const { deriveGuardianDeliveries } =
+      await import("./helpers/derive-guardian-delivery.js");
+    return deriveGuardianDeliveries({
+      channelTypes: input?.channelTypes ?? [],
+    });
   },
   guardianForChannel: (
     list: Array<{ channelType: string; status: string }>,
     channelType: string,
-  ) =>
-    list.find((g) => g.channelType === channelType && g.status === "active"),
+  ) => list.find((g) => g.channelType === channelType && g.status === "active"),
 }));
 
 const emitCalls: unknown[] = [];
@@ -83,9 +83,9 @@ import {
   createPendingQuestion,
 } from "../calls/call-store.js";
 import { dispatchGuardianQuestion } from "../calls/guardian-dispatch.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
 import { conversations } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 import { resetGatewayAclStore } from "./helpers/gateway-acl-store.js";
 
@@ -245,9 +245,7 @@ describe("guardian-dispatch", () => {
       .query(
         "SELECT * FROM canonical_guardian_requests WHERE call_session_id = ?",
       )
-      .get(session.id) as
-      | { guardian_principal_id: string | null }
-      | undefined;
+      .get(session.id) as { guardian_principal_id: string | null } | undefined;
     expect(request).toBeDefined();
     expect(request!.guardian_principal_id).toBe("local-actor-principal");
   });

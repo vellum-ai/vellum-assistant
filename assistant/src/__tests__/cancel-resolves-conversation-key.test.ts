@@ -55,7 +55,7 @@ mock.module("../daemon/handlers/conversations.js", () => ({
 }));
 
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
-import { initializeDb } from "../memory/db-init.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { ROUTES } from "../runtime/routes/conversation-management-routes.js";
 import { routeDefinitionsToHTTPRoutes } from "../runtime/routes/http-adapter.js";
 

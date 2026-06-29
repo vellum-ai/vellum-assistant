@@ -18,14 +18,14 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-import { getDb, getLogsDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
 import { llmRequestLogs, toolInvocations } from "../memory/schema.js";
 import {
   addMessage,
   createConversation,
   getAssistantMessageIdsInTurn,
 } from "../persistence/conversation-crud.js";
+import { getDb, getLogsDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 
 await initializeDb();
 

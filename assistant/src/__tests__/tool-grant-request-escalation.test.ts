@@ -99,10 +99,10 @@ import {
   getCanonicalGuardianRequest,
   listCanonicalGuardianRequests,
 } from "../memory/canonical-guardian-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { getSqlite } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { getSqlite } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   ToolApprovalHandler,
   waitForInlineGrant,
