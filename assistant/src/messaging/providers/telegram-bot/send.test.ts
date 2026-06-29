@@ -14,21 +14,12 @@ type CallTelegramBotApi = typeof import("./api.js").callTelegramBotApi;
 const callTelegramBotApiMock = mock<CallTelegramBotApi>(
   async () => ({}) as never,
 );
-const isRichEnabledMock = mock(() => false);
 
 mock.module("../../../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     }),
-}));
-
-mock.module("../../../config/loader.js", () => ({
-  getConfig: () => ({}),
-}));
-
-mock.module("./feature-flags.js", () => ({
-  isTelegramRichMessagesEnabled: () => isRichEnabledMock(),
 }));
 
 mock.module("./api.js", () => ({
@@ -71,8 +62,6 @@ const callsTo = (method: string) =>
 beforeEach(() => {
   callTelegramBotApiMock.mockReset();
   callTelegramBotApiMock.mockImplementation(async () => ({}) as never);
-  isRichEnabledMock.mockReset();
-  isRichEnabledMock.mockImplementation(() => false);
 });
 
 describe("sendTelegramRichReply", () => {
@@ -159,27 +148,14 @@ describe("telegramTransport.deliver routing", () => {
     } as ChannelReplyPayload;
   }
 
-  test("routes to the rich send when useBlocks is set and the flag is on", async () => {
-    isRichEnabledMock.mockImplementation(() => true);
-
+  test("routes to the rich send when useBlocks is set", async () => {
     await telegramTransport.deliver(ctx, payload({ useBlocks: true }));
 
     expect(callsTo("sendRichMessage")).toHaveLength(1);
     expect(callsTo("sendMessage")).toHaveLength(0);
   });
 
-  test("stays on the plain send when the flag is off even with useBlocks", async () => {
-    isRichEnabledMock.mockImplementation(() => false);
-
-    await telegramTransport.deliver(ctx, payload({ useBlocks: true }));
-
-    expect(callsTo("sendRichMessage")).toHaveLength(0);
-    expect(callsTo("sendMessage")).toHaveLength(1);
-  });
-
-  test("stays on the plain send when useBlocks is absent even with the flag on", async () => {
-    isRichEnabledMock.mockImplementation(() => true);
-
+  test("stays on the plain send when useBlocks is absent", async () => {
     await telegramTransport.deliver(ctx, payload({ useBlocks: false }));
 
     expect(callsTo("sendRichMessage")).toHaveLength(0);
@@ -187,8 +163,6 @@ describe("telegramTransport.deliver routing", () => {
   });
 
   test("forwards approval metadata through the rich path", async () => {
-    isRichEnabledMock.mockImplementation(() => true);
-
     await telegramTransport.deliver(
       ctx,
       payload({ useBlocks: true, approval } as Partial<ChannelReplyPayload>),

@@ -402,14 +402,6 @@
       "label": "New-thread suggestions library",
       "description": "Replace the empty-state conversation-starter chips with the scrollable, categorized suggestions library and detail drawer (currently mocked data).",
       "defaultEnabled": false
-    },
-    {
-      "id": "telegram-rich-messages",
-      "scope": "assistant",
-      "key": "telegram-rich-messages",
-      "label": "Telegram Rich Messages",
-      "description": "Deliver assistant replies on Telegram via Bot API 10.1 rich messages (sendRichMessage), forwarding the reply's GFM markdown so tables, headings, code, and quotes render natively. Falls back to plain-text sendMessage when the rich send is rejected. Off by default during rollout.",
-      "defaultEnabled": false
     }
   ]
 }
