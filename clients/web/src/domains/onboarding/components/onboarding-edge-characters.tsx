@@ -22,19 +22,13 @@ import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 import {
   edgeSize,
   edgeSlots,
+  slotDepthOpacity,
+  slotDepthScale,
+  slotDepthZ,
   SLOT_ROTATIONS,
 } from "@/domains/onboarding/components/onboarding-character-stage";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
-
-// Per-slot depth pass, indexed by edge slot (0–10). Size varies so the cast
-// isn't a uniform ring, and opacity is layered (a few near-full, the rest
-// pushed back) so several read as background. Slots 9 & 10 are the bottom-
-// centre pair — kept small and dim so they don't crowd the Continue button.
-// Deterministic by slot — never jumps between renders; slots past the table
-// fall back to full size / full opacity.
-const SLOT_SCALE = [1.12, 0.85, 1.0, 0.9, 1.14, 0.82, 1.06, 0.92, 1.1, 0.62, 0.6];
-const SLOT_OPACITY = [0.9, 0.4, 1, 0.55, 0.85, 0.45, 0.65, 0.5, 0.95, 0.45, 0.4];
 
 function useViewport() {
   const [size, setSize] = useState(() => ({
@@ -87,11 +81,12 @@ export function OnboardingEdgeCharacters() {
         const p = positions[slot];
         if (!p) return null;
         const rotation = SLOT_ROTATIONS[slot % SLOT_ROTATIONS.length] ?? 0;
-        // Depth pass: scale around the slot centre and dim a few so the ring
-        // reads with depth instead of a flat, uniform border.
-        const scale = SLOT_SCALE[slot] ?? 1;
-        const avatarSize = size * scale;
-        const opacity = SLOT_OPACITY[slot] ?? 1;
+        // Depth pass: a single per-slot layer (shared with the picker screen)
+        // drives size, opacity, and stacking so the further-back avatars shrink,
+        // fade, AND sit behind the front ones.
+        const avatarSize = size * slotDepthScale(slot);
+        const opacity = slotDepthOpacity(slot);
+        const zIndex = slotDepthZ(slot);
         return (
           <div
             key={i}
@@ -101,6 +96,7 @@ export function OnboardingEdgeCharacters() {
               top: p.y - avatarSize / 2,
               width: avatarSize,
               height: avatarSize,
+              zIndex,
               animation: reduce
                 ? undefined
                 : `character-pop-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) ${0.1 + i * 0.05}s both`,
