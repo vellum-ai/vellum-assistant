@@ -1,5 +1,0 @@
-{
-  "species": "vellum",
-  "description": "Vellum Assistant with the simple-memory plugin installed at setup. Measures the recall lift the memory plugin adds over the vellum-default baseline.",
-  "setup": ["assistant plugins install simple-memory"]
-}

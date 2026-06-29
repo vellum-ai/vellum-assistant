@@ -1,57 +1,14 @@
 /**
- * Prefill suggestion lists for the research-onboarding form's role and hobbies
- * autocompletes.
+ * Prefill suggestion list for the research-onboarding form's hobbies
+ * autocomplete.
  *
  * SPIKE — research-onboarding flow.
  *
- * These are convenience prefills only: both fields accept free text, so the
- * lists just need to cover the common cases well enough that most people can
- * pick rather than type. Kept deliberately broad and alphabetized-by-frequency
- * rather than exhaustive.
+ * Convenience prefills only: the field accepts free text, so the list just
+ * needs to cover the common cases well enough that most people can pick rather
+ * than type. Kept deliberately broad and alphabetized-by-frequency rather than
+ * exhaustive.
  */
-
-/** Common roles / occupations, ordered roughly by how often we expect them. */
-export const ROLE_SUGGESTIONS: readonly string[] = [
-  "Software Engineer",
-  "Product Manager",
-  "Product Designer",
-  "Founder / CEO",
-  "Engineering Manager",
-  "Data Scientist",
-  "Marketing Manager",
-  "Growth Marketer",
-  "Content Writer",
-  "Sales Representative",
-  "Account Executive",
-  "Customer Success Manager",
-  "Operations Manager",
-  "Project Manager",
-  "Program Manager",
-  "Business Analyst",
-  "Data Engineer",
-  "Machine Learning Engineer",
-  "DevOps Engineer",
-  "Solutions Architect",
-  "UX Researcher",
-  "Graphic Designer",
-  "Recruiter",
-  "HR Manager",
-  "Financial Analyst",
-  "Accountant",
-  "Consultant",
-  "Investor / VC",
-  "Lawyer",
-  "Teacher",
-  "Professor",
-  "Researcher",
-  "Doctor / Physician",
-  "Nurse",
-  "Real Estate Agent",
-  "Executive Assistant",
-  "Entrepreneur",
-  "Freelancer",
-  "Student",
-];
 
 /** Common hobbies / interests for the multi-select chips field. */
 export const HOBBY_SUGGESTIONS: readonly string[] = [

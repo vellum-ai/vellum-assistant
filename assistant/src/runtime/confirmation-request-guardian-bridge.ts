@@ -12,8 +12,8 @@
  * canonical records.
  */
 
+import type { CanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import type { CanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import {
   recordApprovalCardDelivery,
   recordGuardianRequestDeliveries,

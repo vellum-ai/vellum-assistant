@@ -47,7 +47,7 @@ mock.module("../messaging/providers/slack/client.js", () => ({
 }));
 
 let appStoreResult: unknown = null;
-mock.module("../memory/app-store.js", () => ({
+mock.module("../apps/app-store.js", () => ({
   getApp: (_id: string) => appStoreResult,
   getAppsDir: () => "/tmp/apps",
   isMultifileApp: () => false,

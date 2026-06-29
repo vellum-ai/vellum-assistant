@@ -22,7 +22,7 @@
  * surface as a sweep failure. Nothing here throws.
  */
 
-import type { CanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
+import type { CanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { deliverChannelReply } from "../runtime/gateway-client.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";

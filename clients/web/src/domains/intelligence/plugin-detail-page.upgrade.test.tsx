@@ -10,11 +10,12 @@
  * detail + inspect queries are pre-seeded into the React Query cache
  * (with an infinite stale time) so neither refetches on mount, and the
  * upgrade SDK call is spied so confirming never touches the network. The
- * feature-flag store and active assistant id are stubbed, matching the
- * sibling `plugin-detail-page.test.tsx`.
+ * active assistant id is stubbed and the identity store is seeded with a
+ * plugin-capable version so the backwards-compat gate lets the page
+ * render, matching the sibling `plugin-detail-page.test.tsx`.
  */
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
@@ -32,23 +33,23 @@ import type {
   PluginsByNameInspectGetData,
   PluginsByNameInspectGetResponse,
 } from "@/generated/daemon/types.gen";
+import { MIN_VERSION } from "@/lib/backwards-compat/plugins-surface";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 const ASSISTANT_ID = "asst-1";
 const LOCAL_COMMIT = "60a392b0000000000000000000000000000000aa";
 const REMOTE_COMMIT = "3eae1820000000000000000000000000000000bb";
 
-mock.module("@/stores/assistant-feature-flag-store", () => ({
-  useAssistantFeatureFlagStore: {
-    use: {
-      hasHydrated: () => true,
-      externalPlugins: () => true,
-    },
-  },
-}));
-
 mock.module("@/assistant/use-active-assistant-id", () => ({
   useActiveAssistantId: () => ASSISTANT_ID,
 }));
+
+// Seed a plugin-capable version before each test. The identity store is a
+// shared singleton across web test files, so set it per-test rather than
+// once at module load (a sibling file's teardown can otherwise clear it).
+beforeEach(() => {
+  useAssistantIdentityStore.getState().setIdentity("Test Assistant", MIN_VERSION);
+});
 
 // Spy the upgrade SDK call so confirming an upgrade resolves locally
 // instead of hitting the daemon. Spread the real module so the rest of

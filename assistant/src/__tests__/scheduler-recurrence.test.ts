@@ -27,7 +27,7 @@ let runBackgroundJobShouldFail = false;
 mock.module("../runtime/background-job-runner.js", () => ({
   runBackgroundJob: async (opts: { prompt: string; groupId?: string }) => {
     const { createConversation } =
-      await import("../memory/conversation-crud.js");
+      await import("../persistence/conversation-crud.js");
     const conv = createConversation({
       title: "(test stub)",
       conversationType: "background",
@@ -50,8 +50,8 @@ mock.module("../runtime/background-job-runner.js", () => ({
   },
 }));
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   createSchedule,
   getSchedule,
@@ -142,7 +142,7 @@ describe("scheduler RRULE execution", () => {
 
   test("RRULE schedule fires and creates cron_runs entry", async () => {
     const rruleExpr = buildEveryMinuteRrule();
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "RRULE Test",
       cronExpression: rruleExpr,
       message: "Hello from RRULE",
@@ -188,7 +188,7 @@ describe("scheduler RRULE execution", () => {
     });
 
     const rruleExpr = buildEveryMinuteRrule();
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "RRULE Task Schedule",
       cronExpression: rruleExpr,
       message: `run_task:${task.id}`,
@@ -308,7 +308,7 @@ describe("scheduler RRULE execution", () => {
   });
 
   test("existing cron schedule behavior is unchanged", async () => {
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Cron Schedule",
       cronExpression: "* * * * *",
       message: "Cron message",
@@ -374,7 +374,7 @@ describe("scheduler RRULE execution", () => {
 
     const expression = `DTSTART:${ds}\nRRULE:FREQ=MINUTELY;INTERVAL=1\nEXDATE:${exDate}`;
 
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "RRULE set EXDATE test",
       cronExpression: expression,
       message: "Set exclusion test",
@@ -422,7 +422,7 @@ describe("scheduler RRULE execution", () => {
       `EXDATE:${exDs}`,
     ].join("\n");
 
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Set schedule fire test",
       cronExpression: expression,
       message: "Set fire test",
@@ -501,7 +501,7 @@ describe("scheduler RRULE execution", () => {
       // Sanity: the without-EXRULE occurrence must be even (would be excluded)
       expect(offsetWithout % 2).toBe(0);
 
-      const schedule = createSchedule({
+      const schedule = await createSchedule({
         name: "EXRULE scheduler test",
         cronExpression: expression,
         message: "EXRULE scheduler fire",
@@ -545,7 +545,7 @@ describe("scheduler RRULE execution", () => {
 
   test("RRULE schedule advances nextRunAt after firing", async () => {
     const rruleExpr = buildEveryMinuteRrule();
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Advancing RRULE",
       cronExpression: rruleExpr,
       message: "Advance test",
@@ -574,7 +574,7 @@ describe("scheduler RRULE execution", () => {
   // ── One-shot schedule tests ───────────────────────────────────────
 
   test("one-shot execute mode fires and marks schedule as fired", async () => {
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "One-shot execute",
       message: "Execute this once",
       mode: "execute",
@@ -612,7 +612,7 @@ describe("scheduler RRULE execution", () => {
   });
 
   test("one-shot notify mode emits notification and marks schedule as fired", async () => {
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "One-shot notify",
       message: "Notify about this",
       mode: "notify",
@@ -660,7 +660,7 @@ describe("scheduler RRULE execution", () => {
   });
 
   test("one-shot failure reverts to active for retry", async () => {
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "One-shot fail",
       message: "This will fail",
       mode: "execute",
@@ -686,7 +686,7 @@ describe("scheduler RRULE execution", () => {
 
   test("recurring + notify mode emits notification and continues recurring", async () => {
     const rruleExpr = buildEveryMinuteRrule();
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Recurring notify",
       cronExpression: rruleExpr,
       message: "Recurring notification",
@@ -739,7 +739,7 @@ describe("scheduler RRULE execution", () => {
   });
 
   test("one-shot notify mode passes routing intent and hints to notifier", async () => {
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Routing test",
       message: "Check routing",
       mode: "notify",

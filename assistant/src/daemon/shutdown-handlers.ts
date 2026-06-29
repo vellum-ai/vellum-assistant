@@ -1,186 +1,208 @@
 import * as Sentry from "@sentry/node";
 
-import type { FilingService } from "../filing/filing-service.js";
-import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
-import type { McpServerManager } from "../mcp/manager.js";
-import { getSqlite, resetDb } from "../memory/db-connection.js";
-import type { QdrantManager } from "../memory/qdrant-manager.js";
-import { stopMemoryWorkerProcess } from "../memory/worker-control.js";
-import type { RuntimeHttpServer } from "../runtime/http-server.js";
+import { disposeAcpSessionManager } from "../acp/index.js";
+import { stopCes } from "../credential-execution/ces-runtime.js";
+import { stopFilingService } from "../filing/filing-service.js";
+import { stopHeartbeatService } from "../heartbeat/heartbeat-service.js";
+import { stopCliIpcServer } from "../ipc/assistant-server.js";
+import { stopGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
+import { stopSkillIpcServer } from "../ipc/skill-server.js";
+import { stopMcpServerManager } from "../mcp/manager.js";
+import { getSqlite, resetDb } from "../persistence/db-connection.js";
+import { stopQdrantManager } from "../persistence/embeddings/qdrant-manager.js";
+import { stopMemoryJobsWorker } from "../persistence/jobs-worker.js";
+import { stopMemoryWorkerProcess } from "../persistence/worker-control.js";
+import { stopRuntimeHttpServer } from "../runtime/http-server.js";
+import { stopScheduler } from "../schedule/scheduler.js";
+import { getSubagentManager } from "../subagent/index.js";
+import { stopUsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { browserManager } from "../tools/browser/browser-manager.js";
 import { cleanupShellOutputTempFiles } from "../tools/shared/shell-output.js";
 import { getLogger } from "../util/logger.js";
 import { getEnrichmentService } from "../workspace/commit-message-enrichment-service.js";
-import type { WorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
-import type { DaemonServer } from "./server.js";
+import {
+  commitAllPendingWorkspaceChanges,
+  stopWorkspaceHeartbeatService,
+} from "../workspace/heartbeat-service.js";
+import { stopAppSourceWatcher } from "./app-source-watcher.js";
+import { stopConfigWatcher } from "./config-watcher.js";
+import { stopConversationEvictor } from "./conversation-evictor.js";
+import { stopConversations } from "./conversation-store.js";
+import { cleanupPidFile } from "./daemon-control.js";
+import { stopEventLoopWatchdog } from "./event-loop-watchdog.js";
+import { stopDiskPressureGuardForLifecycle } from "./lifecycle.js";
+import { stopOrphanReaper } from "./orphan-reaper.js";
 import { runShutdownHooks } from "./shutdown-registry.js";
 
 const log = getLogger("lifecycle");
 
-export interface ShutdownDeps {
-  server: DaemonServer;
-  workspaceHeartbeat: WorkspaceHeartbeatService;
-  heartbeat: HeartbeatService;
-  filing: FilingService | null;
-  runtimeHttp: RuntimeHttpServer | null;
-  scheduler: { stop(): void };
-  getMemoryWorker: () => { stop(): void } | null;
-  getQdrantManager: () => QdrantManager | null;
-  mcpManager: McpServerManager | null;
-  telemetryReporter: { stop(): Promise<void> } | null;
-  cleanupPidFile: () => void;
+/**
+ * Stop the daemon's background services and remove the PID file. Invoked on
+ * both the graceful-shutdown and force-exit-timeout paths so the process never
+ * leaves a stale PID file or orphaned timers behind.
+ */
+function stopBackgroundServicesAndCleanupPidFile(): void {
+  stopGatewayFlagListener();
+  stopDiskPressureGuardForLifecycle();
+  stopOrphanReaper();
+  stopEventLoopWatchdog();
+  cleanupPidFile();
 }
 
-export function installShutdownHandlers(deps: ShutdownDeps): void {
-  let shuttingDown = false;
-  let exitCode = 0;
+let shuttingDown = false;
 
-  const shutdown = async (_signal?: NodeJS.Signals) => {
-    if (shuttingDown) return;
-    shuttingDown = true;
+// Shared so a fatal error (unhandledRejection / uncaughtException) arriving
+// mid-drain can upgrade the exit code of an already-running graceful shutdown
+// from 0 to 1, ensuring supervisors and CI still see the failure.
+let exitCode = 0;
 
-    // Force exit if graceful shutdown takes too long.
-    // Set this BEFORE awaiting heartbeat stop so it covers all
-    // potentially-blocking async shutdown work.
-    //
-    // 20s budget: 15s reserved for Meet session teardown
-    // (`MeetSessionManager.shutdownAll`), plus ~5s for the remaining
-    // daemon work (workspace commits, server drain, enrichment, telemetry,
-    // mcp, qdrant, sqlite checkpoint). Without a live Meet session the
-    // rest of the shutdown routinely completes in under a second, so this
-    // bump only changes behavior for the stuck-shutdown path.
-    const forceTimer = setTimeout(() => {
-      log.warn("Graceful shutdown timed out, forcing exit");
-      deps.cleanupPidFile();
-      process.exit(1);
-    }, 20_000);
-    forceTimer.unref();
+async function shutdown(): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
 
-    await deps.workspaceHeartbeat.stop();
-    await deps.heartbeat.stop();
-    if (deps.filing) await deps.filing.stop();
+  // Force exit if graceful shutdown takes too long.
+  // Set this BEFORE awaiting heartbeat stop so it covers all
+  // potentially-blocking async shutdown work.
+  //
+  // 20s budget: 15s reserved for Meet session teardown
+  // (`MeetSessionManager.shutdownAll`), plus ~5s for the remaining
+  // daemon work (workspace commits, server drain, enrichment, telemetry,
+  // mcp, qdrant, sqlite checkpoint). Without a live Meet session the
+  // rest of the shutdown routinely completes in under a second, so this
+  // bump only changes behavior for the stuck-shutdown path.
+  const forceTimer = setTimeout(() => {
+    log.warn("Graceful shutdown timed out, forcing exit");
+    stopBackgroundServicesAndCleanupPidFile();
+    process.exit(1);
+  }, 20_000);
+  forceTimer.unref();
 
-    // Run registered skill shutdown hooks (e.g. meet-join session teardown)
-    // before stopping the server so any HTTP round-trips and SSE emissions
-    // still have live transports.
-    try {
-      await runShutdownHooks("daemon-shutdown");
-    } catch (err) {
-      log.warn({ err }, "Skill shutdown hooks failed (non-fatal)");
-    }
+  await stopWorkspaceHeartbeatService();
+  await stopHeartbeatService();
+  await stopFilingService();
 
-    // Commit any uncommitted workspace changes before stopping the server.
-    // This ensures no workspace state is lost during graceful shutdown.
-    try {
-      log.info({ phase: "pre_stop" }, "Committing pending workspace changes");
-      await deps.workspaceHeartbeat.commitAllPending();
-    } catch (err) {
-      log.warn({ err, phase: "pre_stop" }, "Shutdown workspace commit failed");
-    }
+  // Run registered skill shutdown hooks (e.g. meet-join session teardown)
+  // before stopping the server so any HTTP round-trips and SSE emissions
+  // still have live transports.
+  try {
+    await runShutdownHooks("daemon-shutdown");
+  } catch (err) {
+    log.warn({ err }, "Skill shutdown hooks failed (non-fatal)");
+  }
 
-    await deps.server.stop();
+  // Commit any uncommitted workspace changes before stopping the server.
+  // This ensures no workspace state is lost during graceful shutdown.
+  try {
+    log.info({ phase: "pre_stop" }, "Committing pending workspace changes");
+    await commitAllPendingWorkspaceChanges();
+  } catch (err) {
+    log.warn({ err, phase: "pre_stop" }, "Shutdown workspace commit failed");
+  }
 
-    // Final commit sweep: catch any writes that occurred during server.stop()
-    // (e.g. in-flight tool executions completing during drain).
-    try {
-      log.info({ phase: "post_stop" }, "Final workspace commit sweep");
-      await deps.workspaceHeartbeat.commitAllPending();
-    } catch (err) {
-      log.warn(
-        { err, phase: "post_stop" },
-        "Post-stop workspace commit failed",
+  // Abort all running subagents and tear down conversation-related state.
+  getSubagentManager().disposeAll();
+  disposeAcpSessionManager();
+  stopConversationEvictor();
+  stopConfigWatcher();
+  stopAppSourceWatcher();
+  stopCliIpcServer();
+  stopSkillIpcServer();
+  stopConversations();
+  await stopCes();
+
+  // Final commit sweep: catch any writes that occurred during the
+  // subagent/conversation teardown (e.g. in-flight tool executions
+  // completing during drain).
+  try {
+    log.info({ phase: "post_stop" }, "Final workspace commit sweep");
+    await commitAllPendingWorkspaceChanges();
+  } catch (err) {
+    log.warn({ err, phase: "post_stop" }, "Post-stop workspace commit failed");
+  }
+
+  // Flush in-flight enrichment jobs so shutdown commit notes are not dropped.
+  // The enrichment service's shutdown() drains active jobs and discards pending ones.
+  try {
+    await getEnrichmentService().shutdown();
+  } catch (err) {
+    log.warn({ err }, "Enrichment service shutdown failed (non-fatal)");
+  }
+
+  try {
+    const timeout = new Promise<void>((_, reject) =>
+      setTimeout(() => reject(new Error("Telemetry flush timed out")), 3_000),
+    );
+    await Promise.race([stopUsageTelemetryReporter(), timeout]);
+  } catch (err) {
+    log.warn({ err }, "Telemetry reporter shutdown failed (non-fatal)");
+  }
+
+  await stopRuntimeHttpServer();
+  await browserManager.closeAllPages();
+  cleanupShellOutputTempFiles();
+  stopScheduler();
+
+  // Stop the in-process memory worker supervisor if it was started on the
+  // daemon's event loop (memory.worker.enabled = false).
+  stopMemoryJobsWorker();
+
+  // Stop the out-of-process memory worker if it's actually running. This is
+  // keyed off live state rather than config: the worker may have been
+  // spawned at startup (memory.worker.enabled = true) or out of band via
+  // `assistant memory worker start`, so we stop whatever is actually there.
+  try {
+    const workerStatus = stopMemoryWorkerProcess();
+    if (workerStatus.status === "running") {
+      log.info(
+        { pid: workerStatus.pid },
+        "Sent SIGTERM to memory worker process",
       );
     }
+  } catch (err) {
+    log.warn({ err }, "Failed to stop memory worker process (non-fatal)");
+  }
 
-    // Flush in-flight enrichment jobs so shutdown commit notes are not dropped.
-    // The enrichment service's shutdown() drains active jobs and discards pending ones.
-    try {
-      await getEnrichmentService().shutdown();
-    } catch (err) {
-      log.warn({ err }, "Enrichment service shutdown failed (non-fatal)");
-    }
+  try {
+    await stopMcpServerManager();
+  } catch (err) {
+    log.warn({ err }, "MCP server manager shutdown failed (non-fatal)");
+  }
 
-    if (deps.telemetryReporter) {
-      try {
-        const timeout = new Promise<void>((_, reject) =>
-          setTimeout(
-            () => reject(new Error("Telemetry flush timed out")),
-            3_000,
-          ),
-        );
-        await Promise.race([deps.telemetryReporter.stop(), timeout]);
-      } catch (err) {
-        log.warn({ err }, "Telemetry reporter shutdown failed (non-fatal)");
-      }
-    }
+  await stopQdrantManager();
 
-    if (deps.runtimeHttp) await deps.runtimeHttp.stop();
-    await browserManager.closeAllPages();
-    cleanupShellOutputTempFiles();
-    deps.scheduler.stop();
+  // Optimize query planner statistics before closing so they persist for
+  // the next session. Checkpoint WAL and close SQLite so no writes are
+  // lost on exit. Each step is in its own try block so later steps still
+  // run if an earlier one throws (e.g. SQLITE_BUSY).
+  try {
+    getSqlite().exec("PRAGMA optimize");
+  } catch (err) {
+    log.warn({ err }, "PRAGMA optimize at shutdown failed (non-fatal)");
+  }
+  try {
+    getSqlite().exec("PRAGMA wal_checkpoint(TRUNCATE)");
+  } catch (err) {
+    log.warn({ err }, "WAL checkpoint failed (non-fatal)");
+  }
+  try {
+    resetDb();
+  } catch (err) {
+    log.warn({ err }, "Database close failed (non-fatal)");
+  }
 
-    // Stop the in-process memory worker if one was started on the daemon's
-    // event loop (memory.worker.enabled = false).
-    deps.getMemoryWorker()?.stop();
+  await Sentry.flush(2000);
+  clearTimeout(forceTimer);
+  stopBackgroundServicesAndCleanupPidFile();
+  process.exit(exitCode);
+}
 
-    // Stop the out-of-process memory worker if it's actually running. This is
-    // keyed off live state rather than config: the worker may have been
-    // spawned at startup (memory.worker.enabled = true) or out of band via
-    // `assistant memory worker start`, so we stop whatever is actually there.
-    try {
-      const workerStatus = stopMemoryWorkerProcess();
-      if (workerStatus.status === "running") {
-        log.info(
-          { pid: workerStatus.pid },
-          "Sent SIGTERM to memory worker process",
-        );
-      }
-    } catch (err) {
-      log.warn({ err }, "Failed to stop memory worker process (non-fatal)");
-    }
-
-    if (deps.mcpManager) {
-      try {
-        await deps.mcpManager.stop();
-      } catch (err) {
-        log.warn({ err }, "MCP server manager shutdown failed (non-fatal)");
-      }
-    }
-
-    await deps.getQdrantManager()?.stop();
-
-    // Optimize query planner statistics before closing so they persist for
-    // the next session. Checkpoint WAL and close SQLite so no writes are
-    // lost on exit. Each step is in its own try block so later steps still
-    // run if an earlier one throws (e.g. SQLITE_BUSY).
-    try {
-      getSqlite().exec("PRAGMA optimize");
-    } catch (err) {
-      log.warn({ err }, "PRAGMA optimize at shutdown failed (non-fatal)");
-    }
-    try {
-      getSqlite().exec("PRAGMA wal_checkpoint(TRUNCATE)");
-    } catch (err) {
-      log.warn({ err }, "WAL checkpoint failed (non-fatal)");
-    }
-    try {
-      resetDb();
-    } catch (err) {
-      log.warn({ err }, "Database close failed (non-fatal)");
-    }
-
-    await Sentry.flush(2000);
-    clearTimeout(forceTimer);
-    deps.cleanupPidFile();
-    process.exit(exitCode);
-  };
-
+export function installShutdownHandlers(): void {
   process.on("SIGTERM", () => {
     log.warn(
       { signal: "SIGTERM", pid: process.pid, uptime: process.uptime() },
       "Received SIGTERM — process termination requested",
     );
-    void shutdown("SIGTERM");
+    void shutdown();
   });
 
   process.on("SIGINT", () => {
@@ -188,7 +210,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
       { signal: "SIGINT", pid: process.pid, uptime: process.uptime() },
       "Received SIGINT — user interrupt",
     );
-    void shutdown("SIGINT");
+    void shutdown();
   });
 
   process.on("SIGHUP", () => {
@@ -196,7 +218,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
       { signal: "SIGHUP", pid: process.pid, uptime: process.uptime() },
       "Received SIGHUP — terminal hangup",
     );
-    void shutdown("SIGHUP");
+    void shutdown();
   });
 
   process.on("unhandledRejection", (reason) => {

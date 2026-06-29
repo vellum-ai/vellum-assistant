@@ -27,8 +27,8 @@ mock.module("../runtime/agent-wake.js", () => ({
   wakeAgentForOpportunity: mockWakeAgentForOpportunity,
 }));
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { createSchedule } from "../schedule/schedule-store.js";
 import { startScheduler } from "../schedule/scheduler.js";
 
@@ -81,7 +81,7 @@ describe("scheduler wake mode", () => {
 
   test("wake schedule calls wakeAgentForOpportunity with correct args", async () => {
     // GIVEN a one-shot wake schedule with a conversation ID
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Wake Test",
       message: "Check back on this",
       mode: "wake",
@@ -114,7 +114,7 @@ describe("scheduler wake mode", () => {
     // GIVEN a one-shot wake schedule WITHOUT a conversation ID
     // We need to create it with a wakeConversationId first (validation requires it),
     // then clear it at the DB level to simulate a missing value at runtime.
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Wake No Conv",
       message: "Missing conv",
       mode: "wake",
@@ -151,7 +151,7 @@ describe("scheduler wake mode", () => {
       producedToolCalls: false,
     });
 
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Wake Complete",
       message: "Should complete",
       mode: "wake",
@@ -179,7 +179,7 @@ describe("scheduler wake mode", () => {
     // GIVEN a one-shot wake schedule where wakeAgentForOpportunity throws
     mockWakeAgentForOpportunity.mockRejectedValueOnce(new Error("Wake failed"));
 
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Wake Fail",
       message: "Should fail",
       mode: "wake",
@@ -216,7 +216,7 @@ describe("scheduler wake mode", () => {
         producedToolCalls: false,
       });
 
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Wake Retry",
       message: "Retry after timeout",
       mode: "wake",
@@ -262,7 +262,7 @@ describe("scheduler wake mode", () => {
       reason: "timeout",
     });
 
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Wake Max Retry",
       message: "Always busy",
       mode: "wake",

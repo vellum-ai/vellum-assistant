@@ -2,6 +2,7 @@ import { Capacitor } from "@capacitor/core";
 import { useMutation } from "@tanstack/react-query";
 import {
     Bug,
+    Download,
     Info,
     Lightbulb,
     Loader2,
@@ -457,6 +458,7 @@ export function ShareFeedbackModal({
 }: ShareFeedbackModalProps) {
   const authUser = useAuthStore.use.user();
   const authEmail = authUser?.email;
+  const isStaff = authUser?.isStaff ?? false;
   const titleId = useId();
   const overlayRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -478,6 +480,9 @@ export function ShareFeedbackModal({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [includeConversation, setIncludeConversation] = useState(false);
+  // Admin-only: build the diagnostics archive locally and download it
+  // instead of submitting feedback (which notifies Slack).
+  const [adminDownloadMode, setAdminDownloadMode] = useState(false);
 
   const mutation = useMutation(feedbackCreateMutation());
   const [isBuildingLogs, setIsBuildingLogs] = useState(false);
@@ -503,6 +508,7 @@ export function ShareFeedbackModal({
     setLogTimeRange("past_hour");
     setAttachments([]);
     setIncludeConversation(false);
+    setAdminDownloadMode(false);
     setSubmitError(null);
     setIsBuildingLogs(false);
     mutation.reset();
@@ -663,6 +669,52 @@ export function ShareFeedbackModal({
     }
   };
 
+  // Admin-only path: build the diagnostics archive client-side and hand it
+  // to the browser as a download. No feedback submission and no Slack
+  // notification.
+  const handleDownload = async () => {
+    if (isSubmitting) {
+      return;
+    }
+    setSubmitError(null);
+    setIsBuildingLogs(true);
+    try {
+      const logsFile = await buildClientLogsFile(
+        logTimeRange,
+        assistantId ?? null,
+        isElectron()
+          ? includeConversation
+            ? (activeConversationId ?? null)
+            : null
+          : (activeConversationId ?? null),
+        getDiagnosticsSnapshot,
+      );
+      if (!logsFile) {
+        setSubmitError(
+          "Diagnostics export isn't supported in this browser.",
+        );
+        return;
+      }
+      const url = URL.createObjectURL(logsFile);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = logsFile.name;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+      onClose();
+    } catch (err) {
+      setSubmitError(
+        err instanceof Error
+          ? err.message
+          : "Failed to build diagnostics. Please try again.",
+      );
+    } finally {
+      setIsBuildingLogs(false);
+    }
+  };
+
   if (!open) return null;
 
   return createPortal(
@@ -709,6 +761,40 @@ export function ShareFeedbackModal({
         <div
           className={`flex flex-col gap-3.5 overflow-y-auto pt-4 ${isSubmitting ? "pointer-events-none opacity-60" : ""}`}
         >
+          {isStaff && (
+            <div className="flex flex-col gap-1.5 rounded-lg border border-[var(--border-base)] bg-[var(--surface-base)] px-3 py-2.5">
+              <label className="flex cursor-pointer items-center gap-3">
+                <Toggle
+                  checked={adminDownloadMode}
+                  onChange={() => setAdminDownloadMode((v) => !v)}
+                  aria-label="Download diagnostics directly"
+                />
+                <span className="text-body-medium-lighter text-[var(--content-default)]">
+                  Download diagnostics directly
+                </span>
+              </label>
+              <span className="text-body-small-default text-[var(--content-secondary)]">
+                Admin only — builds the diagnostics archive locally and
+                downloads it instead of submitting feedback or notifying
+                Slack.
+              </span>
+            </div>
+          )}
+
+          {adminDownloadMode ? (
+            <div className="flex items-center gap-3">
+              <span className="text-body-medium-lighter text-[var(--content-default)]">
+                Time range
+              </span>
+              <Dropdown
+                options={TIME_RANGE_OPTIONS}
+                value={logTimeRange}
+                onChange={setLogTimeRange}
+                aria-label="Diagnostics time range"
+              />
+            </div>
+          ) : (
+          <>
           {shouldShowEmail && (
             <Input
               id={`${titleId}-email`}
@@ -885,6 +971,8 @@ export function ShareFeedbackModal({
               </p>
             )}
           </div>
+          </>
+          )}
 
           {submitError && (
             <p className="text-body-medium-lighter text-[var(--system-negative-strong)]">
@@ -900,21 +988,31 @@ export function ShareFeedbackModal({
           {isSubmitting ? (
             <span className="inline-flex items-center gap-2 text-body-medium-lighter text-[var(--content-secondary)]">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Sending feedback…
+              {adminDownloadMode ? "Preparing diagnostics…" : "Sending feedback…"}
             </span>
           ) : (
             <>
               <Button variant="ghost" onClick={onClose}>
                 Cancel
               </Button>
-              <Button
-                variant="primary"
-                leftIcon={<Send />}
-                onClick={handleSubmit}
-                disabled={!canSend}
-              >
-                Submit
-              </Button>
+              {adminDownloadMode ? (
+                <Button
+                  variant="primary"
+                  leftIcon={<Download />}
+                  onClick={handleDownload}
+                >
+                  Download diagnostics
+                </Button>
+              ) : (
+                <Button
+                  variant="primary"
+                  leftIcon={<Send />}
+                  onClick={handleSubmit}
+                  disabled={!canSend}
+                >
+                  Submit
+                </Button>
+              )}
             </>
           )}
         </div>

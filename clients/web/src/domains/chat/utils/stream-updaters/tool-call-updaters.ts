@@ -108,6 +108,7 @@ export function upsertToolCall(
   prev: DisplayMessage[],
   toolCall: ChatMessageToolCall,
   messageId?: string,
+  at: number = Date.now(),
 ): DisplayMessage[] {
   if (messageId) {
     const idx = findAssistantRowIndexByMessageId(prev, messageId);
@@ -128,7 +129,7 @@ export function upsertToolCall(
       toolCalls: [toolCall],
       contentOrder: [{ type: "toolCall", id: toolCall.id }],
       contentBlocks: [{ type: "tool_use", toolCall }],
-      timestamp: Date.now(),
+      timestamp: at,
     },
   ];
 }

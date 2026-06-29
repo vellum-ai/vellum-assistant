@@ -190,6 +190,15 @@ export const MemoryMaintenanceConfigSchema = z
       .describe(
         "Database maintenance is deferred unless at least this many milliseconds have elapsed since the last user message, so maintenance's write locks never collide with an active user (0 disables the quiet-period gate)",
       ),
+    skillPruneDays: z
+      .number({ error: "memory.maintenance.skillPruneDays must be a number" })
+      .int("memory.maintenance.skillPruneDays must be an integer")
+      .min(1, "memory.maintenance.skillPruneDays must be at least 1")
+      .nullable()
+      .default(null)
+      .describe(
+        'Usage-based prune threshold for assistant-authored skills, in days. `null` (the default) = never prune — the maintain stage runs observe-only and deletes nothing (it still reports stale skills for observability). Set a positive integer to enable deletion of assistant-authored skills unused (lastUsedAt, else installedAt) for at least that many days. Shipped default-off so skill accumulation can be observed before deletion is enabled. Only `author:"assistant"` skills are ever eligible; user-authored and untagged skills are always protected.',
+      ),
   })
   .describe(
     "Database maintenance (PRAGMA optimize / WAL checkpoint) scheduling",

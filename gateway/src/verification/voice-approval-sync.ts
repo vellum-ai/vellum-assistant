@@ -20,6 +20,7 @@
 import { existsSync } from "node:fs";
 
 import { ipcCallAssistant } from "../ipc/assistant-client.js";
+import { noteIpcReachable, noteIpcTransportError } from "../ipc/ipc-health.js";
 import { getLogger } from "../logger.js";
 import { resolveIpcSocketPath } from "../ipc/socket-path.js";
 import { upsertVerifiedContactChannel } from "./contact-helpers.js";
@@ -44,6 +45,9 @@ export function startVoiceApprovalSync(): void {
   lastSyncAt = Date.now() - STARTUP_LOOKBACK_MS;
   timer = setInterval(() => {
     void syncVoiceApprovals().catch((err: unknown) => {
+      // Assistant-down timeouts are collapsed into a single shared down/up
+      // signal by the health tracker; only log errors it does not own.
+      if (noteIpcTransportError(err, "voice-approval-sync")) return;
       log.warn({ err }, "Voice approval sync error");
     });
   }, POLL_INTERVAL_MS);
@@ -74,6 +78,10 @@ async function syncVoiceApprovals(): Promise<void> {
     mode: "query",
     bind: [since],
   })) as DbProxyResult;
+
+  // The call returned, so the assistant IPC channel is reachable — clears any
+  // outstanding "down" state and logs the single recovery line.
+  noteIpcReachable();
 
   if (!result.rows?.length) {
     lastSyncAt = now;

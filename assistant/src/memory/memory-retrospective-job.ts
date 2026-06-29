@@ -42,6 +42,7 @@ import {
   isInteractiveInterface,
   parseInterfaceId,
 } from "../channels/types.js";
+import { isProcToSkillsActive } from "../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../config/types.js";
 import { getGuardianDelivery } from "../contacts/guardian-delivery-reader.js";
 import { extractTurnContextTimestamp } from "../context/compactor.js";
@@ -51,30 +52,32 @@ import {
 } from "../daemon/date-context.js";
 import type { WakeToolContextPin } from "../daemon/tool-setup-types.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
-import { resolveUserSlug } from "../prompts/persona-resolver.js";
-import type { SystemPromptPersonaOverride } from "../prompts/system-prompt.js";
-import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
-import { getLogger } from "../util/logger.js";
 import {
   addMessage,
   type ConversationRow,
   deleteConversation,
+  deleteConversationGently,
   findMostRecentRetrospectiveFor,
   forkConversationForRetrospective,
   getConversation,
   getMessagesAfter,
   isConversationProcessing,
   resolveOverrideProfile,
-} from "./conversation-crud.js";
+} from "../persistence/conversation-crud.js";
 import {
   enqueueMemoryJob,
   type MemoryJob,
   type MemoryJobType,
-} from "./jobs-store.js";
+} from "../persistence/jobs-store.js";
+import { resolveUserSlug } from "../prompts/persona-resolver.js";
+import type { SystemPromptPersonaOverride } from "../prompts/system-prompt.js";
+import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
+import { getLogger } from "../util/logger.js";
 import {
   MEMORY_RETROSPECTIVE_FORK_SOURCE,
   MEMORY_RETROSPECTIVE_GROUP_ID,
   MEMORY_RETROSPECTIVE_INSTRUCTION_KIND,
+  MEMORY_RETROSPECTIVE_ORIGIN,
   MEMORY_RETROSPECTIVE_SOURCE,
 } from "./memory-retrospective-constants.js";
 import { loadRetrospectiveRunMessages } from "./memory-retrospective-fork-boundary.js";
@@ -135,6 +138,9 @@ export async function runForkBasedRetrospective(
   sourceConversationId: string,
   config: AssistantConfig,
 ): Promise<MemoryRetrospectiveOutcome> {
+  // Start stamp for the retrospective's end-to-end wall time, surfaced as
+  // `durationMs` on the "invoked" log (start → invoked).
+  const startedAtMs = Date.now();
   const sourceConversation = getConversation(sourceConversationId);
   if (!sourceConversation) {
     log.warn(
@@ -155,7 +161,7 @@ export async function runForkBasedRetrospective(
   // nothing is lost. Returning (not throwing) keeps the jobs-worker from
   // retry-with-backoff.
   if (isConversationProcessing(sourceConversationId)) {
-    bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
+    await bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
     log.info(
       { sourceConversationId },
       "memory-retrospective (fork): source conversation is mid-turn; skipping",
@@ -233,7 +239,7 @@ export async function runForkBasedRetrospective(
       groupId: MEMORY_RETROSPECTIVE_GROUP_ID,
     });
   } catch (err) {
-    bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
+    await bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
     log.error(
       { err, sourceConversationId },
       "memory-retrospective (fork): forkConversationForRetrospective failed",
@@ -242,12 +248,14 @@ export async function runForkBasedRetrospective(
   }
   const forkId = forkConversationRow.id;
 
+  const procToSkillsActive = isProcToSkillsActive(config);
   const instruction = buildForkInstruction({
     windowStartTimestamp,
     windowAnchorKind: turnContextTimestamp ? "turn_context" : "created_at",
     priorRemembers,
     timeZone: timezoneContext.effectiveTimezone,
     isFirstPass: lastProcessedMessageId == null,
+    procToSkillsActive,
   });
   try {
     await addMessage(
@@ -265,7 +273,7 @@ export async function runForkBasedRetrospective(
       "memory-retrospective (fork): failed to persist instruction message",
     );
     safeDeleteRetrospectiveConversation(forkId, FORK_DELETE_FAILURE_WARNING);
-    bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
+    await bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
     throw err;
   }
 
@@ -312,16 +320,29 @@ export async function runForkBasedRetrospective(
       source: MEMORY_RETROSPECTIVE_SOURCE,
       trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
       callSite: "memoryRetrospective",
-      allowedTools: ["remember"],
+      // `remember` saves ordinary facts; the skill-authoring trio
+      // (`scaffold_managed_skill` / `skill_load` / `find_similar_skills`) lets a
+      // pass author or refine a managed skill from an observed procedure. The
+      // allowlist is gated on the same `procToSkillsActive` predicate as the
+      // fork instruction and the checker's origin-scoped grant, so an inactive
+      // install is remember-only — the authoring trio is not even named on the
+      // allowlist. Any tool outside the active set is rejected at execution time.
+      allowedTools: procToSkillsActive
+        ? [
+            "remember",
+            "scaffold_managed_skill",
+            "skill_load",
+            "find_similar_skills",
+          ]
+        : ["remember"],
       // Always keep the source's full tool surface on the wire and resolve it
       // under the source's client context (`toolContextPin`). The wire tool
       // block is the first tier of the provider cache prefix
-      // (tools → system → messages), so a `remember`-only wire filter busts
-      // cache parity with the source's live turns — re-creating the cached
-      // prefix instead of reading it. The allowlist still holds at execution
-      // time: non-`remember` calls are rejected before any executor or side
-      // effect runs. See {@link SubagentToolGateMode} and
-      // {@link WakeToolContextPin}.
+      // (tools → system → messages), so a wire filter busts cache parity with
+      // the source's live turns — re-creating the cached prefix instead of
+      // reading it. The allowlist still holds at execution time: non-allowlisted
+      // calls are rejected before any executor or side effect runs. See
+      // {@link SubagentToolGateMode} and {@link WakeToolContextPin}.
       toolGateMode: "execution" as const,
       toolContextPin,
       // Message-tier cache-prefix parity — reproducing the source's
@@ -357,7 +378,7 @@ export async function runForkBasedRetrospective(
   }
 
   if (wakeSucceeded) {
-    return finalizeSuccessfulRetrospective({
+    return await finalizeSuccessfulRetrospective({
       config,
       sourceConversationId,
       retrospectiveConversationId: forkId,
@@ -365,14 +386,18 @@ export async function runForkBasedRetrospective(
       newMessageCount: newMessages.length,
       prior,
       priorRemembers,
-      logFields: { kind: "fork", windowStartTimestamp },
+      logFields: {
+        kind: "fork",
+        windowStartTimestamp,
+        durationMs: Date.now() - startedAtMs,
+      },
     });
   }
 
   // Wake failed. Bump `lastRunAt` only so the cooldown gate applies, leave
   // `lastProcessedMessageId` alone so the next attempt re-processes the
   // same messages. Then clean up the orphan fork.
-  bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
+  await bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
   safeDeleteRetrospectiveConversation(forkId, FORK_DELETE_FAILURE_WARNING);
 
   if (threw !== undefined) {
@@ -486,7 +511,15 @@ function resolveSourceParityPins(
       };
   return {
     personaOverride,
-    toolContextPin: { hasNoClient, transportInterface },
+    // Pin the retrospective origin so the wake's tool calls resolve under it
+    // (`buildPolicyContext` → the checker's origin-scoped skill-authoring
+    // grant). The grant is independently gated on proc-to-skills being active,
+    // so stamping the origin unconditionally is inert when the feature is off.
+    toolContextPin: {
+      hasNoClient,
+      transportInterface,
+      requestOrigin: MEMORY_RETROSPECTIVE_ORIGIN,
+    },
   };
 }
 
@@ -561,7 +594,7 @@ function resolvePriorRetrospective(
  * cleanup. `priorRemembers` (cumulative log, or the prior-conversation scan
  * that seeds it) is the base so the prior's saves survive its GC below.
  */
-function finalizeSuccessfulRetrospective(args: {
+async function finalizeSuccessfulRetrospective(args: {
   config: AssistantConfig;
   sourceConversationId: string;
   retrospectiveConversationId: string;
@@ -571,7 +604,7 @@ function finalizeSuccessfulRetrospective(args: {
   priorRemembers: string[];
   /** Per-kind extras for the success log line (e.g. `kind`, fork anchor). */
   logFields: Record<string, unknown>;
-}): MemoryRetrospectiveOutcome {
+}): Promise<MemoryRetrospectiveOutcome> {
   const {
     config,
     sourceConversationId,
@@ -586,14 +619,14 @@ function finalizeSuccessfulRetrospective(args: {
   const runRemembers = extractRetrospectiveRunRemembers(
     retrospectiveConversationId,
   );
-  upsertRetrospectiveState({
+  await upsertRetrospectiveState({
     conversationId: sourceConversationId,
     lastProcessedMessageId: cutoffMessageId,
     lastRunAt: Date.now(),
     rememberedLog: appendToRememberedLog(priorRemembers, runRemembers),
   });
 
-  deleteSupersededPriorRetrospective(config, prior, sourceConversationId);
+  await deleteSupersededPriorRetrospective(config, prior, sourceConversationId);
 
   const followUpJobIds = enqueueFollowUpJobs();
 
@@ -660,16 +693,20 @@ function safeDeleteRetrospectiveConversation(
  * never fails the job. Operators opt out of GC entirely via
  * `memory.retrospective.keepSupersededRuns`.
  */
-function deleteSupersededPriorRetrospective(
+async function deleteSupersededPriorRetrospective(
   config: AssistantConfig,
   prior: PriorRetrospective | null,
   sourceConversationId: string,
-): void {
+): Promise<void> {
   if (!prior) return;
   if (config.memory.retrospective.keepSupersededRuns) return;
   if (prior.forkParentConversationId !== sourceConversationId) return;
   try {
-    deleteConversation(prior.id);
+    // Fork-kind priors carry a full copy of the source's message history, so
+    // delete the message rows off the event loop in lock-friendly batches —
+    // the deletion mirror of the batched fork copy that built them — instead
+    // of one lock-holding transaction that would starve live user turns.
+    await deleteConversationGently(prior.id);
   } catch (err) {
     log.warn(
       { err, priorConversationId: prior.id },
@@ -833,6 +870,13 @@ interface ForkInstructionArgs {
   timeZone: string;
   /** True when this is the first retrospective pass over the source conversation. */
   isFirstPass: boolean;
+  /**
+   * Whether procedural-memory-as-skills is active (memory-v3 live).
+   * Gates the skill-authoring section of the instruction: when false the pass
+   * keeps its remember-only behavior, matching the permission checker's grant
+   * gate so the directives never appear when the tools would be denied anyway.
+   */
+  procToSkillsActive: boolean;
 }
 
 /**
@@ -849,6 +893,7 @@ function buildForkInstruction({
   priorRemembers,
   timeZone,
   isFirstPass,
+  procToSkillsActive,
 }: ForkInstructionArgs): string {
   const renderedPrior =
     priorRemembers.length === 0
@@ -863,7 +908,11 @@ function buildForkInstruction({
     ? "Your review window is the full conversation above, ending just before this instruction message."
     : `Your review window starts at ${anchorDescription} and ends just before this instruction message. If you cannot locate that anchoring turn in your visible history (for example, it is behind the compaction summary), fail closed: review only the most recent visible messages after the summary, not the whole conversation.`;
 
-  return `This is an automated background memory pass over the conversation above — not a message from the user. Do not reply conversationally; just perform the review described here. Only the \`remember\` tool is available for this pass — any other tool call will be rejected, so don't attempt one.
+  const availableToolsLine = procToSkillsActive
+    ? "Only `remember`, `find_similar_skills`, `scaffold_managed_skill`, and `skill_load skill-management` are available for this pass — any other tool call will be rejected, so don't attempt one."
+    : "Only the `remember` tool is available for this pass — any other tool call will be rejected, so don't attempt one.";
+
+  return `This is an automated background memory pass over the conversation above — not a message from the user. Do not reply conversationally; just perform the review described here. ${availableToolsLine}
 
 ${windowAnchor}
 
@@ -880,5 +929,30 @@ Two dedup sources to skip:
 2. Anything you already called \`remember\` on inline within your review window — those appear as \`tool_use\` blocks with \`name: "remember"\` in your history.
 
 For everything else in your review window, use the \`remember\` tool on facts, plans, decisions, preferences, names, dates, felt moments, corrections, commitments, or anything else concrete and worth carrying forward. When several facts are worth saving, pass them all as an array to a single \`remember\` call rather than calling it once per fact. If nothing new is worth saving, say "Nothing new to save." and stop.
+${procToSkillsActive ? buildSkillAuthoringSection() : ""}`;
+}
+
+/**
+ * Skill-authoring addendum appended to the fork instruction when
+ * procedural-memory-as-skills is active. Directs the pass to capture a
+ * genuinely-executed, reusable procedure as a managed skill — but only to
+ * overwrite or refine a skill it authored, never to overwrite or shadow a
+ * skill of any other source.
+ */
+function buildSkillAuthoringSection(): string {
+  return `
+---
+
+If your review window contains a PROCEDURE you actually carried out — a sequence of real \`tool_use\` steps you executed (not merely discussed or planned) that is plausibly worth reusing later — also consider capturing it as a managed skill. Keep this bar low: when in doubt and the procedure looks reusable, author it. If the window contains no executed, reusable procedure, skip this entirely and just \`remember\` as above.
+
+When you do capture a procedure:
+
+1. Deduplicate against existing skills first. Call \`find_similar_skills\` with a short description of the procedure's goal. Each hit carries a \`source\` (bundled, managed, plugin, workspace, or extra), and a managed hit also carries \`author\` (\`"assistant"\` if you authored it, \`"user"\` if a person did, omitted if untagged). You may only overwrite or refine a skill YOU authored — a hit with \`source: "managed"\` AND \`author: "assistant"\`. ANY other hit means the procedure is ALREADY COVERED: a non-managed source (bundled, plugin, workspace, or extra), OR a managed skill that is NOT \`author: "assistant"\` (a person wrote it, or it is untagged). For an ALREADY COVERED hit do not \`overwrite\` it, do not shadow it by creating a skill with its \`skill_id\`, and do not create a near-duplicate — skip it. Only when a returned skill is one of your own (\`source: "managed"\`, \`author: "assistant"\`) and is the SAME procedure, UPDATE it: call \`scaffold_managed_skill\` with that \`skill_id\` and \`overwrite: true\`, rewriting the body from what you actually observed in the trace. Only CREATE a new skill (fresh \`skill_id\`) when no existing skill of any source covers the procedure. Bias strongly toward reusing or refining your own skills over spawning near-duplicates.
+
+2. Capture procedure-scoped knowledge alongside the body. Failure modes, gotchas, and cached values you observed in the trace (error signatures and how you recovered, preconditions, IDs/paths/endpoints that held steady) belong in companion files passed via \`scaffold_managed_skill\`'s \`files\` input (for example \`references/failure-modes.md\`), and the SKILL.md body should reference them so a future load surfaces them.
+
+3. Set \`category\` to the single closest-fitting value from this published set (a value outside it gets no Skills-UI bucket, so always pick from the list, never invent one): browsing, calendar, commerce, content, development, email, health, integrations, messaging, productivity, system, voice.
+
+Ordinary facts still go through \`remember\` (unlinked) exactly as above — skills are for executed, reusable procedures, not for facts.
 `;
 }

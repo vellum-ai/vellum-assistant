@@ -93,12 +93,12 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-mock.module("../memory/conversation-key-store.js", () => ({
+mock.module("../persistence/conversation-key-store.js", () => ({
   getOrCreateConversation: () => ({ conversationId: "conv-slash-test" }),
   getConversationByKey: () => null,
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
 }));
 
@@ -110,7 +110,7 @@ mock.module("../runtime/guardian-reply-router.js", () => ({
   }),
 }));
 
-mock.module("../memory/canonical-guardian-store.js", () => ({
+mock.module("../contacts/canonical-guardian-store.js", () => ({
   createCanonicalGuardianRequest: () => ({
     id: "canonical-id",
     requestCode: "ABC123",
@@ -125,9 +125,9 @@ mock.module("../runtime/confirmation-request-guardian-bridge.js", () => ({
   bridgeConfirmationRequestToGuardian: async () => undefined,
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   addMessage: (
     conversationId: string,
     role: string,
@@ -147,12 +147,12 @@ mock.module("../memory/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../memory/conversation-disk-view.js", () => ({
+mock.module("../persistence/conversation-disk-view.js", () => ({
   syncMessageToDisk: () => {},
   updateMetaFile: () => {},
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
   getSourcePathsForAttachments: () => new Map(),
   attachmentExists: () => false,
@@ -422,7 +422,9 @@ describe("handleSendMessage slash command interception", () => {
     const { conversation } = makeConversation();
     const drainQueue = mock(async () => {});
     (
-      conversation as unknown as { drainQueue: () => Promise<void> }
+      conversation as unknown as {
+        drainQueue: () => Promise<void>;
+      }
     ).drainQueue = drainQueue;
 
     // Force the user-message persist (the first addMessage in the /compact

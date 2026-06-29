@@ -4,7 +4,7 @@ import type { ChannelId } from "../channels/types.js";
 import {
   getCanonicalGuardianRequest,
   updateCanonicalGuardianRequest,
-} from "../memory/canonical-guardian-store.js";
+} from "../contacts/canonical-guardian-store.js";
 import {
   isUnparseableToolArgs,
   unparseableToolArgsMessage,

@@ -6,8 +6,8 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
 }));
 
-import { getDb, getSqlite } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb, getSqlite } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   getUsageDayBuckets,
   getUsageGroupBreakdown,
@@ -18,7 +18,7 @@ import {
   listUsageEvents,
   queryUnreportedUsageEvents,
   recordUsageEvent,
-} from "../memory/llm-usage-store.js";
+} from "../persistence/llm-usage-store.js";
 import type { PricingResult, UsageEventInput } from "../usage/types.js";
 
 // Initialize db once before all tests

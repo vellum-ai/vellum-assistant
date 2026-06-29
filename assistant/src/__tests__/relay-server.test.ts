@@ -116,14 +116,12 @@ mock.module("../prompts/user-reference.js", () => ({
 // default), the guardian-delivery-reader mock below derives the binding from
 // the DB-seeded createGuardianBinding setup. Single mock registration lives
 // below since `mock.module` is process-global and last-write-wins in Bun.
-let mockGuardianDeliveryList:
-  | Array<{
-      channelType: string;
-      status: string;
-      displayName?: string | null;
-      address?: string;
-    }>
-  | null = null;
+let mockGuardianDeliveryList: Array<{
+  channelType: string;
+  status: string;
+  displayName?: string | null;
+  address?: string;
+}> | null = null;
 
 // ── Config mock ─────────────────────────────────────────────────────
 
@@ -209,9 +207,8 @@ mock.module("../calls/channel-admission-reader.js", () => ({
 // `mockMidCallVerdict`; null (the default) exercises the local fallback. As
 // with the admission reader, delegate to the real module for sibling files
 // that load later in the same worker.
-let mockMidCallVerdict:
-  | import("@vellumai/gateway-client").TrustVerdict
-  | null = null;
+let mockMidCallVerdict: import("@vellumai/gateway-client").TrustVerdict | null =
+  null;
 // When set, the mid-call re-resolution verdict reader blocks on this gate
 // before returning, simulating a slow gateway round-trip so a test can drive a
 // prompt into the re-resolution await window. The gate targets the mid-call
@@ -393,6 +390,20 @@ mock.module("../providers/registry.js", () => {
   };
 });
 
+// The voice bridge resolves conversations through conversation-store; tests
+// supply a fake conversation by setting `relayConversationFactory`.
+let relayConversationFactory: ((conversationId: string) => unknown) | null =
+  null;
+
+mock.module("../daemon/conversation-store.js", () => ({
+  getOrCreateConversation: async (conversationId: string) => {
+    if (!relayConversationFactory) {
+      throw new Error("relayConversationFactory not set for test");
+    }
+    return relayConversationFactory(conversationId);
+  },
+}));
+
 // ── Import source modules after all mocks ────────────────────────────
 
 import {
@@ -411,21 +422,21 @@ import {
   RelayConnection,
 } from "../calls/relay-server.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
-import { upsertContact } from "../contacts/contact-store.js";
-import {
-  listCanonicalGuardianRequests,
-  resolveCanonicalGuardianRequest,
-} from "../memory/canonical-guardian-store.js";
 import {
   createInboundSession,
   createVerificationSession,
-} from "../memory/channel-verification-sessions.js";
-import { addMessage, getMessages } from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { createInvite } from "../memory/invite-store.js";
-import { resetTestTables } from "../memory/raw-query.js";
-import { conversations } from "../memory/schema.js";
+} from "../channels/channel-verification-sessions.js";
+import {
+  listCanonicalGuardianRequests,
+  resolveCanonicalGuardianRequest,
+} from "../contacts/canonical-guardian-store.js";
+import { upsertContact } from "../contacts/contact-store.js";
+import { addMessage, getMessages } from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { createInvite } from "../persistence/invite-store.js";
+import { resetTestTables } from "../persistence/raw-query.js";
+import { conversations } from "../persistence/schema/index.js";
 import {
   createOutboundSession,
   getGuardianBinding,
@@ -632,25 +643,77 @@ describe("relay-server", () => {
     mockTtsSupportsStreaming = false;
     mockTtsSynthesizeStream = null;
     mockTtsSynthesize = null;
-    setVoiceBridgeDeps({
-      getOrCreateConversation: async (conversationId) => {
-        const session = {
-          callSessionId: undefined as string | undefined,
-          currentRequestId: undefined as string | undefined,
-          memoryPolicy: {
-            scopeId: "default",
-            includeDefaultFallback: false,
+    relayConversationFactory = async (conversationId) => {
+      const session = {
+        callSessionId: undefined as string | undefined,
+        currentRequestId: undefined as string | undefined,
+        memoryPolicy: {
+          scopeId: "default",
+          includeDefaultFallback: false,
+        },
+        isProcessing: () => false,
+        persistUserMessage: async (options: {
+          content: string;
+          requestId?: string;
+        }) => {
+          session.currentRequestId = options.requestId;
+          const message = await addMessage(
+            conversationId,
+            "user",
+            JSON.stringify([{ type: "text", text: options.content }]),
+            {
+              metadata: {
+                userMessageChannel: "phone",
+                assistantMessageChannel: "phone",
+                userMessageInterface: "phone",
+                assistantMessageInterface: "phone",
+              },
+            },
+          );
+          return { id: message.id, deduplicated: false };
+        },
+        setChannelCapabilities: () => {},
+        setAssistantId: () => {},
+        setTrustContext: () => {},
+        setCommandIntent: () => {},
+        setTurnChannelContext: () => {},
+        setVoiceCallControlPrompt: () => {},
+        updateClient: () => {},
+        handleConfirmationResponse: () => {},
+        handleSecretResponse: () => {},
+        abort: () => {},
+        runAgentLoop: async (
+          _content: string,
+          _messageId: string,
+          options?: {
+            onEvent?: (event: {
+              type: string;
+              conversationId?: string;
+              text?: string;
+            }) => void;
           },
-          isProcessing: () => false,
-          persistUserMessage: async (options: {
-            content: string;
-            requestId?: string;
-          }) => {
-            session.currentRequestId = options.requestId;
-            const message = await addMessage(
+        ) => {
+          const onEvent = options?.onEvent ?? (() => {});
+          const tokens: string[] = [];
+          await mockSendMessage([], [], "", {
+            onEvent: (event: { type: string; text?: string }) => {
+              if (event.type !== "text_delta" || typeof event.text !== "string")
+                return;
+              tokens.push(event.text);
+              onEvent({
+                type: "assistant_text_delta",
+                conversationId: conversationId,
+                text: event.text,
+              });
+            },
+          });
+
+          const fullText = tokens.join("");
+          if (fullText.length > 0) {
+            await addMessage(
               conversationId,
-              "user",
-              JSON.stringify([{ type: "text", text: options.content }]),
+              "assistant",
+              JSON.stringify([{ type: "text", text: fullText }]),
               {
                 metadata: {
                   userMessageChannel: "phone",
@@ -660,72 +723,17 @@ describe("relay-server", () => {
                 },
               },
             );
-            return { id: message.id, deduplicated: false };
-          },
-          setChannelCapabilities: () => {},
-          setAssistantId: () => {},
-          setTrustContext: () => {},
-          setCommandIntent: () => {},
-          setTurnChannelContext: () => {},
-          setVoiceCallControlPrompt: () => {},
-          updateClient: () => {},
-          handleConfirmationResponse: () => {},
-          handleSecretResponse: () => {},
-          abort: () => {},
-          runAgentLoop: async (
-            _content: string,
-            _messageId: string,
-            options?: {
-              onEvent?: (event: {
-                type: string;
-                conversationId?: string;
-                text?: string;
-              }) => void;
-            },
-          ) => {
-            const onEvent = options?.onEvent ?? (() => {});
-            const tokens: string[] = [];
-            await mockSendMessage([], [], "", {
-              onEvent: (event: { type: string; text?: string }) => {
-                if (
-                  event.type !== "text_delta" ||
-                  typeof event.text !== "string"
-                )
-                  return;
-                tokens.push(event.text);
-                onEvent({
-                  type: "assistant_text_delta",
-                  conversationId: conversationId,
-                  text: event.text,
-                });
-              },
-            });
+          }
 
-            const fullText = tokens.join("");
-            if (fullText.length > 0) {
-              await addMessage(
-                conversationId,
-                "assistant",
-                JSON.stringify([{ type: "text", text: fullText }]),
-                {
-                  metadata: {
-                    userMessageChannel: "phone",
-                    assistantMessageChannel: "phone",
-                    userMessageInterface: "phone",
-                    assistantMessageInterface: "phone",
-                  },
-                },
-              );
-            }
-
-            onEvent({
-              type: "message_complete",
-              conversationId: conversationId,
-            });
-          },
-        };
-        return session as unknown as import("../daemon/conversation.js").Conversation;
-      },
+          onEvent({
+            type: "message_complete",
+            conversationId: conversationId,
+          });
+        },
+      };
+      return session as unknown as import("../daemon/conversation.js").Conversation;
+    };
+    setVoiceBridgeDeps({
       resolveAttachments: () => [],
     });
   });
@@ -2728,9 +2736,7 @@ describe("relay-server", () => {
       }),
     );
     for (const digit of priorCode) {
-      await prior.relay.handleMessage(
-        JSON.stringify({ type: "dtmf", digit }),
-      );
+      await prior.relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
     }
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(prior.relay.getConnectionState()).toBe("connected");
@@ -2766,9 +2772,7 @@ describe("relay-server", () => {
       }),
     );
     for (const digit of freshCode) {
-      await fresh.relay.handleMessage(
-        JSON.stringify({ type: "dtmf", digit }),
-      );
+      await fresh.relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
     }
     await new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -5020,9 +5024,7 @@ describe("relay-server", () => {
       textMessages.some((m) => (m.token ?? "").startsWith("Hi there!")),
     ).toBe(true);
     expect(
-      textMessages.every(
-        (m) => !(m.token ?? "").includes("+15557775555"),
-      ),
+      textMessages.every((m) => !(m.token ?? "").includes("+15557775555")),
     ).toBe(true);
 
     relay.destroy();
@@ -5085,9 +5087,7 @@ describe("relay-server", () => {
       textMessages.some((m) => (m.token ?? "").startsWith("Hi there!")),
     ).toBe(true);
     expect(
-      textMessages.every(
-        (m) => !(m.token ?? "").includes("Stale Legacy Name"),
-      ),
+      textMessages.every((m) => !(m.token ?? "").includes("Stale Legacy Name")),
     ).toBe(true);
 
     relay.destroy();
@@ -5100,7 +5100,12 @@ describe("relay-server", () => {
 
     // Gateway binding carries a different displayName
     mockGuardianDeliveryList = [
-      { channelType: "phone", status: "active", address: "+15550000001", displayName: "Bob" },
+      {
+        channelType: "phone",
+        status: "active",
+        address: "+15550000001",
+        displayName: "Bob",
+      },
     ];
 
     ensureConversation("conv-label-user-md");
@@ -5140,7 +5145,12 @@ describe("relay-server", () => {
 
     // Gateway binding carries the guardian displayName
     mockGuardianDeliveryList = [
-      { channelType: "phone", status: "active", address: "+15550000002", displayName: "Charlie" },
+      {
+        channelType: "phone",
+        status: "active",
+        address: "+15550000002",
+        displayName: "Charlie",
+      },
     ];
 
     ensureConversation("conv-label-contact");
@@ -5584,7 +5594,9 @@ describe("relay-server", () => {
   // updated the binding) and falls back to local resolution on a missing/
   // failed/unusable verdict so a blip never drops the call.
 
-  function readControllerTrustClass(relay: RelayConnection): string | undefined {
+  function readControllerTrustClass(
+    relay: RelayConnection,
+  ): string | undefined {
     return (
       relay.getController() as unknown as {
         trustContext?: { trustClass?: string };

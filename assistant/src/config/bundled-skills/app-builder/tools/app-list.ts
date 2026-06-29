@@ -1,4 +1,4 @@
-import * as appStore from "../../../../memory/app-store.js";
+import * as appStore from "../../../../apps/app-store.js";
 import type {
   ToolContext,
   ToolExecutionResult,

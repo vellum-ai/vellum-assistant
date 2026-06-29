@@ -10,8 +10,8 @@ import {
   countConversationsByScheduleJobId,
   getConversation,
   wipeConversation,
-} from "../../memory/conversation-crud.js";
-import { enqueueMemoryJob } from "../../memory/jobs-store.js";
+} from "../../persistence/conversation-crud.js";
+import { enqueueMemoryJob } from "../../persistence/jobs-store.js";
 import { deleteSchedule } from "../../schedule/schedule-store.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { NotFoundError } from "./errors.js";
@@ -37,7 +37,7 @@ async function handleWipeConversation({ body = {} }: RouteHandlerArgs) {
     conv.scheduleJobId &&
     countConversationsByScheduleJobId(conv.scheduleJobId) <= 1
   ) {
-    deleteSchedule(conv.scheduleJobId);
+    await deleteSchedule(conv.scheduleJobId);
   }
 
   destroyActiveConversation(conversationId);

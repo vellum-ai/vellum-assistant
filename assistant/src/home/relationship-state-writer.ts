@@ -22,8 +22,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getGuardianDelivery } from "../contacts/guardian-delivery-reader.js";
-import { countConversations as countConversationsDb } from "../memory/conversation-queries.js";
 import { listConnections } from "../oauth/oauth-store.js";
+import { countConversations as countConversationsDb } from "../persistence/conversation-queries.js";
 import { resolveGuardianPersonaPath } from "../prompts/persona-resolver.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";

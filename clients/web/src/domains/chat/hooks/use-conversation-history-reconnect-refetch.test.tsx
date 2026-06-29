@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
 import { __resetForTesting, publish } from "@/lib/event-bus";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useConversationStore } from "@/stores/conversation-store";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 
 // ---------------------------------------------------------------------------
 // Module mock — `@/domains/chat/transcript/use-history-pagination`.
@@ -80,6 +83,8 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   __resetForTesting();
+  useChatSessionStore.getState().setLiveTurn([]);
+  useConversationStore.getState().removeProcessingConversationId("conv-A");
 });
 
 describe("useConversationHistory — refetch on SSE reopen", () => {
@@ -175,6 +180,51 @@ describe("useConversationHistory — refetch on SSE reopen", () => {
     publish("sse.opened", { assistantId: "asst-1", cause: "resume" });
 
     // THEN no history refetch is issued
+    expect(invalidateSpy).not.toHaveBeenCalled();
+  });
+
+  test("hands a passively-observed turn off to history on processing→idle", () => {
+    /**
+     * Channel turns (phone, Slack, Telegram) and other-client sends stream in
+     * without a local `useSendMessage`, so `turnPhase` never enters a sending
+     * state. They still toggle the conversation's processing flag, so the
+     * finished turn must be pulled into the durable history cache on that
+     * processing→idle edge — otherwise the live view shows only the latest
+     * exchange until a reload.
+     */
+    // GIVEN an active conversation with a live turn, marked processing (a
+    // server-driven turn streaming in)
+    renderHistory("conv-A");
+    act(() => {
+      useChatSessionStore
+        .getState()
+        .setLiveTurn([
+          { id: "m1", role: "assistant" } as unknown as DisplayMessage,
+        ]);
+      useConversationStore.getState().markConversationProcessing("conv-A");
+    });
+    // No handoff while the turn is still in progress.
+    expect(invalidateSpy).not.toHaveBeenCalled();
+
+    // WHEN the turn finishes and the processing flag clears
+    act(() => {
+      useConversationStore.getState().removeProcessingConversationId("conv-A");
+    });
+
+    // THEN the finished turn is handed off to the durable history cache
+    expect(invalidateSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not hand off on processing→idle when the live turn is empty", () => {
+    // A processing edge with nothing in the live turn has nothing to hand off,
+    // so it must not trigger a redundant refetch.
+    renderHistory("conv-A");
+    act(() => {
+      useConversationStore.getState().markConversationProcessing("conv-A");
+    });
+    act(() => {
+      useConversationStore.getState().removeProcessingConversationId("conv-A");
+    });
     expect(invalidateSpy).not.toHaveBeenCalled();
   });
 });

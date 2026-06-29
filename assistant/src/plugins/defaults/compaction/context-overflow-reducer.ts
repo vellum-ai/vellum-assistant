@@ -25,6 +25,8 @@
  * `state.exhausted` is true.
  */
 
+import type { Message } from "@vellumai/plugin-api";
+
 import type { ContextWindowConfig } from "../../../config/types.js";
 import {
   estimateContentBlockTokens,
@@ -37,7 +39,6 @@ import {
   stripMediaPayloadsForRetry,
 } from "../../../daemon/conversation-media-retry.js";
 import type { InjectionMode } from "../../../daemon/conversation-runtime-assembly.js";
-import type { Message } from "../../../providers/types.js";
 import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
 import { getLogger } from "../../../util/logger.js";
 import { defaultCompact, defaultEmergencyCompact } from "./compact.js";

@@ -8,7 +8,7 @@
  * recent messages. This hook is the trigger — it retries placeholder titles
  * after successful turns and fires the second-pass regeneration when the
  * conversation reaches its third user turn. The service
- * (`memory/conversation-title-service.ts`) re-checks that the title is still
+ * (`persistence/conversation-title-service.ts`) re-checks that the title is still
  * auto-generated, resolves the title provider, persists, and broadcasts the
  * `conversation_title_updated` / `sync_changed` events.
  *
@@ -18,16 +18,15 @@
  * stateless and means a mid-run array rewrite (compaction) can't invalidate it.
  */
 
-import type { HookFunction, StopContext } from "@vellumai/plugin-api";
+import type { HookFunction, Message, StopContext } from "@vellumai/plugin-api";
 
 import { getConfig } from "../../../../config/loader.js";
-import { getConversation } from "../../../../memory/conversation-crud.js";
+import { getConversation } from "../../../../persistence/conversation-crud.js";
 import {
   AUTO_TITLE_DETERMINISTIC,
   isReplaceableTitle,
   queueRegenerateConversationTitle,
-} from "../../../../memory/conversation-title-service.js";
-import type { Message } from "../../../../providers/types.js";
+} from "../../../../persistence/conversation-title-service.js";
 
 /**
  * User turn at which the second title pass fires. Matches the

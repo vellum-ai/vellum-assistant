@@ -7,7 +7,7 @@
  * its own injected ground truth.
  */
 
-import type { DrizzleDb } from "../../db-connection.js";
+import type { DrizzleDb } from "../../../persistence/db-connection.js";
 import { runRouter } from "../router.js";
 import type {
   RetrievalInput,

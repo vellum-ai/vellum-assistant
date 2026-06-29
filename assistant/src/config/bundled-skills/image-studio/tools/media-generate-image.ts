@@ -9,7 +9,7 @@ import {
   mapImageGenError,
   providerForModel,
 } from "../../../../media/image-service.js";
-import { getFilePathBySourcePath } from "../../../../memory/attachments-store.js";
+import { getFilePathBySourcePath } from "../../../../persistence/attachments-store.js";
 import type { ImageContent } from "../../../../providers/types.js";
 import { sandboxPolicy } from "../../../../tools/shared/filesystem/path-policy.js";
 import type {

@@ -206,6 +206,60 @@ export class ContactStore {
     return joined[0] ?? null;
   }
 
+  /**
+   * Batched gateway-DB ACL read keyed by contact id. Reads ONLY the gateway DB
+   * (the ACL source of truth) — never the assistant DB. Used to overlay
+   * authoritative ACL onto daemon-forwarded (filtered/search) contact reads,
+   * which carry neutral ACL.
+   *
+   * Returns a map of contactId → { role, channels }, where `channels` is keyed
+   * by channel `id`. Empty input → empty map. Contacts/channels absent from the
+   * gateway are simply absent from the map (the caller leaves them untouched).
+   */
+  async getAclByContactIds(
+    ids: string[],
+  ): Promise<Map<string, ContactAcl>> {
+    const result = new Map<string, ContactAcl>();
+    if (ids.length === 0) return result;
+
+    const rows = this.db
+      .select({ contact: contacts, channel: contactChannels })
+      .from(contacts)
+      .leftJoin(contactChannels, eq(contactChannels.contactId, contacts.id))
+      .where(
+        sql`${contacts.id} IN (${sql.join(
+          ids.map((id) => sql`${id}`),
+          sql`, `,
+        )})`,
+      )
+      .all();
+
+    for (const row of rows) {
+      const id = row.contact.id;
+      let entry = result.get(id);
+      if (!entry) {
+        entry = { role: row.contact.role, channels: new Map() };
+        result.set(id, entry);
+      }
+      const ch = row.channel;
+      if (ch) {
+        entry.channels.set(ch.id, {
+          id: ch.id,
+          type: ch.type,
+          address: ch.address,
+          status: ch.status,
+          policy: ch.policy,
+          verifiedAt: ch.verifiedAt,
+          verifiedVia: ch.verifiedVia,
+          revokedReason: ch.revokedReason,
+          blockedReason: ch.blockedReason,
+        });
+      }
+    }
+
+    return result;
+  }
+
   // ── Rich reads (gateway ACL + assistant info, ContactRead contract) ──────
   //
   // listContactsRich / getContactRich assemble the shared ContactRead shape
@@ -1637,6 +1691,28 @@ export class ContactStore {
 // ---------------------------------------------------------------------------
 // Public response shapes
 // ---------------------------------------------------------------------------
+
+/**
+ * Authoritative per-channel ACL from the gateway DB, keyed by channel `id` in
+ * `ContactAcl.channels`. Used to overlay neutral ACL on daemon-forwarded reads.
+ */
+export interface ChannelAcl {
+  id: string;
+  type: string;
+  address: string;
+  status: string | null;
+  policy: string | null;
+  verifiedAt: number | null;
+  verifiedVia: string | null;
+  revokedReason: string | null;
+  blockedReason: string | null;
+}
+
+/** Contact-level role + channel ACL map (channel id → ChannelAcl). */
+export interface ContactAcl {
+  role: string;
+  channels: Map<string, ChannelAcl>;
+}
 
 export interface ContactChannelShape {
   id: string;

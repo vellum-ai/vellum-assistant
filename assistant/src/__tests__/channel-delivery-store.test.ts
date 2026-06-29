@@ -21,16 +21,16 @@ import { eq } from "drizzle-orm";
 import {
   getConversationByKey,
   setConversationKey,
-} from "../memory/conversation-key-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../persistence/conversation-key-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   clearPayload,
   findMessageBySourceId,
   linkMessage,
   recordInbound,
   storePayload,
-} from "../memory/delivery-crud.js";
+} from "../persistence/delivery-crud.js";
 import {
   acknowledgeDelivery,
   getDeadLetterEvents,
@@ -41,19 +41,19 @@ import {
   recordDeliveryFailure,
   recordProcessingFailure,
   replayDeadLetters,
-} from "../memory/delivery-status.js";
+} from "../persistence/delivery-status.js";
 import {
   getBindingByChannelChat,
   getBindingByChannelChatThread,
   upsertBinding,
-} from "../memory/external-conversation-store.js";
-import { RETRY_MAX_ATTEMPTS } from "../memory/job-utils.js";
+} from "../persistence/external-conversation-store.js";
+import { RETRY_MAX_ATTEMPTS } from "../persistence/job-utils.js";
 import {
   channelInboundEvents,
   conversations,
   externalConversationBindings,
   messages,
-} from "../memory/schema.js";
+} from "../persistence/schema/index.js";
 import { buildConversationDetailResponse } from "../runtime/services/conversation-serializer.js";
 import { handleDeleteConversation } from "./helpers/channel-test-adapter.js";
 

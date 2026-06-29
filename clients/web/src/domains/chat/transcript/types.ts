@@ -117,5 +117,4 @@ export interface TranscriptPaginationState {
   hasMore: boolean;
   oldestTimestamp: number | null;
   isLoadingOlder: boolean;
-  isPinnedToLatest: boolean;
 }

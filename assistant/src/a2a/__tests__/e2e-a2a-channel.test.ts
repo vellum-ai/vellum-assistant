@@ -62,8 +62,8 @@ import {
   getA2AConfig,
   setA2AConfig,
 } from "../../daemon/handlers/config-a2a.js";
-import { getSqlite } from "../../memory/db-connection.js";
-import { initializeDb } from "../../memory/db-init.js";
+import { getSqlite } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
 import type { A2AMessage, Artifact } from "../protocol-types.js";
 import {
   completeWithArtifacts,

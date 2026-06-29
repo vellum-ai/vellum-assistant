@@ -217,7 +217,7 @@ mock.module("../services/published-app-updater.js", () => ({
   updatePublishedAppDeployment: () => Promise.resolve(),
 }));
 
-const { initializeDb } = await import("../memory/db-init.js");
+const { initializeDb } = await import("../persistence/db-init.js");
 await initializeDb();
 
 const { initializeTools, getAllToolDefinitions, __resetRegistryForTesting } =

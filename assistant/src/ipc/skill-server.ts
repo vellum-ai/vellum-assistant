@@ -40,10 +40,7 @@
 import { existsSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 
-import {
-  ensureSocketDir,
-  SocketWatchdog,
-} from "@vellumai/ipc-server-utils";
+import { ensureSocketDir, SocketWatchdog } from "@vellumai/ipc-server-utils";
 
 import {
   type SkillRouteHandle,
@@ -100,8 +97,6 @@ const SKILL_IPC_SUBSCRIBE_CLOSE_METHOD = "host.events.subscribe.close" as const;
  * on a genuinely stuck consumer.
  */
 const STREAM_BACKPRESSURE_BYTES = 1024 * 1024;
-
-
 
 // ---------------------------------------------------------------------------
 // Per-connection context
@@ -792,4 +787,45 @@ export class SkillIpcServer {
       socket.write(JSON.stringify(response) + "\n");
     }
   }
+}
+
+// ── Process-level singleton ───────────────────────────────────────────────
+
+let instance: SkillIpcServer | null = null;
+
+/**
+ * Start the daemon's skill IPC server. First-party skill processes connect to
+ * this socket to access host capabilities (host.log, host.config.*,
+ * host.events.*, host.registries.*).
+ *
+ * Non-fatal: a failure to bind the socket is logged and startup continues with
+ * degraded skill-host connectivity. Returns the instance so callers can wire it
+ * into the meet-host supervisor's dispatch path.
+ */
+export async function startSkillIpcServer(): Promise<SkillIpcServer> {
+  instance = new SkillIpcServer();
+  try {
+    await instance.start();
+  } catch (err) {
+    log.warn(
+      { err },
+      "Skill IPC server failed to start — continuing startup with degraded skill host connectivity",
+    );
+  }
+  return instance;
+}
+
+/**
+ * The live skill IPC server, or null before startup / after shutdown. Consumers
+ * that need to push frames to skill processes (e.g. the meet-host supervisor)
+ * read it here rather than receiving it via injection.
+ */
+export function getSkillIpcServer(): SkillIpcServer | null {
+  return instance;
+}
+
+/** Stop the skill IPC server during daemon shutdown. */
+export function stopSkillIpcServer(): void {
+  instance?.stop();
+  instance = null;
 }

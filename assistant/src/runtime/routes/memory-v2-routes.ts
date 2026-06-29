@@ -9,11 +9,6 @@ import { z } from "zod";
 
 import { loadConfig } from "../../config/loader.js";
 import type { AssistantConfig } from "../../config/types.js";
-import { getDb } from "../../memory/db-connection.js";
-import {
-  enqueueMemoryJob,
-  type MemoryJobType,
-} from "../../memory/jobs-store.js";
 import {
   type ConceptFrequencyResponse,
   getConceptFrequencySummary,
@@ -39,6 +34,11 @@ import {
 import { ROUTER_PROMPT } from "../../memory/v2/prompts/router.js";
 import { type RouterSource, runRouter } from "../../memory/v2/router.js";
 import { seedV2SkillEntries } from "../../memory/v2/skill-store.js";
+import { getDb } from "../../persistence/db-connection.js";
+import {
+  enqueueMemoryJob,
+  type MemoryJobType,
+} from "../../persistence/jobs-store.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";

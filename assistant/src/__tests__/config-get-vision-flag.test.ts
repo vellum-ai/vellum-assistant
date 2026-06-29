@@ -32,7 +32,7 @@ mock.module("../providers/registry.js", () => ({
   initializeProviders: async () => {},
 }));
 
-mock.module("../memory/embedding-backend.js", () => ({
+mock.module("../persistence/embeddings/embedding-backend.js", () => ({
   clearEmbeddingBackendCache: () => {},
 }));
 

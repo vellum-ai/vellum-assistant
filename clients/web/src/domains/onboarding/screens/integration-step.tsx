@@ -102,7 +102,7 @@ export function IntegrationStep({
           <button
             type="button"
             onClick={handleClaim}
-            className="mt-6 flex h-11 w-[234px] items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition-transform duration-150 active:scale-[0.97]"
+            className="mt-6 flex cursor-pointer h-11 w-[234px] items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition-transform duration-150 active:scale-[0.97]"
             style={{
               backgroundColor: tone.isLight ? "#1A1A1A" : "#FFFFFF",
               color: tone.isLight ? "#FFFFFF" : "#1A1A1A",

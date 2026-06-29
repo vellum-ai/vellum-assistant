@@ -1,7 +1,7 @@
 import { join } from "node:path";
 
-import { getConversation } from "../memory/conversation-crud.js";
-import { resolveConversationDirectoryPaths } from "../memory/conversation-directories.js";
+import { getConversation } from "../persistence/conversation-crud.js";
+import { resolveConversationDirectoryPaths } from "../persistence/conversation-directories.js";
 import { renderWorkspaceTopLevelContext } from "../workspace/top-level-renderer.js";
 import { scanTopLevelDirectories } from "../workspace/top-level-scanner.js";
 import { findConversationOrSubagent } from "./conversation-registry.js";

@@ -162,6 +162,28 @@ export function parseFingerprint(value: unknown): Fingerprint | null {
 }
 
 /**
+ * Top-level entries that are preserved across upgrades and excluded from
+ * fingerprinting / drift detection / content hashing. These are runtime-owned
+ * state, not part of the plugin's source tree at the pinned commit:
+ *
+ * - `install-meta.json` — provenance sidecar written at install time.
+ * - `config.json` — user-editable plugin config (lives in the plugin dir but
+ *   is not tracked as source content, so user edits don't count as drift).
+ * - `data` — runtime data directory (plugin writes whatever it wants here).
+ * - `.disabled` — sentinel file created by `assistant plugins disable`.
+ *
+ * Without these exclusions, a user editing `config.json` or the plugin writing
+ * to `data/` would surface as drift against the install-time baseline, and an
+ * upgrade would try to overwrite or merge around user-owned state.
+ */
+export const PRESERVED_ENTRIES = [
+  "install-meta.json",
+  "config.json",
+  "data",
+  ".disabled",
+] as const;
+
+/**
  * Aggregate SHA-256 digest over a tree's contents, returned as `v2:<hex>`.
  *
  * This is the same scheme skills record in their `install-meta.json`

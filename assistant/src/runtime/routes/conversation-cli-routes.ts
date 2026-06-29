@@ -12,19 +12,20 @@ import { z } from "zod";
 import { clearAllConversations as clearAllActive } from "../../daemon/handlers/conversations.js";
 import { formatJson, formatMarkdown } from "../../export/formatter.js";
 import { ipcCall as ipcCallGateway } from "../../ipc/gateway-client.js";
-import type { ConversationCreateType } from "../../memory/conversation-crud.js";
-import { isConversationProcessing } from "../../memory/conversation-crud.js";
+import { sendSlackReply } from "../../messaging/providers/slack/send.js";
+import type { ConversationCreateType } from "../../persistence/conversation-crud.js";
+import { isConversationProcessing } from "../../persistence/conversation-crud.js";
 import {
   addMessage,
   createConversation,
   getConversation,
   getMessages,
-} from "../../memory/conversation-crud.js";
-import { setConversationKey } from "../../memory/conversation-key-store.js";
-import { listConversations } from "../../memory/conversation-queries.js";
-import { getBindingByConversation } from "../../memory/external-conversation-store.js";
-import { sendSlackReply } from "../../messaging/providers/slack/send.js";
+} from "../../persistence/conversation-crud.js";
+import { setConversationKey } from "../../persistence/conversation-key-store.js";
+import { listConversations } from "../../persistence/conversation-queries.js";
+import { getBindingByConversation } from "../../persistence/external-conversation-store.js";
 import { getLogger } from "../../util/logger.js";
+import { withSqliteRetry } from "../../util/sqlite-retry.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadGatewayError, BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -102,7 +103,10 @@ async function handleCreateCli({ body = {} }: RouteHandlerArgs) {
     conversationType = parsed.data;
   }
 
-  const conversation = createConversation({ title, conversationType });
+  const conversation = await withSqliteRetry(
+    () => createConversation({ title, conversationType }),
+    { op: "createConversationCli" },
+  );
   const conversationKey = uuid();
   setConversationKey(conversationKey, conversation.id);
 

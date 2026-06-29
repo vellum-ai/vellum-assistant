@@ -60,16 +60,16 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-mock.module("../memory/conversation-key-store.js", () => ({
+mock.module("../persistence/conversation-key-store.js", () => ({
   getOrCreateConversation: () => ({ conversationId: "conv-test" }),
   getConversationByKey: () => null,
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
 }));
 
-mock.module("../memory/canonical-guardian-store.js", () => ({
+mock.module("../contacts/canonical-guardian-store.js", () => ({
   createCanonicalGuardianRequest: () => ({
     id: "canonical-id",
     requestCode: "ABC123",
@@ -95,9 +95,9 @@ const addMessageMock = mock(
   }),
 );
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   addMessage: (
     conversationId: string,
     role: string,

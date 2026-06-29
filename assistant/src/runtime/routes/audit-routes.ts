@@ -6,14 +6,13 @@
 
 import { z } from "zod";
 
-import { getRecentInvocations } from "../../memory/tool-usage-store.js";
+import { getRecentInvocations } from "../../telemetry/tool-usage-store.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 function handleAuditList({ queryParams }: RouteHandlerArgs) {
   const limitRaw = queryParams?.limit;
-  const limit =
-    limitRaw !== undefined ? parseInt(limitRaw, 10) : 20;
+  const limit = limitRaw !== undefined ? parseInt(limitRaw, 10) : 20;
   const invocations = getRecentInvocations(
     Number.isFinite(limit) && limit > 0 ? limit : 20,
   );

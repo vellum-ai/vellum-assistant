@@ -9,9 +9,9 @@ import { z } from "zod";
 
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../daemon/trust-context.js";
-import { bootstrapConversation } from "../../memory/conversation-bootstrap.js";
-import { getConversation } from "../../memory/conversation-crud.js";
-import { getUsageCostForRun } from "../../memory/llm-usage-store.js";
+import { bootstrapConversation } from "../../persistence/conversation-bootstrap.js";
+import { getConversation } from "../../persistence/conversation-crud.js";
+import { getUsageCostForRun } from "../../persistence/llm-usage-store.js";
 import { validateScheduleInferenceProfile } from "../../schedule/inference-profile.js";
 import {
   describeRRuleExpression,
@@ -240,7 +240,7 @@ function handleGetSchedule(id: string) {
   return { schedule: serializeSchedule(job, new Map()) };
 }
 
-function handleCreateSchedule(body: Record<string, unknown>) {
+async function handleCreateSchedule(body: Record<string, unknown>) {
   const name = typeof body.name === "string" ? body.name.trim() : "";
   const expression =
     typeof body.expression === "string" ? body.expression.trim() : "";
@@ -305,7 +305,7 @@ function handleCreateSchedule(body: Record<string, unknown>) {
       );
     }
     try {
-      const job = createSchedule({
+      const job = await createSchedule({
         name,
         description,
         message,
@@ -329,7 +329,7 @@ function handleCreateSchedule(body: Record<string, unknown>) {
   }
 
   try {
-    const job = createSchedule({
+    const job = await createSchedule({
       name,
       description,
       message,
@@ -348,13 +348,13 @@ function handleCreateSchedule(body: Record<string, unknown>) {
   return handleListSchedules({});
 }
 
-function handleToggleSchedule(id: string, body: Record<string, unknown>) {
+async function handleToggleSchedule(id: string, body: Record<string, unknown>) {
   const enabled = body.enabled;
   if (typeof enabled !== "boolean") {
     throw new BadRequestError("enabled is required");
   }
 
-  const updated = updateSchedule(id, { enabled });
+  const updated = await updateSchedule(id, { enabled });
   if (!updated) {
     throw new NotFoundError("Schedule not found");
   }
@@ -362,8 +362,8 @@ function handleToggleSchedule(id: string, body: Record<string, unknown>) {
   return handleListSchedules({});
 }
 
-function handleDeleteSchedule(id: string) {
-  const removed = deleteSchedule(id);
+async function handleDeleteSchedule(id: string) {
+  const removed = await deleteSchedule(id);
   if (!removed) {
     throw new NotFoundError("Schedule not found");
   }
@@ -371,8 +371,8 @@ function handleDeleteSchedule(id: string) {
   return handleListSchedules({});
 }
 
-function handleCancelSchedule(id: string) {
-  const cancelled = cancelSchedule(id);
+async function handleCancelSchedule(id: string) {
+  const cancelled = await cancelSchedule(id);
   if (!cancelled) {
     throw new NotFoundError("Schedule not found or not cancellable");
   }
@@ -393,7 +393,7 @@ const VALID_ROUTING_INTENTS = [
   "all_channels",
 ] as const;
 
-function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
+async function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
   if (
     "mode" in body &&
     !VALID_MODES.includes(body.mode as (typeof VALID_MODES)[number])
@@ -511,7 +511,7 @@ function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
   }
 
   try {
-    const updated = updateSchedule(id, updates);
+    const updated = await updateSchedule(id, updates);
     if (!updated) {
       throw new NotFoundError("Schedule not found");
     }
@@ -894,7 +894,7 @@ async function handleRunScheduleNow(id: string) {
     if (!schedule.script) {
       throw new BadRequestError("Script schedule has no script command");
     }
-    const runId = createScheduleRun(schedule.id, `script:${schedule.id}`);
+    const runId = await createScheduleRun(schedule.id, `script:${schedule.id}`);
     try {
       log.info(
         { jobId: schedule.id, name: schedule.name },
@@ -904,7 +904,7 @@ async function handleRunScheduleNow(id: string) {
         timeoutMs: schedule.timeoutMs ?? undefined,
         scheduleRunId: runId,
       });
-      completeScheduleRun(runId, {
+      await completeScheduleRun(runId, {
         status: result.exitCode === 0 ? "ok" : "error",
         output: result.stdout || undefined,
         error: result.stderr || undefined,
@@ -915,7 +915,7 @@ async function handleRunScheduleNow(id: string) {
         { err, jobId: schedule.id, name: schedule.name },
         "Manual script schedule execution failed",
       );
-      completeScheduleRun(runId, { status: "error", error: errorMsg });
+      await completeScheduleRun(runId, { status: "error", error: errorMsg });
     }
     return handleListSchedules({});
   }
@@ -943,7 +943,10 @@ async function handleRunScheduleNow(id: string) {
           "Try running this workflow again in a moment.",
       );
     }
-    const runId = createScheduleRun(schedule.id, `workflow:${schedule.id}`);
+    const runId = await createScheduleRun(
+      schedule.id,
+      `workflow:${schedule.id}`,
+    );
     try {
       log.info(
         {
@@ -973,7 +976,7 @@ async function handleRunScheduleNow(id: string) {
       // `start` launches the run fire-and-forget and returns synchronously;
       // a successful trigger is recorded as ok. Completion/failure is surfaced
       // out-of-band via workflow events and the completion wake.
-      completeScheduleRun(runId, {
+      await completeScheduleRun(runId, {
         status: "ok",
         output: `workflow run ${workflowRunId} started`,
       });
@@ -983,7 +986,7 @@ async function handleRunScheduleNow(id: string) {
         { err, jobId: schedule.id, name: schedule.name },
         "Manual workflow schedule execution failed",
       );
-      completeScheduleRun(runId, { status: "error", error: errorMsg });
+      await completeScheduleRun(runId, { status: "error", error: errorMsg });
     }
     return handleListSchedules({});
   }
@@ -992,7 +995,7 @@ async function handleRunScheduleNow(id: string) {
   const taskMatch = schedule.message.match(/^run_task:(\S+)$/);
   if (taskMatch) {
     const taskId = taskMatch[1];
-    const runId = createScheduleRun(schedule.id, null);
+    const runId = await createScheduleRun(schedule.id, null);
     try {
       log.info(
         { jobId: schedule.id, name: schedule.name, taskId },
@@ -1022,14 +1025,14 @@ async function handleRunScheduleNow(id: string) {
         },
       );
 
-      setScheduleRunConversationId(runId, result.conversationId);
+      await setScheduleRunConversationId(runId, result.conversationId);
       if (result.status === "failed") {
-        completeScheduleRun(runId, {
+        await completeScheduleRun(runId, {
           status: "error",
           error: result.error ?? "Task run failed",
         });
       } else {
-        completeScheduleRun(runId, { status: "ok" });
+        await completeScheduleRun(runId, { status: "ok" });
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -1037,14 +1040,14 @@ async function handleRunScheduleNow(id: string) {
         { err, jobId: schedule.id, name: schedule.name, taskId },
         "Manual scheduled task execution failed",
       );
-      const fallbackConversation = bootstrapConversation({
+      const fallbackConversation = await bootstrapConversation({
         source: "schedule",
         groupId: "system:scheduled",
         origin: "schedule",
         systemHint: `Schedule (manual): ${schedule.name}`,
       });
-      setScheduleRunConversationId(runId, fallbackConversation.id);
-      completeScheduleRun(runId, { status: "error", error: message });
+      await setScheduleRunConversationId(runId, fallbackConversation.id);
+      await completeScheduleRun(runId, { status: "error", error: message });
     }
     return handleListSchedules({});
   }
@@ -1084,7 +1087,7 @@ async function handleRunScheduleNow(id: string) {
     }
   }
   if (!conversationId) {
-    const conversation = bootstrapConversation({
+    const conversation = await bootstrapConversation({
       source: "schedule",
       groupId: "system:scheduled",
       origin: "schedule",
@@ -1092,7 +1095,7 @@ async function handleRunScheduleNow(id: string) {
     });
     conversationId = conversation.id;
   }
-  const runId = createScheduleRun(schedule.id, conversationId);
+  const runId = await createScheduleRun(schedule.id, conversationId);
 
   try {
     log.info(
@@ -1116,14 +1119,14 @@ async function handleRunScheduleNow(id: string) {
         ? { overrideProfile: schedule.inferenceProfile }
         : {}),
     });
-    completeScheduleRun(runId, { status: "ok" });
+    await completeScheduleRun(runId, { status: "ok" });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.warn(
       { err, jobId: schedule.id, name: schedule.name },
       "Manual schedule execution failed",
     );
-    completeScheduleRun(runId, { status: "error", error: message });
+    await completeScheduleRun(runId, { status: "error", error: message });
   }
   return handleListSchedules({});
 }

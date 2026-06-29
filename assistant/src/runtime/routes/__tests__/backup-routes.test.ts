@@ -93,7 +93,7 @@ mock.module("../../../util/platform.js", () => ({
 
 const mockCheckpointStore: Record<string, string | null> = {};
 
-mock.module("../../../memory/checkpoints.js", () => ({
+mock.module("../../../persistence/checkpoints.js", () => ({
   getMemoryCheckpoint: (key: string) => mockCheckpointStore[key] ?? null,
   setMemoryCheckpoint: (key: string, value: string) => {
     mockCheckpointStore[key] = value;

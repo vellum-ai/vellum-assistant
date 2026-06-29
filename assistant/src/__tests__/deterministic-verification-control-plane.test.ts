@@ -56,7 +56,7 @@ mock.module("../daemon/process-message.js", () => ({
 
 import type { TwilioRelaySpeechConfig } from "../calls/twilio-routes.js";
 import { generateTwiML } from "../calls/twilio-routes.js";
-import { initializeDb } from "../memory/db-init.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { handleChannelInbound } from "../runtime/routes/inbound-message-handler.js";
 import {
   composeChannelVerifyReply,
@@ -184,7 +184,7 @@ describe("Call session mode metadata", () => {
     const { createCallSession, getCallSession } =
       await import("../calls/call-store.js");
     const { getOrCreateConversation } =
-      await import("../memory/conversation-key-store.js");
+      await import("../persistence/conversation-key-store.js");
 
     const { conversationId } = getOrCreateConversation("test-conv-mode");
     const session = createCallSession({
@@ -210,7 +210,7 @@ describe("Call session mode metadata", () => {
     const { createCallSession, getCallSession } =
       await import("../calls/call-store.js");
     const { getOrCreateConversation } =
-      await import("../memory/conversation-key-store.js");
+      await import("../persistence/conversation-key-store.js");
 
     const { conversationId } = getOrCreateConversation(
       "test-conv-mode-default",

@@ -6,8 +6,8 @@ import {
   attachmentExists,
   getAttachmentById,
   linkAttachmentToMessage,
-} from "../memory/attachments-store.js";
-import { rawAll, rawGet, rawRun } from "../memory/raw-query.js";
+} from "../persistence/attachments-store.js";
+import { rawAll, rawGet, rawRun } from "../persistence/raw-query.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("live-voice-archive");

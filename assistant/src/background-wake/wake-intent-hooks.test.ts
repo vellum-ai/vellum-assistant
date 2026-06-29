@@ -97,8 +97,8 @@ const {
   refreshBackgroundWakeIntent,
   resetBackgroundWakeIntentPublisherForTest,
 } = await import("./publisher.js");
-const { initializeDb } = await import("../memory/db-init.js");
-const { getDb } = await import("../memory/db-connection.js");
+const { initializeDb } = await import("../persistence/db-init.js");
+const { getDb } = await import("../persistence/db-connection.js");
 const { createSchedule, deleteSchedule, updateSchedule } =
   await import("../schedule/schedule-store.js");
 
@@ -188,7 +188,7 @@ describe("background wake intent publisher hooks", () => {
   });
 
   test("schedule create, update, and delete mutations refresh the wake intent", async () => {
-    const job = createSchedule({
+    const job = await createSchedule({
       name: "Wake hook",
       cronExpression: "* * * * *",
       message: "wake",
@@ -197,11 +197,11 @@ describe("background wake intent publisher hooks", () => {
     await flushQueuedWakeRefresh();
     expect(mockPublishBackgroundWakeIntent).toHaveBeenCalledTimes(1);
 
-    updateSchedule(job.id, { name: "Wake hook updated" });
+    await updateSchedule(job.id, { name: "Wake hook updated" });
     await flushQueuedWakeRefresh();
     expect(mockPublishBackgroundWakeIntent).toHaveBeenCalledTimes(2);
 
-    expect(deleteSchedule(job.id)).toBe(true);
+    expect(await deleteSchedule(job.id)).toBe(true);
     await flushQueuedWakeRefresh();
     expect(mockPublishBackgroundWakeIntent).toHaveBeenCalledTimes(3);
   });
@@ -235,12 +235,12 @@ describe("background wake intent publisher hooks", () => {
       "utf-8",
     );
 
-    expect(lifecycleSource).toContain(
-      [
-        "heartbeat.start();",
-        "registerBackgroundWakeRuntime({ scheduler, heartbeat });",
-        'refreshBackgroundWakeIntent("daemon-startup");',
-      ].join("\n    "),
+    // The wake intent is published once, immediately after the heartbeat is
+    // started (the scheduler is started earlier), so the daemon-startup intent
+    // reflects the live singletons. Tolerant of indentation so the assertion
+    // survives reformatting of lifecycle.ts.
+    expect(lifecycleSource).toMatch(
+      /startHeartbeatService\(\);\n[ \t]*refreshBackgroundWakeIntent\("daemon-startup"\);/,
     );
   });
 

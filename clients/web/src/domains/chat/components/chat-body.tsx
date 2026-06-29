@@ -159,6 +159,22 @@ export interface ChatBodyProps {
   startersSlot?: ReactNode;
 
   /**
+   * Below-the-fold content rendered after the first viewport on the empty
+   * state. Only used when {@link dockStartersToBottom} is true (the
+   * suggestions-library layout); holds the categorized suggestion groups.
+   */
+  belowFoldSlot?: ReactNode;
+
+  /**
+   * When true (and on the empty state), the greeting + composer are centered
+   * in the first viewport, {@link startersSlot} is docked to the bottom of
+   * that viewport, and {@link belowFoldSlot} is placed below the fold. Used by
+   * the new-thread suggestions library. When false, the empty state keeps the
+   * default layout where the starters sit directly below the composer.
+   */
+  dockStartersToBottom?: boolean;
+
+  /**
    * Top-center floating overlay. Shown whenever there is ≥1 active subagent,
    * independent of scroll position; the caller passes the slot only when its
    * active list is non-empty.
@@ -228,6 +244,8 @@ export function ChatBody({
   channelFooterSlot,
   readonlyBannerSlot,
   startersSlot,
+  belowFoldSlot,
+  dockStartersToBottom = false,
   activeSubagentsSlot,
   activeAcpRunsSlot,
   activeWorkflowsSlot,
@@ -270,8 +288,13 @@ export function ChatBody({
       ? "relative flex min-h-0 flex-1 flex-col"
       : "relative flex h-full min-h-0 flex-col";
 
+  // The docked (suggestions-library) empty state owns its own vertical layout
+  // — a full-height first screen that centers the greeting + composer and
+  // pins the featured row to the bottom — so it does not use `safe center`.
   const outerClass = isEmptyState
-    ? `${baseClass} overflow-y-auto [justify-content:safe_center]`
+    ? dockStartersToBottom
+      ? `${baseClass} overflow-y-auto`
+      : `${baseClass} overflow-y-auto [justify-content:safe_center]`
     : baseClass;
 
   // Suppress the absolutely-positioned overlay on the empty state: its
@@ -287,6 +310,154 @@ export function ChatBody({
     !isEmptyState && bannerSlot && bottomBannerOverlayHeight > 0
       ? bottomBannerOverlayHeight
       : undefined;
+
+  // Composer stack — stays at the same tree position across the empty→active
+  // transition so React preserves its state (focus, draft text, attachments)
+  // and iOS Safari does not blur the input on first send (LUM-1506 / LUM-1516).
+  // `trailingStarters` lets the docked layout render the starters elsewhere
+  // (its own bottom dock) instead of directly below the composer.
+  const renderComposerStack = (trailingStarters: ReactNode) => (
+    <div className="relative px-3 pt-2 pb-2 sm:px-6 sm:pb-0">
+      {refreshFeedback && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-full z-10 flex justify-center pb-2">
+          <RefreshFeedbackPill
+            feedback={refreshFeedback}
+            onDismiss={onDismissRefreshFeedback}
+            onRetry={onRetryRefresh}
+          />
+        </div>
+      )}
+      {hasOverlay && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-full z-10 flex flex-col items-center">
+          {showScrollToLatest && (
+            <div className="pointer-events-auto pb-2.5">
+              <ScrollToLatestButton
+                onClick={onScrollToLatest}
+                isStreaming={isStreaming}
+              />
+            </div>
+          )}
+          {bannerSlot && (
+            <div ref={bottomBannerOverlayRef} className="w-full">
+              {bannerSlot}
+            </div>
+          )}
+        </div>
+      )}
+      <div className="mx-auto max-w-[var(--chat-max-width)]">
+        {genericChatError && (
+          <div className="mb-2">
+            <Notice
+              tone={genericChatError.tone ?? "error"}
+              actions={
+                <>
+                  {genericChatError.actions}
+                  {onDismissChatError ? (
+                    <Button
+                      variant="outlined"
+                      size="compact"
+                      leftIcon={
+                        <X
+                          className="h-3.5 w-3.5"
+                          strokeWidth={2}
+                          aria-hidden="true"
+                        />
+                      }
+                      onClick={onDismissChatError}
+                    >
+                      Dismiss
+                    </Button>
+                  ) : null}
+                </>
+              }
+            >
+              {genericChatError.message}
+            </Notice>
+          </div>
+        )}
+        {queuedDrawerSlot}
+        <QuestionPromptSlot />
+        {channelFooterSlot}
+        <StagedQuotesStrip />
+        {isChannelReadonly ? (
+          readonlyBannerSlot ? (
+            <div className="flex items-center gap-2">
+              <div className="min-w-0 flex-1">{readonlyBannerSlot}</div>
+              {canStopGenerating ? (
+                <Button
+                  variant="primary"
+                  iconOnly={<Square className="h-3 w-3" fill="currentColor" />}
+                  onClick={onStopGenerating}
+                  aria-label="Stop generating"
+                  title="Stop generation"
+                />
+              ) : null}
+            </div>
+          ) : (
+            <ChatReadonlyBanner
+              canStopGenerating={canStopGenerating}
+              onStopGenerating={onStopGenerating}
+            />
+          )
+        ) : (
+          composerSlot
+        )}
+        {trailingStarters}
+      </div>
+    </div>
+  );
+
+  const dragOverlay = isAttachmentDragOver && (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-[10px] border-2 border-dashed border-[var(--ring)] bg-[var(--surface-lift)]/80 backdrop-blur-sm"
+    >
+      <div className="flex flex-col items-center gap-2 text-[var(--content-default)]">
+        <Paperclip className="h-6 w-6" />
+        <span className="text-body-medium-default">Drop files to attach</span>
+      </div>
+    </div>
+  );
+
+  // Docked (suggestions-library) empty state: the first screen fills the
+  // viewport with the greeting + composer centered and the featured row
+  // pinned to its bottom; the categorized groups sit below the fold.
+  if (isEmptyState && dockStartersToBottom) {
+    return (
+      <div
+        className={outerClass}
+        onDragEnter={dragHandlers.onDragEnter}
+        onDragOver={dragHandlers.onDragOver}
+        onDragLeave={dragHandlers.onDragLeave}
+        onDrop={dragHandlers.onDrop}
+      >
+        <div className="flex min-h-full flex-col">
+          <div className="flex flex-1 flex-col [justify-content:safe_center]">
+            <ChatScrollArea
+              {...scrollAreaProps}
+              bottomOverlayReservePx={bottomOverlayReservePx}
+            />
+            {renderComposerStack(null)}
+          </div>
+          {startersSlot && (
+            <div className="px-3 pb-3 sm:px-6">
+              <div className="mx-auto max-w-[var(--chat-max-width)]">
+                {startersSlot}
+              </div>
+            </div>
+          )}
+        </div>
+        {belowFoldSlot && (
+          <div className="px-3 pt-2 pb-8 sm:px-6">
+            <div className="mx-auto max-w-[var(--chat-max-width)]">
+              {belowFoldSlot}
+            </div>
+          </div>
+        )}
+        {dragOverlay}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -313,113 +484,8 @@ export function ChatBody({
           </div>
         )}
 
-      {/* Composer stack — stays at the same tree position across the
-          empty→active transition so React preserves its state (focus,
-          draft text, attachments) and iOS Safari does not blur the input
-          on first send (LUM-1506 / LUM-1516). */}
-      <div className="relative px-3 pt-2 pb-2 sm:px-6 sm:pb-0">
-        {refreshFeedback && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-full z-10 flex justify-center pb-2">
-            <RefreshFeedbackPill
-              feedback={refreshFeedback}
-              onDismiss={onDismissRefreshFeedback}
-              onRetry={onRetryRefresh}
-            />
-          </div>
-        )}
-        {hasOverlay && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-full z-10 flex flex-col items-center">
-            {showScrollToLatest && (
-              <div className="pointer-events-auto pb-2.5">
-                <ScrollToLatestButton
-                  onClick={onScrollToLatest}
-                  isStreaming={isStreaming}
-                />
-              </div>
-            )}
-            {bannerSlot && (
-              <div ref={bottomBannerOverlayRef} className="w-full">
-                {bannerSlot}
-              </div>
-            )}
-          </div>
-        )}
-        <div className="mx-auto max-w-[var(--chat-max-width)]">
-          {genericChatError && (
-            <div className="mb-2">
-              <Notice
-                tone={genericChatError.tone ?? "error"}
-                actions={
-                  <>
-                    {genericChatError.actions}
-                    {onDismissChatError ? (
-                      <Button
-                        variant="outlined"
-                        size="compact"
-                        leftIcon={
-                          <X
-                            className="h-3.5 w-3.5"
-                            strokeWidth={2}
-                            aria-hidden="true"
-                          />
-                        }
-                        onClick={onDismissChatError}
-                      >
-                        Dismiss
-                      </Button>
-                    ) : null}
-                  </>
-                }
-              >
-                {genericChatError.message}
-              </Notice>
-            </div>
-          )}
-          {queuedDrawerSlot}
-          <QuestionPromptSlot />
-          {channelFooterSlot}
-          <StagedQuotesStrip />
-          {isChannelReadonly ? (
-            readonlyBannerSlot ? (
-              <div className="flex items-center gap-2">
-                <div className="min-w-0 flex-1">{readonlyBannerSlot}</div>
-                {canStopGenerating ? (
-                  <Button
-                    variant="primary"
-                    iconOnly={
-                      <Square className="h-3 w-3" fill="currentColor" />
-                    }
-                    onClick={onStopGenerating}
-                    aria-label="Stop generating"
-                    title="Stop generation"
-                  />
-                ) : null}
-              </div>
-            ) : (
-              <ChatReadonlyBanner
-                canStopGenerating={canStopGenerating}
-                onStopGenerating={onStopGenerating}
-              />
-            )
-          ) : (
-            composerSlot
-          )}
-          {startersSlot}
-        </div>
-      </div>
-      {isAttachmentDragOver && (
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-[10px] border-2 border-dashed border-[var(--ring)] bg-[var(--surface-lift)]/80 backdrop-blur-sm"
-        >
-          <div className="flex flex-col items-center gap-2 text-[var(--content-default)]">
-            <Paperclip className="h-6 w-6" />
-            <span className="text-body-medium-default">
-              Drop files to attach
-            </span>
-          </div>
-        </div>
-      )}
+      {renderComposerStack(startersSlot)}
+      {dragOverlay}
     </div>
   );
 }

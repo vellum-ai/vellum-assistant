@@ -19,7 +19,7 @@ import {
   setSubagentConversation,
 } from "../daemon/conversation-registry.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
+import { bootstrapConversation } from "../persistence/conversation-bootstrap.js";
 import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
 import { resolveDefaultProvider } from "../providers/connection-resolution.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
@@ -191,8 +191,9 @@ export class SubagentManager {
   private labelIndex = new Map<string, string>();
 
   /**
-   * Shared rate-limit timestamps array from the daemon server.
-   * Set by DaemonServer at startup so subagents share the global rate limit.
+   * Cross-conversation rate-limit window. The conversation store reads this
+   * same array when building its per-conversation RateLimitProvider, so
+   * subagent requests and conversation requests share one global budget.
    */
   sharedRequestTimestamps: number[] = [];
 
@@ -268,7 +269,7 @@ export class SubagentManager {
 
     // ── Create conversation ─────────────────────────────────────────
     const subagentId = uuid();
-    const conversationRecord = bootstrapConversation({
+    const conversationRecord = await bootstrapConversation({
       conversationType: "background",
       source: "subagent",
       origin: "subagent",

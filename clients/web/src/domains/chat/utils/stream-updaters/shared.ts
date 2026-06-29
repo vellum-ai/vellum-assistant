@@ -109,11 +109,12 @@ export function withMergedAlias(
  */
 export function finalizeRunningToolCalls(
   row: Pick<DisplayMessage, "toolCalls" | "contentBlocks">,
+  at: number = Date.now(),
 ): Pick<DisplayMessage, "toolCalls" | "contentBlocks"> | null {
   if (!row.toolCalls?.some((tc) => isToolCallRunning(tc))) {
     return null;
   }
-  const completedAt = Date.now();
+  const completedAt = at;
   const toolCalls = row.toolCalls.map((tc) =>
     isToolCallRunning(tc) ? { ...tc, completedAt } : tc,
   );

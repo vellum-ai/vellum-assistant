@@ -234,6 +234,8 @@ export async function initializeProviders(
     );
     routingSources.set(entry.id, source);
   }
+
+  log.info({ providerCount: providers.size }, "Providers initialized");
 }
 
 // ---------------------------------------------------------------------------

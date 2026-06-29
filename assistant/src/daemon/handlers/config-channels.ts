@@ -5,7 +5,6 @@ import { MarkChannelRevokedIpcResponseSchema } from "@vellumai/gateway-client/ga
 
 import { startVerificationCall } from "../../calls/call-domain.js";
 import type { ChannelId } from "../../channels/types.js";
-import { emitContactChange } from "../../contacts/contact-events.js";
 import {
   findContactChannel,
   getChannelById,
@@ -16,9 +15,10 @@ import {
   getGuardianDelivery,
   guardianForChannel,
 } from "../../contacts/guardian-delivery-reader.js";
+import { notifyContactsChanged } from "../../contacts/notify-contacts-changed.js";
 import type { ContactChannel } from "../../contacts/types.js";
 import { ipcCallPersistent } from "../../ipc/gateway-client.js";
-import { getBindingByChannelChat } from "../../memory/external-conversation-store.js";
+import { getBindingByChannelChat } from "../../persistence/external-conversation-store.js";
 import { resolveGuardianName } from "../../prompts/user-reference.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
@@ -149,7 +149,10 @@ export async function getVerificationStatus(
   const resolvedAssistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const resolvedChannel = channel ?? "telegram";
 
-  const binding = await getGuardianBinding(resolvedAssistantId, resolvedChannel);
+  const binding = await getGuardianBinding(
+    resolvedAssistantId,
+    resolvedChannel,
+  );
 
   // Read the guardian displayName from the gateway delivery — getGuardianBinding
   // is a compatibility shim that doesn't carry metadataJson.
@@ -264,7 +267,7 @@ export async function revokeVerificationForChannel(
       // so the later revokeGuardianBinding lookup (active-only) finds nothing
       // and won't fire the invalidation. Emit it here so open client views
       // stop showing the channel as active.
-      emitContactChange();
+      notifyContactsChanged();
     }
   }
 

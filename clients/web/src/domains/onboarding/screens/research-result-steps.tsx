@@ -366,7 +366,7 @@ export function ResearchResultsStep({
                   onClick={() =>
                     setRemoved((prev) => new Set(prev).add(fact.claim))
                   }
-                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-opacity hover:opacity-100"
+                  className="flex cursor-pointer h-6 w-6 shrink-0 items-center justify-center rounded-full transition-opacity hover:opacity-100"
                   style={{ color: tone.fgMuted }}
                 >
                   <X className="h-4 w-4" />
@@ -380,7 +380,7 @@ export function ResearchResultsStep({
           type="button"
           onClick={onContinue}
           disabled={!canContinue}
-          className="mt-8 flex h-11 w-[200px] items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition duration-150 enabled:active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60"
+          className="mt-8 flex cursor-pointer h-11 w-[200px] items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition duration-150 enabled:active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60"
           style={{
             backgroundColor: tone.isLight ? "#1A1A1A" : "#FFFFFF",
             color: tone.isLight ? "#FFFFFF" : "#1A1A1A",
@@ -683,7 +683,7 @@ export function SuggestionsStep({
               <button
                 type="button"
                 onClick={onSkip}
-                className="underline underline-offset-2 transition-opacity hover:opacity-80"
+                className="cursor-pointer underline underline-offset-2 transition-opacity hover:opacity-80"
                 style={{ color: tone.fg }}
               >
                 Skip to Chat
@@ -705,7 +705,7 @@ export function SuggestionsStep({
               transition={
                 reduce ? { duration: 0 } : { duration: 0.3, delay: i * 0.06 }
               }
-              className="rounded-2xl px-5 py-4 text-left text-[15px] transition-transform duration-150 hover:scale-[1.01] active:scale-[0.99]"
+              className="cursor-pointer rounded-2xl px-5 py-4 text-left text-[15px] transition-transform duration-150 hover:scale-[1.01] active:scale-[0.99]"
               style={{
                 backgroundColor: tone.isLight
                   ? "rgba(0,0,0,0.06)"

@@ -18,7 +18,7 @@ import {
   hashToken,
   type IngressInvite,
   markInviteExpired,
-} from "../memory/invite-store.js";
+} from "../persistence/invite-store.js";
 import {
   DECLINED_BY_USER_SENTINEL,
   DEFAULT_USER_REFERENCE,
@@ -173,8 +173,7 @@ export async function createIngressInvite(params: {
   // Resolve the bound contact's displayName as the canonical invitee name.
   // The greeting and instruction copy use this rather than a free-text flag.
   const boundContact = getContact(params.contactId);
-  const resolvedContactName =
-    boundContact?.displayName?.trim() || undefined;
+  const resolvedContactName = boundContact?.displayName?.trim() || undefined;
   const resolvedFirstName = resolvedContactName?.split(/\s+/)[0];
 
   // For voice invites: generate a one-time numeric code, hash it, and pass
@@ -419,7 +418,10 @@ export async function redeemIngressInvite(params: {
   if (!inv) {
     return { ok: false, error: "Invite not found after redemption" };
   }
-  return { ok: true, data: { invite: inviteToResponse(inv), type: outcome.type } };
+  return {
+    ok: true,
+    data: { invite: inviteToResponse(inv), type: outcome.type },
+  };
 }
 
 export function redeemVoiceInviteCode(params: {

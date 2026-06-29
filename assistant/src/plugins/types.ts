@@ -19,6 +19,7 @@ import type {
 } from "../daemon/conversation-runtime-assembly.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
+import type { JobHandler } from "../persistence/jobs-worker.js";
 import type { HookFunction } from "../plugin-api/types.js";
 import type { Message } from "../providers/types.js";
 import type { SkillRoute } from "../runtime/skill-route-registry.js";
@@ -333,6 +334,22 @@ export interface Injector {
  */
 export type PluginRouteRegistration = SkillRoute;
 
+/**
+ * A single background-job-handler contribution: a job `type` string paired with
+ * the {@link JobHandler} that processes it. Plugins contribute these via the
+ * `jobHandlers` field; bootstrap registers them into the global job-handler
+ * registry, and the general job worker's registration entry
+ * (`jobs/register-job-handlers.ts`) forwards the union into the worker dispatch
+ * table. `type` must be globally unique across every plugin — dispatch is a
+ * keyed lookup. See `plugins/job-handler-registry.ts`.
+ */
+export interface JobHandlerEntry {
+  /** The job-queue type string this handler processes (globally unique). */
+  type: string;
+  /** Processes one claimed job of `type`. */
+  handler: JobHandler;
+}
+
 // ─── Plugin ──────────────────────────────────────────────────────────────────
 
 /**
@@ -374,6 +391,24 @@ export interface Plugin {
   tools?: Tool[];
   /** HTTP route registrations served by the assistant. */
   routes?: PluginRouteRegistration[];
+  /**
+   * Runtime injectors contributed to the per-turn injection chain. Bootstrap
+   * registers these into the global injector registry before `init()` runs,
+   * symmetric with `tools`/`routes`. The registry unions every plugin's
+   * injectors and stable-sorts by ascending `order`, so contribution order
+   * does not affect the produced sequence except as the tiebreak among
+   * injectors sharing an `order`. See `plugins/injector-registry.ts`.
+   */
+  injectors?: readonly Injector[];
+  /**
+   * Background-job handlers contributed to the general job worker. Bootstrap
+   * registers these into the global job-handler registry before `init()` runs,
+   * symmetric with `tools`/`routes`/`injectors`; the general worker's
+   * registration entry (`jobs/register-job-handlers.ts`) forwards the union into
+   * the worker dispatch table. Each `type` must be globally unique across every
+   * plugin. See `plugins/job-handler-registry.ts`.
+   */
+  jobHandlers?: readonly JobHandlerEntry[];
 }
 
 // ─── Errors ──────────────────────────────────────────────────────────────────

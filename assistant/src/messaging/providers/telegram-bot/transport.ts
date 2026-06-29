@@ -5,6 +5,7 @@ import type { ChannelTransport } from "../channel-transport.js";
 import {
   sendTelegramAttachments,
   sendTelegramReply,
+  sendTelegramRichReply,
   sendTelegramTypingIndicator,
 } from "./send.js";
 
@@ -17,7 +18,15 @@ export const telegramTransport: ChannelTransport = {
     const { chatId, text, attachments, approval } = payload;
 
     if (text) {
-      await sendTelegramReply(chatId, text, approval);
+      // `useBlocks` is the channel-neutral "render richly" intent set by the
+      // delivery layer; the Telegram adapter honors it by forwarding markdown
+      // to `sendRichMessage`, degrading to plain text otherwise (and on any
+      // rich-send rejection).
+      if (payload.useBlocks) {
+        await sendTelegramRichReply(chatId, text, approval);
+      } else {
+        await sendTelegramReply(chatId, text, approval);
+      }
     } else if (approval) {
       await sendTelegramReply(
         chatId,

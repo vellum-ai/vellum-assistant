@@ -26,13 +26,13 @@ import {
 } from "../../contacts/contact-store.js";
 import type { VellumAssistantMetadata } from "../../contacts/types.js";
 import { getPublicBaseUrl } from "../../inbound/public-ingress-urls.js";
-import { getDb } from "../../memory/db-connection.js";
+import { getDb } from "../../persistence/db-connection.js";
 import {
   claimA2AInvite,
   createInvite,
   hashToken,
-} from "../../memory/invite-store.js";
-import { assistantContactMetadata } from "../../memory/schema.js";
+} from "../../persistence/invite-store.js";
+import { assistantContactMetadata } from "../../persistence/schema/index.js";
 import type { HttpErrorResponse } from "../../runtime/http-errors.js";
 import { getLogger } from "../../util/logger.js";
 import { getAssistantName } from "../identity-helpers.js";

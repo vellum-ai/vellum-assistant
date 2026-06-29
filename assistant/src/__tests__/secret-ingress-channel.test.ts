@@ -27,7 +27,7 @@ mock.module("../util/logger.js", () => ({
 const storePayloadMock = mock((_eventId: string, _payload: unknown) => {});
 const clearPayloadMock = mock((_eventId: string) => {});
 
-mock.module("../memory/delivery-crud.js", () => ({
+mock.module("../persistence/delivery-crud.js", () => ({
   storePayload: (eventId: string, payload: unknown) =>
     storePayloadMock(eventId, payload),
   clearPayload: (eventId: string) => clearPayloadMock(eventId),
@@ -41,11 +41,11 @@ mock.module("../memory/delivery-crud.js", () => ({
 
 const markProcessedMock = mock((_eventId: string) => {});
 
-mock.module("../memory/delivery-status.js", () => ({
+mock.module("../persistence/delivery-status.js", () => ({
   markProcessed: (eventId: string) => markProcessedMock(eventId),
 }));
 
-mock.module("../memory/conversation-attention-store.js", () => ({
+mock.module("../persistence/conversation-attention-store.js", () => ({
   recordConversationSeenSignal: () => {},
 }));
 

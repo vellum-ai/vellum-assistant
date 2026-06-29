@@ -216,6 +216,21 @@ export interface StartResearchOptions {
   subject: ResearchSubject;
   /** Friendly title for the behind-the-scenes research conversation. */
   conversationTitle?: string;
+  /**
+   * Resume a research conversation a prior session minted (a refresh mid-search)
+   * instead of creating a fresh one. The prior turn keeps generating server-side
+   * across the reload, so we re-attach and poll it — re-posting the prompt only
+   * if it never landed before the refresh — so the search is never run twice. If
+   * the conversation is gone (e.g. it completed and was archived), falls back to
+   * a fresh run so the user still gets results.
+   */
+  resumeConversationId?: string;
+  /**
+   * Invoked with the conversation id the moment a FRESH research conversation is
+   * minted (not on resume), so the caller can persist it and resume this exact
+   * thread if the page is refreshed mid-search.
+   */
+  onConversationCreated?: (conversationId: string) => void;
 }
 
 export interface UseResearchRunner extends ResearchRunnerState {
@@ -320,7 +335,13 @@ export function useResearchRunner(): UseResearchRunner {
   const queryClient = useQueryClient();
 
   const start = useCallback(
-    ({ awaitAssistantId, subject, conversationTitle }: StartResearchOptions) => {
+    ({
+      awaitAssistantId,
+      subject,
+      conversationTitle,
+      resumeConversationId,
+      onConversationCreated,
+    }: StartResearchOptions) => {
       const subjectKey = JSON.stringify(subject);
       if (subjectKeyRef.current === subjectKey) return;
       subjectKeyRef.current = subjectKey;
@@ -386,49 +407,99 @@ export function useResearchRunner(): UseResearchRunner {
             setState((s) => ({ ...s, installedPlugins: deterministicPlugins }));
           }
 
-          const conversation = await conversationsPost({
-            path: { assistant_id: assistantId },
-            body: {
-              conversationType: "standard",
-              ...(conversationTitle ? { title: conversationTitle } : {}),
-            },
-            throwOnError: false,
-          });
-          // Capture the created conversation id before the stale check. The
-          // finally block archives it only after a complete payload settles.
-          createdConversationId = conversation.data?.id;
-          if (isStale()) return;
-          const conversationId = conversation.data?.id;
-          if (!conversation.response?.ok || !conversationId) {
-            setState((s) => ({ ...s, status: "error" }));
-            return;
-          }
-
-          const body: MessagesPostData["body"] = {
-            conversationId,
-            content: buildResearchPrompt(subject, capabilities),
-            sourceChannel: "vellum",
-            interface: "vellum",
-            clientMessageId: crypto.randomUUID(),
+          // Post the research prompt onto a conversation. Returns false on a
+          // failed POST so the caller can settle "error".
+          const postResearchPrompt = async (cid: string): Promise<boolean> => {
+            const body: MessagesPostData["body"] = {
+              conversationId: cid,
+              content: buildResearchPrompt(subject, capabilities),
+              sourceChannel: "vellum",
+              interface: "vellum",
+              clientMessageId: crypto.randomUUID(),
+            };
+            // Carry the browser timezone so any time-relative reasoning resolves
+            // to the user's local clock. Mirrors `checkin-scheduler.ts`.
+            try {
+              const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+              if (tz) body.clientTimezone = tz;
+            } catch {
+              // Intl unavailable — daemon falls back to its own cascade.
+            }
+            const posted = await messagesPost({
+              path: { assistant_id: assistantId },
+              body,
+              throwOnError: false,
+            });
+            return Boolean(posted.response?.ok);
           };
-          // Carry the browser timezone so any time-relative reasoning resolves
-          // to the user's local clock. Mirrors `checkin-scheduler.ts`.
-          try {
-            const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-            if (tz) body.clientTimezone = tz;
-          } catch {
-            // Intl unavailable — daemon falls back to its own cascade.
+
+          // Mint a fresh research conversation + fire the prompt. Used for the
+          // initial run and as the resume fallback when the prior conversation
+          // is gone.
+          const startFreshConversation = async (): Promise<
+            string | undefined
+          > => {
+            const conversation = await conversationsPost({
+              path: { assistant_id: assistantId },
+              body: {
+                conversationType: "standard",
+                ...(conversationTitle ? { title: conversationTitle } : {}),
+              },
+              throwOnError: false,
+            });
+            // Capture before the stale check so the finally block can archive it
+            // once a complete payload settles.
+            createdConversationId = conversation.data?.id;
+            const id = conversation.data?.id;
+            if (!conversation.response?.ok || !id) return undefined;
+            // Surface the new id immediately so the caller can persist it and
+            // resume this exact thread across a refresh.
+            onConversationCreated?.(id);
+            return id;
+          };
+
+          let conversationId: string | undefined;
+          if (resumeConversationId) {
+            // Resume the prior session's research conversation rather than
+            // running a second search. The turn keeps generating server-side
+            // across the reload, so re-attach and poll it; only re-post the
+            // prompt if it never landed before the refresh (no user message).
+            const existing = await messagesGet({
+              path: { assistant_id: assistantId },
+              query: { conversationId: resumeConversationId },
+              throwOnError: false,
+            });
+            if (isStale()) return;
+            if (existing.response?.ok) {
+              conversationId = resumeConversationId;
+              createdConversationId = resumeConversationId;
+              const turnAlreadyStarted = (existing.data?.messages ?? []).some(
+                (m) => m.role === "user",
+              );
+              if (!turnAlreadyStarted) {
+                if (!(await postResearchPrompt(conversationId))) {
+                  setState((s) => ({ ...s, status: "error" }));
+                  return;
+                }
+                if (isStale()) return;
+              }
+            }
+            // Not ok → conversation gone (e.g. completed + archived); fall
+            // through to a fresh run below.
           }
 
-          const posted = await messagesPost({
-            path: { assistant_id: assistantId },
-            body,
-            throwOnError: false,
-          });
-          if (isStale()) return;
-          if (!posted.response?.ok) {
-            setState((s) => ({ ...s, status: "error" }));
-            return;
+          if (!conversationId) {
+            conversationId = await startFreshConversation();
+            if (isStale()) return;
+            if (!conversationId) {
+              setState((s) => ({ ...s, status: "error" }));
+              return;
+            }
+            if (!(await postResearchPrompt(conversationId))) {
+              setState((s) => ({ ...s, status: "error" }));
+              return;
+            }
+            if (isStale()) return;
           }
 
           // Poll the conversation, parsing the (possibly partial) reply each

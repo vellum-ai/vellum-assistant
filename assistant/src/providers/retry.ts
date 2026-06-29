@@ -47,6 +47,15 @@ const EFFORT_SUPPORTED_PROVIDERS = new Set([
   "together",
 ]);
 
+// For these providers, disabling reasoning is encoded through the same effort
+// knob their transports send on the wire. Non-"none" tiers can still vary by
+// model and are handled by the provider client.
+const DISABLED_THINKING_USES_EFFORT_PROVIDERS = new Set([
+  "openai",
+  "fireworks",
+  "together",
+]);
+
 /**
  * Providers that consume the `thinking` config. Anthropic uses it directly on
  * the wire; OpenRouter either forwards it to its Anthropic-compatible path or
@@ -345,6 +354,13 @@ function normalizeSendMessageOptions(
     } else {
       nextConfig.thinking = normalized;
     }
+  }
+
+  if (
+    isThinkingConfigDisabled(nextConfig.thinking) &&
+    DISABLED_THINKING_USES_EFFORT_PROVIDERS.has(providerName)
+  ) {
+    nextConfig.effort = "none";
   }
 
   // Claude Fable always reasons with adaptive thinking and rejects an explicit

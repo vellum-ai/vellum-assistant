@@ -33,6 +33,7 @@ import {
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite, Speed } from "../config/schemas/llm.js";
+import { resolveCanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
 import { EventBus } from "../events/bus.js";
 import type { AssistantDomainEvents } from "../events/domain-events.js";
 import { createToolAuditListener } from "../events/tool-audit-listener.js";
@@ -44,20 +45,19 @@ import {
   ToolProfiler,
 } from "../events/tool-profiling-listener.js";
 import { registerToolTraceListener } from "../events/tool-trace-listener.js";
-import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
+import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
+import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory/memory-marker.js";
+import { PermissionPrompter } from "../permissions/prompter.js";
+import { SecretPrompter } from "../permissions/secret-prompter.js";
+import type { UserDecision } from "../permissions/types.js";
 import {
   getConversation,
   getMessages,
   resolveOverrideProfile,
   setConversationHistoryStrippedAt,
   setConversationProcessingStartedAt,
-} from "../memory/conversation-crud.js";
-import { getResolvedConversationDirPath } from "../memory/conversation-directories.js";
-import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
-import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory/memory-marker.js";
-import { PermissionPrompter } from "../permissions/prompter.js";
-import { SecretPrompter } from "../permissions/secret-prompter.js";
-import type { UserDecision } from "../permissions/types.js";
+} from "../persistence/conversation-crud.js";
+import { getResolvedConversationDirPath } from "../persistence/conversation-directories.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import {
   createContextWindowManager,
@@ -72,8 +72,8 @@ import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import {
   getPrunedSlugs,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
-} from "../plugins/defaults/memory-v3-shadow/ever-injected-store.js";
-import { filterPrunedCardSections } from "../plugins/defaults/memory-v3-shadow/prune.js";
+} from "../plugins/defaults/memory/v3/ever-injected-store.js";
+import { filterPrunedCardSections } from "../plugins/defaults/memory/v3/prune.js";
 import {
   applyBootstrapTemplate,
   buildSystemPrompt,
@@ -129,7 +129,10 @@ import {
   drainQueue as drainQueueImpl,
   processMessage as processMessageImpl,
 } from "./conversation-process.js";
-import type { QueueDrainReason } from "./conversation-queue-manager.js";
+import type {
+  QueuedMessage,
+  QueueDrainReason,
+} from "./conversation-queue-manager.js";
 import { MessageQueue } from "./conversation-queue-manager.js";
 import {
   type ChannelCapabilities,
@@ -386,6 +389,7 @@ export class Conversation {
   wakePersonaOverride?: SystemPromptPersonaOverride;
   /** @internal */ currentTurnOverrideProfile?: string;
   /** @internal */ currentTurnIsNonInteractive?: boolean;
+  /** @internal */ currentTurnRequestOrigin?: string;
   /** @internal */ authContext?: AuthContext;
   /** @internal */ currentTurnAuthContext?: AuthContext;
   /** @internal */ currentTurnSourceActorPrincipalId?: string;
@@ -1045,7 +1049,7 @@ export class Conversation {
           // Pruned slugs' card sections are filtered out here (the metadata
           // itself is never rewritten — auditable and reversible); an
           // all-pruned block is skipped entirely, matching the live strip in
-          // `memory-v3-shadow/prune.ts`.
+          // `memory/v3/prune.ts`.
           if (typeof meta[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY] === "string") {
             const v3Block = meta[
               MEMORY_V3_INJECTED_BLOCK_METADATA_KEY
@@ -1352,11 +1356,20 @@ export class Conversation {
     this._processing = value;
     // Persist the cross-process source of truth so out-of-process callers
     // (retrospective CLI, future detached workers) can detect mid-turn state
-    // by reading the conversations row directly.
-    setConversationProcessingStartedAt(
-      this.conversationId,
-      value ? Date.now() : null,
-    );
+    // by reading the conversations row directly. If the write fails (e.g.
+    // SQLITE_BUSY), the persisted column keeps its prior value, so revert the
+    // in-memory flag to match rather than stranding `processing = true` in
+    // memory against a NULL column. Re-throw so callers' existing failure
+    // handling still runs.
+    try {
+      setConversationProcessingStartedAt(
+        this.conversationId,
+        value ? Date.now() : null,
+      );
+    } catch (err) {
+      this._processing = wasProcessing;
+      throw err;
+    }
     if (wasProcessing && !value) {
       void publishSyncInvalidation([
         conversationMetadataSyncTag(this.conversationId),
@@ -1455,6 +1468,12 @@ export class Conversation {
 
   hasQueuedMessages(): boolean {
     return !this.queue.isEmpty;
+  }
+
+  /** FIFO snapshot of the messages currently waiting in the in-memory queue.
+   * Read-only — used to surface queued user messages in history responses. */
+  snapshotQueuedMessages(): QueuedMessage[] {
+    return this.queue.snapshot();
   }
 
   removeQueuedMessage(requestId: string): boolean {

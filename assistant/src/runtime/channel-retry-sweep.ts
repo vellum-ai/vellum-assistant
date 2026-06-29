@@ -15,12 +15,12 @@ import {
   addSlackDmLiveDeliveredTextResponseIndex,
   getSlackDmLiveDeliveredTextResponseIndexes,
   updateDeliveredSegmentCount,
-} from "../memory/delivery-channels.js";
+} from "../persistence/delivery-channels.js";
 import {
   clearPayload,
   linkMessage,
   storeReplyMessageId,
-} from "../memory/delivery-crud.js";
+} from "../persistence/delivery-crud.js";
 import {
   getRetryableDeliveryEvents,
   getRetryableEvents,
@@ -29,7 +29,7 @@ import {
   markRetryableFailure,
   recordDeliveryFailure,
   recordProcessingFailure,
-} from "../memory/delivery-status.js";
+} from "../persistence/delivery-status.js";
 import { getLogger } from "../util/logger.js";
 import {
   deliverReplyViaCallback,
@@ -98,6 +98,26 @@ function parseTrustRuntimeContext(value: unknown): TrustContext | undefined {
         : undefined,
     requesterChatId:
       typeof raw.requesterChatId === "string" ? raw.requesterChatId : undefined,
+    requesterContactId:
+      typeof raw.requesterContactId === "string"
+        ? raw.requesterContactId
+        : undefined,
+    memberStatus:
+      typeof raw.memberStatus === "string" ? raw.memberStatus : undefined,
+    memberPolicy:
+      typeof raw.memberPolicy === "string" ? raw.memberPolicy : undefined,
+    requesterTimezone:
+      typeof raw.requesterTimezone === "string"
+        ? raw.requesterTimezone
+        : undefined,
+    requesterTimezoneLabel:
+      typeof raw.requesterTimezoneLabel === "string"
+        ? raw.requesterTimezoneLabel
+        : undefined,
+    requesterTimezoneOffsetSeconds:
+      typeof raw.requesterTimezoneOffsetSeconds === "number"
+        ? raw.requesterTimezoneOffsetSeconds
+        : undefined,
   };
 }
 

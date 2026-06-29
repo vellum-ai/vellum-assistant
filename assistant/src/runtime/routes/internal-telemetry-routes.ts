@@ -13,7 +13,7 @@ import { z } from "zod";
 import {
   type AuthFallbackCount,
   recordAuthFallbackCounts,
-} from "../../memory/auth-fallback-events-store.js";
+} from "../../security/auth-fallback-events-store.js";
 import { getLogger } from "../../util/logger.js";
 import { GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";

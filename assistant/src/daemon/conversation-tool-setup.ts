@@ -14,9 +14,9 @@ import {
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import { getBindingByConversation } from "../memory/external-conversation-store.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
+import { getBindingByConversation } from "../persistence/external-conversation-store.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
@@ -199,6 +199,7 @@ export function createToolExecutor(
       taskRunId: ctx.taskRunId,
       trustClass: resolveTrustClass(turnTrust),
       executionChannel: turnTrust.sourceChannel,
+      requestOrigin: ctx.currentTurnRequestOrigin,
       sourceActorPrincipalId: turnTrust.guardianPrincipalId,
       callSessionId: ctx.callSessionId,
       triggeredBySurfaceAction:

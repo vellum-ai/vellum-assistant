@@ -3,9 +3,9 @@ import { describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { getSqliteFrom } from "../memory/db-connection.js";
-import { migrateCreateCompactionEvents } from "../memory/migrations/302-create-compaction-events.js";
-import * as schema from "../memory/schema.js";
+import { getSqliteFrom } from "../persistence/db-connection.js";
+import { migrateCreateCompactionEvents } from "../persistence/migrations/302-create-compaction-events.js";
+import * as schema from "../persistence/schema/index.js";
 
 interface EventRow {
   conversation_id: string;

@@ -29,6 +29,7 @@ import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { CompactionCircuitEvent } from "../plugins/types.js";
+import { isMaxTokensStopReason } from "../providers/stop-reasons.js";
 import { normalizeThinkingConfigForWire } from "../providers/thinking-config.js";
 import type {
   ContentBlock,
@@ -491,19 +492,6 @@ const DEFAULT_CONFIG: AgentLoopConfig = {
  */
 const MAX_POST_MODEL_CALL_CONTINUES = 5;
 
-const MAX_TOKENS_STOP_REASONS = new Set([
-  "length",
-  "max_output_tokens",
-  "max_tokens",
-]);
-
-export function isMaxTokensStopReason(
-  stopReason: string | null | undefined,
-): boolean {
-  if (!stopReason) return false;
-  return MAX_TOKENS_STOP_REASONS.has(stopReason.trim().toLowerCase());
-}
-
 /**
  * Concatenate the text of an assistant message's `text` blocks (ignoring
  * `tool_use`, `thinking`, and other non-text blocks). Used to re-emit the
@@ -578,6 +566,12 @@ export interface AgentLoopRunOptions {
     checkpoint: CheckpointInfo,
   ) => CheckpointDecision | Promise<CheckpointDecision>;
   callSite?: LLMCallSite;
+  /**
+   * Whether the connected client can render dynamic UI surfaces this turn,
+   * surfaced to post-tool-use hooks via {@link PostToolUseContext}. Defaults to
+   * `true`; the daemon run paths derive it from the conversation's channel.
+   */
+  supportsDynamicUi?: boolean;
   /**
    * Trust classification and channel identity for the turn's inbound actor,
    * supplied by the caller as the turn-start snapshot. Read only on the
@@ -989,6 +983,7 @@ export class AgentLoop {
       requestId,
       onCheckpoint,
       callSite,
+      supportsDynamicUi = true,
       trust,
       overrideProfile,
       forceOverrideProfile = false,
@@ -2174,6 +2169,8 @@ export class AgentLoop {
             additionalContext: null,
             model: response.model,
             maxInputTokens: contextWindowTokens,
+            callSite: callSite ?? null,
+            supportsDynamicUi,
             logger: rlog,
           };
           const finalCtx = await runHook(HOOKS.POST_TOOL_USE, postToolUseCtx);
