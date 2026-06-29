@@ -18669,6 +18669,56 @@ paths:
                 type: object
         "404":
           description: No job matches the given id.
+  /v1/migrations/preflight-from-gcs:
+    post:
+      operationId: migrations_preflightfromgcs_post
+      summary: Dry-run import analysis from a signed GCS URL
+      description:
+        Fetch a .vbundle archive from a signed GCS download URL and return a preflight report — what would change
+        if the bundle were imported — without writing anything to disk. Enables `vellum teleport --dry-run` against
+        local and docker targets.
+      tags:
+        - migrations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                bundle_url:
+                  type: string
+                  format: uri
+                  description: Signed GCS GET URL for the bundle.
+              required:
+                - bundle_url
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  can_import:
+                    type: boolean
+                  summary:
+                    type: object
+                    properties: {}
+                    additionalProperties: {}
+                  files:
+                    type: array
+                    items: {}
+                  conflicts:
+                    type: array
+                    items: {}
+                  validation:
+                    type: object
+                    properties: {}
+                    additionalProperties: {}
+                required:
+                  - can_import
+                additionalProperties: false
   /v1/migrations/validate:
     post:
       operationId: migrations_validate_post
