@@ -1,4 +1,3 @@
-import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { config as dotenvConfig } from "dotenv";
@@ -11,11 +10,7 @@ import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import { setIngressPublicBaseUrl, validateEnv } from "../config/env.js";
-import {
-  getConfig,
-  loadConfig,
-  mergeDefaultWorkspaceConfig,
-} from "../config/loader.js";
+import { loadConfig, mergeDefaultWorkspaceConfig } from "../config/loader.js";
 import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
 import { reconcileFlagGatedProfiles } from "../config/sync-gated-profiles.js";
 import { startCes } from "../credential-execution/ces-runtime.js";
@@ -60,7 +55,6 @@ import {
   startConsentRefresh,
   stopConsentRefresh,
 } from "../platform/consent-cache.js";
-import { syncIdentityNameToPlatform } from "../platform/sync-identity.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
@@ -71,13 +65,9 @@ import {
 import { startRuntimeHttpServer } from "../runtime/http-server.js";
 import { warmLocalGuardianPrincipalCache } from "../runtime/local-actor-identity.js";
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
-import { registerSecretsDeps } from "../runtime/routes/secrets-deps.js";
 import {
-  publishAvatarChanged,
   publishConfigChanged,
   publishConversationListChanged,
-  publishIdentityChanged,
-  publishSoundsConfigUpdated,
 } from "../runtime/sync/resource-sync-events.js";
 import { recoverStaleSchedules } from "../schedule/schedule-recovery.js";
 import { startScheduler } from "../schedule/scheduler.js";
@@ -90,7 +80,6 @@ import {
   ensureDataDir,
   getDotEnvPath,
   getWorkspaceDir,
-  getWorkspacePromptPath,
 } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
 import {
@@ -103,8 +92,7 @@ import { startWorkspaceHeartbeatService } from "../workspace/heartbeat-service.j
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import { runWorkspaceMigrations } from "../workspace/migrations/runner.js";
 import { startAppSourceWatcher } from "./app-source-watcher.js";
-import { getConfigWatcher } from "./config-watcher.js";
-import { evictConversationsForReload } from "./conversation-store.js";
+import { startConfigWatcher } from "./config-watcher.js";
 import { writePid } from "./daemon-control.js";
 import {
   evaluateDiskPressureNow,
@@ -114,7 +102,6 @@ import {
 import { startEventLoopWatchdog } from "./event-loop-watchdog.js";
 import { initializePlugins } from "./external-plugins-bootstrap.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
-import { parseIdentityFields } from "./handlers/identity.js";
 import { installAssistantSymlink } from "./install-symlink.js";
 import {
   maybeRebuildMemoryV2Concepts,
@@ -184,27 +171,6 @@ export function stopDiskPressureGuardForLifecycle(): void {
     diskPressureStartupSampleTimer = null;
   }
   stopDiskPressureGuard();
-}
-
-/**
- * Re-read IDENTITY.md and broadcast the parsed fields to clients, best-effort
- * syncing the assistant name to the platform record. Wired as the config
- * watcher's IDENTITY.md-change reaction.
- */
-function broadcastIdentityChange(): void {
-  try {
-    const identityPath = getWorkspacePromptPath("IDENTITY.md");
-    const content = existsSync(identityPath)
-      ? readFileSync(identityPath, "utf-8")
-      : "";
-    const fields = parseIdentityFields(content);
-    publishIdentityChanged(fields);
-    if (fields.name) {
-      syncIdentityNameToPlatform(fields.name);
-    }
-  } catch (err) {
-    log.error({ err }, "Failed to broadcast identity change");
-  }
 }
 
 // Entry point for the daemon process itself
@@ -625,19 +591,10 @@ export async function runDaemon(): Promise<void> {
   await server.start();
   log.info("Daemon startup: DaemonServer started");
 
-  // Watch workspace files (config, prompts, skills, sounds, avatar) for changes
-  // and react: evict conversations so the next turn rebuilds against the new
+  // Watch workspace files (config, prompts, skills, sounds, avatar) and react
+  // to changes: evict conversations so the next turn rebuilds against the new
   // config, and broadcast the relevant resource-changed events to clients.
-  const configWatcher = getConfigWatcher();
-  configWatcher.initFingerprint(getConfig());
-  configWatcher.start(
-    evictConversationsForReload,
-    broadcastIdentityChange,
-    publishSoundsConfigUpdated,
-    publishAvatarChanged,
-    publishConfigChanged,
-    () => refreshSkillCapabilityMemories(getConfig()),
-  );
+  startConfigWatcher();
 
   // Watch app source directories so edits recompile + refresh surfaces across
   // all conversations.
@@ -940,16 +897,6 @@ export async function runDaemon(): Promise<void> {
       publishConversationListChanged("created");
     },
   );
-
-  // Wire up the runtime HTTP server's deferred dependencies. The server
-  // itself was bound early in runDaemon (right after the auth signing key
-  // was loaded) so /healthz and /readyz already answer 200 OK; these
-  // registrations attach the live DaemonServer / CES / relay handlers to
-  // the running routes. They're module-level state, so they're effective
-  // even when the HTTP server failed to bind (IPC clients still work).
-  registerSecretsDeps({
-    onProviderCredentialsChanged: () => evictConversationsForReload(),
-  });
 
   // Fire-and-forget: Qdrant init and memory worker startup run concurrently
   // with the rest of daemon boot. Must run AFTER `startRuntimeHttpServer()`
