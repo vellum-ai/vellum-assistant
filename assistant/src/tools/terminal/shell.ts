@@ -3,8 +3,10 @@ import { spawn } from "node:child_process";
 
 import { getConfig } from "../../config/loader.js";
 import { isCesShellLockdownEnabled } from "../../credential-execution/feature-gates.js";
+import type { BackgroundToolCompleted } from "../../daemon/message-types/background-tools.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
+import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { isUntrustedShellLockdownActive } from "../../runtime/effective-capabilities.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
@@ -346,6 +348,7 @@ export const shellTool = {
       const stdoutChunks: Buffer[] = [];
       const stderrChunks: Buffer[] = [];
       let timedOut = false;
+      let aborted = false;
       const startedAt = Date.now();
 
       const child = spawn(wrapped.command, wrapped.args, {
@@ -423,6 +426,26 @@ export const shellTool = {
             maxChars: MAX_OUTPUT_LENGTH * 2,
           },
         });
+
+        const status: BackgroundToolCompleted["status"] = aborted
+          ? "cancelled"
+          : timedOut
+            ? "failed"
+            : code === 0
+              ? "completed"
+              : "failed";
+        broadcastMessage(
+          {
+            type: "background_tool_completed",
+            id: bgId,
+            conversationId: context.conversationId,
+            status,
+            exitCode: code ?? null,
+            output: fmtResult.content,
+            completedAt: Date.now(),
+          },
+          context.conversationId,
+        );
       });
 
       child.on("error", (err) => {
@@ -444,12 +467,26 @@ export const shellTool = {
           spawnError: err.message,
         });
 
+        const framing = `Background command failed (id=${bgId}): ${err.message}`;
         void wakeAgentForOpportunity({
           conversationId: context.conversationId,
-          hint: `Background command failed (id=${bgId}): ${err.message}`,
+          hint: framing,
           source: "background-tool",
           persistTriggerAsEvent: true,
         });
+
+        broadcastMessage(
+          {
+            type: "background_tool_completed",
+            id: bgId,
+            conversationId: context.conversationId,
+            status: "failed",
+            exitCode: null,
+            output: framing,
+            completedAt: Date.now(),
+          },
+          context.conversationId,
+        );
       });
 
       registerBackgroundTool({
@@ -458,8 +495,23 @@ export const shellTool = {
         conversationId: context.conversationId,
         command,
         startedAt,
-        cancel: () => killTree("abort"),
+        cancel: () => {
+          aborted = true;
+          killTree("abort");
+        },
       });
+
+      broadcastMessage(
+        {
+          type: "background_tool_started",
+          id: bgId,
+          toolName: "bash",
+          conversationId: context.conversationId,
+          command,
+          startedAt,
+        },
+        context.conversationId,
+      );
 
       return {
         content: JSON.stringify({ backgrounded: true, id: bgId }),
