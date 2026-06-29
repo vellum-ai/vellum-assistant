@@ -1,7 +1,7 @@
 import type { AssistantConfig } from "../config/types.js";
 import type { MemoryJob } from "../persistence/jobs-store.js";
 import { registerJobHandler } from "../persistence/jobs-worker.js";
-import { maintainJob as memoryV3MaintainJob } from "../plugins/defaults/memory-v3-shadow/maintain-job.js";
+import { maintainJob as memoryV3MaintainJob } from "../plugins/defaults/memory/v3/maintain-job.js";
 import { getLogger } from "../util/logger.js";
 import { conversationAnalyzeJob } from "./conversation-analyze-job.js";
 import { bootstrapFromHistory } from "./graph/bootstrap.js";

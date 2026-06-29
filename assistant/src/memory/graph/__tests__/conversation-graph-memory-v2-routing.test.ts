@@ -178,7 +178,7 @@ const { migrateActivationState } =
 const { migrateAddMemoryV3EverInjected } =
   await import("../../../persistence/migrations/277-add-memory-v3-ever-injected.js");
 const { getActiveSlugs: getV3ActiveSlugs, recordInjected: recordV3Injected } =
-  await import("../../../plugins/defaults/memory-v3-shadow/ever-injected-store.js");
+  await import("../../../plugins/defaults/memory/v3/ever-injected-store.js");
 const schema = await import("../../../persistence/schema/index.js");
 const { _resetMemoryV2QdrantForTests } = await import("../../v2/qdrant.js");
 const { hydrate: hydrateActivationState, save: saveActivationState } =

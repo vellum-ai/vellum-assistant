@@ -143,11 +143,11 @@ import type { MessageRow } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { conversations, messages } from "../persistence/schema/index.js";
-import postCompact from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
+import postCompact from "../plugins/defaults/memory/hooks/post-compact.js";
 import {
   buildUnifiedTurnContextBlock,
   type UnifiedTurnContextOptions,
-} from "../plugins/defaults/memory-retrieval/unified-turn-context.js";
+} from "../plugins/defaults/memory/unified-turn-context.js";
 import type { Message } from "../providers/types.js";
 import { wrapUntrustedContent } from "../security/untrusted-content.js";
 import { getSubagentManager } from "../subagent/index.js";
@@ -2734,7 +2734,7 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
   const pkbRoot = getPkbRoot();
 
   // The pkb-reminder injector reads the dense/sparse PKB query pair off the
-  // conversation's live graph handle (the memory-retrieval hook records it
+  // conversation's live graph handle (the memory plugin's hook records it
   // there during retrieval), not from the injection options. Register a handle
   // for the fallback conversation id `applyRuntimeInjections` synthesizes and
   // seed it with a query vector so the hint-search branch runs.

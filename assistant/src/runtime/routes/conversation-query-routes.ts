@@ -75,7 +75,7 @@ import { getDb } from "../../persistence/db-connection.js";
 import { clearEmbeddingBackendCache } from "../../persistence/embeddings/embedding-backend.js";
 import { getLlmRequestLogSource } from "../../persistence/llm-request-log-source.js";
 import { type LogRow } from "../../persistence/llm-request-log-store.js";
-import { getMemoryV3SelectionForInspectorByMessageIds } from "../../plugins/defaults/memory-v3-shadow/selection-log-store.js";
+import { getMemoryV3SelectionForInspectorByMessageIds } from "../../plugins/defaults/memory/v3/selection-log-store.js";
 import {
   createConnection,
   listConnections,

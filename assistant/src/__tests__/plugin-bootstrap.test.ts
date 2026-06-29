@@ -228,7 +228,7 @@ describe("plugin bootstrap", () => {
     // AND every first-party default survived, so core turn behavior (memory
     // retrieval, history repair, title generation) keeps running in degraded
     // mode instead of being torn down with the failing plugin
-    expect(names).toContain("default-memory-retrieval");
+    expect(names).toContain("default-memory");
     expect(names).toContain("default-history-repair");
     expect(names).toContain("default-title-generate");
   });

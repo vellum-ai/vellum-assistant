@@ -74,7 +74,7 @@ import type { Conversation } from "../daemon/conversation.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import type { QdrantSparseVector } from "../persistence/embeddings/qdrant-client.js";
-import userPromptSubmitMemoryRetrieval from "../plugins/defaults/memory-retrieval/hooks/user-prompt-submit.js";
+import userPromptSubmitMemoryRetrieval from "../plugins/defaults/memory/hooks/user-prompt-submit.js";
 import type { Message } from "../providers/types.js";
 
 /** Canonical metrics payload the graph retriever attaches to a real hit. */

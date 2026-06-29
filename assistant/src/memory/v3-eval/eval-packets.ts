@@ -31,13 +31,13 @@ import type { AssistantConfig } from "../../config/types.js";
 import type { getDb } from "../../persistence/db-connection.js";
 import { embedWithRetry } from "../../persistence/embeddings/embed.js";
 import { conversations, messages } from "../../persistence/schema/index.js";
-import { renderCard } from "../../plugins/defaults/memory-v3-shadow/card.js";
-import { buildSectionNeedle } from "../../plugins/defaults/memory-v3-shadow/section-needle.js";
-import { buildSectionIndex } from "../../plugins/defaults/memory-v3-shadow/sections.js";
+import { renderCard } from "../../plugins/defaults/memory/v3/card.js";
+import { buildSectionNeedle } from "../../plugins/defaults/memory/v3/section-needle.js";
+import { buildSectionIndex } from "../../plugins/defaults/memory/v3/sections.js";
 import type {
   SectionIndex,
   Slug,
-} from "../../plugins/defaults/memory-v3-shadow/types.js";
+} from "../../plugins/defaults/memory/v3/types.js";
 import {
   FRONTMATTER_REGEX,
   parseFrontmatterFields,

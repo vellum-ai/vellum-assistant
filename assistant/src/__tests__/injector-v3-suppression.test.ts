@@ -35,8 +35,8 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { wrapMemorySpotlightBlock } from "../memory/memory-marker.js";
 import { INJECTION_HEADER } from "../memory/v2/injection.js";
-import { V3_CARDS_INJECTION_HEADER } from "../plugins/defaults/memory-v3-shadow/render-injection.js";
-import { MEMORY_V3_COMMIT_META_KEY } from "../plugins/defaults/memory-v3-shadow/types.js";
+import { V3_CARDS_INJECTION_HEADER } from "../plugins/defaults/memory/v3/render-injection.js";
+import { MEMORY_V3_COMMIT_META_KEY } from "../plugins/defaults/memory/v3/types.js";
 import type {
   InjectionBlock,
   Injector,
@@ -48,7 +48,7 @@ import type { Message } from "../providers/types.js";
 // `applyRuntimeInjections` walks. The slot is mutated per-test to stand in for
 // the memory-v3 injectors producing (or not producing) blocks.
 const injectorChainSlot: Injector[] = [];
-mock.module("../plugins/defaults/memory-retrieval/injector-chain.js", () => ({
+mock.module("../plugins/defaults/memory/injector-chain.js", () => ({
   getInjectorChain: () => injectorChainSlot,
 }));
 

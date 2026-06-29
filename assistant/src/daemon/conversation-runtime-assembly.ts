@@ -50,11 +50,11 @@ import {
 } from "../persistence/conversation-crud.js";
 import { isBackgroundConversationType } from "../persistence/conversation-types.js";
 import { createContextSummaryMessage } from "../plugins/defaults/compaction/window-manager.js";
-import { getInjectorChain } from "../plugins/defaults/memory-retrieval/injector-chain.js";
+import { getInjectorChain } from "../plugins/defaults/memory/injector-chain.js";
 import {
   MEMORY_V3_BLOCK_ID,
   MEMORY_V3_COMMIT_META_KEY,
-} from "../plugins/defaults/memory-v3-shadow/types.js";
+} from "../plugins/defaults/memory/v3/types.js";
 import type {
   InjectionBlock,
   InjectionPlacement,
@@ -620,7 +620,7 @@ export function buildSubagentStatusBlock(
 }
 
 // The `<active_subagents>` block is emitted by the `subagent-status` default
-// injector (`plugins/defaults/memory-retrieval/injectors.ts`) as an `append-user-tail`
+// injector (`plugins/defaults/memory/injectors.ts`) as an `append-user-tail`
 // placement. `applyRuntimeInjections` resolves the block from the live
 // subagent manager keyed by the conversation, so callers do not pass it in.
 

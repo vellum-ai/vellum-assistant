@@ -56,9 +56,9 @@ const {
   composeInjectorChain,
 } = await import("../daemon/conversation-runtime-assembly.js");
 const { DEFAULT_INJECTOR_ORDER, defaultInjectors } =
-  await import("../plugins/defaults/memory-retrieval/injectors.js");
+  await import("../plugins/defaults/memory/injectors.js");
 const { getInjectorChain } =
-  await import("../plugins/defaults/memory-retrieval/injector-chain.js");
+  await import("../plugins/defaults/memory/injector-chain.js");
 import { eq } from "drizzle-orm";
 
 import {
@@ -74,7 +74,7 @@ import {
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { conversations, messages } from "../persistence/schema/index.js";
-import { buildUnifiedTurnContextBlock } from "../plugins/defaults/memory-retrieval/unified-turn-context.js";
+import { buildUnifiedTurnContextBlock } from "../plugins/defaults/memory/unified-turn-context.js";
 import type { TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
 import { getSubagentManager } from "../subagent/index.js";
