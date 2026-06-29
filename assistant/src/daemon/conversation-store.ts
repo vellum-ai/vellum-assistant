@@ -8,10 +8,9 @@
  *
  * The {@link getOrCreateConversation} function owns the full
  * creation/reuse lifecycle — provider wiring, rate limiting, system
- * prompt assembly, and DB hydration. DaemonServer calls
- * {@link initConversationLifecycle} once at construction time to
- * supply the few remaining lifecycle references (evictor, shared
- * rate-limit timestamps, broadcast).
+ * prompt assembly, and DB hydration. The idle-eviction sweep and the
+ * shared rate-limit window also live here; {@link startConversationEvictor}
+ * starts the sweep at daemon startup.
  */
 
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
@@ -25,7 +24,7 @@ import { getSubagentManager } from "../subagent/index.js";
 import { ProviderNotConfiguredError } from "../util/errors.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
 import { Conversation } from "./conversation.js";
-import type { ConversationEvictor } from "./conversation-evictor.js";
+import { ConversationEvictor } from "./conversation-evictor.js";
 import {
   allConversations,
   clearConversations,
@@ -34,6 +33,7 @@ import {
   conversationIds,
   deleteConversation,
   findConversation,
+  getConversationMap,
   setConversation,
 } from "./conversation-registry.js";
 import type { ConversationCreateOptions } from "./handlers/shared.js";
@@ -66,20 +66,32 @@ function clearConversationOptions(): void {
 /** Dedup guard: in-flight creation promises keyed by conversation ID. */
 const conversationCreating = new Map<string, Promise<Conversation>>();
 
-/** Lifecycle refs injected once by DaemonServer at construction. */
-let _evictor: ConversationEvictor | null = null;
-let _sharedRequestTimestamps: number[] = [];
-
 /**
- * One-time initialization called by DaemonServer to supply lifecycle
- * references that the conversation creation logic needs.
+ * Cross-conversation rate-limit window, shared between the per-conversation
+ * RateLimitProvider and the subagent manager so subagent requests count
+ * against the same budget.
  */
-export function initConversationLifecycle(refs: {
-  evictor: ConversationEvictor;
-  sharedRequestTimestamps: number[];
-}): void {
-  _evictor = refs.evictor;
-  _sharedRequestTimestamps = refs.sharedRequestTimestamps;
+const sharedRequestTimestamps: number[] = [];
+
+/** Idle/LRU/memory-pressure evictor for the in-memory conversation pool. */
+const evictor = new ConversationEvictor(getConversationMap());
+evictor.onEvict = (conversationId: string) => {
+  getSubagentManager().abortAllForParent(conversationId);
+};
+evictor.shouldProtect = (conversationId: string) => {
+  const children = getSubagentManager().getChildrenOf(conversationId);
+  return children.some((c) => c.status === "running" || c.status === "pending");
+};
+
+/** Start the conversation evictor's periodic sweep at daemon startup. */
+export function startConversationEvictor(): void {
+  getSubagentManager().sharedRequestTimestamps = sharedRequestTimestamps;
+  evictor.start();
+}
+
+/** Stop the conversation evictor during daemon shutdown. */
+export function stopConversationEvictor(): void {
+  evictor.stop();
 }
 
 function applyTransportMetadata(
@@ -97,9 +109,7 @@ function applyTransportMetadata(
  * Get or create an active conversation by ID.
  *
  * Handles provider setup, rate limiting, system prompt, memory policy,
- * and conversation hydration. Caller must have called
- * {@link initConversationLifecycle} first (DaemonServer does this at
- * construction).
+ * and conversation hydration.
  */
 export async function getOrCreateConversation(
   conversationId: string,
@@ -156,7 +166,7 @@ export async function getOrCreateConversation(
         provider = new RateLimitProvider(
           provider,
           rateLimit,
-          _sharedRequestTimestamps,
+          sharedRequestTimestamps,
         );
       }
       const workingDir = getSandboxWorkingDir();
@@ -202,7 +212,7 @@ export async function getOrCreateConversation(
     } finally {
       conversationCreating.delete(conversationId);
     }
-    _evictor?.touch(conversationId);
+    evictor.touch(conversationId);
   } else {
     if (!conversation.isProcessing()) {
       applyTransportMetadata(conversation, options);
@@ -210,7 +220,7 @@ export async function getOrCreateConversation(
         conversation.setTrustContext(options.trustContext);
       }
     }
-    _evictor?.touch(conversationId);
+    evictor.touch(conversationId);
   }
   return conversation;
 }
@@ -220,11 +230,11 @@ export async function getOrCreateConversation(
 // ---------------------------------------------------------------------------
 
 export function touchConversation(conversationId: string): void {
-  _evictor?.touch(conversationId);
+  evictor.touch(conversationId);
 }
 
 function removeFromEvictor(conversationId: string): void {
-  _evictor?.remove(conversationId);
+  evictor.remove(conversationId);
 }
 
 /**
