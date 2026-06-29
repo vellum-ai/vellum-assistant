@@ -55,6 +55,7 @@ import {
   addMessage,
   type ConversationRow,
   deleteConversation,
+  deleteConversationGently,
   findMostRecentRetrospectiveFor,
   forkConversationForRetrospective,
   getConversation,
@@ -360,7 +361,7 @@ export async function runForkBasedRetrospective(
   }
 
   if (wakeSucceeded) {
-    return finalizeSuccessfulRetrospective({
+    return await finalizeSuccessfulRetrospective({
       config,
       sourceConversationId,
       retrospectiveConversationId: forkId,
@@ -568,7 +569,7 @@ function resolvePriorRetrospective(
  * cleanup. `priorRemembers` (cumulative log, or the prior-conversation scan
  * that seeds it) is the base so the prior's saves survive its GC below.
  */
-function finalizeSuccessfulRetrospective(args: {
+async function finalizeSuccessfulRetrospective(args: {
   config: AssistantConfig;
   sourceConversationId: string;
   retrospectiveConversationId: string;
@@ -578,7 +579,7 @@ function finalizeSuccessfulRetrospective(args: {
   priorRemembers: string[];
   /** Per-kind extras for the success log line (e.g. `kind`, fork anchor). */
   logFields: Record<string, unknown>;
-}): MemoryRetrospectiveOutcome {
+}): Promise<MemoryRetrospectiveOutcome> {
   const {
     config,
     sourceConversationId,
@@ -600,7 +601,7 @@ function finalizeSuccessfulRetrospective(args: {
     rememberedLog: appendToRememberedLog(priorRemembers, runRemembers),
   });
 
-  deleteSupersededPriorRetrospective(config, prior, sourceConversationId);
+  await deleteSupersededPriorRetrospective(config, prior, sourceConversationId);
 
   const followUpJobIds = enqueueFollowUpJobs();
 
@@ -667,16 +668,20 @@ function safeDeleteRetrospectiveConversation(
  * never fails the job. Operators opt out of GC entirely via
  * `memory.retrospective.keepSupersededRuns`.
  */
-function deleteSupersededPriorRetrospective(
+async function deleteSupersededPriorRetrospective(
   config: AssistantConfig,
   prior: PriorRetrospective | null,
   sourceConversationId: string,
-): void {
+): Promise<void> {
   if (!prior) return;
   if (config.memory.retrospective.keepSupersededRuns) return;
   if (prior.forkParentConversationId !== sourceConversationId) return;
   try {
-    deleteConversation(prior.id);
+    // Fork-kind priors carry a full copy of the source's message history, so
+    // delete the message rows off the event loop in lock-friendly batches —
+    // the deletion mirror of the batched fork copy that built them — instead
+    // of one lock-holding transaction that would starve live user turns.
+    await deleteConversationGently(prior.id);
   } catch (err) {
     log.warn(
       { err, priorConversationId: prior.id },
