@@ -48,7 +48,7 @@ const mockQueryUnreportedTurnEvents = mock(
     }[],
 );
 
-mock.module("../memory/turn-events-store.js", () => ({
+mock.module("../telemetry/turn-events-store.js", () => ({
   queryUnreportedTurnEvents: mockQueryUnreportedTurnEvents,
 }));
 
@@ -166,7 +166,7 @@ const mockIsTurnSettled = mock(
   }): boolean => true,
 );
 
-mock.module("../memory/turn-trace-store.js", () => ({
+mock.module("../telemetry/turn-trace-store.js", () => ({
   assembleBoundedTurnTrace: mockAssembleBoundedTurnTrace,
   isTurnSettled: mockIsTurnSettled,
 }));
