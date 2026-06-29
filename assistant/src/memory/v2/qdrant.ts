@@ -705,6 +705,31 @@ export async function countConceptPagePoints(): Promise<number> {
 }
 
 /**
+ * Destructively delete and recreate the v2 concept-page collection at the
+ * configured `config.memory.qdrant.vectorSize`. Owned by the probe-gated
+ * startup reconcile, which is the only path permitted to make the
+ * destroy-before-confirm decision for a dimension migration (the lazy
+ * `ensureConceptPageCollection` path explicitly defers dimension drift here).
+ *
+ * Resets the in-process readiness latch and delegates creation to
+ * `ensureConceptPageCollection` so the named-vector layout, payload indexes,
+ * and reembed sentinel all flow through the single creation code path.
+ * Idempotent against an absent collection — a missing collection is treated as
+ * "already deleted" and the recreate proceeds.
+ */
+export async function recreateConceptPageCollection(): Promise<void> {
+  const client = getClient();
+  try {
+    await client.deleteCollection(MEMORY_V2_COLLECTION);
+  } catch (err) {
+    if (!isCollectionMissing(err)) throw err;
+  }
+  _collectionReady = false;
+  _collectionReadyPromise = null;
+  await ensureConceptPageCollection();
+}
+
+/**
  * Probe whether the v2 concept-page collection currently exists in Qdrant
  * **without** triggering creation. Read-only diagnostics use this to avoid
  * the side effect of bootstrapping storage just by inspecting it.
