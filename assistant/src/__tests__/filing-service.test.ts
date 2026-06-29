@@ -132,7 +132,8 @@ function setTestProcessMessage(
 }
 
 // Import after mocks are set up
-const { FilingService } = await import("../filing/filing-service.js");
+const { FilingService } =
+  await import("../plugins/defaults/memory/filing-service.js");
 
 describe("FilingService", () => {
   let processMessageCalls: Array<{

@@ -2,7 +2,6 @@ import * as Sentry from "@sentry/node";
 
 import { disposeAcpSessionManager } from "../acp/index.js";
 import { stopCes } from "../credential-execution/ces-runtime.js";
-import { stopFilingService } from "../filing/filing-service.js";
 import { stopHeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { stopCliIpcServer } from "../ipc/assistant-server.js";
 import { stopGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
@@ -79,11 +78,10 @@ async function shutdown(): Promise<void> {
 
   await stopWorkspaceHeartbeatService();
   await stopHeartbeatService();
-  await stopFilingService();
 
-  // Run registered skill shutdown hooks (e.g. meet-join session teardown)
-  // before stopping the server so any HTTP round-trips and SSE emissions
-  // still have live transports.
+  // Run registered plugin/skill shutdown hooks (e.g. the memory plugin's
+  // filing-service teardown, meet-join session teardown) before stopping the
+  // server so any HTTP round-trips and SSE emissions still have live transports.
   try {
     await runShutdownHooks("daemon-shutdown");
   } catch (err) {
