@@ -13,6 +13,7 @@ export function resolveFilterParams(filter: SkillFilter): {
     case "clawhub":
     case "skillssh":
     case "custom":
+    case "assistant-memory":
       return { origin: filter };
     default:
       return {};
