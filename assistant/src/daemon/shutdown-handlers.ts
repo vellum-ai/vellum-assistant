@@ -22,6 +22,7 @@ import {
   commitAllPendingWorkspaceChanges,
   stopWorkspaceHeartbeatService,
 } from "../workspace/heartbeat-service.js";
+import { stopAppSourceWatcher } from "./app-source-watcher.js";
 import { stopConversations } from "./conversation-store.js";
 import { cleanupPidFile } from "./daemon-control.js";
 import { stopEventLoopWatchdog } from "./event-loop-watchdog.js";
@@ -97,6 +98,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     }
 
     await deps.server.stop();
+    stopAppSourceWatcher();
     stopCliIpcServer();
     stopSkillIpcServer();
     stopConversations();
