@@ -32,7 +32,6 @@ import { Conversation } from "./conversation.js";
 import { ConversationEvictor } from "./conversation-evictor.js";
 import {
   allConversations,
-  clearConversations,
   conversationEntries,
   deleteConversation,
   getConversationMap,
@@ -266,11 +265,6 @@ export class DaemonServer {
       this.unsubscribeContactChange();
       this.unsubscribeContactChange = null;
     }
-
-    for (const conversation of allConversations()) {
-      conversation.dispose();
-    }
-    clearConversations();
 
     log.info("Daemon server stopped");
   }
