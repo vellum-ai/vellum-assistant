@@ -20,6 +20,7 @@ import {
   commitAllPendingWorkspaceChanges,
   stopWorkspaceHeartbeatService,
 } from "../workspace/heartbeat-service.js";
+import { stopConversations } from "./conversation-store.js";
 import { cleanupPidFile } from "./daemon-control.js";
 import { stopEventLoopWatchdog } from "./event-loop-watchdog.js";
 import { stopDiskPressureGuardForLifecycle } from "./lifecycle.js";
@@ -94,6 +95,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     }
 
     await deps.server.stop();
+    stopConversations();
     await stopCes();
 
     // Final commit sweep: catch any writes that occurred during server.stop()
