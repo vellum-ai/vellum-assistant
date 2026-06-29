@@ -29,13 +29,18 @@ export async function stopBackgroundTask(id: string): Promise<void> {
   const prevStatus = store.byId[id]?.status;
   store.cancelTask(id);
   try {
-    const { response } = await backgroundtoolsCancelPost({
+    const { data, response } = await backgroundtoolsCancelPost({
       path: { assistant_id: assistantId },
       body: { id },
       throwOnError: false,
     });
-    if (!response?.ok) {
-      throw new Error(`Failed to stop background task: ${response?.status}`);
+    // The route answers 200 with `{ cancelled: false }` when the task was
+    // already gone — nothing was stopped, so treat it like a failed request and
+    // roll back the optimistic cancel below.
+    if (!response?.ok || data?.cancelled === false) {
+      throw new Error(
+        `Failed to stop background task: ${response?.status} (cancelled=${data?.cancelled})`,
+      );
     }
   } catch (err) {
     // The cancel didn't land — roll back the optimistic `cancelled` so the task

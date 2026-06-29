@@ -23,9 +23,8 @@ export function backgroundTaskStatusColor(status: BackgroundTaskStatus): string 
     case "completed":
       return "var(--system-positive-strong)";
     case "failed":
-      return "var(--system-negative-strong)";
     case "cancelled":
-      return "var(--text-muted)";
+      return "var(--system-negative-strong)";
     default:
       return "var(--primary-base)";
   }

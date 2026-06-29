@@ -11,60 +11,29 @@ import { SquareTerminal } from "lucide-react";
 
 import { Typography } from "@vellumai/design-library";
 
+import { BackgroundTaskStatusBadge } from "@/domains/chat/components/background-task-status-badge";
 import { DetailShell } from "@/domains/chat/components/detail-shell";
-import { CodeBlock } from "@/domains/chat/components/tool-detail-panel";
-import type { BackgroundTaskEntry } from "@/domains/chat/background-task-store";
 import {
-  backgroundTaskStatusColor,
-  backgroundTaskStatusLabel,
-  isActiveBackgroundTaskStatus,
-} from "@/utils/background-task-status";
+  CodeBlock,
+  SectionLabel,
+} from "@/domains/chat/components/tool-detail-panel";
+import type { BackgroundTaskEntry } from "@/domains/chat/background-task-store";
+import { isActiveBackgroundTaskStatus } from "@/utils/background-task-status";
 
 export interface BackgroundTaskDetailPanelProps {
   entry: BackgroundTaskEntry;
   onClose: () => void;
 }
 
-/** Uppercase section label in `--content-tertiary`. */
-function SectionLabel({ children }: { children: string }) {
-  return (
-    <Typography
-      variant="label-small-default"
-      as="div"
-      className="mb-1.5 uppercase tracking-wider text-[var(--content-tertiary)]"
-    >
-      {children}
-    </Typography>
-  );
-}
-
-/** Status pill — dot + label tinted by the task's semantic status color. */
-function StatusBadge({ status }: { status: BackgroundTaskEntry["status"] }) {
-  const color = backgroundTaskStatusColor(status);
-  return (
-    <div
-      className="mb-4 inline-flex items-center gap-1.5 text-label-small-default"
-      style={{ color }}
-    >
-      <span
-        className="h-1.5 w-1.5 rounded-full"
-        style={{ backgroundColor: color }}
-        aria-hidden
-      />
-      {backgroundTaskStatusLabel(status)}
-    </div>
-  );
-}
-
 export function BackgroundTaskDetailPanel({
   entry,
   onClose,
 }: BackgroundTaskDetailPanelProps) {
-  // Output is only meaningful once the task has settled (terminal status).
+  const isTerminal = !isActiveBackgroundTaskStatus(entry.status);
+  // Output and exit code are only meaningful once the task has settled.
   const showOutput =
-    !isActiveBackgroundTaskStatus(entry.status) &&
-    entry.output !== undefined &&
-    entry.output !== "";
+    isTerminal && entry.output !== undefined && entry.output !== "";
+  const showExitCode = isTerminal && entry.exitCode != null;
 
   return (
     <DetailShell
@@ -73,7 +42,18 @@ export function BackgroundTaskDetailPanel({
       closeLabel="Close task detail"
       onClose={onClose}
     >
-      <StatusBadge status={entry.status} />
+      <div className="mb-4 flex items-center gap-2">
+        <BackgroundTaskStatusBadge status={entry.status} />
+        {showExitCode && (
+          <Typography
+            variant="body-small-default"
+            as="span"
+            className="text-[var(--content-tertiary)]"
+          >
+            Exit code: {entry.exitCode}
+          </Typography>
+        )}
+      </div>
 
       <div>
         <SectionLabel>Command</SectionLabel>
