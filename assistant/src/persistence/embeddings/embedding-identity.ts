@@ -1,18 +1,17 @@
 import { QdrantClient } from "@qdrant/js-client-rest";
 
 import type { AssistantConfig } from "../../config/types.js";
+import { MEMORY_V2_COLLECTION } from "../../memory/v2/qdrant.js";
 import { getLogger } from "../../util/logger.js";
-import { selectEmbeddingBackend } from "./embedding-backend.js";
-import { isEmbeddingBillingBreakerOpen } from "./embedding-billing-breaker.js";
 import {
-  EMBEDDING_DIMENSION_PROBE_TEXT,
-  type EmbeddingProviderName,
-} from "./embedding-types.js";
+  resolveBackendDimension,
+  selectEmbeddingBackend,
+} from "./embedding-backend.js";
+import { isEmbeddingBillingBreakerOpen } from "./embedding-billing-breaker.js";
+import type { EmbeddingProviderName } from "./embedding-types.js";
 import { resolveQdrantUrl } from "./qdrant-client.js";
 
 const log = getLogger("embedding-identity");
-
-const MEMORY_V2_COLLECTION = "memory_v2_concept_pages";
 
 export interface BackendDimensionProbe {
   provider: EmbeddingProviderName;
@@ -28,12 +27,12 @@ export interface BackendDimensionProbe {
  * reconcile defers rather than committing on a measurement it could not take:
  *   - the billing breaker is open (treated as "backend down");
  *   - no backend is configured/selectable;
- *   - the backend's `embed` call throws (provider unreachable).
+ *   - the measurement probe throws (provider unreachable).
  *
- * Calls `backend.embed` directly rather than `embedWithBackend`, which asserts
- * `config.memory.qdrant.vectorSize` and would throw on exactly the dimension
- * mismatch this probe is meant to measure. Calling the backend directly also
- * bypasses the in-memory vector cache, which this probe does not populate.
+ * Delegates the dimension measurement to {@link resolveBackendDimension}, the
+ * single memoized source of truth shared with the per-query availability check,
+ * so the reconcile pays at most one embed round-trip per (provider, model) and
+ * cannot disagree with the read-lane probe.
  */
 export async function probeBackendDimension(
   config: AssistantConfig,
@@ -43,18 +42,9 @@ export async function probeBackendDimension(
   const { backend } = await selectEmbeddingBackend(config);
   if (!backend) return null;
 
-  try {
-    const vectors = await backend.embed([EMBEDDING_DIMENSION_PROBE_TEXT]);
-    const dim = vectors[0]?.length;
-    if (dim == null) return null;
-    return { provider: backend.provider, model: backend.model, dim };
-  } catch (err) {
-    log.warn(
-      { err },
-      "Backend dimension probe failed; treating as unavailable",
-    );
-    return null;
-  }
+  const dim = await resolveBackendDimension(backend);
+  if (dim == null) return null;
+  return { provider: backend.provider, model: backend.model, dim };
 }
 
 /**

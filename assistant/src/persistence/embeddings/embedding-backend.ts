@@ -558,8 +558,13 @@ export async function isEmbeddingDimensionAvailable(
  * Resolve a backend's output dimension, probing once and memoizing the result.
  * Returns `null` when the probe fails (backend unreachable) so the caller can
  * treat the lane as degraded.
+ *
+ * The single source of truth for backend-dimension measurement: the per-query
+ * availability check ({@link isEmbeddingDimensionAvailable}) and the startup
+ * reconcile probe both resolve through here, so they share one memoization and
+ * cannot disagree.
  */
-async function resolveBackendDimension(
+export async function resolveBackendDimension(
   backend: EmbeddingBackend,
 ): Promise<number | null> {
   const key = `${backend.provider}:${backend.model}`;
