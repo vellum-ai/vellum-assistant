@@ -172,6 +172,19 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   }, []);
 
   // -------------------------------------------------------------------------
+  // Mobile fallback: side-drawer panels don't render on narrow viewports, so
+  // redirect to the Contacts page with the Slack channel pre-expanded.
+  // -------------------------------------------------------------------------
+
+  useEffect(() => {
+    if (!isMobile) return;
+    if (mainView !== "channel-setup" || !activeChannelSetup) return;
+    const channel = activeChannelSetup.channel;
+    useViewerStore.getState().closeChannelSetup();
+    navigate(`${routes.contacts.root}?setup=${channel}`);
+  }, [isMobile, mainView, activeChannelSetup, navigate]);
+
+  // -------------------------------------------------------------------------
   // Escape closes whichever right-hand side panel is open (tool detail /
   // thought process, subagent detail, workflow detail, acp run detail,
   // document viewer). Surfaces stacked

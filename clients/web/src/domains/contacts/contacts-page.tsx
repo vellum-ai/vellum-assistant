@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router";
 
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -129,6 +130,15 @@ export function ContactsPage({
   const a2aChannel = useAssistantFeatureFlagStore.use.a2aChannel();
   const identityName = useAssistantIdentityStore.use.name();
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const setupChannel = searchParams.get("setup") as "slack" | "telegram" | "phone" | null;
+
+  // Consume the `?setup=` param once on mount so it doesn't persist across navigations.
+  useEffect(() => {
+    if (!setupChannel) return;
+    setSearchParams((prev) => { prev.delete("setup"); return prev; }, { replace: true });
+  }, [setupChannel, setSearchParams]);
+
   const [selection, setSelection] = useState<ContactSelection>({
     kind: "assistant",
   });
@@ -642,6 +652,7 @@ export function ContactsPage({
             onSlackThreadModeChange={handleSlackThreadModeChange}
             onSaveTwilioCredentials={handleSaveTwilioCredentials}
             onGenerateInviteLink={a2aChannel ? handleOpenInviteLink : undefined}
+            initialExpandedChannel={setupChannel}
           />
         ) : optimisticContact ? (
           optimisticContact.role === "guardian" ? (
