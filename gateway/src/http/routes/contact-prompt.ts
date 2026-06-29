@@ -208,6 +208,12 @@ export async function handleContactPromptSubmit(
         return await channelResolutionError(requestId);
       }
 
+      // Invalidate the daemon guardian-id/role caches after a gateway-owned
+      // contact write.
+      void ipcCallAssistant("emit_event", {
+        body: { kind: "contacts_changed" },
+      } as unknown as Record<string, unknown>).catch(() => {});
+
       // Non-guardian is fully resolved by upsertContact; skip the guardian-only
       // Phase 2 channel-creation block below and go straight to resolve.
       return await resolveContactPrompt({
@@ -363,6 +369,12 @@ export async function handleContactPromptSubmit(
       { status: 500 },
     );
   }
+
+  // Invalidate the daemon guardian-id/role caches after a gateway-owned
+  // guardian bind/rebind/reuse.
+  void ipcCallAssistant("emit_event", {
+    body: { kind: "contacts_changed" },
+  } as unknown as Record<string, unknown>).catch(() => {});
 
   return await resolveContactPrompt({
     requestId,
