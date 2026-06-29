@@ -5,11 +5,17 @@ import type { GuardianDelivery } from "@vellumai/gateway-client";
 import type { ContactChannel } from "../../../contacts/types.js";
 
 let mockGuardians: GuardianDelivery[] | null = null;
-let mockBinding: { guardianExternalUserId: string; guardianDeliveryChatId: string } | null = null;
+let mockBinding: {
+  guardianExternalUserId: string;
+  guardianDeliveryChatId: string;
+} | null = null;
 let mockContactChannel: { channel: ContactChannel } | null = null;
 let mockChannel: ContactChannel | null = null;
-let mockGwContactChannels: Array<{ id: string; status: string; verifiedAt: number | null }> | null =
-  null;
+let mockGwContactChannels: Array<{
+  id: string;
+  status: string;
+  verifiedAt: number | null;
+}> | null = null;
 let ipcCalls: Array<{ method: string; payload: unknown }> = [];
 
 mock.module("../../../contacts/guardian-delivery-reader.js", () => ({
@@ -20,10 +26,8 @@ mock.module("../../../contacts/guardian-delivery-reader.js", () => ({
       input.channelTypes!.includes(g.channelType),
     );
   },
-  guardianForChannel: (
-    list: GuardianDelivery[],
-    channelType: string,
-  ) => list.find((g) => g.channelType === channelType && g.status === "active"),
+  guardianForChannel: (list: GuardianDelivery[], channelType: string) =>
+    list.find((g) => g.channelType === channelType && g.status === "active"),
 }));
 
 mock.module("../../../contacts/contact-store.js", () => ({
@@ -32,9 +36,8 @@ mock.module("../../../contacts/contact-store.js", () => ({
   getContact: () => ({ id: "contact-1", displayName: "Pat" }),
 }));
 
-mock.module("../../../contacts/contact-events.js", () => ({
-  emitContactChange: () => {},
-  onContactChange: () => {},
+mock.module("../../../contacts/notify-contacts-changed.js", () => ({
+  notifyContactsChanged: () => {},
 }));
 
 mock.module("../../../ipc/gateway-client.js", () => ({
@@ -151,7 +154,10 @@ function delivery(overrides: Partial<GuardianDelivery> = {}): GuardianDelivery {
 describe("revokeVerificationForChannel", () => {
   beforeEach(() => {
     mockGuardians = null;
-    mockBinding = { guardianExternalUserId: "user-123", guardianDeliveryChatId: "chat-123" };
+    mockBinding = {
+      guardianExternalUserId: "user-123",
+      guardianDeliveryChatId: "chat-123",
+    };
     mockContactChannel = { channel: channel() };
     ipcCalls = [];
   });

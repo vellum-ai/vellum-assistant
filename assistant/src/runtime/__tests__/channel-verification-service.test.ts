@@ -18,11 +18,11 @@ mock.module("../../contacts/guardian-delivery-reader.js", () => ({
     list: Array<{ channelType: string; status: string }>,
     channelType: string,
   ) => list.find((g) => g.channelType === channelType && g.status === "active"),
+  invalidateGuardianDeliveryCache: () => {},
 }));
 
-const { getGuardianBinding, isGuardian } = await import(
-  "../channel-verification-service.js"
-);
+const { getGuardianBinding, isGuardian } =
+  await import("../channel-verification-service.js");
 
 const TELEGRAM_DELIVERY = {
   channelType: "telegram",
@@ -104,12 +104,16 @@ describe("isGuardian", () => {
 
   test("returns true when the address matches the gateway guardian", async () => {
     mockGuardianList = [TELEGRAM_DELIVERY];
-    expect(await isGuardian("asst-1", "telegram", "guardian-handle")).toBe(true);
+    expect(await isGuardian("asst-1", "telegram", "guardian-handle")).toBe(
+      true,
+    );
   });
 
   test("compares case-insensitively", async () => {
     mockGuardianList = [TELEGRAM_DELIVERY];
-    expect(await isGuardian("asst-1", "telegram", "GUARDIAN-HANDLE")).toBe(true);
+    expect(await isGuardian("asst-1", "telegram", "GUARDIAN-HANDLE")).toBe(
+      true,
+    );
   });
 
   test("returns false for a non-matching address", async () => {
