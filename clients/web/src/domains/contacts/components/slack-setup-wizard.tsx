@@ -1,9 +1,7 @@
 import { ExternalLink, Plus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { Button, Card, Input, Radio, RadioGroup, Stepper, type StepperStep, Typography } from "@vellumai/design-library";
-
-import { publicAsset } from "@/utils/public-asset";
+import { Button, Input, Radio, RadioGroup, Stepper, type StepperStep, Typography } from "@vellumai/design-library";
 import { buildSlackManifestUrl } from "@/utils/slack-manifest";
 
 export type SlackThreadMode = "mention_only" | "mention_then_thread";
@@ -89,116 +87,80 @@ export function SlackSetupWizard({
 
   if (connected) {
     return (
-      <div className="pl-7" data-slot="slack-setup-wizard">
-        <Card.Root>
-          <Card.Header>
-            <div className="flex items-center gap-3">
-              <img
-                src={publicAsset("/images/integrations/slack.svg")}
-                alt=""
-                className="size-8 rounded-lg bg-[var(--surface-sunken)] p-1"
-              />
-              <div className="flex flex-col">
-                <Typography as="span" variant="body-medium-default">
-                  Slack settings
-                </Typography>
-                <span className="flex items-center gap-1.5 text-body-small-default text-[var(--content-secondary)]">
-                  <span className="size-2 rounded-full bg-[var(--system-positive-strong)]" />
-                  Connected as {assistantName}
-                </span>
-              </div>
-            </div>
-          </Card.Header>
-          <Card.Body>
-            <div className="flex flex-col gap-3">
-              <Typography
-                as="span"
-                variant="body-small-emphasised"
-                className="text-[color:var(--content-secondary)]"
-              >
-                Thread Behavior
-              </Typography>
-              <RadioGroup<SlackThreadMode>
-                value={threadMode ?? "mention_then_thread"}
-                onValueChange={(next) => onThreadModeChange?.(next)}
-                disabled={threadModePending || !onThreadModeChange}
-                aria-label="Slack thread behavior"
-              >
-                <Radio<SlackThreadMode>
-                  value="mention_only"
-                  label="Mentions only"
-                  helperText="Bot only responds when @mentioned."
-                />
-                <Radio<SlackThreadMode>
-                  value="mention_then_thread"
-                  label="Follow threads after first mention"
-                  helperText="After an @mention in a thread, bot listens to all subsequent replies."
-                />
-              </RadioGroup>
-            </div>
-          </Card.Body>
-        </Card.Root>
+      <div data-slot="slack-setup-wizard">
+        <div className="flex flex-col gap-3">
+          <Typography
+            as="span"
+            variant="body-small-emphasised"
+            className="text-[color:var(--content-secondary)]"
+          >
+            Thread Behavior
+          </Typography>
+          <RadioGroup<SlackThreadMode>
+            value={threadMode ?? "mention_then_thread"}
+            onValueChange={(next) => onThreadModeChange?.(next)}
+            disabled={threadModePending || !onThreadModeChange}
+            aria-label="Slack thread behavior"
+          >
+            <Radio<SlackThreadMode>
+              value="mention_only"
+              label="Mentions only"
+              helperText="Bot only responds when @mentioned."
+            />
+            <Radio<SlackThreadMode>
+              value="mention_then_thread"
+              label="Follow threads after first mention"
+              helperText="After an @mention in a thread, bot listens to all subsequent replies."
+            />
+          </RadioGroup>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="pl-7" data-slot="slack-setup-wizard">
-      <Card.Root>
-        <Card.Header>
-          <div className="flex items-center gap-3">
-            <img
-              src={publicAsset("/images/integrations/slack.svg")}
-              alt=""
-              className="size-8 rounded-lg bg-[var(--surface-sunken)] p-1"
+    <div data-slot="slack-setup-wizard">
+      <div className="flex flex-col gap-4">
+        <Stepper
+          steps={WIZARD_STEPS}
+          current={stepIndex}
+          onStepSelect={handleStepSelect}
+          disabled={saving}
+        />
+
+        <div className="rounded-lg bg-[var(--surface-sunken)] p-4">
+          {stepId === "create-app" && (
+            <CreateAppStep
+              slackAppName={slackAppName}
+              onSlackAppNameChange={(v) => { userEditedName.current = true; setSlackAppName(v); }}
+              onCreateApp={handleCreateApp}
+              onNext={goNext}
             />
-            <span>Slack setup</span>
-          </div>
-        </Card.Header>
-        <Card.Body>
-          <div className="flex flex-col gap-4">
-            <Stepper
-              steps={WIZARD_STEPS}
-              current={stepIndex}
-              onStepSelect={handleStepSelect}
-              disabled={saving}
+          )}
+
+          {stepId === "app-token" && (
+            <AppTokenStep
+              appToken={appToken}
+              onAppTokenChange={setAppToken}
+              onNext={goNext}
             />
+          )}
 
-            <div className="rounded-lg bg-[var(--surface-sunken)] p-4">
-              {stepId === "create-app" && (
-                <CreateAppStep
-                  slackAppName={slackAppName}
-                  onSlackAppNameChange={(v) => { userEditedName.current = true; setSlackAppName(v); }}
-                  onCreateApp={handleCreateApp}
-                  onNext={goNext}
-                />
-              )}
+          {stepId === "install-app" && (
+            <InstallAppStep onNext={goNext} />
+          )}
 
-              {stepId === "app-token" && (
-                <AppTokenStep
-                  appToken={appToken}
-                  onAppTokenChange={setAppToken}
-                  onNext={goNext}
-                />
-              )}
-
-              {stepId === "install-app" && (
-                <InstallAppStep onNext={goNext} />
-              )}
-
-              {stepId === "bot-token" && (
-                <BotTokenStep
-                  botToken={botToken}
-                  saving={saving}
-                  error={error}
-                  onBotTokenChange={setBotToken}
-                  onSave={handleSave}
-                />
-              )}
-            </div>
-          </div>
-        </Card.Body>
-      </Card.Root>
+          {stepId === "bot-token" && (
+            <BotTokenStep
+              botToken={botToken}
+              saving={saving}
+              error={error}
+              onBotTokenChange={setBotToken}
+              onSave={handleSave}
+            />
+          )}
+        </div>
+      </div>
     </div>
   );
 }

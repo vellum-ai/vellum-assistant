@@ -73,6 +73,19 @@ mock.module("../daemon/conversation-runtime-assembly.js", () => ({
   }),
 }));
 
+// ── Conversation store mock (voice bridge resolves conversations here) ──
+
+let scopedGrantConversationFactory: (() => unknown) | null = null;
+
+mock.module("../daemon/conversation-store.js", () => ({
+  getOrCreateConversation: async () => {
+    if (!scopedGrantConversationFactory) {
+      throw new Error("scopedGrantConversationFactory not set for test");
+    }
+    return scopedGrantConversationFactory();
+  },
+}));
+
 // ── Import source modules after all mocks are registered ────────────
 
 import { and, eq } from "drizzle-orm";
@@ -190,13 +203,8 @@ function createMockSession(opts?: {
 function setupBridgeDeps(
   sessionFactory: () => ReturnType<typeof createMockSession>["session"],
 ) {
-  let currentSession: ReturnType<typeof createMockSession>["session"] | null =
-    null;
+  scopedGrantConversationFactory = () => sessionFactory();
   setVoiceBridgeDeps({
-    getOrCreateConversation: async () => {
-      currentSession = sessionFactory();
-      return currentSession as any;
-    },
     resolveAttachments: () => [],
   });
 }

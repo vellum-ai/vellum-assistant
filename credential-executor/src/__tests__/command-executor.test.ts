@@ -1345,11 +1345,14 @@ describe("server — run_authenticated_command handler", () => {
       defaultWorkspaceDir: testWorkspaceDir,
     });
 
-    const response = await handler({
-      credentialHandle: "local_static:test/api_key",
-      command: "",
-      purpose: "Test empty command",
-    });
+    const response = await handler(
+      {
+        credentialHandle: "local_static:test/api_key",
+        command: "",
+        purpose: "Test empty command",
+      },
+      { sessionId: "test-session" },
+    );
 
     expect(response.success).toBe(false);
     expect(response.error?.code).toBe("INVALID_COMMAND");
@@ -1366,11 +1369,14 @@ describe("server — run_authenticated_command handler", () => {
       defaultWorkspaceDir: testWorkspaceDir,
     });
 
-    const response = await handler({
-      credentialHandle: "local_static:test/api_key",
-      command: "just-a-plain-command --with-args",
-      purpose: "Test plain command",
-    });
+    const response = await handler(
+      {
+        credentialHandle: "local_static:test/api_key",
+        command: "just-a-plain-command --with-args",
+        purpose: "Test plain command",
+      },
+      { sessionId: "test-session" },
+    );
 
     expect(response.success).toBe(false);
     expect(response.error?.code).toBe("INVALID_COMMAND");
@@ -1388,11 +1394,14 @@ describe("server — run_authenticated_command handler", () => {
     });
 
     // This will fail at bundle resolution (fake digest), but the parse succeeds
-    const response = await handler({
-      credentialHandle: "local_static:test/api_key",
-      command: `${"a".repeat(64)}/list api /repos --method GET`,
-      purpose: "Test command parsing",
-    });
+    const response = await handler(
+      {
+        credentialHandle: "local_static:test/api_key",
+        command: `${"a".repeat(64)}/list api /repos --method GET`,
+        purpose: "Test command parsing",
+      },
+      { sessionId: "test-session" },
+    );
 
     // Should fail at bundle resolution, not at command parsing
     expect(response.error?.code).not.toBe("INVALID_COMMAND");

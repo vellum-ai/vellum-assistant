@@ -57,7 +57,6 @@ import {
   registerManageSecureCommandToolHandler,
   type RpcHandlerRegistry,
   type ServeEndReason,
-  type SessionIdRef,
 } from "./server.js";
 import {
   deleteBundleFromToolstore,
@@ -120,7 +119,6 @@ function ensureDataDirs(): void {
 // ---------------------------------------------------------------------------
 
 function buildHandlers(
-  sessionIdRef: SessionIdRef,
   apiKeyRef: ApiKeyRef,
   assistantIdRef: AssistantIdRef,
   secureKeyBackend: SecureKeyBackend,
@@ -214,7 +212,6 @@ function buildHandlers(
       return getManagedMaterializerOptions();
     },
     auditStore,
-    sessionId: sessionIdRef,
   };
 
   const handlers = buildHandlersWithHttp(httpDeps);
@@ -283,7 +280,6 @@ function buildHandlers(
         }
       },
       auditStore,
-      sessionId: sessionIdRef,
       cesMode: "managed",
       egressHooks: buildCesEgressHooks(),
     },
@@ -677,14 +673,14 @@ async function main(): Promise<void> {
   // would otherwise leak ephemeral approvals across sessions. It is cleared at
   // the end of every session below so a reconnecting assistant must re-prompt.
   //
-  // The mutable refs carry the handshake-provided session ID, API key, and
-  // assistant ID; handlers read them at call time, so updating the refs when
-  // each session's handshake completes is all that's needed per connection.
-  const sessionIdRef: SessionIdRef = { current: `ces-managed-${Date.now()}` };
+  // The mutable refs carry the handshake-provided API key and assistant ID;
+  // handlers read them at call time. These don't vary across a daemon's
+  // connections, so they stay process-global. The per-connection session ID,
+  // by contrast, lives in each CesRpcServer's SessionContext (handlers read it
+  // at call time for audit attribution).
   const apiKeyRef: ApiKeyRef = { current: "" };
   const assistantIdRef: AssistantIdRef = { current: "" };
   const { handlers, temporaryGrantStore } = buildHandlers(
-    sessionIdRef,
     apiKeyRef,
     assistantIdRef,
     secureKeyBackend,
@@ -726,8 +722,7 @@ async function main(): Promise<void> {
         error: (msg: string, ...args: unknown[]) => rpcLog.error({ args }, msg),
       },
       signal: controller.signal,
-      onHandshakeComplete: (hsSessionId, hsApiKey, hsAssistantId) => {
-        sessionIdRef.current = hsSessionId;
+      onHandshakeComplete: (_hsSessionId, hsApiKey, hsAssistantId) => {
         // Overwrite the credential refs on every handshake. The handler
         // registry persists across reconnects, so a new session that omits
         // the API key / assistant ID must fail closed (falling back to the
