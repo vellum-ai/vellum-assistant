@@ -15,6 +15,7 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
+import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -22,6 +23,7 @@ import { routes } from "@/utils/routes";
 
 import { MobileAcpRunDetailOverlay } from "@/domains/chat/components/mobile-acp-run-detail-overlay";
 import { MobileAppOverlay } from "@/domains/chat/components/mobile-app-overlay";
+import { MobileBackgroundTaskDetailOverlay } from "@/domains/chat/components/mobile-background-task-detail-overlay";
 import { MobileDocumentOverlay } from "@/domains/chat/components/mobile-document-overlay";
 import { MobileSubagentDetailOverlay } from "@/domains/chat/components/mobile-subagent-detail-overlay";
 import { MobileToolDetailOverlay } from "@/domains/chat/components/mobile-tool-detail-overlay";
@@ -42,9 +44,11 @@ export function MobileChatOverlays() {
   const activeToolDetail = useViewerStore.use.activeToolDetail();
   const activeWorkflowRunId = useViewerStore.use.activeWorkflowRunId();
   const activeAcpRunId = useViewerStore.use.activeAcpRunId();
+  const activeBackgroundTaskId = useViewerStore.use.activeBackgroundTaskId();
   const subagentById = useSubagentStore.use.byId();
   const workflowById = useWorkflowStore.use.byId();
   const acpRunById = useAcpRunStore.use.byId();
+  const backgroundTaskById = useBackgroundTaskStore.use.byId();
   const isSharing = useDeployStore.use.isSharing();
   const isDeploying = useDeployStore.use.isDeploying();
   const handleCloseApp = useCallback(() => {
@@ -117,6 +121,10 @@ export function MobileChatOverlays() {
     useViewerStore.getState().closeAcpRunDetail();
   }, []);
 
+  const handleCloseBackgroundTaskDetail = useCallback(() => {
+    useViewerStore.getState().closeBackgroundTaskDetail();
+  }, []);
+
   const handleCloseToolDetail = useCallback(() => {
     useViewerStore.getState().closeToolDetail();
   }, []);
@@ -176,6 +184,14 @@ export function MobileChatOverlays() {
             : null
         }
         onClose={handleCloseAcpRunDetail}
+      />
+      <MobileBackgroundTaskDetailOverlay
+        entry={
+          mainView === "background-task-detail" && activeBackgroundTaskId
+            ? backgroundTaskById[activeBackgroundTaskId] ?? null
+            : null
+        }
+        onClose={handleCloseBackgroundTaskDetail}
       />
       <MobileToolDetailOverlay
         detail={mainView === "tool-detail" ? activeToolDetail : null}
