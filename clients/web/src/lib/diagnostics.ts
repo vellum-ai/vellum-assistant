@@ -224,7 +224,9 @@ export function bucketMessagesAdded(count: number): string {
 }
 
 /** Count messages per role. */
-export function roleCounts(messages: Array<{ role: string }>): Record<string, number> {
+export function roleCounts(
+  messages: Array<{ role: string }>,
+): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const message of messages) {
     counts[message.role] = (counts[message.role] ?? 0) + 1;
