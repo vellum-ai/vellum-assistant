@@ -305,7 +305,12 @@ export function AcpChatToolCard({
           {showOutput && (
             <div
               data-testid="acp-chat-tool-output"
-              className="rounded-md border border-[var(--border-element)] bg-[var(--surface-base)] p-2.5"
+              // Drop the markdown code block's built-in 400px vertical cap so the
+              // output flows in the transcript and only the conversation scrolls
+              // — otherwise the `<pre>` scrolls independently and stacks a second
+              // scrollbar inside the timeline. Horizontal scroll on the `<pre>`
+              // (overflow-x-auto) is preserved for long lines.
+              className="rounded-md border border-[var(--border-element)] bg-[var(--surface-base)] p-2.5 [&_pre]:!max-h-none"
             >
               <ChatMarkdownMessage content={outputText} hardLineBreaks />
             </div>
