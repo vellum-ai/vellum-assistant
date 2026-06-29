@@ -684,8 +684,10 @@ export function findContactByAddress(
 /**
  * Find a contact by channel external chat ID. Fallback for callers that only
  * have a chat ID (no user-level address) — matches by (type, externalChatId).
- * No unique constraint exists on externalChatId, so ORDER BY is needed for a
- * deterministic pick; channel ranking (status) is owned by the gateway now.
+ * No unique constraint exists on externalChatId, so ORDER BY gives a
+ * deterministic pick: prefer the primary channel, then most-recent. Channel
+ * ACL/status ranking is owned by the gateway; isPrimary is the best local
+ * proxy for "the active row" among duplicates.
  */
 function findContactByChannelExternalChatId(
   channelType: string,
@@ -701,7 +703,11 @@ function findContactByChannelExternalChatId(
         eq(contactChannels.externalChatId, externalChatId),
       ),
     )
-    .orderBy(desc(contactChannels.updatedAt), desc(contactChannels.createdAt))
+    .orderBy(
+      desc(contactChannels.isPrimary),
+      desc(contactChannels.updatedAt),
+      desc(contactChannels.createdAt),
+    )
     .get();
   if (!channel) return null;
   return getContactInternal(channel.contactId);
