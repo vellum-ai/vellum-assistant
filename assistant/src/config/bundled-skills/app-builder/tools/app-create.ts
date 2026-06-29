@@ -1,4 +1,4 @@
-import { setAppCommitMessage } from "../../../../memory/app-git-service.js";
+import { setAppCommitMessage } from "../../../../apps/app-git-service.js";
 import * as appStore from "../../../../memory/app-store.js";
 import type { AppCreateInput } from "../../../../tools/apps/executors.js";
 import { executeAppCreate } from "../../../../tools/apps/executors.js";

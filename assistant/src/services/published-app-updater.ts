@@ -7,15 +7,15 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import {
+  getActivePublishedPageByAppId,
+  updatePublishedPage,
+} from "../apps/published-pages-store.js";
+import {
   getApp,
   getAppDirPath,
   isMultifileApp,
   resolveEffectiveAppHtml,
 } from "../memory/app-store.js";
-import {
-  getActivePublishedPageByAppId,
-  updatePublishedPage,
-} from "../memory/published-pages-store.js";
 import { credentialBroker } from "../tools/credentials/broker.js";
 import { getLogger } from "../util/logger.js";
 import { deployHtmlToVercel } from "./vercel-deploy.js";

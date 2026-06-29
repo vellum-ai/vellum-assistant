@@ -42,7 +42,7 @@ mock.module("../memory/app-store.js", () => ({
 }));
 
 // Mock shared-app-links-store (imported by app-routes but unused here)
-mock.module("../memory/shared-app-links-store.js", () => ({
+mock.module("../apps/shared-app-links-store.js", () => ({
   createSharedAppLink: () => ({ shareToken: "tok" }),
   getSharedAppLink: () => null,
   incrementDownloadCount: () => {},
