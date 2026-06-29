@@ -65,6 +65,7 @@ import {
 import { IntroductionScreen } from "@/domains/onboarding/screens/introduction-screen";
 import { PitchStep } from "@/domains/onboarding/screens/intro-pitch-steps";
 import { IntegrationStep } from "@/domains/onboarding/screens/integration-step";
+import { CreatePersonalityStep } from "@/domains/onboarding/screens/create-personality-step";
 import { LetsChatTomorrowStep } from "@/domains/onboarding/screens/lets-chat-tomorrow-step";
 import {
   MeetingCreatedStep,
@@ -511,6 +512,7 @@ export function ResearchOnboardingRoute() {
   // content swaps. Extra edge characters pop in per step to build excitement.
   const tonedSteps = [
     "different",
+    "personality",
     "integration",
     "letschat",
     "meeting",
@@ -545,8 +547,15 @@ export function ResearchOnboardingRoute() {
         />
         {step === "different" && (
           <PitchStep
-            onContinue={() => goForwardTo("integration")}
+            onContinue={() => goForwardTo("personality")}
             onBack={() => goBackTo("intro")}
+            onForward={onForward}
+          />
+        )}
+        {step === "personality" && (
+          <CreatePersonalityStep
+            onContinue={() => goForwardTo("integration")}
+            onBack={() => goBackTo("different")}
             onForward={onForward}
           />
         )}
@@ -554,7 +563,7 @@ export function ResearchOnboardingRoute() {
           <IntegrationStep
             onClaim={() => goForwardTo("letschat")}
             onBumpEyes={() => setEyesBump((n) => n + 1)}
-            onBack={() => goBackTo("different")}
+            onBack={() => goBackTo("personality")}
             onForward={onForward}
           />
         )}
