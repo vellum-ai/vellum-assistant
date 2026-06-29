@@ -12,10 +12,10 @@ const WIZARD_STEP_IDS = ["create-app", "app-token", "install-app", "bot-token"] 
 type WizardStepId = (typeof WIZARD_STEP_IDS)[number];
 
 const WIZARD_STEPS: StepperStep[] = [
-  { id: "create-app", label: "1. Create App" },
-  { id: "app-token", label: "2. Generate App Token" },
-  { id: "install-app", label: "3. Install App" },
-  { id: "bot-token", label: "4. Add Bot Token" },
+  { id: "create-app", label: "Create App" },
+  { id: "app-token", label: "Generate App Token" },
+  { id: "install-app", label: "Install App" },
+  { id: "bot-token", label: "Add Bot Token" },
 ];
 
 export interface SlackSetupWizardProps {

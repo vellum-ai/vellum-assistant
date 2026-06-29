@@ -354,19 +354,29 @@ export interface PostToolUseContext {
   /**
    * Model id reported by the provider for the assistant turn that issued
    * this tool call (e.g. `claude-opus-4-8`,
-   * `accounts/fireworks/models/kimi-k2p6`). A hook needing a finer-grained
-   * model-family signal than {@link needsFirmerSteering} — e.g. matching a
-   * specific loop-prone family — reads it directly.
+   * `accounts/fireworks/models/kimi-k2p6`). Hooks use it to vary coaching by
+   * model family — each plugin owns its own model policy (e.g. which families
+   * need firmer steering) and matches against this string directly.
    */
   readonly model: string;
   /**
-   * Host's assessment that this turn's model needs firmer mid-turn steering
-   * than the static prompt provides — `true` for weaker open-weight families
-   * that disregard prompt-level coaching, `false` for models that follow it.
-   * Hooks gate aggressive nudges on this boolean instead of re-deriving the
-   * model taxonomy themselves.
+   * The LLM call site driving this turn — `mainAgent` for a live user-facing
+   * turn, `subagentSpawn` for a subagent, or a background site (e.g.
+   * `heartbeatAgent`, `titleGenerate`). `null` when the run tagged none. A hook
+   * that should only act on a live user-facing turn gates on
+   * `callSite === "mainAgent"`; one that should skip subagents checks
+   * `callSite === "subagentSpawn"`.
    */
-  readonly needsFirmerSteering: boolean;
+  readonly callSite: LLMCallSite | null;
+  /**
+   * Whether the connected client can render dynamic UI surfaces this turn —
+   * `true` unless the channel explicitly lacks the capability (SMS, phone,
+   * email, and most chat bridges). A fact about what the model can *do* this
+   * turn, not who is calling: a hook that prompts a surface tool (e.g. the
+   * `ui_show` progress card) gates on this so it does not coach the model
+   * toward a tool the channel filters out of the tool set.
+   */
+  readonly supportsDynamicUi: boolean;
   /**
    * The model's context-window size in tokens. Plugins derive their own
    * character budget from this (e.g. a share of the window) rather than

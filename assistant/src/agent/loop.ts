@@ -41,7 +41,6 @@ import type {
   ToolResultContent,
 } from "../providers/types.js";
 import { isContextOverflowError } from "../providers/types.js";
-import { isWeakOpenModel } from "../providers/weak-open-model.js";
 import type { SensitiveOutputBinding } from "../tools/sensitive-output-placeholders.js";
 import {
   applyStreamingSubstitution,
@@ -568,6 +567,12 @@ export interface AgentLoopRunOptions {
   ) => CheckpointDecision | Promise<CheckpointDecision>;
   callSite?: LLMCallSite;
   /**
+   * Whether the connected client can render dynamic UI surfaces this turn,
+   * surfaced to post-tool-use hooks via {@link PostToolUseContext}. Defaults to
+   * `true`; the daemon run paths derive it from the conversation's channel.
+   */
+  supportsDynamicUi?: boolean;
+  /**
    * Trust classification and channel identity for the turn's inbound actor,
    * supplied by the caller as the turn-start snapshot. Read only on the
    * mid-loop in-place compaction path — to scope the compactor's image
@@ -978,6 +983,7 @@ export class AgentLoop {
       requestId,
       onCheckpoint,
       callSite,
+      supportsDynamicUi = true,
       trust,
       overrideProfile,
       forceOverrideProfile = false,
@@ -2162,8 +2168,9 @@ export class AgentLoop {
             messages: history,
             additionalContext: null,
             model: response.model,
-            needsFirmerSteering: isWeakOpenModel(response.model),
             maxInputTokens: contextWindowTokens,
+            callSite: callSite ?? null,
+            supportsDynamicUi,
             logger: rlog,
           };
           const finalCtx = await runHook(HOOKS.POST_TOOL_USE, postToolUseCtx);

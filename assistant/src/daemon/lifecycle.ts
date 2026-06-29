@@ -23,7 +23,7 @@ import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { startCliIpcServer } from "../ipc/assistant-server.js";
 import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
 import { startSkillIpcServer } from "../ipc/skill-server.js";
-import { registerMemoryJobHandlers } from "../memory/register-job-handlers.js";
+import { registerMemoryJobHandlers } from "../jobs/register-job-handlers.js";
 import { sweepConceptPageFrontmatter } from "../memory/v2/frontmatter-sweep.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";

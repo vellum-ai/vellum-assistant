@@ -2,6 +2,37 @@ import type { AssistantConfig } from "../config/types.js";
 import { buildConversationSummaryJob } from "../conversations/job-handlers/summarization.js";
 import { generateConversationStartersJob } from "../home/job-handlers/conversation-starters.js";
 import { mediaProcessingJob } from "../media/job-handlers/media-processing.js";
+import { bootstrapFromHistory } from "../memory/graph/bootstrap.js";
+import { runConsolidation } from "../memory/graph/consolidation.js";
+import { runDecayTick } from "../memory/graph/decay.js";
+import { graphExtractJob } from "../memory/graph/extraction-job.js";
+import {
+  embedGraphNodeJob,
+  embedGraphTriggerJob,
+} from "../memory/graph/graph-search.js";
+import { runNarrativeRefinement } from "../memory/graph/narrative.js";
+import { runPatternScan } from "../memory/graph/pattern-scan.js";
+import { backfillJob } from "../memory/job-handlers/backfill.js";
+import {
+  embedAttachmentJob,
+  embedMediaJob,
+  embedSegmentJob,
+  embedSummaryJob,
+} from "../memory/job-handlers/embedding.js";
+import {
+  deleteQdrantVectorsJob,
+  rebuildIndexJob,
+} from "../memory/job-handlers/index-maintenance.js";
+import { embedConceptPageJob } from "../memory/jobs/embed-concept-page.js";
+import { embedPkbFileJob } from "../memory/jobs/embed-pkb-file.js";
+import { memoryRetrospectiveJob } from "../memory/memory-retrospective-job.js";
+import {
+  memoryV2ActivationRecomputeJob,
+  memoryV2MigrateJob,
+  memoryV2ReembedJob,
+} from "../memory/v2/backfill-jobs.js";
+import { memoryV2ConsolidateJob } from "../memory/v2/consolidation-job.js";
+import { memoryV2SweepJob } from "../memory/v2/sweep-job.js";
 import {
   pruneOldConversationsJob,
   pruneOldLlmRequestLogsJob,
@@ -12,37 +43,6 @@ import { registerJobHandler } from "../persistence/jobs-worker.js";
 import { maintainJob as memoryV3MaintainJob } from "../plugins/defaults/memory/v3/maintain-job.js";
 import { conversationAnalyzeJob } from "../runtime/services/conversation-analyze-job.js";
 import { getLogger } from "../util/logger.js";
-import { bootstrapFromHistory } from "./graph/bootstrap.js";
-import { runConsolidation } from "./graph/consolidation.js";
-import { runDecayTick } from "./graph/decay.js";
-import { graphExtractJob } from "./graph/extraction-job.js";
-import {
-  embedGraphNodeJob,
-  embedGraphTriggerJob,
-} from "./graph/graph-search.js";
-import { runNarrativeRefinement } from "./graph/narrative.js";
-import { runPatternScan } from "./graph/pattern-scan.js";
-import { backfillJob } from "./job-handlers/backfill.js";
-import {
-  embedAttachmentJob,
-  embedMediaJob,
-  embedSegmentJob,
-  embedSummaryJob,
-} from "./job-handlers/embedding.js";
-import {
-  deleteQdrantVectorsJob,
-  rebuildIndexJob,
-} from "./job-handlers/index-maintenance.js";
-import { embedConceptPageJob } from "./jobs/embed-concept-page.js";
-import { embedPkbFileJob } from "./jobs/embed-pkb-file.js";
-import { memoryRetrospectiveJob } from "./memory-retrospective-job.js";
-import {
-  memoryV2ActivationRecomputeJob,
-  memoryV2MigrateJob,
-  memoryV2ReembedJob,
-} from "./v2/backfill-jobs.js";
-import { memoryV2ConsolidateJob } from "./v2/consolidation-job.js";
-import { memoryV2SweepJob } from "./v2/sweep-job.js";
 
 const log = getLogger("memory-jobs-worker");
 

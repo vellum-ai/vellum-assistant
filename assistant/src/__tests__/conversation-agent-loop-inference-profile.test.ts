@@ -669,3 +669,31 @@ describe("runAgentLoopImpl — per-conversation inferenceProfile", () => {
     expect(ctx.currentTurnOverrideProfile).toBeUndefined();
   });
 });
+
+describe("runAgentLoopImpl — subagent call site default", () => {
+  test("a subagent conversation defaults to the subagentSpawn call site", async () => {
+    const captured: CapturedAgentLoopRun[] = [];
+    const ctx = makeCtx(captured, { isSubagent: true });
+
+    // No explicit callSite (mirrors the generic queue-drain path) — a subagent
+    // turn must still resolve as subagentSpawn, not mainAgent.
+    await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+    expect(captured.length).toBeGreaterThan(0);
+    for (const call of captured) {
+      expect(call.callSite).toBe("subagentSpawn");
+    }
+  });
+
+  test("a non-subagent conversation defaults to the mainAgent call site", async () => {
+    const captured: CapturedAgentLoopRun[] = [];
+    const ctx = makeCtx(captured, { isSubagent: false });
+
+    await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+    expect(captured.length).toBeGreaterThan(0);
+    for (const call of captured) {
+      expect(call.callSite).toBe("mainAgent");
+    }
+  });
+});
