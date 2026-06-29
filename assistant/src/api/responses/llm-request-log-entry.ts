@@ -21,6 +21,40 @@
 import { z } from "zod";
 
 /**
+ * One segment of the turn's first-token latency waterfall. `key` is a
+ * stable machine id (`queue`, `memory_context`, `ttft`, …); `label` is
+ * the human row title; `ms` is the wall-clock duration of that phase.
+ */
+export const LatencyPhaseSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  ms: z.number(),
+});
+
+export type LatencyPhase = z.infer<typeof LatencyPhaseSchema>;
+
+/**
+ * Per-call latency breakdown for a main-agent LLM call, measured by the
+ * daemon and stored on the `llm_request_logs` row. `phases` is the
+ * ordered waterfall from turn receipt to call completion (queue → memory
+ * & context retrieval → setup → request prep → time-to-first-token →
+ * generation); the scalar fields are the headline numbers derived from
+ * it. `totalToFirstTokenMs` is only present on the first call of a turn —
+ * later calls (tool-use loops) carry just their own per-call segment.
+ * `firstTokenKind` records whether the first streamed token was a
+ * thinking or text delta.
+ */
+export const LatencyBreakdownSchema = z.object({
+  phases: z.array(LatencyPhaseSchema),
+  ttftMs: z.number().nullish(),
+  totalToFirstTokenMs: z.number().nullish(),
+  providerDurationMs: z.number().nullish(),
+  firstTokenKind: z.enum(["thinking", "text"]).nullish(),
+});
+
+export type LatencyBreakdown = z.infer<typeof LatencyBreakdownSchema>;
+
+/**
  * Provider-normalized summary attached to each request log. `null` /
  * missing fields are common — formatters fall back to a shared
  * "Unavailable" placeholder.
@@ -117,6 +151,13 @@ export const LLMRequestLogEntrySchema = z.object({
   agentLoopExitReason: z.string().nullish(),
   callSite: z.string().nullish(),
   error: LLMCallErrorSchema.nullish(),
+  /**
+   * Daemon-measured first-token latency waterfall for this call. Present on
+   * main-agent calls recorded after the instrumentation shipped; `null` on
+   * older rows, failed calls, and non-main-agent call sites. Stamped on the
+   * row (like `callSite`), not derived from the request/response payloads.
+   */
+  latency: LatencyBreakdownSchema.nullish(),
 });
 
 export type LLMRequestLogEntry = z.infer<typeof LLMRequestLogEntrySchema>;

@@ -124,6 +124,7 @@ import type {
 } from "./message-protocol.js";
 import type { TrustContext } from "./trust-context.js";
 import { resolveTurnCallSite } from "./turn-call-site.js";
+import { TurnLatencyTracker } from "./turn-latency-tracker.js";
 
 const log = getLogger("conversation-agent-loop");
 
@@ -317,6 +318,11 @@ export async function runAgentLoopImpl(
 
   const abortController = ctx.abortController;
   const reqId = ctx.currentRequestId ?? uuid();
+  // First-token latency instrumentation for this turn. Stamped here at the
+  // earliest point of turn processing, then through the prompt-submit hook
+  // (memory/context retrieval) and the agent loop's per-call marks.
+  const latencyTracker = new TurnLatencyTracker();
+  latencyTracker.mark("turn_start");
   const rlog = log.child({
     conversationId: ctx.conversationId,
     requestId: reqId,
@@ -888,10 +894,12 @@ export async function runAgentLoopImpl(
       modelProfileKey,
       isNonInteractive,
     };
+    latencyTracker.mark("prompt_hook_start");
     const finalUserPromptCtx = await runHook(
       HOOKS.USER_PROMPT_SUBMIT,
       userPromptCtx,
     );
+    latencyTracker.mark("prompt_hook_end");
     const runMessages = finalUserPromptCtx.latestMessages;
 
     // Reset the manager's turn-scoped overflow-recovery ladder at the turn
@@ -912,6 +920,7 @@ export async function runAgentLoopImpl(
       turnChannelContext: capturedTurnChannelContext,
       turnInterfaceContext: capturedTurnInterfaceContext,
       applyCompaction: applySuccessfulCompaction,
+      latencyTracker,
     };
     const eventHandler = (event: AgentEvent): Promise<void> => {
       if (
@@ -992,6 +1001,7 @@ export async function runAgentLoopImpl(
           compactInPlace,
           isNonInteractive,
           modelProfileKey,
+          latencyTracker,
           ...(ctx.modelOverride ? { model: ctx.modelOverride } : {}),
         }),
         abortController.signal,

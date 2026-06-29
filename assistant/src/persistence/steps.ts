@@ -417,6 +417,7 @@ import { migrateRewriteFrontierProfilePins } from "./migrations/306-rewrite-fron
 import { migrateAcpSessionHistoryUsageColumns } from "./migrations/307-acp-session-history-usage-columns.js";
 import { migrateAcpSessionHistoryTokenColumns } from "./migrations/308-acp-session-history-token-columns.js";
 import { migrateDropRedundantIndexes } from "./migrations/309-drop-redundant-indexes.js";
+import { migrateLlmRequestLogLatencyBreakdown } from "./migrations/310-llm-request-log-latency-breakdown.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1305,4 +1306,5 @@ export const migrationSteps: MigrationStep[] = [
   migrateAcpSessionHistoryUsageColumns,
   migrateAcpSessionHistoryTokenColumns,
   migrateDropRedundantIndexes,
+  migrateLlmRequestLogLatencyBreakdown,
 ];
