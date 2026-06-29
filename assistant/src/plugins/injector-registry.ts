@@ -17,6 +17,7 @@
  */
 
 import { getLogger } from "../util/logger.js";
+import { isPluginDisabled } from "./disabled-state.js";
 import type { Injector } from "./types.js";
 
 const log = getLogger("injector-registry");
@@ -30,10 +31,14 @@ const log = getLogger("injector-registry");
 const injectorsByPlugin = new Map<string, readonly Injector[]>();
 
 /**
- * Memoized order-sorted union, rebuilt lazily after any registration change so
- * the sort runs once per stable registry state rather than once per turn.
+ * Memoized order-sorted union, each injector paired with its owning plugin so
+ * the read-time disabled-state filter can drop a plugin's injectors. Rebuilt
+ * lazily after any registration change; the sort runs once per stable registry
+ * state, while the per-call filter in {@link getRegisteredInjectors} handles
+ * `.disabled` toggles that occur without a registration change.
  */
-let cachedChain: Injector[] | null = null;
+let cachedSorted: Array<{ injector: Injector; pluginName: string }> | null =
+  null;
 
 /**
  * Register the injectors contributed by `pluginName`. Injector names must be
@@ -64,7 +69,7 @@ export function registerPluginInjectors(
     }
   }
   injectorsByPlugin.set(pluginName, injectors);
-  cachedChain = null;
+  cachedSorted = null;
   log.info(
     { plugin: pluginName, count: injectors.length },
     "Plugin injectors registered",
@@ -77,29 +82,37 @@ export function registerPluginInjectors(
  */
 export function unregisterPluginInjectors(pluginName: string): void {
   if (injectorsByPlugin.delete(pluginName)) {
-    cachedChain = null;
+    cachedSorted = null;
     log.info({ plugin: pluginName }, "Plugin injectors unregistered");
   }
 }
 
 /**
- * The order-sorted union of every registered injector. Stable-sorted by
- * ascending `order` (lower runs first); injectors sharing an `order` keep
- * their registration order. Memoized until the next registration change.
+ * The order-sorted union of every registered injector, excluding those
+ * contributed by a currently disabled plugin. Stable-sorted by ascending
+ * `order` (lower runs first); injectors sharing an `order` keep their
+ * registration order. The sort is memoized until the next registration change;
+ * the `.disabled` filter is applied per call so disabling a plugin drops its
+ * injectors on the next turn without a restart — matching the hook and tool
+ * registries (`getHooksFor` / `getPluginToolDefinitions`).
  */
 export function getRegisteredInjectors(): Injector[] {
-  if (cachedChain === null) {
-    const all: Injector[] = [];
-    for (const injectors of injectorsByPlugin.values()) {
-      all.push(...injectors);
+  if (cachedSorted === null) {
+    const pairs: Array<{ injector: Injector; pluginName: string }> = [];
+    for (const [pluginName, injectors] of injectorsByPlugin) {
+      for (const injector of injectors) {
+        pairs.push({ injector, pluginName });
+      }
     }
-    cachedChain = all.sort((a, b) => a.order - b.order);
+    cachedSorted = pairs.sort((a, b) => a.injector.order - b.injector.order);
   }
-  return cachedChain;
+  return cachedSorted
+    .filter((entry) => !isPluginDisabled(entry.pluginName))
+    .map((entry) => entry.injector);
 }
 
 /** Drop every registration. Exposed for test isolation. */
 export function clearInjectorRegistry(): void {
   injectorsByPlugin.clear();
-  cachedChain = null;
+  cachedSorted = null;
 }

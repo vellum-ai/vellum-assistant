@@ -20,6 +20,7 @@
  * assertions key on the test injector's unique name rather than the full set.
  */
 
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -145,5 +146,25 @@ describe("plugin injector contributions", () => {
     await runShutdownHooks("test-shutdown");
 
     expect(isTestInjectorRegistered()).toBe(false);
+  });
+
+  test("a disabled plugin's injectors are filtered out at read time", async () => {
+    registerPlugin(
+      buildPlugin("injector-plugin", { injectors: [makeTestInjector()] }),
+    );
+    await bootstrapPlugins();
+    expect(isTestInjectorRegistered()).toBe(true);
+
+    // Drop a `.disabled` sentinel for the plugin — read-time filtering excludes
+    // its injectors on the next read without re-registration, matching the
+    // hook/tool contract (toggles take effect next turn without a restart).
+    const pluginDir = join(TEST_WORKSPACE_DIR, "plugins", "injector-plugin");
+    mkdirSync(pluginDir, { recursive: true });
+    writeFileSync(join(pluginDir, ".disabled"), "", "utf-8");
+    expect(isTestInjectorRegistered()).toBe(false);
+
+    // Remove the sentinel — injectors reappear without re-registration.
+    rmSync(join(pluginDir, ".disabled"), { force: true });
+    expect(isTestInjectorRegistered()).toBe(true);
   });
 });
