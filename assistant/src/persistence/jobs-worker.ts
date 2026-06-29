@@ -125,6 +125,7 @@ const LEGACY_JOB_TYPES = new Set([
   "memory_v3_consolidate",
   "memory_v3_index_maintenance",
   "memory_v3_edge_learning",
+  "memory_proc_distill",
 ]);
 
 export const POLL_INTERVAL_MIN_MS = 1_500;

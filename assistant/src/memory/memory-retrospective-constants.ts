@@ -48,3 +48,13 @@ export const MEMORY_RETROSPECTIVE_GROUP_ID = "system:background";
  */
 export const MEMORY_RETROSPECTIVE_INSTRUCTION_KIND =
   "memory_retrospective_instruction";
+
+/**
+ * Request-origin tag the fork wake stamps onto `ToolContext.requestOrigin`
+ * (via the wake's tool-context pin). The permission checker scopes its
+ * non-interactive skill-authoring auto-grant to this origin, so a retrospective
+ * pass can call `scaffold_managed_skill` / `find_similar_skills` /
+ * `skill_load skill-management` without an interactive approval prompt. Matches
+ * the `"memory_retrospective"` member of `TitleOrigin`.
+ */
+export const MEMORY_RETROSPECTIVE_ORIGIN = "memory_retrospective";

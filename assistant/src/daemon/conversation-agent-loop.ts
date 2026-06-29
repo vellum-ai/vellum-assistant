@@ -288,6 +288,14 @@ export async function runAgentLoopImpl(
      */
     forceOverrideProfile?: boolean;
     /**
+     * Origin tag of this turn (the conversation's `TitleOrigin`, e.g.
+     * "memory_consolidation"), threaded from `runBackgroundJob`. Exposed on
+     * the conversation so tool execution can scope narrow non-interactive
+     * permission auto-grants to a specific internal background origin. Unset
+     * for normal user-initiated turns.
+     */
+    requestOrigin?: string;
+    /**
      * Firing's `cron_runs.id` stamped onto this turn's usage rows so a
      * scheduled execute turn attributes its LLM spend to that firing.
      */
@@ -346,6 +354,12 @@ export async function runAgentLoopImpl(
   // Expose the turn's call site on the live conversation so the runtime
   // injection assembly self-resolves it for the turn's plugin contexts.
   ctx.currentCallSite = turnCallSite;
+
+  // Expose the turn's request origin (e.g. "memory_consolidation") on the live
+  // conversation so the tool context — and through it `buildPolicyContext` —
+  // can scope narrow non-interactive permission auto-grants to a specific
+  // internal background origin. Unset for normal user turns.
+  ctx.currentTurnRequestOrigin = options?.requestOrigin;
 
   // Firing's run id for this turn's usage attribution. Kept local (not on the
   // conversation) so a reused conversation attributes each turn to its own
@@ -1566,6 +1580,9 @@ export async function runAgentLoopImpl(
     // opportunity wakes calling `agentLoop.run` directly) don't inherit a stale
     // value and instead fall back to live client state in the tool context.
     ctx.currentTurnIsNonInteractive = undefined;
+    // Turn-scoped request origin. Clear so a later turn on a reused
+    // conversation cannot inherit a stale origin-scoped permission grant.
+    ctx.currentTurnRequestOrigin = undefined;
     // Channel command intents (e.g. Telegram /start) are single-turn metadata.
     // Clear at turn end so they never leak into subsequent unrelated messages.
     ctx.commandIntent = undefined;
