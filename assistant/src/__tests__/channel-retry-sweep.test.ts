@@ -279,8 +279,8 @@ describe("channel-retry-sweep", () => {
       return { messageId };
     });
 
-    // The newer member/timezone fields survive the store→replay round-trip
-    // instead of being dropped (which degraded the turn's member grounding).
+    // Member-grounding + timezone fields survive the store→replay round-trip,
+    // so the replayed turn keeps its member grounding.
     expect(capturedTrust?.requesterContactId).toBe("contact-77");
     expect(capturedTrust?.memberStatus).toBe("active");
     expect(capturedTrust?.memberPolicy).toBe("allow");
