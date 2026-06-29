@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../util/logger.js", () => ({
+mock.module("../../../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     }),
 }));
 
-import { createConversation } from "../../persistence/conversation-crud.js";
-import { getDb } from "../../persistence/db-connection.js";
-import { initializeDb } from "../../persistence/db-init.js";
+import { createConversation } from "../../../persistence/conversation-crud.js";
+import { getDb } from "../../../persistence/db-connection.js";
+import { initializeDb } from "../../../persistence/db-init.js";
 import {
   AUTO_ANALYSIS_GROUP_ID,
   AUTO_ANALYSIS_SOURCE,

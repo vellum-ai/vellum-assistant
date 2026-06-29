@@ -229,7 +229,7 @@ mock.module("../persistence/llm-usage-store.js", () => ({
   listUsageEvents: () => [],
 }));
 
-mock.module("../memory/auto-analysis-enqueue.js", () => ({
+mock.module("../runtime/services/auto-analysis-enqueue.js", () => ({
   enqueueAutoAnalysisOnCompaction: () => {},
 }));
 

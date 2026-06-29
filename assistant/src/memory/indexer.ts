@@ -13,9 +13,9 @@ import {
 } from "../persistence/jobs-store.js";
 import { memorySegments } from "../persistence/schema/index.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
+import { enqueueAutoAnalysisIfEnabled } from "../runtime/services/auto-analysis-enqueue.js";
+import { isAutoAnalysisConversation } from "../runtime/services/auto-analysis-guard.js";
 import { getLogger } from "../util/logger.js";
-import { enqueueAutoAnalysisIfEnabled } from "./auto-analysis-enqueue.js";
-import { isAutoAnalysisConversation } from "./auto-analysis-guard.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
 import { isMemoryRetrospectiveConversation } from "./memory-retrospective-enqueue.js";
 import { maybeEnqueueRetrospective } from "./memory-retrospective-trigger-check.js";

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../util/logger.js", () => ({
+mock.module("../../../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
@@ -30,14 +30,14 @@ const debouncedCalls: Array<{
   runAfter: number;
 }> = [];
 
-mock.module("../../config/loader.js", () => ({
+mock.module("../../../config/loader.js", () => ({
   getConfig: () => {
     if (getConfigThrows) throw new Error("boom");
     return configValue;
   },
 }));
 
-mock.module("../../config/assistant-feature-flags.js", () => ({
+mock.module("../../../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: (_key: string, _config: unknown) =>
     flagEnabled,
 }));
@@ -47,12 +47,12 @@ mock.module("../auto-analysis-guard.js", () => ({
   isAutoAnalysisConversation: (_conversationId: string) => isAuto,
 }));
 
-mock.module("../memory-retrospective-enqueue.js", () => ({
+mock.module("../../../memory/memory-retrospective-enqueue.js", () => ({
   isMemoryRetrospectiveConversation: (_conversationId: string) =>
     isRetrospective,
 }));
 
-mock.module("../../persistence/jobs-store.js", () => ({
+mock.module("../../../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: (
     type: string,
     payload: Record<string, unknown>,

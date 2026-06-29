@@ -21,10 +21,6 @@
  * when no override is set).
  */
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
-import {
-  AUTO_ANALYSIS_GROUP_ID,
-  AUTO_ANALYSIS_SOURCE,
-} from "../../memory/auto-analysis-guard.js";
 import { resolveConversationId } from "../../memory/conversation-key-store.js";
 import { isMemoryRetrospectiveSource } from "../../memory/memory-retrospective-constants.js";
 import {
@@ -37,6 +33,10 @@ import {
 } from "../../persistence/conversation-crud.js";
 import { getLogger } from "../../util/logger.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
+import {
+  AUTO_ANALYSIS_GROUP_ID,
+  AUTO_ANALYSIS_SOURCE,
+} from "./auto-analysis-guard.js";
 import {
   buildAutoAnalysisPrompt,
   neutralizeTranscriptSentinel,
