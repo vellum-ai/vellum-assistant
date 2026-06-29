@@ -186,6 +186,9 @@ export interface ChatBodyProps {
 
   /** Floating overlay for active workflow runs; gated like activeSubagentsSlot. */
   activeWorkflowsSlot?: ReactNode;
+
+  /** Floating overlay for active background tasks; gated like activeSubagentsSlot. */
+  activeBackgroundTasksSlot?: ReactNode;
 }
 
 /**
@@ -246,6 +249,7 @@ export function ChatBody({
   activeSubagentsSlot,
   activeAcpRunsSlot,
   activeWorkflowsSlot,
+  activeBackgroundTasksSlot,
 }: ChatBodyProps) {
   const isEmptyState = scrollAreaProps.showEmptyState;
   const bottomBannerOverlayRef = useRef<HTMLDivElement | null>(null);
@@ -471,12 +475,16 @@ export function ChatBody({
 
       {!isEmptyState &&
         showScrollToLatest &&
-        (activeSubagentsSlot || activeAcpRunsSlot || activeWorkflowsSlot) && (
+        (activeSubagentsSlot ||
+          activeAcpRunsSlot ||
+          activeWorkflowsSlot ||
+          activeBackgroundTasksSlot) && (
           <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center gap-2 px-3 pt-2">
-            {/* subagents, then active acp runs, then workflows (do not reorder) */}
+            {/* subagents, then acp runs, then workflows, then background tasks (do not reorder) */}
             {activeSubagentsSlot}
             {activeAcpRunsSlot}
             {activeWorkflowsSlot}
+            {activeBackgroundTasksSlot}
           </div>
         )}
 

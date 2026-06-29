@@ -21,6 +21,7 @@ import { type Dispatch, type MutableRefObject, type ReactNode, type RefObject, t
 
 import { useActiveSubagentIds } from "@/domains/chat/hooks/use-active-subagent-ids";
 import { useActiveAcpRunIds } from "@/domains/chat/hooks/use-active-acp-run-ids";
+import { useActiveBackgroundTaskIds } from "@/domains/chat/hooks/use-active-background-task-ids";
 import { useAcpRunRehydration } from "@/domains/chat/hooks/use-acp-run-rehydration";
 import { useBackgroundTaskRehydration } from "@/domains/chat/hooks/use-background-task-rehydration";
 import { useActiveWorkflowRunIds } from "@/domains/chat/hooks/use-active-workflow-run-ids";
@@ -42,6 +43,7 @@ import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachmen
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { ActiveSubagentsOverlay } from "@/domains/chat/components/active-subagents-overlay/active-subagents-overlay";
 import { ActiveAcpRunsOverlay } from "@/domains/chat/components/active-acp-runs-overlay/active-acp-runs-overlay";
+import { ActiveBackgroundTasksOverlay } from "@/domains/chat/components/active-background-tasks-overlay/active-background-tasks-overlay";
 import { ActiveWorkflowsOverlay } from "@/domains/chat/components/active-workflows-overlay/active-workflows-overlay";
 import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-drawer";
 import { ChatBody } from "@/domains/chat/components/chat-body";
@@ -279,6 +281,7 @@ export function ChatMainPanel({
 
   const activeSubagentIds = useActiveSubagentIds(activeConversationId);
   const activeAcpRunIds = useActiveAcpRunIds(activeConversationId);
+  const activeBackgroundTaskIds = useActiveBackgroundTaskIds(activeConversationId);
   const activeWorkflowRunIds = useActiveWorkflowRunIds();
 
   // Rehydrate ACP runs from the daemon on conversation load so completed and
@@ -295,6 +298,10 @@ export function ChatMainPanel({
 
   const onAcpRunClick = useCallback((acpSessionId: string) => {
     useViewerStore.getState().openAcpRunDetail(acpSessionId);
+  }, []);
+
+  const onBackgroundTaskClick = useCallback((id: string) => {
+    useViewerStore.getState().openBackgroundTaskDetail(id);
   }, []);
 
   const onStopSubagent = useCallback(
@@ -932,6 +939,14 @@ export function ChatMainPanel({
       />
     ) : undefined;
 
+  const activeBackgroundTasksSlot =
+    activeBackgroundTaskIds.length > 0 ? (
+      <ActiveBackgroundTasksOverlay
+        taskIds={activeBackgroundTaskIds}
+        onTaskClick={onBackgroundTaskClick}
+      />
+    ) : undefined;
+
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
@@ -971,6 +986,7 @@ export function ChatMainPanel({
       activeSubagentsSlot={activeSubagentsSlot}
       activeAcpRunsSlot={activeAcpRunsSlot}
       activeWorkflowsSlot={activeWorkflowsSlot}
+      activeBackgroundTasksSlot={activeBackgroundTasksSlot}
     />
   );
 
