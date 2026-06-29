@@ -113,6 +113,7 @@ mock.module("../persistence/jobs-store.js", () => ({
     state.enqueueCalls.push({ type, payload });
     return "test-job-id";
   },
+  hasActiveJobOfType: (): boolean => false,
 }));
 
 mock.module("../util/platform.js", () => ({

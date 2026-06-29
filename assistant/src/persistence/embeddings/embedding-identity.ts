@@ -1,7 +1,6 @@
 import { QdrantClient } from "@qdrant/js-client-rest";
 
 import type { AssistantConfig } from "../../config/types.js";
-import { MEMORY_V2_COLLECTION } from "../../memory/v2/qdrant.js";
 import { getLogger } from "../../util/logger.js";
 import {
   resolveBackendDimension,
@@ -12,6 +11,11 @@ import type { EmbeddingProviderName } from "./embedding-types.js";
 import { resolveQdrantUrl } from "./qdrant-client.js";
 
 const log = getLogger("embedding-identity");
+
+// Inlined rather than imported from `memory/v2/qdrant.ts`: the persistence
+// layer must not import from the memory feature layer (enforced by
+// persistence-layering-guard). The dependency direction is memory → persistence.
+const MEMORY_V2_COLLECTION = "memory_v2_concept_pages";
 
 export interface BackendDimensionProbe {
   provider: EmbeddingProviderName;

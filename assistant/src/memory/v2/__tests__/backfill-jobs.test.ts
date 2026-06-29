@@ -127,6 +127,7 @@ mock.module("../../../config/loader.js", () => ({
 // `generateSparseEmbedding` to build the ANN candidate query. Stub both so
 // the suite runs without an embedding backend.
 mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
+  isEmbeddingDimensionAvailable: async () => true,
   embedWithBackend: async () => ({
     provider: "local",
     model: "test-model",

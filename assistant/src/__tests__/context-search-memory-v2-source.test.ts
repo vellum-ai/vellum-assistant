@@ -36,6 +36,7 @@ mock.module("../util/logger.js", () => ({
 
 let denseEmbedReturn: number[] = [0.1, 0.2, 0.3];
 mock.module("../persistence/embeddings/embedding-backend.js", () => ({
+  isEmbeddingDimensionAvailable: async () => true,
   embedWithBackend: async () => ({
     provider: "test",
     model: "test-model",
