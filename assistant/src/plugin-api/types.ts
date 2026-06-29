@@ -192,14 +192,12 @@ export interface UserPromptSubmitContext {
    */
   readonly requestId: string;
   /**
-   * Active inference profile key to surface in this turn's context, or `null`
-   * when the profile is unchanged since the one last announced to the model.
-   * Hooks that emit the `model_profile` grounding line resolve the
-   * human-readable label (and model id) from this key via the workspace LLM
-   * config rather than receiving the rendered string — the key is the minimal
-   * turn input the message arrays cannot carry.
+   * Effective inference profile key for the model this turn will use. Hooks
+   * that need model capabilities should resolve them from this profile rather
+   * than the workspace active profile, because a conversation can be pinned to
+   * a different profile.
    */
-  readonly modelProfileKey: string | null;
+  readonly modelProfileKey: string;
   /**
    * Whether the turn has no human present to answer clarification questions
    * (e.g. a scheduled, background, or headless run). Resolved once at turn
@@ -285,13 +283,10 @@ export interface PostCompactContext {
    */
   readonly isNonInteractive: boolean;
   /**
-   * Active inference profile key to surface in the re-injected context, or
-   * `null` when the profile is unchanged since the one last announced to the
-   * model. Mirrors {@link UserPromptSubmitContext.modelProfileKey}: hooks that
-   * emit the `model_profile` grounding line resolve the human-readable label
-   * from this key rather than receiving the rendered string.
+   * Effective inference profile key for the model the compacted turn will keep
+   * using. Mirrors {@link UserPromptSubmitContext.modelProfileKey}.
    */
-  readonly modelProfileKey: string | null;
+  readonly modelProfileKey: string;
   /**
    * Volume of runtime injection to re-apply. `"full"` restores the complete
    * runtime context; `"minimal"` is the reduced volume overflow recovery's

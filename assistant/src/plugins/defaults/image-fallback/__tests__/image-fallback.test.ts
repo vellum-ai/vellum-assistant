@@ -317,15 +317,6 @@ describe("image-fallback user-prompt-submit hook", () => {
       "both?",
     );
   });
-
-  test("resolves active profile via isActive when modelProfileKey is null", async () => {
-    const messages = [imageMsg()];
-    const ctx = makeCtx({ latestMessages: messages, modelProfileKey: null });
-    await userPromptSubmit(ctx);
-    // The active profile is "text-only" (isActive: true), which doesn't support
-    // vision, so images should be captioned.
-    expect(ctx.latestMessages[0].content[0].type).toBe("text");
-  });
 });
 
 describe("findVisionProfile", () => {

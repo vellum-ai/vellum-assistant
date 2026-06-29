@@ -53,7 +53,7 @@ These are the lifecycle hooks. The full set of wired hook names lives in the [`H
 | `conversationId`   | `string`                 | Read-only | Conversation the prompt was submitted on.                                                         |
 | `userMessageId`    | `string`                 | Read-only | Persisted id of the user message that triggered the turn.                                         |
 | `requestId`        | `string`                 | Read-only | Stable id for the request driving this turn.                                                      |
-| `modelProfileKey`  | `string \| null`         | Read-only | Active inference profile key, or null when unchanged since last announced.                        |
+| `modelProfileKey`  | `string`                 | Read-only | Effective inference profile key for the model this turn will use.                                |
 | `isNonInteractive` | `boolean`                | Read-only | True when no human is present to answer clarifications (scheduled or headless runs).              |
 | `prompt`           | `string`                 | Read-only | Resolved text of the user prompt, after slash-command expansion.                                  |
 | `originalMessages` | `ReadonlyArray<Message>` | Read-only | The user's original message list. Snapshot only, never mutate.                                    |
@@ -73,7 +73,7 @@ These are the lifecycle hooks. The full set of wired hook names lives in the [`H
 | `requestId`        | `string`              | Read-only | Stable id of the request driving this turn. Forward it onto the injector so re-applied blocks are attributed to the originating request.                      |
 | `conversationId`   | `string`              | Read-only | Conversation the turn being compacted is scoped to.                                                                                                           |
 | `isNonInteractive` | `boolean`             | Read-only | True when no human is present to answer clarifications (scheduled, background, or headless runs).                                                             |
-| `modelProfileKey`  | `string \| null`      | Read-only | Active inference profile key to surface in the re-injected context, or null when unchanged since last announced.                                              |
+| `modelProfileKey`  | `string`              | Read-only | Effective inference profile key for the model the compacted turn will keep using.                                                                              |
 | `injectionMode`    | `"full" \| "minimal"` | Read-only | Volume of runtime injection to re-apply. 'full' restores the complete context, 'minimal' is the reduced volume overflow recovery selects. Defaults to 'full'. |
 
 ### `pre-model-call`
