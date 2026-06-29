@@ -1,232 +1,368 @@
-import { useQuery } from "@tanstack/react-query";
-import { Loader2, Puzzle, Search, TriangleAlert } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
-    type ChangeEvent,
-    type Dispatch,
-    type SetStateAction,
-    useMemo,
-    useState,
-} from "react";
+    CheckCircle,
+    CloudOff,
+    Loader2,
+    Puzzle,
+    Sparkles,
+    TriangleAlert,
+    X,
+} from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
+import { useNavigate } from "react-router";
 
-import { CatalogRow } from "@/domains/intelligence/components/plugins/catalog-row";
-import { PluginRow } from "@/domains/intelligence/components/plugins/plugin-row";
-import {
-    pluginsGetQueryKey,
-    pluginsSearchGetOptions,
-} from "@/generated/daemon/@tanstack/react-query.gen";
-import { pluginsGet } from "@/generated/daemon/sdk.gen";
+import { FilterBar } from "@/domains/intelligence/components/plugins/plugin-filters";
+import { PluginListRow } from "@/domains/intelligence/components/plugins/plugin-list-row";
 import type {
-    PluginsGetResponse,
-    PluginsSearchGetResponse,
-} from "@/generated/daemon/types.gen";
-import { Card, Input } from "@vellumai/design-library";
-
-type PluginInfo = PluginsGetResponse["plugins"][number];
-type PluginCatalogMatch = PluginsSearchGetResponse["matches"][number];
+    PluginFilter,
+    PluginListItem,
+} from "@/domains/intelligence/plugins/types";
+import { usePluginsList } from "@/domains/intelligence/plugins/use-plugins-list";
+import {
+    filterByStatus,
+    matchesQuery,
+} from "@/domains/intelligence/plugins/utils";
+import {
+    hasLocalEdits,
+    type PluginDrift,
+    usePluginDrift,
+} from "@/domains/intelligence/use-plugin-drift";
+import {
+    pluginsByNameInspectGetQueryKey,
+    pluginsGetQueryKey,
+    pluginsSearchGetQueryKey,
+    usePluginsByNameDeleteMutation,
+    usePluginsByNameUpgradePostMutation,
+    usePluginsInstallPostMutation,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import { getLocalBool, setLocalBool } from "@/utils/local-settings";
+import { routes } from "@/utils/routes";
+import { Button, Card, ConfirmDialog } from "@vellumai/design-library";
 
 interface PluginsTabProps {
   assistantId: string;
 }
 
-// The installed list (local filesystem) and the catalog (the daemon's
-// cached, rate-limited GitHub listing) both change rarely, so each is
-// fetched once with no query and filtered in memory as the user types.
-// Typing therefore issues zero network requests — and never re-hits the
-// daemon's catalog search on every keystroke. `staleTime` keeps the data
-// warm across tab switches so revisiting doesn't refetch.
-const CATALOG_STALE_TIME_MS = 5 * 60 * 1000; // 5 minutes
+const TIP_STORAGE_KEY = "vellum:plugins:tipDismissed";
 
-/** Case-insensitive substring match against a plugin's name + description. */
-function matchesQuery(
-  query: string,
-  ...fields: readonly (string | null | undefined)[]
-): boolean {
-  if (!query) return true;
-  return fields.some((f) => f?.toLowerCase().includes(query));
-}
-
+/**
+ * Plugins tab list view, mirroring `SkillsTab`: a dismissible tip, a search +
+ * status-filter bar, and a single installed-first list of `PluginListRow`s.
+ * Install / remove / upgrade live here (the rows are presentational) so the
+ * tab can gate destructive Remove and local-edit-overwriting Upgrade behind a
+ * `ConfirmDialog`. Selecting a row navigates to the existing detail route.
+ */
 export function PluginsTab({ assistantId }: PluginsTabProps) {
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+
   const [searchValue, setSearchValue] = useState("");
-  const query = searchValue.trim().toLowerCase();
+  const [filter, setFilter] = useState<PluginFilter>("all");
+  const [installingName, setInstallingName] = useState<string | null>(null);
+  const [removingName, setRemovingName] = useState<string | null>(null);
+  const [upgradingName, setUpgradingName] = useState<string | null>(null);
+  const [pendingRemoval, setPendingRemoval] = useState<PluginListItem | null>(
+    null,
+  );
+  const [pendingUpgrade, setPendingUpgrade] = useState<PluginListItem | null>(
+    null,
+  );
+  const [tipDismissed, setTipDismissed] = useState(() =>
+    getLocalBool(TIP_STORAGE_KEY, false),
+  );
 
-  const pluginsQuery = useQuery({
-    queryKey: pluginsGetQueryKey({
-      path: { assistant_id: assistantId },
-      query: { q: undefined },
-    }),
-    queryFn: async ({ signal }) => {
-      const result = await pluginsGet({
-        path: { assistant_id: assistantId },
-        query: { q: undefined },
-        signal,
-        throwOnError: false,
+  const { items, isLoading, isError, isFetching, catalogError } =
+    usePluginsList(assistantId);
+
+  const invalidate = useCallback(
+    (name: string) => {
+      void queryClient.invalidateQueries({
+        queryKey: pluginsGetQueryKey({ path: { assistant_id: assistantId } }),
       });
-      const status = result.response?.status;
-      // Older daemons return 404 when the list endpoint isn't
-      // implemented yet — degrade to an empty installed list.
-      if (status === 404) return { plugins: [] } as PluginsGetResponse;
-      if (!result.response?.ok) throw new Error("Failed to load plugins");
-      return result.data ?? ({ plugins: [] } as PluginsGetResponse);
+      void queryClient.invalidateQueries({
+        queryKey: pluginsSearchGetQueryKey({
+          path: { assistant_id: assistantId },
+        }),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: pluginsByNameInspectGetQueryKey({
+          path: { assistant_id: assistantId, name },
+        }),
+      });
     },
-    enabled: Boolean(assistantId),
-    staleTime: CATALOG_STALE_TIME_MS,
-  });
-
-  const catalogQuery = useQuery({
-    ...pluginsSearchGetOptions({
-      path: { assistant_id: assistantId },
-      query: { q: undefined },
-    }),
-    enabled: Boolean(assistantId),
-    staleTime: CATALOG_STALE_TIME_MS,
-  });
-
-  const installedPlugins = useMemo(
-    () => sortPlugins(pluginsQuery.data?.plugins ?? []),
-    [pluginsQuery.data?.plugins],
+    [assistantId, queryClient],
   );
 
-  const installedNames = useMemo(
-    () => new Set(installedPlugins.map((p) => p.name)),
-    [installedPlugins],
+  const installMutation = usePluginsInstallPostMutation({
+    onMutate: (variables) => setInstallingName(variables.body.name),
+    onSettled: (_data, _error, variables) => {
+      setInstallingName(null);
+      invalidate(variables.body.name);
+    },
+  });
+
+  const removeMutation = usePluginsByNameDeleteMutation({
+    onMutate: (variables) => setRemovingName(variables.path.name),
+    onSettled: (_data, _error, variables) => {
+      setRemovingName(null);
+      invalidate(variables.path.name);
+    },
+  });
+
+  const upgradeMutation = usePluginsByNameUpgradePostMutation({
+    onMutate: (variables) => setUpgradingName(variables.path.name),
+    onSettled: (_data, _error, variables) => {
+      setUpgradingName(null);
+      invalidate(variables.path.name);
+    },
+  });
+
+  const handleSelect = useCallback(
+    (item: PluginListItem) => navigate(routes.plugin(item.name)),
+    [navigate],
   );
 
-  const visibleInstalled = useMemo(
+  const handleInstall = useCallback(
+    (item: PluginListItem) => {
+      installMutation.mutate({
+        path: { assistant_id: assistantId },
+        body: { name: item.name },
+      });
+    },
+    [assistantId, installMutation],
+  );
+
+  const confirmRemove = useCallback(() => {
+    if (!pendingRemoval) return;
+    removeMutation.mutate({
+      path: { assistant_id: assistantId, name: pendingRemoval.name },
+    });
+    setPendingRemoval(null);
+  }, [assistantId, pendingRemoval, removeMutation]);
+
+  const runUpgrade = useCallback(
+    (name: string) => {
+      upgradeMutation.mutate({
+        path: { assistant_id: assistantId, name },
+        body: {},
+      });
+    },
+    [assistantId, upgradeMutation],
+  );
+
+  const confirmUpgrade = useCallback(() => {
+    if (!pendingUpgrade) return;
+    runUpgrade(pendingUpgrade.name);
+    setPendingUpgrade(null);
+  }, [pendingUpgrade, runUpgrade]);
+
+  // Upgrading directly overwrites the installed copy. When that copy has local
+  // edits, gate behind a confirm dialog so the overwrite is intentional; the
+  // drift comes from the per-row inspect, so the row hands it back up.
+  const handleUpgrade = useCallback(
+    (item: PluginListItem, drift: PluginDrift | undefined) => {
+      if (hasLocalEdits(drift)) {
+        setPendingUpgrade(item);
+        return;
+      }
+      runUpgrade(item.name);
+    },
+    [runUpgrade],
+  );
+
+  const handleDismissTip = useCallback(() => {
+    setTipDismissed(true);
+    setLocalBool(TIP_STORAGE_KEY, true);
+  }, []);
+
+  const visibleItems = useMemo(
     () =>
-      installedPlugins.filter((p) =>
-        matchesQuery(query, p.name, p.description),
+      filterByStatus(items, filter).filter((item) =>
+        matchesQuery(item, searchValue),
       ),
-    [installedPlugins, query],
+    [items, filter, searchValue],
   );
 
-  // Catalog entries that aren't already installed and match the filter.
-  // The list endpoint and the catalog endpoint are independent — entries
-  // the user has installed locally still appear in the catalog.
-  // Suppressing them here keeps the "Available to install" section honest.
-  const catalogMatches = useMemo<readonly PluginCatalogMatch[]>(() => {
-    const matches = catalogQuery.data?.matches ?? [];
-    return matches.filter(
-      (m) =>
-        !installedNames.has(m.name) &&
-        matchesQuery(query, m.name, m.description),
-    );
-  }, [catalogQuery.data?.matches, installedNames, query]);
-
-  // Filtering is in-memory, so the only spinner-worthy work is a background
-  // refetch of the underlying lists (initial load uses the LoadingState).
-  const isSearching =
-    (pluginsQuery.isFetching && !pluginsQuery.isLoading) ||
-    (catalogQuery.isFetching && !catalogQuery.isLoading);
-
-  const isLoadingInstalled = pluginsQuery.isLoading;
-  const isLoadingCatalog = catalogQuery.isLoading;
-
-  const showInstalledEmpty =
-    !isLoadingInstalled && !pluginsQuery.isError && visibleInstalled.length === 0;
-  const showCatalogEmpty = !isLoadingCatalog && catalogMatches.length === 0;
+  const isSearching = isFetching && !isLoading;
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col gap-4">
+      {!tipDismissed && <TipBanner onDismiss={handleDismissTip} />}
+
       <FilterBar
-        search={searchValue}
+        searchValue={searchValue}
         onSearchChange={setSearchValue}
+        filter={filter}
+        onFilterChange={setFilter}
         isSearching={isSearching}
       />
 
-      <div className="min-w-0 flex-1 overflow-y-auto">
-        <SectionHeader title="Installed" />
-        {isLoadingInstalled ? (
-          <LoadingState />
-        ) : pluginsQuery.isError ? (
-          <PluginsErrorState />
-        ) : showInstalledEmpty ? (
-          <InstalledEmptyState hasQuery={Boolean(query)} />
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {visibleInstalled.map((plugin) => (
-              <li key={plugin.id}>
-                <PluginRow plugin={plugin} assistantId={assistantId} />
-              </li>
-            ))}
-          </ul>
-        )}
+      {catalogError && !isLoading && !isError ? (
+        <CatalogUnavailableNotice />
+      ) : null}
 
-        <div className="mt-6" />
-        <SectionHeader title="Available to install" />
-        {isLoadingCatalog ? (
+      <div className="min-w-0 flex-1 overflow-y-auto">
+        {isLoading ? (
           <LoadingState />
-        ) : catalogQuery.isError ? (
-          <CatalogErrorState />
-        ) : showCatalogEmpty ? (
-          <CatalogEmptyState hasQuery={Boolean(query)} />
+        ) : isError ? (
+          <ErrorState />
+        ) : visibleItems.length === 0 ? (
+          <EmptyState filter={filter} />
         ) : (
           <ul className="flex flex-col gap-2">
-            {catalogMatches.map((match) => (
-              <li key={match.path}>
-                <CatalogRow match={match} />
+            {visibleItems.map((item) => (
+              <li key={item.name}>
+                {item.status === "installed" ? (
+                  <InstalledPluginRow
+                    assistantId={assistantId}
+                    item={item}
+                    onSelect={() => handleSelect(item)}
+                    onRemove={() => setPendingRemoval(item)}
+                    onUpgrade={(drift) => handleUpgrade(item, drift)}
+                    isRemoving={removingName === item.name}
+                    isUpgrading={upgradingName === item.name}
+                  />
+                ) : (
+                  <PluginListRow
+                    item={item}
+                    onSelect={() => handleSelect(item)}
+                    onInstall={() => handleInstall(item)}
+                    isInstalling={installingName === item.name}
+                  />
+                )}
               </li>
             ))}
           </ul>
         )}
       </div>
-    </div>
-  );
-}
 
-function sortPlugins(plugins: readonly PluginInfo[]): PluginInfo[] {
-  // Alphabetical by name. Stable ordering matches the CLI's
-  // `assistant plugins list`, so the surfaces agree on what's present.
-  return [...plugins].sort((a, b) =>
-    a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
-  );
-}
-
-interface FilterBarProps {
-  search: string;
-  onSearchChange: Dispatch<SetStateAction<string>>;
-  isSearching: boolean;
-}
-
-function FilterBar({ search, onSearchChange, isSearching }: FilterBarProps) {
-  const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
-    onSearchChange(e.target.value);
-  };
-
-  return (
-    <div className="flex items-center gap-3">
-      <Input
-        type="search"
-        value={search}
-        onChange={handleChange}
-        placeholder="Search Plugins"
-        aria-label="Search Plugins"
-        leftIcon={<Search className="h-4 w-4" aria-hidden />}
-        rightIcon={
-          isSearching ? (
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-          ) : undefined
+      <ConfirmDialog
+        open={pendingRemoval !== null}
+        title="Remove plugin"
+        message={
+          pendingRemoval
+            ? `Remove "${pendingRemoval.name}" from this assistant?`
+            : ""
         }
-        fullWidth
-        wrapperClassName="flex-1"
+        confirmLabel="Remove"
+        destructive
+        onConfirm={confirmRemove}
+        onCancel={() => setPendingRemoval(null)}
+      />
+
+      <ConfirmDialog
+        open={pendingUpgrade !== null}
+        title="Upgrade plugin"
+        message={
+          pendingUpgrade
+            ? `"${pendingUpgrade.name}" has local edits that upgrading will overwrite. Continue?`
+            : ""
+        }
+        confirmLabel="Upgrade"
+        destructive
+        onConfirm={confirmUpgrade}
+        onCancel={() => setPendingUpgrade(null)}
       />
     </div>
   );
 }
 
-function SectionHeader({ title }: { title: string }) {
+interface InstalledPluginRowProps {
+  assistantId: string;
+  item: PluginListItem;
+  onSelect: () => void;
+  onRemove: () => void;
+  onUpgrade: (drift: PluginDrift | undefined) => void;
+  isRemoving: boolean;
+  isUpgrading: boolean;
+}
+
+/**
+ * Wrapper for an installed row: a component (not a `.map()` callback) so the
+ * `usePluginDrift` hook runs once per installed plugin. The resolved drift is
+ * passed to `PluginListRow` (gating the Upgrade affordance) and handed back to
+ * the tab on upgrade so it can decide whether to confirm-gate the overwrite.
+ */
+function InstalledPluginRow({
+  assistantId,
+  item,
+  onSelect,
+  onRemove,
+  onUpgrade,
+  isRemoving,
+  isUpgrading,
+}: InstalledPluginRowProps) {
+  const driftQuery = usePluginDrift({ assistantId, name: item.name });
+  const drift = driftQuery.data;
+
   return (
-    <h3
-      className="mb-2 text-body-small-default uppercase tracking-wide"
-      style={{ color: "var(--content-tertiary)" }}
+    <PluginListRow
+      item={item}
+      drift={drift}
+      onSelect={onSelect}
+      onRemove={onRemove}
+      onUpgrade={() => onUpgrade(drift)}
+      isRemoving={isRemoving}
+      isUpgrading={isUpgrading}
+    />
+  );
+}
+
+function TipBanner({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <div
+      className="flex items-center gap-2 rounded-lg px-4 py-2.5 text-body-small-default"
+      style={{
+        backgroundColor: "var(--surface-base)",
+        color: "var(--content-secondary)",
+      }}
     >
-      {title}
-    </h3>
+      <Sparkles
+        className="h-4 w-4 shrink-0"
+        style={{ color: "var(--primary-base)" }}
+      />
+      <p className="flex-1">
+        Browse the catalog below to install plugins that extend your assistant.
+      </p>
+      <Button
+        type="button"
+        variant="ghost"
+        size="compact"
+        iconOnly={<X aria-hidden />}
+        onClick={onDismiss}
+        aria-label="Dismiss tip"
+        tintColor="var(--content-tertiary)"
+        expandOnMobile={false}
+      />
+    </div>
+  );
+}
+
+function CatalogUnavailableNotice() {
+  return (
+    <div
+      className="flex items-center gap-2 rounded-lg px-4 py-2.5 text-body-small-default"
+      style={{
+        backgroundColor: "var(--surface-base)",
+        color: "var(--content-secondary)",
+      }}
+    >
+      <CloudOff
+        className="h-4 w-4 shrink-0"
+        style={{ color: "var(--content-tertiary)" }}
+        aria-hidden
+      />
+      <p className="flex-1">
+        Catalog browsing is temporarily unavailable. Installed plugins are still
+        listed below.
+      </p>
+    </div>
   );
 }
 
 function LoadingState() {
   return (
-    <div className="flex items-center justify-center py-8">
+    <div className="flex items-center justify-center py-16">
       <Loader2
         className="h-6 w-6 animate-spin"
         style={{ color: "var(--content-tertiary)" }}
@@ -235,75 +371,10 @@ function LoadingState() {
   );
 }
 
-function InstalledEmptyState({ hasQuery }: { hasQuery: boolean }) {
-  const title = hasQuery
-    ? "No installed plugins match"
-    : "No Plugins Installed";
-  const subtitle = hasQuery
-    ? "Try a different search term, or browse the catalog below."
-    : "Install a plugin with the CLI, or browse the catalog below.";
-  const Icon = hasQuery ? Search : Puzzle;
-
+function ErrorState() {
   return (
     <Card.Root>
-      <Card.Body className="flex flex-col items-center justify-center py-10 text-center">
-        <Icon
-          className="mb-3 h-8 w-8"
-          style={{ color: "var(--content-tertiary)" }}
-          aria-hidden
-        />
-        <h3
-          className="text-title-small"
-          style={{ color: "var(--content-default)" }}
-        >
-          {title}
-        </h3>
-        <p
-          className="mt-1 max-w-sm text-body-medium-lighter"
-          style={{ color: "var(--content-tertiary)" }}
-        >
-          {subtitle}
-        </p>
-      </Card.Body>
-    </Card.Root>
-  );
-}
-
-function CatalogEmptyState({ hasQuery }: { hasQuery: boolean }) {
-  const title = hasQuery ? "No catalog entries match" : "Catalog is empty";
-  const subtitle = hasQuery
-    ? "Try a different search term, or remove the filter to browse everything."
-    : "No plugins are currently published in the catalog.";
-
-  return (
-    <Card.Root>
-      <Card.Body className="flex flex-col items-center justify-center py-10 text-center">
-        <Search
-          className="mb-3 h-8 w-8"
-          style={{ color: "var(--content-tertiary)" }}
-          aria-hidden
-        />
-        <h3
-          className="text-title-small"
-          style={{ color: "var(--content-default)" }}
-        >
-          {title}
-        </h3>
-        <p
-          className="mt-1 max-w-sm text-body-medium-lighter"
-          style={{ color: "var(--content-tertiary)" }}
-        >
-          {subtitle}
-        </p>
-      </Card.Body>
-    </Card.Root>
-  );
-}
-
-function PluginsErrorState() {
-  return (
-    <Card.Root>
-      <Card.Body className="flex flex-col items-center justify-center py-10 text-center">
+      <Card.Body className="flex flex-col items-center justify-center py-16 text-center">
         <TriangleAlert
           className="mb-3 h-8 w-8"
           style={{ color: "var(--system-danger)" }}
@@ -326,11 +397,12 @@ function PluginsErrorState() {
   );
 }
 
-function CatalogErrorState() {
+function EmptyState({ filter }: { filter: PluginFilter }) {
+  const { title, subtitle, Icon } = getEmptyStateCopy(filter);
   return (
     <Card.Root>
-      <Card.Body className="flex flex-col items-center justify-center py-10 text-center">
-        <Puzzle
+      <Card.Body className="flex flex-col items-center justify-center py-16 text-center">
+        <Icon
           className="mb-3 h-8 w-8"
           style={{ color: "var(--content-tertiary)" }}
           aria-hidden
@@ -339,16 +411,43 @@ function CatalogErrorState() {
           className="text-title-small"
           style={{ color: "var(--content-default)" }}
         >
-          Couldn&apos;t load catalog
+          {title}
         </h3>
         <p
           className="mt-1 max-w-sm text-body-medium-lighter"
           style={{ color: "var(--content-tertiary)" }}
         >
-          Catalog browsing is temporarily unavailable. Installed plugins are
-          still listed above.
+          {subtitle}
         </p>
       </Card.Body>
     </Card.Root>
   );
+}
+
+function getEmptyStateCopy(filter: PluginFilter): {
+  title: string;
+  subtitle: string;
+  Icon: typeof Puzzle;
+} {
+  switch (filter) {
+    case "installed":
+      return {
+        title: "No Plugins Installed",
+        subtitle: "Install a plugin from the catalog to extend your assistant.",
+        Icon: Puzzle,
+      };
+    case "available":
+      return {
+        title: "No Plugins Available",
+        subtitle: "Every catalog plugin is already installed.",
+        Icon: CheckCircle,
+      };
+    default:
+      return {
+        title: "No Plugins Found",
+        subtitle:
+          "Browse the catalog to install plugins that extend your assistant.",
+        Icon: Puzzle,
+      };
+  }
 }
