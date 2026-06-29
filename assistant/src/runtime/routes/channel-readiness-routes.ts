@@ -152,9 +152,13 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["channels"],
     handler: handleRefreshChannelReadiness,
     requestBody: z.object({
-      channel: z.enum(CHANNEL_IDS).describe("Optional channel ID to refresh"),
+      channel: z
+        .enum(CHANNEL_IDS)
+        .optional()
+        .describe("Optional channel ID to refresh"),
       includeRemote: z
         .boolean()
+        .optional()
         .describe("Include remote checks (default true)"),
     }),
     responseBody: z.object({

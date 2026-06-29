@@ -4239,6 +4239,7 @@ paths:
               type: object
               properties:
                 channel:
+                  description: Optional channel ID to refresh
                   type: string
                   enum:
                     - telegram
@@ -4249,13 +4250,9 @@ paths:
                     - email
                     - platform
                     - a2a
-                  description: Optional channel ID to refresh
                 includeRemote:
-                  type: boolean
                   description: Include remote checks (default true)
-              required:
-                - channel
-                - includeRemote
+                  type: boolean
       responses:
         "200":
           description: Successful response
