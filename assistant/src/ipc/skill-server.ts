@@ -815,6 +815,15 @@ export async function startSkillIpcServer(): Promise<SkillIpcServer> {
   return instance;
 }
 
+/**
+ * The live skill IPC server, or null before startup / after shutdown. Consumers
+ * that need to push frames to skill processes (e.g. the meet-host supervisor)
+ * read it here rather than receiving it via injection.
+ */
+export function getSkillIpcServer(): SkillIpcServer | null {
+  return instance;
+}
+
 /** Stop the skill IPC server during daemon shutdown. */
 export function stopSkillIpcServer(): void {
   instance?.stop();

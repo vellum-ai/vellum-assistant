@@ -61,7 +61,10 @@ import {
 import { connect as defaultConnect, type Socket } from "node:net";
 
 import { getConfig, getNestedValue } from "../config/loader.js";
-import type { SkillIpcConnection } from "../ipc/skill-server.js";
+import {
+  getSkillIpcServer,
+  type SkillIpcConnection,
+} from "../ipc/skill-server.js";
 import { getSkillSocketPath } from "../ipc/skill-socket-path.js";
 import { getLogger } from "../util/logger.js";
 
@@ -90,13 +93,9 @@ interface MeetHostHandshakePayload {
 }
 
 /**
- * Minimal sender surface the supervisor needs to dispatch frames over
- * the bidirectional skill IPC channel. {@link SkillIpcServer.sendRequest}
- * satisfies this shape; tests can pass a stub that records calls instead.
- *
- * Pulling the dependency through a one-method interface keeps the
- * supervisor unaware of the rest of the IPC server's surface and avoids a
- * circular import in tests that already stub `skill-server.js`.
+ * Minimal sender surface the supervisor needs to dispatch frames over the
+ * bidirectional skill IPC channel. The live skill IPC server satisfies this
+ * shape; tests pass a stub via the `ipcSender` dep that records calls instead.
  */
 interface SkillRequestSender {
   sendRequest(
@@ -157,32 +156,6 @@ const DEFAULT_GRACEFUL_EXIT_GRACE_MS = 2_000;
 const DEFAULT_SIGKILL_GRACE_MS = 1_000;
 
 const log = getLogger("meet-host-supervisor");
-
-/**
- * Module-level reference to the daemon's `SkillIpcServer.sendRequest`
- * capability. The bootstrap constructs the supervisor before the
- * `DaemonServer` instance exists, so the supervisor cannot receive the
- * sender via constructor injection on the production path. The daemon
- * sets this once during construction (see `daemon/server.ts`) and the
- * supervisor consults it lazily at dispatch time. Tests still inject
- * `ipcSender` directly via constructor deps and bypass this global.
- */
-let globalIpcSender: SkillRequestSender | null = null;
-
-/**
- * Install the daemon-wide skill IPC sender used by every supervisor that
- * doesn't carry an explicit `ipcSender` dep. Idempotent: re-installing
- * the same sender is a no-op so the daemon can call this from any setup
- * path without double-wiring.
- */
-export function setGlobalSkillIpcSender(sender: SkillRequestSender): void {
-  globalIpcSender = sender;
-}
-
-/** Test-only: drop the global sender between tests. */
-export function __clearGlobalSkillIpcSenderForTesting(): void {
-  globalIpcSender = null;
-}
 
 /**
  * Read the idle timeout from config, falling back to the default. The
@@ -482,7 +455,7 @@ export class MeetHostSupervisor {
       );
       return;
     }
-    const sender = this.ipcSender ?? globalIpcSender;
+    const sender = this.ipcSender ?? getSkillIpcServer();
     if (!sender) {
       log.debug(
         { name, reason },
@@ -645,7 +618,7 @@ export class MeetHostSupervisor {
   }
 
   private requireSender(callContext: string): SkillRequestSender {
-    const sender = this.ipcSender ?? globalIpcSender;
+    const sender = this.ipcSender ?? getSkillIpcServer();
     if (!sender) {
       throw new Error(
         `meet-host dispatch (${callContext}): no IPC sender configured on the supervisor.`,

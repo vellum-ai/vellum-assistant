@@ -101,7 +101,6 @@ import { startEventLoopWatchdog } from "./event-loop-watchdog.js";
 import { initializePlugins } from "./external-plugins-bootstrap.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
 import { installAssistantSymlink } from "./install-symlink.js";
-import { setGlobalSkillIpcSender } from "./meet-host-supervisor.js";
 import {
   maybeRebuildMemoryV2Concepts,
   rebuildBm25CorpusStatsAndReseedSkills,
@@ -590,12 +589,10 @@ export async function runDaemon(): Promise<void> {
   await server.start();
   log.info("Daemon startup: DaemonServer started");
 
-  // Start the skill IPC server (first-party skill processes connect here for
-  // host capabilities) and wire it into the meet-host supervisor's lazy
-  // dispatch path. The supervisor is constructed elsewhere during startup and
-  // consults this sender at dispatch time, so it flows through a module-level
-  // global rather than constructor injection.
-  setGlobalSkillIpcSender(await startSkillIpcServer());
+  // Start the skill IPC server so first-party skill processes can connect for
+  // host capabilities. The meet-host supervisor reads the live server from the
+  // skill-server singleton at dispatch time.
+  await startSkillIpcServer();
 
   // Warm the gateway guardian-delivery cache so the SSE eager-subscribe path
   // (sync, IO-free) resolves the local actor principal on the FIRST client

@@ -48,8 +48,6 @@ mock.module("../../ipc/skill-socket-path.js", () => ({
 }));
 
 const { MeetHostSupervisor } = await import("../meet-host-supervisor.js");
-const { __clearGlobalSkillIpcSenderForTesting } =
-  await import("../meet-host-supervisor.js");
 
 // ---------------------------------------------------------------------------
 // Fake child process + fake socket
@@ -395,7 +393,6 @@ describe("MeetHostSupervisor dispatch", () => {
     } catch {
       // Best-effort cleanup
     }
-    __clearGlobalSkillIpcSenderForTesting();
   });
 
   beforeEach(() => {
