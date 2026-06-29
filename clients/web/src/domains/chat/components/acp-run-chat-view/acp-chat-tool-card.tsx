@@ -305,7 +305,7 @@ export function AcpChatToolCard({
           {showOutput && (
             <div
               data-testid="acp-chat-tool-output"
-              className="max-h-60 overflow-auto rounded-md border border-[var(--border-element)] bg-[var(--surface-base)] p-2.5"
+              className="rounded-md border border-[var(--border-element)] bg-[var(--surface-base)] p-2.5"
             >
               <ChatMarkdownMessage content={outputText} hardLineBreaks />
             </div>
