@@ -52,26 +52,27 @@ import {
 } from "../daemon/date-context.js";
 import type { WakeToolContextPin } from "../daemon/tool-setup-types.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
-import { resolveUserSlug } from "../prompts/persona-resolver.js";
-import type { SystemPromptPersonaOverride } from "../prompts/system-prompt.js";
-import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
-import { getLogger } from "../util/logger.js";
 import {
   addMessage,
   type ConversationRow,
   deleteConversation,
+  deleteConversationGently,
   findMostRecentRetrospectiveFor,
   forkConversationForRetrospective,
   getConversation,
   getMessagesAfter,
   isConversationProcessing,
   resolveOverrideProfile,
-} from "./conversation-crud.js";
+} from "../persistence/conversation-crud.js";
 import {
   enqueueMemoryJob,
   type MemoryJob,
   type MemoryJobType,
-} from "./jobs-store.js";
+} from "../persistence/jobs-store.js";
+import { resolveUserSlug } from "../prompts/persona-resolver.js";
+import type { SystemPromptPersonaOverride } from "../prompts/system-prompt.js";
+import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
+import { getLogger } from "../util/logger.js";
 import {
   MEMORY_RETROSPECTIVE_FORK_SOURCE,
   MEMORY_RETROSPECTIVE_GROUP_ID,
@@ -137,6 +138,9 @@ export async function runForkBasedRetrospective(
   sourceConversationId: string,
   config: AssistantConfig,
 ): Promise<MemoryRetrospectiveOutcome> {
+  // Start stamp for the retrospective's end-to-end wall time, surfaced as
+  // `durationMs` on the "invoked" log (start → invoked).
+  const startedAtMs = Date.now();
   const sourceConversation = getConversation(sourceConversationId);
   if (!sourceConversation) {
     log.warn(
@@ -374,7 +378,7 @@ export async function runForkBasedRetrospective(
   }
 
   if (wakeSucceeded) {
-    return finalizeSuccessfulRetrospective({
+    return await finalizeSuccessfulRetrospective({
       config,
       sourceConversationId,
       retrospectiveConversationId: forkId,
@@ -382,7 +386,11 @@ export async function runForkBasedRetrospective(
       newMessageCount: newMessages.length,
       prior,
       priorRemembers,
-      logFields: { kind: "fork", windowStartTimestamp },
+      logFields: {
+        kind: "fork",
+        windowStartTimestamp,
+        durationMs: Date.now() - startedAtMs,
+      },
     });
   }
 
@@ -586,7 +594,7 @@ function resolvePriorRetrospective(
  * cleanup. `priorRemembers` (cumulative log, or the prior-conversation scan
  * that seeds it) is the base so the prior's saves survive its GC below.
  */
-function finalizeSuccessfulRetrospective(args: {
+async function finalizeSuccessfulRetrospective(args: {
   config: AssistantConfig;
   sourceConversationId: string;
   retrospectiveConversationId: string;
@@ -596,7 +604,7 @@ function finalizeSuccessfulRetrospective(args: {
   priorRemembers: string[];
   /** Per-kind extras for the success log line (e.g. `kind`, fork anchor). */
   logFields: Record<string, unknown>;
-}): MemoryRetrospectiveOutcome {
+}): Promise<MemoryRetrospectiveOutcome> {
   const {
     config,
     sourceConversationId,
@@ -618,7 +626,7 @@ function finalizeSuccessfulRetrospective(args: {
     rememberedLog: appendToRememberedLog(priorRemembers, runRemembers),
   });
 
-  deleteSupersededPriorRetrospective(config, prior, sourceConversationId);
+  await deleteSupersededPriorRetrospective(config, prior, sourceConversationId);
 
   const followUpJobIds = enqueueFollowUpJobs();
 
@@ -685,16 +693,20 @@ function safeDeleteRetrospectiveConversation(
  * never fails the job. Operators opt out of GC entirely via
  * `memory.retrospective.keepSupersededRuns`.
  */
-function deleteSupersededPriorRetrospective(
+async function deleteSupersededPriorRetrospective(
   config: AssistantConfig,
   prior: PriorRetrospective | null,
   sourceConversationId: string,
-): void {
+): Promise<void> {
   if (!prior) return;
   if (config.memory.retrospective.keepSupersededRuns) return;
   if (prior.forkParentConversationId !== sourceConversationId) return;
   try {
-    deleteConversation(prior.id);
+    // Fork-kind priors carry a full copy of the source's message history, so
+    // delete the message rows off the event loop in lock-friendly batches —
+    // the deletion mirror of the batched fork copy that built them — instead
+    // of one lock-holding transaction that would starve live user turns.
+    await deleteConversationGently(prior.id);
   } catch (err) {
     log.warn(
       { err, priorConversationId: prior.id },

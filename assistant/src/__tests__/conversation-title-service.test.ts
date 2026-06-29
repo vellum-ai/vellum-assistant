@@ -30,7 +30,6 @@ function textResponse(text: string) {
 }
 
 function makeProvider(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mock returns
   // partial ProviderResponse shapes; `any` keeps the stub assignable to Provider.
   impl: (messages: any, options: any) => any = async () =>
     toolResponse("Project kickoff"),
@@ -59,7 +58,7 @@ const mockGetMessages = mock(() => [
 const mockUpdateConversationTitle = mock(() => {});
 const mockGetConfiguredProvider = mock(async () => null);
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
   getConversation: mockGetConversation,
@@ -112,7 +111,7 @@ import {
   queueGenerateConversationTitle,
   regenerateConversationTitle,
   titleMutex,
-} from "../memory/conversation-title-service.js";
+} from "../persistence/conversation-title-service.js";
 
 describe("conversation-title-service", () => {
   beforeEach(() => {

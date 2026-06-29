@@ -61,7 +61,15 @@ import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags
 import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
 import { HOOKS } from "../plugin-api/constants.js";
-import { getAllDefaultPlugins, registerDefaultPlugins } from "../plugins/defaults/index.js";
+import {
+  getAllDefaultPlugins,
+  registerDefaultPluginInjectors,
+  registerDefaultPlugins,
+} from "../plugins/defaults/index.js";
+import {
+  registerPluginInjectors,
+  unregisterPluginInjectors,
+} from "../plugins/injector-registry.js";
 import { getRegisteredPlugins, unregisterPlugin } from "../plugins/registry.js";
 import {
   type Plugin,
@@ -196,6 +204,17 @@ export async function bootstrapPlugins(): Promise<void> {
   // already-registered guard so repeated calls (e.g. during integration
   // tests) do not throw.
   registerDefaultPlugins();
+
+  // Register the default plugins' runtime injectors up front — independent of
+  // each plugin's disabled-state, exactly as `registerDefaultPlugins` does for
+  // their hooks. The per-turn walker filters the injector union by
+  // `isPluginDisabled` at read time, so a default plugin that is disabled at
+  // boot (its init is skipped below by the `.disabled` sentinel `continue`)
+  // still has its injectors in the registry and reappears on the next turn
+  // after `assistant plugins enable <name>` — no restart required. Injector-only
+  // defaults have no init/hooks, so without this their injectors would never
+  // register while disabled.
+  registerDefaultPluginInjectors();
 
   // Combine the canonical default plugins with any plugins registered via
   // `registerPlugin` (test fixtures). In production, `getRegisteredPlugins`
@@ -376,6 +395,14 @@ async function initializePlugin(
       );
     }
 
+    if (plugin.injectors && plugin.injectors.length > 0) {
+      registerPluginInjectors(name, plugin.injectors);
+      log.info(
+        { plugin: name, count: plugin.injectors.length },
+        "plugin injectors registered",
+      );
+    }
+
     if (plugin.hooks?.[HOOKS.INIT]) {
       try {
         await plugin.hooks[HOOKS.INIT](initContext);
@@ -403,6 +430,7 @@ async function initializePlugin(
         unregisterSkillRoute(handle);
       }
       unregisterPluginTools(name);
+      unregisterPluginInjectors(name);
     }
     throw err;
   }
@@ -451,6 +479,8 @@ async function teardownPlugin(
       "plugin tool unregister failed (continuing with remaining plugins)",
     );
   }
+
+  unregisterPluginInjectors(name);
 
   if (plugin.hooks?.[HOOKS.SHUTDOWN]) {
     try {

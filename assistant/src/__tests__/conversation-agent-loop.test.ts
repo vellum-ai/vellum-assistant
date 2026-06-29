@@ -23,12 +23,12 @@ import { ContextOverflowError } from "../providers/types.js";
 
 const conversationCrudRealSnapshot = {
   ...(createRequire(import.meta.url)(
-    "../memory/conversation-crud.js",
+    "../persistence/conversation-crud.js",
   ) as Record<string, unknown>),
 };
 const conversationDiskViewRealSnapshot = {
   ...(createRequire(import.meta.url)(
-    "../memory/conversation-disk-view.js",
+    "../persistence/conversation-disk-view.js",
   ) as Record<string, unknown>),
 };
 let mockUiConfig: { userTimezone?: string; detectedTimezone?: string } = {};
@@ -279,7 +279,7 @@ const deleteMessageByIdMock = mock(() => ({
 const reserveMessageMock = mock(async () => ({ id: "msg-reserve" }));
 const updateMessageContentMock = mock(() => {});
 const addMessageMock = mock(() => ({ id: "mock-msg-id" }));
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
@@ -318,7 +318,7 @@ mock.module("../memory/conversation-crud.js", () => ({
 
 // The B3 indexing-restoration path imports `indexMessageNow` from
 // `../memory/indexer.js` and `projectAssistantMessage` from
-// `../memory/conversation-attention-store.js`; without these stubs the
+// `../persistence/conversation-attention-store.js`; without these stubs the
 // real modules would try to open a SQLite DB and read a real config.
 const indexMessageNowMock = mock(async () => ({
   indexedSegments: 0,
@@ -329,7 +329,7 @@ const publishSyncInvalidationMock = mock(async () => {});
 mock.module("../memory/indexer.js", () => ({
   indexMessageNow: indexMessageNowMock,
 }));
-mock.module("../memory/conversation-attention-store.js", () => ({
+mock.module("../persistence/conversation-attention-store.js", () => ({
   projectAssistantMessage: projectAssistantMessageMock,
 }));
 mock.module("../runtime/sync/sync-publisher.js", () => ({
@@ -338,18 +338,18 @@ mock.module("../runtime/sync/sync-publisher.js", () => ({
 
 afterAll(() => {
   mock.module(
-    "../memory/conversation-crud.js",
+    "../persistence/conversation-crud.js",
     () => conversationCrudRealSnapshot,
   );
   mock.module(
-    "../memory/conversation-disk-view.js",
+    "../persistence/conversation-disk-view.js",
     () => conversationDiskViewRealSnapshot,
   );
 });
 
 const syncMessageToDiskMock = mock(() => {});
 const rebuildConversationDiskViewFromDbStateMock = mock(() => {});
-mock.module("../memory/conversation-disk-view.js", () => ({
+mock.module("../persistence/conversation-disk-view.js", () => ({
   syncMessageToDisk: syncMessageToDiskMock,
   rebuildConversationDiskViewFromDbState:
     rebuildConversationDiskViewFromDbStateMock,
@@ -368,13 +368,13 @@ mock.module("../memory/retriever.js", () => ({
   injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
 }));
 
-mock.module("../memory/app-store.js", () => ({
+mock.module("../apps/app-store.js", () => ({
   getApp: () => null,
   listAppFiles: () => [],
   getAppsDir: () => "/tmp/apps",
 }));
 
-mock.module("../memory/app-git-service.js", () => ({
+mock.module("../apps/app-git-service.js", () => ({
   commitAppTurnChanges: () => Promise.resolve(),
 }));
 
@@ -606,7 +606,7 @@ mock.module("../memory/archive-store.js", () => ({
   }),
 }));
 
-mock.module("../memory/llm-request-log-store.js", () => ({
+mock.module("../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: recordRequestLogMock,
   backfillMessageIdOnLogs: backfillMessageIdOnLogsMock,
   setAgentLoopExitReasonOnLatestLog: setAgentLoopExitReasonOnLatestLogMock,

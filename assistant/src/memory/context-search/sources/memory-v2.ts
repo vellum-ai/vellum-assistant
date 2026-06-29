@@ -26,8 +26,8 @@
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { extname, isAbsolute, join, relative } from "node:path";
 
+import { embedWithRetry } from "../../../persistence/embeddings/embed.js";
 import { getLogger } from "../../../util/logger.js";
-import { embedWithRetry } from "../../embed.js";
 import { spreadActivation } from "../../v2/activation.js";
 import { getEdgeIndex } from "../../v2/edge-index.js";
 import {

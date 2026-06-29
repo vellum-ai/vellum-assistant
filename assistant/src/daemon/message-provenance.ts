@@ -13,7 +13,7 @@
  * manifest) can apply the identical filter without creating an import
  * cycle through `conversation-lifecycle` ↔ `window-manager` ↔ `compactor`.
  */
-import type { MessageRow } from "../memory/conversation-crud.js";
+import type { MessageRow } from "../persistence/conversation-crud.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 
 export function parseProvenanceTrustClass(

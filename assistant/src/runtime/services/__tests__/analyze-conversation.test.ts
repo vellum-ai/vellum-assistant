@@ -35,11 +35,11 @@ const mockFindAnalysisConversationFor = mock(
 );
 const mockGetConversationSource = mock((_id: string) => null as string | null);
 
-mock.module("../../../memory/conversation-key-store.js", () => ({
+mock.module("../../../persistence/conversation-key-store.js", () => ({
   resolveConversationId: mockResolveConversationId,
 }));
 
-mock.module("../../../memory/conversation-crud.js", () => ({
+mock.module("../../../persistence/conversation-crud.js", () => ({
   getConversation: mockGetConversation,
   getMessages: mockGetMessages,
   createConversation: mockCreateConversation,

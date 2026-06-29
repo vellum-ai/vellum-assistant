@@ -33,7 +33,7 @@ import {
   getPendingCanonicalRequestByDestinationMessage,
   isRequestExpired,
   listCanonicalGuardianRequests,
-} from "../memory/canonical-guardian-store.js";
+} from "../contacts/canonical-guardian-store.js";
 import {
   buildGuardianCodeOnlyClarification,
   buildGuardianDisambiguationExample,

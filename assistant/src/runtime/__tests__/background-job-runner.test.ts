@@ -21,7 +21,7 @@ let bootstrapCalls = 0;
 let bootstrapLastArgs: Record<string, unknown> | null = null;
 const STUB_CONVERSATION_ID = "conv-test-1";
 
-mock.module("../../memory/conversation-bootstrap.js", () => ({
+mock.module("../../persistence/conversation-bootstrap.js", () => ({
   bootstrapConversation: (opts: Record<string, unknown>) => {
     bootstrapCalls += 1;
     bootstrapLastArgs = opts;
@@ -35,7 +35,7 @@ const addMessageCalls: Array<{
   content: string;
 }> = [];
 
-mock.module("../../memory/conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   addMessage: async (conversationId: string, role: string, content: string) => {
     addMessageCalls.push({ conversationId, role, content });
     return { id: `msg-${addMessageCalls.length}` };

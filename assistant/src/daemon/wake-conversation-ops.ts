@@ -17,9 +17,9 @@ import {
   addMessage,
   getConversation,
   provenanceFromTrustContext,
-} from "../memory/conversation-crud.js";
-import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
-import { backfillMessageIdOnLogs } from "../memory/llm-request-log-store.js";
+} from "../persistence/conversation-crud.js";
+import { syncMessageToDisk } from "../persistence/conversation-disk-view.js";
+import { backfillMessageIdOnLogs } from "../persistence/llm-request-log-store.js";
 import type { Message } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";

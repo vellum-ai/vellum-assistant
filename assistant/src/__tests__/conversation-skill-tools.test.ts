@@ -2,7 +2,6 @@ import * as realFs from "node:fs";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { SkillSummary, SkillToolManifest } from "../config/skills.js";
-import type { SkillLoadedEventRecord } from "../memory/skill-loaded-events-store.js";
 import { RiskLevel } from "../permissions/types.js";
 import type {
   Message,
@@ -11,6 +10,7 @@ import type {
   ToolUseContent,
 } from "../providers/types.js";
 import type { SkillInstallMeta } from "../skills/install-meta.js";
+import type { SkillLoadedEventRecord } from "../telemetry/skill-loaded-events-store.js";
 import type { Tool } from "../tools/types.js";
 import type { UsageAttributionSnapshot } from "../usage/attribution.js";
 import { buildSkillLoadHistory } from "./test-support/browser-skill-harness.js";
@@ -261,7 +261,7 @@ mock.module("../skills/catalog-cache.js", () => ({
   getCachedCatalogSync: () => mockCachedCatalog,
 }));
 
-mock.module("../memory/skill-loaded-events-store.js", () => ({
+mock.module("../telemetry/skill-loaded-events-store.js", () => ({
   recordSkillLoadedEvent: (record: SkillLoadedEventRecord) => {
     if (mockRecordSkillLoadedFailure) {
       throw new Error("Mock: skill_loaded store failure");

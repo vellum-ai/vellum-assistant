@@ -1,4 +1,4 @@
-import { rawGet, rawRun } from "../../memory/raw-query.js";
+import { rawGet, rawRun } from "../../persistence/raw-query.js";
 import type { WorkspaceMigration } from "./types.js";
 
 const GMAIL_SETTINGS_BASIC_SCOPE =

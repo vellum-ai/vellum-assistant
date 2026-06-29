@@ -18,12 +18,18 @@ import type {
 } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import {
+  buildSlackTimezoneMetadata,
+  type SlackMessageMetadata,
+  writeSlackMetadata,
+} from "../messaging/providers/slack/message-metadata.js";
+import type { SecretPrompter } from "../permissions/secret-prompter.js";
+import {
   attachInlineAttachmentToMessage,
   attachmentExists,
   AttachmentUploadError,
   linkAttachmentToMessage,
   validateAttachmentUpload,
-} from "../memory/attachments-store.js";
+} from "../persistence/attachments-store.js";
 import {
   addMessage,
   extractImageSourcePaths,
@@ -31,17 +37,11 @@ import {
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
-} from "../memory/conversation-crud.js";
+} from "../persistence/conversation-crud.js";
 import {
   syncMessageToDisk,
   updateMetaFile,
-} from "../memory/conversation-disk-view.js";
-import {
-  buildSlackTimezoneMetadata,
-  type SlackMessageMetadata,
-  writeSlackMetadata,
-} from "../messaging/providers/slack/message-metadata.js";
-import type { SecretPrompter } from "../permissions/secret-prompter.js";
+} from "../persistence/conversation-disk-view.js";
 import type { Message } from "../providers/types.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import { getLogger } from "../util/logger.js";

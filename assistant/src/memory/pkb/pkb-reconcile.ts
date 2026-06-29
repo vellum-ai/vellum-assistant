@@ -13,9 +13,9 @@
 
 import { join } from "node:path";
 
+import { getQdrantClient } from "../../persistence/embeddings/qdrant-client.js";
 import { getLogger } from "../../util/logger.js";
 import { enqueuePkbIndexJob } from "../jobs/embed-pkb-file.js";
-import { getQdrantClient } from "../qdrant-client.js";
 import { deletePkbFilePoints, scanPkbFiles } from "./pkb-index.js";
 import { PKB_TARGET_TYPE } from "./types.js";
 
@@ -101,11 +101,7 @@ export async function reconcilePkbIndex(
   // per-chunk hashes in the index (partial/interrupted prior indexing).
   for (const [relPath, disk] of diskByPath) {
     const indexed = indexedByPath.get(relPath);
-    if (
-      !indexed ||
-      indexed.mixed ||
-      indexed.contentHash !== disk.contentHash
-    ) {
+    if (!indexed || indexed.mixed || indexed.contentHash !== disk.contentHash) {
       enqueuePkbIndexJob({
         pkbRoot,
         absPath: join(pkbRoot, relPath),

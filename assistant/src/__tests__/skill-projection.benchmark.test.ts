@@ -106,7 +106,7 @@ mock.module("../skills/install-meta.js", () => ({
   readInstallMeta: () => null,
   touchSkillLastUsed: () => false,
 }));
-mock.module("../memory/skill-loaded-events-store.js", () => ({
+mock.module("../telemetry/skill-loaded-events-store.js", () => ({
   recordSkillLoadedEvent: () => {},
 }));
 

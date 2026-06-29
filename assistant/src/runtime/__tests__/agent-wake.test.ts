@@ -121,7 +121,7 @@ let mockGetConversationOverrideProfile: (
   conversationId: string,
 ) => string | undefined = () => undefined;
 
-mock.module("../../memory/conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   getConversationOverrideProfile: (conversationId: string) =>
     mockGetConversationOverrideProfile(conversationId),
   getConversation: () => ({
@@ -151,7 +151,7 @@ mock.module("../../memory/conversation-crud.js", () => ({
 
 // The wake's tail persistence syncs each row to the disk view. Stub it so
 // unit tests don't touch the filesystem.
-mock.module("../../memory/conversation-disk-view.js", () => ({
+mock.module("../../persistence/conversation-disk-view.js", () => ({
   syncMessageToDisk: () => {},
 }));
 
@@ -304,7 +304,7 @@ mock.module("../../daemon/conversation-usage.js", () => ({
     });
   },
 }));
-mock.module("../../memory/llm-request-log-store.js", () => ({
+mock.module("../../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: (
     conversationId: string,
     requestPayload: string,

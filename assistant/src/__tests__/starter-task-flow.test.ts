@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 
 import type { ServerMessage, SurfaceType } from "../daemon/message-protocol.js";
 
-mock.module("../memory/app-store.js", () => ({
+mock.module("../apps/app-store.js", () => ({
   getApp: (id: string) => {
     if (id !== "test-app") return null;
     return {

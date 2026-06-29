@@ -93,7 +93,7 @@ const enqueuedJobs: Array<{
 }> = [];
 let nextJobIdCounter = 0;
 
-mock.module("../../jobs-store.js", () => ({
+mock.module("../../../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: (
     type: string,
     payload: Record<string, unknown>,
@@ -105,30 +105,24 @@ mock.module("../../jobs-store.js", () => ({
   isMemoryEnabled: () => true,
 }));
 
-// ── v3 follow-up flag mock ──────────────────────────────────────────
+// ── v3 live gate mock ───────────────────────────────────────────────
 //
-// A v3 flag being on appends `memory_v3_maintain` to the post-consolidation
-// follow-up fan-out, and the LIVE flag (alone) selects the v3 article-shape
-// prompt. `v3FlagOn` toggles all flags at once for the existing tests;
-// `flagStates` overrides individual keys for the shadow-vs-live tests.
+// `memory.v3.live` being on appends `memory_v3_maintain` to the
+// post-consolidation follow-up fan-out, selects the v3 article-shape prompt,
+// and includes the core-pages curation section. `v3FlagOn` toggles the gate
+// for the existing on/off tests; `flagStates["memory-v3-live"]` overrides it
+// for the article-shape tests.
 let v3FlagOn = false;
 let flagStates: Record<string, boolean> = {};
 mock.module("../../../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: (key: string) => flagStates[key] ?? v3FlagOn,
 }));
 
-// The v3-live gate moved to config (`config.memory.v3.live`), read via
-// `isMemoryV3Live`. Mirror the flag mock so the shadow-vs-live tests keep
-// driving live through `flagStates["memory-v3-live"]` (and `v3FlagOn` toggles
-// it alongside shadow for the existing on/off tests).
-const procToSkillsLive = () => flagStates["memory-v3-live"] ?? v3FlagOn;
+// The v3-live gate lives in config (`config.memory.v3.live`), read via
+// `isMemoryV3Live`; drive it through `flagStates["memory-v3-live"]` (and
+// `v3FlagOn` for the existing on/off tests).
 mock.module("../../../config/memory-v3-gate.js", () => ({
-  isMemoryV3Live: () => procToSkillsLive(),
-  // Active whenever v3 is live. The retrospective skill-authoring step and its
-  // skill-authoring grant gate on this predicate. (The v2 consolidation job
-  // itself only reads `isMemoryV3Live`; this is mocked to satisfy the module
-  // shape.)
-  isProcToSkillsActive: () => procToSkillsLive(),
+  isMemoryV3Live: () => flagStates["memory-v3-live"] ?? v3FlagOn,
 }));
 
 // ── Workspace pin ───────────────────────────────────────────────────
@@ -715,18 +709,15 @@ describe("CONSOLIDATION_PROMPT", () => {
   });
 });
 
-describe("article-shape selection — live flag only, never shadow", () => {
+describe("article-shape selection — keyed on the live gate", () => {
   // The v3 article shape drops the `summary:` field that v2 injection
-  // depends on. Under SHADOW, live prompts are still served by v2, so
-  // consolidation must keep producing v2-shaped pages — only the LIVE flag
-  // may select the v3 template. Collapsing this distinction (e.g. keying the
-  // shape on shadow||live) would corrupt the corpus of every shadow install
-  // before its flip.
+  // depends on, so only a live (`memory.v3.live`) install may select the v3
+  // template — a v2-only install must keep producing `summary:`-bearing pages.
   const V3_MARKER = "The lead IS the card";
 
-  test("shadow on, live off → v2 article shape", async () => {
+  test("v3 off → v2 article shape", async () => {
     writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
-    flagStates = { "memory-v3-shadow": true, "memory-v3-live": false };
+    flagStates = { "memory-v3-live": false };
 
     await memoryV2ConsolidateJob(makeJob(), CONFIG);
 
@@ -734,13 +725,13 @@ describe("article-shape selection — live flag only, never shadow", () => {
     const prompt = runnerLastArgs?.prompt as string;
     expect(prompt).not.toContain(V3_MARKER);
     expect(prompt).toContain("The `summary` field is required");
-    // §10 still rides the shadow flag.
-    expect(prompt).toContain("memory/core-pages.md");
+    // §10 (core-pages curation) is omitted on a v2-only install.
+    expect(prompt).not.toContain("memory/core-pages.md");
   });
 
   test("live on → v3 article shape", async () => {
     writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
-    flagStates = { "memory-v3-shadow": false, "memory-v3-live": true };
+    flagStates = { "memory-v3-live": true };
 
     await memoryV2ConsolidateJob(makeJob(), CONFIG);
 

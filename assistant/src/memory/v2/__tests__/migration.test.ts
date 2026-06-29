@@ -49,7 +49,7 @@ mock.module("../../../util/logger.js", () => ({
 // enqueues. The stub records every (type, payload) pair for assertion.
 const enqueuedJobs: Array<{ type: string; payload: Record<string, unknown> }> =
   [];
-mock.module("../../jobs-store.js", () => ({
+mock.module("../../../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: (type: string, payload: Record<string, unknown>) => {
     enqueuedJobs.push({ type, payload });
     return `job-${enqueuedJobs.length}`;
@@ -91,9 +91,9 @@ import { Database } from "bun:sqlite";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import type { DrizzleDb } from "../../db-connection.js";
-import { getSqliteFrom } from "../../db-connection.js";
-import * as schema from "../../schema.js";
+import type { DrizzleDb } from "../../../persistence/db-connection.js";
+import { getSqliteFrom } from "../../../persistence/db-connection.js";
+import * as schema from "../../../persistence/schema/index.js";
 // Type-only imports are erased at runtime so they don't evaluate the module —
 // safe to declare alongside the dynamic value import below.
 import type { Cluster, V1Edge, V1Item } from "../migration.js";

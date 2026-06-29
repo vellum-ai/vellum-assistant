@@ -26,7 +26,7 @@ mock.module("../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
   getSourcePathsForAttachments: () => new Map<string, string>(),
   attachmentExists: () => false,
@@ -36,9 +36,9 @@ mock.module("../memory/attachments-store.js", () => ({
   AttachmentUploadError: class extends Error {},
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   addMessage: async (
     conversationId: string,
     role: string,
@@ -60,7 +60,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../memory/conversation-disk-view.js", () => ({
+mock.module("../persistence/conversation-disk-view.js", () => ({
   syncMessageToDisk: () => {},
   updateMetaFile: () => {},
 }));

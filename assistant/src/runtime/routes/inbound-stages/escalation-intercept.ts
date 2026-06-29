@@ -8,9 +8,9 @@
  * focused on orchestration.
  */
 import type { ChannelId, InterfaceId } from "../../../channels/types.js";
-import { createCanonicalGuardianRequest } from "../../../memory/canonical-guardian-store.js";
-import { storePayload } from "../../../memory/delivery-crud.js";
+import { createCanonicalGuardianRequest } from "../../../contacts/canonical-guardian-store.js";
 import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
+import { storePayload } from "../../../persistence/delivery-crud.js";
 import { getLogger } from "../../../util/logger.js";
 import { getGuardianBinding } from "../../channel-verification-service.js";
 import type { VerdictMember } from "../../trust-verdict-consumer.js";

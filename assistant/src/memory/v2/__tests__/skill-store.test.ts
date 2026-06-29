@@ -140,7 +140,7 @@ mock.module("../../../config/assistant-feature-flags.js", () => ({
     state.flagsEnabled[key] ?? true,
 }));
 
-mock.module("../../embedding-backend.js", () => ({
+mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
   embedWithBackend: async (_config: unknown, inputs: unknown[]) => {
     if (state.embedThrows) throw state.embedThrows;
     // Echo the configured per-call vectors back, padded if needed.

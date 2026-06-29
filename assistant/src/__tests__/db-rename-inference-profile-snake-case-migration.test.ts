@@ -9,9 +9,9 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
 }));
 
-import { getSqliteFrom } from "../memory/db-connection.js";
-import { migrateRenameInferenceProfileSnakeCase } from "../memory/migrations/228-rename-inference-profile-snake-case.js";
-import * as schema from "../memory/schema.js";
+import { getSqliteFrom } from "../persistence/db-connection.js";
+import { migrateRenameInferenceProfileSnakeCase } from "../persistence/migrations/228-rename-inference-profile-snake-case.js";
+import * as schema from "../persistence/schema/index.js";
 
 function createTestDb() {
   const sqlite = new Database(":memory:");

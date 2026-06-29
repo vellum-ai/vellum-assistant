@@ -39,31 +39,6 @@ import { classifyDiskPressureTurnPolicy } from "../../daemon/disk-pressure-polic
 import { processMessage } from "../../daemon/process-message.js";
 import type { TrustContext } from "../../daemon/trust-context.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
-import {
-  attachInlineAttachmentToMessage,
-  AttachmentUploadError,
-  getAttachmentsByIds,
-  validateAttachmentUpload,
-} from "../../memory/attachments-store.js";
-import {
-  recordConversationSeenSignal,
-  type SignalType,
-} from "../../memory/conversation-attention-store.js";
-import {
-  addMessage,
-  getMessageById,
-  getMessages,
-  selectSlackMetaCandidateMetadata,
-  updateMessageContent,
-  updateMessageMetadata,
-} from "../../memory/conversation-crud.js";
-import {
-  clearPayload,
-  findMessageBySourceId,
-  recordInbound,
-} from "../../memory/delivery-crud.js";
-import { markProcessed } from "../../memory/delivery-status.js";
-import { upsertBinding } from "../../memory/external-conversation-store.js";
 import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
 import {
   resolveSlackBotUserId,
@@ -85,6 +60,31 @@ import {
   writeSlackMetadata,
 } from "../../messaging/providers/slack/message-metadata.js";
 import { MESSAGE_PREVIEW_MAX_LENGTH } from "../../notifications/notification-utils.js";
+import {
+  attachInlineAttachmentToMessage,
+  AttachmentUploadError,
+  getAttachmentsByIds,
+  validateAttachmentUpload,
+} from "../../persistence/attachments-store.js";
+import {
+  recordConversationSeenSignal,
+  type SignalType,
+} from "../../persistence/conversation-attention-store.js";
+import {
+  addMessage,
+  getMessageById,
+  getMessages,
+  selectSlackMetaCandidateMetadata,
+  updateMessageContent,
+  updateMessageMetadata,
+} from "../../persistence/conversation-crud.js";
+import {
+  clearPayload,
+  findMessageBySourceId,
+  recordInbound,
+} from "../../persistence/delivery-crud.js";
+import { markProcessed } from "../../persistence/delivery-status.js";
+import { upsertBinding } from "../../persistence/external-conversation-store.js";
 import type { ContentBlock } from "../../providers/types.js";
 import { wrapUntrustedContent } from "../../security/untrusted-content.js";
 import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";

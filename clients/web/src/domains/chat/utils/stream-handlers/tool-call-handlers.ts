@@ -10,11 +10,44 @@ import { useStreamStore } from "@/domains/chat/stream-store";
 import type {
   ToolOutputChunkEvent,
   ToolResultEvent,
+  ToolUsePreviewStartEvent,
   ToolUseStartEvent,
 } from "@vellumai/assistant-api";
 
 /** Buffer key for chunks that arrive without a `toolUseId` (pre-anchor daemons). */
 const NO_TOOL_ID = "no-tool-id";
+
+/**
+ * Optimistic pre-input affordance: the moment the daemon recognizes a tool call
+ * (before its input finishes streaming), render the tool card so the user sees
+ * activity immediately rather than after the input-streaming gap — which can run
+ * many seconds on a large input. We seed a running tool call with the
+ * first-byte `previewStartedAt` anchor and an empty input; `handleToolUseStart`
+ * fills in the real input and execution `startedAt` once the call begins.
+ */
+export function handleToolUsePreviewStart(
+  event: ToolUsePreviewStartEvent,
+  ctx: StreamHandlerContext,
+): void {
+  const previewStartedAt =
+    typeof event.previewStartedAt === "number"
+      ? event.previewStartedAt
+      : Date.now();
+  const previewToolCall: ChatMessageToolCall = {
+    id: event.toolUseId,
+    name: event.toolName,
+    input: {},
+    previewStartedAt,
+  };
+  ctx.setMessages((prev) => {
+    const next = upsertToolCall(prev, previewToolCall, event.messageId);
+    const tail = next[next.length - 1];
+    if (tail?.role === "assistant") {
+      ctx.currentAssistantMessageIdRef.current = tail.id;
+    }
+    return next;
+  });
+}
 
 export function handleToolUseStart(
   event: ToolUseStartEvent,
@@ -29,10 +62,17 @@ export function handleToolUseStart(
     name: event.toolName,
     input: event.input,
     startedAt:
-      "startedAt" in event &&
-      typeof event.startedAt === "number"
+      "startedAt" in event && typeof event.startedAt === "number"
         ? event.startedAt
         : Date.now(),
+    // Carried through so a client that connected after the preview event still
+    // anchors the perceived-latency timer to first-byte. `upsertToolCall`
+    // merges onto the preview-seeded call, so an already-present
+    // `previewStartedAt` is preserved when this is omitted.
+    ...("previewStartedAt" in event &&
+    typeof event.previewStartedAt === "number"
+      ? { previewStartedAt: event.previewStartedAt }
+      : {}),
   };
   ctx.setMessages((prev) => {
     const next = upsertToolCall(prev, newToolCall, event.messageId);
@@ -84,8 +124,7 @@ export function handleToolResult(
       imageDataList: event.imageDataList,
       activityMetadata: event.activityMetadata,
       completedAt:
-        "completedAt" in event &&
-        typeof event.completedAt === "number"
+        "completedAt" in event && typeof event.completedAt === "number"
           ? event.completedAt
           : undefined,
     }),

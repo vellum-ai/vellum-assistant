@@ -25,7 +25,7 @@ const testAppsDir = join(tmpdir(), `app-bundler-test-${Date.now()}`);
 
 // Mock app-store so packageApp can find our test apps
 const mockApps = new Map<string, Record<string, unknown>>();
-mock.module("../memory/app-store.js", () => ({
+mock.module("../apps/app-store.js", () => ({
   getApp: (id: string) => mockApps.get(id) ?? null,
   getAppsDir: () => testAppsDir,
   getAppDirPath: (id: string) => join(testAppsDir, id),

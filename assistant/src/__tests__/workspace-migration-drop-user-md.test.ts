@@ -20,8 +20,8 @@ import {
 import { join } from "node:path";
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { getSqlite } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getSqlite } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 
 await initializeDb();
 

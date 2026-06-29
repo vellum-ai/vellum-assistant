@@ -37,11 +37,11 @@ mock.module("../../../util/logger.js", () => ({
 }));
 
 import { invalidateConfigCache } from "../../../config/loader.js";
-import { createConversation } from "../../../memory/conversation-crud.js";
-import { getDb, getMemorySqlite } from "../../../memory/db-connection.js";
-import { initializeDb } from "../../../memory/db-init.js";
-import { recordUsageEvent } from "../../../memory/llm-usage-store.js";
-import { rawRun } from "../../../memory/raw-query.js";
+import { createConversation } from "../../../persistence/conversation-crud.js";
+import { getDb, getMemorySqlite } from "../../../persistence/db-connection.js";
+import { initializeDb } from "../../../persistence/db-init.js";
+import { recordUsageEvent } from "../../../persistence/llm-usage-store.js";
+import { rawRun } from "../../../persistence/raw-query.js";
 import { ROUTES } from "../consolidation-routes.js";
 import type { RouteDefinition } from "../types.js";
 

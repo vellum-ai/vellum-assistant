@@ -1,6 +1,6 @@
 import type { SkillSource } from "../../config/skills.js";
 import { loadSkillCatalog } from "../../config/skills.js";
-import { nearestExistingSkills } from "../../plugins/defaults/memory-v3-shadow/candidate-match.js";
+import { nearestExistingSkills } from "../../plugins/defaults/memory/v3/candidate-match.js";
 import { readInstallMeta } from "../../skills/install-meta.js";
 import { getManagedSkillDir } from "../../skills/managed-store.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";

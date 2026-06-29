@@ -29,9 +29,9 @@ mock.module("../config/loader.js", () => ({
 import {
   createConversation,
   getConversation,
-} from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { ROUTES } from "../runtime/routes/conversation-management-routes.js";
 import { BadRequestError, NotFoundError } from "../runtime/routes/errors.js";

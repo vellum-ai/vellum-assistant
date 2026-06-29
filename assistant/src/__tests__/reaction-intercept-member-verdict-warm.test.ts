@@ -55,10 +55,10 @@ mock.module("../contacts/contact-store.js", () => ({
 }));
 
 // Stub downstream side effects so the test isolates trust classification.
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
   addMessage: async () => ({ id: "msg-1" }),
 }));
-mock.module("../memory/delivery-crud.js", () => ({
+mock.module("../persistence/delivery-crud.js", () => ({
   recordInbound: () => ({
     eventId: "evt-1",
     conversationId: "conv-1",
@@ -68,10 +68,10 @@ mock.module("../memory/delivery-crud.js", () => ({
   clearPayload: () => {},
   linkMessage: () => {},
 }));
-mock.module("../memory/delivery-status.js", () => ({
+mock.module("../persistence/delivery-status.js", () => ({
   markProcessed: () => {},
 }));
-mock.module("../memory/external-conversation-store.js", () => ({
+mock.module("../persistence/external-conversation-store.js", () => ({
   upsertBinding: () => {},
 }));
 mock.module("../daemon/disk-pressure-guard.js", () => ({

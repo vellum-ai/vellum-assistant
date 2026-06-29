@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   applyEvent,
   applyEventsToHistory,
+  resolveSnapshot,
 } from "@/domains/chat/transcript/rolling-base";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
 import type { AssistantEvent } from "@/types/event-types";
@@ -186,5 +187,31 @@ describe("rolling-base reducer", () => {
     expect(after.hasMore).toBe(true);
     expect(after.oldestTimestamp).toBe(123);
     expect(after.oldestMessageId).toBe("old");
+  });
+
+  describe("resolveSnapshot (seed / resync)", () => {
+    test("a null tail (gap / no anchor) leaves the snapshot standing alone", () => {
+      const snapshot = applyEventsToHistory(SEED, [textDelta(1, "a1", "persisted")]);
+      expect(resolveSnapshot(snapshot, null)).toBe(snapshot);
+    });
+
+    test("replays the buffered tail onto the snapshot", () => {
+      const snapshot = applyEventsToHistory(SEED, [
+        userEcho(1, "u1", "hi"),
+        textDelta(2, "a1", "persisted"),
+      ]);
+      const resolved = resolveSnapshot(snapshot, [textDelta(3, "a1", " + live")]);
+      expect(resolved.messages.find((m) => m.id === "a1")?.textSegments).toEqual([
+        "persisted + live",
+      ]);
+      expect(resolved.seq).toBe(3);
+    });
+
+    test("idempotent: tail events already in the snapshot are dropped", () => {
+      const snapshot = applyEventsToHistory(SEED, [textDelta(5, "a1", "x")]); // seq 5
+      // A stale tail (<= snapshot.seq) folds to nothing.
+      const resolved = resolveSnapshot(snapshot, [textDelta(4, "a1", " stale")]);
+      expect(resolved.messages.find((m) => m.id === "a1")?.textSegments).toEqual(["x"]);
+    });
   });
 });

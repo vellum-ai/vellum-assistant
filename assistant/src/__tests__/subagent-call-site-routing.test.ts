@@ -101,7 +101,7 @@ mock.module("../daemon/conversation.js", () => ({
   Conversation: FakeConversation,
 }));
 
-mock.module("../memory/conversation-bootstrap.js", () => ({
+mock.module("../persistence/conversation-bootstrap.js", () => ({
   bootstrapConversation: () => ({ id: "conv-id" }),
 }));
 
@@ -149,7 +149,7 @@ mock.module("../providers/inference/connections.js", () => ({
   },
 }));
 
-mock.module("../memory/db-connection.js", () => ({
+mock.module("../persistence/db-connection.js", () => ({
   getDb: () => ({}),
 }));
 

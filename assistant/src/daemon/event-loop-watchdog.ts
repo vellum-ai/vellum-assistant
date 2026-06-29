@@ -33,7 +33,7 @@
 
 import * as Sentry from "@sentry/node";
 
-import { recordWatchdogEvent } from "../memory/watchdog-events-store.js";
+import { recordWatchdogEvent } from "../telemetry/watchdog-events-store.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("event-loop-watchdog");

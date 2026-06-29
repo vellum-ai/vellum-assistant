@@ -7,6 +7,14 @@
  * Extracted from inbound-message-handler.ts to keep the top-level handler
  * focused on orchestration.
  */
+import {
+  clearThreadTs,
+  extractChannelFromCallbackUrl,
+  extractMessageTsFromCallbackUrl,
+  extractThreadTsFromCallbackUrl,
+  peekThreadMapping,
+  setThreadTs,
+} from "../../../channels/slack-thread-store.js";
 import type { ChannelId, InterfaceId } from "../../../channels/types.js";
 import {
   getGuardianDelivery,
@@ -17,23 +25,15 @@ import type { TrustContext } from "../../../daemon/trust-context.js";
 import {
   addSlackDmLiveDeliveredTextResponseIndex,
   getSlackDmLiveDeliveredTextResponseIndexes,
-} from "../../../memory/delivery-channels.js";
+} from "../../../persistence/delivery-channels.js";
 import {
   linkMessage,
   storeReplyMessageId,
-} from "../../../memory/delivery-crud.js";
+} from "../../../persistence/delivery-crud.js";
 import {
   markProcessed,
   recordProcessingFailure,
-} from "../../../memory/delivery-status.js";
-import {
-  clearThreadTs,
-  extractChannelFromCallbackUrl,
-  extractMessageTsFromCallbackUrl,
-  extractThreadTsFromCallbackUrl,
-  peekThreadMapping,
-  setThreadTs,
-} from "../../../memory/slack-thread-store.js";
+} from "../../../persistence/delivery-status.js";
 import { resolveGuardianName } from "../../../prompts/user-reference.js";
 import { getLogger } from "../../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";

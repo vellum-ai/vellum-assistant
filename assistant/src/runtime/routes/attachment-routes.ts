@@ -20,12 +20,12 @@ import {
   uploadAttachment,
   uploadAttachmentFromBytes,
   uploadFileBackedAttachment,
-} from "../../memory/attachments-store.js";
+} from "../../persistence/attachments-store.js";
 import {
   AttachmentUploadError,
   getFilePathForAttachment,
   validateAttachmentUpload,
-} from "../../memory/attachments-store.js";
+} from "../../persistence/attachments-store.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import {

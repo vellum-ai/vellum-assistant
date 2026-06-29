@@ -1,11 +1,11 @@
 import { describe, expect, mock, test } from "bun:test";
 
-import type { AppDefinition } from "../memory/app-store.js";
+import type { AppDefinition } from "../apps/app-store.js";
 
 let appsByConversation: AppDefinition[] = [];
 
-const realStore = await import("../memory/app-store.js");
-mock.module("../memory/app-store.js", () => ({
+const realStore = await import("../apps/app-store.js");
+mock.module("../apps/app-store.js", () => ({
   ...realStore,
   listAppsByConversation: (_conversationId: string) => appsByConversation,
 }));

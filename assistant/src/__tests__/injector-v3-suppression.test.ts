@@ -35,8 +35,8 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { wrapMemorySpotlightBlock } from "../memory/memory-marker.js";
 import { INJECTION_HEADER } from "../memory/v2/injection.js";
-import { V3_CARDS_INJECTION_HEADER } from "../plugins/defaults/memory-v3-shadow/render-injection.js";
-import { MEMORY_V3_COMMIT_META_KEY } from "../plugins/defaults/memory-v3-shadow/types.js";
+import { V3_CARDS_INJECTION_HEADER } from "../plugins/defaults/memory/v3/render-injection.js";
+import { MEMORY_V3_COMMIT_META_KEY } from "../plugins/defaults/memory/v3/types.js";
 import type {
   InjectionBlock,
   Injector,
@@ -44,12 +44,14 @@ import type {
 } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
 
-// Drive the suppression branch by controlling the static injector chain that
+// Drive the suppression branch by controlling the injector chain that
 // `applyRuntimeInjections` walks. The slot is mutated per-test to stand in for
 // the memory-v3 injectors producing (or not producing) blocks.
 const injectorChainSlot: Injector[] = [];
-mock.module("../plugins/defaults/memory-retrieval/injector-chain.js", () => ({
-  getInjectorChain: () => injectorChainSlot,
+const realInjectorRegistry = await import("../plugins/injector-registry.js");
+mock.module("../plugins/injector-registry.js", () => ({
+  ...realInjectorRegistry,
+  getRegisteredInjectors: () => injectorChainSlot,
 }));
 
 // `applyRuntimeInjections` reads the v3-live gate (`config.memory.v3.live`)

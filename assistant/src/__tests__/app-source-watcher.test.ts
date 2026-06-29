@@ -44,7 +44,7 @@ mock.module("node:fs", () => {
   };
 });
 
-mock.module("../memory/app-store.js", () => ({
+mock.module("../apps/app-store.js", () => ({
   getAppsDir: mock(() => TEST_APPS_DIR),
   resolveAppIdByDirName: mock(
     (dirName: string) => testDirNameMap.get(dirName) ?? null,

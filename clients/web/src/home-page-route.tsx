@@ -1,5 +1,5 @@
-import { useEffect, useMemo } from "react";
-import { useNavigate } from "react-router";
+import { useCallback, useEffect, useMemo } from "react";
+import { useLocation, useNavigate, useParams } from "react-router";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
@@ -20,7 +20,33 @@ import { Typography } from "@vellumai/design-library";
 
 export function HomePageRoute() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { scheduleId } = useParams();
   const assistantId = useActiveAssistantId();
+
+  // The Activity page is one component served at two URL families: `/home`
+  // (Notifications) and `/schedules[/:id]` (Schedules). Derive the active tab
+  // and focused schedule from the URL so both are bookmarkable and the back
+  // button works, then navigate on tab / selection changes below.
+  const onSchedulesRoute =
+    location.pathname === routes.schedules.root ||
+    location.pathname.startsWith(`${routes.schedules.root}/`);
+  const activeTab = onSchedulesRoute ? "schedules" : "notifications";
+  const routeScheduleId = scheduleId ?? null;
+
+  const handleTabChange = useCallback(
+    (tab: "schedules" | "notifications") => {
+      navigate(tab === "schedules" ? routes.schedules.root : routes.home);
+    },
+    [navigate],
+  );
+
+  const handleSelectScheduleId = useCallback(
+    (id: string | null) => {
+      navigate(id ? routes.schedules.detail(id) : routes.schedules.root);
+    },
+    [navigate],
+  );
   const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
   const isMobile = useIsMobile();
   const { conversations: foregroundConversations } =
@@ -64,6 +90,10 @@ export function HomePageRoute() {
     <HomePage
       assistantId={assistantId}
       validConversationIds={validConversationIds}
+      activeTab={activeTab}
+      onTabChange={handleTabChange}
+      routeScheduleId={routeScheduleId}
+      onSelectScheduleId={handleSelectScheduleId}
       onStartNewChat={() => {
         useViewerStore.getState().setMainView("chat");
         const draftConversationId = createDraftConversationId();

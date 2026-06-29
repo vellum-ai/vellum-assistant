@@ -19,15 +19,15 @@ import {
 import {
   getAttachmentsByIds,
   getSourcePathsForAttachments,
-} from "../memory/attachments-store.js";
+} from "../persistence/attachments-store.js";
 import {
   addMessage,
   getConversation,
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
-} from "../memory/conversation-crud.js";
-import { updateMetaFile } from "../memory/conversation-disk-view.js";
+} from "../persistence/conversation-crud.js";
+import { updateMetaFile } from "../persistence/conversation-disk-view.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";

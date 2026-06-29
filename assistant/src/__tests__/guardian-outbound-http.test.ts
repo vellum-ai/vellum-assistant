@@ -93,16 +93,15 @@ mock.module("../contacts/guardian-delivery-reader.js", () => ({
   guardianForChannel: (
     list: Array<{ channelType: string; status: string }>,
     channelType: string,
-  ) =>
-    list.find((g) => g.channelType === channelType && g.status === "active"),
+  ) => list.find((g) => g.channelType === channelType && g.status === "active"),
 }));
 
 // ---------------------------------------------------------------------------
 // Now import modules under test (after mocks are in place)
 // ---------------------------------------------------------------------------
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { updateSessionDelivery } from "../runtime/channel-verification-service.js";
 import {
   handleCancelVerificationSession,

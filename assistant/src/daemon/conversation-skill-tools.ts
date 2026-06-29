@@ -16,7 +16,6 @@ import { getConfig } from "../config/loader.js";
 import { skillFlagKey } from "../config/skill-state.js";
 import type { SkillSummary, SkillToolManifest } from "../config/skills.js";
 import { loadSkillCatalog } from "../config/skills.js";
-import { recordSkillLoadedEvent } from "../memory/skill-loaded-events-store.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import type { ActiveSkillEntry } from "../skills/active-skill-tools.js";
 import { deriveActiveSkills } from "../skills/active-skill-tools.js";
@@ -24,6 +23,7 @@ import { getCachedCatalogSync } from "../skills/catalog-cache.js";
 import { readInstallMeta, touchSkillLastUsed } from "../skills/install-meta.js";
 import { parseToolManifestFile } from "../skills/tool-manifest.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
+import { recordSkillLoadedEvent } from "../telemetry/skill-loaded-events-store.js";
 import {
   getTool,
   getToolOwner,

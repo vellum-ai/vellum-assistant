@@ -18,8 +18,8 @@ mock.module("../contacts/guardian-delivery-reader.js", () => ({
 }));
 
 import { findContactByAddress } from "../contacts/contact-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { healGuardianBindingDrift } from "../runtime/guardian-vellum-migration.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
@@ -98,7 +98,10 @@ describe("healGuardianBindingDrift", () => {
     // Gateway address matches the local channel address so the heal can resolve
     // its local write target; only the gateway principal has drifted.
     mockGuardians = [
-      gatewayGuardian("vellum-principal-gateway", "vellum-principal-stale-local"),
+      gatewayGuardian(
+        "vellum-principal-gateway",
+        "vellum-principal-stale-local",
+      ),
     ];
 
     const healed = await healGuardianBindingDrift("vellum-principal-jwt");

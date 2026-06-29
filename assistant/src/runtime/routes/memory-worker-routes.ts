@@ -22,7 +22,7 @@ import {
   probeMemoryWorker,
   spawnMemoryWorkerProcess,
   stopMemoryWorkerProcess,
-} from "../../memory/worker-control.js";
+} from "../../persistence/worker-control.js";
 import { getLogger } from "../../util/logger.js";
 import { getMemoryWorkerPidPath } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";

@@ -363,14 +363,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "memory-v3-shadow",
-      "scope": "assistant",
-      "key": "memory-v3-shadow",
-      "label": "Memory v3 Shadow",
-      "description": "When on, runs the new memory-v3 topic-tree retrieval alongside v2 in shadow mode: logs selections to memory_v3_selections, does not modify injected context. Off by default.",
-      "defaultEnabled": false
-    },
-    {
       "id": "self-intro-greeting",
       "scope": "both",
       "key": "self-intro-greeting",
@@ -408,6 +400,14 @@
       "key": "os-beta",
       "label": "OS Beta",
       "description": "Enable the OS Beta model profile (MiniMax M3 / Together) in the assistant's model profile selection.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "new-thread-suggestions",
+      "scope": "client",
+      "key": "new-thread-suggestions",
+      "label": "New-thread suggestions library",
+      "description": "Replace the empty-state conversation-starter chips with the scrollable, categorized suggestions library and detail drawer (currently mocked data).",
       "defaultEnabled": false
     }
   ]

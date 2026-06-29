@@ -23,19 +23,15 @@ mock.module("../../ipc/gateway-client.js", () => ({
   ipcCallPersistent: ipcCallPersistentMock,
 }));
 
-const { getGuardianContactIds } = await import(
-  "../guardian-contact-reader.js"
-);
-
-const { emitContactChange } = await import("../contact-events.js");
+const { getGuardianContactIds, invalidateGuardianContactCache } =
+  await import("../guardian-contact-reader.js");
 
 beforeEach(() => {
   ipcCallPersistentMock.mockClear();
   ipcError = undefined;
   ipcResult = { ok: true, guardianIds: [] };
-  // Clear any cache carried over from a prior test by emitting a contact change
-  // (the in-file onContactChange subscription drops the cache).
-  emitContactChange();
+  // Clear any cache carried over from a prior test.
+  invalidateGuardianContactCache();
 });
 
 describe("getGuardianContactIds", () => {
@@ -82,10 +78,10 @@ describe("getGuardianContactIds", () => {
     expect(ipcCallPersistentMock).toHaveBeenCalledTimes(2);
   });
 
-  test("a contact-change event clears the cache (forces a re-fetch)", async () => {
+  test("invalidating the cache forces a re-fetch", async () => {
     ipcResult = { ok: true, guardianIds: ["g1"] };
     await getGuardianContactIds();
-    emitContactChange();
+    invalidateGuardianContactCache();
     await getGuardianContactIds();
 
     expect(ipcCallPersistentMock).toHaveBeenCalledTimes(2);

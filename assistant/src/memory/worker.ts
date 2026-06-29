@@ -13,9 +13,10 @@
 import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 
 import { getConfig } from "../config/loader.js";
+import { registerMemoryJobHandlers } from "../jobs/register-job-handlers.js";
+import { startInProcessMemoryJobsWorker } from "../persistence/jobs-worker.js";
 import { getLogger } from "../util/logger.js";
 import { getMemoryWorkerPidPath } from "../util/platform.js";
-import { startInProcessMemoryJobsWorker } from "./jobs-worker.js";
 
 const log = getLogger("memory-worker-process");
 
@@ -41,6 +42,7 @@ async function main(): Promise<void> {
   writeFileSync(pidPath, String(process.pid), { flag: "w" });
   log.info({ pid: process.pid, pidPath }, "Memory worker process started");
 
+  registerMemoryJobHandlers();
   const worker = startInProcessMemoryJobsWorker();
 
   // Keep-alive: the worker's setTimeout timers are unref'd, so without

@@ -1,14 +1,14 @@
 import { readSlackMetadata } from "../../../messaging/providers/slack/message-metadata.js";
+import { AUTO_ANALYSIS_SOURCE } from "../../../persistence/auto-analysis-constants.js";
+import {
+  buildFtsMatchQuery,
+  buildRecallEvidenceExcerpt,
+} from "../../../persistence/conversation-queries.js";
+import { rawAll } from "../../../persistence/raw-query.js";
 import {
   parseExternalContentEnvelope,
   wrapUntrustedContent,
 } from "../../../security/untrusted-content.js";
-import { AUTO_ANALYSIS_SOURCE } from "../../auto-analysis-guard.js";
-import {
-  buildFtsMatchQuery,
-  buildRecallEvidenceExcerpt,
-} from "../../conversation-queries.js";
-import { rawAll } from "../../raw-query.js";
 import type { RecallSearchContext, RecallSearchResult } from "../types.js";
 
 const SUBAGENT_SOURCE = "subagent";

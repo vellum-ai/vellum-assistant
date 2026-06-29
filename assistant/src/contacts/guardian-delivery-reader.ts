@@ -10,8 +10,8 @@
  * those paths off the IPC, results are cached behind a minutes-scale TTL and
  * coalesced single-flight so a cold cache storms the gateway at most once.
  *
- * Freshness comes from two sources: the {@link invalidateGuardianDeliveryCache}
- * subscription to `onContactChange` (contact mutations clear the cache), and
+ * Freshness comes from two sources: {@link invalidateGuardianDeliveryCache},
+ * called on contact mutations to clear the cache, and
  * {@link getGuardianDeliveryFresh} reads on existence guards (gateway-side
  * binding writes don't invalidate the daemon cache, so those paths read fresh).
  *
@@ -26,7 +26,6 @@ import {
 } from "@vellumai/gateway-client";
 
 import { ipcCall } from "../ipc/gateway-client.js";
-import { onContactChange } from "./contact-events.js";
 
 // Short IPC timeout so the read resolves promptly rather than stalling a hot
 // path on a gateway that accepts the socket but hangs.
@@ -60,9 +59,9 @@ function cacheKey(channelTypes?: string[]): string {
   return [...channelTypes].sort().join(",");
 }
 
-async function fetchGuardianDelivery(
-  input: { channelTypes?: string[] },
-): Promise<GuardianDelivery[] | null> {
+async function fetchGuardianDelivery(input: {
+  channelTypes?: string[];
+}): Promise<GuardianDelivery[] | null> {
   try {
     const result = await ipcCall(
       "resolve_guardian_delivery",
@@ -81,9 +80,10 @@ async function fetchGuardianDelivery(
 // Shared fetch path for both the cached and fresh public surfaces. When
 // `forceRefresh` is set the cached entry is bypassed; the read is still
 // single-flight and still populates the cache with the fresh result.
-async function readGuardianDelivery(
-  input: { channelTypes?: string[]; forceRefresh?: boolean },
-): Promise<GuardianDelivery[] | null> {
+async function readGuardianDelivery(input: {
+  channelTypes?: string[];
+  forceRefresh?: boolean;
+}): Promise<GuardianDelivery[] | null> {
   const key = cacheKey(input.channelTypes);
 
   if (!input.forceRefresh) {
@@ -131,9 +131,9 @@ async function readGuardianDelivery(
  * To force an uncached read, call {@link getGuardianDeliveryFresh} — the only
  * public fresh-read entry point.
  */
-export async function getGuardianDelivery(
-  input?: { channelTypes?: string[] },
-): Promise<GuardianDelivery[] | null> {
+export async function getGuardianDelivery(input?: {
+  channelTypes?: string[];
+}): Promise<GuardianDelivery[] | null> {
   return readGuardianDelivery({ channelTypes: input?.channelTypes });
 }
 
@@ -146,9 +146,9 @@ export async function getGuardianDelivery(
  * gateway-owned principal the async paths land on. A cold/expired return lets
  * the caller fall back to the local store as before.
  */
-export function peekCachedGuardianDelivery(
-  input?: { channelTypes?: string[] },
-): GuardianDelivery[] | undefined {
+export function peekCachedGuardianDelivery(input?: {
+  channelTypes?: string[];
+}): GuardianDelivery[] | undefined {
   const cached = cache.get(cacheKey(input?.channelTypes));
   if (!cached) return undefined;
   if (Date.now() - cached.fetchedAt >= GUARDIAN_DELIVERY_CACHE_TTL_MS) {
@@ -162,9 +162,9 @@ export function peekCachedGuardianDelivery(
  * fresh because gateway-side binding writes don't invalidate the daemon cache.
  * Still single-flight, and still populates the cache with the fresh result.
  */
-export async function getGuardianDeliveryFresh(
-  input?: { channelTypes?: string[] },
-): Promise<GuardianDelivery[] | null> {
+export async function getGuardianDeliveryFresh(input?: {
+  channelTypes?: string[];
+}): Promise<GuardianDelivery[] | null> {
   return readGuardianDelivery({
     channelTypes: input?.channelTypes,
     forceRefresh: true,
@@ -172,17 +172,15 @@ export async function getGuardianDeliveryFresh(
 }
 
 /**
- * Clear ALL cached guardian deliveries. Subscribed to `onContactChange` so
- * contact mutations refetch on the next read; also exported for any caller that
- * wants to invalidate explicitly.
+ * Clear ALL cached guardian deliveries so contact mutations refetch on the next
+ * read. Called by {@link notifyContactsChanged} after a contact write, and
+ * available to any caller that wants to invalidate explicitly.
  */
 export function invalidateGuardianDeliveryCache(): void {
   cacheGeneration += 1;
   cache.clear();
   inFlight.clear();
 }
-
-onContactChange(invalidateGuardianDeliveryCache);
 
 /** First active guardian delivery for the given channel type, if any. */
 export function guardianForChannel(

@@ -73,8 +73,8 @@ mock.module("../runtime/approval-message-composer.js", () => ({
 }));
 
 import { findContactChannel } from "../contacts/contact-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   createOutboundSession,
   validateAndConsumeVerification,
