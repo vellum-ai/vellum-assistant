@@ -71,7 +71,7 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
     getLocalBool(TIP_STORAGE_KEY, false),
   );
 
-  const { items, isLoading, isError, isFetching, catalogError } =
+  const { items, isLoading, catalogLoading, isError, isFetching, catalogError } =
     usePluginsList(assistantId);
 
   const invalidate = useCallback(
@@ -207,7 +207,13 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
         ) : isError ? (
           <ErrorState />
         ) : visibleItems.length === 0 ? (
-          <EmptyState filter={filter} />
+          // Don't flash an "empty" state for available plugins while the
+          // catalog is still loading (installed plugins already render above).
+          catalogLoading && filter !== "installed" ? (
+            <LoadingState />
+          ) : (
+            <EmptyState filter={filter} />
+          )
         ) : (
           <ul className="flex flex-col gap-2">
             {visibleItems.map((item) => (

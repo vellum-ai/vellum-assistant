@@ -18,8 +18,13 @@ const CATALOG_STALE_TIME_MS = 5 * 60 * 1000; // 5 minutes
 export interface UsePluginsListResult {
   /** Installed + catalog merged into one deduped, sorted list. */
   items: PluginListItem[];
-  /** True until both underlying queries have first resolved. */
+  /**
+   * True until the installed list first resolves. The catalog loads in the
+   * background and must not block the installed plugins from rendering.
+   */
   isLoading: boolean;
+  /** True until the catalog (available-to-install) first resolves. */
+  catalogLoading: boolean;
   /** Fatal: the installed list failed to load. Catalog failures degrade. */
   isError: boolean;
   /** True while either underlying query is fetching (incl. background). */
@@ -87,7 +92,9 @@ export function usePluginsList(assistantId: string): UsePluginsListResult {
 
   return {
     items,
-    isLoading: installedQuery.isLoading || catalogQuery.isLoading,
+    // Installed-only: a slow/retrying catalog must not hide installed plugins.
+    isLoading: installedQuery.isLoading,
+    catalogLoading: catalogQuery.isLoading,
     // Only the installed failure is fatal; a catalog failure degrades.
     isError: installedQuery.isError,
     isFetching: installedQuery.isFetching || catalogQuery.isFetching,
