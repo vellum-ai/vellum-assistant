@@ -93,6 +93,7 @@ import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import { runWorkspaceMigrations } from "../workspace/migrations/runner.js";
 import { startAppSourceWatcher } from "./app-source-watcher.js";
 import { startConfigWatcher } from "./config-watcher.js";
+import { startConversationEvictor } from "./conversation-store.js";
 import { writePid } from "./daemon-control.js";
 import {
   evaluateDiskPressureNow,
@@ -590,6 +591,10 @@ export async function runDaemon(): Promise<void> {
   const server = new DaemonServer();
   await server.start();
   log.info("Daemon startup: DaemonServer started");
+
+  // Start the idle/LRU/memory-pressure sweep over the in-memory conversation
+  // pool.
+  startConversationEvictor();
 
   // Watch workspace files (config, prompts, skills, sounds, avatar) and react
   // to changes: evict conversations so the next turn rebuilds against the new

@@ -11,12 +11,7 @@ import { getSubagentManager } from "../subagent/index.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
 import { Conversation } from "./conversation.js";
-import { ConversationEvictor } from "./conversation-evictor.js";
-import { getConversationMap } from "./conversation-registry.js";
-import {
-  getOrCreateConversation as getOrCreateActiveConversation,
-  initConversationLifecycle,
-} from "./conversation-store.js";
+import { getOrCreateConversation as getOrCreateActiveConversation } from "./conversation-store.js";
 import { parseIdentityFields } from "./handlers/identity.js";
 import type { ConversationCreateOptions } from "./handlers/shared.js";
 
@@ -37,29 +32,6 @@ function readPackageVersion(): string | undefined {
 const daemonVersion = readPackageVersion();
 
 export class DaemonServer {
-  private sharedRequestTimestamps: number[] = [];
-  private evictor: ConversationEvictor;
-
-  constructor() {
-    this.evictor = new ConversationEvictor(getConversationMap());
-    getSubagentManager().sharedRequestTimestamps = this.sharedRequestTimestamps;
-
-    initConversationLifecycle({
-      evictor: this.evictor,
-      sharedRequestTimestamps: this.sharedRequestTimestamps,
-    });
-
-    this.evictor.onEvict = (conversationId: string) => {
-      getSubagentManager().abortAllForParent(conversationId);
-    };
-    this.evictor.shouldProtect = (conversationId: string) => {
-      const children = getSubagentManager().getChildrenOf(conversationId);
-      return children.some(
-        (c) => c.status === "running" || c.status === "pending",
-      );
-    };
-  }
-
   /** Best-effort sync of the IDENTITY.md name to the platform record. */
   private syncIdentityToPlatform(): void {
     try {
@@ -82,8 +54,6 @@ export class DaemonServer {
     const config = getConfig();
     await initializeProviders(config);
 
-    this.evictor.start();
-
     this.syncIdentityToPlatform();
 
     log.info("DaemonServer started (HTTP-only mode)");
@@ -92,7 +62,6 @@ export class DaemonServer {
   async stop(): Promise<void> {
     getSubagentManager().disposeAll();
     disposeAcpSessionManager();
-    this.evictor.stop();
 
     log.info("Daemon server stopped");
   }
