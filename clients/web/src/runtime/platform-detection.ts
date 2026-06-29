@@ -90,15 +90,21 @@ export function isMacOSBrowser(): boolean {
 export type ClientInterfaceId = "macos" | "ios" | "web";
 
 /**
- * Resolve the interface id for this client at runtime.
+ * Detect the client's OS surface ("web" | "ios" | "macos") at runtime.
  *
- * This single helper is the source of truth for both the message body's
- * `interface` field (`domains/chat/api/messages.ts`) and the
- * `X-Vellum-Interface-Id` registration header
- * (`lib/telemetry/client-identity.ts`) so the two can never disagree. The
- * assistant turns the body value into the per-turn `client_os` context
- * (`assistant/src/daemon/conversation-runtime-assembly.ts`) and uses the
- * header to route interface-scoped SSE events.
+ * This feeds the message body's `clientOs` field ONLY
+ * (`domains/chat/api/messages.ts`), which the assistant renders as the
+ * per-turn `client_os` context line
+ * (`assistant/src/daemon/conversation-runtime-assembly.ts`).
+ *
+ * It must NOT drive the message body's `interface` field or the
+ * `X-Vellum-Interface-Id` registration header — those are the *transport*
+ * surface and are intentionally hardcoded to `"web"` (the web/iOS/macOS apps
+ * all run this one renderer = one transport). The daemon keys host-proxy and
+ * transport capabilities off that transport interface, so reporting the OS
+ * there would mis-tag a renderer turn as a host-proxy transport. Keep OS
+ * detection on `clientOs` only; do not re-couple it to interface/header
+ * identity.
  *
  * Order matters: the Electron macOS shell also satisfies the desktop-browser
  * heuristics, so `isElectron()` is checked first or macOS would be
