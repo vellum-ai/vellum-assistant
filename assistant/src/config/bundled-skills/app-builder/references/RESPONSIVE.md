@@ -6,7 +6,7 @@ Every app must work across phone (~360px) to desktop (~1400px+).
 
 The conversation context's `<turn_context>` block carries a `client_os:` field — the OS the user is on. (Key layout off this, not the sibling `interface:` field: `interface:` is the transport surface and is always `web` for the web/iOS/macOS apps.)
 
-**If `client_os: ios`** (or any future mobile-web / android identifier):
+**If `client_os: ios` or `android`** (any mobile-web surface):
 → Mobile-first build. Design the narrow viewport first, enhance upward.
 
 **If `client_os: macos` or `web`**:
@@ -44,7 +44,7 @@ The conversation context's `<turn_context>` block carries a `client_os:` field �
 
 ---
 
-## Mobile-first priorities (`client_os: ios`)
+## Mobile-first priorities (`client_os: ios` / `android`)
 
 - Default body text to `--v-font-size-lg` (17px), not `--v-font-size-base` (14px).
 - Bump default vertical rhythm one step (e.g. `--v-spacing-md` → `--v-spacing-lg`).

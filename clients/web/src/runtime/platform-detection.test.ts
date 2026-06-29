@@ -1,14 +1,15 @@
 /**
- * Unit tests for `detectInterfaceId`.
+ * Unit tests for `detectClientOs`.
  *
  * The same `clients/web` bundle ships to a plain browser, the Capacitor iOS
- * shell, and the Electron macOS app, so the interface id the assistant sees
- * is decided entirely at runtime. These tests pin each host → interface id
- * mapping and the precedence between overlapping signals.
+ * shell, and the Electron macOS app, so the OS surface the assistant sees is
+ * decided entirely at runtime. These tests pin each host → OS mapping and the
+ * precedence between overlapping signals.
  *
  * `isElectron()` and `isNativePlatform()` are mocked (the flavor.test.ts
- * pattern); the UA-based `isIOSBrowser()` lives in the module under test, so
- * the iOS-browser case is driven by overriding `navigator.userAgent`.
+ * pattern); the UA-based `isIOSBrowser()` / `isAndroidBrowser()` live in the
+ * module under test, so the browser cases are driven by overriding
+ * `navigator.userAgent`.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -21,12 +22,15 @@ mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => nativePlatform,
 }));
 
-const { detectInterfaceId } = await import("@/runtime/platform-detection");
+const { detectClientOs } = await import("@/runtime/platform-detection");
 
 const ORIGINAL_UA = navigator.userAgent;
 const IPHONE_UA =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) " +
   "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
+const ANDROID_UA =
+  "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 " +
+  "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
 
 function setUserAgent(ua: string): void {
   Object.defineProperty(navigator, "userAgent", {
@@ -41,24 +45,29 @@ afterEach(() => {
   setUserAgent(ORIGINAL_UA);
 });
 
-describe("detectInterfaceId", () => {
+describe("detectClientOs", () => {
   test("returns 'macos' inside the Electron desktop shell", () => {
     electron = true;
-    expect(detectInterfaceId()).toBe("macos");
+    expect(detectClientOs()).toBe("macos");
   });
 
   test("returns 'ios' inside the Capacitor native shell", () => {
     nativePlatform = true;
-    expect(detectInterfaceId()).toBe("ios");
+    expect(detectClientOs()).toBe("ios");
   });
 
   test("returns 'ios' for a mobile iOS browser when Capacitor is absent", () => {
     setUserAgent(IPHONE_UA);
-    expect(detectInterfaceId()).toBe("ios");
+    expect(detectClientOs()).toBe("ios");
+  });
+
+  test("returns 'android' for an Android phone browser", () => {
+    setUserAgent(ANDROID_UA);
+    expect(detectClientOs()).toBe("android");
   });
 
   test("returns 'web' for a plain desktop browser", () => {
-    expect(detectInterfaceId()).toBe("web");
+    expect(detectClientOs()).toBe("web");
   });
 
   test("prefers 'macos' when both the Electron and iOS signals are present", () => {
@@ -68,6 +77,6 @@ describe("detectInterfaceId", () => {
     electron = true;
     nativePlatform = true;
     setUserAgent(IPHONE_UA);
-    expect(detectInterfaceId()).toBe("macos");
+    expect(detectClientOs()).toBe("macos");
   });
 });

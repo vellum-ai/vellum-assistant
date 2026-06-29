@@ -72,7 +72,7 @@ All new apps use `formatVersion: 2` (multi-file TSX). No root-level `index.html`
 
 ## Responsive & design system
 
-Every app works phone (~360px) to desktop (~1400px+). The `<turn_context>` block carries a `client_os:` field (the OS the user is on): `ios` → mobile-first (design narrow first, body 17px); `macos`/`web` → desktop-first (multi-column, body 14px); absent → desktop-first unless the request implies phone use ("for my iPhone"). (The sibling `interface:` field is the transport surface — always `web` for the apps — so key layout off `client_os`, not `interface`.)
+Every app works phone (~360px) to desktop (~1400px+). The `<turn_context>` block carries a `client_os:` field (the OS the user is on): `ios`/`android` → mobile-first (design narrow first, body 17px); `macos`/`web` → desktop-first (multi-column, body 14px); absent → desktop-first unless the request implies phone use ("for my iPhone"). (The sibling `interface:` field is the transport surface — always `web` for the apps — so key layout off `client_os`, not `interface`.)
 
 **Universal baseline — every build, regardless of client_os:**
 - Viewport meta: `width=device-width, initial-scale=1, viewport-fit=cover`. Never `user-scalable=no` (blocks accessibility zoom).
@@ -82,7 +82,7 @@ Every app works phone (~360px) to desktop (~1400px+). The `<turn_context>` block
 - Interactive elements ≥44×44pt (`.v-button` already complies; custom controls set `min-height: 44px`). Gate hover behind `@media (hover: hover)`.
 - Fluid widths only — `%`, `fr`, `minmax`, `clamp()`, never fixed `px` on containers. Size chart containers in `vw`/`%`. At narrow widths, collapse tables into stacked label-value cards.
 
-**Mobile-first extras (`client_os: ios`):** body `--v-font-size-lg` (17px); one column by default, multi-column only above `@media (min-width: 720px)`; bottom-anchor the primary action (`position: sticky; bottom: env(safe-area-inset-bottom)`); bottom sheets instead of side modals.
+**Mobile-first extras (`client_os: ios` / `android`):** body `--v-font-size-lg` (17px); one column by default, multi-column only above `@media (min-width: 720px)`; bottom-anchor the primary action (`position: sticky; bottom: env(safe-area-inset-bottom)`); bottom sheets instead of side modals.
 
 Full detail when reachable: `{baseDir}/references/RESPONSIVE.md`.
 

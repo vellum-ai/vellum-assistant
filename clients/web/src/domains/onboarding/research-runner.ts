@@ -38,7 +38,7 @@ import type {
   PluginsSearchGetResponses,
 } from "@/generated/daemon/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
-import { detectInterfaceId } from "@/runtime/platform-detection";
+import { detectClientOs } from "@/runtime/platform-detection";
 import {
   buildResearchPrompt,
   type AvailableCapability,
@@ -420,7 +420,7 @@ export function useResearchRunner(): UseResearchRunner {
               // for this onboarding side conversation too, without affecting
               // transport/host-proxy gating (mirrors `chat/api/messages.ts`).
               interface: "web",
-              clientOs: detectInterfaceId(),
+              clientOs: detectClientOs(),
               clientMessageId: crypto.randomUUID(),
             };
             // Carry the browser timezone so any time-relative reasoning resolves

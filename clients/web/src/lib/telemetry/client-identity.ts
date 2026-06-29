@@ -47,10 +47,10 @@ export function getClientRegistrationHeaders(): Record<string, string> {
     // reported "macos", there would be two same-user "macos" clients
     // advertising host capabilities, and host-tool auto-resolution would
     // fail as ambiguous (`pickSameUserAutoResolve`). Platform awareness for
-    // the assistant flows through the message *body* `interface` field
-    // instead (see `detectInterfaceId` in `domains/chat/api/messages.ts`),
-    // which only feeds the per-turn `client_os` context and has no bearing
-    // on subscriber capabilities.
+    // the assistant flows through the message body's `clientOs` field instead
+    // (see `detectClientOs` in `domains/chat/api/messages.ts`), which only
+    // feeds the per-turn `client_os` context and has no bearing on subscriber
+    // capabilities.
     "X-Vellum-Interface-Id": "web",
   };
 }

@@ -78,19 +78,35 @@ export function isMacOSBrowser(): boolean {
 }
 
 /**
- * The canonical `InterfaceId` values this web bundle can report.
+ * Returns true when the current browser is running on Android.
  *
- * The same `clients/web` bundle is loaded by three hosts — a plain browser,
- * the Capacitor iOS shell, and the Electron macOS app — so the platform the
- * assistant sees is decided at runtime, not by which build is shipped. The
- * other backend interface ids (`cli`, `telegram`, `phone`, …) originate from
- * non-browser channels and are never produced here. Mirrors the backend
- * `InterfaceId` union in `gateway/src/channels/types.ts`.
+ * Android user agents always carry the literal "Android" token (Chrome,
+ * Samsung Internet, Firefox, WebView, etc.), so a substring check is the
+ * reliable signal. Used so Android phone-web gets the same mobile-first
+ * treatment as iOS phone-web.
+ *
+ * Always returns `false` during SSR (no `navigator`).
  */
-export type ClientInterfaceId = "macos" | "ios" | "web";
+export function isAndroidBrowser(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /Android/i.test(navigator.userAgent);
+}
 
 /**
- * Detect the client's OS surface ("web" | "ios" | "macos") at runtime.
+ * The OS surfaces this web bundle can report as `clientOs`.
+ *
+ * The same `clients/web` bundle runs in a plain browser, the Capacitor iOS
+ * shell, and the Electron macOS app, so the OS is decided at runtime, not by
+ * which build is shipped. This is NOT the backend interface vocabulary —
+ * `clientOs` describes the device OS (`android` has no transport), so it is a
+ * deliberately separate set from `InterfaceId` (mirrors the daemon's
+ * `ClientOs` in `assistant/src/channels/types.ts`).
+ */
+export type ClientOs = "macos" | "ios" | "android" | "web";
+
+/**
+ * Detect the client's OS surface ("web" | "ios" | "macos" | "android") at
+ * runtime.
  *
  * This feeds the message body's `clientOs` field ONLY
  * (`domains/chat/api/messages.ts`), which the assistant renders as the
@@ -110,14 +126,16 @@ export type ClientInterfaceId = "macos" | "ios" | "web";
  * heuristics, so `isElectron()` is checked first or macOS would be
  * misreported as `web`. The Capacitor iOS shell (`isNativePlatform()`) is
  * checked alongside the UA-based `isIOSBrowser()` so both the native wrapper
- * and a mobile-Safari tab report `ios`. Everything else is `web`.
+ * and a mobile-Safari tab report `ios`; Android phone-web reports `android`.
+ * Everything else is `web`.
  *
  * Safe to call before hydration: each underlying helper falls through to
  * `false` when `window`/`navigator` are undefined, so SSR resolves to `web`.
  */
-export function detectInterfaceId(): ClientInterfaceId {
+export function detectClientOs(): ClientOs {
   if (isElectron()) return "macos";
   if (isNativePlatform() || isIOSBrowser()) return "ios";
+  if (isAndroidBrowser()) return "android";
   return "web";
 }
 

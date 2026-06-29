@@ -17762,8 +17762,8 @@ paths:
                   type: string
                 clientOs:
                   description:
-                    Client OS surface ("web" | "ios" | "macos"), reported separately from `interface`. Drives the per-turn
-                    `client_os` context only; does not affect transport/host-proxy capabilities.
+                    Client OS surface ("web" | "ios" | "macos" | "android"), reported separately from `interface`. Drives the
+                    per-turn `client_os` context only; does not affect transport/host-proxy capabilities.
                   type: string
                 clientMessageId:
                   type: string
