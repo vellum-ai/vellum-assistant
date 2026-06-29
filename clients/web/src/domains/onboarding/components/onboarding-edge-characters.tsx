@@ -27,12 +27,14 @@ import {
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 
-// Per-slot depth pass, indexed by edge slot (0–10). A slight size variation so
-// the cast isn't a uniform ring, and reduced opacity on a few so some sit back
-// for depth. Deterministic by slot — never jumps between renders; slots past
-// the table fall back to full size / full opacity.
-const SLOT_SCALE = [1.12, 0.85, 1.0, 0.9, 1.14, 0.82, 1.06, 0.92, 1.1, 0.88, 1.0];
-const SLOT_OPACITY = [1, 0.5, 1, 0.7, 1, 0.55, 0.85, 0.65, 1, 0.75, 0.6];
+// Per-slot depth pass, indexed by edge slot (0–10). Size varies so the cast
+// isn't a uniform ring, and opacity is layered (a few near-full, the rest
+// pushed back) so several read as background. Slots 9 & 10 are the bottom-
+// centre pair — kept small and dim so they don't crowd the Continue button.
+// Deterministic by slot — never jumps between renders; slots past the table
+// fall back to full size / full opacity.
+const SLOT_SCALE = [1.12, 0.85, 1.0, 0.9, 1.14, 0.82, 1.06, 0.92, 1.1, 0.62, 0.6];
+const SLOT_OPACITY = [0.9, 0.4, 1, 0.55, 0.85, 0.45, 0.65, 0.5, 0.95, 0.45, 0.4];
 
 function useViewport() {
   const [size, setSize] = useState(() => ({
@@ -99,13 +101,16 @@ export function OnboardingEdgeCharacters() {
               top: p.y - avatarSize / 2,
               width: avatarSize,
               height: avatarSize,
-              opacity,
               animation: reduce
                 ? undefined
                 : `character-pop-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) ${0.1 + i * 0.05}s both`,
             }}
           >
-            <div style={{ transform: `rotate(${rotation}deg)` }}>
+            {/* Opacity sits on this inner wrapper, not the animated parent: the
+                `character-pop-in` keyframes animate opacity 0→1 with `both`
+                fill, which would otherwise override an inline opacity on the
+                same element and pin every avatar to full opacity. */}
+            <div style={{ opacity, transform: `rotate(${rotation}deg)` }}>
               <AnimatedAvatar
                 components={components}
                 traits={traits}

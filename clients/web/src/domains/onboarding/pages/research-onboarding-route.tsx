@@ -24,6 +24,7 @@ import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAuthStore } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { routes } from "@/utils/routes";
+import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import { DEFAULT_GROUP_ID } from "@/domains/onboarding/prechat-names";
 import {
   setPendingAssistantName,
@@ -91,6 +92,10 @@ function researchTitleFor(values: ResearchOnboardingValues): string {
   const first = values.firstName.trim();
   return first ? `Getting to know ${first}` : "Getting to know you";
 }
+
+// Warm the (~48 kB) bundled-avatar chunk the instant this lazy route loads, so
+// the edge cast is ready as the form paints instead of popping in a beat later.
+preloadBundledAvatarComponents();
 
 export function ResearchOnboardingRoute() {
   const navigate = useNavigate();
