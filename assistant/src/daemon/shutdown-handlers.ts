@@ -23,6 +23,7 @@ import {
   stopWorkspaceHeartbeatService,
 } from "../workspace/heartbeat-service.js";
 import { stopAppSourceWatcher } from "./app-source-watcher.js";
+import { getConfigWatcher } from "./config-watcher.js";
 import { stopConversations } from "./conversation-store.js";
 import { cleanupPidFile } from "./daemon-control.js";
 import { stopEventLoopWatchdog } from "./event-loop-watchdog.js";
@@ -98,6 +99,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     }
 
     await deps.server.stop();
+    getConfigWatcher().stop();
     stopAppSourceWatcher();
     stopCliIpcServer();
     stopSkillIpcServer();

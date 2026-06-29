@@ -30,6 +30,7 @@ import {
   allConversations,
   clearConversations,
   conversationCount,
+  conversationEntries,
   conversationIds,
   deleteConversation,
   findConversation,
@@ -271,4 +272,24 @@ export function clearAllActiveConversations(): number {
   clearConversations();
   clearConversationOptions();
   return count;
+}
+
+/**
+ * Evict in-memory conversations after a config/prompt/skills reload so the next
+ * turn rebuilds them against the new config. Idle conversations are disposed and
+ * dropped; busy ones are marked stale so they're rebuilt once their current turn
+ * finishes. Also used when provider credentials change.
+ */
+export function evictConversationsForReload(): void {
+  const subagentManager = getSubagentManager();
+  for (const [id, conversation] of conversationEntries()) {
+    if (!conversation.isProcessing()) {
+      subagentManager.abortAllForParent(id);
+      conversation.dispose();
+      deleteConversation(id);
+      removeFromEvictor(id);
+    } else {
+      conversation.markStale();
+    }
+  }
 }
