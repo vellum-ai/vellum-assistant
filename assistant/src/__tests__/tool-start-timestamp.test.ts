@@ -202,6 +202,69 @@ describe("handleToolUse — tool start timestamp", () => {
     expect(block._startedAt).toBe(startedAt);
   });
 
+  test("stamps _previewStartedAt onto the persisted block when a preview start was recorded", () => {
+    // GIVEN a durable tool_use block AND a recorded first-byte preview timestamp
+    const toolUseId = "tu_bash";
+    const previewStartedAt = 1_700_000_000_000;
+    const state: EventHandlerState = createEventHandlerState();
+    state.lastAssistantMessageId = "msg-1";
+    state.toolPreviewStartedAt.set(toolUseId, previewStartedAt);
+    mockedRowContent = JSON.stringify([
+      {
+        type: "tool_use",
+        id: toolUseId,
+        name: "bash",
+        input: { command: "ls" },
+      },
+    ]);
+
+    // WHEN the tool begins (the block now exists, unlike at preview-event time)
+    handleToolUse(
+      state,
+      makeDeps(() => {}),
+      toolUseEvent(toolUseId, "bash"),
+    );
+
+    // THEN a persisted write carries the first-byte anchor as _previewStartedAt,
+    // so a mid-tool snapshot keeps the perceived-start rather than falling back
+    // to execution start
+    const previewWrite = updates.find(
+      (u) =>
+        findBlockById(u.content, toolUseId)._previewStartedAt ===
+        previewStartedAt,
+    );
+    expect(previewWrite).toBeDefined();
+  });
+
+  test("does not stamp _previewStartedAt when no preview start was recorded", () => {
+    // GIVEN a durable tool_use block and NO recorded preview timestamp
+    const toolUseId = "tu_bash";
+    const state: EventHandlerState = createEventHandlerState();
+    state.lastAssistantMessageId = "msg-1";
+    mockedRowContent = JSON.stringify([
+      {
+        type: "tool_use",
+        id: toolUseId,
+        name: "bash",
+        input: { command: "ls" },
+      },
+    ]);
+
+    // WHEN the tool begins
+    handleToolUse(
+      state,
+      makeDeps(() => {}),
+      toolUseEvent(toolUseId, "bash"),
+    );
+
+    // THEN no persisted write carries a _previewStartedAt (only _startedAt)
+    for (const u of updates) {
+      expect(
+        findBlockById(u.content, toolUseId)._previewStartedAt,
+      ).toBeUndefined();
+    }
+  });
+
   test("does not write when no persisted block matches the tool id", () => {
     // GIVEN a persisted message whose only block is unrelated to the tool
     const state: EventHandlerState = createEventHandlerState();

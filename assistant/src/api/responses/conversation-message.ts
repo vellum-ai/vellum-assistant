@@ -153,8 +153,17 @@ export const ConversationMessageToolCallSchema = z.object({
   imageData: z.string().optional(),
   /** Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot, image generation). */
   imageDataList: z.array(z.string()).optional(),
-  /** Unix ms when the tool started executing. */
+  /** Unix ms when the tool started executing (the `tool_use_start` time). */
   startedAt: z.number().optional(),
+  /**
+   * Unix ms when the tool call was first recognized in the model stream (the
+   * `tool_use_preview_start` time), before its input finished streaming. The
+   * user-perceived latency anchors here so a snapshot fetched mid-tool (refresh
+   * / reconnect) restores the first-byte elapsed counter; the tool's own
+   * execution latency stays `completedAt - startedAt`. Absent for tool calls
+   * that produced no preview (e.g. native server tools) or older history rows.
+   */
+  previewStartedAt: z.number().optional(),
   /** Unix ms when the tool completed. */
   completedAt: z.number().optional(),
   /**

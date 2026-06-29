@@ -496,6 +496,8 @@ export function renderHistoryContent(
       // Extract persisted timing/confirmation metadata
       if (typeof block._startedAt === "number")
         entry.startedAt = block._startedAt;
+      if (typeof block._previewStartedAt === "number")
+        entry.previewStartedAt = block._previewStartedAt;
       if (typeof block._completedAt === "number")
         entry.completedAt = block._completedAt;
       const confirmationDecision = ConfirmationDecisionSchema.safeParse(

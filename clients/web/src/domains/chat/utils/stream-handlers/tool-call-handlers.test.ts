@@ -3,16 +3,93 @@ import { describe, expect, it } from "bun:test";
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
 import {
   handleToolResult,
+  handleToolUsePreviewStart,
   handleToolUseStart,
 } from "@/domains/chat/utils/stream-handlers/tool-call-handlers";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
+describe("handleToolUsePreviewStart", () => {
+  it("seeds a running tool call with previewStartedAt and empty input", () => {
+    const ctx = makeCtx();
+    handleToolUsePreviewStart(
+      {
+        type: "tool_use_preview_start",
+        toolUseId: "tc-1",
+        toolName: "bash",
+        previewStartedAt: 1_000,
+        messageId: "anchor-1",
+      },
+      ctx,
+    );
+    const updater = (ctx.setMessages as unknown as ReturnType<typeof Object>)
+      .mock.calls[0][0] as (prev: DisplayMessage[]) => DisplayMessage[];
+    const next = updater([]);
+    const tc = next[0]!.toolCalls![0]!;
+    expect(tc.id).toBe("tc-1");
+    expect(tc.name).toBe("bash");
+    expect(tc.previewStartedAt).toBe(1_000);
+    // No execution start yet, and the call reads as running (no result/completedAt).
+    expect(tc.startedAt).toBeUndefined();
+    expect(tc.input).toEqual({});
+  });
+
+  it("tool_use_start merges onto the preview-seeded call, preserving previewStartedAt and adding the execution start", () => {
+    const ctx = makeCtx();
+    let current: DisplayMessage[] = [];
+    const setMessages = ctx.setMessages as unknown as {
+      mock: { calls: unknown[][] };
+    };
+
+    handleToolUsePreviewStart(
+      {
+        type: "tool_use_preview_start",
+        toolUseId: "tc-1",
+        toolName: "bash",
+        previewStartedAt: 1_000,
+        messageId: "anchor-1",
+      },
+      ctx,
+    );
+    current = (
+      setMessages.mock.calls[0]![0] as (p: DisplayMessage[]) => DisplayMessage[]
+    )(current);
+
+    handleToolUseStart(
+      {
+        type: "tool_use_start",
+        toolName: "bash",
+        input: { command: "ls" },
+        toolUseId: "tc-1",
+        messageId: "anchor-1",
+        startedAt: 21_000,
+        previewStartedAt: 1_000,
+      },
+      ctx,
+    );
+    current = (
+      setMessages.mock.calls[1]![0] as (p: DisplayMessage[]) => DisplayMessage[]
+    )(current);
+
+    // One bubble, one tool call: the preview seed and the execution start are the same call.
+    expect(current).toHaveLength(1);
+    expect(current[0]!.toolCalls).toHaveLength(1);
+    const tc = current[0]!.toolCalls![0]!;
+    expect(tc.previewStartedAt).toBe(1_000);
+    expect(tc.startedAt).toBe(21_000);
+    expect(tc.input).toEqual({ command: "ls" });
+  });
+});
+
 describe("handleToolUseStart", () => {
   it("cancels reconciliation and creates tool call with generated id", () => {
     const ctx = makeCtx();
     handleToolUseStart(
-      { type: "tool_use_start", toolName: "web_search", input: { query: "test" } },
+      {
+        type: "tool_use_start",
+        toolName: "web_search",
+        input: { query: "test" },
+      },
       ctx,
     );
     expect(ctx.cancelReconciliation).toHaveBeenCalled();
@@ -38,11 +115,17 @@ describe("handleToolUseStart", () => {
   it("creates a new bubble when there is no assistant tail to fold into", () => {
     const ctx = makeCtx();
     handleToolUseStart(
-      { type: "tool_use_start", toolName: "web_search", input: {}, toolUseId: "tc-1" },
+      {
+        type: "tool_use_start",
+        toolName: "web_search",
+        input: {},
+        toolUseId: "tc-1",
+      },
       ctx,
     );
     expect(ctx.setMessages).toHaveBeenCalled();
-    const updater = (ctx.setMessages as unknown as ReturnType<typeof Object>).mock.calls[0][0] as (
+    const updater = (ctx.setMessages as unknown as ReturnType<typeof Object>)
+      .mock.calls[0][0] as (
       prev: never[],
     ) => Array<{ role: string; toolCalls: Array<{ id: string }> }>;
     const next = updater([]);
@@ -67,7 +150,8 @@ describe("handleToolUseStart", () => {
       },
       ctx,
     );
-    const updater = (ctx.setMessages as unknown as ReturnType<typeof Object>).mock.calls[0][0] as (
+    const updater = (ctx.setMessages as unknown as ReturnType<typeof Object>)
+      .mock.calls[0][0] as (
       prev: never[],
     ) => Array<{ id: string; isOptimistic?: boolean }>;
     const next = updater([]);
@@ -81,8 +165,14 @@ describe("handleToolUseStart", () => {
     // must produce ONE assistant row with three tool calls, not three
     // overlapping bubbles or a duplicate.
     const ctx = makeCtx();
-    let current: Array<{ id: string; toolCalls?: Array<{ id: string }>; isOptimistic?: boolean }> = [];
-    const setMessages = ctx.setMessages as unknown as { mock: { calls: unknown[][] } };
+    let current: Array<{
+      id: string;
+      toolCalls?: Array<{ id: string }>;
+      isOptimistic?: boolean;
+    }> = [];
+    const setMessages = ctx.setMessages as unknown as {
+      mock: { calls: unknown[][] };
+    };
 
     for (const [i, toolUseId] of ["tc-1", "tc-2", "tc-3"].entries()) {
       handleToolUseStart(
@@ -105,7 +195,11 @@ describe("handleToolUseStart", () => {
     expect(current[0]!.id).toBe("anchor-1");
     expect(current[0]!.isOptimistic).toBeUndefined();
     expect(current[0]!.toolCalls).toHaveLength(3);
-    expect(current[0]!.toolCalls!.map((tc) => tc.id)).toEqual(["tc-1", "tc-2", "tc-3"]);
+    expect(current[0]!.toolCalls!.map((tc) => tc.id)).toEqual([
+      "tc-1",
+      "tc-2",
+      "tc-3",
+    ]);
   });
 });
 
@@ -193,10 +287,7 @@ describe("handleToolResult", () => {
     const next = updater(initial);
 
     expect(next[0]!.toolCalls![0]!.imageData).toBe("img-a");
-    expect(next[0]!.toolCalls![0]!.imageDataList).toEqual([
-      "img-a",
-      "img-b",
-    ]);
+    expect(next[0]!.toolCalls![0]!.imageDataList).toEqual(["img-a", "img-b"]);
   });
 
   it("does NOT route activityMetadata when toolUseId is missing", () => {
