@@ -36,6 +36,7 @@ let operationalStatusQueryMock: {
         state: string;
         detail_state?: string;
         detail?: { reason?: string | null; message?: string | null };
+        runtime?: { healthz_ok?: boolean | null };
       }
     | null
     | undefined;
@@ -472,8 +473,65 @@ describe("StatusBanner", () => {
     expect(maintenanceHtml).toContain("Resume Assistant");
   });
 
-  test("shows sleeping banner instead of unreachable when transitioning from active to unreachable", async () => {
-    // GIVEN the operational status is active
+  test("does not render sleeping when runtime healthz is ok", () => {
+    operationalStatusQueryMock = {
+      data: { state: "sleeping", runtime: { healthz_ok: true } },
+      isError: false,
+    };
+
+    const html = renderToStaticMarkup(<StatusBanner />);
+
+    expect(html).toBe("");
+  });
+
+  test("does not show waking after sleeping with confirmed runtime healthz", async () => {
+    // GIVEN the operational status is sleeping with confirmed runtime healthz
+    operationalStatusQueryMock = {
+      data: { state: "sleeping", runtime: { healthz_ok: true } },
+      isError: false,
+    };
+
+    const { rerender } = render(<StatusBanner />);
+
+    // WHEN the next status poll is unreachable
+    operationalStatusQueryMock = {
+      data: { state: "unreachable" },
+      isError: false,
+    };
+    rerender(<StatusBanner />);
+
+    // THEN the wake-smoothing path does not synthesize a waking banner
+    await waitFor(() => {
+      expect(screen.getByText("Assistant is unreachable")).toBeTruthy();
+    });
+    expect(screen.queryByText("Assistant is waking")).toBeNull();
+  });
+
+  test("does not show sleeping after a confirmed runtime healthz success", async () => {
+    // GIVEN the operational status is active with a confirmed runtime healthz
+    operationalStatusQueryMock = {
+      data: { state: "active", runtime: { healthz_ok: true } },
+      isError: false,
+    };
+
+    const { rerender } = render(<StatusBanner />);
+
+    // WHEN the operational status transitions directly to unreachable
+    operationalStatusQueryMock = {
+      data: { state: "unreachable" },
+      isError: false,
+    };
+    rerender(<StatusBanner />);
+
+    // THEN the banner shows the actual status instead of synthesizing sleep
+    await waitFor(() => {
+      expect(screen.getByText("Assistant is unreachable")).toBeTruthy();
+    });
+    expect(screen.queryByText("Assistant is sleeping")).toBeNull();
+  });
+
+  test("shows sleeping banner instead of unreachable when transitioning from unconfirmed active to unreachable", async () => {
+    // GIVEN the operational status is active without runtime healthz detail
     operationalStatusQueryMock = {
       data: { state: "active" },
       isError: false,
@@ -488,7 +546,7 @@ describe("StatusBanner", () => {
     };
     rerender(<StatusBanner />);
 
-    // THEN the banner shows "sleeping" instead of "unreachable"
+    // THEN the legacy smoothing still applies for unconfirmed active statuses
     await waitFor(() => {
       expect(screen.getByText("Assistant is sleeping")).toBeTruthy();
     });
