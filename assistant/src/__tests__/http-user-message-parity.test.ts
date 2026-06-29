@@ -77,7 +77,7 @@ mock.module("../runtime/guardian-vellum-migration.js", () => ({
   },
 }));
 
-mock.module("../memory/canonical-guardian-store.js", () => ({
+mock.module("../contacts/canonical-guardian-store.js", () => ({
   createCanonicalGuardianRequest: () => ({
     id: "canonical-id",
     requestCode: "ABC123",

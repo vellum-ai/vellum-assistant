@@ -26,7 +26,7 @@ import {
   type CanonicalRequestStatus,
   getCanonicalGuardianRequest,
   resolveCanonicalGuardianRequest,
-} from "../memory/canonical-guardian-store.js";
+} from "../contacts/canonical-guardian-store.js";
 import type { ApprovalAction } from "../runtime/channel-approval-types.js";
 import { getLogger } from "../util/logger.js";
 import { mintGrantFromDecision } from "./approval-primitive.js";

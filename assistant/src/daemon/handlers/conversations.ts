@@ -1,7 +1,7 @@
 import { v4 as uuid } from "uuid";
 
 import { peekAcpSessionManager } from "../../acp/index.js";
-import { resolveCanonicalGuardianRequest } from "../../memory/canonical-guardian-store.js";
+import { resolveCanonicalGuardianRequest } from "../../contacts/canonical-guardian-store.js";
 import { resolveConversationId } from "../../memory/conversation-key-store.js";
 import {
   clearAll,

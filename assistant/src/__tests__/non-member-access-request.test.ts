@@ -96,7 +96,7 @@ function seedGatewayGuardian(
 import {
   listCanonicalGuardianDeliveries,
   listCanonicalGuardianRequests,
-} from "../memory/canonical-guardian-store.js";
+} from "../contacts/canonical-guardian-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { notifyGuardianOfAccessRequest } from "../runtime/access-request-helper.js";

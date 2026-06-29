@@ -408,11 +408,11 @@ import {
   RelayConnection,
 } from "../calls/relay-server.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
-import { upsertContact } from "../contacts/contact-store.js";
 import {
   listCanonicalGuardianRequests,
   resolveCanonicalGuardianRequest,
-} from "../memory/canonical-guardian-store.js";
+} from "../contacts/canonical-guardian-store.js";
+import { upsertContact } from "../contacts/contact-store.js";
 import {
   createInboundSession,
   createVerificationSession,

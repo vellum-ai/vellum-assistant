@@ -18,7 +18,7 @@ import {
   type TurnInterfaceContext,
 } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import { listPendingRequestsByConversationScope } from "../memory/canonical-guardian-store.js";
+import { listPendingRequestsByConversationScope } from "../contacts/canonical-guardian-store.js";
 import { extractPreferences } from "../notifications/preference-extractor.js";
 import { createPreference } from "../notifications/preferences-store.js";
 import {
