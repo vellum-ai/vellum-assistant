@@ -267,14 +267,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "external-plugins",
-      "scope": "assistant",
-      "key": "external-plugins",
-      "label": "External Plugins",
-      "description": "Enable the external-plugin install path: the `assistant plugins` CLI subcommand and the declarative external-plugin loader convention (`<workspaceDir>/plugins/<name>/` directories containing `package.json` plus interface dirs). Gates an unstable surface that may change shape before stabilizing.",
-      "defaultEnabled": false
-    },
-    {
       "id": "velvet-theme",
       "scope": "client",
       "key": "velvet-theme",
@@ -368,14 +360,6 @@
       "key": "memory-router-playground",
       "label": "Memory Router Playground",
       "description": "Expose the developer-only Memory Router Playground tab in macOS Settings and the /assistant/memory-router-playground web page for dry-running v4 router config overrides against the live page index. Dev-only; default off.",
-      "defaultEnabled": false
-    },
-    {
-      "id": "memory-v3-shadow",
-      "scope": "assistant",
-      "key": "memory-v3-shadow",
-      "label": "Memory v3 Shadow",
-      "description": "When on, runs the new memory-v3 topic-tree retrieval alongside v2 in shadow mode: logs selections to memory_v3_selections, does not modify injected context. Off by default.",
       "defaultEnabled": false
     },
     {

@@ -6,8 +6,8 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
 }));
 
-import { initializeDb } from "../memory/db-init.js";
 import { rawRun, resetTestTables } from "../memory/raw-query.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   createComment,
   deleteComment,

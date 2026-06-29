@@ -24,6 +24,7 @@ import type {
   SessionNotification,
   TerminalOutputRequest,
   TerminalOutputResponse,
+  ToolCallLocation,
   WaitForTerminalExitRequest,
   WaitForTerminalExitResponse,
   WriteTextFileRequest,
@@ -31,6 +32,7 @@ import type {
 } from "@agentclientprotocol/sdk";
 
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AcpSessionUpdate } from "../daemon/message-types/acp.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("acp:client-handler");
@@ -52,6 +54,8 @@ export class VellumAcpClientHandler implements Client {
   private terminals = new Map<string, TerminalState>();
   private accumulatedText = "";
   private suppressForwarding = false;
+  /** Monotonic ordering counter; advanced only on forwarded updates. */
+  private lastSeq = 0;
   /** Tracks pending ACP permission requestIds for cleanup on session close. */
   readonly pendingRequestIds = new Set<string>();
 
@@ -60,11 +64,34 @@ export class VellumAcpClientHandler implements Client {
     return this.accumulatedText;
   }
 
+  /**
+   * Advances the seq counter to at least `maxSeq` so updates forwarded by a
+   * handler created for a resumed session continue strictly increasing past
+   * any seq already persisted. Ignores non-finite or smaller values.
+   */
+  seedSeq(maxSeq: number): void {
+    if (Number.isFinite(maxSeq) && maxSeq > this.lastSeq) {
+      this.lastSeq = maxSeq;
+    }
+  }
+
   constructor(
     private readonly acpSessionId: string,
     private readonly sendToVellum: (msg: ServerMessage) => void,
     private readonly parentConversationId: string,
   ) {}
+
+  /** Forwards an update to Vellum, stamping a contiguous per-session `seq`. */
+  private forwardUpdate(
+    update: Omit<AcpSessionUpdate, "type" | "acpSessionId" | "seq">,
+  ): void {
+    this.sendToVellum({
+      type: "acp_session_update",
+      acpSessionId: this.acpSessionId,
+      seq: ++this.lastSeq,
+      ...update,
+    });
+  }
 
   /**
    * Begins suppressing session updates from being forwarded to Vellum.
@@ -107,76 +134,89 @@ export class VellumAcpClientHandler implements Client {
       case "agent_message_chunk": {
         const text = extractText(update.content);
         this.accumulatedText += text;
-        this.sendToVellum({
-          type: "acp_session_update",
-          acpSessionId: this.acpSessionId,
+        this.forwardUpdate({
           updateType: "agent_message_chunk",
           content: text,
+          messageId: update.messageId ?? undefined,
         });
         break;
       }
 
       case "agent_thought_chunk": {
         const text = extractText(update.content);
-        this.sendToVellum({
-          type: "acp_session_update",
-          acpSessionId: this.acpSessionId,
+        this.forwardUpdate({
           updateType: "agent_thought_chunk",
           content: text,
+          messageId: update.messageId ?? undefined,
         });
         break;
       }
 
       case "user_message_chunk": {
         const text = extractText(update.content);
-        this.sendToVellum({
-          type: "acp_session_update",
-          acpSessionId: this.acpSessionId,
+        this.forwardUpdate({
           updateType: "user_message_chunk",
           content: text,
+          messageId: update.messageId ?? undefined,
         });
         break;
       }
 
       case "tool_call": {
-        this.sendToVellum({
-          type: "acp_session_update",
-          acpSessionId: this.acpSessionId,
+        this.forwardUpdate({
           updateType: "tool_call",
           toolCallId: update.toolCallId,
           toolTitle: update.title,
           toolKind: update.kind,
           toolStatus: update.status,
+          // An agent may put output/diff on the initial tool_call and never
+          // follow up with an update; forward it like the update branch so the
+          // chat/file-diff UI has content to render.
+          content: update.content ? JSON.stringify(update.content) : undefined,
+          locations: mapLocations(update.locations),
         });
         break;
       }
 
       case "tool_call_update": {
-        this.sendToVellum({
-          type: "acp_session_update",
-          acpSessionId: this.acpSessionId,
+        this.forwardUpdate({
           updateType: "tool_call_update",
           toolCallId: update.toolCallId,
+          toolTitle: update.title ?? undefined,
+          toolKind: update.kind ?? undefined,
           toolStatus: update.status ?? undefined,
           content: update.content ? JSON.stringify(update.content) : undefined,
+          locations: mapLocations(update.locations),
         });
         break;
       }
 
       case "plan": {
-        this.sendToVellum({
-          type: "acp_session_update",
-          acpSessionId: this.acpSessionId,
+        this.forwardUpdate({
           updateType: "plan",
           content: JSON.stringify(update.entries),
         });
         break;
       }
 
+      case "usage_update": {
+        // Side gauge of context-window usage; no seq (not part of the
+        // ordered timeline). UNSTABLE: cost may be absent.
+        this.sendToVellum({
+          type: "acp_session_usage",
+          acpSessionId: this.acpSessionId,
+          usedTokens: update.used,
+          contextSize: update.size,
+          costAmount: update.cost?.amount,
+          costCurrency: update.cost?.currency,
+        });
+        break;
+      }
+
       default: {
         // Other update types (available_commands_update, current_mode_update,
-        // config_option_update, session_info_update, usage_update) are not
-        // forwarded to Vellum.
+        // config_option_update, session_info_update) are not forwarded to
+        // Vellum.
         log.debug(
           {
             acpSessionId: this.acpSessionId,
@@ -360,6 +400,22 @@ export class VellumAcpClientHandler implements Client {
     }
     return {};
   }
+}
+
+/**
+ * Normalize ACP tool-call locations into the SSE update's `locations` shape.
+ *
+ * The ACP `tool_call_update.locations` field is tri-state:
+ * - `undefined`/absent → no change; omit the field so web preserves prior locations.
+ * - `null` → explicit clear; forward `[]` (web clears its locations on an empty array).
+ * - an array → replace with the mapped locations.
+ */
+function mapLocations(
+  locations: ToolCallLocation[] | null | undefined,
+): Array<{ path: string; line?: number }> | undefined {
+  if (locations === undefined) return undefined;
+  if (locations === null) return [];
+  return locations.map((l) => ({ path: l.path, line: l.line ?? undefined }));
 }
 
 function findAllowOptionId(

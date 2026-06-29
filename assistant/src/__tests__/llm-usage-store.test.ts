@@ -6,18 +6,19 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
 }));
 
-import { getDb, getSqlite } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb, getSqlite } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   getUsageDayBuckets,
   getUsageGroupBreakdown,
   getUsageGroupedSeries,
   getUsageHourBuckets,
   getUsageTotals,
+  listRunConversationIds,
   listUsageEvents,
   queryUnreportedUsageEvents,
   recordUsageEvent,
-} from "../memory/llm-usage-store.js";
+} from "../persistence/llm-usage-store.js";
 import type { PricingResult, UsageEventInput } from "../usage/types.js";
 
 // Initialize db once before all tests
@@ -256,6 +257,33 @@ describe("recordUsageEvent", () => {
     const [event] = listUsageEvents();
     expect(event.rawUsage).toBeNull();
   });
+
+  test("round-trips cronRunId through SQLite", () => {
+    const event = recordUsageEvent(
+      makeInput({ cronRunId: "cron-run-1" }),
+      pricedResult,
+    );
+    expect(event.cronRunId).toBe("cron-run-1");
+
+    const row = getSqlite()
+      .query("SELECT cron_run_id FROM llm_usage_events WHERE id = ?")
+      .get(event.id) as { cron_run_id: string | null } | null;
+    expect(row?.cron_run_id).toBe("cron-run-1");
+
+    // listUsageEvents routes through rowToUsageEvent; cronRunId must survive it.
+    const [typed] = listUsageEvents();
+    expect(typed?.cronRunId).toBe("cron-run-1");
+  });
+
+  test("cronRunId defaults to null when omitted", () => {
+    const event = recordUsageEvent(makeInput(), pricedResult);
+    expect(event.cronRunId ?? null).toBeNull();
+
+    const row = getSqlite()
+      .query("SELECT cron_run_id FROM llm_usage_events WHERE id = ?")
+      .get(event.id) as { cron_run_id: string | null } | null;
+    expect(row?.cron_run_id).toBeNull();
+  });
 });
 
 describe("listUsageEvents", () => {
@@ -344,6 +372,49 @@ describe("listUsageEvents", () => {
     expect(typeof event.cacheReadInputTokens).toBe("number");
     expect(typeof event.estimatedCostUsd).toBe("number");
     expect(typeof event.pricingStatus).toBe("string");
+  });
+});
+
+describe("listRunConversationIds", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run(`DELETE FROM llm_usage_events`);
+  });
+
+  /** Record an event for a conversation, stamped with the given cron run id. */
+  function insertRunEvent(
+    cronRunId: string,
+    conversationId: string | null,
+  ): void {
+    const event = recordUsageEvent(makeInput({ conversationId }), pricedResult);
+    const db = getDb();
+    db.run(
+      `UPDATE llm_usage_events SET cron_run_id = '${cronRunId}' WHERE id = '${event.id}'`,
+    );
+  }
+
+  test("returns the distinct conversation ids a firing touched (deduped)", () => {
+    insertRunEvent("run-1", "conv-a");
+    insertRunEvent("run-1", "conv-a"); // same conversation, second LLM call
+    insertRunEvent("run-1", "conv-b");
+
+    expect(listRunConversationIds("run-1").sort()).toEqual([
+      "conv-a",
+      "conv-b",
+    ]);
+  });
+
+  test("returns an empty array for an unknown run", () => {
+    insertRunEvent("run-1", "conv-a");
+    expect(listRunConversationIds("run-unknown")).toEqual([]);
+  });
+
+  test("ignores rows with no conversation id and other runs", () => {
+    insertRunEvent("run-1", "conv-a");
+    insertRunEvent("run-1", null); // memory consolidation etc.
+    insertRunEvent("run-2", "conv-b");
+
+    expect(listRunConversationIds("run-1")).toEqual(["conv-a"]);
   });
 });
 
@@ -505,6 +576,19 @@ describe("usage aggregation schedule filters", () => {
         created_at
       ) VALUES (?, ?, 'ok', ?, ?, ?, ?)`,
       [id, scheduleId, startedAt, finishedAt, conversationId, startedAt],
+    );
+  }
+
+  function insertStampedEventAt(
+    timestamp: number,
+    cronRunId: string,
+    inputOverrides?: Partial<UsageEventInput>,
+    pricing: PricingResult = pricedResult,
+  ): void {
+    const event = recordUsageEvent(makeInput(inputOverrides), pricing);
+    getSqlite().run(
+      `UPDATE llm_usage_events SET created_at = ?, cron_run_id = ? WHERE id = ?`,
+      [timestamp, cronRunId, event.id],
     );
   }
 
@@ -675,6 +759,56 @@ describe("usage aggregation schedule filters", () => {
       totalInputTokens: 1_290,
       eventCount: 3,
     });
+  });
+
+  test("attributes a cron_run_id-stamped row to its firing's schedule and keeps legacy windowed rows", () => {
+    insertScheduleJob("schedule-a", "Morning summary");
+    insertScheduleJob("schedule-b", "Nightly sync");
+    insertScheduleRun({
+      id: "run-a-1",
+      scheduleId: "schedule-a",
+      conversationId: "conv-reused",
+      startedAt: 1_000,
+      finishedAt: 2_000,
+    });
+    insertScheduleRun({
+      id: "run-b-1",
+      scheduleId: "schedule-b",
+      conversationId: "conv-reused",
+      startedAt: 3_000,
+      finishedAt: 3_500,
+    });
+
+    // Legacy row: null cron_run_id, attributed to schedule-a via the conversation + window match.
+    insertEventAt(
+      1_500,
+      { conversationId: "conv-reused", inputTokens: 100 },
+      { estimatedCostUsd: 0.1, pricingStatus: "priced" },
+    );
+
+    // Stamped row: cron_run_id pins it to schedule-a's firing even though it is
+    // outside every run window and on a conversation no run references.
+    insertStampedEventAt(
+      9_999,
+      "run-a-1",
+      { conversationId: "conv-script", inputTokens: 50 },
+      { estimatedCostUsd: 0.05, pricingStatus: "priced" },
+    );
+
+    const range = { from: 0, to: 10_000 };
+    const breakdown = getUsageGroupBreakdown(range, "schedule");
+    const scheduleA = breakdown.find((row) => row.groupKey === "schedule-a");
+    const scheduleB = breakdown.find((row) => row.groupKey === "schedule-b");
+
+    expect(scheduleA).toMatchObject({
+      groupId: "schedule-a",
+      groupKey: "schedule-a",
+      totalInputTokens: 150,
+      eventCount: 2,
+    });
+    // The stamped row neither leaks into schedule-b's later window nor lands in "Other".
+    expect(scheduleB).toBeUndefined();
+    expect(breakdown.find((row) => row.groupKey === null)).toBeUndefined();
   });
 });
 

@@ -169,3 +169,55 @@ export const UnchangedPrefix: Story = {
     ]),
   },
 };
+
+const scatteredPrompt = (variant: string): string =>
+  Array.from({ length: 200 }, (_, i) =>
+    i % 4 === 0 ? `- rule ${variant} ${i}: be precise` : `  note line ${i}`,
+  ).join("\n");
+
+/**
+ * Many scattered single-line changes overflow the in-panel display cap, so
+ * the diff shows the first hunks and offers a "Show N more diff line(s)"
+ * toggle to reveal the rest inline.
+ */
+export const LargeScatteredDiff: Story = {
+  args: {
+    assistantId: "assistant-1",
+    previous: call("call-prev", [
+      { kind: "system", label: "System prompt", text: scatteredPrompt("A") },
+      { kind: "message", label: "User", role: "user", text: "What changed?" },
+    ]),
+    current: call("call-cur", [
+      { kind: "system", label: "System prompt", text: scatteredPrompt("B") },
+      { kind: "message", label: "User", role: "user", text: "What changed?" },
+    ]),
+  },
+};
+
+const HUGE_PROMPT = Array.from(
+  { length: 600 },
+  (_, i) => `Policy ${i}: follow the rules carefully.`,
+).join("\n");
+
+/**
+ * A system prompt over the eager line cap isn't diffed on the default
+ * render; the card explains why and offers a "Diff anyway" button that
+ * computes the full diff on demand.
+ */
+export const TooLargeToDiff: Story = {
+  args: {
+    assistantId: "assistant-1",
+    previous: call("call-prev", [
+      { kind: "system", label: "System prompt", text: HUGE_PROMPT },
+      { kind: "message", label: "User", role: "user", text: "What changed?" },
+    ]),
+    current: call("call-cur", [
+      {
+        kind: "system",
+        label: "System prompt",
+        text: `${HUGE_PROMPT}\nPolicy 600: and one additional rule.`,
+      },
+      { kind: "message", label: "User", role: "user", text: "What changed?" },
+    ]),
+  },
+};

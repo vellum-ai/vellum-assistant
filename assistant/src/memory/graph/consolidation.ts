@@ -11,6 +11,7 @@
 // ---------------------------------------------------------------------------
 
 import type { AssistantConfig } from "../../config/types.js";
+import { getDb } from "../../persistence/db-connection.js";
 import {
   extractToolUse,
   getConfiguredProvider,
@@ -18,7 +19,6 @@ import {
 } from "../../providers/provider-send-message.js";
 import { BackendUnavailableError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
-import { getDb } from "../db-connection.js";
 import {
   EVENT_DATE_PROMPT_RULES,
   formatAuthoritativeConversationTimestamp,

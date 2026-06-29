@@ -8,7 +8,7 @@
  */
 
 import type { AssistantConfig } from "../../../config/types.js";
-import type { DrizzleDb } from "../../db-connection.js";
+import type { DrizzleDb } from "../../../persistence/db-connection.js";
 import { extractOracleTurns } from "./oracle.js";
 import { reconstructInput } from "./replay-input.js";
 import type { Retriever } from "./retriever.js";

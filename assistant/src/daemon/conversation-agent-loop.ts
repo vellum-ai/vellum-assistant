@@ -43,6 +43,11 @@ import {
 } from "../instrument.js";
 import { commitAppTurnChanges } from "../memory/app-git-service.js";
 import { enqueueAutoAnalysisOnCompaction } from "../memory/auto-analysis-enqueue.js";
+import { getResolvedConversationDirPath } from "../memory/conversation-directories.js";
+import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
+import { isReplaceableTitle } from "../memory/conversation-title-service.js";
+import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
+import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
 import {
   addMessage,
   deleteMessageById,
@@ -55,16 +60,11 @@ import {
   resolveOverrideProfile,
   updateConversationContextWindow,
   updateConversationSlackContextWatermark,
-} from "../memory/conversation-crud.js";
-import { getResolvedConversationDirPath } from "../memory/conversation-directories.js";
-import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
-import { isReplaceableTitle } from "../memory/conversation-title-service.js";
-import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
+} from "../persistence/conversation-crud.js";
 import {
   backfillMessageIdOnLogs,
   recordSyntheticAgentErrorMessageLog,
-} from "../memory/llm-request-log-store.js";
-import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
+} from "../persistence/llm-request-log-store.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { runHook } from "../plugins/pipeline.js";
@@ -285,6 +285,11 @@ export async function runAgentLoopImpl(
      * sites. Used when a caller explicitly pins a background run to a profile.
      */
     forceOverrideProfile?: boolean;
+    /**
+     * Firing's `cron_runs.id` stamped onto this turn's usage rows so a
+     * scheduled execute turn attributes its LLM spend to that firing.
+     */
+    cronRunId?: string | null;
   },
 ): Promise<void> {
   if (!ctx.abortController) {
@@ -338,6 +343,11 @@ export async function runAgentLoopImpl(
   // Expose the turn's call site on the live conversation so the runtime
   // injection assembly self-resolves it for the turn's plugin contexts.
   ctx.currentCallSite = turnCallSite;
+
+  // Firing's run id for this turn's usage attribution. Kept local (not on the
+  // conversation) so a reused conversation attributes each turn to its own
+  // firing.
+  const turnCronRunId = options?.cronRunId ?? null;
 
   // Optional per-turn inference-profile override. Plumbed through to every
   // LLM call the loop emits and inherited by any subagents spawned during
@@ -718,6 +728,7 @@ export async function runAgentLoopImpl(
       );
       await applyCompactionResult(ctx, result, onEvent, reqId, {
         slackContextCompactionWatermarkTs: slackWatermarkTs,
+        cronRunId: turnCronRunId,
       });
       slackChronologicalContext = projectSlackProvenanceAfterCompaction(
         provenanceContext,
@@ -1300,6 +1311,7 @@ export async function runAgentLoopImpl(
         callSite: turnCallSite,
         overrideProfile: resolveCurrentOverrideProfile() ?? null,
       },
+      turnCronRunId,
     );
 
     const syncLastAssistantMessageToDisk = (): void => {
@@ -1591,6 +1603,7 @@ function emitUsage(
     callSite: LLMCallSite | null;
     overrideProfile?: string | null;
   },
+  cronRunId: string | null = null,
 ): void {
   recordUsage(
     {
@@ -1610,6 +1623,7 @@ function emitUsage(
     llmCallCount,
     contextWindow,
     attribution,
+    cronRunId,
   );
 }
 
@@ -1669,6 +1683,8 @@ export async function applyCompactionResult(
   reqId: string | null,
   options: {
     slackContextCompactionWatermarkTs?: string | null;
+    /** Firing's `cron_runs.id` stamped onto the compaction usage row. */
+    cronRunId?: string | null;
   } = {},
 ): Promise<void> {
   ctx.messages = result.messages;
@@ -1747,6 +1763,7 @@ export async function applyCompactionResult(
       callSite: result.summaryCallSite ?? null,
       overrideProfile: result.summaryOverrideProfile ?? null,
     },
+    options.cronRunId ?? null,
   );
 }
 

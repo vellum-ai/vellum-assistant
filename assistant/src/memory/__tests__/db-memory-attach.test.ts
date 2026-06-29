@@ -20,9 +20,10 @@ import { describe, expect, test } from "bun:test";
 
 import { removeTestDbFiles } from "../../__tests__/assert-not-live-db.js";
 
-const { getSqlite, getMemorySqlite } = await import("../db-connection.js");
-const { initializeDb } = await import("../db-init.js");
-const { runAsyncSqlite } = await import("../db-async-query.js");
+const { getSqlite, getMemorySqlite } =
+  await import("../../persistence/db-connection.js");
+const { initializeDb } = await import("../../persistence/db-init.js");
+const { runAsyncSqlite } = await import("../../persistence/db-async-query.js");
 const { getMemoryDbPath } = await import("../../util/memory-db-path.js");
 const { findSqlite3 } = await import("../../util/sqlite3-runtime.js");
 
@@ -77,6 +78,7 @@ describe("memory database connection", () => {
       try {
         const result = await runAsyncSqlite(
           "CREATE TABLE dbpath_probe (x INTEGER); INSERT INTO dbpath_probe VALUES (42); SELECT changes();",
+          "test:memory-attach-dbpath",
           { dbPath: targetPath, forceBackend: "sqlite3-cli" },
         );
         expect(result.ok).toBe(true);

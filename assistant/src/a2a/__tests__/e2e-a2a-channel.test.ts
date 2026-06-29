@@ -42,6 +42,10 @@ mock.module("../../util/logger.js", () => ({
 // the a2a.enabled flag. We use the real config system backed by initializeDb's
 // workspace directory.
 
+import {
+  gatewayAclByChannelId,
+  resetGatewayAclStore,
+} from "../../__tests__/helpers/gateway-acl-store.js";
 import { seedContactChannel } from "../../__tests__/helpers/seed-contact-channel.js";
 import {
   invalidateConfigCache,
@@ -58,8 +62,8 @@ import {
   getA2AConfig,
   setA2AConfig,
 } from "../../daemon/handlers/config-a2a.js";
-import { getSqlite } from "../../memory/db-connection.js";
-import { initializeDb } from "../../memory/db-init.js";
+import { getSqlite } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
 import type { A2AMessage, Artifact } from "../protocol-types.js";
 import {
   completeWithArtifacts,
@@ -81,13 +85,12 @@ const originalFetch = globalThis.fetch;
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Read a channel's local ACL columns directly to assert the gateway dual-write. */
+/** Read a channel's gateway ACL row to assert the gateway-resolved trust. */
 function aclColumns(
   channelId: string,
 ): { status: string; policy: string } | null {
-  return getSqlite()
-    .query("SELECT status, policy FROM contact_channels WHERE id = ?")
-    .get(channelId) as { status: string; policy: string } | null;
+  const row = gatewayAclByChannelId(channelId);
+  return row ? { status: row.status, policy: row.policy } : null;
 }
 
 function resetTables(): void {
@@ -96,6 +99,7 @@ function resetTables(): void {
   sqlite.run("DELETE FROM assistant_contact_metadata");
   sqlite.run("DELETE FROM contact_channels");
   sqlite.run("DELETE FROM contacts");
+  resetGatewayAclStore();
 }
 
 function setConfigEnabled(enabled: boolean): void {

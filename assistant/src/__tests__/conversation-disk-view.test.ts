@@ -40,17 +40,6 @@ mock.module("../config/loader.js", () => ({
 // ---------------------------------------------------------------------------
 
 import {
-  linkAttachmentToMessage,
-  uploadAttachment,
-} from "../memory/attachments-store.js";
-import {
-  addMessage,
-  createConversation,
-  deleteMessageById,
-  relinkAttachments,
-  updateMessageContent,
-} from "../memory/conversation-crud.js";
-import {
   flattenContentBlocks,
   getConversationDirName,
   getConversationDirPath,
@@ -61,9 +50,20 @@ import {
   syncMessageToDisk,
   updateMetaFile,
 } from "../memory/conversation-disk-view.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
 import { rawRun } from "../memory/raw-query.js";
+import {
+  linkAttachmentToMessage,
+  uploadAttachment,
+} from "../persistence/attachments-store.js";
+import {
+  addMessage,
+  createConversation,
+  deleteMessageById,
+  relinkAttachments,
+  updateMessageContent,
+} from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 await initializeDb();
 
 function resetTables() {

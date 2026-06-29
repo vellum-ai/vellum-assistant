@@ -105,7 +105,7 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-mock.module("../memory/embedding-backend.js", () => ({
+mock.module("../persistence/embeddings/embedding-backend.js", () => ({
   clearEmbeddingBackendCache: () => {},
 }));
 

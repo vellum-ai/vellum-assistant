@@ -54,7 +54,7 @@ mock.module("../providers/registry.js", () => ({
   initializeProviders: async () => {},
 }));
 
-mock.module("../memory/embedding-backend.js", () => ({
+mock.module("../persistence/embeddings/embedding-backend.js", () => ({
   clearEmbeddingBackendCache: () => {},
 }));
 
@@ -63,7 +63,10 @@ mock.module("../memory/embedding-backend.js", () => ({
 // ---------------------------------------------------------------------------
 
 let mockAllowlistResult:
-  | { kind: "ok"; value: Array<{ index: number; pattern: string; message: string }> | null }
+  | {
+      kind: "ok";
+      value: Array<{ index: number; pattern: string; message: string }> | null;
+    }
   | { kind: "throw"; error: Error } = { kind: "ok", value: null };
 
 mock.module("../security/secret-allowlist.js", () => ({

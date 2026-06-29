@@ -3,7 +3,7 @@
  * dedicated voice conversation.
  */
 
-import { addMessage } from "../memory/conversation-crud.js";
+import { addMessage } from "../persistence/conversation-crud.js";
 import { getCallEvents, getCallSession } from "./call-store.js";
 
 function buildCallSummaryLabel(

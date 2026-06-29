@@ -7,6 +7,7 @@ import { Button, Toggle } from "@vellumai/design-library";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { PageProgress } from "@/domains/chat/components/surfaces/page-progress";
 import { PageTabs } from "@/domains/chat/components/surfaces/page-tabs";
+import { cn } from "@/utils/misc";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -77,7 +78,7 @@ function renderField(
           value={typeof value === "string" ? value : ""}
           onChange={(e) => onChange(field.id, e.target.value)}
           placeholder={field.placeholder}
-          className={inputClasses + errorClasses}
+          className={cn(inputClasses, errorClasses)}
         />
       );
 
@@ -89,7 +90,7 @@ function renderField(
             value={typeof value === "string" ? value : ""}
             onChange={(e) => onChange(field.id, e.target.value)}
             placeholder={field.placeholder}
-            className={inputClasses + errorClasses}
+            className={cn(inputClasses, errorClasses)}
           />
           <p className="mt-1 flex items-center gap-1 text-body-small-default text-[var(--content-faint)]">
             <Lock className="h-3 w-3" />
@@ -105,7 +106,7 @@ function renderField(
           onChange={(e) => onChange(field.id, e.target.value)}
           placeholder={field.placeholder}
           rows={3}
-          className={inputClasses + errorClasses + " resize-none"}
+          className={cn(inputClasses, errorClasses, "resize-none")}
         />
       );
 
@@ -114,7 +115,7 @@ function renderField(
         <select
           value={typeof value === "string" ? value : ""}
           onChange={(e) => onChange(field.id, e.target.value)}
-          className={inputClasses + errorClasses}
+          className={cn(inputClasses, errorClasses)}
         >
           <option value="">{field.placeholder || "Select..."}</option>
           {(field.options ?? []).map((opt) => (
@@ -144,7 +145,7 @@ function renderField(
             onChange(field.id, num);
           }}
           placeholder={field.placeholder}
-          className={inputClasses + errorClasses}
+          className={cn(inputClasses, errorClasses)}
         />
       );
 
@@ -155,7 +156,7 @@ function renderField(
           value={typeof value === "string" ? value : String(value)}
           onChange={(e) => onChange(field.id, e.target.value)}
           placeholder={field.placeholder}
-          className={inputClasses + errorClasses}
+          className={cn(inputClasses, errorClasses)}
         />
       );
   }

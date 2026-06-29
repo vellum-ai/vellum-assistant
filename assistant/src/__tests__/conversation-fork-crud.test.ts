@@ -22,35 +22,36 @@ mock.module("../config/loader.js", () => ({
 }));
 
 import {
-  getAttachmentsForMessage,
-  linkAttachmentToMessage,
-  uploadAttachment,
-} from "../memory/attachments-store.js";
-import { appendCompactionEvent } from "../memory/compaction-ledger-store.js";
-import {
   getAttentionStateByConversationIds,
   markConversationUnread,
 } from "../memory/conversation-attention-store.js";
-import {
-  addMessage,
-  createConversation,
-  forkConversation,
-  getMessages,
-} from "../memory/conversation-crud.js";
 import { getConversationDirPath } from "../memory/conversation-disk-view.js";
-import { getDb, getLogsDb, getMemoryDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
 import {
   loadGraphMemoryState,
   saveGraphMemoryState,
 } from "../memory/graph/graph-memory-state-store.js";
-import { getRequestLogsByMessageId } from "../memory/llm-request-log-store.js";
 import {
   bumpRetrospectiveLastRunAt,
   getRetrospectiveState,
   upsertRetrospectiveState,
 } from "../memory/memory-retrospective-state.js";
 import { rawGet, rawRun } from "../memory/raw-query.js";
+import { hydrate as hydrateActivationState } from "../memory/v2/activation-store.js";
+import {
+  getAttachmentsForMessage,
+  linkAttachmentToMessage,
+  uploadAttachment,
+} from "../persistence/attachments-store.js";
+import { appendCompactionEvent } from "../persistence/compaction-ledger-store.js";
+import {
+  addMessage,
+  createConversation,
+  forkConversation,
+  getMessages,
+} from "../persistence/conversation-crud.js";
+import { getDb, getLogsDb, getMemoryDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { getRequestLogsByMessageId } from "../persistence/llm-request-log-store.js";
 import {
   activationState,
   channelInboundEvents,
@@ -63,14 +64,13 @@ import {
   memoryJobs,
   memoryRetrospectiveState,
   toolInvocations,
-} from "../memory/schema.js";
-import { hydrate as hydrateActivationState } from "../memory/v2/activation-store.js";
+} from "../persistence/schema/index.js";
 import {
   getInjected as getV3Injected,
   markPruned as markV3Pruned,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
   recordInjected as recordV3Injected,
-} from "../plugins/defaults/memory-v3-shadow/ever-injected-store.js";
+} from "../plugins/defaults/memory/v3/ever-injected-store.js";
 
 await initializeDb();
 

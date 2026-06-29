@@ -1,10 +1,10 @@
 import type { AssistantConfig } from "../../config/types.js";
-import { asString } from "../job-utils.js";
+import { asString } from "../../persistence/job-utils.js";
 import {
   enqueueMemoryJob,
   isMemoryEnabled,
   type MemoryJob,
-} from "../jobs-store.js";
+} from "../../persistence/jobs-store.js";
 import { indexPkbFile } from "../pkb/pkb-index.js";
 
 /**

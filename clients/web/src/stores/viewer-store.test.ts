@@ -227,6 +227,64 @@ describe("closeSubagentDetail", () => {
 });
 
 // ---------------------------------------------------------------------------
+// ACP run detail
+// ---------------------------------------------------------------------------
+
+describe("openAcpRunDetail", () => {
+  it("saves current view and switches to acp-run-detail", () => {
+    getState().openAcpRunDetail("acp-1");
+    const state = getState();
+    expect(state.mainView).toBe("acp-run-detail");
+    expect(state.activeAcpRunId).toBe("acp-1");
+    expect(state.viewBeforeAcpRunDetail).toBe("chat");
+  });
+
+  it("preserves existing viewBeforeAcpRunDetail when already in acp-run-detail", () => {
+    useViewerStore.setState({
+      mainView: "acp-run-detail",
+      viewBeforeAcpRunDetail: "app",
+      activeAcpRunId: "acp-1",
+    });
+    getState().openAcpRunDetail("acp-2");
+    const state = getState();
+    expect(state.viewBeforeAcpRunDetail).toBe("app");
+    expect(state.activeAcpRunId).toBe("acp-2");
+  });
+
+  it("saves non-chat view correctly", () => {
+    useViewerStore.setState({ mainView: "app" });
+    getState().openAcpRunDetail("acp-1");
+    expect(getState().viewBeforeAcpRunDetail).toBe("app");
+  });
+});
+
+describe("closeAcpRunDetail", () => {
+  it("restores viewBeforeAcpRunDetail and clears activeAcpRunId", () => {
+    useViewerStore.setState({
+      mainView: "acp-run-detail",
+      viewBeforeAcpRunDetail: "chat",
+      activeAcpRunId: "acp-1",
+    });
+    getState().closeAcpRunDetail();
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeAcpRunId).toBeNull();
+  });
+
+  it("restores a non-chat view", () => {
+    useViewerStore.setState({
+      mainView: "acp-run-detail",
+      viewBeforeAcpRunDetail: "app",
+      activeAcpRunId: "acp-1",
+    });
+    getState().closeAcpRunDetail();
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.activeAcpRunId).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Workflow detail
 // ---------------------------------------------------------------------------
 

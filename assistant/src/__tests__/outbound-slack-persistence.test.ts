@@ -71,9 +71,9 @@ const persistedRows: Array<{
   createdAt: number;
   metadata: string | null;
 }> = [];
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   addMessage: (
     conversationId: string,
     role: string,
@@ -153,7 +153,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   ),
 }));
 
-mock.module("../memory/llm-request-log-store.js", () => ({
+mock.module("../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: () => {},
   backfillMessageIdOnLogs: () => {},
 }));
@@ -174,7 +174,7 @@ mock.module("../runtime/gateway-client.js", () => ({
   }),
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentMetadataForMessage: () => [],
 }));
 

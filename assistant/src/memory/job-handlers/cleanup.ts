@@ -1,9 +1,12 @@
 import type { AssistantConfig } from "../../config/types.js";
+import { runAsyncSqlite } from "../../persistence/db-async-query.js";
+import { getDb } from "../../persistence/db-connection.js";
+import {
+  enqueueMemoryJob,
+  type MemoryJob,
+} from "../../persistence/jobs-store.js";
 import { getLogger } from "../../util/logger.js";
 import { getLogsDbPath } from "../../util/logs-db-path.js";
-import { runAsyncSqlite } from "../db-async-query.js";
-import { getDb } from "../db-connection.js";
-import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
 import { rawAll, rawLogsRun, rawRun } from "../raw-query.js";
 
 const log = getLogger("memory-jobs-worker");
@@ -57,6 +60,7 @@ export async function pruneOldLlmRequestLogsJob(
   const result = await runAsyncSqlite(
     `DELETE FROM llm_request_logs WHERE rowid IN (SELECT rowid FROM llm_request_logs WHERE created_at < ${cutoffMs} LIMIT ${PRUNE_LOG_BATCH_LIMIT});
 SELECT changes();`,
+    "cleanup:prune-llm-request-logs",
     { dbPath: getLogsDbPath() },
   );
   if (!result.ok) {
@@ -112,6 +116,7 @@ export async function pruneOldTraceEventsJob(
   const result = await runAsyncSqlite(
     `DELETE FROM trace_events WHERE rowid IN (SELECT rowid FROM trace_events WHERE created_at < ${cutoffMs} LIMIT ${PRUNE_LOG_BATCH_LIMIT});
 SELECT changes();`,
+    "cleanup:prune-trace-events",
   );
   if (!result.ok) {
     log.warn(

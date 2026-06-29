@@ -22,7 +22,7 @@ mock.module("../../memory/checkpoints.js", () => ({
   },
 }));
 
-mock.module("../../memory/lifecycle-events-store.js", () => ({
+mock.module("../../persistence/lifecycle-events-store.js", () => ({
   recordLifecycleEvent: (name: string) => {
     recordImpl(name);
     return null;

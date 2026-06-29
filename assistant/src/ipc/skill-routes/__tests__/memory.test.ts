@@ -25,7 +25,7 @@ const addMessageSpy = mock(
     },
   ) => ({ id: "msg-xyz", createdAt: 123 }),
 );
-mock.module("../../../memory/conversation-crud.js", () => ({
+mock.module("../../../persistence/conversation-crud.js", () => ({
   addMessage: addMessageSpy,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));

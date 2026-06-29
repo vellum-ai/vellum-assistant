@@ -233,6 +233,22 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        task:
+                          type: string
+                        parentToolUseId:
+                          type: string
+                        usedTokens:
+                          type: number
+                        contextSize:
+                          type: number
+                        costAmount:
+                          type: number
+                        costCurrency:
+                          type: string
+                        inputTokens:
+                          type: number
+                        outputTokens:
+                          type: number
                         eventLog:
                           type: array
                           items: {}
@@ -7492,6 +7508,12 @@ paths:
                     required:
                       - role
                       - content
+                conversationType:
+                  type: string
+                  enum:
+                    - standard
+                    - background
+                    - scheduled
       responses:
         "200":
           description: Successful response
@@ -8637,8 +8659,6 @@ paths:
                             type: number
                           live:
                             type: boolean
-                          shadow:
-                            type: boolean
                           selections:
                             type: array
                             items:
@@ -8668,7 +8688,6 @@ paths:
                         required:
                           - turn
                           - live
-                          - shadow
                           - selections
                           - injectedText
                         additionalProperties: false
@@ -8991,6 +9010,9 @@ paths:
                 source:
                   default: cli
                   type: string
+                cronRunId:
+                  type: string
+                  minLength: 1
               required:
                 - conversationId
                 - hint
@@ -16423,6 +16445,104 @@ paths:
                 required:
                   - ok
                 additionalProperties: false
+  /v1/memory/worker/start:
+    post:
+      operationId: memory_worker_start_post
+      summary: Start the memory worker
+      description: Spawns (or reuses) the memory worker process as a child of the daemon and enables memory.worker.enabled.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pid:
+                    type: number
+                  alreadyRunning:
+                    type: boolean
+                  workerEnabled:
+                    type: boolean
+                    const: true
+                  pidPath:
+                    type: string
+                required:
+                  - pid
+                  - alreadyRunning
+                  - workerEnabled
+                  - pidPath
+                additionalProperties: false
+  /v1/memory/worker/status:
+    get:
+      operationId: memory_worker_status_get
+      summary: Memory worker status
+      description: Reports the memory worker process state, memory.worker.enabled, and the synchronous in-process runner.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - running
+                      - not_running
+                  pid:
+                    type: number
+                  workerEnabled:
+                    type: boolean
+                  syncRunner:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        enum:
+                          - running
+                          - not_running
+                      pid:
+                        type: number
+                    required:
+                      - status
+                    additionalProperties: false
+                required:
+                  - status
+                  - workerEnabled
+                  - syncRunner
+                additionalProperties: false
+  /v1/memory/worker/stop:
+    post:
+      operationId: memory_worker_stop_post
+      summary: Stop the memory worker
+      description: Disables memory.worker.enabled and SIGTERMs the memory worker process if it is running.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workerWasRunning:
+                    type: boolean
+                  pid:
+                    type: number
+                  workerEnabled:
+                    type: boolean
+                    const: false
+                required:
+                  - workerWasRunning
+                  - workerEnabled
+                additionalProperties: false
   /v1/messages:
     get:
       operationId: messages_get
@@ -16546,6 +16666,8 @@ paths:
                                 items:
                                   type: string
                               startedAt:
+                                type: number
+                              previewStartedAt:
                                 type: number
                               completedAt:
                                 type: number
@@ -16976,6 +17098,8 @@ paths:
                                         items:
                                           type: string
                                       startedAt:
+                                        type: number
+                                      previewStartedAt:
                                         type: number
                                       completedAt:
                                         type: number
@@ -17454,6 +17578,13 @@ paths:
                             - channelId
                             - channelTs
                           additionalProperties: false
+                        queueStatus:
+                          type: string
+                          enum:
+                            - queued
+                            - processing
+                        queuePosition:
+                          type: number
                       required:
                         - id
                         - role
@@ -18136,8 +18267,6 @@ paths:
                             type: number
                           live:
                             type: boolean
-                          shadow:
-                            type: boolean
                           selections:
                             type: array
                             items:
@@ -18167,7 +18296,6 @@ paths:
                         required:
                           - turn
                           - live
-                          - shadow
                           - selections
                           - injectedText
                         additionalProperties: false
@@ -21271,7 +21399,9 @@ paths:
     get:
       operationId: ps_get
       summary: Process status
-      description: Returns a JSON summary of the assistant's process tree including qdrant and embed-worker status.
+      description:
+        "Returns the daemon's process tree: every descendant process parented to the assistant runtime, built from
+        the native OS process table."
       tags:
         - system
       responses:

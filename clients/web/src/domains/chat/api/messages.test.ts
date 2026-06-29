@@ -11,11 +11,13 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import {
+  fetchConversationMessages,
   getChatHistory,
   mapRuntimeToolCalls,
   normalizeContentBlocks,
   normalizeContentOrder,
   postChatMessage,
+  RECONCILE_LATEST_PAGE_LIMIT,
 } from "@/domains/chat/api/messages";
 import { messageText } from "@/domains/chat/utils/message-test-helpers";
 import type {
@@ -389,6 +391,53 @@ describe("getChatHistory", () => {
       timestamp: Date.parse("2026-05-15T12:34:56.000Z"),
     });
     expect(messageText(result.messages[0])).toBe("Slack reply");
+  });
+});
+
+describe("fetchConversationMessages — request shape", () => {
+  function captureQuery(): { current: Record<string, unknown> | null } {
+    const captured: { current: Record<string, unknown> | null } = {
+      current: null,
+    };
+    daemonClient.get = mock(
+      async (options: { query?: Record<string, unknown> }) => {
+        captured.current = options.query ?? null;
+        return {
+          data: { messages: [], seq: 7 },
+          error: null,
+          response: new Response(null, { status: 200 }),
+        };
+      },
+    ) as typeof daemonClient.get;
+    return captured;
+  }
+
+  test("downloads the full conversation when no page limit is given", async () => {
+    const captured = captureQuery();
+
+    await fetchConversationMessages("assistant-1", "conv-1");
+
+    expect(captured.current).toEqual({ conversationId: "conv-1" });
+    // Full-snapshot callers (the inspector) must not page.
+    expect(captured.current).not.toHaveProperty("page");
+    expect(captured.current).not.toHaveProperty("limit");
+  });
+
+  test("requests only the latest page when a page limit is given", async () => {
+    const captured = captureQuery();
+
+    const result = await fetchConversationMessages("assistant-1", "conv-1", {
+      latestPageLimit: RECONCILE_LATEST_PAGE_LIMIT,
+    });
+
+    expect(captured.current).toEqual({
+      conversationId: "conv-1",
+      page: "latest",
+      limit: RECONCILE_LATEST_PAGE_LIMIT,
+    });
+    // The paginated response still carries the snapshot watermark the
+    // reconcile/seq callers depend on.
+    expect(result?.seq).toBe(7);
   });
 });
 

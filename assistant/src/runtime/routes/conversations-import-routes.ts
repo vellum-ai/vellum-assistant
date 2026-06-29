@@ -3,20 +3,20 @@ import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
 import {
-  addMessage,
-  createConversation,
-  type MessageRole,
-} from "../../memory/conversation-crud.js";
-import {
   getConversationByKey,
   setConversationKey,
 } from "../../memory/conversation-key-store.js";
-import { getDb } from "../../memory/db-connection.js";
 import { indexMessageNow } from "../../memory/indexer.js";
+import {
+  addMessage,
+  createConversation,
+  type MessageRole,
+} from "../../persistence/conversation-crud.js";
+import { getDb } from "../../persistence/db-connection.js";
 import {
   conversations as conversationsTable,
   messages as messagesTable,
-} from "../../memory/schema.js";
+} from "../../persistence/schema/index.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";

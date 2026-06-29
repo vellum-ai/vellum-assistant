@@ -121,7 +121,7 @@ let mockGetConversationOverrideProfile: (
   conversationId: string,
 ) => string | undefined = () => undefined;
 
-mock.module("../../memory/conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   getConversationOverrideProfile: (conversationId: string) =>
     mockGetConversationOverrideProfile(conversationId),
   getConversation: () => ({
@@ -304,7 +304,7 @@ mock.module("../../daemon/conversation-usage.js", () => ({
     });
   },
 }));
-mock.module("../../memory/llm-request-log-store.js", () => ({
+mock.module("../../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: (
     conversationId: string,
     requestPayload: string,

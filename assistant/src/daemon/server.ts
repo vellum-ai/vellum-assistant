@@ -4,9 +4,6 @@ import { join } from "node:path";
 import { disposeAcpSessionManager } from "../acp/index.js";
 import { compileApp } from "../bundler/app-compiler.js";
 import { getConfig } from "../config/loader.js";
-import { onContactChange } from "../contacts/contact-events.js";
-import type { CesClient } from "../credential-execution/client.js";
-import type { CesProcessManager } from "../credential-execution/process-manager.js";
 import { AssistantIpcServer } from "../ipc/assistant-server.js";
 import { SkillIpcServer } from "../ipc/skill-server.js";
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
@@ -34,7 +31,6 @@ import { Conversation } from "./conversation.js";
 import { ConversationEvictor } from "./conversation-evictor.js";
 import {
   allConversations,
-  clearConversations,
   conversationEntries,
   deleteConversation,
   getConversationMap,
@@ -76,7 +72,6 @@ const daemonVersion = readPackageVersion();
 
 export class DaemonServer {
   private sharedRequestTimestamps: number[] = [];
-  private unsubscribeContactChange: (() => void) | null = null;
   private evictor: ConversationEvictor;
 
   // Composed subsystems
@@ -84,65 +79,6 @@ export class DaemonServer {
   private appSourceWatcher = new AppSourceWatcher();
   private cliIpc = new AssistantIpcServer();
   private skillIpc = new SkillIpcServer();
-
-  // CES (Credential Execution Service) — process-level singleton.
-  // Lifecycle is managed by startCesProcess() in lifecycle.ts; the server
-  // receives the result via setCes().
-  private cesProcessManager?: CesProcessManager;
-  private cesClientPromise?: Promise<CesClient | undefined>;
-  private cesInitAbortController?: AbortController;
-  private cesClientRef?: CesClient;
-  /** Monotonically increasing counter to detect stale client updates. */
-  private cesClientGeneration = 0;
-
-  /**
-   * Inject the CES client and process manager from the caller (lifecycle.ts).
-   * Must be called before start().
-   */
-  setCes(result: {
-    client: CesClient | undefined;
-    processManager: CesProcessManager | undefined;
-    clientPromise: Promise<CesClient | undefined> | undefined;
-    abortController: AbortController | undefined;
-  }): void {
-    this.cesClientRef = result.client;
-    this.cesProcessManager = result.processManager;
-    this.cesInitAbortController = result.abortController;
-
-    // Wrap the external promise so that cesClientRef stays in sync once the
-    // handshake completes — the async work runs in lifecycle.ts but the
-    // server needs the resolved client reference for getCesClient().
-    // Use a generation snapshot so a late-resolving promise doesn't overwrite
-    // a newer client set by updateCesClient().
-    if (result.clientPromise) {
-      const gen = this.cesClientGeneration;
-      this.cesClientPromise = result.clientPromise.then((client) => {
-        if (this.cesClientGeneration === gen) {
-          this.cesClientRef = client;
-        }
-        return client;
-      });
-    }
-  }
-
-  /**
-   * Return the CES client reference (if available).
-   * Used by routes that need to push updates to CES (e.g. secret-routes).
-   */
-  getCesClient(): CesClient | undefined {
-    return this.cesClientRef;
-  }
-
-  /**
-   * Update the CES client reference after a successful reconnection.
-   * Called via the `onCesClientChanged` listener registered in lifecycle.ts.
-   * Bumps the generation counter so any pending setCes().then() callback
-   * won't overwrite this newer client.
-   */
-  updateCesClient(client: CesClient | undefined): void {
-    this.cesClientGeneration++;
-    this.cesClientRef = client;
-  }
 
   constructor() {
     this.evictor = new ConversationEvictor(getConversationMap());
@@ -307,11 +243,6 @@ export class DaemonServer {
 
     this.appSourceWatcher.start((appId) => this.handleAppSourceChange(appId));
 
-    // Broadcast contacts_changed to all clients when any contact mutation occurs.
-    this.unsubscribeContactChange = onContactChange(() => {
-      broadcastMessage({ type: "contacts_changed" });
-    });
-
     log.info("DaemonServer started (HTTP-only mode)");
   }
 
@@ -323,43 +254,6 @@ export class DaemonServer {
     this.appSourceWatcher.stop();
     this.cliIpc.stop();
     this.skillIpc.stop();
-    if (this.unsubscribeContactChange) {
-      this.unsubscribeContactChange();
-      this.unsubscribeContactChange = null;
-    }
-
-    for (const conversation of allConversations()) {
-      conversation.dispose();
-    }
-    clearConversations();
-
-    // Abort any in-flight CES initialization so it fails fast instead of
-    // blocking shutdown for up to ~15s (socket connect + handshake timeouts).
-    if (this.cesInitAbortController) {
-      this.cesInitAbortController.abort();
-      this.cesInitAbortController = undefined;
-    }
-    // Force-stop the CES process immediately — forceStop() works even if
-    // start() hasn't finished (unlike stop() which is a no-op when !running).
-    if (this.cesProcessManager) {
-      await this.cesProcessManager.forceStop().catch(() => {});
-    }
-    // Cancel in-flight handshake/RPC timers by closing the client directly.
-    // Without this, the handshake setTimeout (~10s) keeps the init promise
-    // pending even after the transport is killed.
-    if (this.cesClientRef) {
-      this.cesClientRef.close();
-      this.cesClientRef = undefined;
-    }
-    // Now await the init promise (which should settle immediately since we
-    // killed the transport and cancelled pending timers above).
-    if (this.cesClientPromise) {
-      await this.cesClientPromise.catch(() => undefined);
-      this.cesClientPromise = undefined;
-    }
-    if (this.cesProcessManager) {
-      this.cesProcessManager = undefined;
-    }
 
     log.info("Daemon server stopped");
   }

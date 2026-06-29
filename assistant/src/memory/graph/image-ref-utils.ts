@@ -1,8 +1,8 @@
 import { eq } from "drizzle-orm";
 
-import { getDb } from "../db-connection.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { messages } from "../../persistence/schema/index.js";
 import { extractMediaBlocks } from "../message-content.js";
-import { messages } from "../schema.js";
 import type { ImageRef } from "./types.js";
 
 /**

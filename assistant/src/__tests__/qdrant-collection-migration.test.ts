@@ -97,7 +97,7 @@ mock.module("@qdrant/js-client-rest", () => ({
   },
 }));
 
-import { VellumQdrantClient } from "../memory/qdrant-client.js";
+import { VellumQdrantClient } from "../persistence/embeddings/qdrant-client.js";
 
 beforeEach(() => {
   resetMockState();

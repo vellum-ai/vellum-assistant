@@ -75,13 +75,23 @@ export type HookFunction<TCtx = unknown> = (
  * Context passed to `Plugin.init()` during bootstrap. Carries the resolved
  * config, a pino-compatible logger scoped to the plugin, a per-plugin
  * writable data directory, and the assistant's version metadata.
+ *
+ * For user-installed plugins, config is read from `<pluginDir>/config.json`
+ * and `pluginStorageDir` points at `<pluginDir>/data/`. For first-party
+ * default plugins and standalone workspace hooks, config comes from the
+ * global `config.plugins.<name>` block and `pluginStorageDir` points at
+ * `<workspaceDir>/plugins-data/<name>/`.
  */
 export interface InitContext {
   /** Parsed config for this plugin (may be `unknown` until the manifest validates). */
   config: unknown;
   /** Pino-compatible child logger bound to `{ plugin: <name> }`. */
   logger: PluginLogger;
-  /** Absolute path to `<workspaceDir>/plugins-data/<plugin>/` (created by bootstrap). */
+  /**
+   * Absolute path to the per-plugin writable data directory. For user plugins
+   * this is `<pluginDir>/data/`; for defaults and workspace hooks it falls back
+   * to `<workspaceDir>/plugins-data/<plugin>/`. Created by bootstrap.
+   */
   pluginStorageDir: string;
   /**
    * Assistant semver. Plugins can compare against this for defensive
@@ -344,10 +354,19 @@ export interface PostToolUseContext {
   /**
    * Model id reported by the provider for the assistant turn that issued
    * this tool call (e.g. `claude-opus-4-8`,
-   * `accounts/fireworks/models/kimi-k2p6`). Hooks use it to vary coaching by
-   * model family — some models need earlier or firmer steering than others.
+   * `accounts/fireworks/models/kimi-k2p6`). A hook needing a finer-grained
+   * model-family signal than {@link needsFirmerSteering} — e.g. matching a
+   * specific loop-prone family — reads it directly.
    */
   readonly model: string;
+  /**
+   * Host's assessment that this turn's model needs firmer mid-turn steering
+   * than the static prompt provides — `true` for weaker open-weight families
+   * that disregard prompt-level coaching, `false` for models that follow it.
+   * Hooks gate aggressive nudges on this boolean instead of re-deriving the
+   * model taxonomy themselves.
+   */
+  readonly needsFirmerSteering: boolean;
   /**
    * The model's context-window size in tokens. Plugins derive their own
    * character budget from this (e.g. a share of the window) rather than

@@ -16,12 +16,12 @@ import { randomUUID } from "node:crypto";
 
 import { loadConfig } from "../../config/loader.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
+import { resolveConversationId } from "../../memory/conversation-key-store.js";
 import {
   getConversation,
   listActiveInferenceProfileSessions,
   setConversationInferenceProfileSession,
-} from "../../memory/conversation-crud.js";
-import { resolveConversationId } from "../../memory/conversation-key-store.js";
+} from "../../persistence/conversation-crud.js";
 import { publishConversationInferenceProfileChanged } from "../sync/resource-sync-events.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 

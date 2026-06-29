@@ -39,8 +39,8 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import type { EmbeddingProviderName } from "../persistence/embeddings/embedding-types.js";
 import { getDataDir } from "../util/platform.js";
-import type { EmbeddingProviderName } from "./embedding-types.js";
 
 /** Persisted anisotropy fit for a single (provider, model, dim) tuple. */
 export interface AnisotropyCalibration {

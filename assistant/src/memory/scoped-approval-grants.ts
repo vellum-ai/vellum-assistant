@@ -14,10 +14,10 @@
 import { and, eq, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { getDb } from "../persistence/db-connection.js";
+import { scopedApprovalGrants } from "../persistence/schema/index.js";
 import { getLogger } from "../util/logger.js";
-import { getDb } from "./db-connection.js";
 import { rawChanges } from "./raw-query.js";
-import { scopedApprovalGrants } from "./schema.js";
 
 const log = getLogger("scoped-approval-grants");
 

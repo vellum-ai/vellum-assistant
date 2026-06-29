@@ -24,16 +24,19 @@ import {
   addMessage,
   createConversation,
   forkConversation,
-} from "../memory/conversation-crud.js";
-import { getDb, getLogsDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../persistence/conversation-crud.js";
+import { getDb, getLogsDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   backfillMessageIdOnLogs,
   getRequestLogsByMessageId,
   recordRequestLog,
   relinkLlmRequestLogs,
-} from "../memory/llm-request-log-store.js";
-import { llmRequestLogs, toolInvocations } from "../memory/schema.js";
+} from "../persistence/llm-request-log-store.js";
+import {
+  llmRequestLogs,
+  toolInvocations,
+} from "../persistence/schema/index.js";
 
 await initializeDb();
 
@@ -150,7 +153,7 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
     // Fork the conversation
     const fork = forkConversation({ conversationId: source.id });
     const forkMessages = (
-      await import("../memory/conversation-crud.js")
+      await import("../persistence/conversation-crud.js")
     ).getMessages(fork.id);
     const forkLastAssistant = forkMessages
       .filter((m) => m.role === "assistant")

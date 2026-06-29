@@ -22,6 +22,7 @@ describe("MemoryV3ConfigSchema", () => {
       needleK: 100,
       denseK: 100,
       replyQueryK: 12,
+      selectorEnabled: true,
       selectorPromptPath: null,
       edge: { hubDegree: 30, seedCount: 18, perSeed: 6, cap: 45 },
     });
@@ -85,10 +86,19 @@ describe("MemoryV3ConfigSchema", () => {
     ).toThrow();
   });
 
-  test("accepts explicit lane-K overrides", () => {
-    const parsed = MemoryV3ConfigSchema.parse({ needleK: 50, denseK: 75 });
-    expect(parsed.needleK).toBe(50);
+  test("accepts explicit lane-K overrides including zero", () => {
+    const parsed = MemoryV3ConfigSchema.parse({ needleK: 0, denseK: 75 });
+    expect(parsed.needleK).toBe(0);
     expect(parsed.denseK).toBe(75);
+
+    const zeroDense = MemoryV3ConfigSchema.parse({ needleK: 50, denseK: 0 });
+    expect(zeroDense.needleK).toBe(50);
+    expect(zeroDense.denseK).toBe(0);
+  });
+
+  test("accepts selector bypass override", () => {
+    const parsed = MemoryV3ConfigSchema.parse({ selectorEnabled: false });
+    expect(parsed.selectorEnabled).toBe(false);
   });
 
   test("accepts a partial edge override, defaulting the rest", () => {
@@ -101,9 +111,9 @@ describe("MemoryV3ConfigSchema", () => {
     });
   });
 
-  test("rejects non-positive or non-integer lane knobs", () => {
-    expect(() => MemoryV3ConfigSchema.parse({ needleK: 0 })).toThrow();
+  test("rejects negative or non-integer lane knobs", () => {
     expect(() => MemoryV3ConfigSchema.parse({ denseK: -4 })).toThrow();
+    expect(() => MemoryV3ConfigSchema.parse({ needleK: -1 })).toThrow();
     expect(() => MemoryV3ConfigSchema.parse({ needleK: 1.5 })).toThrow();
     expect(() =>
       MemoryV3ConfigSchema.parse({ edge: { perSeed: 0 } }),

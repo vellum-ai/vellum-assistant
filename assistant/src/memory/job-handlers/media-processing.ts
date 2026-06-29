@@ -7,11 +7,17 @@ import { mapSegmentsForAsset } from "../../config/bundled-skills/media-processin
 import { preprocessForAsset } from "../../config/bundled-skills/media-processing/tools/extract-keyframes.js";
 import { reduceForAsset } from "../../config/bundled-skills/media-processing/tools/query-media-events.js";
 import { getConfig } from "../../config/loader.js";
+import { selectedBackendSupportsMultimodal } from "../../persistence/embeddings/embedding-backend.js";
+import { asString } from "../../persistence/job-utils.js";
+import {
+  enqueueMemoryJob,
+  type MemoryJob,
+} from "../../persistence/jobs-store.js";
+import {
+  getMediaAssetById,
+  updateMediaAssetStatus,
+} from "../../persistence/media-store.js";
 import { getLogger } from "../../util/logger.js";
-import { selectedBackendSupportsMultimodal } from "../embedding-backend.js";
-import { asString } from "../job-utils.js";
-import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
-import { getMediaAssetById, updateMediaAssetStatus } from "../media-store.js";
 
 const log = getLogger("media-processing-job");
 

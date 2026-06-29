@@ -10,7 +10,7 @@ import {
   getConversation,
   getMessages,
   messageMetadataSchema,
-} from "../memory/conversation-crud.js";
+} from "../persistence/conversation-crud.js";
 import { truncate } from "../util/truncate.js";
 
 interface ContentBlock {

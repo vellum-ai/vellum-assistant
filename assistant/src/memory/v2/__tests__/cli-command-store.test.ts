@@ -109,7 +109,7 @@ mock.module("../../../cli/program.js", () => ({
   },
 }));
 
-mock.module("../../embedding-backend.js", () => ({
+mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
   embedWithBackend: async (_config: unknown, inputs: unknown[]) => {
     if (state.embedThrows) throw state.embedThrows;
     const vectors = state.embedReturn.length

@@ -6,7 +6,7 @@
 
 import { z } from "zod";
 
-import { recordLifecycleEvent } from "../../memory/lifecycle-events-store.js";
+import { recordLifecycleEvent } from "../../persistence/lifecycle-events-store.js";
 import { getUsageTelemetryReporter } from "../../telemetry/usage-telemetry-reporter.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";

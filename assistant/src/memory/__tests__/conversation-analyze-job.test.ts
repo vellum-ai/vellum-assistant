@@ -54,8 +54,8 @@ mock.module("../auto-analysis-enqueue.js", () => ({
 
 import { DEFAULT_CONFIG } from "../../config/defaults.js";
 import type { AssistantConfig } from "../../config/types.js";
+import type { MemoryJob } from "../../persistence/jobs-store.js";
 import { conversationAnalyzeJob } from "../conversation-analyze-job.js";
-import type { MemoryJob } from "../jobs-store.js";
 
 const TEST_CONFIG: AssistantConfig = DEFAULT_CONFIG;
 

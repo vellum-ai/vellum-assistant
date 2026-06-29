@@ -24,15 +24,15 @@ import {
   createCanonicalGuardianRequest,
   resolveCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { conversations } from "../memory/schema.js";
 import { recordGuardianRequestDeliveries } from "../notifications/canonical-delivery-recorder.js";
 import { buildConversationCandidates } from "../notifications/conversation-candidates.js";
 import { createDecision } from "../notifications/decisions-store.js";
 import { createDelivery } from "../notifications/deliveries-store.js";
 import { createEvent } from "../notifications/events-store.js";
 import type { NotificationChannel } from "../notifications/types.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { conversations } from "../persistence/schema/index.js";
 
 await initializeDb();
 

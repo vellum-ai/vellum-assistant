@@ -89,13 +89,13 @@ import {
 import {
   recordCompactionEndBestEffort,
   recordCompactionStartBestEffort,
-} from "../memory/compaction-log-store-clickhouse.js";
-import { getConversationOverrideProfile } from "../memory/conversation-crud.js";
+} from "../persistence/compaction-log-store-clickhouse.js";
+import { getConversationOverrideProfile } from "../persistence/conversation-crud.js";
 import {
   buildProviderErrorResponsePayload,
   recordRequestLog,
   setAgentLoopExitReasonOnLatestLog,
-} from "../memory/llm-request-log-store.js";
+} from "../persistence/llm-request-log-store.js";
 import type { SystemPromptPersonaOverride } from "../prompts/system-prompt.js";
 import type { Message } from "../providers/types.js";
 import {
@@ -317,6 +317,12 @@ export interface WakeOptions {
    * framing outside the fence.
    */
   untrustedOutput?: WakeUntrustedOutput;
+  /**
+   * Schedule-run id to stamp on the usage rows this wake records. Set when the
+   * wake is triggered by a script-mode schedule (the firing's run id), so the
+   * woken turn's cost is attributed to that firing.
+   */
+  cronRunId?: string;
 }
 
 /**
@@ -385,7 +391,8 @@ async function defaultResolveTarget(
   // module-evaluation time.  Callers that only import agent-wake for
   // the types or for explicit-deps usage (tests, shell tools) never
   // trigger these imports.
-  const { getConversation } = await import("../memory/conversation-crud.js");
+  const { getConversation } =
+    await import("../persistence/conversation-crud.js");
   const { getOrCreateConversation } =
     await import("../daemon/conversation-store.js");
   try {
@@ -929,6 +936,7 @@ export async function wakeAgentForOpportunity(
               forceOverrideProfile,
               selectionSeed: conversationId,
             },
+            opts.cronRunId ?? null,
           );
         } catch (err) {
           log.warn(

@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
-import { initializeDb } from "../db-init.js";
+import { initializeDb } from "../../persistence/db-init.js";
 import { resetTestTables } from "../raw-query.js";
 import {
   applyDiff,

@@ -97,8 +97,8 @@ const {
   refreshBackgroundWakeIntent,
   resetBackgroundWakeIntentPublisherForTest,
 } = await import("./publisher.js");
-const { initializeDb } = await import("../memory/db-init.js");
-const { getDb } = await import("../memory/db-connection.js");
+const { initializeDb } = await import("../persistence/db-init.js");
+const { getDb } = await import("../persistence/db-connection.js");
 const { createSchedule, deleteSchedule, updateSchedule } =
   await import("../schedule/schedule-store.js");
 
@@ -235,12 +235,12 @@ describe("background wake intent publisher hooks", () => {
       "utf-8",
     );
 
-    expect(lifecycleSource).toContain(
-      [
-        "heartbeat.start();",
-        "registerBackgroundWakeRuntime({ scheduler, heartbeat });",
-        'refreshBackgroundWakeIntent("daemon-startup");',
-      ].join("\n    "),
+    // The wake intent is published once, immediately after the heartbeat is
+    // started (the scheduler is started earlier), so the daemon-startup intent
+    // reflects the live singletons. Tolerant of indentation so the assertion
+    // survives reformatting of lifecycle.ts.
+    expect(lifecycleSource).toMatch(
+      /startHeartbeatService\(\);\n[ \t]*refreshBackgroundWakeIntent\("daemon-startup"\);/,
     );
   });
 

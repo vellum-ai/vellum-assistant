@@ -74,14 +74,14 @@ import {
   insertPendingHeartbeatRun,
   startHeartbeatRun,
 } from "../heartbeat/heartbeat-run-store.js";
+import { rawRun } from "../memory/raw-query.js";
 import {
   archiveConversation,
   createConversation,
-} from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { recordUsageEvent } from "../memory/llm-usage-store.js";
-import { rawRun } from "../memory/raw-query.js";
+} from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { recordUsageEvent } from "../persistence/llm-usage-store.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { BadRequestError, NotFoundError } from "../runtime/routes/errors.js";

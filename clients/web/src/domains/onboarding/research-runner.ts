@@ -70,6 +70,22 @@ export function shouldSettleResearchPoll({
 }): boolean {
   return complete && stableReads >= STABLE_READS_TO_SETTLE;
 }
+
+export function resolveResearchCompletionStatus({
+  sawCompletePayload,
+}: {
+  sawCompletePayload: boolean;
+}): ResearchStatus {
+  return sawCompletePayload ? "done" : "error";
+}
+
+export function shouldArchiveCompletedResearchConversation({
+  sawCompletePayload,
+}: {
+  sawCompletePayload: boolean;
+}): boolean {
+  return sawCompletePayload;
+}
 /**
  * Org that owns first-party, reviewed Vellum plugins. Onboarding only ever
  * surfaces and installs plugins from this owner — never third-party/external
@@ -329,6 +345,7 @@ export function useResearchRunner(): UseResearchRunner {
       void (async () => {
         let resolvedAssistantId: string | undefined;
         let createdConversationId: string | undefined;
+        let sawCompletePayload = false;
         try {
           const assistantId = await awaitAssistantId();
           resolvedAssistantId = assistantId;
@@ -377,10 +394,8 @@ export function useResearchRunner(): UseResearchRunner {
             },
             throwOnError: false,
           });
-          // Capture the created conversation id BEFORE the stale check so a
-          // superseded run still archives its throwaway side conversation in the
-          // finally block. The finally already guards on truthiness, so an
-          // undefined id here is harmless.
+          // Capture the created conversation id before the stale check. The
+          // finally block archives it only after a complete payload settles.
           createdConversationId = conversation.data?.id;
           if (isStale()) return;
           const conversationId = conversation.data?.id;
@@ -467,17 +482,23 @@ export function useResearchRunner(): UseResearchRunner {
                   modelPlugins: validPlugins,
                 }),
               });
+              if (complete) sawCompletePayload = true;
               stableReads = text === lastText ? stableReads + 1 : 0;
               lastText = text;
               // Only a complete payload can settle early. A partial JSON object
               // can pause between claim/suggestion objects for long enough to
               // look stable, but it may still be mid-response.
-              if (shouldSettleResearchPoll({ complete, stableReads })) break;
+              if (shouldSettleResearchPoll({ complete, stableReads })) {
+                break;
+              }
             }
           }
 
           if (isStale()) return;
-          setState((s) => ({ ...s, status: "done" }));
+          setState((s) => ({
+            ...s,
+            status: resolveResearchCompletionStatus({ sawCompletePayload }),
+          }));
         } catch (err) {
           if (isStale()) return;
           captureError(err, { context: "research_onboarding_runner" });
@@ -487,11 +508,16 @@ export function useResearchRunner(): UseResearchRunner {
           // a stale bail-out, or a reply that never emitted a `plugins` array) so
           // `awaitPluginInstalls` can never hang.
           resolvePluginsReady();
-          // Archive the throwaway research conversation on every exit path (settled,
-          // errored, or superseded by a newer run) once it has been created, so the
-          // side channel never lingers in the sidebar on handoff. Best-effort +
-          // idempotent; awaiting lets the cache invalidation reflect the archived state.
-          if (resolvedAssistantId && createdConversationId) {
+          // Archive only after the full research payload is available. If the poll
+          // ceiling fired before that, the assistant turn may still be running and
+          // the conversation remains available for reconciliation/debugging.
+          if (
+            shouldArchiveCompletedResearchConversation({
+              sawCompletePayload,
+            }) &&
+            resolvedAssistantId &&
+            createdConversationId
+          ) {
             await archiveResearchConversation(
               resolvedAssistantId,
               createdConversationId,

@@ -12,7 +12,7 @@
 import { v4 as uuid } from "uuid";
 
 import { getGuardianDelivery } from "../contacts/guardian-delivery-reader.js";
-import { getConversation } from "../memory/conversation-crud.js";
+import { getConversation } from "../persistence/conversation-crud.js";
 import type { ApprovalUIMetadata } from "../runtime/channel-approval-types.js";
 import { getLogger } from "../util/logger.js";
 import {

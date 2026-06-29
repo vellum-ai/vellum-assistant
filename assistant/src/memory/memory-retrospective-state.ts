@@ -22,8 +22,8 @@
 
 import { eq } from "drizzle-orm";
 
-import { type DrizzleDb, getDb } from "./db-connection.js";
-import { memoryRetrospectiveState } from "./schema.js";
+import { type DrizzleDb, getDb } from "../persistence/db-connection.js";
+import { memoryRetrospectiveState } from "../persistence/schema/index.js";
 
 export interface MemoryRetrospectiveState {
   conversationId: string;

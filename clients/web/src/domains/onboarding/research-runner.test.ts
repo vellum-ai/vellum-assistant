@@ -9,8 +9,10 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  resolveResearchCompletionStatus,
   resolveOnboardingPluginInstalls,
   selectRecommendableCapabilities,
+  shouldArchiveCompletedResearchConversation,
   shouldSettleResearchPoll,
 } from "@/domains/onboarding/research-runner";
 
@@ -127,6 +129,38 @@ describe("shouldSettleResearchPoll", () => {
   test("waits for the complete response to stabilize", () => {
     expect(
       shouldSettleResearchPoll({ complete: true, stableReads: 1 }),
+    ).toBe(false);
+  });
+});
+
+describe("resolveResearchCompletionStatus", () => {
+  test("marks complete JSON payloads done", () => {
+    expect(
+      resolveResearchCompletionStatus({ sawCompletePayload: true }),
+    ).toBe("done");
+  });
+
+  test("marks timed-out partial payloads as error", () => {
+    expect(
+      resolveResearchCompletionStatus({ sawCompletePayload: false }),
+    ).toBe("error");
+  });
+});
+
+describe("shouldArchiveCompletedResearchConversation", () => {
+  test("archives when a complete payload was observed", () => {
+    expect(
+      shouldArchiveCompletedResearchConversation({
+        sawCompletePayload: true,
+      }),
+    ).toBe(true);
+  });
+
+  test("does not archive partial or timed-out research turns", () => {
+    expect(
+      shouldArchiveCompletedResearchConversation({
+        sawCompletePayload: false,
+      }),
     ).toBe(false);
   });
 });

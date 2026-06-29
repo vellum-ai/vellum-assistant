@@ -242,6 +242,19 @@ export function destroyActiveConversation(conversationId: string): void {
 }
 
 /**
+ * Dispose all in-memory conversations and clear the store during daemon
+ * shutdown. Subagent teardown and evictor stop are driven separately by the
+ * shutdown sequence, so this only releases the conversation instances and
+ * resets the registry.
+ */
+export function stopConversations(): void {
+  for (const conversation of allConversations()) {
+    conversation.dispose();
+  }
+  clearConversations();
+}
+
+/**
  * Dispose all in-memory conversations, clear the store, and remove
  * from the evictor. Returns the count of conversations that were cleared.
  */

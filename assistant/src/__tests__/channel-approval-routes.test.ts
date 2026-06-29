@@ -75,11 +75,11 @@ import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import * as deliveryChannels from "../memory/delivery-channels.js";
 import { resetTestTables } from "../memory/raw-query.js";
-import { conversations } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import * as deliveryChannels from "../persistence/delivery-channels.js";
+import { conversations } from "../persistence/schema/index.js";
 import { initAuthSigningKey } from "../runtime/auth/token-service.js";
 import * as gatewayClient from "../runtime/gateway-client.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
@@ -90,6 +90,7 @@ import {
   seedContactChannel,
 } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import { resetGatewayAclStore } from "./helpers/gateway-acl-store.js";
 
 await initializeDb();
 initAuthSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long"));
@@ -131,6 +132,7 @@ function resetTables(): void {
     "contact_channels",
     "contacts",
   );
+  resetGatewayAclStore();
   deliveryChannels.resetAllRunDeliveryClaims();
   pendingInteractions.clear();
 }
