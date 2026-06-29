@@ -65,10 +65,8 @@ const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
     "sparse-tokenize",
   ]),
   "assistant/src/persistence/jobs-worker.ts": new Set([
-    "cleanup-schedule-state",
     "memory-retrospective-startup-cleanup",
     "v2/consolidation-job",
-    "worker-control",
   ]),
   "assistant/src/persistence/steps.ts": new Set([
     "app-store",

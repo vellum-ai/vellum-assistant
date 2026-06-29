@@ -113,7 +113,7 @@ describe("cleanupSettingsChanged", () => {
 // Track calls from config-watcher into the (mocked) cleanup-schedule-state.
 let resetCleanupScheduleThrottleCalls = 0;
 
-mock.module("../memory/cleanup-schedule-state.js", () => ({
+mock.module("../persistence/cleanup-schedule-state.js", () => ({
   resetCleanupScheduleThrottle: () => {
     resetCleanupScheduleThrottleCalls++;
   },
