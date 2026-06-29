@@ -208,7 +208,7 @@ describe("standalone confirmation surface payload shapes", () => {
     expect(completeMsg!.surfaceId).toBe("payload-surf-2");
     expect(typeof completeMsg!.summary).toBe("string");
     expect(completeMsg!.summary).toBe('User chose: "Deploy"');
-    // submittedData should contain the action data from the user click
+    // Non-sensitive submittedData is included in the broadcast
     expect(completeMsg!.submittedData).toEqual({ environment: "production" });
   });
 
@@ -406,6 +406,54 @@ describe("standalone form surface payload shapes", () => {
     expect(completeMsg!.submittedData).toEqual({
       email: "alice@example.com",
       age: 30,
+    });
+  });
+
+  test("password-type field values are redacted in broadcast but preserved in-process", async () => {
+    const ctx = createMockContext();
+
+    const resultPromise = showStandaloneSurface(
+      ctx,
+      {
+        conversationId: "payload-test-conv",
+        surfaceType: "form",
+        title: "Slack Setup",
+        data: {
+          fields: [
+            { id: "app_name", type: "text", label: "App Name", required: true },
+            {
+              id: "bot_token",
+              type: "password",
+              label: "Bot Token",
+              required: true,
+            },
+          ],
+        },
+        timeoutMs: 60_000,
+      },
+      "payload-surf-form-pw",
+    );
+
+    ctx.sentMessages.length = 0;
+
+    await handleSurfaceAction(ctx, "payload-surf-form-pw", "submit", {
+      app_name: "My Bot",
+      bot_token: "xoxb-secret-token-value",
+    });
+    const result = await resultPromise;
+
+    // In-process result retains full token values
+    expect(result.submittedData).toEqual({
+      app_name: "My Bot",
+      bot_token: "xoxb-secret-token-value",
+    });
+
+    // Broadcast redacts password-type field values
+    const completeMsg = findByType(ctx.sentMessages, "ui_surface_complete");
+    expect(completeMsg).toBeDefined();
+    expect(completeMsg!.submittedData).toEqual({
+      app_name: "My Bot",
+      bot_token: "[REDACTED]",
     });
   });
 
