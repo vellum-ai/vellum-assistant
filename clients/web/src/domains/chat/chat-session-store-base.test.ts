@@ -45,58 +45,58 @@ const store = () => useChatSessionStore.getState();
 beforeEach(() => {
   resetSseDebugStateForTests();
   store().setLiveTurn([]);
-  useChatSessionStore.setState({ base: null, optimisticSends: [] });
+  useChatSessionStore.setState({ snapshot: null, optimisticSends: [] });
 });
 afterEach(() => {
   resetSseDebugStateForTests();
-  useChatSessionStore.setState({ base: null, optimisticSends: [] });
+  useChatSessionStore.setState({ snapshot: null, optimisticSends: [] });
 });
 
-describe("chat-session-store — base + optimistic", () => {
-  test("seedBase with no buffered tail uses the snapshot as-is", () => {
+describe("chat-session-store — snapshot + optimistic", () => {
+  test("seedSnapshot with no buffered tail uses the snapshot as-is", () => {
     const snap = snapshot([textRow("a1", "persisted")], 5);
-    store().seedBase(CONV, snap);
-    expect(store().base).toBe(snap); // resolveBase returns the snapshot ref
+    store().seedSnapshot(CONV, snap);
+    expect(store().snapshot).toBe(snap); // resolveSnapshot returns the snapshot ref
   });
 
-  test("seedBase replays the buffered tail (events that raced the fetch)", () => {
+  test("seedSnapshot replays the buffered tail (events that raced the fetch)", () => {
     const id = registerSseClient(new AbortController().signal);
     // The ring reaches back to the cursor (oldest retained seq 6 <= snapshot.seq+1).
     pushSseEvent(id, textDelta(6, CONV, "a1", " + live"));
 
-    store().seedBase(CONV, snapshot([textRow("a1", "persisted")], 5));
+    store().seedSnapshot(CONV, snapshot([textRow("a1", "persisted")], 5));
 
-    expect(store().base?.messages.find((m) => m.id === "a1")?.textSegments).toEqual([
+    expect(store().snapshot?.messages.find((m) => m.id === "a1")?.textSegments).toEqual([
       "persisted + live",
     ]);
-    expect(store().base?.seq).toBe(6);
+    expect(store().snapshot?.seq).toBe(6);
   });
 
-  test("seedBase takes the snapshot wholesale when the tail is an eviction gap", () => {
+  test("seedSnapshot takes the snapshot wholesale when the tail is an eviction gap", () => {
     const id = registerSseClient(new AbortController().signal);
     // Oldest retained seq (50) is past snapshot.seq+1 → getSseEnvelopesSince → null.
     pushSseEvent(id, textDelta(50, CONV, "a1", " evicted-gap"));
 
     const snap = snapshot([textRow("a1", "persisted")], 5);
-    store().seedBase(CONV, snap);
-    expect(store().base).toBe(snap); // wholesale, no partial replay
+    store().seedSnapshot(CONV, snap);
+    expect(store().snapshot).toBe(snap); // wholesale, no partial replay
   });
 
-  test("applyEnvelopeToBase folds a live event once seeded; idempotent by seq", () => {
-    store().seedBase(CONV, snapshot([textRow("a1", "persisted")], 5));
-    store().applyEnvelopeToBase(textDelta(6, CONV, "a1", " live"));
-    expect(store().base?.messages.find((m) => m.id === "a1")?.textSegments).toEqual([
+  test("applyEnvelopeToSnapshot folds a live event once seeded; idempotent by seq", () => {
+    store().seedSnapshot(CONV, snapshot([textRow("a1", "persisted")], 5));
+    store().applyEnvelopeToSnapshot(textDelta(6, CONV, "a1", " live"));
+    expect(store().snapshot?.messages.find((m) => m.id === "a1")?.textSegments).toEqual([
       "persisted live",
     ]);
     // Re-applying seq 6 is a no-op.
-    const before = store().base;
-    store().applyEnvelopeToBase(textDelta(6, CONV, "a1", " live"));
-    expect(store().base).toBe(before);
+    const before = store().snapshot;
+    store().applyEnvelopeToSnapshot(textDelta(6, CONV, "a1", " live"));
+    expect(store().snapshot).toBe(before);
   });
 
-  test("applyEnvelopeToBase is a no-op before the base is seeded", () => {
-    store().applyEnvelopeToBase(textDelta(6, CONV, "a1", "x"));
-    expect(store().base).toBeNull();
+  test("applyEnvelopeToSnapshot is a no-op before the snapshot is seeded", () => {
+    store().applyEnvelopeToSnapshot(textDelta(6, CONV, "a1", "x"));
+    expect(store().snapshot).toBeNull();
   });
 
   test("optimistic sends add and clear by clientMessageId", () => {
@@ -107,13 +107,13 @@ describe("chat-session-store — base + optimistic", () => {
     expect(store().optimisticSends).toEqual([]);
   });
 
-  test("switching conversation resets base and optimistic sends", () => {
-    store().seedBase(CONV, snapshot([textRow("a1", "x")], 1));
+  test("switching conversation resets snapshot and optimistic sends", () => {
+    store().seedSnapshot(CONV, snapshot([textRow("a1", "x")], 1));
     store().addOptimisticSend({ ...textRow("u1", "hi"), role: "user", clientMessageId: "n" });
 
     store().switchToConversation({ assistantId: "asst-1", activeConversationId: "conv-B" });
 
-    expect(store().base).toBeNull();
+    expect(store().snapshot).toBeNull();
     expect(store().optimisticSends).toEqual([]);
   });
 });
