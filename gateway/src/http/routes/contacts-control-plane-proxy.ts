@@ -923,8 +923,13 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
    *
    * SOFT-FAIL: if the upstream status isn't 2xx, the body isn't the expected
    * JSON envelope, or the gateway ACL read throws — the ORIGINAL daemon bytes
-   * are returned unchanged (preserving status + headers). The overlay never
-   * turns a working (if stale) read into a 500.
+   * are returned unchanged (preserving status). The overlay never turns a
+   * working (if stale) read into a 500.
+   *
+   * Entity headers (content-length, content-encoding) are dropped on both
+   * paths: we always emit a freshly-serialized string body, so the runtime
+   * recomputes content-length — reusing the upstream length would truncate the
+   * (resized) overlaid body.
    */
   async function forwardListWithAclOverlay(
     req: Request,
@@ -935,20 +940,20 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
     // Capture the body once; we both read it for overlay and replay it raw on
     // any soft-fail. A Response body can only be consumed once.
     const text = await upstream.text();
-    const rawResponse = () =>
-      new Response(text, {
-        status: upstream.status,
-        headers: upstream.headers,
-      });
+    const headers = new Headers(upstream.headers);
+    headers.delete("content-length");
+    headers.delete("content-encoding");
+    const respond = (payload: string) =>
+      new Response(payload, { status: upstream.status, headers });
 
     if (upstream.status < 200 || upstream.status >= 300) {
-      return rawResponse();
+      return respond(text);
     }
 
     try {
       const body = JSON.parse(text) as unknown;
       const contacts = extractContactsArray(body);
-      if (!contacts) return rawResponse();
+      if (!contacts) return respond(text);
 
       const ids = contacts
         .map((c) => c.id)
@@ -957,16 +962,13 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
 
       overlayAclOntoContacts(contacts, aclByContactId);
 
-      return new Response(JSON.stringify(body), {
-        status: upstream.status,
-        headers: upstream.headers,
-      });
+      return respond(JSON.stringify(body));
     } catch (err) {
       log.warn(
         { err },
         "list_contacts: ACL overlay failed; returning daemon response unchanged",
       );
-      return rawResponse();
+      return respond(text);
     }
   }
 

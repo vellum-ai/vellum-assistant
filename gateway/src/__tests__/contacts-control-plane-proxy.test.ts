@@ -882,9 +882,9 @@ describe("handleListContacts (gateway-native)", () => {
 });
 
 describe("handleListContacts ACL overlay (filtered/search path)", () => {
-  // A daemon contact as it comes back post-Combo-11: neutral role, channels
-  // with no/unverified ACL. The overlay must replace role + channel ACL from
-  // the gateway DB while leaving info/identity fields untouched.
+  // A daemon contact as it comes back from the search path: neutral role,
+  // channels with unverified ACL. The overlay must replace role + channel ACL
+  // from the gateway DB while leaving info/identity fields untouched.
   function daemonContact(overrides: Record<string, unknown> = {}) {
     return {
       id: "c1",
@@ -1208,6 +1208,61 @@ describe("handleListContacts ACL overlay (filtered/search path)", () => {
     expect(res.status).toBe(500);
     expect(contactStoreGetAclMock).not.toHaveBeenCalled();
     expect(await res.json()).toEqual({ error: "boom" });
+  });
+
+  test("drops stale content-length so the resized overlaid body isn't truncated", async () => {
+    // Daemon sends a content-length matching its NEUTRAL body. The overlay
+    // grows the body (role + ACL fields), so reusing that length would
+    // truncate the response. We must drop it and let the runtime recompute.
+    const neutralBody = JSON.stringify({ ok: true, contacts: [daemonContact()] });
+    fetchMock = mock(
+      async () =>
+        new Response(neutralBody, {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+            "content-length": String(Buffer.byteLength(neutralBody)),
+          },
+        }),
+    );
+    contactStoreGetAclMock = mock(
+      async () =>
+        new Map<string, ContactAcl>([
+          [
+            "c1",
+            {
+              role: "guardian",
+              channels: new Map<string, ChannelAcl>([
+                [
+                  "ch1",
+                  {
+                    id: "ch1",
+                    type: "telegram",
+                    address: "@alice",
+                    status: "active",
+                    policy: "escalate",
+                    verifiedAt: 9999,
+                    verifiedVia: "manual",
+                    revokedReason: null,
+                    blockedReason: null,
+                  },
+                ],
+              ]),
+            },
+          ],
+        ]),
+    );
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts?query=alice"),
+    );
+
+    // Stale content-length dropped; body fully intact (not truncated).
+    expect(res.headers.get("content-length")).toBeNull();
+    const body = await res.json();
+    expect(body.contacts[0].role).toBe("guardian");
+    expect(body.contacts[0].channels[0].verifiedVia).toBe("manual");
   });
 });
 
