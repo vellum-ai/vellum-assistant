@@ -9,8 +9,9 @@ import {
     X,
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
 
+import { PluginDetail } from "@/domains/intelligence/components/plugins/plugin-detail";
+import { PluginDetailMobile } from "@/domains/intelligence/components/plugins/plugin-detail-mobile";
 import { FilterBar } from "@/domains/intelligence/components/plugins/plugin-filters";
 import { PluginListRow } from "@/domains/intelligence/components/plugins/plugin-list-row";
 import type {
@@ -35,12 +36,18 @@ import {
     usePluginsByNameUpgradePostMutation,
     usePluginsInstallPostMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { getLocalBool, setLocalBool } from "@/utils/local-settings";
-import { routes } from "@/utils/routes";
 import { Button, Card, ConfirmDialog } from "@vellumai/design-library";
 
 interface PluginsTabProps {
   assistantId: string;
+  /**
+   * Optional plugin name to open in the detail view on first mount. Comes from
+   * the `?plugin=<name>` deep-link. Only seeds the initial state — internal
+   * navigation thereafter is local state.
+   */
+  initialPluginName?: string;
 }
 
 const TIP_STORAGE_KEY = "vellum:plugins:tipDismissed";
@@ -50,14 +57,18 @@ const TIP_STORAGE_KEY = "vellum:plugins:tipDismissed";
  * status-filter bar, and a single installed-first list of `PluginListRow`s.
  * Install / remove / upgrade live here (the rows are presentational) so the
  * tab can gate destructive Remove and local-edit-overwriting Upgrade behind a
- * `ConfirmDialog`. Selecting a row navigates to the existing detail route.
+ * `ConfirmDialog`. Selecting a row opens the detail in-tab (like `SkillsTab`)
+ * via local selection state, seeded once from the `?plugin=` deep-link.
  */
-export function PluginsTab({ assistantId }: PluginsTabProps) {
+export function PluginsTab({ assistantId, initialPluginName }: PluginsTabProps) {
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
+  const isMobile = useIsMobile();
 
   const [searchValue, setSearchValue] = useState("");
   const [filter, setFilter] = useState<PluginFilter>("all");
+  const [selectedPluginName, setSelectedPluginName] = useState<string | null>(
+    initialPluginName ?? null,
+  );
   const [installingName, setInstallingName] = useState<string | null>(null);
   const [removingName, setRemovingName] = useState<string | null>(null);
   const [upgradingName, setUpgradingName] = useState<string | null>(null);
@@ -118,8 +129,8 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
   });
 
   const handleSelect = useCallback(
-    (item: PluginListItem) => navigate(routes.plugin(item.name)),
-    [navigate],
+    (item: PluginListItem) => setSelectedPluginName(item.name),
+    [],
   );
 
   const handleInstall = useCallback(
@@ -184,6 +195,19 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
   );
 
   const isSearching = isFetching && !isLoading;
+
+  if (selectedPluginName) {
+    const detailProps = {
+      assistantId,
+      name: selectedPluginName,
+      onBack: () => setSelectedPluginName(null),
+    };
+    return isMobile ? (
+      <PluginDetailMobile {...detailProps} />
+    ) : (
+      <PluginDetail {...detailProps} />
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col gap-4">

@@ -20,10 +20,8 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import type { ReactNode } from "react";
-import { MemoryRouter } from "react-router";
-
 import type {
+  PluginsByNameGetResponse,
   PluginsByNameInspectGetResponse,
   PluginsGetResponse,
   PluginsSearchGetResponse,
@@ -74,6 +72,11 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
     data: inspectByName[options.path.name] ?? upToDateInspect(options.path.name),
     ...okResponse,
   })),
+  // Backs the in-tab detail (`usePluginDetail`) once a row is selected.
+  pluginsByNameGet: mock(async (options: { path: { name: string } }) => ({
+    data: pluginDetail(options.path.name),
+    ...okResponse,
+  })),
 }));
 
 const { PluginsTab } = await import("./plugins-tab");
@@ -106,6 +109,22 @@ function upToDateInspect(name: string): PluginsByNameInspectGetResponse {
   };
 }
 
+/** Minimal schema-valid detail response backing the in-tab `PluginDetail`. */
+function pluginDetail(name: string): PluginsByNameGetResponse {
+  return {
+    name,
+    installed: true,
+    description: null,
+    homepage: null,
+    license: null,
+    version: "0.1.0",
+    source: null,
+    readme: null,
+    ref: "main",
+    artifact: null,
+  };
+}
+
 function catalog(overrides: Partial<CatalogMatch> = {}): CatalogMatch {
   return {
     name: "apollo-bot-brain",
@@ -119,22 +138,15 @@ function catalog(overrides: Partial<CatalogMatch> = {}): CatalogMatch {
   };
 }
 
-function renderTab() {
+function renderTab(props: { initialPluginName?: string } = {}) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
   return render(
     <QueryClientProvider client={client}>
-      <Wrapper>
-        <PluginsTab assistantId={ASSISTANT_ID} />
-      </Wrapper>
+      <PluginsTab assistantId={ASSISTANT_ID} {...props} />
     </QueryClientProvider>,
   );
-}
-
-function Wrapper({ children }: { children: ReactNode }) {
-  // Row selection calls `navigate(routes.plugin(name))`, which needs a router.
-  return <MemoryRouter>{children}</MemoryRouter>;
 }
 
 /** Click the Status option whose visible label matches (popover portal). */
@@ -244,5 +256,32 @@ describe("PluginsTab", () => {
 
     const { findByText } = renderTab();
     expect(await findByText("Failed to load plugins")).toBeTruthy();
+  });
+
+  test("selecting a row opens the detail in-tab and back returns to the list", async () => {
+    installedPlugins = [installed()];
+
+    const { findByText, findByLabelText, queryByLabelText } = renderTab();
+    // Click the row (the name bubbles up to the row's `onSelect`).
+    fireEvent.click(await findByText("simple-memory"));
+
+    // The detail renders in-tab — its back affordance appears and the list
+    // chrome (the search box) is gone. No route change is involved.
+    const back = await findByLabelText("Back to plugins");
+    expect(queryByLabelText("Search plugins")).toBeNull();
+
+    fireEvent.click(back);
+
+    // Back returns to the list view.
+    expect(await findByLabelText("Search plugins")).toBeTruthy();
+    expect(await findByText("simple-memory")).toBeTruthy();
+  });
+
+  test("initialPluginName deep-links straight into the detail on mount", async () => {
+    installedPlugins = [installed()];
+
+    const { findByLabelText } = renderTab({ initialPluginName: "simple-memory" });
+
+    expect(await findByLabelText("Back to plugins")).toBeTruthy();
   });
 });
