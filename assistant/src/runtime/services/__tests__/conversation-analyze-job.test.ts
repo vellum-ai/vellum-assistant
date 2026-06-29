@@ -8,7 +8,7 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../util/logger.js", () => ({
+mock.module("../../../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
@@ -34,7 +34,7 @@ const mockAnalyzeConversation = mock(
   },
 );
 
-mock.module("../../runtime/services/analyze-conversation.js", () => ({
+mock.module("../analyze-conversation.js", () => ({
   analyzeConversation: mockAnalyzeConversation,
 }));
 
@@ -52,9 +52,9 @@ mock.module("../auto-analysis-enqueue.js", () => ({
   enqueueAutoAnalysisIfEnabled: mockEnqueueAutoAnalysisIfEnabled,
 }));
 
-import { DEFAULT_CONFIG } from "../../config/defaults.js";
-import type { AssistantConfig } from "../../config/types.js";
-import type { MemoryJob } from "../../persistence/jobs-store.js";
+import { DEFAULT_CONFIG } from "../../../config/defaults.js";
+import type { AssistantConfig } from "../../../config/types.js";
+import type { MemoryJob } from "../../../persistence/jobs-store.js";
 import { conversationAnalyzeJob } from "../conversation-analyze-job.js";
 
 const TEST_CONFIG: AssistantConfig = DEFAULT_CONFIG;
