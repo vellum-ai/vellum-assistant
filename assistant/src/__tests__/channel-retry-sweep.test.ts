@@ -251,6 +251,51 @@ describe("channel-retry-sweep", () => {
     }
   });
 
+  test("restores member-grounding + timezone trust fields on replay", async () => {
+    const eventId = seedFailedEventWithTrustClass("trusted_contact", {
+      requesterContactId: "contact-77",
+      memberStatus: "active",
+      memberPolicy: "allow",
+      requesterTimezone: "America/New_York",
+      requesterTimezoneLabel: "EST",
+      requesterTimezoneOffsetSeconds: -18000,
+    });
+
+    let capturedTrust: Record<string, unknown> | undefined;
+    await sweepFailedEvents(async (conversationId, _content, options) => {
+      capturedTrust = (options as { trustContext?: Record<string, unknown> })
+        .trustContext;
+      const messageId = "message-grounding";
+      getDb()
+        .insert(messages)
+        .values({
+          id: messageId,
+          conversationId,
+          role: "user",
+          content: JSON.stringify([{ type: "text", text: "retry me" }]),
+          createdAt: Date.now(),
+        })
+        .run();
+      return { messageId };
+    });
+
+    // The newer member/timezone fields survive the store→replay round-trip
+    // instead of being dropped (which degraded the turn's member grounding).
+    expect(capturedTrust?.requesterContactId).toBe("contact-77");
+    expect(capturedTrust?.memberStatus).toBe("active");
+    expect(capturedTrust?.memberPolicy).toBe("allow");
+    expect(capturedTrust?.requesterTimezone).toBe("America/New_York");
+    expect(capturedTrust?.requesterTimezoneLabel).toBe("EST");
+    expect(capturedTrust?.requesterTimezoneOffsetSeconds).toBe(-18000);
+
+    const eventRow = getDb()
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, eventId))
+      .get();
+    expect(eventRow?.processingStatus).toBe("processed");
+  });
+
   test("marks legacy payloads with only actorRole (no trustClass) as failed", async () => {
     const actorRoles: Array<
       "guardian" | "non-guardian" | "unverified_channel"
