@@ -224,7 +224,6 @@ import {
   TOOL_INVOCATION_PII_SENTINEL as TOOL_PII_SENTINEL,
   type ToolInvocationSeedSpec,
 } from "../__tests__/test-support/tool-invocation-seed.js";
-import { recordAuthFallbackCounts } from "../memory/auth-fallback-events-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {
@@ -233,6 +232,7 @@ import {
   skillLoadedEvents,
   toolInvocations,
 } from "../persistence/schema/index.js";
+import { recordAuthFallbackCounts } from "../security/auth-fallback-events-store.js";
 import type { UsageEvent } from "../usage/types.js";
 import {
   ACTIVATION_FUNNEL_VERSION,
