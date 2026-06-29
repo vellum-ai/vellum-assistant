@@ -269,7 +269,7 @@ export class SubagentManager {
 
     // ── Create conversation ─────────────────────────────────────────
     const subagentId = uuid();
-    const conversationRecord = bootstrapConversation({
+    const conversationRecord = await bootstrapConversation({
       conversationType: "background",
       source: "subagent",
       origin: "subagent",

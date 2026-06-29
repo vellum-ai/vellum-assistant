@@ -94,7 +94,7 @@ async function handleDeferCreate({ body = {} }: RouteHandlerArgs) {
     );
   }
 
-  const job = createSchedule({
+  const job = await createSchedule({
     name: name ?? "Deferred wake",
     message: hint,
     mode: "wake",
@@ -145,7 +145,7 @@ async function handleDeferCancel({ body = {} }: RouteHandlerArgs) {
     if (!job || job.mode !== "wake" || job.createdBy !== "defer") {
       return { cancelled: 0, error: "Not a deferred wake" };
     }
-    const ok = cancelSchedule(id);
+    const ok = await cancelSchedule(id);
     return { cancelled: ok ? 1 : 0 };
   }
 
@@ -159,7 +159,7 @@ async function handleDeferCancel({ body = {} }: RouteHandlerArgs) {
     let count = 0;
     for (const j of jobs) {
       if (j.status === "active" || j.status === "firing") {
-        if (cancelSchedule(j.id)) count++;
+        if (await cancelSchedule(j.id)) count++;
       }
     }
     return { cancelled: count };

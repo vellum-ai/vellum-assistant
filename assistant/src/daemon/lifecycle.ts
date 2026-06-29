@@ -821,7 +821,7 @@ export async function runDaemon(): Promise<void> {
   registerMessagingProviders();
 
   try {
-    recoverStaleSchedules();
+    await recoverStaleSchedules();
   } catch (err) {
     log.error({ err }, "Schedule recovery failed — continuing startup");
   }

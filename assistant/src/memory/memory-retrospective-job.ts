@@ -161,7 +161,7 @@ export async function runForkBasedRetrospective(
   // nothing is lost. Returning (not throwing) keeps the jobs-worker from
   // retry-with-backoff.
   if (isConversationProcessing(sourceConversationId)) {
-    bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
+    await bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
     log.info(
       { sourceConversationId },
       "memory-retrospective (fork): source conversation is mid-turn; skipping",
@@ -239,7 +239,7 @@ export async function runForkBasedRetrospective(
       groupId: MEMORY_RETROSPECTIVE_GROUP_ID,
     });
   } catch (err) {
-    bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
+    await bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
     log.error(
       { err, sourceConversationId },
       "memory-retrospective (fork): forkConversationForRetrospective failed",
@@ -273,7 +273,7 @@ export async function runForkBasedRetrospective(
       "memory-retrospective (fork): failed to persist instruction message",
     );
     safeDeleteRetrospectiveConversation(forkId, FORK_DELETE_FAILURE_WARNING);
-    bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
+    await bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
     throw err;
   }
 
@@ -397,7 +397,7 @@ export async function runForkBasedRetrospective(
   // Wake failed. Bump `lastRunAt` only so the cooldown gate applies, leave
   // `lastProcessedMessageId` alone so the next attempt re-processes the
   // same messages. Then clean up the orphan fork.
-  bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
+  await bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
   safeDeleteRetrospectiveConversation(forkId, FORK_DELETE_FAILURE_WARNING);
 
   if (threw !== undefined) {
@@ -619,7 +619,7 @@ async function finalizeSuccessfulRetrospective(args: {
   const runRemembers = extractRetrospectiveRunRemembers(
     retrospectiveConversationId,
   );
-  upsertRetrospectiveState({
+  await upsertRetrospectiveState({
     conversationId: sourceConversationId,
     lastProcessedMessageId: cutoffMessageId,
     lastRunAt: Date.now(),

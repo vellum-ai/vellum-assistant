@@ -1,3 +1,4 @@
+import { withSqliteRetry } from "../util/sqlite-retry.js";
 import { createConversation } from "./conversation-crud.js";
 import {
   AUTO_TITLE_DETERMINISTIC,
@@ -32,19 +33,27 @@ export interface BootstrapConversationOptions {
  * hook upgrades it to an LLM title (see
  * `plugins/defaults/title-generate/hooks/user-prompt-submit.ts`).
  */
-export function bootstrapConversation(opts: BootstrapConversationOptions) {
-  return createConversation({
-    title: deriveDeterministicTitle({
-      origin: opts.origin,
-      systemHint: opts.systemHint,
-    }),
-    isAutoTitle: AUTO_TITLE_DETERMINISTIC,
-    ...(opts.conversationType && { conversationType: opts.conversationType }),
-    ...(opts.source && { source: opts.source }),
-    ...(opts.scheduleJobId && { scheduleJobId: opts.scheduleJobId }),
-    ...(opts.groupId && { groupId: opts.groupId }),
-    ...(opts.forkParentConversationId && {
-      forkParentConversationId: opts.forkParentConversationId,
-    }),
-  });
+export async function bootstrapConversation(
+  opts: BootstrapConversationOptions,
+) {
+  return withSqliteRetry(
+    () =>
+      createConversation({
+        title: deriveDeterministicTitle({
+          origin: opts.origin,
+          systemHint: opts.systemHint,
+        }),
+        isAutoTitle: AUTO_TITLE_DETERMINISTIC,
+        ...(opts.conversationType && {
+          conversationType: opts.conversationType,
+        }),
+        ...(opts.source && { source: opts.source }),
+        ...(opts.scheduleJobId && { scheduleJobId: opts.scheduleJobId }),
+        ...(opts.groupId && { groupId: opts.groupId }),
+        ...(opts.forkParentConversationId && {
+          forkParentConversationId: opts.forkParentConversationId,
+        }),
+      }),
+    { op: "bootstrapConversation" },
+  );
 }
