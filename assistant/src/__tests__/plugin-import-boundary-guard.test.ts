@@ -70,7 +70,6 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../types.js",
     "../injector-order.js",
   ],
-  "exploration-drift": ["../../../../subagent/index.js"],
   "image-fallback": ["node:crypto", "node:fs", "node:path"],
   "image-recovery": [
     "../../../agent/image-optimize.js",
@@ -148,10 +147,6 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../config/loader.js",
     "../../types.js",
     "../injector-order.js",
-  ],
-  "task-progress-nudge": [
-    "../../../../daemon/conversation-registry.js",
-    "../../../../subagent/index.js",
   ],
   "title-generate": [
     "../../../../config/loader.js",
