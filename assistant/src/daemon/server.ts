@@ -5,7 +5,6 @@ import { disposeAcpSessionManager } from "../acp/index.js";
 import { compileApp } from "../bundler/app-compiler.js";
 import { getConfig } from "../config/loader.js";
 import { AssistantIpcServer } from "../ipc/assistant-server.js";
-import { SkillIpcServer } from "../ipc/skill-server.js";
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
 import { syncIdentityNameToPlatform } from "../platform/sync-identity.js";
 import { initializeProviders } from "../providers/registry.js";
@@ -42,7 +41,6 @@ import {
 import { refreshSurfacesForApp } from "./conversation-surfaces.js";
 import { parseIdentityFields } from "./handlers/identity.js";
 import type { ConversationCreateOptions } from "./handlers/shared.js";
-import { setGlobalSkillIpcSender } from "./meet-host-supervisor.js";
 import { refreshSkillCapabilityMemories } from "./skill-memory-refresh.js";
 
 const log = getLogger("server");
@@ -78,7 +76,6 @@ export class DaemonServer {
   private configWatcher = getConfigWatcher();
   private appSourceWatcher = new AppSourceWatcher();
   private cliIpc = new AssistantIpcServer();
-  private skillIpc = new SkillIpcServer();
 
   constructor() {
     this.evictor = new ConversationEvictor(getConversationMap());
@@ -90,12 +87,6 @@ export class DaemonServer {
     });
 
     setEnsureAppSourceWatcher(() => this.appSourceWatcher.ensureStarted());
-    // Wire the skill IPC server into the meet-host supervisor's lazy
-    // dispatch path. The supervisor is constructed in
-    // `initializeProvidersAndTools()` (via `startMeetHost`), which can run
-    // before or after this DaemonServer instance, so the sender flows
-    // through a module-level global rather than constructor injection.
-    setGlobalSkillIpcSender(this.skillIpc);
     this.evictor.onEvict = (conversationId: string) => {
       getSubagentManager().abortAllForParent(conversationId);
     };
@@ -217,19 +208,6 @@ export class DaemonServer {
       );
     }
 
-    // Start the skill IPC server. First-party skill processes connect to this
-    // socket to access host capabilities (host.log, host.config.*,
-    // host.events.*, host.registries.*). Route registry is populated by
-    // subsequent PRs in the skill-isolation plan.
-    try {
-      await this.skillIpc.start();
-    } catch (err) {
-      log.warn(
-        { err },
-        "Skill IPC server failed to start — continuing startup with degraded skill host connectivity",
-      );
-    }
-
     this.configWatcher.start(
       () => this.evictConversationsForReload(),
       () => this.broadcastIdentityChanged(),
@@ -253,7 +231,6 @@ export class DaemonServer {
     this.configWatcher.stop();
     this.appSourceWatcher.stop();
     this.cliIpc.stop();
-    this.skillIpc.stop();
 
     log.info("Daemon server stopped");
   }

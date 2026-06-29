@@ -20,6 +20,7 @@ import { startHeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
+import { startSkillIpcServer } from "../ipc/skill-server.js";
 import { expireAllPendingCanonicalRequests } from "../memory/canonical-guardian-store.js";
 import { registerMemoryJobHandlers } from "../memory/register-job-handlers.js";
 import { rotateToolInvocations } from "../memory/tool-usage-store.js";
@@ -100,6 +101,7 @@ import { startEventLoopWatchdog } from "./event-loop-watchdog.js";
 import { initializePlugins } from "./external-plugins-bootstrap.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
 import { installAssistantSymlink } from "./install-symlink.js";
+import { setGlobalSkillIpcSender } from "./meet-host-supervisor.js";
 import {
   maybeRebuildMemoryV2Concepts,
   rebuildBm25CorpusStatsAndReseedSkills,
@@ -587,6 +589,13 @@ export async function runDaemon(): Promise<void> {
   const server = new DaemonServer();
   await server.start();
   log.info("Daemon startup: DaemonServer started");
+
+  // Start the skill IPC server (first-party skill processes connect here for
+  // host capabilities) and wire it into the meet-host supervisor's lazy
+  // dispatch path. The supervisor is constructed elsewhere during startup and
+  // consults this sender at dispatch time, so it flows through a module-level
+  // global rather than constructor injection.
+  setGlobalSkillIpcSender(await startSkillIpcServer());
 
   // Warm the gateway guardian-delivery cache so the SSE eager-subscribe path
   // (sync, IO-free) resolves the local actor principal on the FIRST client
