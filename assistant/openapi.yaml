@@ -4014,13 +4014,6 @@ paths:
                       type: string
                     clientTimezone:
                       type: string
-                    clientOs:
-                      type: string
-                      description: >-
-                        Client OS surface ("web" | "ios" | "macos"), reported
-                        separately from `interface`. Drives the per-turn
-                        `client_os` context only; does not affect
-                        transport/host-proxy capabilities.
                     commandIntent:
                       type: object
                       properties:
@@ -17768,12 +17761,10 @@ paths:
                 clientTimezone:
                   type: string
                 clientOs:
+                  description:
+                    Client OS surface ("web" | "ios" | "macos"), reported separately from `interface`. Drives the per-turn
+                    `client_os` context only; does not affect transport/host-proxy capabilities.
                   type: string
-                  description: >-
-                    Client OS surface ("web" | "ios" | "macos"), reported
-                    separately from `interface`. Drives the per-turn
-                    `client_os` context only; does not affect
-                    transport/host-proxy capabilities.
                 clientMessageId:
                   type: string
                   description:
