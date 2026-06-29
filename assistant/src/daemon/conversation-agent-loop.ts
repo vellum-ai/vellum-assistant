@@ -839,6 +839,13 @@ export async function runAgentLoopImpl(
       timeSinceLastMessage,
     };
 
+    // Freeze the turn-start client OS for the same anti-race reason as the
+    // timezone above: the live `ctx.clientOs` is re-applied from transport
+    // whenever a newer message for this conversation arrives mid-turn, so the
+    // assembly reads this frozen copy to avoid leaking a queued message's
+    // `client_os` into the in-flight turn.
+    ctx.currentTurnClientOs = ctx.clientOs ?? undefined;
+
     // Resolve the effective profile key for this turn and detect changes.
     // Only inject model_profile into the turn context when the profile
     // changed since the last turn (or on the first turn of a conversation)

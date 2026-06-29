@@ -533,8 +533,20 @@ export class Conversation {
    * The client's OS surface ("web" | "ios" | "macos"), reported separately
    * from the transport `interfaceId` so the assistant's per-turn context can
    * show the real platform without affecting host-proxy/transport gating.
+   * This is the LIVE value (re-applied from transport on every inbound
+   * message); the assembly reads the frozen {@link currentTurnClientOs}.
    */
   clientOs?: string;
+  /**
+   * Per-turn frozen copy of {@link clientOs}, captured by the agent loop at
+   * turn start (like {@link currentTurnTemporalSnapshot}). The assembly reads
+   * THIS rather than the live `clientOs` so a newer message from a different
+   * OS surface — which re-applies transport metadata via
+   * `getOrCreateConversation` before it is enqueued — cannot leak its
+   * `client_os` into the in-flight turn's prompt.
+   * @internal
+   */
+  currentTurnClientOs?: string;
   /**
    * Per-turn temporal snapshot frozen by the agent loop and read by
    * `applyRuntimeInjections` to build the `<turn_context>` timezone-mismatch

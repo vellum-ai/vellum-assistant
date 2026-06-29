@@ -1949,8 +1949,10 @@ export async function applyRuntimeInjections(
   // OS surface reported by the client, independent of the transport interface
   // above. Drives the per-turn `client_os:` line so the model knows whether it
   // is talking to the web, iOS, or macOS app (all sharing the `"web"`
-  // transport interface).
-  const clientOs = liveConversation?.clientOs ?? undefined;
+  // transport interface). Read the frozen per-turn snapshot (not the live
+  // `clientOs`) so a queued message from another surface can't perturb the
+  // in-flight turn — same anti-race pattern as `clientTimezone`.
+  const clientOs = liveConversation?.currentTurnClientOs ?? undefined;
   const channelName = liveConversation
     ? (liveConversation.currentTurnChannelContext?.userMessageChannel ??
       liveConversation.originChannel ??
