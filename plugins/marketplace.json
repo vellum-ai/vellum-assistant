@@ -126,15 +126,15 @@
       "license": "MIT"
     },
     {
-      "name": "inkwell",
+      "name": "red-pen",
       "source": {
         "source": "github",
-        "repo": "vellum-ai/inkwell",
-        "ref": "e83bd129b221eef8c56048002d60bf80e50c6b29"
+        "repo": "vellum-ai/red-pen",
+        "ref": "67b1ed8e19da4480bb3f8b5d3f1dd22fdefe9324"
       },
       "description": "A writing coach in your pocket. Daily prompts that escalate with your streak, savage-but-constructive draft roasts, query letter critiques, and a word count enforcer with Balkan-mom energy.",
       "category": "hobby",
-      "homepage": "https://github.com/vellum-ai/inkwell",
+      "homepage": "https://github.com/vellum-ai/red-pen",
       "license": "MIT"
     }
   ]
