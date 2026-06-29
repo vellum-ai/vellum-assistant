@@ -63,6 +63,7 @@ import type { AssistantConfig } from "../config/schema.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import {
   getAllDefaultPlugins,
+  registerDefaultPluginInjectors,
   registerDefaultPlugins,
 } from "../plugins/defaults/index.js";
 import {
@@ -203,6 +204,17 @@ export async function bootstrapPlugins(): Promise<void> {
   // already-registered guard so repeated calls (e.g. during integration
   // tests) do not throw.
   registerDefaultPlugins();
+
+  // Register the default plugins' runtime injectors up front — independent of
+  // each plugin's disabled-state, exactly as `registerDefaultPlugins` does for
+  // their hooks. The per-turn walker filters the injector union by
+  // `isPluginDisabled` at read time, so a default plugin that is disabled at
+  // boot (its init is skipped below by the `.disabled` sentinel `continue`)
+  // still has its injectors in the registry and reappears on the next turn
+  // after `assistant plugins enable <name>` — no restart required. Injector-only
+  // defaults have no init/hooks, so without this their injectors would never
+  // register while disabled.
+  registerDefaultPluginInjectors();
 
   // Combine the canonical default plugins with any plugins registered via
   // `registerPlugin` (test fixtures). In production, `getRegisteredPlugins`

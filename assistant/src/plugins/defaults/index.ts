@@ -449,11 +449,17 @@ export function registerDefaultPlugins(): void {
 
 /**
  * Register every default plugin's runtime injectors into the global injector
- * registry. Production wires injectors during `bootstrapPlugins` (via
- * `initializePlugin`); this is the setup analog for tests that drive a real
- * turn — or call `applyRuntimeInjections` directly — without standing up the
- * full bootstrap. Idempotent: `registerPluginInjectors` replaces a plugin's
- * prior set.
+ * registry, up front and independent of disabled-state — the injector analog of
+ * what {@link registerDefaultPlugins} does for hooks. `bootstrapPlugins` calls
+ * this before the per-plugin init loop so an injector-only default that is
+ * disabled at boot (and therefore skipped by the loop) still has its injectors
+ * registered; the per-turn walker filters them by `isPluginDisabled` at read
+ * time, so enabling it later takes effect on the next turn without a restart.
+ * Tests that drive a real turn — or call `applyRuntimeInjections` directly —
+ * use it the same way. Idempotent: `registerPluginInjectors` replaces a
+ * plugin's prior set, so the per-plugin re-registration in `initializePlugin`
+ * (for enabled defaults, and for future injector-contributing user plugins) is
+ * a harmless no-op replace.
  */
 export function registerDefaultPluginInjectors(): void {
   for (const plugin of getAllDefaultPlugins()) {
