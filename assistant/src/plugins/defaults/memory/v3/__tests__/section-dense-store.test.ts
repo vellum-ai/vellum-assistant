@@ -320,12 +320,13 @@ describe("memory v3 section-dense-store — collection lifecycle", () => {
     ]);
   });
 
-  test("recreates the collection when its dense vector dimension drifts", async () => {
+  test("leaves the collection intact on dimension drift (defers to startup reconcile)", async () => {
     state.collectionExists = true;
     // Existing collection sized to a different embedding dimension than the
-    // configured 4 (e.g. a 384-dim collection from a prior model). Every upsert
-    // would fail with HTTP 400 until it is recreated; the next backfill
-    // re-embeds the sections.
+    // configured 4 (e.g. a 384-dim collection from a prior model). This lazy
+    // ensure runs on hot upsert/query paths and cannot run an embed probe, so
+    // it must not destroy the populated collection — the probe-gated startup
+    // reconcile owns destructive dimension migration.
     state.getCollectionInfo = {
       config: { params: { vectors: { size: 384, distance: "Cosine" } } },
     };
@@ -333,13 +334,8 @@ describe("memory v3 section-dense-store — collection lifecycle", () => {
     await ensureSectionCollection(CONFIG);
 
     expect(state.getCollectionCalls).toBe(1);
-    expect(state.deleteCollectionCalls).toEqual([SECTION_COLLECTION]);
-    expect(state.createCollectionCalls).toBe(1);
-    // The recreated collection is sized to the configured dimension.
-    const params = state.createCollectionParams as {
-      vectors: { size: number };
-    };
-    expect(params.vectors.size).toBe(4);
+    expect(state.deleteCollectionCalls).toEqual([]);
+    expect(state.createCollectionCalls).toBe(0);
   });
 
   test("leaves a dimension-matched existing collection untouched", async () => {

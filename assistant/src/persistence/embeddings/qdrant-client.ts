@@ -189,7 +189,7 @@ export class VellumQdrantClient {
             await this.client.deleteCollection(this.collection);
             migrated = true;
             // Fall through to collection creation below
-          } else if (dimMismatch || modelMismatch) {
+          } else if (modelMismatch) {
             log.warn(
               {
                 collection: this.collection,
@@ -197,12 +197,27 @@ export class VellumQdrantClient {
                 expectedSize: this.vectorSize,
                 modelMismatch,
               },
-              "Qdrant collection incompatible (dimension or model change) — deleting and recreating. Embeddings will be regenerated on demand.",
+              "Qdrant collection incompatible (model change) — deleting and recreating. Embeddings will be regenerated on demand.",
             );
             await this.client.deleteCollection(this.collection);
             migrated = true;
             // Fall through to collection creation below
           } else {
+            if (dimMismatch) {
+              // Pure dimension drift (no model change). This lazy path runs on
+              // hot upsert/query calls and cannot run an embed probe to confirm
+              // the new dimension, so it must not make the destroy-before-confirm
+              // decision. Destructive dimension migration is owned by the
+              // probe-gated startup reconcile; treat the collection as ready.
+              log.warn(
+                {
+                  collection: this.collection,
+                  currentSize,
+                  expectedSize: this.vectorSize,
+                },
+                "Qdrant collection dimension drift — deferring to startup reconcile; not recreating in the request path",
+              );
+            }
             if (await this.ensurePayloadIndexesSafe()) {
               this.collectionReady = true;
             }
