@@ -41,6 +41,9 @@ export function DetailShell({
         />
         <Typography
           variant="title-medium"
+          // `title-medium` ships a tight line-height; combined with `truncate`
+          // (overflow:hidden) it clips descenders (e.g. the "p" in "process").
+          // Bump leading + small vertical padding so glyphs get breathing room.
           className="min-w-0 shrink truncate py-0.5 leading-snug text-[var(--content-default)]"
         >
           {title}
