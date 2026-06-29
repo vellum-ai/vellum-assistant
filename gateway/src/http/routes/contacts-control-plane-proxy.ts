@@ -788,10 +788,10 @@ function validateSpeciesMetadata(
 // ACL overlay for daemon-forwarded (filtered/search) contact reads
 // ---------------------------------------------------------------------------
 //
-// Post-Combo-11 the assistant DB has no ACL columns, so the daemon's search /
-// contactType-filtered reads emit NEUTRAL ACL (role "contact", channels with
-// no status/policy/verified*/reason). The gateway DB is the ACL source of
-// truth, so we overlay it onto the forwarded body before returning.
+// The gateway DB is the ACL source of truth. The daemon's search /
+// contactType-filtered reads carry NEUTRAL ACL (role "contact", channels with
+// no status/policy/verified*/reason), so we overlay authoritative ACL onto the
+// forwarded body before returning.
 
 /** Copy the six ACL fields from a gateway ChannelAcl onto a daemon channel. */
 function applyChannelAcl(
@@ -919,7 +919,7 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
    * Forward the filtered/search contact list to the daemon, then overlay
    * authoritative gateway-DB ACL onto the response body (role + per-channel
    * status/policy/verified/reasons). The daemon owns filter/search + info;
-   * the gateway owns ACL (post-Combo-11 the daemon emits neutral ACL).
+   * the gateway owns ACL (the daemon emits neutral ACL).
    *
    * SOFT-FAIL: if the upstream status isn't 2xx, the body isn't the expected
    * JSON envelope, or the gateway ACL read throws — the ORIGINAL daemon bytes
@@ -1005,9 +1005,9 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       }
 
       // Search-style queries and contactType filter go through the daemon
-      // (it owns filter/search + info/identity). The daemon emits NEUTRAL ACL
-      // post-Combo-11, so overlay authoritative gateway-DB ACL onto the
-      // forwarded body before returning.
+      // (it owns filter/search + info/identity). The daemon emits NEUTRAL ACL,
+      // so overlay authoritative gateway-DB ACL onto the forwarded body before
+      // returning.
       if (query || channelAddress || channelType || contactType) {
         return forwardListWithAclOverlay(req, url.search);
       }

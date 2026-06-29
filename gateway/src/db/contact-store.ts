@@ -210,7 +210,7 @@ export class ContactStore {
    * Batched gateway-DB ACL read keyed by contact id. Reads ONLY the gateway DB
    * (the ACL source of truth) — never the assistant DB. Used to overlay
    * authoritative ACL onto daemon-forwarded (filtered/search) contact reads,
-   * which post-Combo-11 carry neutral ACL.
+   * which carry neutral ACL.
    *
    * Returns a map of contactId → { role, channels }, where `channels` is keyed
    * by channel `id`. Empty input → empty map. Contacts/channels absent from the
