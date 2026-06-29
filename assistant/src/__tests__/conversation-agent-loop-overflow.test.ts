@@ -327,7 +327,7 @@ mock.module("../memory/app-store.js", () => ({
   getAppsDir: () => "/tmp/apps",
 }));
 
-mock.module("../memory/app-git-service.js", () => ({
+mock.module("../apps/app-git-service.js", () => ({
   commitAppTurnChanges: () => Promise.resolve(),
 }));
 

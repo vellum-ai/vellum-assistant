@@ -31,7 +31,7 @@ let mockPublishedPage: {
 } | null = null;
 const updatePublishedPageSpy = mock(() => {});
 
-mock.module("../memory/published-pages-store.js", () => ({
+mock.module("../apps/published-pages-store.js", () => ({
   getActivePublishedPageByAppId: () => mockPublishedPage,
   updatePublishedPage: updatePublishedPageSpy,
 }));
