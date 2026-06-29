@@ -4152,6 +4152,15 @@ paths:
                       properties:
                         channel:
                           type: string
+                          enum:
+                            - telegram
+                            - phone
+                            - vellum
+                            - whatsapp
+                            - slack
+                            - email
+                            - platform
+                            - a2a
                         ready:
                           type: boolean
                         setupStatus:
@@ -4230,14 +4239,20 @@ paths:
               type: object
               properties:
                 channel:
-                  type: string
                   description: Optional channel ID to refresh
+                  type: string
+                  enum:
+                    - telegram
+                    - phone
+                    - vellum
+                    - whatsapp
+                    - slack
+                    - email
+                    - platform
+                    - a2a
                 includeRemote:
-                  type: boolean
                   description: Include remote checks (default true)
-              required:
-                - channel
-                - includeRemote
+                  type: boolean
       responses:
         "200":
           description: Successful response
@@ -4255,6 +4270,15 @@ paths:
                       properties:
                         channel:
                           type: string
+                          enum:
+                            - telegram
+                            - phone
+                            - vellum
+                            - whatsapp
+                            - slack
+                            - email
+                            - platform
+                            - a2a
                         ready:
                           type: boolean
                         setupStatus:

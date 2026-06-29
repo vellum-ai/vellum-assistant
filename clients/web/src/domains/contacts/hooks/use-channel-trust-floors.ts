@@ -3,6 +3,7 @@ import { useCallback, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { AssistantChannelState } from "@/domains/contacts/types";
+import { isSetupChannelId } from "@/domains/contacts/types";
 import {
   fetchChannelPolicies,
   setChannelPolicy,
@@ -12,13 +13,6 @@ import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-st
 import { toastOnError } from "@/utils/mutation-error";
 
 type ChannelKey = AssistantChannelState["key"];
-
-/**
- * slack/telegram/phone are the only channels with an inline trust-floor home in
- * the Contacts → Channels list. Other channel types the gateway returns (e.g.
- * email) are intentionally not surfaced here.
- */
-const INLINE_FLOOR_CHANNELS = new Set<string>(["slack", "telegram", "phone"]);
 
 export interface ChannelTrustFloors {
   /** Floor per inline channel, or `undefined` when the feature is off. */
@@ -56,8 +50,8 @@ export function useChannelTrustFloors(assistantId: string): ChannelTrustFloors {
   const policies = useMemo(() => {
     const map: Partial<Record<ChannelKey, AdmissionPolicy>> = {};
     for (const p of query.data ?? []) {
-      if (INLINE_FLOOR_CHANNELS.has(p.channelType)) {
-        map[p.channelType as ChannelKey] = p.policy;
+      if (isSetupChannelId(p.channelType)) {
+        map[p.channelType] = p.policy;
       }
     }
     return map;
