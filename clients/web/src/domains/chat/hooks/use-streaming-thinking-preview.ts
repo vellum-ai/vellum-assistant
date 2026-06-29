@@ -13,8 +13,10 @@ export function firstSentenceOfLatestThinkingParagraph(
   if (!latestParagraph) return null;
 
   const normalized = latestParagraph.replace(/\s+/g, " ");
-  const firstSentence = normalized.match(/^.*?[.!?](?=\s|$)/)?.[0];
-  return (firstSentence ?? normalized).trim() || null;
+  const sentencePeriod = normalized.match(/\.(?=\s|$)/);
+  const periodIndex = sentencePeriod?.index;
+  if (periodIndex == null) return null;
+  return normalized.slice(0, periodIndex + 1).trim() || null;
 }
 
 export function useStreamingThinkingPreview(
@@ -38,9 +40,11 @@ export function useStreamingThinkingPreview(
 
     updatedAtRef.current ??= now;
 
+    if (!nextPreview) return;
+
     if (nextPreview === displayedPreview) return;
 
-    if (!nextPreview || !displayedPreview) {
+    if (!displayedPreview) {
       updatedAtRef.current = now;
       setDisplayedPreview(nextPreview);
       return;
