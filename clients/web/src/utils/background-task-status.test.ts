@@ -33,7 +33,9 @@ describe("backgroundTaskStatusColor", () => {
     expect(backgroundTaskStatusColor("failed")).toBe(
       "var(--system-negative-strong)",
     );
-    expect(backgroundTaskStatusColor("cancelled")).toBe("var(--text-muted)");
+    expect(backgroundTaskStatusColor("cancelled")).toBe(
+      "var(--system-negative-strong)",
+    );
   });
 });
 

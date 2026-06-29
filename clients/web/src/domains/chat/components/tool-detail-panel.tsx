@@ -112,7 +112,7 @@ export function CodeBlock({ text }: { text: string }) {
 }
 
 /** Uppercase section label in `--content-tertiary`. */
-function SectionLabel({ children }: { children: string }) {
+export function SectionLabel({ children }: { children: string }) {
   return (
     <Typography
       variant="label-small-default"
