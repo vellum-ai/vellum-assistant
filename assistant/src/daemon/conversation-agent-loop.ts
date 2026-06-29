@@ -81,6 +81,7 @@ import { truncate } from "../util/truncate.js";
 import { getWorkspaceGitService } from "../workspace/git-service.js";
 import { commitTurnChanges } from "../workspace/turn-commit.js";
 import { cleanAssistantContent } from "./assistant-attachments.js";
+import { conversationSupportsDynamicUi } from "./channel-ui-capability.js";
 import type { Conversation } from "./conversation.js";
 import {
   createEventHandlerState,
@@ -122,6 +123,7 @@ import type {
   UsageStats,
 } from "./message-protocol.js";
 import type { TrustContext } from "./trust-context.js";
+import { resolveTurnCallSite } from "./turn-call-site.js";
 
 const log = getLogger("conversation-agent-loop");
 
@@ -334,12 +336,13 @@ export async function runAgentLoopImpl(
     | ((reason: AgentLoopExitReason) => Promise<void>)
     | null = null;
 
-  // Default user-initiated turns to the `mainAgent` call site. Other
-  // invocation contexts (heartbeat, filing, analyze, etc.) pass their own
-  // `callSite`. The provider layer resolves provider/model/maxTokens via
-  // `resolveCallSiteConfig`, picking up any user overrides under
-  // `llm.callSites.mainAgent` (falling back to `llm.default` when absent).
-  const turnCallSite: LLMCallSite = options?.callSite ?? "mainAgent";
+  // Default user-initiated turns to the `mainAgent` call site; other invocation
+  // contexts (heartbeat, filing, analyze, etc.) pass their own `callSite`. The
+  // provider layer resolves provider/model/maxTokens via `resolveCallSiteConfig`,
+  // picking up any user overrides under `llm.callSites.<id>` (falling back to
+  // `llm.default` when absent). `resolveTurnCallSite` keeps subagent
+  // conversations on `subagentSpawn` when no call site is supplied.
+  const turnCallSite = resolveTurnCallSite(options?.callSite, ctx);
   // Expose the turn's call site on the live conversation so the runtime
   // injection assembly self-resolves it for the turn's plugin contexts.
   ctx.currentCallSite = turnCallSite;
@@ -966,6 +969,7 @@ export async function runAgentLoopImpl(
           requestId: reqId,
           onCheckpoint,
           callSite: turnCallSite,
+          supportsDynamicUi: conversationSupportsDynamicUi(ctx),
           trust: loopTrust,
           overrideProfile: turnOverrideProfile,
           ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
