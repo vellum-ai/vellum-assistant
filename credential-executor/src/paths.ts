@@ -141,6 +141,32 @@ export function getBootstrapSocketPath(): string {
 }
 
 // ---------------------------------------------------------------------------
+// Local-mode command socket
+// ---------------------------------------------------------------------------
+
+/** Default local-mode CES socket filename (under the local data root). */
+const LOCAL_SOCKET_NAME = "ces.sock";
+
+/**
+ * Return the path to the local-mode CES Unix socket.
+ *
+ * In local mode CES serves the spawning parent over stdio AND listens on this
+ * Unix socket so other same-host processes — the assistant daemon's sibling
+ * processes — can reach it. The socket lives under the CES-private local data
+ * root, whose directory permissions are the access boundary.
+ *
+ * Priority:
+ * 1. `CES_LOCAL_SOCKET` env var (full file path override, e.g. for tests).
+ * 2. Default: `<localDataRoot>/ces.sock`.
+ */
+export function getLocalSocketPath(): string {
+  return (
+    process.env["CES_LOCAL_SOCKET"] ??
+    join(getCesDataRoot("local"), LOCAL_SOCKET_NAME)
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Health port (managed mode only)
 // ---------------------------------------------------------------------------
 

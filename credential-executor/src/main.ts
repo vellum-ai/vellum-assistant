@@ -6,17 +6,17 @@
  * over stdin/stdout using newline-delimited JSON. This entrypoint:
  *
  * 1. Ensures the CES-private data directories exist.
- * 2. Starts the RPC server on process.stdin / process.stdout.
- * 3. Shuts down cleanly when stdin closes (parent exit) or SIGTERM arrives.
+ * 2. Starts the RPC server on process.stdin / process.stdout (the spawning
+ *    parent's transport, and the process lifecycle anchor).
+ * 3. Additionally listens on a Unix socket under the CES-private data dir so
+ *    the daemon's sibling processes can reach CES (see `local-socket.ts`).
+ * 4. Shuts down cleanly when stdin closes (parent exit) or SIGTERM arrives,
+ *    tearing down the socket listener with it.
  *
- * Local mode never opens a TCP listener or Unix socket. All communication
- * flows through the inherited stdio file descriptors, which are automatically
- * closed when the parent process exits.
- *
- * The stdio transport ensures that shell subprocesses spawned by CES
- * (e.g. for `run_authenticated_command`) do not accidentally inherit the
- * command channel — Bun's `Bun.spawn` defaults to "pipe" for stdio on
- * child processes, so CES's own stdin/stdout are not leaked to subprocesses.
+ * Local mode never opens a TCP listener. The stdio transport is never inherited
+ * by shell subprocesses spawned by CES (e.g. for `run_authenticated_command`):
+ * Bun's `Bun.spawn` defaults to "pipe" for stdio, and the Unix socket's
+ * listening fd is likewise not passed to those subprocesses.
  */
 
 import { mkdirSync } from "node:fs";
@@ -52,7 +52,9 @@ import {
   getCesGrantsDir,
   getCesLogDir,
   getCesToolStoreDir,
+  getLocalSocketPath,
 } from "./paths.js";
+import { startLocalSocketServer } from "./local-socket.js";
 import {
   buildHandlersWithHttp,
   CesRpcServer,
@@ -357,7 +359,7 @@ async function main(): Promise<void> {
   const log = getLogger("main");
 
   log.info(
-    `Starting CES v${CES_PROTOCOL_VERSION} (local mode, stdio transport)`,
+    `Starting CES v${CES_PROTOCOL_VERSION} (local mode, stdio + socket transport)`,
   );
 
   const controller = new AbortController();
@@ -390,22 +392,45 @@ async function main(): Promise<void> {
   const handlers = buildHandlers(secureKeyBackend);
 
   const rpcLog = getLogger("rpc");
-  const server = new CesRpcServer({
+  const rpcLogger = {
+    log: (msg: string, ...args: unknown[]) => rpcLog.info({ args }, msg),
+    warn: (msg: string, ...args: unknown[]) => rpcLog.warn({ args }, msg),
+    error: (msg: string, ...args: unknown[]) => rpcLog.error({ args }, msg),
+  };
+
+  // Serve the spawning parent over stdio. This is the lifecycle anchor: when
+  // the parent exits, stdin closes and serve() resolves, and we tear down.
+  const stdioServer = new CesRpcServer({
     input: process.stdin,
     output: process.stdout,
     handlers,
-    logger: {
-      log: (msg: string, ...args: unknown[]) => rpcLog.info({ args }, msg),
-      warn: (msg: string, ...args: unknown[]) => rpcLog.warn({ args }, msg),
-      error: (msg: string, ...args: unknown[]) => rpcLog.error({ args }, msg),
-    },
+    logger: rpcLogger,
     signal: controller.signal,
     // Local mode reads API keys from env/store directly — no-op handler so
     // update_managed_credential is still registered and returns success.
     onApiKeyUpdate: () => {},
   });
 
-  await server.serve();
+  // Additionally listen on a Unix socket so the daemon's sibling processes can
+  // reach CES (the spawning parent keeps using stdio). Possession of the socket
+  // is the authorization boundary — it lives under the CES-private data dir —
+  // and each accepted connection is served by its own server over the shared,
+  // connection-safe handler registry.
+  const socketPath = getLocalSocketPath();
+  startLocalSocketServer({
+    socketPath,
+    handlers,
+    signal: controller.signal,
+    logger: rpcLogger,
+    onListening: (p) => log.info(`Local CES socket listening at ${p}`),
+    onServerError: (err) =>
+      rpcLog.warn({ err }, "Local CES socket server error"),
+  });
+
+  await stdioServer.serve();
+  // The parent disconnected (or a shutdown signal fired). Abort so the socket
+  // listener and any live socket connections are torn down too.
+  controller.abort();
   log.info("Server stopped.");
 }
 
