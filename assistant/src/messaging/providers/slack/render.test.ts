@@ -75,7 +75,7 @@ describe("renderSlackBlocks", () => {
     });
   });
 
-  test("flattens inline formatting inside table cells to plain text", () => {
+  test("preserves inline formatting inside table cells via rich_text", () => {
     const table = [
       "| Name | Link |",
       "| --- | --- |",
@@ -84,9 +84,98 @@ describe("renderSlackBlocks", () => {
     const blocks = renderSlackBlocks(table);
     const t = blocks![0] as TableBlock;
     expect(t.rows[1]).toEqual([
-      { type: "raw_text", text: "bob" },
-      { type: "raw_text", text: "site" },
+      {
+        type: "rich_text",
+        elements: [
+          {
+            type: "rich_text_section",
+            elements: [{ type: "text", text: "bob", style: { bold: true } }],
+          },
+        ],
+      },
+      {
+        type: "rich_text",
+        elements: [
+          {
+            type: "rich_text_section",
+            elements: [{ type: "link", url: "https://e.com", text: "site" }],
+          },
+        ],
+      },
     ]);
+  });
+
+  test("keeps plain table cells as raw_text", () => {
+    const table = ["| A | B |", "| --- | --- |", "| one | two |"].join("\n");
+    const t = renderSlackBlocks(table)![0] as TableBlock;
+    expect(t.rows[1]).toEqual([
+      { type: "raw_text", text: "one" },
+      { type: "raw_text", text: "two" },
+    ]);
+  });
+
+  test("maps GFM column alignment to column_settings", () => {
+    const table = [
+      "| L | C | R | D |",
+      "| :-- | :-: | --: | --- |",
+      "| a | b | c | d |",
+    ].join("\n");
+    const t = renderSlackBlocks(table)![0] as TableBlock;
+    expect(t.column_settings).toEqual([
+      { align: "left" },
+      { align: "center" },
+      { align: "right" },
+      {},
+    ]);
+  });
+
+  test("omits column_settings when no column is aligned", () => {
+    const table = ["| A | B |", "| --- | --- |", "| a | b |"].join("\n");
+    const t = renderSlackBlocks(table)![0] as TableBlock;
+    expect(t.column_settings).toBeUndefined();
+  });
+
+  test("renders a standalone image as an image block", () => {
+    const blocks = renderSlackBlocks("![a cat](https://example.com/cat.png)");
+    expect(blocks).toEqual([
+      {
+        type: "image",
+        image_url: "https://example.com/cat.png",
+        alt_text: "a cat",
+      },
+    ]);
+  });
+
+  test("keeps an image inline with prose in the markdown block", () => {
+    const blocks = renderSlackBlocks(
+      "Look: ![a cat](https://example.com/cat.png) cute.",
+    );
+    expect(blocks).toEqual([
+      {
+        type: "markdown",
+        text: "Look: ![a cat](https://example.com/cat.png) cute.",
+      },
+    ]);
+  });
+
+  test("leaves a non-hostable image URL in the markdown block", () => {
+    const blocks = renderSlackBlocks("![x](/relative/path.png)");
+    expect(blocks).toEqual([
+      { type: "markdown", text: "![x](/relative/path.png)" },
+    ]);
+  });
+
+  test("falls back a formatted heading to a markdown block", () => {
+    const blocks = renderSlackBlocks("## See the [docs](https://e.com)");
+    expect(blocks).toEqual([
+      { type: "markdown", text: "## See the [docs](https://e.com)" },
+    ]);
+  });
+
+  test("falls back an over-150-char heading to a markdown block", () => {
+    const long = "# " + "x".repeat(151);
+    const blocks = renderSlackBlocks(long);
+    expect(blocks).toEqual([{ type: "markdown", text: long }]);
   });
 
   test("does not treat a lone pipe in prose as a table", () => {
