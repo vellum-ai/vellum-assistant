@@ -130,7 +130,7 @@ mock.module("../memory-retrospective-state.js", () => ({
   ],
 }));
 
-mock.module("../conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   getMessagesAfter: (_id: string, _afterId: string | null) => newMessages,
   getMessages: (id: string) => {
     if (messagesByConversationId[id]) return messagesByConversationId[id];
@@ -261,11 +261,11 @@ mock.module("../../runtime/agent-wake.js", () => ({
   },
 }));
 
-mock.module("../jobs-store.js", () => ({
+mock.module("../../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: () => "follow-up-job-id",
 }));
 
-import type { MemoryJob } from "../jobs-store.js";
+import type { MemoryJob } from "../../persistence/jobs-store.js";
 import { memoryRetrospectiveJob } from "../memory-retrospective-job.js";
 
 function makeConfig(

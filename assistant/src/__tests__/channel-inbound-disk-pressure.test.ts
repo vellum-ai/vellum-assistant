@@ -59,14 +59,14 @@ mock.module("../daemon/disk-pressure-guard.js", () => ({
     diskPressureStatusSequence?.shift() ?? diskPressureStatus,
 }));
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import * as deliveryCrud from "../memory/delivery-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import * as deliveryCrud from "../persistence/delivery-crud.js";
 import {
   canonicalGuardianRequests,
   channelInboundEvents,
   messages,
-} from "../memory/schema.js";
+} from "../persistence/schema/index.js";
 import { sweepFailedEvents } from "../runtime/channel-retry-sweep.js";
 import {
   handleChannelInbound,

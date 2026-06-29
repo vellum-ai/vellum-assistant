@@ -25,7 +25,7 @@ const setLastNotifiedInferenceProfile = mock(
   (_conversationId: string, _profileKey: string) => {},
 );
 
-mock.module("../../memory/conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   deleteMessageById: () => {},
   getConversation: () => null,
   getMessageById: () => null,
@@ -37,7 +37,7 @@ mock.module("../../memory/conversation-crud.js", () => ({
   updateMessageContent: () => {},
 }));
 
-mock.module("../../memory/llm-request-log-store.js", () => ({
+mock.module("../../persistence/llm-request-log-store.js", () => ({
   backfillMessageIdOnLogs: () => {},
   buildProviderErrorResponsePayload: () => ({}),
   recordRequestLog: () => {},

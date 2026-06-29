@@ -12,6 +12,8 @@ import { join } from "node:path";
 import { and, asc, desc, eq, gt } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../config/types.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { conversations, messages } from "../../persistence/schema/index.js";
 import { buildCoreIdentityContext } from "../../prompts/system-prompt.js";
 import {
   extractToolUse,
@@ -26,8 +28,6 @@ import type {
 import { BackendUnavailableError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { getConversationDirPath } from "../conversation-disk-view.js";
-import { getDb } from "../db-connection.js";
-import { conversations, messages } from "../schema.js";
 import {
   enqueueGraphNodeEmbed,
   enqueueGraphTriggerEmbed,
@@ -1430,7 +1430,8 @@ async function findCandidateNodes(
     for (const node of dbCandidates) allNodeIds.add(node.id);
   } else {
     // Live mode: semantic search via Qdrant
-    const { embedWithRetry } = await import("../embed.js");
+    const { embedWithRetry } =
+      await import("../../persistence/embeddings/embed.js");
     const searchText =
       transcript.length > 3000
         ? transcript.slice(0, 1500) + "\n...\n" + transcript.slice(-1500)

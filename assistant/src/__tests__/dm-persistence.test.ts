@@ -29,9 +29,9 @@ const addMessageCalls: Array<{
   metadata?: Record<string, unknown>;
 }> = [];
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   addMessage: async (
     conversationId: string,
     role: string,
@@ -58,7 +58,7 @@ mock.module("../memory/conversation-disk-view.js", () => ({
   updateMetaFile: () => {},
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   attachmentExists: () => false,
   linkAttachmentToMessage: () => {},
   attachInlineAttachmentToMessage: () => {},

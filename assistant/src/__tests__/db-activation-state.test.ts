@@ -3,12 +3,12 @@ import { describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { getSqliteFrom } from "../memory/db-connection.js";
+import { getSqliteFrom } from "../persistence/db-connection.js";
 import {
   downActivationState,
   migrateActivationState,
-} from "../memory/migrations/232-activation-state.js";
-import * as schema from "../memory/schema.js";
+} from "../persistence/migrations/232-activation-state.js";
+import * as schema from "../persistence/schema/index.js";
 
 interface TableRow {
   name: string;

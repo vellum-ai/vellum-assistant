@@ -66,10 +66,12 @@ mock.module("../contacts/guardian-delivery-reader.js", () => ({
   anyGuardian: (list: GatewayGuardian[]) => list[0],
 }));
 
-function seedGatewayGuardian(g: Partial<GatewayGuardian> & {
-  channelType: string;
-  address: string;
-}): void {
+function seedGatewayGuardian(
+  g: Partial<GatewayGuardian> & {
+    channelType: string;
+    address: string;
+  },
+): void {
   gatewayGuardians.push({ status: "active", ...g });
 }
 
@@ -81,10 +83,10 @@ import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { messages } from "../memory/schema/conversations.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { messages } from "../persistence/schema/conversations.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import {
   isSlackReactionEvent,
@@ -416,7 +418,8 @@ describe("Slack reaction event persistence", () => {
     const messageRows = db.select().from(messages).all();
     expect(messageRows.length).toBe(1);
 
-    const { channelInboundEvents } = await import("../memory/schema.js");
+    const { channelInboundEvents } =
+      await import("../persistence/schema/index.js");
     const eventRow = db
       .select({ messageId: channelInboundEvents.messageId })
       .from(channelInboundEvents)

@@ -77,17 +77,28 @@ import {
 } from "../../home/relationship-state-writer.js";
 import { ipcCall } from "../../ipc/gateway-client.js";
 import {
+  listCanonicalGuardianRequests,
+  listPendingRequestsByConversationScope,
+  resolveCanonicalGuardianRequest,
+} from "../../memory/canonical-guardian-store.js";
+import {
+  getConversationByKey,
+  getOrCreateConversation,
+} from "../../memory/conversation-key-store.js";
+import { MEMORY_RETROSPECTIVE_FORK_SOURCE } from "../../memory/memory-retrospective-constants.js";
+import { recordOnboardingEvent } from "../../memory/onboarding-events-store.js";
+import { buildSlackMessageDeepLinks } from "../../messaging/providers/slack/deep-link.js";
+import {
+  readSlackMetadataFromMessageMetadata,
+  type SlackMessageMetadata,
+} from "../../messaging/providers/slack/message-metadata.js";
+import {
   classifyKind,
   getAttachmentById,
   getAttachmentMetadataForMessage,
   getAttachmentsByIds,
   getSourcePathsForAttachments,
-} from "../../memory/attachments-store.js";
-import {
-  listCanonicalGuardianRequests,
-  listPendingRequestsByConversationScope,
-  resolveCanonicalGuardianRequest,
-} from "../../memory/canonical-guardian-store.js";
+} from "../../persistence/attachments-store.js";
 import {
   addMessage,
   extractImageSourcePaths,
@@ -100,19 +111,8 @@ import {
   type MessageRow,
   provenanceFromTrustContext,
   setConversationInferenceProfile,
-} from "../../memory/conversation-crud.js";
-import {
-  getConversationByKey,
-  getOrCreateConversation,
-} from "../../memory/conversation-key-store.js";
-import { searchConversations } from "../../memory/conversation-queries.js";
-import { MEMORY_RETROSPECTIVE_FORK_SOURCE } from "../../memory/memory-retrospective-constants.js";
-import { recordOnboardingEvent } from "../../memory/onboarding-events-store.js";
-import { buildSlackMessageDeepLinks } from "../../messaging/providers/slack/deep-link.js";
-import {
-  readSlackMetadataFromMessageMetadata,
-  type SlackMessageMetadata,
-} from "../../messaging/providers/slack/message-metadata.js";
+} from "../../persistence/conversation-crud.js";
+import { searchConversations } from "../../persistence/conversation-queries.js";
 import { normalizeOnboardingContext } from "../../prompts/normalize-onboarding.js";
 import { writeOnboardingSection } from "../../prompts/persona-resolver.js";
 import { getConfiguredProvider } from "../../providers/provider-send-message.js";

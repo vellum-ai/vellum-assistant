@@ -51,10 +51,6 @@ import {
 } from "../daemon/date-context.js";
 import type { WakeToolContextPin } from "../daemon/tool-setup-types.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
-import { resolveUserSlug } from "../prompts/persona-resolver.js";
-import type { SystemPromptPersonaOverride } from "../prompts/system-prompt.js";
-import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
-import { getLogger } from "../util/logger.js";
 import {
   addMessage,
   type ConversationRow,
@@ -66,12 +62,16 @@ import {
   getMessagesAfter,
   isConversationProcessing,
   resolveOverrideProfile,
-} from "./conversation-crud.js";
+} from "../persistence/conversation-crud.js";
 import {
   enqueueMemoryJob,
   type MemoryJob,
   type MemoryJobType,
-} from "./jobs-store.js";
+} from "../persistence/jobs-store.js";
+import { resolveUserSlug } from "../prompts/persona-resolver.js";
+import type { SystemPromptPersonaOverride } from "../prompts/system-prompt.js";
+import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
+import { getLogger } from "../util/logger.js";
 import {
   MEMORY_RETROSPECTIVE_FORK_SOURCE,
   MEMORY_RETROSPECTIVE_GROUP_ID,

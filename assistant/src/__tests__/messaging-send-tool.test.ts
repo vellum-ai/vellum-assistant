@@ -78,9 +78,9 @@ const getBindingByChannelChatMock = mock(
     } | null,
 );
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   addMessage: addMessageMock,
   getConversation: getConversationMock,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
@@ -90,7 +90,7 @@ mock.module("../memory/conversation-disk-view.js", () => ({
   syncMessageToDisk: syncMessageToDiskMock,
 }));
 
-mock.module("../memory/external-conversation-store.js", () => ({
+mock.module("../persistence/external-conversation-store.js", () => ({
   getBindingByChannelChat: getBindingByChannelChatMock,
 }));
 

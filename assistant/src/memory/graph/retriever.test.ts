@@ -23,7 +23,7 @@ let embedCallCount = 0;
 // mock behavior: takes the first text input and returns a matching vector.
 let embedRouter: ((text: string) => number[]) | null = null;
 
-mock.module("../embed.js", () => ({
+mock.module("../../persistence/embeddings/embed.js", () => ({
   embedWithRetry: async (
     _config: unknown,
     texts: unknown[],
@@ -43,7 +43,7 @@ mock.module("../embed.js", () => ({
   },
 }));
 
-mock.module("../embedding-backend.js", () => ({
+mock.module("../../persistence/embeddings/embedding-backend.js", () => ({
   selectedBackendSupportsMultimodal: async () => false,
 }));
 
@@ -74,7 +74,7 @@ mock.module("../../providers/provider-send-message.js", () => ({
 import { resetDbForTesting } from "../../__tests__/db-test-helpers.js";
 import { DEFAULT_CONFIG } from "../../config/defaults.js";
 import type { AssistantConfig } from "../../config/types.js";
-import { initializeDb } from "../db-init.js";
+import { initializeDb } from "../../persistence/db-init.js";
 import { resetTestTables } from "../raw-query.js";
 import { InContextTracker } from "./injection.js";
 import { loadContextMemory, retrieveForTurn } from "./retriever.js";

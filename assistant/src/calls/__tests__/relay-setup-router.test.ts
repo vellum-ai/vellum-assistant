@@ -67,7 +67,7 @@ let activeInvites: Array<{
   guardianName: string | null;
   expiresAt?: number;
 }> = [];
-mock.module("../../memory/invite-store.js", () => ({
+mock.module("../../persistence/invite-store.js", () => ({
   findActiveVoiceInvites: () => activeInvites,
 }));
 

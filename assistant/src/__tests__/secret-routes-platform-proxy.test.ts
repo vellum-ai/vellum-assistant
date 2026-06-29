@@ -178,7 +178,6 @@ describe("secret routes managed proxy registry sync", () => {
     platformBaseUrlOverride = undefined;
     providerRefreshCalls = 0;
     registerSecretsDeps({
-      getCesClient: () => undefined,
       onProviderCredentialsChanged: () => {
         providerRefreshCalls++;
       },

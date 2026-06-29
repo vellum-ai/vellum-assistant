@@ -29,6 +29,7 @@ import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { CompactionCircuitEvent } from "../plugins/types.js";
+import { isMaxTokensStopReason } from "../providers/stop-reasons.js";
 import { normalizeThinkingConfigForWire } from "../providers/thinking-config.js";
 import type {
   ContentBlock,
@@ -40,6 +41,7 @@ import type {
   ToolResultContent,
 } from "../providers/types.js";
 import { isContextOverflowError } from "../providers/types.js";
+import { isWeakOpenModel } from "../providers/weak-open-model.js";
 import type { SensitiveOutputBinding } from "../tools/sensitive-output-placeholders.js";
 import {
   applyStreamingSubstitution,
@@ -490,19 +492,6 @@ const DEFAULT_CONFIG: AgentLoopConfig = {
  * headroom while still catching pathological alternation between classes.
  */
 const MAX_POST_MODEL_CALL_CONTINUES = 5;
-
-const MAX_TOKENS_STOP_REASONS = new Set([
-  "length",
-  "max_output_tokens",
-  "max_tokens",
-]);
-
-export function isMaxTokensStopReason(
-  stopReason: string | null | undefined,
-): boolean {
-  if (!stopReason) return false;
-  return MAX_TOKENS_STOP_REASONS.has(stopReason.trim().toLowerCase());
-}
 
 /**
  * Concatenate the text of an assistant message's `text` blocks (ignoring
@@ -2173,6 +2162,7 @@ export class AgentLoop {
             messages: history,
             additionalContext: null,
             model: response.model,
+            needsFirmerSteering: isWeakOpenModel(response.model),
             maxInputTokens: contextWindowTokens,
             logger: rlog,
           };

@@ -112,7 +112,7 @@ const makeFakeDb = () => ({
   }),
 });
 
-mock.module("../db-connection.js", () => ({
+mock.module("../../persistence/db-connection.js", () => ({
   getDb: makeFakeDb,
   getMemoryDb: makeFakeDb,
 }));
@@ -129,7 +129,7 @@ mock.module("../../config/loader.js", () => ({
   }),
 }));
 
-mock.module("../conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   deleteConversation: (id: string) => {
     deletedIds.push(id);
     mockConversations = mockConversations.filter((c) => c.id !== id);

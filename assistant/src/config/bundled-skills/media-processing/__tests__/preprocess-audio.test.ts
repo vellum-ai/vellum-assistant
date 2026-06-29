@@ -22,7 +22,7 @@ mock.module("../../../../util/spawn.js", () => ({
   FFMPEG_PREPROCESS_TIMEOUT_MS: 60_000,
 }));
 
-mock.module("../../../../memory/media-store.js", () => ({
+mock.module("../../../../persistence/media-store.js", () => ({
   getMediaAssetById: (id: string) => ({
     id,
     mediaType: "video",

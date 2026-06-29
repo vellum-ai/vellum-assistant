@@ -22,7 +22,7 @@ import type {
   CheckpointDecision,
   CheckpointInfo,
 } from "../agent/loop.js";
-import { AgentLoop, isMaxTokensStopReason } from "../agent/loop.js";
+import { AgentLoop } from "../agent/loop.js";
 import type { ContextWindowConfig } from "../config/types.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { HOOKS } from "../plugin-api/constants.js";
@@ -35,6 +35,7 @@ import {
   registerPlugin,
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
+import { isMaxTokensStopReason } from "../providers/stop-reasons.js";
 import type {
   Message,
   Provider,

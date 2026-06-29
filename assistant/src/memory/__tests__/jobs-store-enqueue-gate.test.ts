@@ -52,7 +52,7 @@ mock.module("../../config/assistant-feature-flags.js", () => ({
 // retrospective and auto-analysis paths fall through to the enqueue.
 // `getConversation` returning null keeps `isLowYieldRetrospectiveSource`
 // false, so the retrospective is enqueued rather than skipped.
-mock.module("../conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   getConversation: () => null,
   getConversationSource: () => null,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
@@ -62,7 +62,7 @@ mock.module("../auto-analysis-guard.js", () => ({
 }));
 
 // Stub the qdrant breaker so `enqueueMemoryJob` doesn't trip on it.
-mock.module("../qdrant-circuit-breaker.js", () => ({
+mock.module("../../persistence/embeddings/qdrant-circuit-breaker.js", () => ({
   isQdrantBreakerOpen: () => false,
   shouldAllowQdrantProbe: () => true,
 }));
@@ -111,13 +111,13 @@ function makeStubDb() {
   };
 }
 const stubDb = makeStubDb();
-mock.module("../db-connection.js", () => ({
+mock.module("../../persistence/db-connection.js", () => ({
   getDb: () => stubDb,
   getMemoryDb: () => stubDb,
 }));
 
 // Now load the real modules under test.
-const { isMemoryEnabled } = await import("../jobs-store.js");
+const { isMemoryEnabled } = await import("../../persistence/jobs-store.js");
 const { enqueueAutoAnalysisIfEnabled } =
   await import("../auto-analysis-enqueue.js");
 const { enqueueMemoryRetrospectiveIfEnabled } =

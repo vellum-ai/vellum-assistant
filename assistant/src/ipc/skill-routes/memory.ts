@@ -9,7 +9,7 @@
 
 import { z } from "zod";
 
-import { addMessage } from "../../memory/conversation-crud.js";
+import { addMessage } from "../../persistence/conversation-crud.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
 import type { SkillIpcRoute } from "../skill-ipc-types.js";
 

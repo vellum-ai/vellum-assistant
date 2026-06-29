@@ -22,13 +22,13 @@ import {
   createConversation,
   deleteConversationGently,
   getMessages,
-} from "../conversation-crud.js";
-import { getDb, getSqlite } from "../db-connection.js";
-import { initializeDb } from "../db-init.js";
+} from "../../persistence/conversation-crud.js";
+import { getDb, getSqlite } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
 import {
   buildForkDeleteBatchScript,
   deleteForkMessagesViaSubprocess,
-} from "../fork-message-delete.js";
+} from "../../persistence/fork-message-delete.js";
 
 await initializeDb();
 

@@ -1,13 +1,14 @@
 import * as Sentry from "@sentry/node";
 
+import { stopCes } from "../credential-execution/ces-runtime.js";
 import { stopFilingService } from "../filing/filing-service.js";
 import { stopHeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { stopGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
 import { stopMcpServerManager } from "../mcp/manager.js";
-import { getSqlite, resetDb } from "../memory/db-connection.js";
-import { stopMemoryJobsWorker } from "../memory/jobs-worker.js";
-import { stopQdrantManager } from "../memory/qdrant-manager.js";
 import { stopMemoryWorkerProcess } from "../memory/worker-control.js";
+import { getSqlite, resetDb } from "../persistence/db-connection.js";
+import { stopQdrantManager } from "../persistence/embeddings/qdrant-manager.js";
+import { stopMemoryJobsWorker } from "../persistence/jobs-worker.js";
 import { stopRuntimeHttpServer } from "../runtime/http-server.js";
 import { stopScheduler } from "../schedule/scheduler.js";
 import { stopUsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
@@ -19,6 +20,7 @@ import {
   commitAllPendingWorkspaceChanges,
   stopWorkspaceHeartbeatService,
 } from "../workspace/heartbeat-service.js";
+import { stopConversations } from "./conversation-store.js";
 import { cleanupPidFile } from "./daemon-control.js";
 import { stopEventLoopWatchdog } from "./event-loop-watchdog.js";
 import { stopDiskPressureGuardForLifecycle } from "./lifecycle.js";
@@ -93,6 +95,8 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     }
 
     await deps.server.stop();
+    stopConversations();
+    await stopCes();
 
     // Final commit sweep: catch any writes that occurred during server.stop()
     // (e.g. in-flight tool executions completing during drain).

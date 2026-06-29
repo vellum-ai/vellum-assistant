@@ -27,7 +27,7 @@ let runBackgroundJobShouldFail = false;
 mock.module("../runtime/background-job-runner.js", () => ({
   runBackgroundJob: async (opts: { prompt: string; groupId?: string }) => {
     const { createConversation } =
-      await import("../memory/conversation-crud.js");
+      await import("../persistence/conversation-crud.js");
     const conv = createConversation({
       title: "(test stub)",
       conversationType: "background",
@@ -50,8 +50,8 @@ mock.module("../runtime/background-job-runner.js", () => ({
   },
 }));
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   createSchedule,
   getSchedule,

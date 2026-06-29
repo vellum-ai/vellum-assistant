@@ -45,8 +45,8 @@ function seedGatewayGuardian(g: {
   gatewayGuardians.push({ status: "active", ...g });
 }
 
-import { getSqlite } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getSqlite } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { BadRequestError, NotFoundError } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/settings-routes.js";
 import type { RouteHandlerArgs } from "../runtime/routes/types.js";

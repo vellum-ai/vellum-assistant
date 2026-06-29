@@ -29,14 +29,14 @@ mock.module("../../../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
 }));
 
-import type { DrizzleDb } from "../../db-connection.js";
-import { getSqliteFrom } from "../../db-connection.js";
-import { migrateMemoryV2ActivationLogs } from "../../migrations/234-memory-v2-activation-logs.js";
+import type { DrizzleDb } from "../../../persistence/db-connection.js";
+import { getSqliteFrom } from "../../../persistence/db-connection.js";
+import { migrateMemoryV2ActivationLogs } from "../../../persistence/migrations/234-memory-v2-activation-logs.js";
 import {
   downMemoryV2InjectionEvents,
   migrateMemoryV2InjectionEvents,
-} from "../../migrations/256-memory-v2-injection-events.js";
-import * as schema from "../../schema.js";
+} from "../../../persistence/migrations/256-memory-v2-injection-events.js";
+import * as schema from "../../../persistence/schema/index.js";
 import {
   computeInjectionScore,
   computeInjectionScores,

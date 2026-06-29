@@ -1,9 +1,12 @@
 import type { AssistantConfig } from "../../config/types.js";
+import { runAsyncSqlite } from "../../persistence/db-async-query.js";
+import { getDb } from "../../persistence/db-connection.js";
+import {
+  enqueueMemoryJob,
+  type MemoryJob,
+} from "../../persistence/jobs-store.js";
 import { getLogger } from "../../util/logger.js";
 import { getLogsDbPath } from "../../util/logs-db-path.js";
-import { runAsyncSqlite } from "../db-async-query.js";
-import { getDb } from "../db-connection.js";
-import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
 import { rawAll, rawLogsRun, rawRun } from "../raw-query.js";
 
 const log = getLogger("memory-jobs-worker");

@@ -5,10 +5,10 @@ import {
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
-import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
-import { getConversation } from "../memory/conversation-crud.js";
 import { invalidateAssistantInferredItemsForConversation } from "../memory/task-memory-cleanup.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import { bootstrapConversation } from "../persistence/conversation-bootstrap.js";
+import { getConversation } from "../persistence/conversation-crud.js";
 import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
 import { runBackgroundJob } from "../runtime/background-job-runner.js";
 import { runSequencesOnce } from "../sequence/engine.js";
@@ -185,6 +185,11 @@ export function stopScheduler(): void {
   if (!instance) return;
   instance.stop();
   instance = null;
+}
+
+/** The running scheduler, or null if one was never started. */
+export function getScheduler(): SchedulerHandle | null {
+  return instance;
 }
 
 export async function runScheduleOnce(

@@ -13,11 +13,11 @@ import {
   getTwilioStatusCallbackUrl,
   getTwilioVoiceWebhookUrl,
 } from "../inbound/public-ingress-urls.js";
-import { getConversation } from "../memory/conversation-crud.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { queueGenerateConversationTitle } from "../memory/conversation-title-service.js";
-import { upsertBinding } from "../memory/external-conversation-store.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
+import { getConversation } from "../persistence/conversation-crud.js";
+import { upsertBinding } from "../persistence/external-conversation-store.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { isGuardian } from "../runtime/channel-verification-service.js";
 import { credentialKey } from "../security/credential-key.js";

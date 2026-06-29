@@ -4,23 +4,23 @@
 
 import { getConfig } from "../../config/loader.js";
 import type { AssistantConfig } from "../../config/types.js";
-import { getLogger } from "../../util/logger.js";
-import { selectedBackendSupportsMultimodal } from "../embedding-backend.js";
-import type { EmbeddingInput } from "../embedding-types.js";
-import { embedAndUpsert } from "../job-utils.js";
-import { asString } from "../job-utils.js";
-import {
-  enqueueMemoryJob,
-  isMemoryEnabled,
-  type MemoryJob,
-} from "../jobs-store.js";
-import { isQdrantBreakerOpen } from "../qdrant-circuit-breaker.js";
-import { withQdrantBreaker } from "../qdrant-circuit-breaker.js";
+import { selectedBackendSupportsMultimodal } from "../../persistence/embeddings/embedding-backend.js";
+import type { EmbeddingInput } from "../../persistence/embeddings/embedding-types.js";
+import { isQdrantBreakerOpen } from "../../persistence/embeddings/qdrant-circuit-breaker.js";
+import { withQdrantBreaker } from "../../persistence/embeddings/qdrant-circuit-breaker.js";
 import {
   getQdrantClient,
   type QdrantSearchResult,
   type QdrantSparseVector,
-} from "../qdrant-client.js";
+} from "../../persistence/embeddings/qdrant-client.js";
+import { embedAndUpsert } from "../../persistence/job-utils.js";
+import { asString } from "../../persistence/job-utils.js";
+import {
+  enqueueMemoryJob,
+  isMemoryEnabled,
+  type MemoryJob,
+} from "../../persistence/jobs-store.js";
+import { getLogger } from "../../util/logger.js";
 import { loadImageRefData } from "./image-ref-utils.js";
 import { getNode } from "./store.js";
 import type { MemoryNode } from "./types.js";
@@ -258,10 +258,12 @@ export async function embedGraphTriggerJob(
   if (!triggerId) return;
 
   // Import here to avoid circular dependency
-  const { getDb } = await import("../db-connection.js");
+  const { getDb } = await import("../../persistence/db-connection.js");
   const { eq } = await import("drizzle-orm");
-  const { memoryGraphTriggers } = await import("../schema.js");
-  const { embedWithBackend } = await import("../embedding-backend.js");
+  const { memoryGraphTriggers } =
+    await import("../../persistence/schema/index.js");
+  const { embedWithBackend } =
+    await import("../../persistence/embeddings/embedding-backend.js");
 
   const db = getDb();
   const row = db

@@ -93,7 +93,7 @@ const enqueuedJobs: Array<{
 }> = [];
 let nextJobIdCounter = 0;
 
-mock.module("../../jobs-store.js", () => ({
+mock.module("../../../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: (
     type: string,
     payload: Record<string, unknown>,

@@ -30,9 +30,12 @@
  *   reject.
  */
 
-import type { HookFunction, PostModelCallContext } from "@vellumai/plugin-api";
+import {
+  type HookFunction,
+  isMaxTokensStopReason,
+  type PostModelCallContext,
+} from "@vellumai/plugin-api";
 
-import { isMaxTokensStopReason } from "../../../../agent/loop.js";
 import {
   consumeMaxTokensContinueBudget,
   hasMaxTokensContinueBudget,

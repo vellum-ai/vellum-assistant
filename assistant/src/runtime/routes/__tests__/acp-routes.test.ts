@@ -135,7 +135,7 @@ import {
   AcpResumeError,
   AcpSessionNotFoundError,
 } from "../../../acp/session-manager.js";
-import { initializeDb } from "../../../memory/db-init.js";
+import { initializeDb } from "../../../persistence/db-init.js";
 import { FailedDependencyError, NotFoundError } from "../errors.js";
 
 const { ROUTES } = await import("../acp-routes.js");

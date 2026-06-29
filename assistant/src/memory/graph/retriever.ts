@@ -7,6 +7,12 @@
 // ---------------------------------------------------------------------------
 
 import type { AssistantConfig } from "../../config/types.js";
+import { embedWithRetry } from "../../persistence/embeddings/embed.js";
+import {
+  generateSparseEmbedding,
+  selectedBackendSupportsMultimodal,
+} from "../../persistence/embeddings/embedding-backend.js";
+import type { QdrantSparseVector } from "../../persistence/embeddings/qdrant-client.js";
 import {
   extractToolUse,
   getConfiguredProvider,
@@ -14,12 +20,6 @@ import {
 } from "../../providers/provider-send-message.js";
 import type { ContentBlock, ImageContent } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
-import { embedWithRetry } from "../embed.js";
-import {
-  generateSparseEmbedding,
-  selectedBackendSupportsMultimodal,
-} from "../embedding-backend.js";
-import type { QdrantSparseVector } from "../qdrant-client.js";
 import { searchGraphNodes } from "./graph-search.js";
 import type { InContextTracker } from "./injection.js";
 import {

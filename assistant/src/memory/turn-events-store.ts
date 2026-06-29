@@ -1,7 +1,7 @@
 import { and, asc, eq, gt, or, sql } from "drizzle-orm";
 
-import { getDb } from "./db-connection.js";
-import { conversations, messages } from "./schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { conversations, messages } from "../persistence/schema/index.js";
 
 export interface TurnEvent {
   id: string;

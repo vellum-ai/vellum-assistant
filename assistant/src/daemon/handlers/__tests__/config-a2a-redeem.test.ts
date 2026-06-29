@@ -24,8 +24,8 @@ import {
   getAssistantContactMetadata,
   getContact,
 } from "../../../contacts/contact-store.js";
-import { getSqlite } from "../../../memory/db-connection.js";
-import { initializeDb } from "../../../memory/db-init.js";
+import { getSqlite } from "../../../persistence/db-connection.js";
+import { initializeDb } from "../../../persistence/db-init.js";
 import { getA2AConfig, redeemA2AInvite } from "../config-a2a.js";
 
 await initializeDb();
