@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { disposeAcpSessionManager } from "../acp/index.js";
 import { compileApp } from "../bundler/app-compiler.js";
 import { getConfig } from "../config/loader.js";
-import { AssistantIpcServer } from "../ipc/assistant-server.js";
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
 import { syncIdentityNameToPlatform } from "../platform/sync-identity.js";
 import { initializeProviders } from "../providers/registry.js";
@@ -45,15 +44,6 @@ import { refreshSkillCapabilityMemories } from "./skill-memory-refresh.js";
 
 const log = getLogger("server");
 
-function isEaddrInUse(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "code" in err &&
-    (err as NodeJS.ErrnoException).code === "EADDRINUSE"
-  );
-}
-
 function readPackageVersion(): string | undefined {
   try {
     const pkgPath = join(import.meta.dir, "../../package.json");
@@ -75,7 +65,6 @@ export class DaemonServer {
   // Composed subsystems
   private configWatcher = getConfigWatcher();
   private appSourceWatcher = new AppSourceWatcher();
-  private cliIpc = new AssistantIpcServer();
 
   constructor() {
     this.evictor = new ConversationEvictor(getConversationMap());
@@ -192,22 +181,6 @@ export class DaemonServer {
 
     this.evictor.start();
 
-    try {
-      await this.cliIpc.start();
-    } catch (err) {
-      if (isEaddrInUse(err)) {
-        log.error(
-          { err },
-          "CLI IPC socket already in use by another daemon — aborting startup to prevent duplicate processing",
-        );
-        throw err;
-      }
-      log.warn(
-        { err },
-        "CLI IPC server failed to start — continuing startup with degraded CLI connectivity",
-      );
-    }
-
     this.configWatcher.start(
       () => this.evictConversationsForReload(),
       () => this.broadcastIdentityChanged(),
@@ -230,7 +203,6 @@ export class DaemonServer {
     this.evictor.stop();
     this.configWatcher.stop();
     this.appSourceWatcher.stop();
-    this.cliIpc.stop();
 
     log.info("Daemon server stopped");
   }

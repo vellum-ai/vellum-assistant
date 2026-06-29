@@ -655,3 +655,50 @@ function injectLocalActorHeader(
     },
   };
 }
+
+// ── Process-level singleton ───────────────────────────────────────────────
+
+let instance: AssistantIpcServer | null = null;
+
+function isEaddrInUse(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as NodeJS.ErrnoException).code === "EADDRINUSE"
+  );
+}
+
+/**
+ * Start the daemon's CLI IPC server.
+ *
+ * Throws on EADDRINUSE: another daemon already holds the socket, so this
+ * process must abort startup rather than run as an unmanageable duplicate
+ * (invisible to health checks, unreachable by stop commands) while its
+ * background jobs hit the shared database. Any other bind failure is non-fatal
+ * — startup continues with degraded CLI connectivity.
+ */
+export async function startCliIpcServer(): Promise<void> {
+  instance = new AssistantIpcServer();
+  try {
+    await instance.start();
+  } catch (err) {
+    if (isEaddrInUse(err)) {
+      log.error(
+        { err },
+        "CLI IPC socket already in use by another daemon — aborting startup to prevent duplicate processing",
+      );
+      throw err;
+    }
+    log.warn(
+      { err },
+      "CLI IPC server failed to start — continuing startup with degraded CLI connectivity",
+    );
+  }
+}
+
+/** Stop the CLI IPC server during daemon shutdown. */
+export function stopCliIpcServer(): void {
+  instance?.stop();
+  instance = null;
+}

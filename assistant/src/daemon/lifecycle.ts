@@ -19,6 +19,7 @@ import { startFilingService } from "../filing/filing-service.js";
 import { startHeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
+import { startCliIpcServer } from "../ipc/assistant-server.js";
 import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
 import { startSkillIpcServer } from "../ipc/skill-server.js";
 import { expireAllPendingCanonicalRequests } from "../memory/canonical-guardian-store.js";
@@ -588,6 +589,11 @@ export async function runDaemon(): Promise<void> {
   const server = new DaemonServer();
   await server.start();
   log.info("Daemon startup: DaemonServer started");
+
+  // Start the CLI IPC server. Throws on EADDRINUSE to abort startup when another
+  // daemon already holds the socket, so this process never runs background jobs
+  // against the shared database as an unmanageable duplicate.
+  await startCliIpcServer();
 
   // Start the skill IPC server so first-party skill processes can connect for
   // host capabilities. The meet-host supervisor reads the live server from the
