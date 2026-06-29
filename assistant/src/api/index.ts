@@ -469,6 +469,10 @@ export {
   LlmContextResponseSchema,
 } from "./responses/llm-context-response.js";
 export {
+  type LatencyBreakdown,
+  LatencyBreakdownSchema,
+  type LatencyPhase,
+  LatencyPhaseSchema,
   type LLMCallError,
   LLMCallErrorSchema,
   type LLMCallSummary,

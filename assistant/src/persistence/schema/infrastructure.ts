@@ -155,6 +155,14 @@ export const llmRequestLogs = sqliteTable(
      * rather than guessing `mainAgent`.
      */
     callSite: text("call_site"),
+    /**
+     * JSON-serialized first-token latency waterfall measured by the daemon
+     * (`LatencyBreakdown` in `api/responses/llm-request-log-entry.ts`):
+     * queue → memory/context retrieval → setup → request prep →
+     * time-to-first-token → generation. NULL on pre-instrumentation rows,
+     * failed calls, and non-main-agent call sites.
+     */
+    latencyBreakdown: text("latency_breakdown"),
   },
   (table) => [
     index("idx_llm_request_logs_message_id").on(table.messageId),
