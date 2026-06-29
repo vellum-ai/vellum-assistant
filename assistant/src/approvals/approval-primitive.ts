@@ -16,7 +16,7 @@ import {
   type ConsumeByRequestIdResult,
   type ConsumeByToolSignatureResult,
   type ScopedApprovalGrant,
-} from "../memory/scoped-approval-grants.js";
+} from "./scoped-approval-grants.js";
 
 const {
   createScopedApprovalGrant,
