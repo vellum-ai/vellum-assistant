@@ -297,6 +297,9 @@ describe("host_bash background lifecycle events — proxy path", () => {
     const completed = completedEvents();
     expect(completed).toHaveLength(1);
     expect(completed[0]).toMatchObject({ status: "cancelled" });
+    // Cancellation must surface a cancellation message, not "failed" framing.
+    expect(completed[0]!.output).toContain("cancelled");
+    expect(completed[0]!.output).not.toContain("failed");
   });
 });
 
@@ -386,5 +389,8 @@ describe("host_bash background lifecycle events — direct spawn path", () => {
     const completed = completedEvents();
     expect(completed).toHaveLength(1);
     expect(completed[0]).toMatchObject({ status: "cancelled" });
+    // Cancellation must surface a cancellation message, not "failed" framing.
+    expect(completed[0]!.output).toContain("cancelled");
+    expect(completed[0]!.output).not.toContain("failed");
   });
 });
