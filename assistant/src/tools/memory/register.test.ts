@@ -105,6 +105,10 @@ describe("recallTool definition", () => {
     expect(definition.name).toBe("recall");
     expect(definition.description).toContain("Search local information");
     expect(definition.description).toContain("workspace files");
+    // Live-data carve-out: recall must not be pitched as a source for the
+    // current state of external systems (live channels, inbox, APIs).
+    expect(definition.description).toContain("not a window into live systems");
+    expect(definition.description).toContain("the live data wins");
 
     const inputSchema = definition.input_schema as {
       required?: string[];
