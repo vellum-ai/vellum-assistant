@@ -1185,7 +1185,7 @@ export async function runDaemon(): Promise<void> {
   // (see `maybeEnqueueGraphMaintenanceJobs`).
   startFilingService();
 
-  installShutdownHandlers({ server });
+  installShutdownHandlers();
 
   // The critical startup await-chain has completed and the daemon can serve
   // requests, so latch readiness before logging "Daemon started". Any fatal
