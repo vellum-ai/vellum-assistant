@@ -1,5 +1,5 @@
 /**
- * Streams an empty-state (new-chat) greeting from the daemon's
+ * Fetches empty-state (new-chat) greetings from the daemon's
  * `POST /v1/btw` side-chain.
  *
  * The daemon resolves an authored `## Greetings` line, a cached greeting, or a
@@ -27,12 +27,30 @@ const GREETING_PROMPT =
   "This will be displayed when the user opens a new conversation (under 8 words). " +
   "Match your personality. Output ONLY the greeting text — no quotes, no formatting.";
 
+/** Number of greeting variations requested in a single batch call. */
+const GREETING_POOL_SIZE = 5;
+
+/**
+ * Prompt that requests multiple greeting variations in one LLM call.
+ * The response is expected to be a JSON array of strings.
+ */
+const GREETING_POOL_PROMPT =
+  `Generate ${GREETING_POOL_SIZE} short, casual greetings in your voice from you to your user. ` +
+  "These will be displayed when the user opens a new conversation (under 8 words each). " +
+  "Match your personality. Output ONLY a JSON array of strings — no markdown, no commentary.";
+
 export interface StreamGreetingOptions {
   assistantId: string;
   /** Aborts the in-flight request (e.g. on conversation change / unmount). */
   signal?: AbortSignal;
   /** Invoked with the accumulated greeting text as each delta arrives. */
   onDelta?: (text: string) => void;
+}
+
+export interface FetchGreetingPoolOptions {
+  assistantId: string;
+  /** Aborts the in-flight request (e.g. on conversation change / unmount). */
+  signal?: AbortSignal;
 }
 
 /**
@@ -73,6 +91,73 @@ export async function streamEmptyStateGreeting({
   }
 
   return readGreetingStream(stream, onDelta);
+}
+
+/**
+ * Fetch multiple greeting variations in a single LLM call. The prompt asks the
+ * model to return a JSON array of strings; on parse failure falls back to
+ * treating the response as a single greeting.
+ */
+export async function fetchGreetingPool({
+  assistantId,
+  signal,
+}: FetchGreetingPoolOptions): Promise<string[]> {
+  const { data, response } = await client.post({
+    url: "/v1/assistants/{assistant_id}/btw",
+    path: { assistant_id: assistantId },
+    body: {
+      conversationKey: GREETING_CONVERSATION_KEY,
+      content: GREETING_POOL_PROMPT,
+    },
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+    },
+    parseAs: "stream",
+    signal,
+  });
+
+  if (response && !response.ok) {
+    throw new Error(`Greeting pool request failed with status ${response.status}`);
+  }
+
+  const stream = (data ?? response?.body) as
+    | ReadableStream<Uint8Array>
+    | null
+    | undefined;
+  if (!stream) {
+    throw new Error("Greeting pool stream returned no body");
+  }
+
+  const text = await readGreetingStream(stream);
+  return parseGreetingPool(text);
+}
+
+/**
+ * Extract an array of greeting strings from the LLM response. Handles markdown
+ * code fences and falls back to the raw text as a single-element array.
+ */
+function parseGreetingPool(raw: string): string[] {
+  const stripped = raw.replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
+  try {
+    const parsed: unknown = JSON.parse(stripped);
+    if (Array.isArray(parsed)) {
+      const greetings = parsed
+        .filter((item): item is string => typeof item === "string")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+      if (greetings.length > 0) {
+        return greetings;
+      }
+    }
+  } catch {
+    // Fall through to single-greeting fallback
+  }
+  const trimmed = raw.trim();
+  if (trimmed.length > 0) {
+    return [trimmed];
+  }
+  return [];
 }
 
 interface ParsedSseFrame {

@@ -3,28 +3,43 @@ import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import { DEFAULT_EMPTY_STATE_GREETING } from "@/domains/chat/utils/empty-state-constants";
 
-// Controllable stub for the streaming client.
-interface StreamCall {
+// Controllable stub for the greeting pool fetcher.
+interface FetchCall {
   assistantId: string;
   signal?: AbortSignal;
-  onDelta?: (text: string) => void;
 }
 
-const streamCalls: StreamCall[] = [];
-let streamImpl: (opts: StreamCall) => Promise<string> = async () => "Hello there";
+const fetchCalls: FetchCall[] = [];
+let fetchImpl: (opts: FetchCall) => Promise<string[]> = async () => [
+  "Hey there",
+  "What's up",
+  "Hi friend",
+  "Good to see you",
+  "Hey!",
+];
 
 mock.module("@/domains/chat/api/stream-greeting", () => ({
-  streamEmptyStateGreeting: (opts: StreamCall) => {
-    streamCalls.push(opts);
-    return streamImpl(opts);
+  fetchGreetingPool: (opts: FetchCall) => {
+    fetchCalls.push(opts);
+    return fetchImpl(opts);
   },
 }));
 
-import { useEmptyStateGreeting } from "@/domains/chat/hooks/use-empty-state-greeting";
+import {
+  greetingCacheMap,
+  useEmptyStateGreeting,
+} from "@/domains/chat/hooks/use-empty-state-greeting";
 
 beforeEach(() => {
-  streamCalls.length = 0;
-  streamImpl = async () => "Hello there";
+  fetchCalls.length = 0;
+  fetchImpl = async () => [
+    "Hey there",
+    "What's up",
+    "Hi friend",
+    "Good to see you",
+    "Hey!",
+  ];
+  greetingCacheMap.clear();
 });
 
 afterEach(() => {
@@ -43,37 +58,78 @@ describe("useEmptyStateGreeting", () => {
 
     expect(result.current.greeting).toBe(DEFAULT_EMPTY_STATE_GREETING);
     expect(result.current.isGenerating).toBe(false);
-    expect(streamCalls).toHaveLength(0);
+    expect(fetchCalls).toHaveLength(0);
   });
 
   test("does not generate without an assistant or conversation id", () => {
     renderHook(() =>
       useEmptyStateGreeting({ assistantId: null, conversationId: "c1" }),
     );
-    expect(streamCalls).toHaveLength(0);
+    expect(fetchCalls).toHaveLength(0);
   });
 
-  test("streams a greeting and renders it", async () => {
-    streamImpl = async (opts) => {
-      opts.onDelta?.("Hey");
-      opts.onDelta?.("Hey there");
-      return "Hey there";
-    };
+  test("fires a single request to fetch the greeting pool", async () => {
+    const { result } = renderHook(() =>
+      useEmptyStateGreeting({ assistantId: "a1", conversationId: "c1" }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isGenerating).toBe(false);
+    });
+
+    expect(fetchCalls).toHaveLength(1);
+    expect(greetingCacheMap.get("a1")!.greetings.length).toBe(5);
+  });
+
+  test("renders a greeting from the pool once loaded", async () => {
+    fetchImpl = async () => ["Hey friend", "What's up", "Howdy"];
 
     const { result } = renderHook(() =>
       useEmptyStateGreeting({ assistantId: "a1", conversationId: "c1" }),
     );
 
     await waitFor(() => {
-      expect(result.current.greeting).toBe("Hey there");
+      expect(result.current.isGenerating).toBe(false);
     });
-    expect(result.current.isGenerating).toBe(false);
-    expect(streamCalls).toHaveLength(1);
-    expect(streamCalls[0]!.assistantId).toBe("a1");
+
+    expect(["Hey friend", "What's up", "Howdy"]).toContain(
+      result.current.greeting,
+    );
   });
 
-  test("falls back to the default greeting on error", async () => {
-    streamImpl = async () => {
+  test("uses cached greeting on subsequent conversation changes", async () => {
+    greetingCacheMap.set("a1", {
+      greetings: ["Cached one", "Cached two", "Cached three", "Cached four", "Cached five"],
+      loading: false,
+    });
+
+    const { result } = renderHook(() =>
+      useEmptyStateGreeting({ assistantId: "a1", conversationId: "c2" }),
+    );
+
+    // Should immediately pick from cache — no new fetch calls
+    expect(fetchCalls).toHaveLength(0);
+    expect(result.current.isGenerating).toBe(false);
+    expect(["Cached one", "Cached two", "Cached three", "Cached four", "Cached five"]).toContain(
+      result.current.greeting,
+    );
+  });
+
+  test("does not re-fetch when cache is already populated", async () => {
+    greetingCacheMap.set("a1", {
+      greetings: ["G1", "G2", "G3", "G4", "G5"],
+      loading: false,
+    });
+
+    renderHook(() =>
+      useEmptyStateGreeting({ assistantId: "a1", conversationId: "c1" }),
+    );
+
+    expect(fetchCalls).toHaveLength(0);
+  });
+
+  test("falls back to the default greeting when the request fails", async () => {
+    fetchImpl = async () => {
       throw new Error("network");
     };
 
@@ -87,17 +143,25 @@ describe("useEmptyStateGreeting", () => {
     expect(result.current.greeting).toBe(DEFAULT_EMPTY_STATE_GREETING);
   });
 
-  test("regenerates when the conversation id changes", async () => {
-    const { rerender } = renderHook(
-      ({ conversationId }: { conversationId: string }) =>
-        useEmptyStateGreeting({ assistantId: "a1", conversationId }),
-      { initialProps: { conversationId: "c1" } },
-    );
+  test("picks a different random greeting on conversation id change with warm cache", async () => {
+    greetingCacheMap.set("a1", {
+      greetings: ["Alpha", "Beta", "Gamma", "Delta", "Epsilon"],
+      loading: false,
+    });
 
-    await waitFor(() => expect(streamCalls).toHaveLength(1));
+    const allPicks = new Set<string>();
 
-    rerender({ conversationId: "c2" });
+    for (let i = 0; i < 20; i++) {
+      const { result, unmount } = renderHook(() =>
+        useEmptyStateGreeting({ assistantId: "a1", conversationId: `c${i}` }),
+      );
+      allPicks.add(result.current.greeting);
+      unmount();
+    }
 
-    await waitFor(() => expect(streamCalls).toHaveLength(2));
+    expect(allPicks.size).toBeGreaterThan(1);
+    for (const pick of allPicks) {
+      expect(["Alpha", "Beta", "Gamma", "Delta", "Epsilon"]).toContain(pick);
+    }
   });
 });

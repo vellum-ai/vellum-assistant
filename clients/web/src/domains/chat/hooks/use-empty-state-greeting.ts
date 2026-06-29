@@ -1,18 +1,15 @@
 /**
- * React hook that streams a personalized empty-state greeting from the daemon.
+ * React hook that fetches personalized empty-state greetings from the daemon.
  *
- * Mirrors the macOS app: each new empty conversation triggers a single
- * greeting generated via `POST /v1/btw` (`conversationKey: "greeting"`), which
- * streams in token-by-token. The daemon owns the prompt, voice, authored
- * `## Greetings` override, and a configurable cache TTL
- * (`ui.emptyStateGreetingCacheTtlMs`) — so whether a request hits the LLM or
- * replays a cached greeting is decided server-side. Falls back to
- * {@link DEFAULT_EMPTY_STATE_GREETING} until text arrives and on any error.
+ * Makes a single request that returns multiple greeting variations as a JSON
+ * array, caches them per assistantId, and picks a random one on each new
+ * conversation or page refresh. Falls back to {@link DEFAULT_EMPTY_STATE_GREETING}
+ * while loading or on error.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { streamEmptyStateGreeting } from "@/domains/chat/api/stream-greeting";
+import { fetchGreetingPool } from "@/domains/chat/api/stream-greeting";
 import { DEFAULT_EMPTY_STATE_GREETING } from "@/domains/chat/utils/empty-state-constants";
 
 export interface EmptyStateGreeting {
@@ -30,20 +27,82 @@ interface UseEmptyStateGreetingParams {
   enabled?: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// Module-level greeting cache — persists across mounts, resets on page reload.
+// ---------------------------------------------------------------------------
+
+interface GreetingCache {
+  greetings: string[];
+  loading: boolean;
+}
+
+const greetingCacheMap = new Map<string, GreetingCache>();
+
+/** Pick a random greeting from the cached pool. */
+function pickCachedGreeting(assistantId: string): string | null {
+  const entry = greetingCacheMap.get(assistantId);
+  if (!entry || entry.greetings.length === 0) {
+    return null;
+  }
+  const idx = Math.floor(Math.random() * entry.greetings.length);
+  return entry.greetings[idx]!;
+}
+
+/**
+ * Fetches the greeting pool in a single request and populates the cache.
+ * No-ops if a load is already in progress or cache is already populated.
+ */
+async function loadGreetingPool(
+  assistantId: string,
+  signal: AbortSignal,
+): Promise<string[]> {
+  const existing = greetingCacheMap.get(assistantId);
+  if (existing?.loading || (existing && existing.greetings.length > 0)) {
+    return existing.greetings;
+  }
+
+  const cache: GreetingCache = { greetings: [], loading: true };
+  greetingCacheMap.set(assistantId, cache);
+
+  try {
+    const greetings = await fetchGreetingPool({ assistantId, signal });
+    cache.greetings = greetings;
+    return greetings;
+  } catch {
+    return [];
+  } finally {
+    cache.loading = false;
+  }
+}
+
 export function useEmptyStateGreeting({
   assistantId,
   conversationId,
   enabled = true,
 }: UseEmptyStateGreetingParams): EmptyStateGreeting {
-  const [greeting, setGreeting] = useState("");
-  // Seed from the initial params so the very first paint shows the spinner
-  // rather than flashing the default greeting before the effect runs.
+  const cachedPick = useMemo(
+    () => {
+      if (!assistantId || !conversationId) {
+        return null;
+      }
+      return pickCachedGreeting(assistantId);
+    },
+    [assistantId, conversationId],
+  );
+
+  const [greeting, setGreeting] = useState(cachedPick ?? "");
   const [isGenerating, setIsGenerating] = useState(() =>
-    Boolean(enabled && assistantId && conversationId),
+    Boolean(enabled && assistantId && conversationId && !cachedPick),
   );
 
   useEffect(() => {
     if (!enabled || !assistantId || !conversationId) {
+      return;
+    }
+
+    if (cachedPick) {
+      setGreeting(cachedPick);
+      setIsGenerating(false);
       return;
     }
 
@@ -52,37 +111,30 @@ export function useEmptyStateGreeting({
     setGreeting("");
     setIsGenerating(true);
 
-    streamEmptyStateGreeting({
-      assistantId,
-      signal: controller.signal,
-      onDelta: (text) => {
-        if (active) setGreeting(text);
-      },
-    })
-      .then((text) => {
-        if (!active) return;
-        setGreeting(text.trim() || DEFAULT_EMPTY_STATE_GREETING);
-      })
-      .catch(() => {
-        // Transport error, abort, or generation failure — keep whatever
-        // streamed in, else fall back to a stable default.
-        if (!active) return;
-        setGreeting((current) => current || DEFAULT_EMPTY_STATE_GREETING);
-      })
-      .finally(() => {
-        if (active) setIsGenerating(false);
-      });
+    loadGreetingPool(assistantId, controller.signal).then((greetings) => {
+      if (!active) {
+        return;
+      }
+      if (greetings.length > 0) {
+        const idx = Math.floor(Math.random() * greetings.length);
+        setGreeting(greetings[idx]!);
+      } else {
+        setGreeting(DEFAULT_EMPTY_STATE_GREETING);
+      }
+      setIsGenerating(false);
+    });
 
     return () => {
       active = false;
       controller.abort();
     };
-  }, [assistantId, conversationId, enabled]);
+  }, [assistantId, conversationId, enabled, cachedPick]);
 
   return {
     greeting: greeting || DEFAULT_EMPTY_STATE_GREETING,
-    // Only signal "generating" before the first token; once text streams in we
-    // render it directly.
     isGenerating: isGenerating && greeting.length === 0,
   };
 }
+
+// Exported for testing
+export { greetingCacheMap };
