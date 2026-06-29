@@ -2,6 +2,7 @@ import { attachConfirmationToToolCall } from "@/domains/chat/utils/chat";
 import type { PendingConfirmationState } from "@/domains/chat/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
 import { clearConfirmationByRequestId } from "@/domains/chat/utils/send-message-utils";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import type {
@@ -51,11 +52,18 @@ export function handleConfirmationRequest(
   };
   useInteractionStore.getState().showConfirmation(confData);
 
+  // `confirmation_request` is not folded by the rolling-snapshot reducer, so
+  // this handler owns attaching the inline confirmation marker onto the tool
+  // call in the materialized snapshot. Compute against the current snapshot to
+  // recover the matched tool-call id for the interaction store, then replace
+  // the snapshot's messages with the result. Snapshot-only (not the history
+  // cache): a reseed mid-confirmation restores the marker from the server's
+  // wire `pending_confirmation` via `extractWirePendingConfirmation`.
   const result = attachConfirmationToToolCall(
-    ctx.messages,
+    useChatSessionStore.getState().snapshot?.messages ?? [],
     confData,
   );
-  ctx.setMessages(() => result.updatedMessages);
+  useChatSessionStore.getState().patchSnapshotMessages(() => result.updatedMessages);
 
   if (result.attachedToolCallId) {
     useInteractionStore
@@ -85,7 +93,7 @@ export function handleConfirmationRequest(
  */
 export function handleInteractionResolved(
   event: InteractionResolvedEvent,
-  ctx: StreamHandlerContext,
+  _ctx: StreamHandlerContext,
 ): void {
   if (event.kind !== "confirmation" && event.kind !== "acp_confirmation") {
     return;
@@ -104,7 +112,10 @@ export function handleInteractionResolved(
     interaction.setInlineConfirmationToolCallId(null);
   }
 
-  ctx.setMessages((prev) => clearConfirmationByRequestId(prev, requestId));
+  // A per-row cleanup (no-op for rows it doesn't match), so route it through
+  // the transcript seam — clears the marker from both the snapshot and the
+  // history cache, wherever the tool-call row now lives.
+  patchTranscriptMessages((prev) => clearConfirmationByRequestId(prev, requestId));
   session.deleteConfirmationToolCall(requestId);
 }
 

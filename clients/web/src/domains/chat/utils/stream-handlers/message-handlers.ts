@@ -1,24 +1,10 @@
 import { recordDiagnostic } from "@/lib/diagnostics";
-import {
-  appendTextDelta,
-  appendThinkingDelta,
-  applyUserMessageEcho,
-  finalizeMessageComplete,
-  finalizeOnIdle,
-} from "@/domains/chat/utils/stream-updaters/message-updaters";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import {
   findConversation,
   patchConversation,
 } from "@/utils/conversation-cache";
 import { useConversationStore } from "@/stores/conversation-store";
-import { messageIdentityKeys } from "@/domains/chat/utils/message-identity";
-import { mergeAdjacentAssistantMessages } from "@/domains/chat/utils/message-merge";
-import {
-  conversationHistoryQueryKey,
-  type HistoryCache,
-} from "@/domains/chat/transcript/use-history-pagination";
-import type { DisplayMessage } from "@/domains/chat/types/types";
 import type {
   AssistantActivityStateEvent,
   AssistantTextDeltaEvent,
@@ -45,52 +31,6 @@ function resolveConversationId(
   ctx: StreamHandlerContext,
 ): string | undefined {
   return event.conversationId ?? ctx.streamContext?.conversationId;
-}
-
-/**
- * Find the persisted assistant row this event's `messageId` belongs to in the
- * history cache, if any — the "history twin" used to seed the live streaming
- * row on re-attach.
- *
- * The daemon reserves the row at turn start and flushes partial content under
- * a stable `messageId`, then stamps that same id on every delta. So when this
- * client attaches mid-turn, the snapshot's persisted prefix sits in the history
- * cache under the id the replayed deltas carry. Returning it lets the first
- * delta extend the prefix instead of opening a fresh, prefix-less bubble.
- *
- * Called lazily (only when a delta finds no live row to append to), so the
- * per-token streaming path never pays for this lookup.
- */
-function resolveHistoryTwin(
-  event: AssistantTextDeltaEvent | AssistantThinkingDeltaEvent,
-  ctx: StreamHandlerContext,
-): DisplayMessage | undefined {
-  const { messageId } = event;
-  if (!messageId || !ctx.assistantId) return undefined;
-  const conversationId = resolveConversationId(event, ctx);
-  if (!conversationId) return undefined;
-
-  const cached = ctx.queryClient.getQueryData<HistoryCache>(
-    conversationHistoryQueryKey(ctx.assistantId, conversationId),
-  );
-  if (!cached) return undefined;
-
-  // Search the same merged view the transcript renders.
-  // `mergeAdjacentAssistantMessages` folds an assistant turn that straddles a
-  // history page boundary into one row (carrying the other page's content as a
-  // merged alias). Seeding from a raw per-page row would carry only one page's
-  // prefix, and the overlay would then drop the rest when the live row replaces
-  // the merged history twin by `mergedMessageIds`. Paid only on the cold
-  // re-attach branch (no live row owns the id), never on the per-token path.
-  const merged = mergeAdjacentAssistantMessages(
-    [...cached.pages].reverse().flatMap((page) => page.messages),
-  );
-  for (const row of merged) {
-    if (row.role === "assistant" && messageIdentityKeys(row).includes(messageId)) {
-      return row;
-    }
-  }
-  return undefined;
 }
 
 /**
@@ -173,19 +113,13 @@ export function handleAssistantTextDelta(
     markConversationProcessingFromStream(ctx, convId);
   }
 
-  ctx.setMessages((prev) => {
-    const next = appendTextDelta(prev, event.text, event.messageId, () =>
-      resolveHistoryTwin(event, ctx),
-    );
-    const tail = next[next.length - 1];
-    // Stamp the current-assistant ref to the assistant tail. Subagent
-    // handlers read this to attribute nested notifications to the right
-    // parent bubble.
-    if (tail?.role === "assistant") {
-      ctx.currentAssistantMessageIdRef.current = tail.id;
-    }
-    return next;
-  });
+  // Transcript content is folded into the materialized snapshot by the
+  // rolling-snapshot reducer (`use-event-stream`); the handler only stamps the
+  // current-assistant anchor so subagent handlers attribute nested
+  // notifications to the right parent bubble.
+  if (event.messageId) {
+    ctx.currentAssistantMessageIdRef.current = event.messageId;
+  }
 }
 
 /**
@@ -206,16 +140,10 @@ export function handleAssistantThinkingDelta(
 ): void {
   ctx.cancelReconciliation();
 
-  ctx.setMessages((prev) => {
-    const next = appendThinkingDelta(prev, event.thinking, event.messageId, () =>
-      resolveHistoryTwin(event, ctx),
-    );
-    const tail = next[next.length - 1];
-    if (tail?.role === "assistant") {
-      ctx.currentAssistantMessageIdRef.current = tail.id;
-    }
-    return next;
-  });
+  // Content folds into the snapshot via the reducer; stamp the anchor only.
+  if (event.messageId) {
+    ctx.currentAssistantMessageIdRef.current = event.messageId;
+  }
 }
 
 export function handleAssistantActivityState(
@@ -258,7 +186,8 @@ export function handleAssistantActivityState(
     return;
   }
 
-  ctx.setMessages(finalizeOnIdle);
+  // The reducer finalizes running tool calls on the snapshot when it folds the
+  // `idle` activity state; the handler owns only the turn/processing teardown.
   if (convId) {
     // Mirrors the cache patch in `handleMessageComplete` /
     // `handleGenerationCancelled` — see those handlers for the
@@ -281,7 +210,8 @@ export function handleMessageComplete(
   event: MessageCompleteEvent,
   ctx: StreamHandlerContext,
 ): void {
-  ctx.setMessages((prev) => finalizeMessageComplete(prev, event));
+  // The reducer folds `message_complete` into the snapshot (finalizing the
+  // assistant row); the handler owns subagent re-anchoring and turn teardown.
 
   // Re-anchor subagents spawned in this turn from the optimistic streaming
   // bubble id (`currentAssistantMessageIdRef`, the same id used as
@@ -328,16 +258,21 @@ export function handleMessageComplete(
 /**
  * Apply a `user_message_echo` event.
  *
- * Renders the user turn on every client — including passive viewers and
- * synthetic surface-action prompts that never issued the originating POST
- * — and dedupes the originating client's optimistic row. The id/optimistic
- * reconciliation lives in the pure `applyUserMessageEcho` updater.
+ * The reducer folds the echoed server user row into the snapshot — rendering
+ * the user turn on every client, including passive viewers and synthetic
+ * surface-action prompts that never issued the originating POST. The handler's
+ * job is to retire the originating client's optimistic send: the snapshot now
+ * carries the server row, so the optimistic overlay correlated by
+ * `clientMessageId` is no longer needed. A no-op for echoes with no matching
+ * optimistic row (other clients' sends, synthetic prompts).
  */
 export function handleUserMessageEcho(
   event: UserMessageEchoEvent,
   ctx: StreamHandlerContext,
 ): void {
-  ctx.setMessages((prev) => applyUserMessageEcho(prev, event));
+  if (event.clientMessageId) {
+    ctx.clearOptimisticSend(event.clientMessageId);
+  }
 }
 
 export function handleGenerationHandoff(

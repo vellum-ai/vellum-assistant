@@ -750,10 +750,8 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
 
   function getScrollState(): ChatDebugScrollState {
     const capturedAt = new Date().toISOString();
-    // The rendered transcript item count (history ⊕ live turn), kept in sync by
-    // chat-route-content. Reading `liveTurn.length` would under-count to 0 once
-    // a finished turn's rows hand off to the history cache, making an active
-    // conversation look empty to the scroll diagnostics.
+    // The rendered transcript item count (snapshot ⊕ optimistic sends), kept in
+    // sync by chat-route-content — the count of what's actually on screen.
     const itemCount = refs.transcriptItemsRef.current?.length ?? 0;
     const pagination = refs.getScrollPagination();
 

@@ -1,5 +1,4 @@
 import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
-import { handleConversationError } from "@/domains/chat/utils/stream-updaters/message-updaters";
 import { ERROR_MESSAGES } from "@/domains/chat/utils/chat";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import { patchConversation } from "@/utils/conversation-cache";
@@ -55,7 +54,9 @@ export function handleConversationErrorEvent(
   }
   ctx.endTurn({ conversationId: convId, reason: "error" });
 
-  ctx.setMessages(handleConversationError);
+  // The reducer folds `conversation_error` into the snapshot (finalizing any
+  // running tool calls on the streaming row); the handler owns turn teardown,
+  // the error banner, and stream lifecycle.
 
   ctx.setError({
     message: event.userMessage,

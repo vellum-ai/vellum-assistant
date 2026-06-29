@@ -1,7 +1,10 @@
-import { describe, expect, it, beforeEach } from "bun:test";
+import { afterEach, describe, expect, it, beforeEach } from "bun:test";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
+import type { DisplayMessage } from "@/domains/chat/types/types";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import { textBody } from "@/domains/chat/utils/message-test-helpers";
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
 import {
   handleSecretRequest,
@@ -10,9 +13,33 @@ import {
   handleInteractionResolved,
 } from "@/domains/chat/utils/stream-handlers/interaction-handlers";
 
+function seedSnapshot(messages: DisplayMessage[]): void {
+  useChatSessionStore.setState({
+    snapshot: {
+      messages,
+      seq: null,
+      hasMore: false,
+      oldestTimestamp: null,
+      oldestMessageId: null,
+    },
+  });
+}
+
+function snapshotMessages(): DisplayMessage[] {
+  return useChatSessionStore.getState().snapshot?.messages ?? [];
+}
+
+function runningToolCall(id: string): ChatMessageToolCall {
+  return { id, name: "bash", input: {} };
+}
+
 beforeEach(() => {
   useInteractionStore.getState().resetAll();
   useChatSessionStore.getState().deleteConfirmationToolCall("cr-1");
+});
+
+afterEach(() => {
+  useChatSessionStore.setState({ snapshot: null });
 });
 
 describe("handleSecretRequest", () => {
@@ -55,13 +82,58 @@ describe("handleConfirmationRequest", () => {
     expect(ctx.turnActions.onConfirmationRequest).toHaveBeenCalled();
     const state = useInteractionStore.getState();
     expect(state.pendingConfirmation).toMatchObject({ requestId: "cr-1" });
-    expect(ctx.setMessages).toHaveBeenCalled();
+  });
+
+  it("attaches the confirmation marker onto the matched tool call in the snapshot", () => {
+    seedSnapshot([
+      {
+        id: "a-1",
+        role: "assistant",
+        ...textBody(""),
+        timestamp: 1,
+        toolCalls: [runningToolCall("tc-1")],
+      },
+    ]);
+    const ctx = makeCtx();
+    handleConfirmationRequest(
+      {
+        type: "confirmation_request",
+        requestId: "cr-1",
+        toolName: "bash",
+        input: { command: "ls" },
+        riskLevel: "low",
+        allowlistOptions: [],
+        scopeOptions: [],
+      },
+      ctx,
+    );
+
+    const toolCall = snapshotMessages()[0]?.toolCalls?.[0];
+    expect(toolCall?.pendingConfirmation?.requestId).toBe("cr-1");
+    expect(
+      useInteractionStore.getState().inlineConfirmationToolCallId,
+    ).toBe("tc-1");
+    expect(ctx.setConfirmationToolCall).toHaveBeenCalledWith("cr-1", "tc-1");
   });
 });
 
 describe("handleInteractionResolved", () => {
   it("retires the active confirmation card when its interaction resolves", () => {
     const ctx = makeCtx();
+    seedSnapshot([
+      {
+        id: "a-1",
+        role: "assistant",
+        ...textBody(""),
+        timestamp: 1,
+        toolCalls: [
+          {
+            ...runningToolCall("tc-1"),
+            pendingConfirmation: { requestId: "cr-1", toolName: "acp_spawn" },
+          },
+        ],
+      },
+    ]);
     useInteractionStore.getState().showConfirmation({
       requestId: "cr-1",
       toolName: "acp_spawn",
@@ -85,7 +157,9 @@ describe("handleInteractionResolved", () => {
     const interaction = useInteractionStore.getState();
     expect(interaction.pendingConfirmation).toBeNull();
     expect(interaction.inlineConfirmationToolCallId).toBeNull();
-    expect(ctx.setMessages).toHaveBeenCalled();
+    expect(
+      snapshotMessages()[0]?.toolCalls?.[0]?.pendingConfirmation,
+    ).toBeUndefined();
     expect(
       useChatSessionStore.getState().confirmationToolCallMap.has("cr-1"),
     ).toBe(false);
@@ -140,7 +214,6 @@ describe("handleInteractionResolved", () => {
     expect(
       useInteractionStore.getState().pendingConfirmation?.requestId,
     ).toBe("cr-1");
-    expect(ctx.setMessages).not.toHaveBeenCalled();
   });
 });
 

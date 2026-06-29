@@ -26,6 +26,9 @@ import {
   hasAssistantMessage,
   shouldClearFirstMessageGateOnConversationChange,
 } from "@/domains/chat/utils/chat";
+import type { DisplayMessage } from "@/domains/chat/types/types";
+
+const EMPTY: DisplayMessage[] = [];
 
 export interface AutoGreetGateResult {
   show: boolean;
@@ -39,11 +42,13 @@ export function useAutoGreetGate(
 ): AutoGreetGateResult {
   const autoGreetPending =
     useAssistantLifecycleStore.use.expectingFirstMessage();
-  // The post-hatch greeting streams into the in-flight turn; a freshly hatched
-  // conversation has no persisted history yet, so the live turn is the right
-  // (and sufficient) place to watch for the first assistant message.
-  const liveTurn = useChatSessionStore.use.liveTurn();
-  const firstAssistantMessageArrived = hasAssistantMessage(liveTurn);
+  // The post-hatch greeting folds into the materialized snapshot as it streams;
+  // a freshly hatched conversation has no persisted history yet, so the snapshot
+  // is the right (and sufficient) place to watch for the first assistant message.
+  const snapshot = useChatSessionStore.use.snapshot();
+  const firstAssistantMessageArrived = hasAssistantMessage(
+    snapshot?.messages ?? EMPTY,
+  );
   const [timedOut, setTimedOut] = useState(false);
 
   // 1. Pre-chat sessionStorage detector — re-arm gate on reload.

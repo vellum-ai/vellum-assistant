@@ -40,8 +40,8 @@ export function makeCtx(
     isNative: false,
     streamContext: { assistantId: "ast-1", conversationId: "conv-1" },
     assistantId: "ast-1",
-    setMessages: mock(() => {}),
-    messages: [],
+    setOptimisticSends: mock(() => {}),
+    clearOptimisticSend: mock(() => {}),
     turnActions: {
       requestSend: mock(() => {}),
       acceptSend: mock(() => {}),
@@ -105,10 +105,7 @@ export function makeCtx(
       return true;
     }),
     lastActivityVersionRef: { current: new Map() },
-    toolCallIdCounterRef: { current: 0 },
     currentAssistantMessageIdRef: { current: undefined },
-    toolOutputBufferRef: { current: new Map() },
-    toolOutputFlushHandleRef: { current: null },
     ...restOverrides,
   };
 }

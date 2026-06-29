@@ -63,8 +63,6 @@ export interface ChatUIState {
 
 export function useChatUIState(): ChatUIState {
   // --- Store reads (atomic selectors → minimal re-renders) ----------------
-  const liveTurn = useChatSessionStore.use.liveTurn();
-
   const pendingSecret = useInteractionStore.use.pendingSecret();
   const pendingConfirmation = useInteractionStore.use.pendingConfirmation();
   const pendingContactRequest = useInteractionStore.use.pendingContactRequest();
@@ -77,10 +75,9 @@ export function useChatUIState(): ChatUIState {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const activeConversationId = useConversationStore.use.activeConversationId();
 
-  // The streaming-row checks below read the live turn; "is a turn in flight"
-  // and "is a surface awaiting action" read the full transcript (history ⊕ live
-  // turn) — after switching back to a still-processing conversation, those rows
-  // live in the history cache, not the live turn.
+  // All message-derived checks read the rendered transcript (the materialized
+  // snapshot ⊕ optimistic sends) — the streaming assistant row is its tail
+  // while a turn is in flight.
   const transcript = useTranscriptMessages(assistantId, activeConversationId);
 
   // TanStack Query — deduped with any other call for the same conversation.
@@ -102,8 +99,8 @@ export function useChatUIState(): ChatUIState {
   // correct: sanitisation only removes blank user rows and sorts — it never
   // touches the tail assistant message that determines liveness.
   const liveAssistantMessageId = useMemo(
-    () => liveAssistantRowId(liveTurn, activeConversationIsProcessing),
-    [liveTurn, activeConversationIsProcessing],
+    () => liveAssistantRowId(transcript, activeConversationIsProcessing),
+    [transcript, activeConversationIsProcessing],
   );
   const hasStreamingAssistantMessage = liveAssistantMessageId != null;
 
@@ -113,13 +110,13 @@ export function useChatUIState(): ChatUIState {
   // thinking-dots row so the two indicators never compete.
   const hasStreamingAssistantThinking = useMemo(() => {
     if (liveAssistantMessageId == null) return false;
-    const live = liveTurn.find((m) => m.id === liveAssistantMessageId);
+    const live = transcript.find((m) => m.id === liveAssistantMessageId);
     if (!live) return false;
     return (
       (live.thinkingSegments?.length ?? 0) > 0 ||
       !!live.contentBlocks?.some((b) => b.type === "thinking")
     );
-  }, [liveTurn, liveAssistantMessageId]);
+  }, [transcript, liveAssistantMessageId]);
 
   const hasUncompletedVisibleSurface = useMemo(
     () => hasAnyInteractiveSurface(transcript),

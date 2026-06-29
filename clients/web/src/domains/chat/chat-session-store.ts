@@ -1,15 +1,16 @@
 /**
  * Zustand store for per-conversation ephemeral chat session state.
  *
- * Owns client-only state: the in-flight turn (`liveTurn`), errors, transient
- * maps/sets, and UI expansion state that hooks and stream handlers read and
- * write during a conversation. Persisted history is NOT owned here — it lives
- * in the TanStack Query cache (`useHistoryPagination`). The rendered transcript
- * is the union of the two, derived by `selectTranscriptMessages`.
+ * Owns client-only state: the materialized transcript snapshot, the optimistic
+ * user sends overlaid on it, errors, transient maps/sets, and UI expansion
+ * state that hooks and stream handlers read and write during a conversation.
+ * The rendered transcript is `snapshot ⊕ optimisticSends`, derived by
+ * `selectTranscriptMessages` (see `useTranscriptMessages`).
  *
  * All mutations go through store actions that call `set()`, producing new
- * collection instances. Reactive state (liveTurn, error, isLoadingHistory, …)
- * drives UI via `.use.*` selectors. Non-reactive state (streamingMessageIds,
+ * collection instances. Reactive state (snapshot, optimisticSends, error,
+ * isLoadingHistory, …) drives UI via `.use.*` selectors. Non-reactive state
+ * (streamingMessageIds,
  * pendingLocalDeletions, …) is read via `getState()` in async callbacks and
  * stream handlers — it never triggers re-renders directly but still uses
  * actions for consistency and correctness.
@@ -52,19 +53,11 @@ import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 
 /** Reactive state — drives UI via `.use.*` selectors. */
 export interface ChatSessionState {
-  // --- In-flight turn ---
-  // The current turn's client-owned rows only: the optimistic user message and
-  // the assistant row(s) still streaming. Persisted history is NOT here — it
-  // lives in the TanStack Query cache. The rendered transcript is the union of
-  // cached history and this live turn (`selectTranscriptMessages`).
-  liveTurn: DisplayMessage[];
-
   // --- Materialized snapshot (client-sync rolling snapshot) ---
   // The client's living snapshot of the active conversation, in the `/messages`
   // page shape: seeded from a server snapshot and advanced by the stream reducer
-  // (`applyEvent`). `null` until seeded. Unwired: the rendered transcript still
-  // reads cached history ⊕ `liveTurn` today; this is the home the cutover
-  // moves it to.
+  // (`applyEvent`). `null` until seeded. This is the single source the transcript
+  // renders from, overlaid with `optimisticSends`.
   snapshot: PaginatedHistoryResult | null;
   // Optimistic user sends not yet confirmed by their `user_message_echo`.
   // Held apart from `snapshot` so it's clear they're unconfirmed until an event
@@ -130,9 +123,6 @@ export interface ChatSessionState {
 // ---------------------------------------------------------------------------
 
 export interface ChatSessionActions {
-  // --- Setters ---
-  setLiveTurn: (updater: DisplayMessage[] | ((prev: DisplayMessage[]) => DisplayMessage[])) => void;
-
   // --- Materialized snapshot ---
   /** Seed (or resync) the snapshot from a freshly fetched server snapshot,
    *  replaying the buffered event tail with `seq > snapshot.seq` onto it so
@@ -146,6 +136,14 @@ export interface ChatSessionActions {
   addOptimisticSend: (message: DisplayMessage) => void;
   /** Drop the optimistic send correlated by `clientMessageId`. */
   clearOptimisticSend: (clientMessageId: string) => void;
+  /** Mutate the optimistic-send list (queue status, id swap, removal). */
+  setOptimisticSends: (
+    updater: DisplayMessage[] | ((prev: DisplayMessage[]) => DisplayMessage[]),
+  ) => void;
+  /** Apply an updater to the materialized snapshot's messages — the seam
+   *  imperative actions (confirmation/surface/rule cleanup) reach server-
+   *  confirmed rows through. No-op until the snapshot is seeded. */
+  patchSnapshotMessages: (updater: (prev: DisplayMessage[]) => DisplayMessage[]) => void;
   setError: (updater: ChatError | null | ((prev: ChatError | null) => ChatError | null)) => void;
   setNotice: (updater: ChatError | null | ((prev: ChatError | null) => ChatError | null)) => void;
   setIsLoadingHistory: (value: boolean) => void;
@@ -228,7 +226,6 @@ const INITIAL_PAGINATION: Omit<TranscriptPaginationState, "items"> = {
 
 function initialState(): ChatSessionState {
   return {
-    liveTurn: [],
     snapshot: null,
     optimisticSends: [],
     error: null,
@@ -270,10 +267,7 @@ function applyUpdater<T>(current: T, updater: T | ((prev: T) => T)): T {
 const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
   ...initialState(),
 
-  // --- Setters ---
-  setLiveTurn: (updater) =>
-    set((s) => ({ liveTurn: applyUpdater(s.liveTurn, updater) })),
-
+  // --- Materialized snapshot ---
   seedSnapshot: (conversationId, snapshot) => {
     const tail = getSseEnvelopesSince(conversationId, snapshot.seq ?? null);
     set({ snapshot: resolveSnapshot(snapshot, tail) });
@@ -291,6 +285,16 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
         (m) => m.clientMessageId !== clientMessageId,
       ),
     })),
+
+  setOptimisticSends: (updater) =>
+    set((s) => ({ optimisticSends: applyUpdater(s.optimisticSends, updater) })),
+
+  patchSnapshotMessages: (updater) =>
+    set((s) =>
+      s.snapshot
+        ? { snapshot: { ...s.snapshot, messages: updater(s.snapshot.messages) } }
+        : {},
+    ),
 
   setError: (updater) =>
     set((s) => ({ error: applyUpdater(s.error, updater) })),
@@ -376,7 +380,6 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       : state.contextWindowUsageByConversation;
 
     set({
-      liveTurn: [],
       snapshot: null,
       optimisticSends: [],
       ephemeralMetaResults: [],

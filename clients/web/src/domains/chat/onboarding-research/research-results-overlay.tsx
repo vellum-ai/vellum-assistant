@@ -20,6 +20,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -39,6 +40,10 @@ import {
   type RemovalReason,
 } from "@/domains/chat/onboarding-research/research-facts";
 
+/** Stable empty messages ref so the store selector doesn't churn when the
+ *  snapshot is unseeded. */
+const EMPTY: DisplayMessage[] = [];
+
 /** Most claims to show — keeps the card from becoming a wall of text. */
 const MAX_CLAIMS = 5;
 /** Settled-with-nothing must persist this long before we show the empty state,
@@ -50,7 +55,10 @@ function faviconService(domain: string): string {
 }
 
 export function ResearchResultsOverlay() {
-  const messages = useChatSessionStore((s) => s.liveTurn);
+  // The assistant's research reply folds into the materialized snapshot as it
+  // streams; read it from there (the onboarding conversation has no other
+  // history, so the snapshot is the whole transcript).
+  const messages = useChatSessionStore((s) => s.snapshot?.messages ?? EMPTY);
   const turnPhase = useTurnStore((s) => s.phase);
   const liveWebActivity = useTurnStore((s) => s.liveWebActivity);
   const exitFocus = useOnboardingFocusStore.use.exitFocus();

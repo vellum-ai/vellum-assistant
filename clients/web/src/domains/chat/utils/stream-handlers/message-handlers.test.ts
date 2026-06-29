@@ -7,11 +7,11 @@ import {
   handleAssistantTurnStart,
   handleAssistantActivityState,
   handleMessageComplete,
+  handleUserMessageEcho,
   handleGenerationHandoff,
   handleGenerationCancelled,
 } from "@/domains/chat/utils/stream-handlers/message-handlers";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
-import { textBody } from "@/domains/chat/utils/message-test-helpers";
 import { conversationsQueryKey } from "@/utils/conversation-list-fetchers";
 import { findConversation } from "@/utils/conversation-cache";
 import type { Conversation } from "@/types/conversation-types";
@@ -58,7 +58,6 @@ describe("handleAssistantTextDelta", () => {
     );
     expect(ctx.cancelReconciliation).toHaveBeenCalled();
     expect(ctx.turnActions.onTextDelta).toHaveBeenCalled();
-    expect(ctx.setMessages).toHaveBeenCalled();
   });
 
   it("flips the cached conversation's isProcessing to true when the start event was missed", () => {
@@ -82,50 +81,38 @@ describe("handleAssistantTextDelta", () => {
     ).toBe(true);
   });
 
-  it("creates a new bubble when there is no assistant tail to fold into", () => {
-    // Empty messages → no assistant tail, so the delta opens a new bubble.
+  it("stamps currentAssistantMessageIdRef from the event's messageId when present", () => {
+    // Transcript content is owned by the rolling-snapshot reducer; the
+    // handler only stamps the anchor so subagent handlers attribute nested
+    // notifications to the right parent bubble.
     const ctx = makeCtx();
-    handleAssistantTextDelta({ type: "assistant_text_delta", text: "Hi" }, ctx);
-    expect(ctx.setMessages).toHaveBeenCalled();
-    // Apply the updater to an empty array to confirm a new bubble emerges.
-    const updater = (ctx.setMessages as unknown as ReturnType<typeof Object>)
-      .mock.calls[0][0] as (prev: never[]) => unknown[];
-    const next = updater([]);
-    expect(next).toHaveLength(1);
-    expect(next[0]).toMatchObject({
-      role: "assistant",
-      ...textBody("Hi"),
-    });
+    handleAssistantTextDelta(
+      { type: "assistant_text_delta", text: "Hello", messageId: "msg-A" },
+      ctx,
+    );
+    expect(ctx.currentAssistantMessageIdRef.current).toBe("msg-A");
   });
 });
 
 describe("handleAssistantThinkingDelta", () => {
-  it("cancels reconciliation and accumulates reasoning onto the streaming row", () => {
-    // GIVEN a fresh stream context (no assistant tail yet — the reasoning
-    // burst precedes any text, as with reasoning-heavy models)
+  it("cancels reconciliation and stamps the anchor from the event's messageId", () => {
+    // GIVEN a fresh stream context
     const ctx = makeCtx();
 
-    // WHEN a thinking delta arrives
+    // WHEN a thinking delta carrying a messageId arrives
     handleAssistantThinkingDelta(
-      { type: "assistant_thinking_delta", thinking: "reasoning" },
+      {
+        type: "assistant_thinking_delta",
+        thinking: "reasoning",
+        messageId: "msg-A",
+      },
       ctx,
     );
 
-    // THEN a pending reconcile is cancelled and the row updater runs
+    // THEN a pending reconcile is cancelled and the current-assistant
+    // anchor is stamped (content folds into the snapshot via the reducer)
     expect(ctx.cancelReconciliation).toHaveBeenCalled();
-    expect(ctx.setMessages).toHaveBeenCalled();
-
-    // AND applying the updater opens an assistant bubble carrying the
-    // reasoning as a thinking block, stamping the current-assistant ref
-    const updater = (ctx.setMessages as unknown as ReturnType<typeof Object>)
-      .mock.calls[0][0] as (prev: never[]) => unknown[];
-    const next = updater([]);
-    expect(next).toHaveLength(1);
-    expect(next[0]).toMatchObject({
-      role: "assistant",
-      thinkingSegments: ["reasoning"],
-      contentOrder: [{ type: "thinking", id: "0" }],
-    });
+    expect(ctx.currentAssistantMessageIdRef.current).toBe("msg-A");
   });
 });
 
@@ -162,7 +149,6 @@ describe("handleAssistantActivityState", () => {
       ctx,
     );
     expect(ctx.lastActivityVersionRef.current.get("conv-1")).toBe(1);
-    expect(ctx.setMessages).toHaveBeenCalled();
     expect(ctx.endTurn).toHaveBeenCalledWith({
       conversationId: "conv-1",
       reason: "complete",
@@ -185,7 +171,6 @@ describe("handleAssistantActivityState", () => {
     );
     expect(ctx.lastActivityVersionRef.current.get("conv-1")).toBe(2);
     expect(ctx.turnActions.onActivityThinking).toHaveBeenCalledWith(undefined);
-    expect(ctx.setMessages).not.toHaveBeenCalled();
     expect(ctx.startReconciliationLoop).not.toHaveBeenCalled();
   });
 
@@ -238,7 +223,6 @@ describe("handleMessageComplete", () => {
       { type: "message_complete", messageId: "msg-1" },
       ctx,
     );
-    expect(ctx.setMessages).toHaveBeenCalled();
     expect(ctx.endTurn).toHaveBeenCalledWith({
       conversationId: "conv-1",
       reason: "complete",
@@ -344,6 +328,31 @@ describe("handleMessageComplete", () => {
     expect(useSubagentStore.getState().byId["sa-1"]?.parentMessageId).toBe(
       undefined,
     );
+  });
+});
+
+describe("handleUserMessageEcho", () => {
+  it("clears the optimistic send correlated by clientMessageId when present", () => {
+    const ctx = makeCtx();
+    handleUserMessageEcho(
+      {
+        type: "user_message_echo",
+        text: "Hello",
+        messageId: "msg-1",
+        clientMessageId: "client-1",
+      },
+      ctx,
+    );
+    expect(ctx.clearOptimisticSend).toHaveBeenCalledWith("client-1");
+  });
+
+  it("is a no-op when the echo carries no clientMessageId", () => {
+    const ctx = makeCtx();
+    handleUserMessageEcho(
+      { type: "user_message_echo", text: "Hello", messageId: "msg-1" },
+      ctx,
+    );
+    expect(ctx.clearOptimisticSend).not.toHaveBeenCalled();
   });
 });
 

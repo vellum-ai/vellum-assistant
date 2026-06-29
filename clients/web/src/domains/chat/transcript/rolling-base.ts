@@ -83,6 +83,22 @@ export function appendEventToMessages(
       return event.phase === "idle" ? finalizeOnIdle(messages, at) : messages;
     case "conversation_error":
       return handleConversationError(messages, at);
+    case "tool_use_preview_start": {
+      // Optimistic pre-input affordance: the daemon recognized a tool call
+      // before its input finished streaming. Seed a running tool card anchored
+      // to first byte so the perceived-latency timer starts now; `tool_use_start`
+      // fills in the real input and execution `startedAt` once the call begins.
+      const previewToolCall: ChatMessageToolCall = {
+        id: event.toolUseId,
+        name: event.toolName,
+        input: {},
+        previewStartedAt:
+          typeof event.previewStartedAt === "number"
+            ? event.previewStartedAt
+            : at,
+      };
+      return upsertToolCall(messages, previewToolCall, event.messageId, at);
+    }
     case "tool_use_start": {
       const toolCall: ChatMessageToolCall = {
         id: event.toolUseId ?? `tool-${at}`,
@@ -92,6 +108,10 @@ export function appendEventToMessages(
           "startedAt" in event && typeof event.startedAt === "number"
             ? event.startedAt
             : at,
+        ...("previewStartedAt" in event &&
+        typeof event.previewStartedAt === "number"
+          ? { previewStartedAt: event.previewStartedAt }
+          : {}),
       };
       return upsertToolCall(messages, toolCall, event.messageId, at);
     }
