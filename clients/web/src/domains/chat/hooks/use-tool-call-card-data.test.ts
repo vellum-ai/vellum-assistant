@@ -82,7 +82,7 @@ describe("computeToolCallCardData — step kinds", () => {
       info: "echo hello",
       activity: "",
       riskLevel: undefined,
-      iconName: "code",
+      iconName: "terminal",
       toolCallId: "tc-1",
       status: "completed",
     });
