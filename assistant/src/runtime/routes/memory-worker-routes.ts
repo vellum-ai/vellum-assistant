@@ -62,10 +62,10 @@ const stopResponseSchema = z.object({
   workerEnabled: z.literal(false),
 });
 
-const embeddingStatusSchema = z.object({
+export const embeddingStatusSchema = z.object({
   enabled: z.boolean(),
   degraded: z.boolean(),
-  provider: z.enum(["openai", "gemini", "ollama"]).nullable(),
+  provider: z.enum(["local", "openai", "gemini", "ollama"]).nullable(),
   model: z.string().nullable(),
   reason: z.string().nullable(),
 });

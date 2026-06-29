@@ -16609,6 +16609,7 @@ paths:
                         anyOf:
                           - type: string
                             enum:
+                              - local
                               - openai
                               - gemini
                               - ollama
