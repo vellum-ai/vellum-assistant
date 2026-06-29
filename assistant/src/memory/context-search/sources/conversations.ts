@@ -1,10 +1,10 @@
 import { readSlackMetadata } from "../../../messaging/providers/slack/message-metadata.js";
+import { AUTO_ANALYSIS_SOURCE } from "../../../persistence/auto-analysis-constants.js";
 import {
   buildFtsMatchQuery,
   buildRecallEvidenceExcerpt,
 } from "../../../persistence/conversation-queries.js";
 import { rawAll } from "../../../persistence/raw-query.js";
-import { AUTO_ANALYSIS_SOURCE } from "../../../runtime/services/auto-analysis-guard.js";
 import {
   parseExternalContentEnvelope,
   wrapUntrustedContent,

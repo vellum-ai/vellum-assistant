@@ -1,9 +1,5 @@
 import { AUTO_ANALYSIS_SOURCE } from "../../persistence/auto-analysis-constants.js";
 import { getConversationSource } from "../../persistence/conversation-crud.js";
-export {
-  AUTO_ANALYSIS_GROUP_ID,
-  AUTO_ANALYSIS_SOURCE,
-} from "../../persistence/auto-analysis-constants.js";
 
 /**
  * Returns true if the conversation's `source` column is `"auto-analysis"`,

@@ -23,6 +23,10 @@
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
 import { isMemoryRetrospectiveSource } from "../../memory/memory-retrospective-constants.js";
 import {
+  AUTO_ANALYSIS_GROUP_ID,
+  AUTO_ANALYSIS_SOURCE,
+} from "../../persistence/auto-analysis-constants.js";
+import {
   addMessage,
   createConversation,
   findAnalysisConversationFor,
@@ -33,10 +37,6 @@ import {
 import { resolveConversationId } from "../../persistence/conversation-key-store.js";
 import { getLogger } from "../../util/logger.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
-import {
-  AUTO_ANALYSIS_GROUP_ID,
-  AUTO_ANALYSIS_SOURCE,
-} from "./auto-analysis-guard.js";
 import {
   buildAutoAnalysisPrompt,
   neutralizeTranscriptSentinel,
