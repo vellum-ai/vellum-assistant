@@ -19,6 +19,13 @@ import {
 import { applyRuntimeInjections } from "../daemon/conversation-runtime-assembly.js";
 import { stripTailInjectionsForReinjection } from "../plugins/defaults/memory/tail-reinjection-strip.js";
 import type { Message } from "../providers/types.js";
+import { registerDefaultInjectorsForTest } from "./register-default-injectors.js";
+
+// Populate the injector registry with the default-memory injectors the way
+// bootstrap does in production, so `applyRuntimeInjections` walks a non-empty
+// chain. This suite has no `beforeEach`, so registering at module load (before
+// any test runs) is sufficient.
+registerDefaultInjectorsForTest();
 
 const WORKSPACE_BLOCK = "<workspace>\nRoot: /sandbox\n</workspace>";
 const INFO_BLOCK = "<info>\nRemembered fact about project-x\n</info>";

@@ -61,7 +61,14 @@ import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags
 import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
 import { HOOKS } from "../plugin-api/constants.js";
-import { getAllDefaultPlugins, registerDefaultPlugins } from "../plugins/defaults/index.js";
+import {
+  getAllDefaultPlugins,
+  registerDefaultPlugins,
+} from "../plugins/defaults/index.js";
+import {
+  registerPluginInjectors,
+  unregisterPluginInjectors,
+} from "../plugins/injector-registry.js";
 import { getRegisteredPlugins, unregisterPlugin } from "../plugins/registry.js";
 import {
   type Plugin,
@@ -376,6 +383,14 @@ async function initializePlugin(
       );
     }
 
+    if (plugin.injectors && plugin.injectors.length > 0) {
+      registerPluginInjectors(name, plugin.injectors);
+      log.info(
+        { plugin: name, count: plugin.injectors.length },
+        "plugin injectors registered",
+      );
+    }
+
     if (plugin.hooks?.[HOOKS.INIT]) {
       try {
         await plugin.hooks[HOOKS.INIT](initContext);
@@ -403,6 +418,7 @@ async function initializePlugin(
         unregisterSkillRoute(handle);
       }
       unregisterPluginTools(name);
+      unregisterPluginInjectors(name);
     }
     throw err;
   }
@@ -451,6 +467,8 @@ async function teardownPlugin(
       "plugin tool unregister failed (continuing with remaining plugins)",
     );
   }
+
+  unregisterPluginInjectors(name);
 
   if (plugin.hooks?.[HOOKS.SHUTDOWN]) {
     try {

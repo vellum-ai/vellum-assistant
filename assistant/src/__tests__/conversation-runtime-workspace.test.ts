@@ -8,6 +8,13 @@ import { applyRuntimeInjections } from "../daemon/conversation-runtime-assembly.
 import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
 import { createApp } from "../memory/app-store.js";
 import type { Message } from "../providers/types.js";
+import { registerDefaultInjectorsForTest } from "./register-default-injectors.js";
+
+// Populate the injector registry with the default-memory injectors the way
+// bootstrap does in production, so `applyRuntimeInjections` walks a non-empty
+// chain. This suite has no `beforeEach`, so registering at module load (before
+// any test runs) is sufficient.
+registerDefaultInjectorsForTest();
 
 // ---------------------------------------------------------------------------
 // Fixture messages

@@ -54,7 +54,12 @@ import maxTokensContinueStop from "./max-tokens-continue/hooks/stop.js";
 import maxTokensContinuePkg from "./max-tokens-continue/package.json" with { type: "json" };
 import memoryPostCompact from "./memory/hooks/post-compact.js";
 import memoryUserPromptSubmit from "./memory/hooks/user-prompt-submit.js";
+import { defaultInjectors } from "./memory/injectors.js";
 import memoryPkg from "./memory/package.json" with { type: "json" };
+import {
+  memoryV3Injector,
+  memoryV3SpotlightInjector,
+} from "./memory/v3/injector.js";
 import surfaceCompletionNudgePostModelCall from "./surface-completion-nudge/hooks/post-model-call.js";
 import surfaceCompletionNudgeStop from "./surface-completion-nudge/hooks/stop.js";
 import { resetSurfaceCompletionNudgeStoreForTests } from "./surface-completion-nudge/nudge-state-store.js";
@@ -130,10 +135,13 @@ export const defaultEmptyResponsePlugin: Plugin = {
  * memory-v3 orchestration engine (`memory/v3/`) and its injectors. Two hooks
  * drive it: `user-prompt-submit` runs memory-graph retrieval and the initial
  * injection, and `post-compact` re-applies the injections onto the compacted
- * history after a mid-turn compaction. The v3 injectors run through the static
- * injector chain (`memory/injector-chain.ts`), gated on `memory.v3.live`.
- * Registered first in the chain so later `user-prompt-submit` hooks (history
- * repair, title) see the fully memory-injected history.
+ * history after a mid-turn compaction. It contributes the runtime injectors
+ * (the default injectors plus the two memory-v3 injectors) to the global
+ * injector registry via the `injectors` field; the registry sorts them by
+ * `order` into the per-turn chain, and the v3 injectors self-gate on
+ * `memory.v3.live`. Registered first among the default plugins so later
+ * `user-prompt-submit` hooks (history repair, title) see the fully
+ * memory-injected history.
  */
 export const defaultMemoryPlugin: Plugin = {
   manifest: {
@@ -144,6 +152,7 @@ export const defaultMemoryPlugin: Plugin = {
     "user-prompt-submit": memoryUserPromptSubmit,
     "post-compact": memoryPostCompact,
   },
+  injectors: [...defaultInjectors, memoryV3Injector, memoryV3SpotlightInjector],
 };
 
 /**

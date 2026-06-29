@@ -374,6 +374,15 @@ export interface Plugin {
   tools?: Tool[];
   /** HTTP route registrations served by the assistant. */
   routes?: PluginRouteRegistration[];
+  /**
+   * Runtime injectors contributed to the per-turn injection chain. Bootstrap
+   * registers these into the global injector registry before `init()` runs,
+   * symmetric with `tools`/`routes`. The registry unions every plugin's
+   * injectors and stable-sorts by ascending `order`, so contribution order
+   * does not affect the produced sequence except as the tiebreak among
+   * injectors sharing an `order`. See `plugins/injector-registry.ts`.
+   */
+  injectors?: readonly Injector[];
 }
 
 // ─── Errors ──────────────────────────────────────────────────────────────────
