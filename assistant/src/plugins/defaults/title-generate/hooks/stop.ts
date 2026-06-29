@@ -8,7 +8,7 @@
  * recent messages. This hook is the trigger — it retries placeholder titles
  * after successful turns and fires the second-pass regeneration when the
  * conversation reaches its third user turn. The service
- * (`memory/conversation-title-service.ts`) re-checks that the title is still
+ * (`persistence/conversation-title-service.ts`) re-checks that the title is still
  * auto-generated, resolves the title provider, persists, and broadcasts the
  * `conversation_title_updated` / `sync_changed` events.
  *
