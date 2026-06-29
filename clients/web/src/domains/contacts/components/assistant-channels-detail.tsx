@@ -10,6 +10,7 @@ import { Typography } from "@vellumai/design-library/components/typography";
 import { DetailCard } from "@/components/detail-card";
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
 import { ShareConnectionLinkButton } from "@/domains/contacts/components/share-connection-link-button";
+import { SlackChannelCard } from "@/domains/contacts/components/slack-channel-card";
 import { SlackSetupWizard, type SlackThreadMode } from "@/components/slack-setup-wizard";
 import type { AssistantChannelState } from "@/domains/contacts/types";
 import {
@@ -385,21 +386,9 @@ function ChannelRow({
         </div>
       </div>
 
-      {!connected && channel.key === "telegram" && expanded ? (
-        <TelegramCredentialEntry onSave={onSaveTelegramToken} />
-      ) : null}
-
-      {!connected && channel.key === "slack" && expanded ? (
-        <SlackSetupWizard assistantName={assistantName} onSave={onSaveSlackConfig} />
-      ) : null}
-
-      {!connected && channel.key === "phone" && expanded ? (
-        <TwilioCredentialEntry onSave={onSaveTwilioCredentials} />
-      ) : null}
-
-      {connected && expanded ? (
-        <div className="flex flex-col gap-4">
-          {onPolicyChange ? (
+      {expanded ? (
+        <div className={connected ? "flex flex-col gap-4" : undefined}>
+          {connected && onPolicyChange ? (
             <ChannelTrustFloorSection
               policy={policy}
               saving={policySaving}
@@ -414,13 +403,16 @@ function ChannelRow({
           ) : null}
 
           {channel.key === "slack" ? (
-            <SlackSetupWizard
-              assistantName={assistantName}
-              connected
-              threadMode={slackThreadMode}
-              threadModePending={slackThreadModePending}
-              onThreadModeChange={onSlackThreadModeChange}
-            />
+            <SlackChannelCard assistantName={assistantName} connected={connected}>
+              <SlackSetupWizard
+                assistantName={assistantName}
+                connected={connected}
+                onSave={onSaveSlackConfig}
+                threadMode={slackThreadMode}
+                threadModePending={slackThreadModePending}
+                onThreadModeChange={onSlackThreadModeChange}
+              />
+            </SlackChannelCard>
           ) : null}
 
           {channel.key === "phone" ? (

@@ -1,13 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle, X } from "lucide-react";
+import { CheckCircle } from "lucide-react";
 import { useCallback, useMemo } from "react";
 
 import { Button } from "@vellumai/design-library";
 
 import { SlackSetupWizard } from "@/components/slack-setup-wizard";
+import { DetailShell } from "@/domains/chat/components/detail-shell";
 import { channelsReadinessGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useSaveSlackConfig } from "@/hooks/use-save-slack-config";
 import type { ChannelSetupPayload } from "@/stores/viewer-store";
+import { publicAsset } from "@/utils/public-asset";
 
 interface ChannelSetupPanelProps {
   payload: ChannelSetupPayload;
@@ -40,41 +42,40 @@ export function ChannelSetupPanel({ payload, onClose }: ChannelSetupPanelProps) 
     [saveSlack],
   );
 
+  const slackIcon = (
+    <img
+      src={publicAsset("/images/integrations/slack.svg")}
+      alt=""
+      className="size-5 shrink-0"
+    />
+  );
+
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-4 py-3">
-        <span className="text-title-small text-[var(--content-strong)]">
-          Slack Setup
-        </span>
-        <Button
-          variant="ghost"
-          size="compact"
-          iconOnly={<X />}
-          onClick={onClose}
-          aria-label="Close setup panel"
+    <DetailShell
+      icon={slackIcon}
+      title={isConnected ? "Slack settings" : "Slack setup"}
+      closeLabel="Close setup panel"
+      onClose={onClose}
+    >
+      {isConnected ? (
+        <div className="flex flex-col items-center gap-3 py-8 text-center">
+          <CheckCircle className="h-8 w-8 text-[var(--content-positive)]" />
+          <span className="text-title-small text-[var(--content-strong)]">
+            Slack is connected
+          </span>
+          <span className="text-body-small text-[var(--content-subtle)]">
+            Your assistant is ready to receive messages on Slack.
+          </span>
+          <Button variant="outlined" size="compact" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      ) : payload.channel === "slack" ? (
+        <SlackSetupWizard
+          assistantName={payload.assistantName}
+          onSave={handleSave}
         />
-      </div>
-      <div className="flex-1 overflow-y-auto p-4">
-        {isConnected ? (
-          <div className="flex flex-col items-center gap-3 py-8 text-center">
-            <CheckCircle className="h-8 w-8 text-[var(--content-positive)]" />
-            <span className="text-title-small text-[var(--content-strong)]">
-              Slack is connected
-            </span>
-            <span className="text-body-small text-[var(--content-subtle)]">
-              Your assistant is ready to receive messages on Slack.
-            </span>
-            <Button variant="outlined" size="compact" onClick={onClose}>
-              Close
-            </Button>
-          </div>
-        ) : payload.channel === "slack" ? (
-          <SlackSetupWizard
-            assistantName={payload.assistantName}
-            onSave={handleSave}
-          />
-        ) : null}
-      </div>
-    </div>
+      ) : null}
+    </DetailShell>
   );
 }
