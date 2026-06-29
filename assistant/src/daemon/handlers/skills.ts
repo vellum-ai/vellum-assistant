@@ -334,6 +334,10 @@ function deriveOrigin(
   // null means "already read, nothing found" — don't re-read.
   const meta =
     installMeta !== undefined ? installMeta : readInstallMeta(directoryPath);
+  // Skills authored by the assistant's retrospective report a distinct origin
+  // so the UI badges them as "Assistant's Memory". They stay managed/deletable
+  // because that is driven by `kind === "installed"`, not the origin label.
+  if (meta?.author === "assistant") return "assistant-memory";
   return meta?.origin ?? "custom";
 }
 
@@ -397,6 +401,7 @@ function toSlimSkillResponse(
       };
     }
     case "custom":
+    case "assistant-memory":
       return { ...base, origin };
   }
 }
@@ -472,6 +477,8 @@ function originDisplayLabel(origin: string): string {
       return "skills.sh";
     case "custom":
       return "Custom";
+    case "assistant-memory":
+      return "Assistant's Memory";
     default:
       return origin;
   }
@@ -1727,6 +1734,7 @@ export async function createSkill(
       bodyMarkdown: params.bodyMarkdown,
       overwrite: params.overwrite,
       contactId: params.contactId,
+      author: "user",
     });
 
     if (!result.created) {

@@ -464,6 +464,7 @@ export async function installExternalSkill(
       sourceRepo: `${owner}/${repo}`,
       installedAt: new Date().toISOString(),
       ...(contactId ? { installedBy: contactId } : {}),
+      author: "user",
       contentHash: computeSkillHash(stagedDir) ?? undefined,
     });
 

@@ -72,6 +72,14 @@ type ProcessMessageOptions = ConversationCreateOptions & {
   /** Originating interface (e.g. "cli", "web"). Defaults to "web". */
   sourceInterface?: string;
   /**
+   * Origin tag of the turn (the conversation's `TitleOrigin`, e.g.
+   * "memory_consolidation"), threaded from `runBackgroundJob`. Propagated
+   * into the agent loop and tool context so the permission checker can scope
+   * narrow non-interactive auto-grants to a specific internal background
+   * origin. Unset for normal user-initiated turns.
+   */
+  requestOrigin?: string;
+  /**
    * Firing's `cron_runs.id`, threaded through to the turn's usage rows so a
    * scheduled execute turn attributes its LLM spend to that firing. Per-turn:
    * not stored on the long-lived conversation.
@@ -153,6 +161,7 @@ async function prepareConversationForMessage(
     sourceInterface,
     onEvent: _onEvent,
     cronRunId: _cronRunId,
+    requestOrigin: _requestOrigin,
     ...conversationOptions
   } = options ?? {};
   const conversation = await getOrCreateActiveConversation(
@@ -543,6 +552,9 @@ export async function processMessage(
       ...(options?.callSite ? { callSite: options.callSite } : {}),
       ...(options?.overrideProfile
         ? { overrideProfile: options.overrideProfile }
+        : {}),
+      ...(options?.requestOrigin
+        ? { requestOrigin: options.requestOrigin }
         : {}),
       ...(options?.cronRunId ? { cronRunId: options.cronRunId } : {}),
     });

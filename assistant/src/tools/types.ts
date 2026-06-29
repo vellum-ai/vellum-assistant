@@ -376,6 +376,17 @@ export interface ToolContext {
    */
   executionChannel?: string;
   /**
+   * Origin tag of the turn driving this tool invocation (the conversation's
+   * `TitleOrigin`, e.g. "memory_retrospective"). Set for background-job turns
+   * that pass `requestOrigin` to `runBackgroundJob`, and for the
+   * memory-retrospective wake (which pins it via {@link WakeToolContextPin}).
+   * `buildPolicyContext` copies it onto the `PolicyContext` so the permission
+   * checker can scope narrow non-interactive auto-grants (e.g. retrospective
+   * skill authoring) to a specific internal origin. Unset for normal
+   * interactive turns.
+   */
+  requestOrigin?: string;
+  /**
    * Voice/call session ID, if the invocation originates from a call. Used for scoped grant consumption.
    * @legacy
    */

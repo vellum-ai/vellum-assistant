@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
+import type { SkillSummary } from "../../../../../config/skills.js";
 import type { AssistantConfig } from "../../../../../config/types.js";
+import { skillSlugFor } from "../../../../../memory/v2/skill-store.js";
 import { EmbeddingBackendUnavailableError } from "../../../../../persistence/embeddings/embedding-backend.js";
 import { EmbeddingBillingBlockError } from "../../../../../persistence/embeddings/embedding-billing-breaker.js";
 import type { MemoryJob } from "../../../../../persistence/jobs-store.js";
+import type { SkillInstallMeta } from "../../../../../skills/install-meta.js";
 import { renderCapabilityContent } from "../capabilities.js";
 import {
   backfillAllSections,
@@ -16,9 +19,18 @@ import {
 import { buildSectionIndex } from "../sections.js";
 import type { Section, SectionIndex, Slug } from "../types.js";
 
-// v3-live (config-gated) is driven through the `isMemoryV3Live` mock slot
-// below; the config arg only satisfies the signature.
-const CONFIG = {} as AssistantConfig;
+// The skill usage-prune stage reads `memory.maintenance.skillPruneDays`; default
+// it off (null = never delete) and override per prune test.
+function makeConfig(skillPruneDays: number | null = null): AssistantConfig {
+  return {
+    memory: { maintenance: { skillPruneDays } },
+  } as unknown as AssistantConfig;
+}
+
+// v3-live (config-gated) is driven through the `isMemoryV3Live` mock slot below;
+// the config arg otherwise only carries the maintenance branch the prune stage
+// reads (default off — null = never delete).
+const CONFIG = makeConfig();
 
 let memoryV3LiveSlot = false;
 mock.module("../../../../../config/memory-v3-gate.js", () => ({
@@ -93,6 +105,12 @@ describe("maintainJob", () => {
       invalidateLanes: () => {
         calls.invalidate += 1;
       },
+      // Skill usage-prune stage off by default: no managed skills ⇒ nothing to
+      // report or delete. The dedicated usage-prune tests below override these.
+      listManagedSkills: () => [],
+      readSkillMeta: () => null,
+      deleteSkill: async () => {},
+      nowMs: () => Date.now(),
     };
     return { deps: { ...base, ...overrides }, calls };
   }
@@ -724,5 +742,247 @@ describe("backfillAllSections", () => {
     expect(outcome.articles).toBe(1);
     expect(outcome.failures).toBe(0);
     expect(calls.committed).toEqual([4242]);
+  });
+});
+
+describe("maintainJob skill usage-prune", () => {
+  const NOW = Date.parse("2026-06-22T00:00:00.000Z");
+
+  afterEach(() => {
+    memoryV3LiveSlot = false;
+  });
+
+  function skill(id: string): SkillSummary {
+    return {
+      id,
+      name: id,
+      displayName: id,
+      description: "",
+      directoryPath: `/skills/${id}`,
+      skillFilePath: `/skills/${id}/SKILL.md`,
+      source: "managed",
+    };
+  }
+
+  /** Build install-meta `daysAgo` old via the chosen field. */
+  function meta(
+    author: SkillInstallMeta["author"] | undefined,
+    field: "lastUsedAt" | "installedAt" | "none",
+    daysAgo = 0,
+  ): SkillInstallMeta {
+    const ts = new Date(NOW - daysAgo * 24 * 60 * 60 * 1000).toISOString();
+    const base: SkillInstallMeta = {
+      origin: "custom",
+      // A never-used skill (`field: "none"`) still needs an installedAt; make it
+      // very old so it falls back to installedAt for the age math.
+      installedAt: field === "lastUsedAt" ? new Date(NOW).toISOString() : ts,
+    };
+    if (author) base.author = author;
+    if (field === "lastUsedAt") base.lastUsedAt = ts;
+    return base;
+  }
+
+  /** Wire managed skills + their metas + an injected clock at NOW. */
+  function pruneDeps(
+    skills: SkillSummary[],
+    metas: Record<string, SkillInstallMeta | null>,
+    skillPruneDays: number | null,
+    overrides: Partial<MaintainJobDeps> = {},
+  ): {
+    deps: MaintainJobDeps;
+    deletedSkills: string[];
+    sectionDeletes: string[];
+  } {
+    const deletedSkills: string[] = [];
+    const sectionDeletes: string[] = [];
+    const d: MaintainJobDeps = {
+      config: makeConfig(skillPruneDays),
+      selectChangedPages: async () => [],
+      buildSectionIndex: async (slugs) => makeIndex(slugs),
+      readPageBody: async (s) => `body for ${s}`,
+      readCapabilityBody: async (s) => `capability body for ${s}`,
+      deleteSectionsForArticle: async (_config, article) => {
+        sectionDeletes.push(article);
+      },
+      upsertSections: async () => {},
+      commitEmbedHighWater: () => {},
+      listSectionArticles: async () => [],
+      listIndexedSlugs: async () => [],
+      loadCoreSet: () => [],
+      invalidateLanes: () => {},
+      listManagedSkills: () => skills,
+      readSkillMeta: (dir) => {
+        const id = dir.split("/").pop()!;
+        return metas[id] ?? null;
+      },
+      deleteSkill: async (id) => {
+        deletedSkills.push(id);
+      },
+      nowMs: () => NOW,
+      ...overrides,
+    };
+    return { deps: d, deletedSkills, sectionDeletes };
+  }
+
+  describe("default (skillPruneDays: null) — observe-only, deletes nothing", () => {
+    test("reports stale assistant skills but deletes none", async () => {
+      memoryV3LiveSlot = true;
+      const skills = [skill("stale-assistant"), skill("fresh-assistant")];
+      const { deps: d, deletedSkills } = pruneDeps(
+        skills,
+        {
+          "stale-assistant": meta("assistant", "lastUsedAt", 90),
+          "fresh-assistant": meta("assistant", "lastUsedAt", 1),
+        },
+        null,
+      );
+      const outcome = await maintainJob(JOB, CONFIG, d);
+
+      // Default-off: nothing deleted even though one skill is 90 days stale.
+      expect(deletedSkills).toEqual([]);
+      expect(outcome.prunedSkills).toEqual([]);
+      expect(outcome.skillPruneFailures).toEqual([]);
+      // Observe-only report still surfaces the stale skill (≥ 30-day window).
+      expect(outcome.prunableSkills).toEqual(["stale-assistant"]);
+    });
+
+    test("excludes author:user and untagged skills from prunableSkills", async () => {
+      memoryV3LiveSlot = true;
+      const skills = [
+        skill("old-assistant"),
+        skill("old-user"),
+        skill("old-untagged"),
+      ];
+      const { deps: d, deletedSkills } = pruneDeps(
+        skills,
+        {
+          "old-assistant": meta("assistant", "lastUsedAt", 90),
+          "old-user": meta("user", "lastUsedAt", 90),
+          "old-untagged": meta(undefined, "lastUsedAt", 90),
+        },
+        null,
+      );
+      const outcome = await maintainJob(JOB, CONFIG, d);
+
+      expect(deletedSkills).toEqual([]);
+      // Only the assistant-authored skill is reported; user + untagged protected.
+      expect(outcome.prunableSkills).toEqual(["old-assistant"]);
+    });
+  });
+
+  describe("enabled (skillPruneDays: 30) — deletes via executeDeleteManagedSkill", () => {
+    test("prunes a stale assistant skill via deleteSkill", async () => {
+      memoryV3LiveSlot = true;
+      const {
+        deps: d,
+        deletedSkills,
+        sectionDeletes,
+      } = pruneDeps(
+        [skill("stale-assistant")],
+        { "stale-assistant": meta("assistant", "lastUsedAt", 45) },
+        30,
+      );
+      const outcome = await maintainJob(JOB, CONFIG, d);
+
+      expect(deletedSkills).toEqual(["stale-assistant"]);
+      expect(outcome.prunedSkills).toEqual(["stale-assistant"]);
+      expect(outcome.prunableSkills).toEqual(["stale-assistant"]);
+      expect(outcome.skillPruneFailures).toEqual([]);
+      // The pruned skill's v3 capability sections are cleared the same pass.
+      expect(sectionDeletes).toContain(skillSlugFor("stale-assistant"));
+    });
+
+    test("never prunes author:user or untagged skills", async () => {
+      memoryV3LiveSlot = true;
+      const { deps: d, deletedSkills } = pruneDeps(
+        [skill("old-user"), skill("old-untagged")],
+        {
+          "old-user": meta("user", "lastUsedAt", 999),
+          "old-untagged": meta(undefined, "lastUsedAt", 999),
+        },
+        30,
+      );
+      const outcome = await maintainJob(JOB, CONFIG, d);
+
+      expect(deletedSkills).toEqual([]);
+      expect(outcome.prunedSkills).toEqual([]);
+      expect(outcome.prunableSkills).toEqual([]);
+    });
+
+    test("keeps a recently-used assistant skill", async () => {
+      memoryV3LiveSlot = true;
+      const { deps: d, deletedSkills } = pruneDeps(
+        [skill("fresh-assistant")],
+        { "fresh-assistant": meta("assistant", "lastUsedAt", 5) },
+        30,
+      );
+      const outcome = await maintainJob(JOB, CONFIG, d);
+
+      expect(deletedSkills).toEqual([]);
+      expect(outcome.prunedSkills).toEqual([]);
+      // Under the 30-day observe window too, so not even reported.
+      expect(outcome.prunableSkills).toEqual([]);
+    });
+
+    test("a never-used skill falls back to installedAt", async () => {
+      memoryV3LiveSlot = true;
+      // No lastUsedAt; installedAt is 60 days old ⇒ eligible at the 30-day
+      // threshold via the installedAt fallback.
+      const { deps: d, deletedSkills } = pruneDeps(
+        [skill("never-used")],
+        { "never-used": meta("assistant", "installedAt", 60) },
+        30,
+      );
+      const outcome = await maintainJob(JOB, CONFIG, d);
+
+      expect(deletedSkills).toEqual(["never-used"]);
+      expect(outcome.prunedSkills).toEqual(["never-used"]);
+    });
+
+    test("a deleteSkill rejection lands in skillPruneFailures without aborting", async () => {
+      memoryV3LiveSlot = true;
+      const deleted: string[] = [];
+      const { deps: d } = pruneDeps(
+        [skill("doomed"), skill("bad"), skill("survivor")],
+        {
+          doomed: meta("assistant", "lastUsedAt", 45),
+          bad: meta("assistant", "lastUsedAt", 45),
+          survivor: meta("assistant", "lastUsedAt", 45),
+        },
+        30,
+        {
+          deleteSkill: async (id) => {
+            if (id === "bad") throw new Error("delete boom");
+            deleted.push(id);
+          },
+        },
+      );
+      const outcome = await maintainJob(JOB, CONFIG, d);
+
+      // The failing delete did not abort the others.
+      expect(deleted).toEqual(["doomed", "survivor"]);
+      expect(outcome.prunedSkills).toEqual(["doomed", "survivor"]);
+      expect(outcome.skillPruneFailures).toEqual([
+        { skillId: "bad", error: "delete boom" },
+      ]);
+      // A contained per-skill failure is NOT a stage failure.
+      expect(outcome.failures).not.toContain("skill-prune");
+    });
+
+    test("honors the threshold: a skill below skillPruneDays is kept", async () => {
+      memoryV3LiveSlot = true;
+      // 20 days old, threshold 30 ⇒ not deleted, and under the 30-day observe
+      // window so not reported either.
+      const { deps: d, deletedSkills } = pruneDeps(
+        [skill("borderline")],
+        { borderline: meta("assistant", "lastUsedAt", 20) },
+        30,
+      );
+      const outcome = await maintainJob(JOB, CONFIG, d);
+
+      expect(deletedSkills).toEqual([]);
+      expect(outcome.prunedSkills).toEqual([]);
+      expect(outcome.prunableSkills).toEqual([]);
+    });
   });
 });

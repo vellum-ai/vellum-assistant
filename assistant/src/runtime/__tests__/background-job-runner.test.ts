@@ -159,7 +159,24 @@ describe("runBackgroundJob", () => {
       trustContext: TRUST_CONTEXT,
       callSite: "heartbeatAgent",
     });
+    // No requestOrigin set on baseOpts → none threaded to processMessage, so no
+    // origin-scoped permission grant can fire for an ordinary background job.
+    expect(
+      (processMessageCalls[0].options as { requestOrigin?: string })
+        .requestOrigin,
+    ).toBeUndefined();
     expect(emitCalls).toHaveLength(0);
+  });
+
+  test("threads requestOrigin into processMessage options when set", async () => {
+    await runBackgroundJob(baseOpts({ requestOrigin: "memory_consolidation" }));
+
+    expect(processMessageCalls).toHaveLength(1);
+    expect(processMessageCalls[0].options).toMatchObject({
+      trustContext: TRUST_CONTEXT,
+      callSite: "heartbeatAgent",
+      requestOrigin: "memory_consolidation",
+    });
   });
 
   test("generic exception: returns ok=false with errorKind=exception and emits activity.failed with dedupeKey", async () => {

@@ -55,10 +55,14 @@ mock.module("../plugins/injector-registry.js", () => ({
 }));
 
 // `applyRuntimeInjections` reads the v3-live gate (`config.memory.v3.live`)
-// via `isMemoryV3Live`; drive it directly through this slot per-test.
+// via `isMemoryV3Live`; drive it directly through this slot per-test. The
+// import graph also pulls `isProcToSkillsActive` (the permission policy-context
+// precomputes the proc-to-skills gate), so the wholesale mock must expose it —
+// keyed off the same v3-live slot.
 let memoryV3LiveSlot = false;
 mock.module("../config/memory-v3-gate.js", () => ({
   isMemoryV3Live: () => memoryV3LiveSlot,
+  isProcToSkillsActive: () => false,
 }));
 
 const { applyRuntimeInjections } =

@@ -265,6 +265,15 @@ mock.module("../../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: () => "follow-up-job-id",
 }));
 
+// proc-to-skills gate. Drives both `buildForkInstruction`'s skill-authoring
+// section and the wake's origin pin behavior. Default inactive (remember-only),
+// matching a stock install; tests flip it on to assert the authoring section.
+let mockProcToSkillsActive = false;
+mock.module("../../config/memory-v3-gate.js", () => ({
+  isProcToSkillsActive: () => mockProcToSkillsActive,
+  isMemoryV3Live: () => mockProcToSkillsActive,
+}));
+
 import type { MemoryJob } from "../../persistence/jobs-store.js";
 import { memoryRetrospectiveJob } from "../memory-retrospective-job.js";
 
@@ -364,6 +373,7 @@ describe("memoryRetrospectiveJob", () => {
     loadedConversations = {};
     mockResolvedUserSlug = "alice";
     resolveUserSlugCalls = [];
+    mockProcToSkillsActive = false;
   });
 
   test("first-run happy path: no state row, no prior retrospective, both pointer fields set on success", async () => {
@@ -445,19 +455,47 @@ describe("memoryRetrospectiveJob", () => {
     expect(wakeCalls).toHaveLength(0);
   });
 
-  test("wake is scoped to memory saves and suppresses the internal wake surface", async () => {
+  test("wake allows memory saves + skill authoring and suppresses the internal wake surface", async () => {
+    mockProcToSkillsActive = true;
     await memoryRetrospectiveJob(makeJob(), stubConfig);
 
     expect(forkCalls).toHaveLength(1);
     expect(wakeCalls).toHaveLength(1);
     expect(wakeCalls[0]!.conversationId).toBe("fork-conv-1");
     const opts = wakeCalls[0]!.opts;
-    expect(opts.allowedTools).toEqual(["remember"]);
+    expect(opts.allowedTools).toEqual([
+      "remember",
+      "scaffold_managed_skill",
+      "skill_load",
+      "find_similar_skills",
+    ]);
     expect(opts.suppressWakeSurface).toBe(true);
     // Sanity: the other fork-specific opts the handler relies on are still set.
     expect(opts.skipHintInjection).toBe(true);
     expect(opts.suppressAutoCompaction).toBe(true);
     expect(opts.hintRole).toBe("user");
+  });
+
+  test("wake is remember-only when proc-to-skills is inactive", async () => {
+    mockProcToSkillsActive = false;
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(wakeCalls).toHaveLength(1);
+    // The authoring trio is not even named on the allowlist when inactive.
+    expect(wakeCalls[0]!.opts.allowedTools).toEqual(["remember"]);
+  });
+
+  test("wake pins the memory_retrospective origin on the tool-context pin so the checker's grant can fire", async () => {
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(wakeCalls).toHaveLength(1);
+    const pin = wakeCalls[0]!.opts.toolContextPin as {
+      requestOrigin?: string;
+    };
+    expect(pin.requestOrigin).toBe("memory_retrospective");
+    // The origin pin rides unconditionally — even when proc-to-skills is
+    // inactive the checker independently denies the grant, so it stays inert.
+    expect(wakeCalls[0]!.opts.toolGateMode).toBe("execution");
   });
 
   test("forked retrospective is bucketed as background under the retrospective group", async () => {
@@ -840,6 +878,7 @@ describe("memoryRetrospectiveJob", () => {
     expect(wakeCalls[0]!.opts.toolContextPin).toEqual({
       hasNoClient: false,
       transportInterface: "web",
+      requestOrigin: "memory_retrospective",
     });
   });
 
@@ -896,6 +935,7 @@ describe("memoryRetrospectiveJob", () => {
     expect(wakeCalls[0]!.opts.toolContextPin).toEqual({
       hasNoClient: false,
       transportInterface: "macos",
+      requestOrigin: "memory_retrospective",
     });
   });
 
@@ -918,6 +958,7 @@ describe("memoryRetrospectiveJob", () => {
     expect(wakeCalls[0]!.opts.toolContextPin).toEqual({
       hasNoClient: false,
       transportInterface: "macos",
+      requestOrigin: "memory_retrospective",
     });
   });
 
@@ -942,6 +983,7 @@ describe("memoryRetrospectiveJob", () => {
     expect(wakeCalls[0]!.opts.toolContextPin).toEqual({
       hasNoClient: true,
       transportInterface: "telegram",
+      requestOrigin: "memory_retrospective",
     });
     // The persona pin carries the same live-turn hasNoClient value.
     expect(wakeCalls[0]!.opts.personaOverride).toEqual({ hasNoClient: true });
@@ -1449,5 +1491,75 @@ describe("memoryRetrospectiveJob", () => {
     expect(stateUpserts).toHaveLength(1);
     expect(stateUpserts[0]!.lastProcessedMessageId).toBe("m3");
     expect(deletedConversationIds).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // Skill-authoring instruction section (gated on proc-to-skills active)
+  // -------------------------------------------------------------------------
+
+  test("proc-to-skills inactive (default): instruction is remember-only, no skill directives", async () => {
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    const instructionText = persistedInstructionText();
+    // The remember-only "only X is available" framing names just `remember`.
+    expect(instructionText).toContain(
+      "Only the `remember` tool is available for this pass",
+    );
+    // None of the skill-authoring directives appear.
+    expect(instructionText).not.toContain("find_similar_skills");
+    expect(instructionText).not.toContain("scaffold_managed_skill");
+    expect(instructionText).not.toContain("companion file");
+    expect(instructionText).not.toContain("user-authored");
+  });
+
+  test("proc-to-skills active: instruction carries the pre-check + dedup + companion-file directives", async () => {
+    mockProcToSkillsActive = true;
+
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    const instructionText = persistedInstructionText();
+
+    // Available-tools line names the skill-authoring trio.
+    expect(instructionText).toContain("find_similar_skills");
+    expect(instructionText).toContain("scaffold_managed_skill");
+    expect(instructionText).toContain("skill_load skill-management");
+
+    // Permissive relevance pre-check keyed on actually-executed procedures.
+    expect(instructionText).toContain("a PROCEDURE you actually carried out");
+    expect(instructionText).toContain("real `tool_use` steps you executed");
+
+    // Agent-judged sibling dedup: find → same procedure ⇒ overwrite, else create.
+    expect(instructionText).toContain("`find_similar_skills`");
+    expect(instructionText).toContain("`overwrite: true`");
+    expect(instructionText).toContain("CREATE a new skill");
+
+    // Companion-file capture of failure modes / gotchas / cached values.
+    expect(instructionText).toContain("references/failure-modes.md");
+    expect(instructionText).toContain("`files`");
+
+    // Category directive: pick the best-fitting canonical Skills-UI bucket.
+    expect(instructionText).toContain("`category`");
+    expect(instructionText).toContain("Skills-UI bucket");
+
+    // Ownership directive: only overwrite/refine your own skills; skip
+    // (don't shadow or duplicate) a match of any other source.
+    expect(instructionText).toContain(
+      "You may only overwrite or refine a skill YOU authored",
+    );
+    expect(instructionText).toContain("ALREADY COVERED");
+    expect(instructionText).toContain("do not shadow it");
+    expect(instructionText).toContain(
+      "Only CREATE a new skill (fresh `skill_id`) when no existing skill of any source covers the procedure",
+    );
+
+    // The dedup directive keys overwrite eligibility on the `author` signal:
+    // overwrite only `source: "managed"` AND `author: "assistant"`.
+    expect(instructionText).toContain('source: "managed"');
+    expect(instructionText).toContain('author: "assistant"');
+
+    // Ordinary facts stay plain remembers — the instruction carries no
+    // skill-linking directive.
+    expect(instructionText).not.toContain("skill:");
+    expect(instructionText).toContain("Ordinary facts still go through");
   });
 });
