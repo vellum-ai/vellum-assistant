@@ -41,6 +41,7 @@ import type {
   ToolResultContent,
 } from "../providers/types.js";
 import { isContextOverflowError } from "../providers/types.js";
+import { isWeakOpenModel } from "../providers/weak-open-model.js";
 import type { SensitiveOutputBinding } from "../tools/sensitive-output-placeholders.js";
 import {
   applyStreamingSubstitution,
@@ -2161,6 +2162,7 @@ export class AgentLoop {
             messages: history,
             additionalContext: null,
             model: response.model,
+            needsFirmerSteering: isWeakOpenModel(response.model),
             maxInputTokens: contextWindowTokens,
             logger: rlog,
           };

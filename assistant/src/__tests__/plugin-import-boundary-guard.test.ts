@@ -151,7 +151,6 @@ const BASELINE: Record<string, readonly string[]> = {
   ],
   "task-progress-nudge": [
     "../../../../daemon/conversation-registry.js",
-    "../../../../providers/weak-open-model.js",
     "../../../../subagent/index.js",
   ],
   "title-generate": [
@@ -346,7 +345,7 @@ describe("plugin import boundary", () => {
 
     const exampleFile = new Map<string, string>();
     for (const e of escapes) {
-      exampleFile.set(`${e.plugin} ${e.specifier}`, e.relPath);
+      exampleFile.set(`${e.plugin} ${e.specifier}`, e.relPath);
     }
 
     const plugins = new Set([...byPlugin.keys(), ...Object.keys(BASELINE)]);
@@ -357,7 +356,7 @@ describe("plugin import boundary", () => {
       const allowed = new Set(BASELINE[plugin] ?? []);
       for (const spec of [...found].sort()) {
         if (!allowed.has(spec)) {
-          const where = exampleFile.get(`${plugin} ${spec}`);
+          const where = exampleFile.get(`${plugin} ${spec}`);
           added.push(`  - ${plugin}: "${spec}"  (e.g. ${where})`);
         }
       }

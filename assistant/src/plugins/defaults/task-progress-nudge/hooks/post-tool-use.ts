@@ -15,10 +15,10 @@
  *   a card unnecessary.
  * - A failed or ignored card never blocks the turn.
  *
- * It is scoped to weaker open models (Kimi, DeepSeek, MiniMax) that disregard
- * the static progress-card instruction; capable models follow the prompt and
- * never need the reminder. It also self-targets: a model that already showed a
- * card this turn is never nudged.
+ * It is scoped to turns the host flags as needing firmer steering (weaker
+ * open-weight families that disregard the static progress-card instruction);
+ * models that follow the prompt are never reminded. It also self-targets: a
+ * model that already showed a card this turn is never nudged.
  *
  * The turn state is derived from conversation history on every call (mirroring
  * the tool-error and exploration-drift plugins) so the signal survives
@@ -28,15 +28,15 @@
  * `ui_show` task_progress card was issued.
  *
  * Gating:
- * - weaker open models only (Kimi, DeepSeek, MiniMax) — checked first on the
- *   hot path so capable-model turns short-circuit immediately.
+ * - host-flagged {@link PostToolUseContext.needsFirmerSteering} only — checked
+ *   first on the hot path so capable-model turns short-circuit immediately.
  * - mainAgent call site only — background turns (wake, title-gen, memory) and
  *   subagents have no live user watching, so a progress card is pointless.
  * - the client must support dynamic UI — otherwise `ui_show` is blocked
  *   client-side and the nudge would only provoke a wasted, erroring call.
  *
  * The call-site, capability, and subagent gates are resolved lazily on the
- * would-nudge path; the model gate is a cheap regex test run up front.
+ * would-nudge path; the firmer-steering gate is a cheap boolean read up front.
  *
  * Dedup uses a per-conversation high-water mark of the round count at the last
  * nudge: a non-zero mark means "already nudged this turn", which also dedupes
@@ -51,8 +51,6 @@ import type {
   Message,
   PostToolUseContext,
 } from "@vellumai/plugin-api";
-
-import { isWeakOpenModel } from "../../../../providers/weak-open-model.js";
 
 /**
  * Canonical nudge notice. Module-level constant so tests and wrapping plugins
@@ -139,7 +137,7 @@ function scanTurn(messages: ReadonlyArray<Message>): {
 }
 
 const postToolUse: HookFunction<PostToolUseContext> = async (ctx) => {
-  if (!isWeakOpenModel(ctx.model)) return;
+  if (!ctx.needsFirmerSteering) return;
 
   const { rounds, taskProgressShown } = scanTurn(ctx.messages);
 
