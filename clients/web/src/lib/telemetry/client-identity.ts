@@ -1,5 +1,3 @@
-import { detectInterfaceId } from "@/runtime/platform-detection";
-
 let cached: string | null = null;
 
 /**
@@ -38,11 +36,21 @@ export function getClientId(): string {
 export function getClientRegistrationHeaders(): Record<string, string> {
   return {
     "X-Vellum-Client-Id": getClientId(),
-    // Report the real platform (web / ios / macos) so the hub registers this
-    // subscriber under the correct interface for interface-scoped SSE event
-    // routing. Derived from the same `detectInterfaceId` helper the message
-    // body uses (see `domains/chat/api/messages.ts`) so the registration
-    // header and the per-turn `client_os` value can never disagree.
-    "X-Vellum-Interface-Id": detectInterfaceId(),
+    // Always "web" — do NOT derive this from the runtime platform.
+    //
+    // The daemon derives an SSE subscriber's host-proxy capabilities purely
+    // from this registration interface id (`events-routes.ts` →
+    // `supportsHostProxy`), and "macos" grants all host_* capabilities. The
+    // web bundle is never a host-proxy provider: on the desktop app the
+    // Electron *main* process opens its own SSE registered as "macos" (with
+    // the device id) to serve host tools. If this renderer connection also
+    // reported "macos", there would be two same-user "macos" clients
+    // advertising host capabilities, and host-tool auto-resolution would
+    // fail as ambiguous (`pickSameUserAutoResolve`). Platform awareness for
+    // the assistant flows through the message *body* `interface` field
+    // instead (see `detectInterfaceId` in `domains/chat/api/messages.ts`),
+    // which only feeds the per-turn `client_os` context and has no bearing
+    // on subscriber capabilities.
+    "X-Vellum-Interface-Id": "web",
   };
 }
