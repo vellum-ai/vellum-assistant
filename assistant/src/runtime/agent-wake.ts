@@ -665,6 +665,12 @@ export async function wakeAgentForOpportunity(
     // Apply caller-supplied trust before the agent loop reads its per-turn
     // snapshot. Background jobs without an inbound message use this to
     // declare guardian trust so side-effect tools clear the approval gate.
+    // Scoped to this wake's turn: capture the prior value and restore it in
+    // both cleanup paths below (mirroring the guardian-elevation restore in
+    // daemon/handlers/conversations.ts), so the elevation never lingers on the
+    // cached conversation — a later wake on the same conversation (e.g. a
+    // remote `actor`) must not inherit this turn's guardian trust.
+    const priorTrustContext = conversation.trustContext;
     if (opts.trustContext) {
       conversation.setTrustContext(opts.trustContext);
     }
@@ -1372,6 +1378,9 @@ export async function wakeAgentForOpportunity(
       // error/early-return paths where no tail was produced.
       restoreWakeAllowedTools();
       clearWakePersonaOverride();
+      if (opts.trustContext) {
+        conversation.setTrustContext(priorTrustContext ?? null);
+      }
       try {
         conversation.setProcessing(false);
       } catch (err) {
@@ -1400,6 +1409,9 @@ export async function wakeAgentForOpportunity(
       if (!drainedInTry) {
         restoreWakeAllowedTools();
         clearWakePersonaOverride();
+        if (opts.trustContext) {
+          conversation.setTrustContext(priorTrustContext ?? null);
+        }
         try {
           conversation.setProcessing(false);
         } catch (err) {

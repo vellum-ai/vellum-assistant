@@ -715,6 +715,57 @@ describe("wakeAgentForOpportunity", () => {
     expect(conversation.personaOverrideSets).toEqual([override, undefined]);
   });
 
+  test("trustContext elevation is applied for the run and restored after", async () => {
+    const conversation = makeWakeConversation({
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "reviewed." }],
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "scheduled triage",
+        source: "schedule",
+        trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result.invoked).toBe(true);
+    const ctxs = conversation.setTrustContextCalls.map((c) => c.ctx);
+    // Elevated for the turn …
+    expect(ctxs).toContainEqual({
+      sourceChannel: "vellum",
+      trustClass: "guardian",
+    });
+    // … then restored to the prior value (unset → null) as the LAST write, so
+    // a later wake reusing this cached conversation can't inherit guardian.
+    expect(ctxs[ctxs.length - 1]).toBeNull();
+  });
+
+  test("trustContext elevation is restored even when the agent loop throws", async () => {
+    const conversation = makeWakeConversation({
+      runImpl: async () => {
+        throw new Error("loop exploded");
+      },
+    });
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "scheduled triage",
+        source: "schedule",
+        trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    const ctxs = conversation.setTrustContextCalls.map((c) => c.ctx);
+    expect(ctxs[ctxs.length - 1]).toBeNull();
+  });
+
   test("personaOverride is cleared even when the agent loop throws", async () => {
     const conversation = makeWakeConversation({
       runImpl: async () => {
@@ -1432,11 +1483,14 @@ describe("wakeAgentForOpportunity", () => {
       { resolveTarget: async () => conversation },
     );
 
-    expect(conversation.setTrustContextCalls).toHaveLength(1);
+    // Two writes: the elevation (before the run) and the turn-scoped restore
+    // (after), so the guardian trust never lingers on the cached conversation.
+    expect(conversation.setTrustContextCalls).toHaveLength(2);
     expect(conversation.setTrustContextCalls[0]!.ctx).toEqual({
       sourceChannel: "vellum",
       trustClass: "guardian",
     });
+    expect(conversation.setTrustContextCalls[1]!.ctx).toBeNull();
     // setTrustContext fired strictly before agentLoop.run.
     expect(conversation.runCalls).toHaveLength(1);
     expect(conversation.setTrustContextCalls[0]!.order).toBeLessThan(
