@@ -18,7 +18,7 @@ const mockSetMemoryCheckpoint = mock<(key: string, value: string) => void>(
   () => {},
 );
 
-mock.module("../memory/checkpoints.js", () => ({
+mock.module("../persistence/checkpoints.js", () => ({
   getMemoryCheckpoint: mockGetMemoryCheckpoint,
   setMemoryCheckpoint: mockSetMemoryCheckpoint,
 }));

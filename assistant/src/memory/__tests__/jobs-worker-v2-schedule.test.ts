@@ -65,7 +65,7 @@ const { resetTestTables } = await import("../../persistence/raw-query.js");
 const { memoryJobs } = await import("../../persistence/schema/index.js");
 const { applyNestedDefaults } = await import("../../config/loader.js");
 const { getMemoryCheckpoint, setMemoryCheckpoint, deleteMemoryCheckpoint } =
-  await import("../checkpoints.js");
+  await import("../../persistence/checkpoints.js");
 const { maybeEnqueueGraphMaintenanceJobs } =
   await import("../../persistence/jobs-worker.js");
 

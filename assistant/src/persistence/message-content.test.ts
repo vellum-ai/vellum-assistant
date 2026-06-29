@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { stringifyMessageContent } from "../message-content.js";
+import { stringifyMessageContent } from "./message-content.js";
 
 describe("stringifyMessageContent", () => {
   test("returns trimmed raw text for legacy plain-string rows", () => {

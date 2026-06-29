@@ -53,12 +53,12 @@
 
 import { isMemoryV3Live } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
+import { getPageIndex } from "../../../../memory/v2/page-index.js";
+import { readPage } from "../../../../memory/v2/page-store.js";
 import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
-} from "../../../../memory/checkpoints.js";
-import { getPageIndex } from "../../../../memory/v2/page-index.js";
-import { readPage } from "../../../../memory/v2/page-store.js";
+} from "../../../../persistence/checkpoints.js";
 import {
   EmbeddingBackendUnavailableError,
   embedWithBackend,

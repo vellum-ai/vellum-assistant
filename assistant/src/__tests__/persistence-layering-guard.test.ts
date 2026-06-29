@@ -54,7 +54,6 @@ const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
   "assistant/src/persistence/attachments-store.ts": new Set([
     "conversation-directories",
   ]),
-  "assistant/src/persistence/bookmark-crud.ts": new Set(["message-content"]),
   "assistant/src/persistence/conversation-bootstrap.ts": new Set([
     "conversation-title-service",
   ]),
@@ -76,7 +75,6 @@ const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
     "conversation-display-order-migration",
     "conversation-group-migration",
   ]),
-  "assistant/src/persistence/db-maintenance.ts": new Set(["checkpoints"]),
   "assistant/src/persistence/delivery-crud.ts": new Set([
     "conversation-key-store",
   ]),
@@ -87,7 +85,6 @@ const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
     "conversation-group-migration",
   ]),
   "assistant/src/persistence/jobs-worker.ts": new Set([
-    "checkpoints",
     "cleanup-schedule-state",
     "memory-retrospective-startup-cleanup",
     "v2/consolidation-job",

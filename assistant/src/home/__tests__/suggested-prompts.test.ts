@@ -11,7 +11,7 @@ let sidechainCalls = 0;
 const checkpointStore = new Map<string, string>();
 let checkpointWritesShouldThrow = false;
 
-mock.module("../../memory/checkpoints.js", () => ({
+mock.module("../../persistence/checkpoints.js", () => ({
   getMemoryCheckpoint: (key: string) => checkpointStore.get(key) ?? null,
   setMemoryCheckpoint: (key: string, value: string) => {
     if (checkpointWritesShouldThrow) {
