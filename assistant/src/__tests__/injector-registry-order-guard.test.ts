@@ -23,6 +23,7 @@ import {
   getRegisteredInjectors,
   registerPluginInjectors,
 } from "../plugins/injector-registry.js";
+import type { Injector } from "../plugins/types.js";
 
 const CONTRIBUTED = [
   ...defaultInjectors,
@@ -78,5 +79,36 @@ describe("injector registry order guard", () => {
     );
     // (b) matches the hardcoded snapshot — the deliberate lock.
     expect(names).toEqual(EXPECTED_ORDER);
+  });
+});
+
+describe("injector registry duplicate-name rejection", () => {
+  beforeEach(() => clearInjectorRegistry());
+  afterEach(() => clearInjectorRegistry());
+
+  const inj = (name: string, order: number): Injector => ({
+    name,
+    order,
+    async produce() {
+      return null;
+    },
+  });
+
+  test("rejects two injectors with the same name within one contribution", () => {
+    expect(() =>
+      registerPluginInjectors("p", [inj("dup", 1), inj("dup", 2)]),
+    ).toThrow(/duplicate injector name "dup"/);
+  });
+
+  test("rejects an injector name already registered by another plugin", () => {
+    registerPluginInjectors("p1", [inj("shared", 1)]);
+    expect(() => registerPluginInjectors("p2", [inj("shared", 2)])).toThrow(
+      /already registered by plugin "p1"/,
+    );
+  });
+
+  test("allows a plugin to re-register its own set (idempotent replace)", () => {
+    registerPluginInjectors("p", [inj("a", 1)]);
+    expect(() => registerPluginInjectors("p", [inj("a", 1)])).not.toThrow();
   });
 });

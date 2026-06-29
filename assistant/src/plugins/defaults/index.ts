@@ -24,6 +24,10 @@
  * {@link registerDefaultPlugins} at call time.
  */
 
+import {
+  clearInjectorRegistry,
+  registerPluginInjectors,
+} from "../injector-registry.js";
 import { registerPlugin, resetPluginRegistryForTests } from "../registry.js";
 import { type Plugin, PluginExecutionError } from "../types.js";
 import compactionPkg from "./compaction/package.json" with { type: "json" };
@@ -363,6 +367,22 @@ export function registerDefaultPlugins(): void {
 }
 
 /**
+ * Register every default plugin's runtime injectors into the global injector
+ * registry. Production wires injectors during `bootstrapPlugins` (via
+ * `initializePlugin`); this is the setup analog for tests that drive a real
+ * turn — or call `applyRuntimeInjections` directly — without standing up the
+ * full bootstrap. Idempotent: `registerPluginInjectors` replaces a plugin's
+ * prior set.
+ */
+export function registerDefaultPluginInjectors(): void {
+  for (const plugin of getAllDefaultPlugins()) {
+    if (plugin.injectors && plugin.injectors.length > 0) {
+      registerPluginInjectors(plugin.manifest.name, plugin.injectors);
+    }
+  }
+}
+
+/**
  * Test-only helper: clear the hook registry and re-register every default
  * so integration tests that exercise the full agent loop have a
  * production-parity plugin stack. Use this in `beforeEach` of tests that
@@ -383,4 +403,6 @@ export function resetPluginRegistryAndRegisterDefaults(): void {
   resetSurfaceCompletionNudgeStoreForTests();
   resetCaptionCacheForTests();
   registerDefaultPlugins();
+  clearInjectorRegistry();
+  registerDefaultPluginInjectors();
 }

@@ -30,6 +30,7 @@ import {
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { conversations, messages } from "../persistence/schema/index.js";
+import { registerDefaultPluginInjectors } from "../plugins/defaults/index.js";
 import {
   DEFAULT_INJECTOR_ORDER,
   defaultInjectors,
@@ -38,7 +39,6 @@ import {
 import { buildUnifiedTurnContextBlock } from "../plugins/defaults/memory/unified-turn-context.js";
 import type { Injector, TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
-import { registerDefaultInjectorsForTest } from "./register-default-injectors.js";
 
 // `applyRuntimeInjections` self-resolves the Slack active-thread focus block
 // from the persisted message rows, so the schema must exist for Slack-channel
@@ -194,7 +194,7 @@ function seedSlackChannelRows(
 
 describe("disk-pressure-warning injector", () => {
   beforeEach(() => {
-    registerDefaultInjectorsForTest();
+    registerDefaultPluginInjectors();
     clearConversations();
     resetLiveConversation();
     const db = getDb();

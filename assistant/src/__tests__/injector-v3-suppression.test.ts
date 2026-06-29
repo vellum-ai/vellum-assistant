@@ -48,7 +48,9 @@ import type { Message } from "../providers/types.js";
 // `applyRuntimeInjections` walks. The slot is mutated per-test to stand in for
 // the memory-v3 injectors producing (or not producing) blocks.
 const injectorChainSlot: Injector[] = [];
+const realInjectorRegistry = await import("../plugins/injector-registry.js");
 mock.module("../plugins/injector-registry.js", () => ({
+  ...realInjectorRegistry,
   getRegisteredInjectors: () => injectorChainSlot,
 }));
 

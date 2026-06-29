@@ -59,8 +59,8 @@ const { DEFAULT_INJECTOR_ORDER, defaultInjectors } =
   await import("../plugins/defaults/memory/injectors.js");
 const { getRegisteredInjectors } =
   await import("../plugins/injector-registry.js");
-const { registerDefaultInjectorsForTest } =
-  await import("./register-default-injectors.js");
+const { registerDefaultPluginInjectors } =
+  await import("../plugins/defaults/index.js");
 import { eq } from "drizzle-orm";
 
 import {
@@ -281,7 +281,7 @@ function clearSeededSubagents(): void {
 
 describe("injector chain", () => {
   beforeEach(() => {
-    registerDefaultInjectorsForTest();
+    registerDefaultPluginInjectors();
     clearPkbContent();
     clearNowScratchpad();
     clearConversations();

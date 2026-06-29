@@ -46,7 +46,14 @@ export function registerPluginInjectors(
   pluginName: string,
   injectors: readonly Injector[],
 ): void {
+  const seenInContribution = new Set<string>();
   for (const injector of injectors) {
+    if (seenInContribution.has(injector.name)) {
+      throw new Error(
+        `Plugin "${pluginName}" contributes duplicate injector name "${injector.name}"`,
+      );
+    }
+    seenInContribution.add(injector.name);
     for (const [owner, existing] of injectorsByPlugin) {
       if (owner === pluginName) continue;
       if (existing.some((e) => e.name === injector.name)) {
