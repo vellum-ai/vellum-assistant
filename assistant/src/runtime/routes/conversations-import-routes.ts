@@ -2,16 +2,16 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
-import {
-  getConversationByKey,
-  setConversationKey,
-} from "../../memory/conversation-key-store.js";
 import { indexMessageNow } from "../../memory/indexer.js";
 import {
   addMessage,
   createConversation,
   type MessageRole,
 } from "../../persistence/conversation-crud.js";
+import {
+  getConversationByKey,
+  setConversationKey,
+} from "../../persistence/conversation-key-store.js";
 import { getDb } from "../../persistence/db-connection.js";
 import {
   conversations as conversationsTable,

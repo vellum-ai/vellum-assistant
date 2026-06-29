@@ -45,7 +45,7 @@ mock.module("../persistence/delivery-status.js", () => ({
   markProcessed: (eventId: string) => markProcessedMock(eventId),
 }));
 
-mock.module("../memory/conversation-attention-store.js", () => ({
+mock.module("../persistence/conversation-attention-store.js", () => ({
   recordConversationSeenSignal: () => {},
 }));
 

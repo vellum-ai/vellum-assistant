@@ -33,11 +33,6 @@ import {
 import { normalizeConversationType } from "../../daemon/message-types/shared.js";
 import { stripConversationIds } from "../../home/feed-writer.js";
 import {
-  getOrCreateConversation,
-  resolveConversationId,
-  setConversationKeyIfAbsent,
-} from "../../memory/conversation-key-store.js";
-import {
   archiveConversation,
   batchSetDisplayOrders,
   countConversationsByScheduleJobId,
@@ -49,6 +44,11 @@ import {
   updateConversationTitle,
   wipeConversation,
 } from "../../persistence/conversation-crud.js";
+import {
+  getOrCreateConversation,
+  resolveConversationId,
+  setConversationKeyIfAbsent,
+} from "../../persistence/conversation-key-store.js";
 import { enqueueMemoryJob } from "../../persistence/jobs-store.js";
 import { deleteSchedule } from "../../schedule/schedule-store.js";
 import { UserError } from "../../util/errors.js";

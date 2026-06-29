@@ -10,20 +10,20 @@
 
 import { z } from "zod";
 
+import { channelBindingSchema } from "../../messaging/channel-binding-schema.js";
 import {
   type Confidence,
   getAttentionStateByConversationIds,
   markConversationUnread,
   recordConversationSeenSignal,
   type SignalType,
-} from "../../memory/conversation-attention-store.js";
-import { resolveConversationId } from "../../memory/conversation-key-store.js";
-import { channelBindingSchema } from "../../messaging/channel-binding-schema.js";
+} from "../../persistence/conversation-attention-store.js";
 import { isConversationProcessing } from "../../persistence/conversation-crud.js";
 import {
   type ConversationRow,
   getDisplayMetaForConversations,
 } from "../../persistence/conversation-crud.js";
+import { resolveConversationId } from "../../persistence/conversation-key-store.js";
 import {
   countConversations,
   listConversations,

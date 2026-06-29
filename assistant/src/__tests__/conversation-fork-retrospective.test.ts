@@ -19,7 +19,6 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-import { getConversationDirPath } from "../memory/conversation-disk-view.js";
 import {
   loadGraphMemoryState,
   saveGraphMemoryState,
@@ -36,6 +35,7 @@ import {
   forkConversationForRetrospective,
   getMessages,
 } from "../persistence/conversation-crud.js";
+import { getConversationDirPath } from "../persistence/conversation-disk-view.js";
 import {
   getDb,
   getLogsDb,

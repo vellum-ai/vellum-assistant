@@ -111,7 +111,7 @@ import {
   queueGenerateConversationTitle,
   regenerateConversationTitle,
   titleMutex,
-} from "../memory/conversation-title-service.js";
+} from "../persistence/conversation-title-service.js";
 
 describe("conversation-title-service", () => {
   beforeEach(() => {

@@ -81,12 +81,12 @@ mock.module("../runtime/channel-verification-service.js", () => ({
   isGuardian: () => false,
 }));
 
-mock.module("../memory/conversation-title-service.js", () => ({
+mock.module("../persistence/conversation-title-service.js", () => ({
   queueGenerateConversationTitle: () => {},
 }));
 
 import { startVerificationCall } from "../calls/call-domain.js";
-import { getOrCreateConversation } from "../memory/conversation-key-store.js";
+import { getOrCreateConversation } from "../persistence/conversation-key-store.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { getBindingByConversation } from "../persistence/external-conversation-store.js";
 

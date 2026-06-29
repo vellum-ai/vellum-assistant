@@ -42,9 +42,6 @@ import {
   clearSentryConversationContext,
   setSentryConversationContext,
 } from "../instrument.js";
-import { getResolvedConversationDirPath } from "../memory/conversation-directories.js";
-import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
-import { isReplaceableTitle } from "../memory/conversation-title-service.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
 import {
@@ -60,6 +57,9 @@ import {
   updateConversationContextWindow,
   updateConversationSlackContextWatermark,
 } from "../persistence/conversation-crud.js";
+import { getResolvedConversationDirPath } from "../persistence/conversation-directories.js";
+import { syncMessageToDisk } from "../persistence/conversation-disk-view.js";
+import { isReplaceableTitle } from "../persistence/conversation-title-service.js";
 import {
   backfillMessageIdOnLogs,
   recordSyntheticAgentErrorMessageLog,

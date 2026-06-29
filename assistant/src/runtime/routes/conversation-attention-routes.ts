@@ -9,7 +9,7 @@ import { z } from "zod";
 import {
   type AttentionFilterState,
   listConversationAttention,
-} from "../../memory/conversation-attention-store.js";
+} from "../../persistence/conversation-attention-store.js";
 import {
   getConversation,
   getMessageById,

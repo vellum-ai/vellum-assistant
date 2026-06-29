@@ -1,9 +1,9 @@
+import { createConversation } from "./conversation-crud.js";
 import {
   AUTO_TITLE_DETERMINISTIC,
   deriveDeterministicTitle,
   type TitleOrigin,
-} from "../memory/conversation-title-service.js";
-import { createConversation } from "./conversation-crud.js";
+} from "./conversation-title-service.js";
 
 export interface BootstrapConversationOptions {
   conversationType?: "standard" | "background" | "scheduled";

@@ -20,10 +20,10 @@ import { basename, dirname, extname, join } from "node:path";
 import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getConversationAttachmentsDirPath } from "../memory/conversation-directories.js";
 import { rawAll, rawGet, rawRun } from "../persistence/raw-query.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
+import { getConversationAttachmentsDirPath } from "./conversation-directories.js";
 import { getDb } from "./db-connection.js";
 import { attachments, messageAttachments } from "./schema.js";
 

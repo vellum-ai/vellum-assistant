@@ -16,7 +16,6 @@ import {
   parseChannelId,
   parseInterfaceId,
 } from "../channels/types.js";
-import { updateMetaFile } from "../memory/conversation-disk-view.js";
 import {
   getAttachmentsByIds,
   getSourcePathsForAttachments,
@@ -28,6 +27,7 @@ import {
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
 } from "../persistence/conversation-crud.js";
+import { updateMetaFile } from "../persistence/conversation-disk-view.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";

@@ -19,8 +19,6 @@ import { getConfig } from "../config/loader.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import { getCalibrationProviderKey } from "../context/token-estimator.js";
-import { projectAssistantMessage } from "../memory/conversation-attention-store.js";
-import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
 import { indexMessageNow } from "../memory/indexer.js";
 import { backfillMemoryRecallLogMessageId } from "../memory/memory-recall-log-store.js";
 import { backfillMemoryV2ActivationMessageId } from "../memory/memory-v2-activation-log-store.js";
@@ -33,6 +31,7 @@ import {
   recordCompactionEndBestEffort,
   recordCompactionStartBestEffort,
 } from "../persistence/compaction-log-store-clickhouse.js";
+import { projectAssistantMessage } from "../persistence/conversation-attention-store.js";
 import {
   deleteMessageById,
   getConversation,
@@ -45,6 +44,7 @@ import {
   setLastNotifiedInferenceProfile,
   updateMessageContent,
 } from "../persistence/conversation-crud.js";
+import { syncMessageToDisk } from "../persistence/conversation-disk-view.js";
 import {
   backfillMessageIdOnLogs,
   buildProviderErrorResponsePayload,

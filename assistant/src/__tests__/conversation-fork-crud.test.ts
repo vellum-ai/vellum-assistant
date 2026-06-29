@@ -22,11 +22,6 @@ mock.module("../config/loader.js", () => ({
 }));
 
 import {
-  getAttentionStateByConversationIds,
-  markConversationUnread,
-} from "../memory/conversation-attention-store.js";
-import { getConversationDirPath } from "../memory/conversation-disk-view.js";
-import {
   loadGraphMemoryState,
   saveGraphMemoryState,
 } from "../memory/graph/graph-memory-state-store.js";
@@ -43,11 +38,16 @@ import {
 } from "../persistence/attachments-store.js";
 import { appendCompactionEvent } from "../persistence/compaction-ledger-store.js";
 import {
+  getAttentionStateByConversationIds,
+  markConversationUnread,
+} from "../persistence/conversation-attention-store.js";
+import {
   addMessage,
   createConversation,
   forkConversation,
   getMessages,
 } from "../persistence/conversation-crud.js";
+import { getConversationDirPath } from "../persistence/conversation-disk-view.js";
 import { getDb, getLogsDb, getMemoryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { getRequestLogsByMessageId } from "../persistence/llm-request-log-store.js";

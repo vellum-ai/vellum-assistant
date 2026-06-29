@@ -40,17 +40,6 @@ mock.module("../config/loader.js", () => ({
 // ---------------------------------------------------------------------------
 
 import {
-  flattenContentBlocks,
-  getConversationDirName,
-  getConversationDirPath,
-  initConversationDir,
-  rebuildConversationDiskViewFromDbState,
-  removeConversationDir,
-  resolveUniqueFilename,
-  syncMessageToDisk,
-  updateMetaFile,
-} from "../memory/conversation-disk-view.js";
-import {
   linkAttachmentToMessage,
   uploadAttachment,
 } from "../persistence/attachments-store.js";
@@ -61,6 +50,17 @@ import {
   relinkAttachments,
   updateMessageContent,
 } from "../persistence/conversation-crud.js";
+import {
+  flattenContentBlocks,
+  getConversationDirName,
+  getConversationDirPath,
+  initConversationDir,
+  rebuildConversationDiskViewFromDbState,
+  removeConversationDir,
+  resolveUniqueFilename,
+  syncMessageToDisk,
+  updateMetaFile,
+} from "../persistence/conversation-disk-view.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { rawRun } from "../persistence/raw-query.js";
