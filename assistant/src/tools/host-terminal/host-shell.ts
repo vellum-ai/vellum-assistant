@@ -24,7 +24,10 @@ import { isCesShellLockdownEnabled } from "../../credential-execution/feature-ga
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
-import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
+import {
+  assistantEventHub,
+  broadcastMessage,
+} from "../../runtime/assistant-event-hub.js";
 import { isUntrustedShellLockdownActive } from "../../runtime/effective-capabilities.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
@@ -284,6 +287,7 @@ export const hostShellTool = {
 
         const bgId = generateBackgroundToolId();
         const abortController = new AbortController();
+        const startedAt = Date.now();
         const proxyPromise = HostBashProxy.instance.request(
           {
             command,
@@ -299,6 +303,21 @@ export const hostShellTool = {
 
         proxyPromise
           .then((result) => {
+            // request() swallows the aborted rejection and resolves with an
+            // "Aborted" result, so a tripped signal means the user cancelled.
+            const status = abortController.signal.aborted
+              ? "cancelled"
+              : result.isError
+                ? "failed"
+                : "completed";
+            broadcastMessage({
+              type: "background_tool_completed",
+              id: bgId,
+              conversationId: context.conversationId,
+              status,
+              output: result.content,
+              completedAt: Date.now(),
+            });
             const framing = result.isError
               ? `Background host command failed (id=${bgId}):`
               : `Background host command completed (id=${bgId}):`;
@@ -316,6 +335,14 @@ export const hostShellTool = {
             });
           })
           .catch((err) => {
+            broadcastMessage({
+              type: "background_tool_completed",
+              id: bgId,
+              conversationId: context.conversationId,
+              status: abortController.signal.aborted ? "cancelled" : "failed",
+              output: err instanceof Error ? err.message : String(err),
+              completedAt: Date.now(),
+            });
             void wakeAgentForOpportunity({
               conversationId: context.conversationId,
               hint: `Background host command failed (id=${bgId}): ${err instanceof Error ? err.message : String(err)}`,
@@ -330,8 +357,17 @@ export const hostShellTool = {
           toolName: "host_bash",
           conversationId: context.conversationId,
           command,
-          startedAt: Date.now(),
+          startedAt,
           cancel: (reason?: string) => abortController.abort(reason),
+        });
+
+        broadcastMessage({
+          type: "background_tool_started",
+          id: bgId,
+          toolName: "host_bash",
+          conversationId: context.conversationId,
+          command,
+          startedAt,
         });
 
         return {
@@ -397,6 +433,7 @@ export const hostShellTool = {
       }
 
       const bgId = generateBackgroundToolId();
+      const startedAt = Date.now();
 
       const child = spawn("bash", ["-c", "--", command], {
         cwd: workingDir,
@@ -408,6 +445,9 @@ export const hostShellTool = {
       const stdoutChunks: Buffer[] = [];
       const stderrChunks: Buffer[] = [];
       let timedOut = false;
+      // Set when cancelled via the registry's cancel callback so the completion
+      // event reports "cancelled" rather than "failed".
+      let aborted = false;
 
       const killTree = () => {
         if (child.pid != null) {
@@ -451,6 +491,21 @@ export const hostShellTool = {
           timedOut,
           timeoutSec,
         );
+        // Cancel takes precedence over the SIGKILL-induced error result.
+        const status = aborted
+          ? "cancelled"
+          : result.isError
+            ? "failed"
+            : "completed";
+        broadcastMessage({
+          type: "background_tool_completed",
+          id: bgId,
+          conversationId: context.conversationId,
+          status,
+          exitCode: code,
+          output: result.content,
+          completedAt: Date.now(),
+        });
         const framing = result.isError
           ? `Background host command failed (id=${bgId}):`
           : `Background host command completed (id=${bgId}):`;
@@ -473,6 +528,14 @@ export const hostShellTool = {
         if (completed) return;
         completed = true;
         clearTimeout(timer);
+        broadcastMessage({
+          type: "background_tool_completed",
+          id: bgId,
+          conversationId: context.conversationId,
+          status: aborted ? "cancelled" : "failed",
+          output: err.message,
+          completedAt: Date.now(),
+        });
         void wakeAgentForOpportunity({
           conversationId: context.conversationId,
           hint: `Background host command failed (id=${bgId}): ${err.message}`,
@@ -487,8 +550,20 @@ export const hostShellTool = {
         toolName: "host_bash",
         conversationId: context.conversationId,
         command,
-        startedAt: Date.now(),
-        cancel: killTree,
+        startedAt,
+        cancel: () => {
+          aborted = true;
+          killTree();
+        },
+      });
+
+      broadcastMessage({
+        type: "background_tool_started",
+        id: bgId,
+        toolName: "host_bash",
+        conversationId: context.conversationId,
+        command,
+        startedAt,
       });
 
       return {
