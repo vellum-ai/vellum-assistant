@@ -40,10 +40,8 @@ import type { DrizzleDb } from "../db-connection.js";
  *     idx_media_keyframes_asset_id [asset_id]
  *       ⊂ idx_media_keyframes_asset_timestamp [asset_id, timestamp]
  *
- * The two `messages`/`trace_events` indexes were also declared in the Drizzle
- * schema; those declarations are removed in the same change so the schema and
- * the database stay in sync. `IF EXISTS` keeps this idempotent and tolerant of
- * databases where an index was never created.
+ * `IF EXISTS` keeps this idempotent and tolerant of databases where an index
+ * was never created.
  */
 export function migrateDropRedundantIndexes(database: DrizzleDb): void {
   for (const name of [
