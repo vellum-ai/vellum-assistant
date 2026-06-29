@@ -31,12 +31,12 @@ import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { conversations, messages } from "../persistence/schema/index.js";
 import { registerDefaultPluginInjectors } from "../plugins/defaults/index.js";
+import { DEFAULT_INJECTOR_ORDER } from "../plugins/defaults/injector-order.js";
+import { buildUnifiedTurnContextBlock } from "../plugins/defaults/turn-context/unified-turn-context.js";
 import {
-  DEFAULT_INJECTOR_ORDER,
-  defaultInjectors,
   DISK_PRESSURE_WARNING_PROMPT,
-} from "../plugins/defaults/memory/injectors.js";
-import { buildUnifiedTurnContextBlock } from "../plugins/defaults/memory/unified-turn-context.js";
+  workspaceInjectors,
+} from "../plugins/defaults/workspace/injectors.js";
 import type { Injector, TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
 
@@ -50,7 +50,7 @@ await initializeDb();
 const TEST_CONVERSATION_ID = "conv-test";
 
 function findInjector(name: string): Injector {
-  const injector = defaultInjectors.find(
+  const injector = workspaceInjectors.find(
     (candidate) => candidate.name === name,
   );
   if (!injector) {

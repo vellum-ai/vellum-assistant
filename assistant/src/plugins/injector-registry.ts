@@ -17,6 +17,7 @@
  */
 
 import { getLogger } from "../util/logger.js";
+import { isPluginDisabled } from "./disabled-state.js";
 import type { Injector } from "./types.js";
 
 const log = getLogger("injector-registry");
@@ -30,10 +31,12 @@ const log = getLogger("injector-registry");
 const injectorsByPlugin = new Map<string, readonly Injector[]>();
 
 /**
- * Memoized order-sorted union, rebuilt lazily after any registration change so
- * the sort runs once per stable registry state rather than once per turn.
+ * Memoized order-sorted union, each injector tagged with its contributing
+ * plugin so {@link getRegisteredInjectors} can filter by disabled-state at read
+ * time without re-sorting. Rebuilt lazily after any registration change so the
+ * sort runs once per stable registry state rather than once per turn.
  */
-let cachedChain: Injector[] | null = null;
+let cachedChain: Array<{ plugin: string; injector: Injector }> | null = null;
 
 /**
  * Register the injectors contributed by `pluginName`. Injector names must be
@@ -83,26 +86,38 @@ export function unregisterPluginInjectors(pluginName: string): void {
 }
 
 /**
- * The order-sorted union of every registered injector. Stable-sorted by
- * ascending `order` (lower runs first); injectors sharing an `order` keep
- * their registration order. Memoized until the next registration change.
+ * The order-sorted union of every registered injector whose contributing plugin
+ * is currently enabled. Stable-sorted by ascending `order` (lower runs first);
+ * injectors sharing an `order` keep their registration order.
  *
- * Returns every registered injector regardless of its plugin's disabled-state:
- * `default-memory` is the only contributor and its injectors run solely via its
- * own hooks (which the hook registry filters when the plugin is disabled), so a
- * disabled memory plugin already contributes nothing to a turn. Per-plugin
- * read-time disabled filtering becomes meaningful once injectors are owned by
- * standalone (possibly hook-less) plugins.
+ * Disabled-state is consulted at read time, once per contributing plugin, via
+ * {@link isPluginDisabled} — so `assistant plugins disable/enable <name>` takes
+ * effect on the next turn without a daemon restart, the same contract the hook
+ * and tool registries honor. The order-sorted union is memoized across the
+ * filter (rebuilt only on a registration change); only the small per-plugin
+ * disabled check re-runs each call.
  */
 export function getRegisteredInjectors(): Injector[] {
   if (cachedChain === null) {
-    const all: Injector[] = [];
-    for (const injectors of injectorsByPlugin.values()) {
-      all.push(...injectors);
+    const pairs: Array<{ plugin: string; injector: Injector }> = [];
+    for (const [plugin, injectors] of injectorsByPlugin) {
+      for (const injector of injectors) pairs.push({ plugin, injector });
     }
-    cachedChain = all.sort((a, b) => a.order - b.order);
+    pairs.sort((a, b) => a.injector.order - b.injector.order);
+    cachedChain = pairs;
   }
-  return cachedChain;
+  const enabledByPlugin = new Map<string, boolean>();
+  const isEnabled = (plugin: string): boolean => {
+    let enabled = enabledByPlugin.get(plugin);
+    if (enabled === undefined) {
+      enabled = !isPluginDisabled(plugin);
+      enabledByPlugin.set(plugin, enabled);
+    }
+    return enabled;
+  };
+  return cachedChain
+    .filter(({ plugin }) => isEnabled(plugin))
+    .map(({ injector }) => injector);
 }
 
 /** Drop every registration. Exposed for test isolation. */

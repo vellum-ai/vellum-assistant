@@ -3,7 +3,7 @@
  *
  * Covers:
  *
- * 1. The default injectors ({@link defaultInjectors}) are listed in the
+ * 1. The registered default injectors are listed in the
  *    documented order (disk-pressure-warning → workspace-context →
  *    background-turn → unified-turn-context → config-quarantine-notice →
  *    pkb-context → pkb-reminder → memory-v2-static → now-md →
@@ -55,8 +55,8 @@ const {
   buildSubagentStatusBlock,
   composeInjectorChain,
 } = await import("../daemon/conversation-runtime-assembly.js");
-const { DEFAULT_INJECTOR_ORDER, defaultInjectors } =
-  await import("../plugins/defaults/memory/injectors.js");
+const { DEFAULT_INJECTOR_ORDER } =
+  await import("../plugins/defaults/injector-order.js");
 const { getRegisteredInjectors } =
   await import("../plugins/injector-registry.js");
 const { registerDefaultPluginInjectors } =
@@ -76,7 +76,7 @@ import {
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { conversations, messages } from "../persistence/schema/index.js";
-import { buildUnifiedTurnContextBlock } from "../plugins/defaults/memory/unified-turn-context.js";
+import { buildUnifiedTurnContextBlock } from "../plugins/defaults/turn-context/unified-turn-context.js";
 import type { TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
 import { getSubagentManager } from "../subagent/index.js";
@@ -295,8 +295,12 @@ describe("injector chain", () => {
       .run();
   });
 
-  test("defaultInjectors lists the defaults in the documented order", () => {
-    const names = defaultInjectors.map((i) => i.name);
+  test("the registered defaults appear in the documented order", () => {
+    // The non-v3 defaults (order < 1000) come from the memory plugin and the
+    // domain plugins; the registry unions and sorts them.
+    const names = getRegisteredInjectors()
+      .filter((i) => i.order < 1000)
+      .map((i) => i.name);
     expect(names).toEqual([
       "disk-pressure-warning",
       "workspace-context",
@@ -316,7 +320,9 @@ describe("injector chain", () => {
   });
 
   test("default injector order constants match the listed order values", () => {
-    const byName = new Map(defaultInjectors.map((i) => [i.name, i.order]));
+    const byName = new Map(
+      getRegisteredInjectors().map((i) => [i.name, i.order]),
+    );
     expect(byName.get("disk-pressure-warning")).toBe(
       DEFAULT_INJECTOR_ORDER.diskPressureWarning,
     );
@@ -357,8 +363,8 @@ describe("injector chain", () => {
     const chain = getRegisteredInjectors();
     const orders = chain.map((i) => i.order);
     expect(orders).toEqual([...orders].sort((a, b) => a - b));
-    expect(chain.map((i) => i.name)).toEqual([
-      ...defaultInjectors.map((i) => i.name),
+    // The two memory-v3 injectors (order 1000 / 1001) sort last, in that order.
+    expect(chain.map((i) => i.name).slice(-2)).toEqual([
       "memory-v3-shadow",
       "memory-v3-spotlight",
     ]);
