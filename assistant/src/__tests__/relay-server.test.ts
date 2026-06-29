@@ -409,14 +409,14 @@ import {
 } from "../calls/relay-server.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
 import {
+  createInboundSession,
+  createVerificationSession,
+} from "../channels/channel-verification-sessions.js";
+import {
   listCanonicalGuardianRequests,
   resolveCanonicalGuardianRequest,
 } from "../contacts/canonical-guardian-store.js";
 import { upsertContact } from "../contacts/contact-store.js";
-import {
-  createInboundSession,
-  createVerificationSession,
-} from "../memory/channel-verification-sessions.js";
 import { resetTestTables } from "../memory/raw-query.js";
 import { addMessage, getMessages } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";

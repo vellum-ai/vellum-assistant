@@ -10,6 +10,7 @@ import type pino from "pino";
 import { v4 as uuid } from "uuid";
 
 import type { AgentEvent } from "../agent/loop.js";
+import { getThreadTs } from "../channels/slack-thread-store.js";
 import type {
   TurnChannelContext,
   TurnInterfaceContext,
@@ -23,7 +24,6 @@ import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
 import { indexMessageNow } from "../memory/indexer.js";
 import { backfillMemoryRecallLogMessageId } from "../memory/memory-recall-log-store.js";
 import { backfillMemoryV2ActivationMessageId } from "../memory/memory-v2-activation-log-store.js";
-import { getThreadTs } from "../memory/slack-thread-store.js";
 import {
   formatSlackTimezoneLabel,
   type SlackMessageMetadata,

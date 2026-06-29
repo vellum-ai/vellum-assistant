@@ -113,16 +113,6 @@ mock.module("../contacts/guardian-delivery-reader.js", () => ({
 }));
 
 import {
-  getRateLimit,
-  recordInvalidAttempt,
-  resetRateLimit,
-} from "../contacts/guardian-rate-limits.js";
-import { handleChannelVerificationSession } from "../daemon/handlers/config-channels.js";
-import type {
-  ChannelVerificationSessionRequest,
-  ChannelVerificationSessionResponse,
-} from "../daemon/message-protocol.js";
-import {
   bindSessionIdentity as _storeBindSessionIdentity,
   consumeSession,
   createInboundSession,
@@ -134,7 +124,17 @@ import {
   findSessionByIdentity as _storeFindSessionByIdentity,
   updateSessionDelivery as storeUpdateSessionDelivery,
   updateSessionStatus as _storeUpdateSessionStatus,
-} from "../memory/channel-verification-sessions.js";
+} from "../channels/channel-verification-sessions.js";
+import {
+  getRateLimit,
+  recordInvalidAttempt,
+  resetRateLimit,
+} from "../contacts/guardian-rate-limits.js";
+import { handleChannelVerificationSession } from "../daemon/handlers/config-channels.js";
+import type {
+  ChannelVerificationSessionRequest,
+  ChannelVerificationSessionResponse,
+} from "../daemon/message-protocol.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { upsertBinding as upsertExternalBinding } from "../persistence/external-conversation-store.js";
