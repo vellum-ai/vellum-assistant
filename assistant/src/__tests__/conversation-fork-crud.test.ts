@@ -70,7 +70,7 @@ import {
   markPruned as markV3Pruned,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
   recordInjected as recordV3Injected,
-} from "../plugins/defaults/memory-v3-shadow/ever-injected-store.js";
+} from "../plugins/defaults/memory/v3/ever-injected-store.js";
 
 await initializeDb();
 

@@ -34,8 +34,8 @@ import {
   DEFAULT_INJECTOR_ORDER,
   defaultInjectors,
   DISK_PRESSURE_WARNING_PROMPT,
-} from "../plugins/defaults/memory-retrieval/injectors.js";
-import { buildUnifiedTurnContextBlock } from "../plugins/defaults/memory-retrieval/unified-turn-context.js";
+} from "../plugins/defaults/memory/injectors.js";
+import { buildUnifiedTurnContextBlock } from "../plugins/defaults/memory/unified-turn-context.js";
 import type { Injector, TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
 

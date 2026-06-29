@@ -72,8 +72,8 @@ import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import {
   getPrunedSlugs,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
-} from "../plugins/defaults/memory-v3-shadow/ever-injected-store.js";
-import { filterPrunedCardSections } from "../plugins/defaults/memory-v3-shadow/prune.js";
+} from "../plugins/defaults/memory/v3/ever-injected-store.js";
+import { filterPrunedCardSections } from "../plugins/defaults/memory/v3/prune.js";
 import {
   applyBootstrapTemplate,
   buildSystemPrompt,
@@ -1048,7 +1048,7 @@ export class Conversation {
           // Pruned slugs' card sections are filtered out here (the metadata
           // itself is never rewritten — auditable and reversible); an
           // all-pruned block is skipped entirely, matching the live strip in
-          // `memory-v3-shadow/prune.ts`.
+          // `memory/v3/prune.ts`.
           if (typeof meta[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY] === "string") {
             const v3Block = meta[
               MEMORY_V3_INJECTED_BLOCK_METADATA_KEY

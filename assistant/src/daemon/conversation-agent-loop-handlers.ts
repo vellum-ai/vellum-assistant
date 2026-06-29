@@ -52,7 +52,7 @@ import {
   setAgentLoopExitReasonOnLatestLog,
 } from "../persistence/llm-request-log-store.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
-import { backfillMemoryV3SelectionMessageId } from "../plugins/defaults/memory-v3-shadow/shadow-plugin.js";
+import { backfillMemoryV3SelectionMessageId } from "../plugins/defaults/memory/v3/shadow-plugin.js";
 import type {
   ContentBlock,
   ImageContent,

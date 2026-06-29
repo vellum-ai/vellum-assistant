@@ -63,7 +63,7 @@ import {
   forkEverInjected,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
   seedEverInjectedFromSlugs,
-} from "../plugins/defaults/memory-v3-shadow/ever-injected-store.js";
+} from "../plugins/defaults/memory/v3/ever-injected-store.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { UserError } from "../util/errors.js";

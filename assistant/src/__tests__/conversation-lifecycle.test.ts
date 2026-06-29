@@ -116,20 +116,17 @@ mock.module("../persistence/conversation-queries.js", () => ({
 // unless this file is actively running (`mock.module` is process-global and
 // would otherwise leak into sibling files that use the real store).
 const realEverInjectedStore = {
-  ...(await import("../plugins/defaults/memory-v3-shadow/ever-injected-store.js")),
+  ...(await import("../plugins/defaults/memory/v3/ever-injected-store.js")),
 };
 let lifecycleStoreMockActive = false;
 let mockPrunedSlugs = new Set<string>();
-mock.module(
-  "../plugins/defaults/memory-v3-shadow/ever-injected-store.js",
-  () => ({
-    ...realEverInjectedStore,
-    getPrunedSlugs: (conversationId: string) =>
-      lifecycleStoreMockActive
-        ? mockPrunedSlugs
-        : realEverInjectedStore.getPrunedSlugs(conversationId),
-  }),
-);
+mock.module("../plugins/defaults/memory/v3/ever-injected-store.js", () => ({
+  ...realEverInjectedStore,
+  getPrunedSlugs: (conversationId: string) =>
+    lifecycleStoreMockActive
+      ? mockPrunedSlugs
+      : realEverInjectedStore.getPrunedSlugs(conversationId),
+}));
 
 import { Conversation } from "../daemon/conversation.js";
 

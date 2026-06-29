@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   DEFAULT_INJECTOR_ORDER,
   defaultInjectors,
-} from "../plugins/defaults/memory-retrieval/injectors.js";
+} from "../plugins/defaults/memory/injectors.js";
 import type { Injector, TurnContext } from "../plugins/types.js";
 import { getConfigQuarantineNoticePath } from "../util/platform.js";
 

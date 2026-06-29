@@ -17,7 +17,7 @@ import {
   setConversation,
 } from "../daemon/conversation-registry.js";
 import { applyRuntimeInjections } from "../daemon/conversation-runtime-assembly.js";
-import { stripTailInjectionsForReinjection } from "../plugins/defaults/memory-retrieval/tail-reinjection-strip.js";
+import { stripTailInjectionsForReinjection } from "../plugins/defaults/memory/tail-reinjection-strip.js";
 import type { Message } from "../providers/types.js";
 
 const WORKSPACE_BLOCK = "<workspace>\nRoot: /sandbox\n</workspace>";

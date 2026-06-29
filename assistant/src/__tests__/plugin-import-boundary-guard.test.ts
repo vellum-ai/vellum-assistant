@@ -72,17 +72,48 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../persistence/conversation-crud.js",
     "../../../util/logger.js",
   ],
-  "memory-retrieval": [
+  memory: [
+    "../../../../api/responses/memory-v3-selection-log.js",
     "../../../../config/loader.js",
     "../../../../config/memory-v3-gate.js",
+    "../../../../config/schema.js",
+    "../../../../config/skills.js",
+    "../../../../config/types.js",
+    "../../../../daemon/conversation-error.js",
+    "../../../../daemon/conversation-notices.js",
     "../../../../daemon/conversation-registry.js",
     "../../../../daemon/conversation-runtime-assembly.js",
     "../../../../daemon/message-types/memory.js",
     "../../../../daemon/trust-context.js",
-    "../../../../persistence/conversation-crud.js",
+    "../../../../memory/checkpoints.js",
     "../../../../memory/graph/conversation-graph-memory.js",
+    "../../../../memory/memory-marker.js",
     "../../../../memory/memory-recall-log-store.js",
+    "../../../../memory/message-content.js",
+    "../../../../memory/prompt-override.js",
+    "../../../../memory/v2/cli-command-store.js",
+    "../../../../memory/v2/injected-block-slugs.js",
+    "../../../../memory/v2/page-index.js",
+    "../../../../memory/v2/page-store.js",
+    "../../../../memory/v2/skill-store.js",
+    "../../../../persistence/conversation-crud.js",
+    "../../../../persistence/db-connection.js",
+    "../../../../persistence/embeddings/embedding-backend.js",
+    "../../../../persistence/embeddings/embedding-billing-breaker.js",
+    "../../../../persistence/embeddings/embedding-cache.js",
+    "../../../../persistence/embeddings/embedding-types.js",
+    "../../../../persistence/embeddings/qdrant-client.js",
+    "../../../../persistence/jobs-store.js",
+    "../../../../providers/cache-control.js",
+    "../../../../providers/provider-send-message.js",
+    "../../../../providers/types.js",
     "../../../../runtime/assistant-event-hub.js",
+    "../../../../skills/frontmatter.js",
+    "../../../../util/log-redact.js",
+    "../../../../util/logger.js",
+    "../../../../util/platform.js",
+    "../../../../util/strip-comment-lines.js",
+    "../../../../util/truncate.js",
     "../../../config/loader.js",
     "../../../context/strip-injections.js",
     "../../../daemon/conversation-registry.js",
@@ -103,49 +134,6 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../types.js",
     "../../../util/logger.js",
     "../../../util/platform.js",
-    "../../memory-v3-shadow/ever-injected-store.js",
-    "../../types.js",
-    "../memory-v3-shadow/injector.js",
-    "node:fs",
-    "node:path",
-  ],
-  "memory-v3-shadow": [
-    "../../../api/responses/memory-v3-selection-log.js",
-    "../../../config/loader.js",
-    "../../../config/memory-v3-gate.js",
-    "../../../config/schema.js",
-    "../../../config/skills.js",
-    "../../../config/types.js",
-    "../../../daemon/conversation-error.js",
-    "../../../daemon/conversation-notices.js",
-    "../../../daemon/conversation-registry.js",
-    "../../../daemon/trust-context.js",
-    "../../../memory/checkpoints.js",
-    "../../../memory/memory-marker.js",
-    "../../../memory/message-content.js",
-    "../../../memory/prompt-override.js",
-    "../../../memory/v2/cli-command-store.js",
-    "../../../memory/v2/injected-block-slugs.js",
-    "../../../memory/v2/page-index.js",
-    "../../../memory/v2/page-store.js",
-    "../../../memory/v2/skill-store.js",
-    "../../../persistence/conversation-crud.js",
-    "../../../persistence/db-connection.js",
-    "../../../persistence/embeddings/embedding-backend.js",
-    "../../../persistence/embeddings/embedding-billing-breaker.js",
-    "../../../persistence/embeddings/embedding-cache.js",
-    "../../../persistence/embeddings/embedding-types.js",
-    "../../../persistence/embeddings/qdrant-client.js",
-    "../../../persistence/jobs-store.js",
-    "../../../providers/cache-control.js",
-    "../../../providers/provider-send-message.js",
-    "../../../providers/types.js",
-    "../../../skills/frontmatter.js",
-    "../../../util/log-redact.js",
-    "../../../util/logger.js",
-    "../../../util/platform.js",
-    "../../../util/strip-comment-lines.js",
-    "../../../util/truncate.js",
     "../../types.js",
     "@qdrant/js-client-rest",
     "node:crypto",
@@ -332,7 +320,7 @@ describe("plugin import boundary", () => {
 
     const exampleFile = new Map<string, string>();
     for (const e of escapes) {
-      exampleFile.set(`${e.plugin} ${e.specifier}`, e.relPath);
+      exampleFile.set(`${e.plugin} ${e.specifier}`, e.relPath);
     }
 
     const plugins = new Set([...byPlugin.keys(), ...Object.keys(BASELINE)]);
@@ -343,7 +331,7 @@ describe("plugin import boundary", () => {
       const allowed = new Set(BASELINE[plugin] ?? []);
       for (const spec of [...found].sort()) {
         if (!allowed.has(spec)) {
-          const where = exampleFile.get(`${plugin} ${spec}`);
+          const where = exampleFile.get(`${plugin} ${spec}`);
           added.push(`  - ${plugin}: "${spec}"  (e.g. ${where})`);
         }
       }
