@@ -1,4 +1,4 @@
-import { Navigate } from "react-router";
+import { Navigate, useSearchParams } from "react-router";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { PluginsTab } from "@/domains/intelligence/components/plugins/plugins-tab";
@@ -20,6 +20,8 @@ export function PluginsPage() {
   const version = useAssistantIdentityStore.use.version();
   const supportsPlugins = useSupportsPluginsSurface();
   const assistantId = useActiveAssistantId();
+  const [searchParams] = useSearchParams();
+  const initialPluginName = searchParams.get("plugin") ?? undefined;
 
   if (version === null) {
     return null;
@@ -29,5 +31,7 @@ export function PluginsPage() {
     return <Navigate to={routes.identity} replace />;
   }
 
-  return <PluginsTab assistantId={assistantId} />;
+  return (
+    <PluginsTab assistantId={assistantId} initialPluginName={initialPluginName} />
+  );
 }
