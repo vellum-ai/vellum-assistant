@@ -147,3 +147,8 @@ export { doesSupportVision } from "./vision-support.js";
 // float the chosen profile above the call-site layers when the plugin must
 // run on a specific profile regardless of workspace tuning.
 export { getConfiguredProvider } from "../providers/provider-send-message.js";
+// Classify a provider stop reason: whether the turn was truncated at the
+// output token cap (vs. a natural stop or a tool call). A `post-model-call`
+// hook reads it off `PostModelCallContext.stopReason` to decide whether to
+// continue a cut-off reply.
+export { isMaxTokensStopReason } from "../providers/stop-reasons.js";
