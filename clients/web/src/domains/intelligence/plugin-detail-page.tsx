@@ -5,17 +5,14 @@ import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { routes } from "@/utils/routes";
 
 /**
- * Redirect shim for the retired standalone plugin detail route.
+ * Route handler for `/assistant/plugins/:name` that forwards into the in-tab
+ * plugin detail: it redirects (replace) to the `?plugin=<name>` deep-link on
+ * the Plugins tab (see `plugins-page.tsx` / `components/plugins/plugins-tab.tsx`),
+ * so a link to a specific plugin resolves to that plugin's detail.
  *
- * Plugin detail now renders in-tab via the `?plugin=<name>` deep-link on
- * the Plugins tab (see `plugins-page.tsx` / `components/plugins/plugins-tab.tsx`).
- * The old `/assistant/plugins/:name` URL is kept as a bookmark/deep-link
- * contract and forwarded here so saved links resolve into the in-tab detail.
- *
- * Mirrors `PluginsPage`'s backwards-compat gate: it waits for the assistant
- * version to hydrate, then redirects a flag-off (plugin-routes-absent)
- * assistant back to Identity exactly as the surface did before — so an old
- * deep-link never lands on a dead surface.
+ * Like `PluginsPage`, it gates on the backwards-compat plugins surface: it
+ * waits for the assistant version to hydrate, then sends an assistant whose
+ * daemon lacks the plugin routes to Identity rather than a dead surface.
  */
 export function PluginDetailPage() {
   const version = useAssistantIdentityStore.use.version();
