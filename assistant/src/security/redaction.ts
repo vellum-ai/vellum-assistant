@@ -37,6 +37,8 @@ const SENSITIVE_STEMS = new Set(
     "ssn",
     "credit.card",
     "card.number",
+    "apptoken",
+    "bottoken",
   ].map((s) => s.replace(/\./g, "")),
 );
 

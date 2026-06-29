@@ -448,12 +448,12 @@ describe("standalone form surface payload shapes", () => {
       bot_token: "xoxb-secret-token-value",
     });
 
-    // Broadcast redacts password-type field values
+    // Broadcast redacts sensitive field values via redactSensitiveFields
     const completeMsg = findByType(ctx.sentMessages, "ui_surface_complete");
     expect(completeMsg).toBeDefined();
     expect(completeMsg!.submittedData).toEqual({
       app_name: "My Bot",
-      bot_token: "[REDACTED]",
+      bot_token: "<redacted />",
     });
   });
 
