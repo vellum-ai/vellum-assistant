@@ -9,33 +9,12 @@ import { setRelayBroadcast } from "../calls/relay-server.js";
 import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
-import {
-  getPlatformAssistantId,
-  setIngressPublicBaseUrl,
-  validateEnv,
-} from "../config/env.js";
+import { setIngressPublicBaseUrl, validateEnv } from "../config/env.js";
 import { loadConfig, mergeDefaultWorkspaceConfig } from "../config/loader.js";
-import type { AssistantConfig } from "../config/schema.js";
 import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
 import { reconcileFlagGatedProfiles } from "../config/sync-gated-profiles.js";
-import {
-  getCesClient as getActiveCesClient,
-  setCes,
-  updateCesClient,
-} from "../credential-execution/ces-runtime.js";
-import type { CesClient } from "../credential-execution/client.js";
-import { createCesClient } from "../credential-execution/client.js";
+import { startCes } from "../credential-execution/ces-runtime.js";
 import { refreshManagedConnectionCache } from "../credential-execution/managed-catalog.js";
-import {
-  type CesProcessManager,
-  CesUnavailableError,
-  createCesProcessManager,
-} from "../credential-execution/process-manager.js";
-import {
-  awaitCesClientWithTimeout,
-  DEFAULT_CES_STARTUP_TIMEOUT_MS,
-  injectCesClientWhenReady,
-} from "../credential-execution/startup-timeout.js";
 import { startFilingService } from "../filing/filing-service.js";
 import { startHeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
@@ -76,7 +55,6 @@ import {
 } from "../platform/consent-cache.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
-import { resolveManagedProxyContext } from "../providers/platform-proxy/context.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import {
   initAuthSigningKey,
@@ -92,12 +70,6 @@ import {
 } from "../runtime/sync/resource-sync-events.js";
 import { recoverStaleSchedules } from "../schedule/schedule-recovery.js";
 import { startScheduler } from "../schedule/scheduler.js";
-import {
-  getCesClient,
-  onCesClientChanged,
-  setCesClient,
-  setCesReconnect,
-} from "../security/secure-keys.js";
 import { startUsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { syncFlagGatedTools } from "../tools/registry.js";
 import { registerBuiltinTtsProviders } from "../tts/providers/register-builtins.js";
@@ -196,95 +168,6 @@ export function stopDiskPressureGuardForLifecycle(): void {
     diskPressureStartupSampleTimer = null;
   }
   stopDiskPressureGuard();
-}
-
-export interface CesStartupResult {
-  client: CesClient | undefined;
-  processManager: CesProcessManager | undefined;
-  clientPromise: Promise<CesClient | undefined> | undefined;
-  abortController: AbortController | undefined;
-}
-
-/**
- * Start the CES (Credential Execution Service) process and perform the RPC
- * handshake. Returns a promise that resolves with the CES client and process
- * manager. Callers can fire-and-forget — the daemon does not need to await
- * this for startup to continue.
- *
- * The managed sidecar accepts exactly one bootstrap connection, so this must
- * be called at the process level (not per-conversation).
- */
-async function startCesProcess(
-  config: AssistantConfig,
-): Promise<CesStartupResult> {
-  const pm = createCesProcessManager({ assistantConfig: config });
-  const abortController = new AbortController();
-  let clientRef: CesClient | undefined;
-
-  const clientPromise = (async (): Promise<CesClient | undefined> => {
-    try {
-      const transport = await pm.start();
-      if (abortController.signal.aborted) {
-        throw new Error("CES initialization aborted during shutdown");
-      }
-      const client = createCesClient(transport);
-      clientRef = client;
-      // Resolve the assistant API key so CES can use it for platform
-      // credential materialisation. In managed mode the key is provisioned
-      // after hatch and stored in the credential store — CES can't read
-      // the env var, so we pass it via the handshake.
-      const proxyCtx = await resolveManagedProxyContext();
-      const assistantId = getPlatformAssistantId();
-      const { accepted, reason } = await client.handshake({
-        ...(proxyCtx.assistantApiKey
-          ? { assistantApiKey: proxyCtx.assistantApiKey }
-          : {}),
-        ...(assistantId ? { assistantId } : {}),
-      });
-      if (abortController.signal.aborted) {
-        client.close();
-        throw new Error("CES initialization aborted during shutdown");
-      }
-      if (accepted) {
-        log.info(
-          "CES client initialized and handshake accepted (server-level)",
-        );
-        return client;
-      }
-      log.warn(
-        { reason },
-        "CES handshake rejected — CES tools will be unavailable",
-      );
-      client.close();
-      clientRef = undefined;
-      await pm.stop();
-      return undefined;
-    } catch (err) {
-      if (err instanceof CesUnavailableError) {
-        log.info(
-          { reason: err.message },
-          "CES is not available — CES tools will be unavailable",
-        );
-      } else {
-        log.warn(
-          { error: err instanceof Error ? err.message : String(err) },
-          "Failed to initialize CES client — CES tools will be unavailable",
-        );
-      }
-      await pm.stop().catch(() => {});
-      clientRef = undefined;
-      return undefined;
-    }
-  })();
-
-  return {
-    get client() {
-      return clientRef;
-    },
-    processManager: pm,
-    clientPromise,
-    abortController,
-  };
 }
 
 // Entry point for the daemon process itself
@@ -684,94 +567,12 @@ export async function runDaemon(): Promise<void> {
   startConsentRefresh();
   registerShutdownHook("consent-cache", () => stopConsentRefresh());
 
-  // CES lifecycle — kick off early so CES handshake runs concurrently with
-  // provider/tool initialization. The CES sidecar accepts exactly one
-  // bootstrap connection, so startup must happen at the process level.
-  const cesStartupPromise = startCesProcess(config);
-
-  // CES startup must complete BEFORE provider initialization so credential
-  // reads can go through CES. Block with a 20-second timeout — fall back to
-  // direct credential store on timeout.
-  const cesResult = await cesStartupPromise;
-  // startCesProcess() returns immediately — the actual handshake runs
-  // inside clientPromise. Await it (with a 20s timeout) so the CES client
-  // is available before provider initialization.
-  if (cesResult.clientPromise) {
-    const client = await awaitCesClientWithTimeout(cesResult.clientPromise, {
-      timeoutMs: DEFAULT_CES_STARTUP_TIMEOUT_MS,
-      onTimeout: () => {
-        log.warn(
-          "CES handshake timed out after 20s — falling back to direct credential store",
-        );
-      },
-    });
-    if (client) {
-      setCesClient(client);
-    } else {
-      // The handshake lost the startup race, so provider init proceeds on
-      // the direct credential store. Still inject the CES client into the
-      // resolver once the handshake completes, so CES tools and the
-      // approval bridge route through CES rather than reporting it
-      // unavailable for the rest of the process.
-      injectCesClientWhenReady(cesResult.clientPromise, {
-        getCesClient,
-        setCesClient,
-      });
-    }
-  }
-
-  // Register CES reconnection callback so the credential layer can
-  // re-establish the connection when the transport dies, instead of
-  // falling back to the encrypted file store.
-  if (cesResult.processManager) {
-    const pm = cesResult.processManager;
-
-    // Snapshot the managed-proxy context and assistant ID at CES startup
-    // so the reconnect closure below never calls back into
-    // `resolveManagedProxyContext()`. That function reads the assistant
-    // API key via `getSecureKeyAsync()`, which — once `setCesClient()`
-    // has resolved the backend to CES RPC — routes the read through CES
-    // itself. During a reconnect the old transport is dead and a new
-    // one is being set up by this very closure, so the nested credential
-    // read recursively awaits its own in-flight reconnection and
-    // deadlocks until `CREDENTIAL_OP_TIMEOUT_MS` (45s) fires. That
-    // 45-second stall delays every CES restart and causes dependent
-    // credential reads (e.g. Meet's STT provider resolution) to return
-    // `undefined` during the window. API key rotation uses the
-    // `updateAssistantApiKey` RPC on the live client, not a reconnect,
-    // so caching at startup is safe.
-    const startupProxyCtx = await resolveManagedProxyContext();
-    const startupAssistantId = getPlatformAssistantId();
-
-    setCesReconnect(async () => {
-      try {
-        await pm.stop();
-        const transport = await pm.start();
-        const newClient = createCesClient(transport);
-        const { accepted, reason } = await newClient.handshake({
-          ...(startupProxyCtx.assistantApiKey
-            ? { assistantApiKey: startupProxyCtx.assistantApiKey }
-            : {}),
-          ...(startupAssistantId ? { assistantId: startupAssistantId } : {}),
-        });
-        if (accepted) {
-          log.info("CES reconnection handshake accepted");
-          return newClient;
-        }
-        log.warn({ reason }, "CES reconnection handshake rejected");
-        newClient.close();
-        await pm.stop().catch(() => {});
-        return undefined;
-      } catch (err) {
-        log.warn(
-          { error: err instanceof Error ? err.message : String(err) },
-          "CES reconnection attempt failed",
-        );
-        await pm.stop().catch(() => {});
-        return undefined;
-      }
-    });
-  }
+  // Bring up the daemon's CES connection (process + handshake + reconnect
+  // wiring). Blocks up to a 20s timeout so credential reads route through CES
+  // before provider init; non-fatal — falls back to the direct credential store
+  // on failure. The sidecar accepts exactly one bootstrap connection, so this
+  // happens at the process level.
+  await startCes(config);
 
   // Bring up the plugin layer: install the runtime bridge, register the
   // first-party defaults, load user plugins, and run every plugin's
@@ -784,12 +585,6 @@ export async function runDaemon(): Promise<void> {
   // routes can begin accepting requests while Qdrant initializes.
   log.info("Daemon startup: starting DaemonServer");
   const server = new DaemonServer();
-  setCes(await cesStartupPromise);
-
-  // Keep the CES client ref in sync after reconnection so that secret routes
-  // and new conversations use the fresh client.
-  onCesClientChanged(updateCesClient);
-
   await server.start();
   log.info("Daemon startup: DaemonServer started");
 
@@ -1088,7 +883,6 @@ export async function runDaemon(): Promise<void> {
   // the running routes. They're module-level state, so they're effective
   // even when the HTTP server failed to bind (IPC clients still work).
   registerSecretsDeps({
-    getCesClient: getActiveCesClient,
     onProviderCredentialsChanged: () =>
       server.refreshConversationsForProviderChange(),
   });

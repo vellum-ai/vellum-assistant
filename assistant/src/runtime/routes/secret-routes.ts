@@ -21,6 +21,7 @@ import {
   getConfig,
   invalidateConfigCache,
 } from "../../config/loader.js";
+import { getCesClient } from "../../credential-execution/ces-runtime.js";
 import type { CesClient } from "../../credential-execution/client.js";
 import { maybeReseedCapabilitiesAfterManagedCredential } from "../../daemon/memory-v2-startup.js";
 import { setSentryOrganizationId, setSentryUserId } from "../../instrument.js";
@@ -303,8 +304,7 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
         void maybeReseedCapabilitiesAfterManagedCredential(getConfig());
         if (service === "vellum" && field === "assistant_api_key") {
           const generation = ++apiKeyGeneration;
-          const deps = getSecretsDeps();
-          const cesClient = deps?.getCesClient?.();
+          const cesClient = getCesClient();
           if (cesClient) {
             if (cesClient.isReady()) {
               try {
