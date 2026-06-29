@@ -88,6 +88,15 @@ function seedMany(count: number): string[] {
   return ids;
 }
 
+function seedAgent(id: string, agent: string) {
+  useAcpRunStore.getState().spawnRun({
+    acpSessionId: id,
+    agent,
+    parentConversationId: "conv-1",
+    startedAt: NOW,
+  });
+}
+
 describe("ActiveAcpRunsOverlay — empty", () => {
   test("renders nothing when acpRunIds is empty", () => {
     const { queryByTestId } = render(<ActiveAcpRunsOverlay acpRunIds={[]} />);
@@ -112,6 +121,38 @@ describe("ActiveAcpRunsOverlay — collapsed", () => {
     expect(screen.getByTestId("active-acp-runs-overlay").className).toContain(
       "pointer-events-none",
     );
+  });
+});
+
+describe("ActiveAcpRunsOverlay — pill agent marks", () => {
+  test("shows one agent brand mark per run while collapsed", () => {
+    const ids = seedMany(3);
+    const { getAllByTestId } = render(<ActiveAcpRunsOverlay acpRunIds={ids} />);
+    expect(getAllByTestId("acp-agent-icon-brand").length).toBe(3);
+  });
+
+  test("caps visible marks at six and shows a +N overflow", () => {
+    const ids = seedMany(8);
+    const { getAllByTestId, getByText } = render(
+      <ActiveAcpRunsOverlay acpRunIds={ids} />,
+    );
+    expect(getAllByTestId("acp-agent-icon-brand").length).toBe(6);
+    expect(getByText("+2")).toBeTruthy();
+  });
+
+  test("renders the correct brand mark per agent (claude vs codex)", () => {
+    act(() => {
+      seedAgent("acp-claude", "claude");
+      seedAgent("acp-codex", "gpt-5-codex");
+    });
+    const { getAllByTestId } = render(
+      <ActiveAcpRunsOverlay acpRunIds={["acp-claude", "acp-codex"]} />,
+    );
+    const srcs = getAllByTestId("acp-agent-icon-brand").map((el) =>
+      el.getAttribute("src"),
+    );
+    expect(srcs.some((s) => s?.includes("claude.svg"))).toBe(true);
+    expect(srcs.some((s) => s?.includes("chatgpt.svg"))).toBe(true);
   });
 });
 

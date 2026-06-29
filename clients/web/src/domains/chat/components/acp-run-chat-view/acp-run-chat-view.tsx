@@ -9,7 +9,14 @@
  * nested-diff selection in LOCAL state (not the viewer store).
  */
 
-import { ArrowDown, ArrowLeft, ChevronRight, Code, Send, Square, X } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowLeft,
+  ChevronRight,
+  Send,
+  Square,
+  X,
+} from "lucide-react";
 import { useCallback, useMemo, useState, type FormEvent } from "react";
 
 import { Button, Typography } from "@vellumai/design-library";
@@ -43,11 +50,9 @@ import { AcpUsageMeter } from "@/domains/chat/components/acp-run-chat-view/acp-u
 import { CommandOutputView } from "@/domains/chat/components/acp-run-chat-view/command-output-view";
 import { FileDiffView } from "@/domains/chat/components/acp-run-chat-view/file-diff-view";
 import { useStickToBottom } from "@/domains/chat/components/acp-run-chat-view/use-stick-to-bottom";
+import { AcpAgentIcon } from "@/domains/chat/components/acp-run-inline-card/acp-agent-icon";
 import { StatusBadgePill } from "@/domains/chat/components/status-badge-pill";
-import {
-  steerAcpRun,
-  stopAcpRun,
-} from "@/domains/chat/utils/acp-run-actions";
+import { steerAcpRun, stopAcpRun } from "@/domains/chat/utils/acp-run-actions";
 import {
   acpRunStatusColor,
   acpRunStatusLabel,
@@ -339,10 +344,7 @@ function ChatViewHeader({
           className="shrink-0 rounded-lg"
         />
       )}
-      <Code
-        aria-hidden
-        className="h-5 w-5 shrink-0 text-[var(--content-secondary)]"
-      />
+      <AcpAgentIcon agent={entry.agent} className="h-5 w-5 shrink-0" />
       <Typography
         variant="title-medium"
         title={entry.agent}

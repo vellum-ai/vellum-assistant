@@ -20,7 +20,13 @@ function brandSrc(agent: string): string | undefined {
   return undefined;
 }
 
-export function AcpAgentIcon({ agent }: { agent: string | undefined }) {
+export function AcpAgentIcon({
+  agent,
+  className = "h-4 w-4 shrink-0",
+}: {
+  agent: string | undefined;
+  className?: string;
+}) {
   const src = agent ? brandSrc(agent) : undefined;
   if (src) {
     return (
@@ -29,9 +35,14 @@ export function AcpAgentIcon({ agent }: { agent: string | undefined }) {
         alt=""
         aria-hidden
         data-testid="acp-agent-icon-brand"
-        className="h-4 w-4 shrink-0"
+        className={className}
       />
     );
   }
-  return <Code className="h-4 w-4 text-[var(--content-secondary)]" aria-hidden />;
+  return (
+    <Code
+      className={`${className} text-[var(--content-secondary)]`}
+      aria-hidden
+    />
+  );
 }
