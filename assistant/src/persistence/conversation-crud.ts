@@ -30,8 +30,6 @@ import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
 import { AUTO_ANALYSIS_SOURCE } from "../memory/auto-analysis-constants.js";
-import { ensureDisplayOrderMigration } from "../memory/conversation-display-order-migration.js";
-import { ensureGroupMigration } from "../memory/conversation-group-migration.js";
 import { forkGraphMemoryState } from "../memory/graph/graph-memory-state-store.js";
 import { indexMessageNow } from "../memory/indexer.js";
 import { MEMORY_RETROSPECTIVE_SOURCES } from "../memory/memory-retrospective-constants.js";
@@ -80,6 +78,8 @@ import {
   syncMessageToDisk,
   updateMetaFile,
 } from "./conversation-disk-view.js";
+import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
+import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import {
   type DrizzleDb,
