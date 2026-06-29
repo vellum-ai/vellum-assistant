@@ -146,5 +146,8 @@ describe("background bash lifecycle events", () => {
     expect(completed).toHaveLength(1);
     expect(completed[0]).toMatchObject({ id, status: "cancelled" });
     expect(completed[0]?.exitCode).toBeNull();
+    // Cancellation must not surface the "failed exit code null" framing.
+    expect(completed[0]?.output).toContain("cancelled");
+    expect(completed[0]?.output).not.toContain("failed");
   });
 });

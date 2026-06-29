@@ -441,7 +441,12 @@ export const shellTool = {
             conversationId: context.conversationId,
             status,
             exitCode: code ?? null,
-            output: fmtResult.content,
+            // A cancelled command exits with a null code, which formatShellOutput
+            // frames as "failed"; surface the cancellation instead.
+            output:
+              status === "cancelled"
+                ? `Background command cancelled (id=${bgId}).`
+                : fmtResult.content,
             completedAt: Date.now(),
           },
           context.conversationId,
