@@ -1,6 +1,5 @@
 import { existsSync, statSync } from "node:fs";
 
-import { rawAll, rawGet, rawRun } from "../memory/raw-query.js";
 import {
   attachFileBackedAttachmentToMessage,
   attachInlineAttachmentToMessage,
@@ -8,6 +7,7 @@ import {
   getAttachmentById,
   linkAttachmentToMessage,
 } from "../persistence/attachments-store.js";
+import { rawAll, rawGet, rawRun } from "../persistence/raw-query.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("live-voice-archive");

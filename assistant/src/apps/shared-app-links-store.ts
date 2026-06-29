@@ -9,8 +9,8 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { and, eq, isNull, lte, or } from "drizzle-orm";
 
 import type { AppManifest } from "../bundler/manifest.js";
-import { rawRun } from "../memory/raw-query.js";
 import { getDb } from "../persistence/db-connection.js";
+import { rawRun } from "../persistence/raw-query.js";
 import { sharedAppLinks } from "../persistence/schema/index.js";
 
 export interface SharedAppLinkRecord {

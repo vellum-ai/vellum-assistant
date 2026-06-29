@@ -26,6 +26,7 @@ import {
   hasActiveJobOfType,
   isMemoryEnabled,
 } from "../../persistence/jobs-store.js";
+import { rawAll, rawGet, rawRun } from "../../persistence/raw-query.js";
 import {
   conversations,
   memoryGraphNodes,
@@ -34,7 +35,6 @@ import {
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "../checkpoints.js";
-import { rawAll, rawGet, rawRun } from "../raw-query.js";
 import { runGraphExtraction } from "./extraction.js";
 import { countNodes } from "./store.js";
 

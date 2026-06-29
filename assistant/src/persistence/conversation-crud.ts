@@ -46,19 +46,19 @@ import { forkGraphMemoryState } from "../memory/graph/graph-memory-state-store.j
 import { indexMessageNow } from "../memory/indexer.js";
 import { MEMORY_RETROSPECTIVE_SOURCES } from "../memory/memory-retrospective-constants.js";
 import { forkRetrospectiveState } from "../memory/memory-retrospective-state.js";
-import {
-  rawExec,
-  rawGet,
-  rawLogsRun,
-  rawMemoryRun,
-  rawRun,
-} from "../memory/raw-query.js";
 import { cancelPendingJobsForConversation } from "../memory/task-memory-cleanup.js";
 import {
   forkActivationState,
   seedForkActivationState,
 } from "../memory/v2/activation-store.js";
 import { extractInjectedConceptSlugs } from "../memory/v2/injected-block-slugs.js";
+import {
+  rawExec,
+  rawGet,
+  rawLogsRun,
+  rawMemoryRun,
+  rawRun,
+} from "../persistence/raw-query.js";
 import {
   forkEverInjected,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,

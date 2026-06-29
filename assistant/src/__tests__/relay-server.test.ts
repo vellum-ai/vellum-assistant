@@ -417,11 +417,11 @@ import {
   resolveCanonicalGuardianRequest,
 } from "../contacts/canonical-guardian-store.js";
 import { upsertContact } from "../contacts/contact-store.js";
-import { resetTestTables } from "../memory/raw-query.js";
 import { addMessage, getMessages } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { createInvite } from "../persistence/invite-store.js";
+import { resetTestTables } from "../persistence/raw-query.js";
 import { conversations } from "../persistence/schema/index.js";
 import {
   createOutboundSession,

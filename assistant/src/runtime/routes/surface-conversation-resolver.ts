@@ -20,7 +20,7 @@ import {
   findConversationBySurfaceId,
 } from "../../daemon/conversation-registry.js";
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
-import { rawGet } from "../../memory/raw-query.js";
+import { rawGet } from "../../persistence/raw-query.js";
 
 /**
  * Resolve the {@link Conversation} that owns the given surface.

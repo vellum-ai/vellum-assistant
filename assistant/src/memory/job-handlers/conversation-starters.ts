@@ -27,6 +27,7 @@ import {
 import { getDb } from "../../persistence/db-connection.js";
 import { asString } from "../../persistence/job-utils.js";
 import type { MemoryJob } from "../../persistence/jobs-store.js";
+import { rawAll } from "../../persistence/raw-query.js";
 import {
   conversationStarters,
   memoryGraphNodes,
@@ -40,7 +41,6 @@ import {
 } from "../../providers/provider-send-message.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
-import { rawAll } from "../raw-query.js";
 
 const log = getLogger("conversation-starters-gen");
 

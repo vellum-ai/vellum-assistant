@@ -1,5 +1,5 @@
+import { rawAll, rawGet } from "../persistence/raw-query.js";
 import type { MemoryV2ConceptRowRecord } from "./memory-v2-activation-log-store.js";
-import { rawAll, rawGet } from "./raw-query.js";
 import { listPages } from "./v2/page-store.js";
 
 type ConceptStatus = MemoryV2ConceptRowRecord["status"];

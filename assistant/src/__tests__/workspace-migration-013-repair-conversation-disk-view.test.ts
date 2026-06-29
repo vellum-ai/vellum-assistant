@@ -40,9 +40,9 @@ mock.module("../config/loader.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { getConversationDirPath } from "../memory/conversation-disk-view.js";
-import { rawRun } from "../memory/raw-query.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { rawRun } from "../persistence/raw-query.js";
 import {
   attachments,
   conversations,

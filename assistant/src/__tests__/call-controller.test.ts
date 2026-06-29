@@ -270,10 +270,10 @@ import {
   getCanonicalGuardianRequest,
   getPendingCanonicalRequestByCallSessionId,
 } from "../contacts/canonical-guardian-store.js";
-import { resetTestTables } from "../memory/raw-query.js";
 import { getMessages } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { resetTestTables } from "../persistence/raw-query.js";
 import { conversations } from "../persistence/schema/index.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
