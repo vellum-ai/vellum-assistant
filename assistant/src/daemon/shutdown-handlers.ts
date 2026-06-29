@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/node";
 
+import { disposeAcpSessionManager } from "../acp/index.js";
 import { stopCes } from "../credential-execution/ces-runtime.js";
 import { stopFilingService } from "../filing/filing-service.js";
 import { stopHeartbeatService } from "../heartbeat/heartbeat-service.js";
@@ -100,6 +101,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     }
 
     await deps.server.stop();
+    disposeAcpSessionManager();
     stopConversationEvictor();
     stopConfigWatcher();
     stopAppSourceWatcher();
