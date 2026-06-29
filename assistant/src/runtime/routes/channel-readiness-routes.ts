@@ -7,7 +7,7 @@
 
 import { z } from "zod";
 
-import type { ChannelId } from "../../channels/types.js";
+import { CHANNEL_IDS, type ChannelId } from "../../channels/types.js";
 import { getReadinessService } from "../../daemon/handlers/config-channels.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
@@ -92,7 +92,7 @@ const readinessCheckSchema = z.object({
 });
 
 const readinessSnapshotSchema = z.object({
-  channel: z.string(),
+  channel: z.enum(CHANNEL_IDS),
   ready: z.boolean(),
   setupStatus: z.string().nullable().optional(),
   checkedAt: z.number().nullable().optional(),
@@ -152,7 +152,7 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["channels"],
     handler: handleRefreshChannelReadiness,
     requestBody: z.object({
-      channel: z.string().describe("Optional channel ID to refresh"),
+      channel: z.enum(CHANNEL_IDS).describe("Optional channel ID to refresh"),
       includeRemote: z
         .boolean()
         .describe("Include remote checks (default true)"),
