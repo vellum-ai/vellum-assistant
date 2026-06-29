@@ -33,10 +33,14 @@ interface InstalledResult {
 // drive the catalog query into its failure (degrade-to-installed) branch.
 let installedResult: InstalledResult;
 let catalogResult: PluginsSearchGetResponse | Error;
+// When set, the catalog mock awaits this gate before resolving — lets a test
+// hold the catalog query pending while the installed query resolves.
+let catalogGate: Promise<unknown> | null = null;
 
 const sdkActual = await import("@/generated/daemon/sdk.gen");
 const pluginsGetSpy = mock(async () => installedResult);
 const pluginsSearchGetSpy = mock(async () => {
+  if (catalogGate) await catalogGate;
   if (catalogResult instanceof Error) throw catalogResult;
   return { data: catalogResult };
 });
@@ -92,6 +96,7 @@ function renderPluginsList() {
 beforeEach(() => {
   installedResult = installedOk([]);
   catalogResult = catalogOk([]);
+  catalogGate = null;
   pluginsGetSpy.mockClear();
   pluginsSearchGetSpy.mockClear();
 });
@@ -113,7 +118,7 @@ describe("usePluginsList", () => {
 
     const { result } = renderPluginsList();
 
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    await waitFor(() => expect(result.current.items).toHaveLength(4));
 
     // Installed first (alphabetical), then available (alphabetical).
     expect(result.current.items.map((p) => p.name)).toEqual([
@@ -138,7 +143,7 @@ describe("usePluginsList", () => {
 
     const { result } = renderPluginsList();
 
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    await waitFor(() => expect(result.current.items).toHaveLength(2));
 
     expect(result.current.items.map((p) => p.name)).toEqual(["dup", "fresh"]);
     expect(result.current.items.find((p) => p.name === "dup")?.status).toBe(
@@ -152,13 +157,36 @@ describe("usePluginsList", () => {
 
     const { result } = renderPluginsList();
 
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
 
     // Only the catalog entry survives; installed is empty, not errored.
     expect(result.current.items.map((p) => p.name)).toEqual(["alpha"]);
     expect(result.current.items[0]?.status).toBe("available");
     expect(result.current.isError).toBe(false);
     expect(result.current.catalogError).toBe(false);
+  });
+
+  test("installed plugins render while the catalog is still loading", async () => {
+    let releaseCatalog: () => void = () => {};
+    catalogGate = new Promise<void>((resolve) => {
+      releaseCatalog = resolve;
+    });
+    installedResult = installedOk([installed({ id: "alpha", name: "alpha" })]);
+    catalogResult = catalogOk([match({ name: "beta" })]);
+
+    const { result } = renderPluginsList();
+
+    // Installed resolves first: the list is no longer "loading" and shows the
+    // installed plugin even though the catalog query is still pending.
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.catalogLoading).toBe(true);
+    expect(result.current.items[0]?.name).toBe("alpha");
+
+    // Once the catalog resolves, the available entry joins the list.
+    releaseCatalog();
+    await waitFor(() => expect(result.current.catalogLoading).toBe(false));
+    expect(result.current.items.map((p) => p.name)).toEqual(["alpha", "beta"]);
   });
 
   test("non-404 installed failure is fatal (isError)", async () => {
