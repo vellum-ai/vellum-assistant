@@ -69,12 +69,12 @@ mock.module("../daemon/approval-generators.js", () => ({
   createApprovalConversationGenerator: () => _testApprovalConversationGenerator,
 }));
 
-import type { Conversation } from "../daemon/conversation.js";
 import {
   createCanonicalGuardianDelivery,
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
-} from "../memory/canonical-guardian-store.js";
+} from "../contacts/canonical-guardian-store.js";
+import type { Conversation } from "../daemon/conversation.js";
 import { resetTestTables } from "../memory/raw-query.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";

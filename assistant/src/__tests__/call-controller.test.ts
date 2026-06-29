@@ -269,7 +269,7 @@ import { loadConfig } from "../config/loader.js";
 import {
   getCanonicalGuardianRequest,
   getPendingCanonicalRequestByCallSessionId,
-} from "../memory/canonical-guardian-store.js";
+} from "../contacts/canonical-guardian-store.js";
 import { resetTestTables } from "../memory/raw-query.js";
 import { getMessages } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";

@@ -18,6 +18,7 @@ import { loadConfig, mergeDefaultWorkspaceConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
 import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
 import { reconcileFlagGatedProfiles } from "../config/sync-gated-profiles.js";
+import { expireAllPendingCanonicalRequests } from "../contacts/canonical-guardian-store.js";
 import {
   getCesClient as getActiveCesClient,
   setCes,
@@ -41,7 +42,6 @@ import { startHeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
-import { expireAllPendingCanonicalRequests } from "../memory/canonical-guardian-store.js";
 import { registerMemoryJobHandlers } from "../memory/register-job-handlers.js";
 import { rotateToolInvocations } from "../memory/tool-usage-store.js";
 import { sweepConceptPageFrontmatter } from "../memory/v2/frontmatter-sweep.js";

@@ -9,15 +9,15 @@
  */
 
 import { loadConfig } from "../config/loader.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
-import type { TrustContext } from "../daemon/trust-context.js";
-import { getPublicBaseUrl } from "../inbound/public-ingress-urls.js";
 import {
   expireCanonicalGuardianRequest,
   getCanonicalRequestByPendingQuestionId,
   getPendingCanonicalRequestByCallSessionId,
   listCanonicalGuardianDeliveries,
-} from "../memory/canonical-guardian-store.js";
+} from "../contacts/canonical-guardian-store.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { TrustContext } from "../daemon/trust-context.js";
+import { getPublicBaseUrl } from "../inbound/public-ingress-urls.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";

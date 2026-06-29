@@ -26,6 +26,11 @@ import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-fl
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
 import {
+  listCanonicalGuardianRequests,
+  listPendingRequestsByConversationScope,
+  resolveCanonicalGuardianRequest,
+} from "../../contacts/canonical-guardian-store.js";
+import {
   mergeConsecutiveAssistantMessages,
   mergeToolResultsIntoAssistantMessages,
 } from "../../conversations/message-consolidation.js";
@@ -76,11 +81,6 @@ import {
   writeRelationshipState,
 } from "../../home/relationship-state-writer.js";
 import { ipcCall } from "../../ipc/gateway-client.js";
-import {
-  listCanonicalGuardianRequests,
-  listPendingRequestsByConversationScope,
-  resolveCanonicalGuardianRequest,
-} from "../../memory/canonical-guardian-store.js";
 import {
   getConversationByKey,
   getOrCreateConversation,

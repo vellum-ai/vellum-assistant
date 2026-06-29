@@ -27,7 +27,7 @@ import {
   createCanonicalGuardianRequest,
   getPendingCanonicalRequestByDestinationMessage,
   listCanonicalGuardianDeliveries,
-} from "../memory/canonical-guardian-store.js";
+} from "../contacts/canonical-guardian-store.js";
 import {
   recordApprovalCardDelivery,
   recordGuardianRequestDeliveries,

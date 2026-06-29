@@ -110,7 +110,7 @@ mock.module("../runtime/guardian-reply-router.js", () => ({
   }),
 }));
 
-mock.module("../memory/canonical-guardian-store.js", () => ({
+mock.module("../contacts/canonical-guardian-store.js", () => ({
   createCanonicalGuardianRequest: () => ({
     id: "canonical-id",
     requestCode: "ABC123",
@@ -422,7 +422,9 @@ describe("handleSendMessage slash command interception", () => {
     const { conversation } = makeConversation();
     const drainQueue = mock(async () => {});
     (
-      conversation as unknown as { drainQueue: () => Promise<void> }
+      conversation as unknown as {
+        drainQueue: () => Promise<void>;
+      }
     ).drainQueue = drainQueue;
 
     // Force the user-message persist (the first addMessage in the /compact

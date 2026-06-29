@@ -260,7 +260,7 @@ mock.module("../memory/app-git-service.js", () => ({
   commitAppTurnChanges: async () => {},
 }));
 
-mock.module("../memory/canonical-guardian-store.js", () => ({
+mock.module("../contacts/canonical-guardian-store.js", () => ({
   listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
   listCanonicalGuardianRequests: () => [],
   listPendingRequestsByConversationScope: () => [],

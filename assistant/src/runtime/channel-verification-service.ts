@@ -15,6 +15,11 @@ import {
   getGuardianDeliveryFresh,
   guardianForChannel,
 } from "../contacts/guardian-delivery-reader.js";
+import {
+  getRateLimit,
+  recordInvalidAttempt,
+  resetRateLimit,
+} from "../contacts/guardian-rate-limits.js";
 import type {
   GuardianBinding,
   IdentityBindingStatus,
@@ -37,11 +42,6 @@ import {
   updateSessionDelivery as storeUpdateSessionDelivery,
   updateSessionStatus as storeUpdateSessionStatus,
 } from "../memory/channel-verification-sessions.js";
-import {
-  getRateLimit,
-  recordInvalidAttempt,
-  resetRateLimit,
-} from "../memory/guardian-rate-limits.js";
 import { composeApprovalMessage } from "./approval-message-composer.js";
 
 // ---------------------------------------------------------------------------

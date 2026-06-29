@@ -58,7 +58,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../memory/canonical-guardian-store.js", () => ({
+mock.module("../contacts/canonical-guardian-store.js", () => ({
   listPendingRequestsByConversationScope: () => [],
 }));
 
