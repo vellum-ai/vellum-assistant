@@ -385,8 +385,8 @@ async function main(): Promise<void> {
   log.info("CES local startup: migrations complete");
 
   // Build the handler registry with all available RPC implementations.
-  // The server's per-connection SessionContext carries the handshake session
-  // ID; handlers read it at call time so audit records capture it.
+  // The handshake session ID is captured per connection in the server's
+  // SessionContext; handlers read it at call time for audit records.
   const handlers = buildHandlers(secureKeyBackend);
 
   const rpcLog = getLogger("rpc");
@@ -400,6 +400,9 @@ async function main(): Promise<void> {
       error: (msg: string, ...args: unknown[]) => rpcLog.error({ args }, msg),
     },
     signal: controller.signal,
+    // Local mode reads API keys from env/store directly — no-op handler so
+    // update_managed_credential is still registered and returns success.
+    onApiKeyUpdate: () => {},
   });
 
   await server.serve();

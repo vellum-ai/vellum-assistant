@@ -80,8 +80,8 @@ export interface HttpExecutorDeps {
   managedMaterializerOptions?: ManagedMaterializerOptions;
   /** Audit store for persisting token-free audit records. */
   auditStore: AuditStore;
-  /** Session ID for audit records, taken from the calling connection's SessionContext at dispatch time. */
-  sessionId: string;
+  /** Session ID for audit records, injected per call from the calling connection's SessionContext. */
+  sessionId?: string;
   /** Optional custom fetch implementation (for testing). */
   fetch?: typeof globalThis.fetch;
   /** Optional logger. */
@@ -184,7 +184,7 @@ export async function executeAuthenticatedHttpRequest(
     const audit = generateHttpAuditSummary({
       credentialHandle: request.credentialHandle,
       grantId,
-      sessionId: deps.sessionId,
+      sessionId: deps.sessionId ?? "unknown",
       method: request.method,
       url: request.url,
       success: false,
@@ -234,7 +234,7 @@ export async function executeAuthenticatedHttpRequest(
     const audit = generateHttpAuditSummary({
       credentialHandle: request.credentialHandle,
       grantId,
-      sessionId: deps.sessionId,
+      sessionId: deps.sessionId ?? "unknown",
       method: request.method,
       url: request.url,
       success: false,
@@ -260,7 +260,7 @@ export async function executeAuthenticatedHttpRequest(
   const audit = generateHttpAuditSummary({
     credentialHandle: request.credentialHandle,
     grantId,
-    sessionId: deps.sessionId,
+    sessionId: deps.sessionId ?? "unknown",
     method: request.method,
     url: request.url,
     success: true,

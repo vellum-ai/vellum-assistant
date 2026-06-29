@@ -1351,7 +1351,7 @@ describe("server — run_authenticated_command handler", () => {
         command: "",
         purpose: "Test empty command",
       },
-      { sessionId: "test-session", assistantApiKey: "", assistantId: "" },
+      { sessionId: "test-session" },
     );
 
     expect(response.success).toBe(false);
@@ -1375,7 +1375,7 @@ describe("server — run_authenticated_command handler", () => {
         command: "just-a-plain-command --with-args",
         purpose: "Test plain command",
       },
-      { sessionId: "test-session", assistantApiKey: "", assistantId: "" },
+      { sessionId: "test-session" },
     );
 
     expect(response.success).toBe(false);
@@ -1400,7 +1400,7 @@ describe("server — run_authenticated_command handler", () => {
         command: `${"a".repeat(64)}/list api /repos --method GET`,
         purpose: "Test command parsing",
       },
-      { sessionId: "test-session", assistantApiKey: "", assistantId: "" },
+      { sessionId: "test-session" },
     );
 
     // Should fail at bundle resolution, not at command parsing
