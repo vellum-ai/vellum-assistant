@@ -14,6 +14,7 @@ import { stopMemoryJobsWorker } from "../persistence/jobs-worker.js";
 import { stopMemoryWorkerProcess } from "../persistence/worker-control.js";
 import { stopRuntimeHttpServer } from "../runtime/http-server.js";
 import { stopScheduler } from "../schedule/scheduler.js";
+import { getSubagentManager } from "../subagent/index.js";
 import { stopUsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { browserManager } from "../tools/browser/browser-manager.js";
 import { cleanupShellOutputTempFiles } from "../tools/shared/shell-output.js";
@@ -31,7 +32,6 @@ import { cleanupPidFile } from "./daemon-control.js";
 import { stopEventLoopWatchdog } from "./event-loop-watchdog.js";
 import { stopDiskPressureGuardForLifecycle } from "./lifecycle.js";
 import { stopOrphanReaper } from "./orphan-reaper.js";
-import type { DaemonServer } from "./server.js";
 import { runShutdownHooks } from "./shutdown-registry.js";
 
 const log = getLogger("lifecycle");
@@ -49,11 +49,7 @@ function stopBackgroundServicesAndCleanupPidFile(): void {
   cleanupPidFile();
 }
 
-export interface ShutdownDeps {
-  server: DaemonServer;
-}
-
-export function installShutdownHandlers(deps: ShutdownDeps): void {
+export function installShutdownHandlers(): void {
   let shuttingDown = false;
   let exitCode = 0;
 
@@ -100,7 +96,8 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
       log.warn({ err, phase: "pre_stop" }, "Shutdown workspace commit failed");
     }
 
-    await deps.server.stop();
+    // Abort all running subagents and tear down conversation-related state.
+    getSubagentManager().disposeAll();
     disposeAcpSessionManager();
     stopConversationEvictor();
     stopConfigWatcher();
@@ -110,8 +107,9 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     stopConversations();
     await stopCes();
 
-    // Final commit sweep: catch any writes that occurred during server.stop()
-    // (e.g. in-flight tool executions completing during drain).
+    // Final commit sweep: catch any writes that occurred during the
+    // subagent/conversation teardown (e.g. in-flight tool executions
+    // completing during drain).
     try {
       log.info({ phase: "post_stop" }, "Final workspace commit sweep");
       await commitAllPendingWorkspaceChanges();

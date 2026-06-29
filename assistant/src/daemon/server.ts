@@ -6,7 +6,6 @@ import { syncIdentityNameToPlatform } from "../platform/sync-identity.js";
 import { initializeProviders } from "../providers/registry.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getSigningKeyFingerprint } from "../runtime/auth/token-service.js";
-import { getSubagentManager } from "../subagent/index.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
 import { Conversation } from "./conversation.js";
@@ -56,12 +55,6 @@ export class DaemonServer {
     this.syncIdentityToPlatform();
 
     log.info("DaemonServer started (HTTP-only mode)");
-  }
-
-  async stop(): Promise<void> {
-    getSubagentManager().disposeAll();
-
-    log.info("Daemon server stopped");
   }
 
   // ── Conversation management ──────────────────────────────────────────────
