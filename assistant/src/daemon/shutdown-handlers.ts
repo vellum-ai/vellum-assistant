@@ -3,6 +3,7 @@ import * as Sentry from "@sentry/node";
 import { stopCes } from "../credential-execution/ces-runtime.js";
 import { stopFilingService } from "../filing/filing-service.js";
 import { stopHeartbeatService } from "../heartbeat/heartbeat-service.js";
+import { stopCliIpcServer } from "../ipc/assistant-server.js";
 import { stopGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
 import { stopSkillIpcServer } from "../ipc/skill-server.js";
 import { stopMcpServerManager } from "../mcp/manager.js";
@@ -96,6 +97,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     }
 
     await deps.server.stop();
+    stopCliIpcServer();
     stopSkillIpcServer();
     stopConversations();
     await stopCes();
