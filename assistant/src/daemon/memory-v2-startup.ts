@@ -176,6 +176,23 @@ export async function maybeReseedCapabilitiesAfterManagedCredential(
     ),
   );
 
+  // The managed credential has just landed, so the embedding backend is now
+  // reachable. Retry the embedding-identity reconcile to close the
+  // fresh-platform-install-booted-with-Gemini-down case: the first boot defers
+  // (degraded) because the backend probe returns null, and this credential-
+  // arrival retry commits the collection dimension once the backend answers.
+  // Contained so a reconcile failure never rejects the detached caller.
+  try {
+    const { reconcileEmbeddingIdentity } =
+      await import("./embedding-reconcile.js");
+    await reconcileEmbeddingIdentity(config);
+  } catch (err) {
+    log.warn(
+      { err },
+      "Embedding-identity reconcile after managed proxy credential update threw — continuing",
+    );
+  }
+
   // When v3 is live, a maintain pass embeds the freshly-seeded capability rows
   // into `memory_v3_sections` and invalidates the lanes so v3 surfaces the
   // skill/CLI pages within seconds instead of waiting out the 6h backstop.

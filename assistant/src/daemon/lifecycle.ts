@@ -104,6 +104,7 @@ import {
   startDiskPressureGuard,
   stopDiskPressureGuard,
 } from "./disk-pressure-guard.js";
+import { reconcileEmbeddingIdentity } from "./embedding-reconcile.js";
 import { startEventLoopWatchdog } from "./event-loop-watchdog.js";
 import { initializePlugins } from "./external-plugins-bootstrap.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
@@ -730,6 +731,20 @@ export async function runDaemon(): Promise<void> {
             "Qdrant client initialization failed — memory features will be degraded",
           );
         }
+      }
+
+      // Reconcile the committed embedding-collection dimension against a live
+      // backend probe (confirm-before-destroy) before the v2 rebuild and the
+      // worker drain, so `memory.qdrant.vectorSize` is settled first. Its own
+      // try/catch keeps an unreachable backend or reconcile failure from
+      // blocking startup.
+      try {
+        await reconcileEmbeddingIdentity(config);
+      } catch (err) {
+        log.warn(
+          { err },
+          "Embedding-identity reconcile threw — continuing startup",
+        );
       }
 
       // Detect schema drift on the v2 concept-page collection (e.g.
