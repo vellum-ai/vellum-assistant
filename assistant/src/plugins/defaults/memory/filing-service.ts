@@ -1,8 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import type { LLMCallSite } from "@vellumai/plugin-api";
+
 import { getConfig } from "../../../config/loader.js";
-import type { LLMCallSite } from "../../../config/schemas/llm.js";
 import {
   checkDiskPressureBackgroundGate,
   diskPressureBackgroundSkipLogFields,
