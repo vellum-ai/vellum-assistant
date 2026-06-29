@@ -115,7 +115,8 @@
           "display-name": "Daily Briefing"
         }
       },
-      "compatibility": "Designed for Vellum personal assistants"
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-06-29T12:41:07.000Z"
     },
     {
       "id": "deploy-fullstack-vercel",
@@ -657,7 +658,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-25T11:56:53.000Z"
+      "updatedAt": "2026-06-27T16:12:58.000Z"
     },
     {
       "id": "public-ingress",
