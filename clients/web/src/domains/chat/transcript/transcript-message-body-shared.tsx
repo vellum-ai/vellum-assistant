@@ -345,6 +345,35 @@ export function extractBgIdFromResult(
 }
 
 /**
+ * Resolve the `bg-…` id for each backgrounded `bash`/`host_bash` tool call in
+ * `toolCalls`. Unlike the subagent/workflow/ACP triad there is no `byToolUseId`
+ * anchor — the id is carried only on the call's synchronous result, so each id
+ * resolves via {@link extractBgIdFromResult}. A foreground command or a call
+ * whose result hasn't landed resolves to nothing and is skipped.
+ *
+ * The caller owns the `claimed` Set so it persists across every invocation
+ * within a single message, stopping two non-consecutive background tool-call
+ * groups from both anchoring the same task id.
+ */
+export function resolveBackgroundTaskIds(
+  toolCalls: ChatMessageToolCall[],
+  claimed: Set<string>,
+): string[] {
+  const ids: string[] = [];
+
+  for (const tc of toolCalls) {
+    if (!isBackgroundBashCall(tc)) continue;
+    const id = extractBgIdFromResult(tc);
+    if (id && !claimed.has(id)) {
+      ids.push(id);
+      claimed.add(id);
+    }
+  }
+
+  return ids;
+}
+
+/**
  * The `acpSessionId` a single `acp_spawn` tool call resolves to — its
  * `byToolUseId` anchor (from the `acp_session_spawned` event), else the id
  * encoded in its result — or `null` when none is available (e.g. the call
