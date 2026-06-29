@@ -4,12 +4,12 @@
  * actions that reflect whether the plugin is installed and whether it has
  * drifted behind the marketplace pin. The back button invokes `onBack`.
  *
- * Unlike the retired route page, `PluginDetail` is callback-driven with no
- * routing, so there's no `MemoryRouter` or identity-store seeding here —
- * just the React Query cache pre-populated so the detail (and, for installed
- * copies, the drift inspect) queries resolve on mount instead of hitting the
- * network. Uses `@testing-library/react` (happy-dom) so the back-button
- * click can be exercised.
+ * `PluginDetail` is callback-driven with no routing, so there's no
+ * `MemoryRouter` or identity-store seeding here — just the React Query cache
+ * pre-populated so the detail (and, for installed copies, the drift inspect)
+ * queries resolve on mount instead of hitting the network. Uses
+ * `@testing-library/react` (happy-dom) so the back-button click can be
+ * exercised.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";

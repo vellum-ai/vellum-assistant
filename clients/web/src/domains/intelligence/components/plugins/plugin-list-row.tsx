@@ -2,7 +2,6 @@ import { ArrowDownToLine, ArrowUpCircle, Loader2, Trash2 } from "lucide-react";
 import type { KeyboardEvent } from "react";
 
 import { PluginIcon } from "@/domains/intelligence/components/plugins/plugin-icon";
-import { PluginOriginBadge } from "@/domains/intelligence/components/plugins/plugin-origin-badge";
 import { UpdateAvailableBadge } from "@/domains/intelligence/components/plugins/update-available-badge";
 import type { PluginListItem } from "@/domains/intelligence/plugins/types";
 import type { PluginDrift } from "@/domains/intelligence/use-plugin-drift";
@@ -24,11 +23,11 @@ interface PluginListRowProps {
 
 /**
  * Unified row for the Plugins tab, mirroring `SkillRow`: an emoji icon, the
- * name with version + origin/update badges, a description, and a single
- * trailing inline action chosen by status (Install for catalog entries,
- * Upgrade when an installed copy is behind the marketplace pin, otherwise
- * Remove). The whole row is a `role="button"` that fires `onSelect`; the
- * trailing action `stopPropagation`s so it never also selects the row.
+ * name with version + update badge, a description, and a single trailing
+ * inline action chosen by status (Install for catalog entries, Upgrade when an
+ * installed copy is behind the marketplace pin, otherwise Remove). The whole
+ * row is a `role="button"` that fires `onSelect`; the trailing action
+ * `stopPropagation`s so it never also selects the row.
  */
 export function PluginListRow({
   item,
@@ -80,7 +79,9 @@ export function PluginListRow({
                 v{item.version}
               </span>
             ) : null}
-            <PluginOriginBadge external={item.external} sourceHost={item.sourceHost} />
+            {/* No origin badge here: the installed-list endpoint carries no
+                source, so a list row can't tell Local from External. The detail
+                view derives origin from the plugin's own `source` instead. */}
             {updateAvailable ? <UpdateAvailableBadge /> : null}
           </div>
           <p

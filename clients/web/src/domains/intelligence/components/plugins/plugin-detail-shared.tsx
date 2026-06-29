@@ -9,6 +9,13 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
+import {
+    PLUGIN_INSTALL_ERROR,
+    PLUGIN_REMOVE_ERROR,
+    PLUGIN_UPGRADE_ERROR,
+    pluginRemoveConfirmMessage,
+    pluginRiskyUpgradeConfirmMessage,
+} from "@/domains/intelligence/plugins/constants";
 import { shortSha } from "@/domains/intelligence/plugins/use-plugin-detail";
 import type { PluginDrift } from "@/domains/intelligence/use-plugin-drift";
 import type { PluginsByNameGetResponse } from "@/generated/daemon/types.gen";
@@ -20,13 +27,11 @@ import { Button, ConfirmDialog } from "@vellumai/design-library";
  * metadata table, loading / error states, and the Install / Download / Upgrade
  * / Remove action set don't drift between them. These take props (plugin +
  * drift + callbacks) and render UI only — data fetching stays in the consuming
- * panel/page via `usePluginDetail`.
+ * panel via `usePluginDetail`.
  *
- * Consumers: the desktop in-tab detail (`plugin-detail.tsx`) and the mobile
- * detail overlay (`plugin-detail-mobile.tsx`, on a separate branch). Both place
- * these pieces in their own layout chrome, so the building blocks stay
- * layout-agnostic. (The route page `plugin-detail-page.tsx` is being retired in
- * favor of a redirect.)
+ * The desktop in-tab detail (`plugin-detail.tsx`) and the mobile detail overlay
+ * (`plugin-detail-mobile.tsx`) each place these pieces in their own layout
+ * chrome, so the building blocks stay layout-agnostic.
  */
 
 interface PluginDetailMetadataProps {
@@ -262,7 +267,7 @@ export function PluginDetailActions({
       <ConfirmDialog
         open={confirmingRemove}
         title="Remove plugin"
-        message={`Remove "${plugin.name}" from this assistant?`}
+        message={pluginRemoveConfirmMessage(plugin.name)}
         confirmLabel="Remove"
         destructive
         onConfirm={confirmRemove}
@@ -272,7 +277,7 @@ export function PluginDetailActions({
       <ConfirmDialog
         open={confirmingUpgrade}
         title="Upgrade plugin"
-        message={`"${plugin.name}" has local edits that will be overwritten by the upgrade. Continue?`}
+        message={pluginRiskyUpgradeConfirmMessage(plugin.name)}
         confirmLabel="Upgrade anyway"
         destructive
         onConfirm={confirmUpgrade}
@@ -310,8 +315,30 @@ export function PluginDetailError() {
   );
 }
 
-/** Inline banner for a failed install / remove / upgrade attempt. */
-export function PluginDetailActionError({ message }: { message: string }) {
+/**
+ * Inline banner for a failed install / remove / upgrade attempt. Derives the
+ * message from the three error flags so the desktop and mobile detail surfaces
+ * stay in lockstep. Render it only when one of the flags is set.
+ */
+export function PluginDetailActionError({
+  isInstallError,
+  isRemoveError,
+  isUpgradeError,
+}: {
+  isInstallError: boolean;
+  isRemoveError: boolean;
+  isUpgradeError: boolean;
+}) {
+  const message = isInstallError
+    ? PLUGIN_INSTALL_ERROR
+    : isRemoveError
+      ? PLUGIN_REMOVE_ERROR
+      : isUpgradeError
+        ? PLUGIN_UPGRADE_ERROR
+        : null;
+
+  if (!message) return null;
+
   return (
     <div
       className="mb-3 flex items-center gap-2 rounded px-3 py-2 text-body-small-default"

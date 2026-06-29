@@ -181,6 +181,20 @@ describe("PluginDetailMobile", () => {
     expect(getActionButton("Remove")).toBeTruthy();
   });
 
+  test("origin badge stays hidden until the plugin loads", () => {
+    // While loading there's no `source`, so the badge would mislabel the
+    // plugin as Local. It must not render until the plugin resolves.
+    hookState.plugin = null;
+    hookState.isLoading = true;
+
+    render(
+      <PluginDetailMobile assistantId="asst-1" name="test-plugin" onBack={() => {}} />,
+    );
+
+    expect(screen.queryByText("Local")).toBeNull();
+    expect(screen.queryByText("External")).toBeNull();
+  });
+
   test("update available: Upgrade and Remove are both reachable, plus the badge", () => {
     // Regression for Codex P2: an update must not hide the uninstall path. The
     // shared action set renders Upgrade *and* Remove together, so mobile users

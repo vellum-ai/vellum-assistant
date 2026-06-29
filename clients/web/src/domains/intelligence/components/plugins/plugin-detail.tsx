@@ -25,10 +25,10 @@ interface PluginDetailProps {
 
 /**
  * In-tab detail panel for a single plugin, mirroring the Skills tab's
- * `SkillDetail` chrome (a back-button header + a `Card` body). Unlike the
- * retired `PluginDetailPage`, this is callback-driven with no routing: the
- * parent owns selection and passes `onBack` to close the panel. Removal
- * closes via `usePluginDetail`'s `onRemoved` hook.
+ * `SkillDetail` chrome (a back-button header + a `Card` body). It is
+ * callback-driven with no routing: the parent owns selection and passes
+ * `onBack` to close the panel. Removal closes via `usePluginDetail`'s
+ * `onRemoved` hook.
  *
  * Renders the plugin's README plus the metadata we track (source, homepage,
  * license, contributed surfaces) and Install / Download / Upgrade / Remove
@@ -81,13 +81,9 @@ export function PluginDetail({ assistantId, name, onBack }: PluginDetailProps) {
 
       {(isInstallError || isRemoveError || isUpgradeError) && (
         <PluginDetailActionError
-          message={
-            isInstallError
-              ? "Failed to install plugin. Please try again."
-              : isRemoveError
-                ? "Failed to remove plugin. Please try again."
-                : "Failed to upgrade plugin. Please try again."
-          }
+          isInstallError={isInstallError}
+          isRemoveError={isRemoveError}
+          isUpgradeError={isUpgradeError}
         />
       )}
 

@@ -14,10 +14,19 @@ import { PluginDetail } from "@/domains/intelligence/components/plugins/plugin-d
 import { PluginDetailMobile } from "@/domains/intelligence/components/plugins/plugin-detail-mobile";
 import { FilterBar } from "@/domains/intelligence/components/plugins/plugin-filters";
 import { PluginListRow } from "@/domains/intelligence/components/plugins/plugin-list-row";
+import {
+    PLUGIN_INSTALL_ERROR,
+    PLUGIN_REMOVE_ERROR,
+    PLUGIN_UPGRADE_ERROR,
+    pluginRemoveConfirmMessage,
+    pluginRiskyUpgradeConfirmMessage,
+} from "@/domains/intelligence/plugins/constants";
+import { invalidatePluginQueries } from "@/domains/intelligence/plugins/invalidate-plugin-queries";
 import type {
     PluginFilter,
     PluginListItem,
 } from "@/domains/intelligence/plugins/types";
+import { shortSha } from "@/domains/intelligence/plugins/use-plugin-detail";
 import { usePluginsList } from "@/domains/intelligence/plugins/use-plugins-list";
 import {
     filterByStatus,
@@ -29,16 +38,13 @@ import {
     usePluginDrift,
 } from "@/domains/intelligence/use-plugin-drift";
 import {
-    pluginsByNameInspectGetQueryKey,
-    pluginsGetQueryKey,
-    pluginsSearchGetQueryKey,
     usePluginsByNameDeleteMutation,
     usePluginsByNameUpgradePostMutation,
     usePluginsInstallPostMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { getLocalBool, setLocalBool } from "@/utils/local-settings";
-import { Button, Card, ConfirmDialog } from "@vellumai/design-library";
+import { Button, Card, ConfirmDialog, toast } from "@vellumai/design-library";
 
 interface PluginsTabProps {
   assistantId: string;
@@ -86,26 +92,15 @@ export function PluginsTab({ assistantId, initialPluginName }: PluginsTabProps) 
     usePluginsList(assistantId);
 
   const invalidate = useCallback(
-    (name: string) => {
-      void queryClient.invalidateQueries({
-        queryKey: pluginsGetQueryKey({ path: { assistant_id: assistantId } }),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: pluginsSearchGetQueryKey({
-          path: { assistant_id: assistantId },
-        }),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: pluginsByNameInspectGetQueryKey({
-          path: { assistant_id: assistantId, name },
-        }),
-      });
-    },
+    (name: string) => invalidatePluginQueries(queryClient, assistantId, name),
     [assistantId, queryClient],
   );
 
   const installMutation = usePluginsInstallPostMutation({
     onMutate: (variables) => setInstallingName(variables.body.name),
+    onSuccess: (_data, variables) =>
+      toast.success(`Installed ${variables.body.name}`),
+    onError: () => toast.error(PLUGIN_INSTALL_ERROR),
     onSettled: (_data, _error, variables) => {
       setInstallingName(null);
       invalidate(variables.body.name);
@@ -114,6 +109,9 @@ export function PluginsTab({ assistantId, initialPluginName }: PluginsTabProps) 
 
   const removeMutation = usePluginsByNameDeleteMutation({
     onMutate: (variables) => setRemovingName(variables.path.name),
+    onSuccess: (_data, variables) =>
+      toast.success(`Removed ${variables.path.name}`),
+    onError: () => toast.error(PLUGIN_REMOVE_ERROR),
     onSettled: (_data, _error, variables) => {
       setRemovingName(null);
       invalidate(variables.path.name);
@@ -122,6 +120,13 @@ export function PluginsTab({ assistantId, initialPluginName }: PluginsTabProps) 
 
   const upgradeMutation = usePluginsByNameUpgradePostMutation({
     onMutate: (variables) => setUpgradingName(variables.path.name),
+    onSuccess: (result, variables) =>
+      toast.success(
+        result.outcome === "already-up-to-date"
+          ? `${variables.path.name} is already up to date`
+          : `Upgraded ${variables.path.name} to ${shortSha(result.toCommit)}`,
+      ),
+    onError: () => toast.error(PLUGIN_UPGRADE_ERROR),
     onSettled: (_data, _error, variables) => {
       setUpgradingName(null);
       invalidate(variables.path.name);
@@ -270,9 +275,7 @@ export function PluginsTab({ assistantId, initialPluginName }: PluginsTabProps) 
         open={pendingRemoval !== null}
         title="Remove plugin"
         message={
-          pendingRemoval
-            ? `Remove "${pendingRemoval.name}" from this assistant?`
-            : ""
+          pendingRemoval ? pluginRemoveConfirmMessage(pendingRemoval.name) : ""
         }
         confirmLabel="Remove"
         destructive
@@ -285,7 +288,7 @@ export function PluginsTab({ assistantId, initialPluginName }: PluginsTabProps) 
         title="Upgrade plugin"
         message={
           pendingUpgrade
-            ? `"${pendingUpgrade.name}" has local edits that upgrading will overwrite. Continue?`
+            ? pluginRiskyUpgradeConfirmMessage(pendingUpgrade.name)
             : ""
         }
         confirmLabel="Upgrade"
