@@ -4,8 +4,8 @@
  * path was moved to the gateway.
  */
 
+import type { GuardianBinding } from "../../channels/channel-verification-sessions.js";
 import { getContact } from "../../contacts/contact-store.js";
-import type { GuardianBinding } from "../../memory/channel-verification-sessions.js";
 import { ensureGuardianPersonaFile } from "../../prompts/persona-resolver.js";
 import { seedContactChannel } from "./seed-contact-channel.js";
 

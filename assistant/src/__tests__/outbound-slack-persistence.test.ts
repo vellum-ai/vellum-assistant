@@ -181,6 +181,7 @@ mock.module("../persistence/attachments-store.js", () => ({
 // ── Imports (after mocks) ──────────────────────────────────────────────────
 
 import type { AgentEvent } from "../agent/loop.js";
+import { clearThreadTs, setThreadTs } from "../channels/slack-thread-store.js";
 import type {
   EventHandlerDeps,
   EventHandlerState,
@@ -191,7 +192,6 @@ import {
   handleMessageComplete,
 } from "../daemon/conversation-agent-loop-handlers.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import { clearThreadTs, setThreadTs } from "../memory/slack-thread-store.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { deliverReplyViaCallback } from "../runtime/channel-reply-delivery.js";
 
