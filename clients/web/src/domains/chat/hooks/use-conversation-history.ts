@@ -177,6 +177,18 @@ export function useConversationHistory({
     recordLocalSeq(activeConversationId, latestPageSeq);
     anchorColdStartReplay(latestPageSeq);
 
+    // Client-sync cutover (shadow): seed the materialized snapshot from the
+    // committed history, replaying any buffered events that raced the fetch.
+    // Maintained in parallel with the cached-history ⊕ liveTurn render today;
+    // the render flip reads from it next. See `chat-session-store`.
+    useChatSessionStore.getState().seedSnapshot(activeConversationId, {
+      messages: pagination.messages,
+      seq: latestPageSeq,
+      hasMore: pagination.hasMore,
+      oldestTimestamp: pagination.oldestLoadedTimestamp,
+      oldestMessageId: pagination.latestPage?.oldestMessageId ?? null,
+    });
+
     setIsLoadingHistory(false);
     setTranscriptPagination({
       hasMore: pagination.hasMore,

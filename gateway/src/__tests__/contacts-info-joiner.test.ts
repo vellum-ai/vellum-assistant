@@ -440,3 +440,50 @@ describe("ContactStore.getContactWithInfo", () => {
     expect(result!.contactType).toBeNull();
   });
 });
+
+// ── ContactStore.getAclByContactIds ─────────────────────────────────────────
+
+describe("ContactStore.getAclByContactIds", () => {
+  test("empty input returns empty map (no query)", async () => {
+    const result = await new ContactStore().getAclByContactIds([]);
+    expect(result.size).toBe(0);
+  });
+
+  test("reads role + per-channel ACL from the gateway DB only", async () => {
+    seedGatewayContact({ id: "c1", role: "guardian" });
+    seedGatewayChannel({ id: "ch1", contactId: "c1", status: "active" });
+    seedGatewayChannel({ id: "ch2", contactId: "c1", status: "revoked" });
+    seedGatewayContact({ id: "c2", role: "contact" });
+    seedGatewayChannel({ id: "ch3", contactId: "c2", status: "blocked" });
+
+    const result = await new ContactStore().getAclByContactIds([
+      "c1",
+      "c2",
+      "c-missing",
+    ]);
+
+    expect(result.size).toBe(2);
+    expect(result.has("c-missing")).toBe(false);
+
+    const c1 = result.get("c1")!;
+    expect(c1.role).toBe("guardian");
+    expect(c1.channels.size).toBe(2);
+    expect(c1.channels.get("ch1")!.status).toBe("active");
+    expect(c1.channels.get("ch1")!.address).toBe("addr-ch1");
+    expect(c1.channels.get("ch2")!.status).toBe("revoked");
+
+    const c2 = result.get("c2")!;
+    expect(c2.role).toBe("contact");
+    expect(c2.channels.get("ch3")!.status).toBe("blocked");
+
+    // The assistant DB must NOT be consulted for ACL.
+    expect(fakeAssistantDb.queryCalls.length).toBe(0);
+  });
+
+  test("contact with no channels yields an empty channel map", async () => {
+    seedGatewayContact({ id: "c1", role: "contact" });
+
+    const result = await new ContactStore().getAclByContactIds(["c1"]);
+    expect(result.get("c1")!.channels.size).toBe(0);
+  });
+});

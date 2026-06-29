@@ -1607,6 +1607,114 @@ export async function handleMigrationImportFromGcs({ body }: RouteHandlerArgs) {
 // ---------------------------------------------------------------------------
 // Shared helpers for raw-bytes and URL paths
 // ---------------------------------------------------------------------------
+// Preflight-from-GCS: dry-run analysis using a signed GCS download URL
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /v1/migrations/preflight-from-gcs
+ *
+ * Dry-run import analysis using a signed GCS download URL.  Fetches the
+ * bundle from GCS, validates it, and returns the same preflight report as
+ * /v1/migrations/import-preflight — without writing anything to disk.
+ *
+ * This allows the CLI to run `vellum teleport --dry-run` against local and
+ * docker targets (which do not have a direct-upload preflight path like the
+ * platform does) by reusing the same GCS-mediated bundle it would use for
+ * a real import.
+ *
+ * Auth: Requires settings.write scope.
+ */
+export async function handleMigrationPreflightFromGcs({
+  body,
+}: RouteHandlerArgs) {
+  const parsed = z.object({ bundle_url: z.string().url() }).safeParse(body);
+  if (!parsed.success) {
+    throw new BadRequestError(
+      "Request body must be { bundle_url: string } with a valid URL",
+    );
+  }
+
+  const { bundle_url } = parsed.data;
+  const validated = validateGcsSignedUrl(bundle_url, urlValidatorOptions);
+  if (!validated.ok) {
+    log.warn(
+      { reason: validated.reason },
+      "Rejected preflight-from-gcs bundle URL",
+    );
+    throw new RouteError(
+      `Invalid bundle URL: ${validated.reason}`,
+      "invalid_bundle_url",
+      400,
+    );
+  }
+
+  let upstream: Response;
+  try {
+    upstream = await fetch(bundle_url, {
+      signal: AbortSignal.timeout(URL_FETCH_TIMEOUT_MS),
+      // Reject redirects: the URL was already validated against the GCS
+      // allowlist and we must not follow it to an arbitrary host.
+      redirect: "error",
+    });
+  } catch (err) {
+    log.error(
+      {
+        host: validated.host,
+        path: validated.path,
+        err: err instanceof Error ? err.message : String(err),
+      },
+      "Failed to fetch preflight-from-gcs bundle URL",
+    );
+    throw new InternalError(
+      `Failed to fetch bundle: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  if (!upstream.ok) {
+    log.error(
+      {
+        host: validated.host,
+        path: validated.path,
+        upstream_status: upstream.status,
+      },
+      "preflight-from-gcs bundle URL returned non-2xx",
+    );
+    throw new InternalError(
+      `Bundle URL returned ${upstream.status} — the signed URL may have expired.`,
+    );
+  }
+
+  const bytes = new Uint8Array(await upstream.arrayBuffer());
+  const validationResult = validateVBundle(bytes);
+
+  if (!validationResult.is_valid || !validationResult.manifest) {
+    return {
+      can_import: false,
+      validation: {
+        is_valid: false as const,
+        errors: validationResult.errors,
+      },
+    };
+  }
+
+  const pathResolver = new DefaultPathResolver(
+    getWorkspaceDir(),
+    getWorkspaceHooksDir(),
+  );
+
+  try {
+    return analyzeImport({ manifest: validationResult.manifest, pathResolver });
+  } catch (err) {
+    log.error({ err }, "Unexpected error during preflight-from-gcs analysis");
+    throw new InternalError(
+      err instanceof Error
+        ? err.message
+        : "Unexpected preflight-from-gcs error",
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 interface CredentialImportSummary {
   total: number;
@@ -2010,6 +2118,33 @@ export const ROUTES: RouteDefinition[] = [
       },
     },
     handler: handleMigrationImportFromGcs,
+  },
+  {
+    operationId: "migrations_preflightfromgcs_post",
+    endpoint: "migrations/preflight-from-gcs",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Dry-run import analysis from a signed GCS URL",
+    description:
+      "Fetch a .vbundle archive from a signed GCS download URL and return a preflight report — what would change if the bundle were imported — without writing anything to disk. Enables `vellum teleport --dry-run` against local and docker targets.",
+    tags: ["migrations"],
+    requestBody: z.object({
+      bundle_url: z
+        .string()
+        .url()
+        .describe("Signed GCS GET URL for the bundle."),
+    }),
+    responseBody: z.object({
+      can_import: z.boolean(),
+      summary: z.object({}).passthrough().optional(),
+      files: z.array(z.unknown()).optional(),
+      conflicts: z.array(z.unknown()).optional(),
+      validation: z.object({}).passthrough().optional(),
+    }),
+    handler: handleMigrationPreflightFromGcs,
   },
   {
     operationId: "migrations_jobs_by_job_id_get",

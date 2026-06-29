@@ -3,7 +3,9 @@ import * as Sentry from "@sentry/node";
 import { stopCes } from "../credential-execution/ces-runtime.js";
 import { stopFilingService } from "../filing/filing-service.js";
 import { stopHeartbeatService } from "../heartbeat/heartbeat-service.js";
+import { stopCliIpcServer } from "../ipc/assistant-server.js";
 import { stopGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
+import { stopSkillIpcServer } from "../ipc/skill-server.js";
 import { stopMcpServerManager } from "../mcp/manager.js";
 import { getSqlite, resetDb } from "../persistence/db-connection.js";
 import { stopQdrantManager } from "../persistence/embeddings/qdrant-manager.js";
@@ -20,6 +22,12 @@ import {
   commitAllPendingWorkspaceChanges,
   stopWorkspaceHeartbeatService,
 } from "../workspace/heartbeat-service.js";
+import { stopAppSourceWatcher } from "./app-source-watcher.js";
+import { stopConfigWatcher } from "./config-watcher.js";
+import {
+  stopConversationEvictor,
+  stopConversations,
+} from "./conversation-store.js";
 import { cleanupPidFile } from "./daemon-control.js";
 import { stopEventLoopWatchdog } from "./event-loop-watchdog.js";
 import { stopDiskPressureGuardForLifecycle } from "./lifecycle.js";
@@ -94,6 +102,12 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     }
 
     await deps.server.stop();
+    stopConversationEvictor();
+    stopConfigWatcher();
+    stopAppSourceWatcher();
+    stopCliIpcServer();
+    stopSkillIpcServer();
+    stopConversations();
     await stopCes();
 
     // Final commit sweep: catch any writes that occurred during server.stop()

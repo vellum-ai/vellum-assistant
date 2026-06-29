@@ -37,7 +37,6 @@ mock.module("../contacts/guardian-delivery-reader.js", () => ({
     fakeGuardianDelivery ? [fakeGuardianDelivery] : null,
   guardianForChannel: (list: { principalId?: string | null }[]) => list[0],
   invalidateGuardianDeliveryCache: () => {},
-  onContactChange: () => {},
 }));
 
 import { getDb } from "../persistence/db-connection.js";

@@ -5,7 +5,6 @@ import { MarkChannelRevokedIpcResponseSchema } from "@vellumai/gateway-client/ga
 
 import { startVerificationCall } from "../../calls/call-domain.js";
 import type { ChannelId } from "../../channels/types.js";
-import { emitContactChange } from "../../contacts/contact-events.js";
 import {
   findContactChannel,
   getChannelById,
@@ -16,6 +15,7 @@ import {
   getGuardianDelivery,
   guardianForChannel,
 } from "../../contacts/guardian-delivery-reader.js";
+import { notifyContactsChanged } from "../../contacts/notify-contacts-changed.js";
 import type { ContactChannel } from "../../contacts/types.js";
 import { ipcCallPersistent } from "../../ipc/gateway-client.js";
 import { getBindingByChannelChat } from "../../persistence/external-conversation-store.js";
@@ -267,7 +267,7 @@ export async function revokeVerificationForChannel(
       // so the later revokeGuardianBinding lookup (active-only) finds nothing
       // and won't fire the invalidation. Emit it here so open client views
       // stop showing the channel as active.
-      emitContactChange();
+      notifyContactsChanged();
     }
   }
 

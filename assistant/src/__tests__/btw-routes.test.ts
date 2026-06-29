@@ -103,7 +103,6 @@ mock.module("../daemon/conversation-store.js", () => ({
   conversationEntries: () => [][Symbol.iterator](),
   conversationIds: () => [][Symbol.iterator](),
   getConversationMap: () => new Map(),
-  initConversationLifecycle: () => {},
   registerConversationFactory: () => {},
   getOrCreateActiveConversation: mockGetOrCreateConversation,
   getConversationOptions: () => undefined,

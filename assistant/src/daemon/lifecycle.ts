@@ -20,7 +20,9 @@ import { startFilingService } from "../filing/filing-service.js";
 import { startHeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
+import { startCliIpcServer } from "../ipc/assistant-server.js";
 import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
+import { startSkillIpcServer } from "../ipc/skill-server.js";
 import { registerMemoryJobHandlers } from "../memory/register-job-handlers.js";
 import { sweepConceptPageFrontmatter } from "../memory/v2/frontmatter-sweep.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
@@ -62,7 +64,6 @@ import {
 import { startRuntimeHttpServer } from "../runtime/http-server.js";
 import { warmLocalGuardianPrincipalCache } from "../runtime/local-actor-identity.js";
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
-import { registerSecretsDeps } from "../runtime/routes/secrets-deps.js";
 import {
   publishConfigChanged,
   publishConversationListChanged,
@@ -90,7 +91,11 @@ import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/adaptive-t
 import { startWorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import { runWorkspaceMigrations } from "../workspace/migrations/runner.js";
+import { startAppSourceWatcher } from "./app-source-watcher.js";
+import { startConfigWatcher } from "./config-watcher.js";
+import { startConversationEvictor } from "./conversation-store.js";
 import { writePid } from "./daemon-control.js";
+import { setDbReady, setStartupComplete } from "./daemon-readiness.js";
 import {
   evaluateDiskPressureNow,
   startDiskPressureGuard,
@@ -266,15 +271,35 @@ export async function runDaemon(): Promise<void> {
   // depend on DB migrations having run (e.g. the inline-attachment-to-disk
   // backfill that populates attachment filePaths).
   //
-  // If DB initialization fails (e.g. a migration error), the daemon
-  // continues in a degraded state — DB-dependent features won't work but
-  // the HTTP server and config-based subsystems still start so the process
-  // remains reachable for health checks and diagnostics.
+  // The daemon continues in a degraded state on either DB failure mode:
+  // (a) initializeDb() throws (e.g. the DB can't be opened), or (b) the DB
+  // opens but one or more migrations failed (initializeDb resolves with
+  // migrationsOk:false rather than throwing, per the daemon-never-blocks
+  // philosophy). In both cases DB-dependent features won't work, but the
+  // HTTP server and config-based subsystems still start so the process
+  // remains reachable for diagnostics. The trivial /healthz and detailed
+  // /v1/health(z) endpoints still answer 200, but setDbReady(true) runs only
+  // when migrations all applied, so the readiness latch stays unset and
+  // /readyz reports not-ready (503) for the rest of the process lifetime.
+  // That 503 is intentional: a DB-broken daemon should fail readiness so it
+  // is not routed user traffic.
+  //
+  // The local `dbReady` and the module-level readiness latch intentionally
+  // diverge on the migration-failure path: `dbReady` stays true to allow the
+  // downstream best-effort seeding / workspace migrations, while the latch
+  // stays unset to keep /readyz 503.
   let dbReady = false;
   try {
-    await initializeDb();
+    const { migrationsOk } = await initializeDb();
     dbReady = true;
-    log.info("Daemon startup: DB initialized");
+    if (migrationsOk) {
+      setDbReady(true);
+      log.info("Daemon startup: DB initialized");
+    } else {
+      log.error(
+        "Daemon startup: DB opened but one or more migrations failed — /readyz will remain unready (degraded mode)",
+      );
+    }
   } catch (err) {
     log.error(
       { err },
@@ -588,6 +613,29 @@ export async function runDaemon(): Promise<void> {
   await server.start();
   log.info("Daemon startup: DaemonServer started");
 
+  // Start the idle/LRU/memory-pressure sweep over the in-memory conversation
+  // pool.
+  startConversationEvictor();
+
+  // Watch workspace files (config, prompts, skills, sounds, avatar) and react
+  // to changes: evict conversations so the next turn rebuilds against the new
+  // config, and broadcast the relevant resource-changed events to clients.
+  startConfigWatcher();
+
+  // Watch app source directories so edits recompile + refresh surfaces across
+  // all conversations.
+  startAppSourceWatcher();
+
+  // Start the CLI IPC server. Throws on EADDRINUSE to abort startup when another
+  // daemon already holds the socket, so this process never runs background jobs
+  // against the shared database as an unmanageable duplicate.
+  await startCliIpcServer();
+
+  // Start the skill IPC server so first-party skill processes can connect for
+  // host capabilities. The meet-host supervisor reads the live server from the
+  // skill-server singleton at dispatch time.
+  await startSkillIpcServer();
+
   // Warm the gateway guardian-delivery cache so the SSE eager-subscribe path
   // (sync, IO-free) resolves the local actor principal on the FIRST client
   // registration. Without this, a cold cache regresses host-proxy same-user
@@ -876,17 +924,6 @@ export async function runDaemon(): Promise<void> {
     },
   );
 
-  // Wire up the runtime HTTP server's deferred dependencies. The server
-  // itself was bound early in runDaemon (right after the auth signing key
-  // was loaded) so /healthz and /readyz already answer 200 OK; these
-  // registrations attach the live DaemonServer / CES / relay handlers to
-  // the running routes. They're module-level state, so they're effective
-  // even when the HTTP server failed to bind (IPC clients still work).
-  registerSecretsDeps({
-    onProviderCredentialsChanged: () =>
-      server.refreshConversationsForProviderChange(),
-  });
-
   // Fire-and-forget: Qdrant init and memory worker startup run concurrently
   // with the rest of daemon boot. Must run AFTER `startRuntimeHttpServer()`
   // so the analyze-deps singleton (populated inside `buildRouteTable()`) is
@@ -1149,6 +1186,12 @@ export async function runDaemon(): Promise<void> {
   startFilingService();
 
   installShutdownHandlers({ server });
+
+  // The critical startup await-chain has completed and the daemon can serve
+  // requests, so latch readiness before logging "Daemon started". Any fatal
+  // failure earlier in startup propagates out of runDaemon before this line,
+  // so the latch is never set on a failed start.
+  setStartupComplete();
 
   log.info(
     {

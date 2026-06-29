@@ -39,6 +39,19 @@ import {
   seedForkActivationState,
 } from "../memory/v2/activation-store.js";
 import { extractInjectedConceptSlugs } from "../memory/v2/injected-block-slugs.js";
+import { AUTO_ANALYSIS_SOURCE } from "../persistence/auto-analysis-constants.js";
+import {
+  projectAssistantMessage,
+  seedForkedConversationAttention,
+} from "../persistence/conversation-attention-store.js";
+import {
+  initConversationDir,
+  removeConversationDir,
+  syncMessageToDisk,
+  updateMetaFile,
+} from "../persistence/conversation-disk-view.js";
+import { ensureDisplayOrderMigration } from "../persistence/conversation-display-order-migration.js";
+import { ensureGroupMigration } from "../persistence/conversation-group-migration.js";
 import {
   rawExec,
   rawGet,
@@ -56,30 +69,20 @@ import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { UserError } from "../util/errors.js";
 import { safeParseRecord } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
+import { getLogsDbPath } from "../util/logs-db-path.js";
 import { getConversationsDir } from "../util/platform.js";
 import { createRowMapper } from "../util/row-mapper.js";
+import { withSqliteRetry, withSqliteRetrySync } from "../util/sqlite-retry.js";
 import {
   deleteOrphanAttachments,
   linkAttachmentToMessage,
 } from "./attachments-store.js";
-import { AUTO_ANALYSIS_SOURCE } from "./auto-analysis-constants.js";
 import {
   appendCompactionEvent,
   forkCompactionLedger,
   getLatestCompactionEventAtOrBefore,
 } from "./compaction-ledger-store.js";
-import {
-  projectAssistantMessage,
-  seedForkedConversationAttention,
-} from "./conversation-attention-store.js";
-import {
-  initConversationDir,
-  removeConversationDir,
-  syncMessageToDisk,
-  updateMetaFile,
-} from "./conversation-disk-view.js";
-import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
-import { ensureGroupMigration } from "./conversation-group-migration.js";
+import { deleteConversationRowsInBatches } from "./conversation-row-batch-delete.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import {
   type DrizzleDb,
@@ -455,11 +458,11 @@ async function insertMessageCore(
       ? metadata.userMessageChannel
       : null;
 
-  const MAX_RETRIES = 3;
-  let now!: number;
-  for (let attempt = 0; ; attempt++) {
-    now = monotonicNow();
-    try {
+  // The timestamp is recomputed each attempt so a late retry doesn't persist a
+  // stale `updatedAt`.
+  return withSqliteRetry(
+    (): InsertedMessage => {
+      const now = monotonicNow();
       const values = {
         id: messageId,
         conversationId,
@@ -545,35 +548,20 @@ async function insertMessageCore(
             .run();
         });
       }
-      break;
-    } catch (err) {
-      const errCode = (err as { code?: string }).code ?? "";
-      if (
-        attempt < MAX_RETRIES &&
-        (errCode.startsWith("SQLITE_BUSY") ||
-          errCode.startsWith("SQLITE_IOERR"))
-      ) {
-        log.warn(
-          { attempt, conversationId, code: errCode },
-          "insertMessageCore: transient SQLite error, retrying",
-        );
-        await Bun.sleep(50 * (attempt + 1));
-        continue;
-      }
-      throw err;
-    }
-  }
 
-  return {
-    id: messageId,
-    conversationId,
-    role,
-    content,
-    createdAt: now,
-    ...(metadataStr ? { metadata: metadataStr } : {}),
-    ...(clientMessageId ? { clientMessageId } : {}),
-    deduplicated: false,
-  };
+      return {
+        id: messageId,
+        conversationId,
+        role,
+        content,
+        createdAt: now,
+        ...(metadataStr ? { metadata: metadataStr } : {}),
+        ...(clientMessageId ? { clientMessageId } : {}),
+        deduplicated: false,
+      };
+    },
+    { op: "insertMessageCore", context: { conversationId } },
+  );
 }
 
 export function createConversation(
@@ -650,58 +638,26 @@ export function createConversation(
   // No explicit BEGIN/COMMIT here — callers that need atomicity (e.g.
   // forkConversation) wrap in their own transaction, and nesting raw BEGIN
   // inside Drizzle's db.transaction() would crash SQLite.
-  const MAX_RETRIES = 3;
-  for (let attempt = 0; ; attempt++) {
-    try {
-      db.insert(conversations).values(conversation).run();
-      break;
-    } catch (err) {
-      const code = (err as { code?: string }).code ?? "";
-      if (
-        attempt < MAX_RETRIES &&
-        (code.startsWith("SQLITE_BUSY") || code.startsWith("SQLITE_IOERR"))
-      ) {
-        log.warn(
-          { attempt, conversationId: id, code },
-          "createConversation: INSERT transient error, retrying",
-        );
-        Bun.sleepSync(50 * (attempt + 1));
-        continue;
-      }
-      throw err;
-    }
-  }
+  withSqliteRetrySync(
+    () => db.insert(conversations).values(conversation).run(),
+    { op: "createConversation.insert", context: { conversationId: id } },
+  );
 
   // group_id is NOT in the Drizzle schema (raw-query-only pattern).
   // Set via raw SQL after the INSERT succeeds.
   // Always set group_id — default to "system:all" when none provided.
   {
     const effectiveGroupId = groupId ?? "system:all";
-    for (let attempt = 0; ; attempt++) {
-      try {
+    withSqliteRetrySync(
+      () =>
         rawRun(
           "UPDATE conversations SET group_id = ?, is_pinned = ? WHERE id = ?",
           effectiveGroupId,
           effectiveGroupId === "system:pinned" ? 1 : 0,
           id,
-        );
-        break;
-      } catch (err) {
-        const code = (err as { code?: string }).code ?? "";
-        if (
-          attempt < MAX_RETRIES &&
-          (code.startsWith("SQLITE_BUSY") || code.startsWith("SQLITE_IOERR"))
-        ) {
-          log.warn(
-            { attempt, conversationId: id, code },
-            "createConversation: group_id UPDATE transient error, retrying",
-          );
-          Bun.sleepSync(50 * (attempt + 1));
-          continue;
-        }
-        throw err;
-      }
-    }
+        ),
+      { op: "createConversation.groupId", context: { conversationId: id } },
+    );
   }
 
   initConversationDir({ ...conversation, originChannel: null });
@@ -1568,6 +1524,112 @@ export function deleteConversation(id: string): DeletedMemoryIds {
   });
 
   // Remove the conversation's disk-view directory after the DB transaction
+  if (createdAtForDiskCleanup != null) {
+    removeConversationDir(id, createdAtForDiskCleanup);
+  }
+
+  return result;
+}
+
+/**
+ * Delete a conversation like {@link deleteConversation}, but move the bulk
+ * row deletes off the event loop in lock-friendly batches (see
+ * {@link deleteConversationRowsInBatches}). The synchronous variant runs each
+ * `DELETE` as one implicit transaction that holds the SQLite write lock for its
+ * full duration — fine for an interactive conversation, but a conversation that
+ * carries a full copy of a source's message history (e.g. a memory-retrospective
+ * GC target) has huge `messages` and `llm_request_logs` tables, so on a large
+ * database those single deletes peg the event loop and starve live user turns.
+ * This variant sends the two heavy tables (`messages` on the main DB,
+ * `llm_request_logs` on the logs DB) in chunks that each release the lock,
+ * while the cheap bookkeeping (non-cascading tables, segment embeddings, the
+ * conversation row) stays in-process.
+ *
+ * The `messages` batch enables `PRAGMA foreign_keys=ON` so the cascade
+ * (memory_segments, message_attachments, …) fires just as it does on the daemon
+ * connection. Segment ids are captured up front (before the cascade removes
+ * them) so the caller can still clean up the corresponding Qdrant vectors. A
+ * subprocess failure throws — any rows already deleted are gone, the
+ * conversation row remains, and the worker's orphan sweep is the backstop, so
+ * callers should treat this as best-effort like the synchronous variant.
+ */
+export async function deleteConversationGently(
+  id: string,
+): Promise<DeletedMemoryIds> {
+  const db = getDb();
+  const result: DeletedMemoryIds = {
+    segmentIds: [],
+    deletedSummaryIds: [],
+  };
+
+  // Capture createdAt before deletion — needed to resolve the conversation's
+  // disk-view directory path afterwards.
+  const convBeforeDelete = getConversation(id);
+  const createdAtForDiskCleanup = convBeforeDelete?.createdAt;
+
+  // Collect the linked memory segment ids before the message cascade removes
+  // them, so the caller can clean up the matching Qdrant vector entries.
+  result.segmentIds = db
+    .select({ id: memorySegments.id })
+    .from(memorySegments)
+    .where(eq(memorySegments.conversationId, id))
+    .all()
+    .map((r) => r.id);
+
+  // llm_request_logs lives in the dedicated logs connection, and each row is
+  // bulky, so drain it off the event loop in batches against the logs DB file.
+  const logsDel = await deleteConversationRowsInBatches({
+    conversationId: id,
+    table: "llm_request_logs",
+    dbPath: getLogsDbPath(),
+  });
+  if (!logsDel.ok) {
+    throw new Error(
+      `gentle conversation delete failed (llm_request_logs, ${logsDel.backend}): ${logsDel.error ?? "unknown"}`,
+    );
+  }
+
+  // Bulk message delete off the event loop, in lock-friendly batches. Cascades
+  // to memory_segments, message_attachments, bookmarks, channel_inbound_events.
+  const del = await deleteConversationRowsInBatches({
+    conversationId: id,
+    table: "messages",
+    enableForeignKeys: true,
+  });
+  if (!del.ok) {
+    throw new Error(
+      `gentle conversation delete failed (messages, ${del.backend}): ${del.error ?? "unknown"}`,
+    );
+  }
+
+  // Remaining cleanup is cheap (bounded, non-message tables) so it stays a
+  // single in-process transaction.
+  db.transaction((tx) => {
+    tx.delete(toolInvocations)
+      .where(eq(toolInvocations.conversationId, id))
+      .run();
+    tx.delete(skillLoadedEvents)
+      .where(eq(skillLoadedEvents.conversationId, id))
+      .run();
+
+    // Clean up segment embeddings (not FK-linked to segments, so the message
+    // cascade above did not remove them).
+    if (result.segmentIds.length > 0) {
+      tx.delete(memoryEmbeddings)
+        .where(
+          and(
+            eq(memoryEmbeddings.targetType, "segment"),
+            inArray(memoryEmbeddings.targetId, result.segmentIds),
+          ),
+        )
+        .run();
+    }
+
+    // Conversation row deletion cascades to remaining dependent tables.
+    tx.delete(conversations).where(eq(conversations.id, id)).run();
+  });
+
+  // Remove the conversation's disk-view directory after the DB transaction.
   if (createdAtForDiskCleanup != null) {
     removeConversationDir(id, createdAtForDiskCleanup);
   }

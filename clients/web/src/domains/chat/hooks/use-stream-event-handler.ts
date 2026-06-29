@@ -44,6 +44,7 @@ import {
   handleUISurfaceComplete,
 } from "@/domains/chat/utils/stream-handlers/surface-handlers";
 import {
+  handleToolUsePreviewStart,
   handleToolUseStart,
   handleToolResult,
   handleToolOutputChunk,
@@ -333,8 +334,11 @@ export function useStreamEventHandler(
         case "tool_result":
           handleToolResult(event, ctx);
           break;
-        // The optimistic pre-input affordance has no transcript treatment.
+        // Optimistic pre-input affordance: seed a running tool card the moment
+        // the call is recognized, so the user-perceived elapsed timer starts at
+        // first byte rather than after the input-streaming gap.
         case "tool_use_preview_start":
+          handleToolUsePreviewStart(event, ctx);
           break;
         // Incremental tool output (e.g. foreground bash stdout/stderr) is
         // buffered onto the matching tool call's live `streamedOutput` tail
