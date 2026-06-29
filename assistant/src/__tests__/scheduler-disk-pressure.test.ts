@@ -115,7 +115,7 @@ describe("scheduler disk pressure gate", () => {
 
   test("skips before claiming due schedules while disk pressure is locked", async () => {
     const dueAt = Date.now() - 10_000;
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Due reminder",
       message: "Do not fire while locked",
       mode: "notify",

@@ -18,6 +18,7 @@ import {
   messages as messagesTable,
 } from "../../persistence/schema/index.js";
 import { getLogger } from "../../util/logger.js";
+import { withSqliteRetry } from "../../util/sqlite-retry.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -119,7 +120,10 @@ async function handleConversationsImport({ body }: RouteHandlerArgs) {
       const { convCreatedAt, convUpdatedAt, messageTimestamps } =
         resolveTimestamps(conv, messages);
 
-      const conversation = createConversation(conv.title);
+      const conversation = await withSqliteRetry(
+        () => createConversation(conv.title),
+        { op: "conversationsImport.createConversation" },
+      );
 
       for (const msg of messages) {
         const contentStr =

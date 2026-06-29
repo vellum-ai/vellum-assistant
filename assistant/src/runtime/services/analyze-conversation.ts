@@ -36,6 +36,7 @@ import {
 } from "../../persistence/conversation-crud.js";
 import { resolveConversationId } from "../../persistence/conversation-key-store.js";
 import { getLogger } from "../../util/logger.js";
+import { withSqliteRetry } from "../../util/sqlite-retry.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
 import {
   buildAutoAnalysisPrompt,
@@ -162,9 +163,13 @@ export async function analyzeConversation(
   let stripTools: boolean;
 
   if (opts.trigger === "manual") {
-    const newConv = createConversation({
-      title: `Analysis: ${conversation.title ?? "Untitled"}`,
-    });
+    const newConv = await withSqliteRetry(
+      () =>
+        createConversation({
+          title: `Analysis: ${conversation.title ?? "Untitled"}`,
+        }),
+      { op: "analyzeConversation.manual" },
+    );
     analysisConversationId = newConv.id;
     prompt = buildManualAnalysisPrompt(transcript);
     trustClass = "unknown";
@@ -179,12 +184,16 @@ export async function analyzeConversation(
       // do not appear in the default `system:all` list rendered by clients
       // that don't filter on `source` (CLI, gateway, web). Existing rolling
       // conversations stay where they were — no migration needed.
-      const newConv = createConversation({
-        title: `Analysis: ${conversation.title ?? "Untitled"}`,
-        source: AUTO_ANALYSIS_SOURCE,
-        groupId: AUTO_ANALYSIS_GROUP_ID,
-        forkParentConversationId: resolvedId,
-      });
+      const newConv = await withSqliteRetry(
+        () =>
+          createConversation({
+            title: `Analysis: ${conversation.title ?? "Untitled"}`,
+            source: AUTO_ANALYSIS_SOURCE,
+            groupId: AUTO_ANALYSIS_GROUP_ID,
+            forkParentConversationId: resolvedId,
+          }),
+        { op: "analyzeConversation.auto" },
+      );
       analysisConversationId = newConv.id;
     }
     prompt = buildAutoAnalysisPrompt(transcript);

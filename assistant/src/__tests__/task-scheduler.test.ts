@@ -129,13 +129,13 @@ describe("scheduleTask", () => {
     db.run("DELETE FROM tasks");
   });
 
-  test("creates a schedule with run_task:<taskId> message format", () => {
+  test("creates a schedule with run_task:<taskId> message format", async () => {
     const task = createTask({
       title: "Daily Report",
       template: "Generate the daily report",
     });
 
-    const schedule = scheduleTask({
+    const schedule = await scheduleTask({
       taskId: task.id,
       name: "Daily Report Schedule",
       cronExpression: "0 9 * * *",
@@ -149,13 +149,13 @@ describe("scheduleTask", () => {
     expect(schedule.enabled).toBe(true);
   });
 
-  test("creates a schedule without timezone", () => {
+  test("creates a schedule without timezone", async () => {
     const task = createTask({
       title: "Hourly Check",
       template: "Check status",
     });
 
-    const schedule = scheduleTask({
+    const schedule = await scheduleTask({
       taskId: task.id,
       name: "Hourly Check",
       cronExpression: "0 * * * *",
@@ -165,13 +165,13 @@ describe("scheduleTask", () => {
     expect(schedule.timezone).toBeNull();
   });
 
-  test("schedule is persisted and retrievable", () => {
+  test("schedule is persisted and retrievable", async () => {
     const task = createTask({
       title: "Persisted Task",
       template: "Do something",
     });
 
-    const schedule = scheduleTask({
+    const schedule = await scheduleTask({
       taskId: task.id,
       name: "Persisted Schedule",
       cronExpression: "*/5 * * * *",
@@ -207,7 +207,7 @@ describe("scheduler run_task detection", () => {
     });
 
     // Create a schedule with run_task: message
-    const schedule = scheduleTask({
+    const schedule = await scheduleTask({
       taskId: task.id,
       name: "Task Schedule",
       cronExpression: "* * * * *",
@@ -252,7 +252,7 @@ describe("scheduler run_task detection", () => {
 
   test("regular messages route through the runBackgroundJob runner", async () => {
     // Create a regular schedule (no run_task: prefix)
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Regular Schedule",
       cronExpression: "* * * * *",
       message: "Do something normal",
@@ -291,7 +291,7 @@ describe("scheduler run_task detection", () => {
 
   test("handles task not found gracefully", async () => {
     // Create a schedule pointing to a nonexistent task
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Bad Task Schedule",
       cronExpression: "* * * * *",
       message: "run_task:nonexistent-task-id",
@@ -338,7 +338,7 @@ describe("scheduler run_task detection", () => {
       title: "Usage Attribution Task",
       template: "Spend scheduled tokens",
     });
-    const schedule = scheduleTask({
+    const schedule = await scheduleTask({
       taskId: task.id,
       name: "Usage Attribution Schedule",
       cronExpression: "* * * * *",
@@ -410,7 +410,7 @@ describe("scheduler run_task detection", () => {
   });
 
   test("opens a normal execute schedule run before fresh background processing and records the conversation id", async () => {
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Usage Attribution Message Schedule",
       cronExpression: "* * * * *",
       message: "Spend scheduled message tokens",
@@ -503,7 +503,7 @@ describe("scheduler workflow mode", () => {
   });
 
   test("a due workflow-mode job triggers the run manager with name/args", async () => {
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Triage inbox",
       cronExpression: "0 9 * * *",
       message: "triage",
@@ -536,7 +536,7 @@ describe("scheduler workflow mode", () => {
   });
 
   test("fires with the schedule's stored side-effecting manifest", async () => {
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Side-effecting workflow",
       cronExpression: "0 9 * * *",
       message: "go",
@@ -567,7 +567,7 @@ describe("scheduler workflow mode", () => {
   });
 
   test("a legacy schedule (null capabilities) fires with the read-only baseline", async () => {
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Legacy workflow",
       cronExpression: "0 9 * * *",
       message: "go",
@@ -593,7 +593,7 @@ describe("scheduler workflow mode", () => {
     // Workflow schedules created via schedule_create store the originating
     // conversation as createdFromConversationId and leave wakeConversationId
     // unset; without the fallback the completion summary lands nowhere.
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Morning digest",
       cronExpression: "0 9 * * *",
       message: "",
@@ -616,7 +616,7 @@ describe("scheduler workflow mode", () => {
   });
 
   test("prefers an explicit wakeConversationId over createdFromConversationId", async () => {
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Both set",
       cronExpression: "0 9 * * *",
       message: "",
@@ -639,7 +639,7 @@ describe("scheduler workflow mode", () => {
   });
 
   test("defaults workflowArgs to {} when unset", async () => {
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "No-args workflow",
       cronExpression: "0 9 * * *",
       message: "go",
@@ -662,7 +662,7 @@ describe("scheduler workflow mode", () => {
     workflowStartImpl = () => {
       throw new Error("workflows disabled");
     };
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Failing workflow",
       cronExpression: "0 9 * * *",
       message: "go",
@@ -684,7 +684,7 @@ describe("scheduler workflow mode", () => {
   });
 
   test("skips a workflow-mode job with no workflowName", async () => {
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Nameless workflow",
       cronExpression: "0 9 * * *",
       message: "go",
@@ -704,7 +704,7 @@ describe("scheduler workflow mode", () => {
 
   test("defers a due workflow job until tools are registered, then fires it", async () => {
     coreToolsReady = false;
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Boot workflow",
       cronExpression: "0 9 * * *",
       message: "go",
@@ -740,7 +740,7 @@ describe("scheduler workflow mode", () => {
     // (one-shot / exhausted finite RRULE). The due-claim query requires
     // enabled=true, so a deferred final occurrence must be re-enabled or it is
     // never re-claimed. Simulate that disabled-on-claim state, then defer.
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Final workflow occurrence",
       cronExpression: "0 9 * * *",
       message: "",
@@ -751,7 +751,7 @@ describe("scheduler workflow mode", () => {
     });
     expect(getSchedule(schedule.id)?.enabled).toBe(false);
 
-    deferClaimedSchedule(schedule.id);
+    await deferClaimedSchedule(schedule.id);
 
     const after = getSchedule(schedule.id);
     expect(after?.enabled).toBe(true);

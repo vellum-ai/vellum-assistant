@@ -72,7 +72,7 @@ import { getLogger } from "../util/logger.js";
 import { getLogsDbPath } from "../util/logs-db-path.js";
 import { getConversationsDir } from "../util/platform.js";
 import { createRowMapper } from "../util/row-mapper.js";
-import { withSqliteRetry, withSqliteRetrySync } from "../util/sqlite-retry.js";
+import { withSqliteRetry } from "../util/sqlite-retry.js";
 import {
   deleteOrphanAttachments,
   linkAttachmentToMessage,
@@ -630,33 +630,24 @@ export function createConversation(
     seq: initialSeq > 0 ? initialSeq : null,
   };
 
-  // Retry on SQLITE_BUSY and SQLITE_IOERR — transient disk I/O errors or WAL
-  // contention can cause the first attempt to fail even under normal load.
-  // INSERT and group_id UPDATE are retried independently so a transient failure
-  // on the UPDATE doesn't re-execute the already-succeeded INSERT (which would
-  // hit a unique constraint violation).
-  // No explicit BEGIN/COMMIT here — callers that need atomicity (e.g.
-  // forkConversation) wrap in their own transaction, and nesting raw BEGIN
-  // inside Drizzle's db.transaction() would crash SQLite.
-  withSqliteRetrySync(
-    () => db.insert(conversations).values(conversation).run(),
-    { op: "createConversation.insert", context: { conversationId: id } },
-  );
+  // Synchronous primitive: it runs inside synchronous bun:sqlite transactions
+  // (the fork paths below), so it cannot itself await a retry. It does NOT
+  // retry on contention — callers on write-contended paths wrap the call (or
+  // their enclosing transaction) in `withSqliteRetry`. No explicit BEGIN/COMMIT
+  // here: callers that need atomicity wrap in their own transaction, and
+  // nesting raw BEGIN inside Drizzle's db.transaction() would crash SQLite.
+  db.insert(conversations).values(conversation).run();
 
   // group_id is NOT in the Drizzle schema (raw-query-only pattern).
   // Set via raw SQL after the INSERT succeeds.
   // Always set group_id — default to "system:all" when none provided.
   {
     const effectiveGroupId = groupId ?? "system:all";
-    withSqliteRetrySync(
-      () =>
-        rawRun(
-          "UPDATE conversations SET group_id = ?, is_pinned = ? WHERE id = ?",
-          effectiveGroupId,
-          effectiveGroupId === "system:pinned" ? 1 : 0,
-          id,
-        ),
-      { op: "createConversation.groupId", context: { conversationId: id } },
+    rawRun(
+      "UPDATE conversations SET group_id = ?, is_pinned = ? WHERE id = ?",
+      effectiveGroupId,
+      effectiveGroupId === "system:pinned" ? 1 : 0,
+      id,
     );
   }
 
@@ -1366,37 +1357,43 @@ export async function forkConversationForRetrospective(params: {
   );
 
   // Phase 1 (in-process, tiny): create the fork conversation row + lineage so
-  // the subprocess connection sees it before inserting messages.
-  const fork = db.transaction(() => {
-    const fc = createConversation({
-      title: forkTitle,
-      conversationType: params.conversationType ?? "standard",
-      groupId: params.groupId ?? parentGroupId ?? "system:all",
-      ...(params.source != null ? { source: params.source } : {}),
-    });
-    db.update(conversations)
-      .set({
-        forkParentConversationId: sourceConversation.id,
-        forkParentMessageId,
-        contextSummary: inheritedCompaction?.summary ?? null,
-        contextCompactedMessageCount:
-          inheritedCompaction?.compactedMessageCount ?? 0,
-        contextCompactedAt: inheritedCompaction?.compactedAt ?? null,
-        slackContextCompactionWatermarkTs: inheritsLatestCompaction
-          ? sourceConversation.slackContextCompactionWatermarkTs
-          : null,
-        slackContextCompactionWatermarkAt: inheritsLatestCompaction
-          ? sourceConversation.slackContextCompactionWatermarkAt
-          : null,
-        historyStrippedAt: inheritsHistoryStrippedAt
-          ? sourceHistoryStrippedAt
-          : null,
-        inferenceProfile: sourceConversation.inferenceProfile,
-      })
-      .where(eq(conversations.id, fc.id))
-      .run();
-    return fc;
-  });
+  // the subprocess connection sees it before inserting messages. The whole
+  // transaction is the retry unit — it rolls back atomically on contention, so
+  // re-running it (with a fresh conversation id) is safe.
+  const fork = await withSqliteRetry(
+    () =>
+      db.transaction(() => {
+        const fc = createConversation({
+          title: forkTitle,
+          conversationType: params.conversationType ?? "standard",
+          groupId: params.groupId ?? parentGroupId ?? "system:all",
+          ...(params.source != null ? { source: params.source } : {}),
+        });
+        db.update(conversations)
+          .set({
+            forkParentConversationId: sourceConversation.id,
+            forkParentMessageId,
+            contextSummary: inheritedCompaction?.summary ?? null,
+            contextCompactedMessageCount:
+              inheritedCompaction?.compactedMessageCount ?? 0,
+            contextCompactedAt: inheritedCompaction?.compactedAt ?? null,
+            slackContextCompactionWatermarkTs: inheritsLatestCompaction
+              ? sourceConversation.slackContextCompactionWatermarkTs
+              : null,
+            slackContextCompactionWatermarkAt: inheritsLatestCompaction
+              ? sourceConversation.slackContextCompactionWatermarkAt
+              : null,
+            historyStrippedAt: inheritsHistoryStrippedAt
+              ? sourceHistoryStrippedAt
+              : null,
+            inferenceProfile: sourceConversation.inferenceProfile,
+          })
+          .where(eq(conversations.id, fc.id))
+          .run();
+        return fc;
+      }),
+    { op: "forkConversationForRetrospective.create" },
+  );
 
   try {
     // Phase 2 (off the event loop): copy the message rows in a sqlite3
