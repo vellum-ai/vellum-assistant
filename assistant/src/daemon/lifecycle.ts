@@ -92,6 +92,7 @@ import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/adaptive-t
 import { startWorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import { runWorkspaceMigrations } from "../workspace/migrations/runner.js";
+import { startAppSourceWatcher } from "./app-source-watcher.js";
 import { writePid } from "./daemon-control.js";
 import {
   evaluateDiskPressureNow,
@@ -589,6 +590,10 @@ export async function runDaemon(): Promise<void> {
   const server = new DaemonServer();
   await server.start();
   log.info("Daemon startup: DaemonServer started");
+
+  // Watch app source directories so edits recompile + refresh surfaces across
+  // all conversations.
+  startAppSourceWatcher();
 
   // Start the CLI IPC server. Throws on EADDRINUSE to abort startup when another
   // daemon already holds the socket, so this process never runs background jobs

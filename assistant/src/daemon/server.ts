@@ -2,33 +2,24 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { disposeAcpSessionManager } from "../acp/index.js";
-import { compileApp } from "../bundler/app-compiler.js";
 import { getConfig } from "../config/loader.js";
-import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
 import { syncIdentityNameToPlatform } from "../platform/sync-identity.js";
 import { initializeProviders } from "../providers/registry.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getSigningKeyFingerprint } from "../runtime/auth/token-service.js";
 import {
-  publishAppsChanged,
   publishAvatarChanged,
   publishConfigChanged,
   publishIdentityChanged,
   publishSoundsConfigUpdated,
 } from "../runtime/sync/resource-sync-events.js";
-import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
-import {
-  AppSourceWatcher,
-  setEnsureAppSourceWatcher,
-} from "./app-source-watcher.js";
 import { getConfigWatcher } from "./config-watcher.js";
 import { Conversation } from "./conversation.js";
 import { ConversationEvictor } from "./conversation-evictor.js";
 import {
-  allConversations,
   conversationEntries,
   deleteConversation,
   getConversationMap,
@@ -37,7 +28,6 @@ import {
   getOrCreateConversation as getOrCreateActiveConversation,
   initConversationLifecycle,
 } from "./conversation-store.js";
-import { refreshSurfacesForApp } from "./conversation-surfaces.js";
 import { parseIdentityFields } from "./handlers/identity.js";
 import type { ConversationCreateOptions } from "./handlers/shared.js";
 import { refreshSkillCapabilityMemories } from "./skill-memory-refresh.js";
@@ -64,7 +54,6 @@ export class DaemonServer {
 
   // Composed subsystems
   private configWatcher = getConfigWatcher();
-  private appSourceWatcher = new AppSourceWatcher();
 
   constructor() {
     this.evictor = new ConversationEvictor(getConversationMap());
@@ -75,7 +64,6 @@ export class DaemonServer {
       sharedRequestTimestamps: this.sharedRequestTimestamps,
     });
 
-    setEnsureAppSourceWatcher(() => this.appSourceWatcher.ensureStarted());
     this.evictor.onEvict = (conversationId: string) => {
       getSubagentManager().abortAllForParent(conversationId);
     };
@@ -133,45 +121,6 @@ export class DaemonServer {
     publishAvatarChanged();
   }
 
-  /**
-   * Handle a detected app source file change from the filesystem watcher.
-   * Recompiles multifile apps and refreshes surfaces across ALL conversations.
-   */
-  private handleAppSourceChange(appId: string): void {
-    const app = getApp(appId);
-    if (!app) return;
-
-    const doRefresh = () => {
-      for (const conversation of allConversations()) {
-        refreshSurfacesForApp(conversation, appId, { fileChange: true });
-      }
-      broadcastMessage({ type: "app_files_changed", appId });
-      publishAppsChanged();
-      void updatePublishedAppDeployment(appId);
-    };
-
-    if (isMultifileApp(app)) {
-      const appDir = getAppDirPath(appId);
-      void compileApp(appDir)
-        .then((result) => {
-          if (!result.ok) {
-            log.warn(
-              { appId, errors: result.errors },
-              "Recompile failed on app source change",
-            );
-          }
-          doRefresh();
-        })
-        .catch((err) => {
-          log.warn({ appId, err }, "Recompile threw on app source change");
-          doRefresh();
-        });
-      return;
-    }
-
-    doRefresh();
-  }
-
   // ── Server lifecycle ────────────────────────────────────────────────
 
   async start(): Promise<void> {
@@ -192,8 +141,6 @@ export class DaemonServer {
 
     this.syncIdentityToPlatform();
 
-    this.appSourceWatcher.start((appId) => this.handleAppSourceChange(appId));
-
     log.info("DaemonServer started (HTTP-only mode)");
   }
 
@@ -202,7 +149,6 @@ export class DaemonServer {
     disposeAcpSessionManager();
     this.evictor.stop();
     this.configWatcher.stop();
-    this.appSourceWatcher.stop();
 
     log.info("Daemon server stopped");
   }
