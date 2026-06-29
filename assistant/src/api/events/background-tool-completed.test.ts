@@ -35,7 +35,7 @@ describe("BackgroundToolCompletedEventSchema", () => {
     expect(result.success && result.data).toEqual(event);
   });
 
-  test("rejects an unrecognized field under .strict()", () => {
+  test("strips an unrecognized field for forward compatibility", () => {
     const result = BackgroundToolCompletedEventSchema.safeParse({
       type: "background_tool_completed",
       id: "bg-1a2b3c4d",
@@ -45,6 +45,7 @@ describe("BackgroundToolCompletedEventSchema", () => {
       unexpected: true,
     });
 
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
+    expect(result.success && "unexpected" in result.data).toBe(false);
   });
 });

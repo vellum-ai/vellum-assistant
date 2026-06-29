@@ -12,17 +12,17 @@
 
 import { z } from "zod";
 
-export const BackgroundToolCompletedEventSchema = z
-  .object({
-    type: z.literal("background_tool_completed"),
-    id: z.string(),
-    conversationId: z.string(),
-    status: z.enum(["completed", "failed", "cancelled"]),
-    exitCode: z.number().nullable().optional(),
-    output: z.string().optional(),
-    completedAt: z.number(),
-  })
-  .strict();
+// No `.strict()`: unknown server-added fields are stripped, not rejected, so a
+// future field can't make older clients drop the whole lifecycle event.
+export const BackgroundToolCompletedEventSchema = z.object({
+  type: z.literal("background_tool_completed"),
+  id: z.string(),
+  conversationId: z.string(),
+  status: z.enum(["completed", "failed", "cancelled"]),
+  exitCode: z.number().nullable().optional(),
+  output: z.string().optional(),
+  completedAt: z.number(),
+});
 
 export type BackgroundToolCompletedEvent = z.infer<
   typeof BackgroundToolCompletedEventSchema
