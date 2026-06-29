@@ -69,6 +69,7 @@ import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { UserError } from "../util/errors.js";
 import { safeParseRecord } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
+import { getLogsDbPath } from "../util/logs-db-path.js";
 import { getConversationsDir } from "../util/platform.js";
 import { createRowMapper } from "../util/row-mapper.js";
 import {
@@ -80,6 +81,7 @@ import {
   forkCompactionLedger,
   getLatestCompactionEventAtOrBefore,
 } from "./compaction-ledger-store.js";
+import { deleteConversationRowsInBatches } from "./conversation-row-batch-delete.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import {
   type DrizzleDb,
@@ -91,7 +93,6 @@ import {
   copyForkMessagesViaSubprocess,
   type ForkIdPair,
 } from "./fork-message-copy.js";
-import { deleteForkMessagesViaSubprocess } from "./fork-message-delete.js";
 import {
   channelInboundEvents,
   conversations,
@@ -1578,23 +1579,23 @@ export function deleteConversation(id: string): DeletedMemoryIds {
 
 /**
  * Delete a conversation like {@link deleteConversation}, but move the bulk
- * `messages` delete off the event loop in lock-friendly batches (see
- * {@link deleteForkMessagesViaSubprocess}). The synchronous variant runs the
- * whole message delete as one implicit transaction that holds the SQLite write
- * lock for its full duration — fine for an interactive conversation, but the
- * memory retrospective GCs fork conversations that carry a full copy of the
- * source's message history, so on a large database that single delete pegs the
- * event loop and starves live user turns. This variant is the deletion mirror
- * of the batched fork copy ({@link forkConversationForRetrospective}): the
- * heavy message rows go in chunks that each release the lock, the cheap
- * bookkeeping (non-cascading tables, segment embeddings, the conversation row)
- * stays in-process.
+ * row deletes off the event loop in lock-friendly batches (see
+ * {@link deleteConversationRowsInBatches}). The synchronous variant runs each
+ * `DELETE` as one implicit transaction that holds the SQLite write lock for its
+ * full duration — fine for an interactive conversation, but a conversation that
+ * carries a full copy of a source's message history (e.g. a memory-retrospective
+ * GC target) has huge `messages` and `llm_request_logs` tables, so on a large
+ * database those single deletes peg the event loop and starve live user turns.
+ * This variant sends the two heavy tables (`messages` on the main DB,
+ * `llm_request_logs` on the logs DB) in chunks that each release the lock,
+ * while the cheap bookkeeping (non-cascading tables, segment embeddings, the
+ * conversation row) stays in-process.
  *
- * The subprocess delete enables `PRAGMA foreign_keys=ON` so the message
- * cascade (memory_segments, message_attachments, …) fires just as it does on
- * the daemon connection. Segment ids are captured up front (before the cascade
- * removes them) so the caller can still clean up the corresponding Qdrant
- * vectors. A subprocess failure throws — any rows already deleted are gone, the
+ * The `messages` batch enables `PRAGMA foreign_keys=ON` so the cascade
+ * (memory_segments, message_attachments, …) fires just as it does on the daemon
+ * connection. Segment ids are captured up front (before the cascade removes
+ * them) so the caller can still clean up the corresponding Qdrant vectors. A
+ * subprocess failure throws — any rows already deleted are gone, the
  * conversation row remains, and the worker's orphan sweep is the backstop, so
  * callers should treat this as best-effort like the synchronous variant.
  */
@@ -1621,19 +1622,29 @@ export async function deleteConversationGently(
     .all()
     .map((r) => r.id);
 
-  // llm_request_logs lives in the dedicated logs connection, so it is deleted
-  // there — separately from the main DB.
-  logsDb()
-    .delete(llmRequestLogs)
-    .where(eq(llmRequestLogs.conversationId, id))
-    .run();
+  // llm_request_logs lives in the dedicated logs connection, and each row is
+  // bulky, so drain it off the event loop in batches against the logs DB file.
+  const logsDel = await deleteConversationRowsInBatches({
+    conversationId: id,
+    table: "llm_request_logs",
+    dbPath: getLogsDbPath(),
+  });
+  if (!logsDel.ok) {
+    throw new Error(
+      `gentle conversation delete failed (llm_request_logs, ${logsDel.backend}): ${logsDel.error ?? "unknown"}`,
+    );
+  }
 
   // Bulk message delete off the event loop, in lock-friendly batches. Cascades
   // to memory_segments, message_attachments, bookmarks, channel_inbound_events.
-  const del = await deleteForkMessagesViaSubprocess({ conversationId: id });
+  const del = await deleteConversationRowsInBatches({
+    conversationId: id,
+    table: "messages",
+    enableForeignKeys: true,
+  });
   if (!del.ok) {
     throw new Error(
-      `gentle conversation delete failed (${del.backend}): ${del.error ?? "unknown"}`,
+      `gentle conversation delete failed (messages, ${del.backend}): ${del.error ?? "unknown"}`,
     );
   }
 
