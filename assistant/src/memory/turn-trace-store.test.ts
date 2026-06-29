@@ -27,10 +27,10 @@ mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: () => mockLiveConversation,
 }));
 
-import { createConversation } from "./conversation-crud.js";
-import { getDb } from "./db-connection.js";
-import { initializeDb } from "./db-init.js";
-import { messages, toolInvocations } from "./schema.js";
+import { createConversation } from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { messages, toolInvocations } from "../persistence/schema/index.js";
 import {
   assembleBoundedTurnTrace,
   assembleTurnTrace,

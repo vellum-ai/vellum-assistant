@@ -59,12 +59,12 @@ let nextKeyStoreResult: { conversationId: string } = {
 };
 const updateTitleCalls: Array<{ conversationId: string; title: string }> = [];
 const realKeyStore = await import("../../memory/conversation-key-store.js");
-const realCrud = await import("../../memory/conversation-crud.js");
+const realCrud = await import("../../persistence/conversation-crud.js");
 mock.module("../../memory/conversation-key-store.js", () => ({
   ...realKeyStore,
   getOrCreateConversation: (_key: string) => nextKeyStoreResult,
 }));
-mock.module("../../memory/conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   ...realCrud,
   updateConversationTitle: (
     conversationId: string,

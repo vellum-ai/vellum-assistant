@@ -321,6 +321,17 @@ export const routeTree = [
                   path: "home",
                   lazy: { Component: () => import("@/home-page-route").then((m) => m.HomePageRoute) },
                 },
+                // Schedules tab + per-schedule deep links. Same component as
+                // `home`; HomePageRoute reads the pathname / `:scheduleId` to
+                // open the Schedules tab and focus a schedule's drawer.
+                {
+                  path: "schedules",
+                  lazy: { Component: () => import("@/home-page-route").then((m) => m.HomePageRoute) },
+                },
+                {
+                  path: "schedules/:scheduleId",
+                  lazy: { Component: () => import("@/home-page-route").then((m) => m.HomePageRoute) },
+                },
                 {
                   lazy: { Component: () => import("@/domains/intelligence/intelligence-layout").then((m) => m.IntelligenceLayout) },
                   children: [

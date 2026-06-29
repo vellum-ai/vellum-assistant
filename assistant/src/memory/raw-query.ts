@@ -32,7 +32,11 @@
 
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 
-import { getLogsSqlite, getMemorySqlite, getSqlite } from "./db-connection.js";
+import {
+  getLogsSqlite,
+  getMemorySqlite,
+  getSqlite,
+} from "../persistence/db-connection.js";
 
 type SqlParam = SQLQueryBindings;
 

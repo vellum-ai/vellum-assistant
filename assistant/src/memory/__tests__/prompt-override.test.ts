@@ -12,7 +12,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { resolveSelectorPrompt } from "../../plugins/defaults/memory-v3-shadow/pool-select.js";
+import { resolveSelectorPrompt } from "../../plugins/defaults/memory/v3/pool-select.js";
 import {
   loadPromptOverride,
   MAX_PROMPT_OVERRIDE_BYTES,

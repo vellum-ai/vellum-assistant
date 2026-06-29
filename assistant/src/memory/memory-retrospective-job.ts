@@ -51,10 +51,6 @@ import {
 } from "../daemon/date-context.js";
 import type { WakeToolContextPin } from "../daemon/tool-setup-types.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
-import { resolveUserSlug } from "../prompts/persona-resolver.js";
-import type { SystemPromptPersonaOverride } from "../prompts/system-prompt.js";
-import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
-import { getLogger } from "../util/logger.js";
 import {
   addMessage,
   type ConversationRow,
@@ -65,12 +61,16 @@ import {
   getMessagesAfter,
   isConversationProcessing,
   resolveOverrideProfile,
-} from "./conversation-crud.js";
+} from "../persistence/conversation-crud.js";
 import {
   enqueueMemoryJob,
   type MemoryJob,
   type MemoryJobType,
-} from "./jobs-store.js";
+} from "../persistence/jobs-store.js";
+import { resolveUserSlug } from "../prompts/persona-resolver.js";
+import type { SystemPromptPersonaOverride } from "../prompts/system-prompt.js";
+import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
+import { getLogger } from "../util/logger.js";
 import {
   MEMORY_RETROSPECTIVE_FORK_SOURCE,
   MEMORY_RETROSPECTIVE_GROUP_ID,
@@ -135,6 +135,9 @@ export async function runForkBasedRetrospective(
   sourceConversationId: string,
   config: AssistantConfig,
 ): Promise<MemoryRetrospectiveOutcome> {
+  // Start stamp for the retrospective's end-to-end wall time, surfaced as
+  // `durationMs` on the "invoked" log (start → invoked).
+  const startedAtMs = Date.now();
   const sourceConversation = getConversation(sourceConversationId);
   if (!sourceConversation) {
     log.warn(
@@ -365,7 +368,11 @@ export async function runForkBasedRetrospective(
       newMessageCount: newMessages.length,
       prior,
       priorRemembers,
-      logFields: { kind: "fork", windowStartTimestamp },
+      logFields: {
+        kind: "fork",
+        windowStartTimestamp,
+        durationMs: Date.now() - startedAtMs,
+      },
     });
   }
 

@@ -44,9 +44,12 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-import { addMessage, createConversation } from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import {
+  addMessage,
+  createConversation,
+} from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { ROUTES } from "../runtime/routes/index.js";
 
 /** Look up a route's policy by endpoint+method via ROUTES. */

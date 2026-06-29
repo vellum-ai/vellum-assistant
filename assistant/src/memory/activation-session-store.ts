@@ -1,8 +1,8 @@
 import { eq } from "drizzle-orm";
 
+import { getDb } from "../persistence/db-connection.js";
+import { activationSessions } from "../persistence/schema/index.js";
 import { getLogger } from "../util/logger.js";
-import { getDb } from "./db-connection.js";
-import { activationSessions } from "./schema.js";
 
 const log = getLogger("activation-session-store");
 

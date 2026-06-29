@@ -18,10 +18,10 @@
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 
-const { getSqlite } = await import("../db-connection.js");
-const { initializeDb } = await import("../db-init.js");
+const { getSqlite } = await import("../../persistence/db-connection.js");
+const { initializeDb } = await import("../../persistence/db-init.js");
 const { runAsyncSqlite, _resetFallbackWarning } =
-  await import("../db-async-query.js");
+  await import("../../persistence/db-async-query.js");
 const { findSqlite3 } = await import("../../util/sqlite3-runtime.js");
 
 await initializeDb();
@@ -55,13 +55,13 @@ function inflateAndDelete(byteTarget: number): void {
 
 describe("runAsyncSqlite", () => {
   test("returns ok=true for a trivial statement", async () => {
-    const result = await runAsyncSqlite("SELECT 1");
+    const result = await runAsyncSqlite("SELECT 1", "test:trivial-select");
     expect(result.ok).toBe(true);
     expect(result.error).toBeNull();
   });
 
   test("in-process fallback reports the right backend", async () => {
-    const result = await runAsyncSqlite("SELECT 1", {
+    const result = await runAsyncSqlite("SELECT 1", "test:in-process-backend", {
       forceBackend: "in-process-blocking",
     });
     expect(result.ok).toBe(true);
@@ -87,6 +87,7 @@ describe("runAsyncSqlite", () => {
 
     const result = await runAsyncSqlite(
       "DELETE FROM async_changes_probe WHERE id <= 3; SELECT changes();",
+      "test:in-process-changes-count",
       { forceBackend: "in-process-blocking" },
     );
 
@@ -103,7 +104,10 @@ describe("runAsyncSqlite", () => {
   test.if(sqlite3Available)(
     "sqlite3 CLI backend reports the right backend on success",
     async () => {
-      const result = await runAsyncSqlite("SELECT 1");
+      const result = await runAsyncSqlite(
+        "SELECT 1",
+        "test:cli-backend-success",
+      );
       expect(result.ok).toBe(true);
       expect(result.backend).toBe("sqlite3-cli");
     },
@@ -113,7 +117,10 @@ describe("runAsyncSqlite", () => {
     "surfaces sqlite3 errors as ok=false with the message preserved",
     async () => {
       // Intentional SQL syntax error.
-      const result = await runAsyncSqlite("THIS IS NOT VALID SQL");
+      const result = await runAsyncSqlite(
+        "THIS IS NOT VALID SQL",
+        "test:cli-error",
+      );
       expect(result.ok).toBe(false);
       expect(result.backend).toBe("sqlite3-cli");
       expect(result.error).toBeTruthy();
@@ -148,7 +155,7 @@ describe("runAsyncSqlite", () => {
 
       let result;
       try {
-        result = await runAsyncSqlite("VACUUM");
+        result = await runAsyncSqlite("VACUUM", "test:vacuum-anti-block");
       } finally {
         probing = false;
       }

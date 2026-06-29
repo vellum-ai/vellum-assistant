@@ -16,18 +16,25 @@ import { and, asc, ne, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../../config/loader.js";
-import { getLogger } from "../../util/logger.js";
-import { getWorkspaceDir } from "../../util/platform.js";
-import { getMemoryCheckpoint, setMemoryCheckpoint } from "../checkpoints.js";
-import { getDb } from "../db-connection.js";
+import { getDb } from "../../persistence/db-connection.js";
+import {
+  initQdrantClient,
+  resolveQdrantUrl,
+} from "../../persistence/embeddings/qdrant-client.js";
 import {
   enqueueMemoryJob,
   hasActiveJobOfType,
   isMemoryEnabled,
-} from "../jobs-store.js";
-import { initQdrantClient, resolveQdrantUrl } from "../qdrant-client.js";
+} from "../../persistence/jobs-store.js";
+import {
+  conversations,
+  memoryGraphNodes,
+  memorySegments,
+} from "../../persistence/schema/index.js";
+import { getLogger } from "../../util/logger.js";
+import { getWorkspaceDir } from "../../util/platform.js";
+import { getMemoryCheckpoint, setMemoryCheckpoint } from "../checkpoints.js";
 import { rawAll, rawGet, rawRun } from "../raw-query.js";
-import { conversations, memoryGraphNodes, memorySegments } from "../schema.js";
 import { runGraphExtraction } from "./extraction.js";
 import { countNodes } from "./store.js";
 
@@ -513,7 +520,9 @@ export async function cleanupStaleItemVectors(): Promise<void> {
 
   let qdrant;
   try {
-    qdrant = (await import("../qdrant-client.js")).getQdrantClient();
+    qdrant = (
+      await import("../../persistence/embeddings/qdrant-client.js")
+    ).getQdrantClient();
   } catch {
     // Qdrant not initialized yet — skip; will run on next startup.
     return;

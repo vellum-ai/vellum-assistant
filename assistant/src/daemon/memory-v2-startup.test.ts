@@ -40,7 +40,7 @@ mock.module("../config/memory-v3-gate.js", () => ({
   isMemoryV3Live: () => v3State.live,
 }));
 
-mock.module("../memory/jobs-store.js", () => ({
+mock.module("../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: enqueueJob,
 }));
 

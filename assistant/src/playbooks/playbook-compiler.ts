@@ -6,8 +6,8 @@
 
 import { and, eq, sql } from "drizzle-orm";
 
-import { getDb } from "../memory/db-connection.js";
-import { memoryGraphNodes } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { memoryGraphNodes } from "../persistence/schema/index.js";
 import type { Playbook } from "./types.js";
 import { parsePlaybookStatement } from "./types.js";
 

@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 
-import { getDb } from "../memory/db-connection.js";
-import { messages as messagesTable } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { messages as messagesTable } from "../persistence/schema/index.js";
 import { parseJsonSafe } from "../util/json.js";
 import { truncate } from "../util/truncate.js";
 import type { Task } from "./task-store.js";

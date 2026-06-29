@@ -10,7 +10,7 @@
 import {
   getAttachmentById,
   getAttachmentsByIds,
-} from "../../../memory/attachments-store.js";
+} from "../../../persistence/attachments-store.js";
 import { resolveBatchTranscriber } from "../../../providers/speech-to-text/resolve.js";
 import { normalizeSttError } from "../../../stt/daemon-batch-transcriber.js";
 import { getLogger } from "../../../util/logger.js";

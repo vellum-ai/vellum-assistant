@@ -17,7 +17,7 @@ import {
   insertKeyframesBatch,
   type ProcessingStage,
   updateProcessingStage,
-} from "../../../../memory/media-store.js";
+} from "../../../../persistence/media-store.js";
 import { resolveBatchTranscriber } from "../../../../providers/speech-to-text/resolve.js";
 import { silentlyWithLog } from "../../../../util/silently.js";
 import {

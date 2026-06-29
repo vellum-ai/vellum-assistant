@@ -1039,7 +1039,7 @@ describe("RetryProvider — no callSite (pre-resolved config passes through)", (
 // `getConfiguredProvider` — call-site routing coverage lives in
 // `dispatch-connection-routing.test.ts`, where the connection lookup is
 // fully mocked. Keeping those tests here would require mocking
-// `inference/connections.js` and `memory/db-connection.js` at the file
+// `inference/connections.js` and `persistence/db-connection.js` at the file
 // level, and bun's `mock.module` leaks across files in a single suite
 // run — that pollutes `inference.test.ts` (which exercises the real
 // SQLite-backed `getConnection`).

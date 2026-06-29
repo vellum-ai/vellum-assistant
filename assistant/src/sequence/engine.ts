@@ -6,7 +6,7 @@
  * sends through the messaging layer.
  */
 
-import { getMessages } from "../memory/conversation-crud.js";
+import { getMessages } from "../persistence/conversation-crud.js";
 import { runBackgroundJob } from "../runtime/background-job-runner.js";
 import { getLogger } from "../util/logger.js";
 import { recordEvent } from "./analytics.js";

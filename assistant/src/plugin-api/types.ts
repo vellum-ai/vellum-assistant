@@ -363,10 +363,19 @@ export interface PostToolUseContext {
   /**
    * Model id reported by the provider for the assistant turn that issued
    * this tool call (e.g. `claude-opus-4-8`,
-   * `accounts/fireworks/models/kimi-k2p6`). Hooks use it to vary coaching by
-   * model family — some models need earlier or firmer steering than others.
+   * `accounts/fireworks/models/kimi-k2p6`). A hook needing a finer-grained
+   * model-family signal than {@link needsFirmerSteering} — e.g. matching a
+   * specific loop-prone family — reads it directly.
    */
   readonly model: string;
+  /**
+   * Host's assessment that this turn's model needs firmer mid-turn steering
+   * than the static prompt provides — `true` for weaker open-weight families
+   * that disregard prompt-level coaching, `false` for models that follow it.
+   * Hooks gate aggressive nudges on this boolean instead of re-deriving the
+   * model taxonomy themselves.
+   */
+  readonly needsFirmerSteering: boolean;
   /**
    * The model's context-window size in tokens. Plugins derive their own
    * character budget from this (e.g. a share of the window) rather than

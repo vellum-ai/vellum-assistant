@@ -11,7 +11,7 @@
 import { z } from "zod";
 
 import { getConfigReadOnly } from "../../config/loader.js";
-import { getDb } from "../../memory/db-connection.js";
+import { getDb } from "../../persistence/db-connection.js";
 import {
   AuthSchema,
   type ConnectionModel,
@@ -201,7 +201,10 @@ async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
     );
   }
 
-  const customFields = await parseCustomProviderFields(body, providerResult.data);
+  const customFields = await parseCustomProviderFields(
+    body,
+    providerResult.data,
+  );
 
   const result = createConnection(getDb(), {
     name,

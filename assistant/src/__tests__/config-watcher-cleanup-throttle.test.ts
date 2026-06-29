@@ -186,7 +186,7 @@ mock.module("../config/assistant-feature-flags.js", () => ({
   clearFeatureFlagOverridesCache: () => {},
 }));
 
-mock.module("../memory/embedding-backend.js", () => ({
+mock.module("../persistence/embeddings/embedding-backend.js", () => ({
   clearEmbeddingBackendCache: () => {},
 }));
 

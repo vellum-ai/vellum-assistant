@@ -36,7 +36,7 @@ import { getSuggestedPrompts } from "../../home/suggested-prompts.js";
 import {
   addMessage,
   createConversation,
-} from "../../memory/conversation-crud.js";
+} from "../../persistence/conversation-crud.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";

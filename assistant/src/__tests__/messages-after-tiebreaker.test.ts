@@ -9,10 +9,10 @@ mock.module("../util/logger.js", () => ({
 import {
   countMessagesAfter,
   getMessagesAfter,
-} from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { conversations, messages } from "../memory/schema.js";
+} from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { conversations, messages } from "../persistence/schema/index.js";
 
 await initializeDb();
 

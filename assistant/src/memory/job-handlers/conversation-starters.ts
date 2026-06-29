@@ -9,6 +9,13 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { loadSkillCatalog } from "../../config/skills.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { asString } from "../../persistence/job-utils.js";
+import type { MemoryJob } from "../../persistence/jobs-store.js";
+import {
+  conversationStarters,
+  memoryGraphNodes,
+} from "../../persistence/schema/index.js";
 import { buildCoreIdentityContext } from "../../prompts/system-prompt.js";
 import {
   createTimeout,
@@ -33,11 +40,7 @@ import {
   buildConversationStarterValidationContext,
   isValidConversationStarterText,
 } from "../conversation-starter-validation.js";
-import { getDb } from "../db-connection.js";
-import { asString } from "../job-utils.js";
-import type { MemoryJob } from "../jobs-store.js";
 import { rawAll } from "../raw-query.js";
-import { conversationStarters, memoryGraphNodes } from "../schema.js";
 
 const log = getLogger("conversation-starters-gen");
 

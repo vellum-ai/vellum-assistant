@@ -6,7 +6,7 @@ import type { ServerMessage } from "../../daemon/message-protocol.js";
 import {
   getConversationOverrideProfile,
   getMessages,
-} from "../../memory/conversation-crud.js";
+} from "../../persistence/conversation-crud.js";
 import type { ContentBlock, Message } from "../../providers/types.js";
 import {
   advisorRequestText,

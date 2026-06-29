@@ -1,10 +1,10 @@
 import { count, desc, lt } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { runAsyncSqlite } from "../persistence/db-async-query.js";
+import { getDb } from "../persistence/db-connection.js";
+import { toolInvocations } from "../persistence/schema/index.js";
 import { getLogger } from "../util/logger.js";
-import { runAsyncSqlite } from "./db-async-query.js";
-import { getDb } from "./db-connection.js";
-import { toolInvocations } from "./schema.js";
 
 export interface ToolInvocationRecord {
   conversationId: string;
@@ -97,6 +97,7 @@ export async function rotateToolInvocations(
   // integer (see Math.floor above), so inlining it here is safe.
   const result = await runAsyncSqlite(
     `DELETE FROM tool_invocations WHERE created_at < ${cutoffMs}`,
+    "tool-usage-store:prune-tool-invocations",
   );
   if (!result.ok) {
     log.error(

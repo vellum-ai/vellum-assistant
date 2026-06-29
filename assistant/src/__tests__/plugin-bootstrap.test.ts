@@ -228,7 +228,7 @@ describe("plugin bootstrap", () => {
     // AND every first-party default survived, so core turn behavior (memory
     // retrieval, history repair, title generation) keeps running in degraded
     // mode instead of being torn down with the failing plugin
-    expect(names).toContain("default-memory-retrieval");
+    expect(names).toContain("default-memory");
     expect(names).toContain("default-history-repair");
     expect(names).toContain("default-title-generate");
   });
@@ -551,5 +551,39 @@ describe("plugin bootstrap", () => {
     expect(shutdownFired).toBe(false);
 
     await rm(sentinelDir, { recursive: true, force: true });
+  });
+
+  test(".disabled sentinel on an injector-only default: injectors register up front and reappear on enable", async () => {
+    const { clearInjectorRegistry, getRegisteredInjectors } =
+      await import("../plugins/injector-registry.js");
+    clearInjectorRegistry();
+
+    // `default-workspace` is injector-only (no hooks) and contributes
+    // `workspace-context` among others. Disable it at boot via the sentinel —
+    // the per-plugin init loop will `continue` past it.
+    const sentinelDir = join(
+      TEST_WORKSPACE_DIR,
+      "plugins",
+      "default-workspace",
+    );
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    await mkdir(sentinelDir, { recursive: true });
+    await writeFile(join(sentinelDir, ".disabled"), "");
+
+    await bootstrapPlugins();
+
+    // Disabled at boot → its injectors are filtered out of the per-turn chain
+    // at read time...
+    expect(
+      getRegisteredInjectors().some((i) => i.name === "workspace-context"),
+    ).toBe(false);
+
+    // ...but enabling it (removing the sentinel) restores the injections on the
+    // next read with no restart — they were registered up front by
+    // `registerDefaultPluginInjectors`, not gated on the skipped init.
+    await rm(sentinelDir, { recursive: true, force: true });
+    expect(
+      getRegisteredInjectors().some((i) => i.name === "workspace-context"),
+    ).toBe(true);
   });
 });

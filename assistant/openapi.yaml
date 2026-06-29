@@ -8659,8 +8659,6 @@ paths:
                             type: number
                           live:
                             type: boolean
-                          shadow:
-                            type: boolean
                           selections:
                             type: array
                             items:
@@ -8690,7 +8688,6 @@ paths:
                         required:
                           - turn
                           - live
-                          - shadow
                           - selections
                           - injectedText
                         additionalProperties: false
@@ -17577,6 +17574,13 @@ paths:
                             - channelId
                             - channelTs
                           additionalProperties: false
+                        queueStatus:
+                          type: string
+                          enum:
+                            - queued
+                            - processing
+                        queuePosition:
+                          type: number
                       required:
                         - id
                         - role
@@ -18259,8 +18263,6 @@ paths:
                             type: number
                           live:
                             type: boolean
-                          shadow:
-                            type: boolean
                           selections:
                             type: array
                             items:
@@ -18290,7 +18292,6 @@ paths:
                         required:
                           - turn
                           - live
-                          - shadow
                           - selections
                           - injectedText
                         additionalProperties: false

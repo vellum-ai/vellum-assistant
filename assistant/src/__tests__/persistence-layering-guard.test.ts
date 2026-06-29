@@ -1,0 +1,258 @@
+import { readFileSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
+import { describe, expect, test } from "bun:test";
+
+import { Glob } from "bun";
+
+/**
+ * Guard tests for the persistence-layering boundary.
+ *
+ * Persistence is a layer BELOW the memory feature. The intended dependency
+ * direction is one-way: memory → persistence. `persistence/` provides the DB
+ * core, conversation/message storage, job-queue mechanics, delivery/media
+ * stores, LLM request-log/usage stores, and embeddings/Qdrant infra. The
+ * memory *feature* (graph, v2, v3, retrospective, pkb) lives in `memory/` and
+ * depends on persistence, never the reverse.
+ *
+ * Two invariants are enforced:
+ *  (a) Nothing under `assistant/src/**` imports a persistence module via a
+ *      `memory/` re-export shim — the shims were removed, so any relative
+ *      import that resolves to a deleted `memory/<name>.ts` is a violation.
+ *  (b) `persistence/` does not import from `memory/`, except for an explicit,
+ *      documented allowlist of residual feature back-imports that predate the
+ *      layering split and could not be cleanly decoupled in the move PRs.
+ */
+
+/** Resolve repo root (tests run from `assistant/`). */
+function getRepoRoot(): string {
+  return join(process.cwd(), "..");
+}
+
+const ASSISTANT_SRC = "assistant/src";
+const PERSISTENCE_DIR = join(ASSISTANT_SRC, "persistence");
+const MEMORY_DIR = join(ASSISTANT_SRC, "memory");
+
+/**
+ * TECH DEBT — residual `persistence/` → `memory/` feature back-imports.
+ *
+ * These are genuine couplings to the memory *feature* (conversation
+ * title/disk-view services, conversation/group migrations, retrospective +
+ * v2 state, the graph bootstrap, the conversation-key store, raw-query helpers,
+ * usage bucketers, the sparse tokenizer, the job checkpoint/cleanup/worker
+ * controls) that the persistence layer still depends on. They violate the
+ * one-way memory → persistence direction and are scheduled for decoupling in a
+ * follow-up (move the depended-on feature logic behind a persistence-owned
+ * seam, or invert the dependency so memory injects it). Until then they are
+ * pinned here so the guard fails the moment a NEW back-import is introduced.
+ *
+ * Keyed by the importing persistence file (relative to repo root); the value
+ * is the set of allowed `memory/<specifier>` module paths it may import.
+ * Do NOT add to this list without a decoupling plan — the whole point of the
+ * guard is to ratchet this set down to empty, never up.
+ */
+const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
+  "assistant/src/persistence/attachments-store.ts": new Set([
+    "conversation-directories",
+    "raw-query",
+  ]),
+  "assistant/src/persistence/bookmark-crud.ts": new Set(["message-content"]),
+  "assistant/src/persistence/conversation-bootstrap.ts": new Set([
+    "conversation-title-service",
+  ]),
+  "assistant/src/persistence/conversation-crud.ts": new Set([
+    "auto-analysis-constants",
+    "conversation-attention-store",
+    "conversation-disk-view",
+    "conversation-display-order-migration",
+    "conversation-group-migration",
+    "graph/graph-memory-state-store",
+    "indexer",
+    "memory-retrospective-constants",
+    "memory-retrospective-state",
+    "raw-query",
+    "task-memory-cleanup",
+    "v2/activation-store",
+    "v2/injected-block-slugs",
+  ]),
+  "assistant/src/persistence/conversation-queries.ts": new Set([
+    "conversation-display-order-migration",
+    "conversation-group-migration",
+    "raw-query",
+  ]),
+  "assistant/src/persistence/db-maintenance.ts": new Set(["checkpoints"]),
+  "assistant/src/persistence/delivery-crud.ts": new Set([
+    "conversation-key-store",
+  ]),
+  "assistant/src/persistence/embeddings/embedding-backend.ts": new Set([
+    "sparse-tokenize",
+  ]),
+  "assistant/src/persistence/group-crud.ts": new Set([
+    "conversation-group-migration",
+    "raw-query",
+  ]),
+  "assistant/src/persistence/jobs-store.ts": new Set(["raw-query"]),
+  "assistant/src/persistence/jobs-worker.ts": new Set([
+    "checkpoints",
+    "cleanup-schedule-state",
+    "memory-retrospective-startup-cleanup",
+    "v2/consolidation-job",
+    "worker-control",
+  ]),
+  "assistant/src/persistence/llm-usage-store.ts": new Set([
+    "raw-query",
+    "schedule-attribution-sql",
+    "usage-buckets",
+    "usage-grouped-buckets",
+  ]),
+  "assistant/src/persistence/steps.ts": new Set([
+    "app-store",
+    "graph/bootstrap",
+  ]),
+};
+
+/** Match `from "x"`, `import "x"`, `import("x")`, and `mock.module("x", …)`. */
+const IMPORT_PATTERN =
+  /\b(?:from|import|mock\.module|require)\s*\(?\s*["'](\.\.?\/[^"']+)["']/g;
+
+/** All relative import specifiers in a source file, resolved to repo-root-relative paths. */
+function* relativeImports(
+  filePath: string,
+  repoRoot: string,
+): Generator<{ specifier: string; resolvedFromRoot: string }> {
+  const content = readFileSync(filePath, "utf-8");
+  for (const match of content.matchAll(IMPORT_PATTERN)) {
+    const specifier = match[1]!;
+    const resolved = resolve(dirname(filePath), specifier);
+    yield { specifier, resolvedFromRoot: relative(repoRoot, resolved) };
+  }
+}
+
+/** Strip a trailing `.js` extension from a resolved import path. */
+function stripJs(p: string): string {
+  return p.endsWith(".js") ? p.slice(0, -3) : p;
+}
+
+describe("persistence-layering boundary", () => {
+  test("nothing under assistant/src imports a persistence module via a memory/ shim", () => {
+    const repoRoot = getRepoRoot();
+    // Persistence-module basenames (top-level + embeddings) whose old memory/
+    // shims were deleted. An import that resolves to memory/<basename>.ts now
+    // targets a non-existent file — a leftover shim reference.
+    const persistenceModules = new Set<string>();
+    for (const subdir of ["persistence", "persistence/embeddings"]) {
+      for (const rel of new Glob(`${subdir}/*.ts`).scanSync({
+        cwd: join(repoRoot, ASSISTANT_SRC),
+      })) {
+        if (rel.endsWith(".test.ts")) continue;
+        persistenceModules.add(rel.split("/").pop()!.replace(/\.ts$/, ""));
+      }
+    }
+    // `schema` resolves through persistence/schema/index, also formerly shimmed.
+    persistenceModules.add("schema");
+
+    const memoryPrefix = `${MEMORY_DIR}/`;
+    const violations: string[] = [];
+    for (const rel of new Glob(`${ASSISTANT_SRC}/**/*.ts`).scanSync({
+      cwd: repoRoot,
+    })) {
+      const filePath = join(repoRoot, rel);
+      for (const { specifier, resolvedFromRoot } of relativeImports(
+        filePath,
+        repoRoot,
+      )) {
+        const target = stripJs(resolvedFromRoot);
+        if (!target.startsWith(memoryPrefix)) continue;
+        const rest = target.slice(memoryPrefix.length);
+        // Only flag top-level memory/<basename> that shadows a persistence module.
+        if (!rest.includes("/") && persistenceModules.has(rest)) {
+          violations.push(`${rel}: ${specifier}`);
+        }
+      }
+    }
+
+    if (violations.length > 0) {
+      const message = [
+        "Found imports of a persistence module via a memory/ shim path.",
+        "The persistence shims were removed — import persistence/ modules directly.",
+        "",
+        "Violations:",
+        ...violations.map((v) => `  - ${v}`),
+      ].join("\n");
+      expect(violations, message).toEqual([]);
+    }
+  });
+
+  test("persistence/ does not import from memory/ outside the documented allowlist", () => {
+    const repoRoot = getRepoRoot();
+    const memoryFromRoot = relative(repoRoot, join(repoRoot, MEMORY_DIR));
+    const violations: string[] = [];
+
+    for (const rel of new Glob(`${PERSISTENCE_DIR}/**/*.ts`).scanSync({
+      cwd: repoRoot,
+    })) {
+      const filePath = join(repoRoot, rel);
+      const allowed = PERSISTENCE_TO_MEMORY_ALLOWLIST[rel] ?? new Set<string>();
+      for (const { resolvedFromRoot } of relativeImports(filePath, repoRoot)) {
+        const target = stripJs(resolvedFromRoot);
+        if (
+          target !== memoryFromRoot &&
+          !target.startsWith(`${memoryFromRoot}/`)
+        ) {
+          continue;
+        }
+        const specifier = target.slice(`${memoryFromRoot}/`.length);
+        if (!allowed.has(specifier)) {
+          violations.push(`${rel} -> memory/${specifier}`);
+        }
+      }
+    }
+
+    if (violations.length > 0) {
+      const message = [
+        "Found a persistence/ -> memory/ import outside the allowlist.",
+        "Persistence is a layer below memory: the dependency must be one-way",
+        "(memory -> persistence). If this is genuinely unavoidable feature",
+        "coupling, add it to PERSISTENCE_TO_MEMORY_ALLOWLIST with a decoupling",
+        "plan; otherwise move the depended-on infra into persistence/.",
+        "",
+        "Violations:",
+        ...violations.map((v) => `  - ${v}`),
+      ].join("\n");
+      expect(violations, message).toEqual([]);
+    }
+  });
+
+  test("the allowlist is honored exactly (no stale entries)", () => {
+    // Each allowlisted import must still exist, so the list ratchets down as
+    // back-imports are removed rather than silently rotting.
+    const repoRoot = getRepoRoot();
+    const memoryFromRoot = relative(repoRoot, join(repoRoot, MEMORY_DIR));
+    const stale: string[] = [];
+
+    for (const [file, allowed] of Object.entries(
+      PERSISTENCE_TO_MEMORY_ALLOWLIST,
+    )) {
+      const filePath = join(repoRoot, file);
+      const actual = new Set<string>();
+      for (const { resolvedFromRoot } of relativeImports(filePath, repoRoot)) {
+        const target = stripJs(resolvedFromRoot);
+        if (target.startsWith(`${memoryFromRoot}/`)) {
+          actual.add(target.slice(`${memoryFromRoot}/`.length));
+        }
+      }
+      for (const spec of allowed) {
+        if (!actual.has(spec)) stale.push(`${file} -> memory/${spec}`);
+      }
+    }
+
+    if (stale.length > 0) {
+      const message = [
+        "Stale PERSISTENCE_TO_MEMORY_ALLOWLIST entries (import removed but",
+        "still allowlisted). Delete these entries to keep the ratchet tight:",
+        "",
+        ...stale.map((v) => `  - ${v}`),
+      ].join("\n");
+      expect(stale, message).toEqual([]);
+    }
+  });
+});

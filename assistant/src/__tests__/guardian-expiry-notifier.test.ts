@@ -60,8 +60,8 @@ import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { sweepExpiredCanonicalGuardianRequests } from "../runtime/routes/canonical-guardian-expiry-sweep.js";
 

@@ -133,9 +133,9 @@ import {
   getContact,
   upsertContact,
 } from "../contacts/contact-store.js";
-import { getSqlite } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { createInvite, revokeInvite } from "../memory/invite-store.js";
+import { getSqlite } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { createInvite, revokeInvite } from "../persistence/invite-store.js";
 import { redeemVoiceInviteCode } from "../runtime/invite-redemption-service.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 import {
@@ -324,7 +324,9 @@ describe("redeemVoiceInviteCode", () => {
     });
 
     expect(result).toEqual({ ok: false, reason: "invalid_or_expired" });
-    expect(findContactChannel({ channelType: "phone", address: phone })).toBeNull();
+    expect(
+      findContactChannel({ channelType: "phone", address: phone }),
+    ).toBeNull();
   });
 
   test("returns invalid_or_expired (no throw) when the gateway refuses the activation", async () => {

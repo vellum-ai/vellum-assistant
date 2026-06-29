@@ -80,6 +80,7 @@ function makeCtx(
     messages,
     additionalContext: null,
     model: "claude-test-model",
+    needsFirmerSteering: false,
     maxInputTokens: 10_000,
     logger: noopLogger,
   };

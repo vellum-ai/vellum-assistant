@@ -21,7 +21,11 @@ import {
   handleStatusCallback,
   handleVoiceWebhook,
 } from "../calls/twilio-routes.js";
-import { isHttpAuthDisabled } from "../config/env.js";
+import {
+  getRuntimeHttpHost,
+  getRuntimeHttpPort,
+  isHttpAuthDisabled,
+} from "../config/env.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { processMessage } from "../daemon/process-message.js";
@@ -1072,4 +1076,44 @@ export class RuntimeHttpServer {
 
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Singleton
+// ---------------------------------------------------------------------------
+
+let instance: RuntimeHttpServer | null = null;
+
+/**
+ * Start the runtime HTTP server singleton early in daemon startup so /healthz
+ * answers ASAP. A bind failure (port in use, permission denied, fd exhaustion)
+ * is non-fatal: it is logged and the daemon falls back to IPC-only operation,
+ * leaving the singleton unset.
+ */
+export async function startRuntimeHttpServer(): Promise<void> {
+  const port = getRuntimeHttpPort();
+  const hostname = getRuntimeHttpHost();
+  log.info({ port }, "Daemon startup: starting runtime HTTP server");
+  const server = new RuntimeHttpServer({ port, hostname });
+  try {
+    await server.start();
+    instance = server;
+    log.info(
+      { port, hostname },
+      "Daemon startup: runtime HTTP server listening",
+    );
+  } catch (err) {
+    log.warn(
+      { err, port },
+      "Failed to start runtime HTTP server, continuing without it",
+    );
+    instance = null;
+  }
+}
+
+/** Stop the runtime HTTP server singleton if one is running; no-op otherwise. */
+export async function stopRuntimeHttpServer(): Promise<void> {
+  if (!instance) return;
+  await instance.stop();
+  instance = null;
 }

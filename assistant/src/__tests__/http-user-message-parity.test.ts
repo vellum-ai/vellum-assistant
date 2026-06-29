@@ -54,7 +54,7 @@ mock.module("../memory/conversation-key-store.js", () => ({
   getConversationByKey: () => null,
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
 }));
 
@@ -108,9 +108,9 @@ mock.module("../runtime/confirmation-request-guardian-bridge.js", () => ({
   bridgeConfirmationRequestToGuardian: async () => undefined,
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   addMessage: (
     conversationId: string,
     role: string,
@@ -688,9 +688,7 @@ describe("HTTP POST /v1/messages trust context from the gateway binding", () => 
 
     // The CU attach gate receives the translated guardian principal, not
     // the raw "dev-bypass" string.
-    const cuCall = hostProxyAttachCalls.find(
-      (c) => c.capability === "host_cu",
-    );
+    const cuCall = hostProxyAttachCalls.find((c) => c.capability === "host_cu");
     expect(cuCall).toBeDefined();
     expect(cuCall?.sourceActorPrincipalId).toBe("test-user");
     expect(cuCall?.sourceActorPrincipalId).not.toBe("dev-bypass");
@@ -730,9 +728,7 @@ describe("HTTP POST /v1/messages trust context from the gateway binding", () => 
       202,
     );
 
-    const cuCall = hostProxyAttachCalls.find(
-      (c) => c.capability === "host_cu",
-    );
+    const cuCall = hostProxyAttachCalls.find((c) => c.capability === "host_cu");
     expect(cuCall?.sourceActorPrincipalId).toBe("real-jwt-principal");
   });
 });

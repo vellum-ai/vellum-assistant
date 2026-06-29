@@ -141,8 +141,8 @@ mock.module("../ipc/gateway-client.js", () => ({
 }));
 
 import { __resetGuardianDeliveryCacheForTest } from "../contacts/guardian-delivery-reader.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import type { ApprovalConversationGenerator } from "../runtime/http-types.js";

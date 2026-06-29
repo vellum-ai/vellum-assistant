@@ -46,13 +46,13 @@ mock.module("../../../ipc/gateway-client.js", () => ({
 // Guard: fail loudly if any relayed handler still writes the assistant invite
 // store directly. The relayed CLI paths must go through the gateway only, so we
 // spy on the store's write functions and assert they are never invoked.
-const actualInviteStore = await import("../../../memory/invite-store.js");
+const actualInviteStore = await import("../../../persistence/invite-store.js");
 
 const inviteStoreCall = mock(() => {
   throw new Error("invite-store write must not happen on relayed CLI paths");
 });
 
-mock.module("../../../memory/invite-store.js", () => ({
+mock.module("../../../persistence/invite-store.js", () => ({
   ...actualInviteStore,
   createInvite: inviteStoreCall,
   listInvites: inviteStoreCall,
@@ -62,7 +62,9 @@ mock.module("../../../memory/invite-store.js", () => ({
 // `invites_trigger_call` is daemon-local: the handler invokes the local
 // `triggerInviteCall` provider logic directly (never `ipcCallPersistent`).
 let triggerInviteCallResult: unknown = { ok: true, data: { callSid: "CA000" } };
-const triggerInviteCallMock = mock(async (_id: string) => triggerInviteCallResult);
+const triggerInviteCallMock = mock(
+  async (_id: string) => triggerInviteCallResult,
+);
 
 const actualInviteService = await import("../../invite-service.js");
 
@@ -171,7 +173,11 @@ describe("invite relay routes", () => {
       const result = await handleRevokeInvite({ pathParams: { id: "i3" } });
 
       expect(ipcCalls).toEqual([
-        { method: "invites_revoke", params: { id: "i3" }, timeoutMs: undefined },
+        {
+          method: "invites_revoke",
+          params: { id: "i3" },
+          timeoutMs: undefined,
+        },
       ]);
       expect(result).toEqual({
         ok: true,
@@ -184,7 +190,9 @@ describe("invite relay routes", () => {
   describe("handleTriggerInviteCall (daemon-local carve-out)", () => {
     test("invokes the local triggerInviteCall and does NOT relay to the gateway", async () => {
       triggerInviteCallResult = { ok: true, data: { callSid: "CA123" } };
-      const result = await handleTriggerInviteCall({ pathParams: { id: "i7" } });
+      const result = await handleTriggerInviteCall({
+        pathParams: { id: "i7" },
+      });
 
       expect(triggerInviteCallMock).toHaveBeenCalledTimes(1);
       expect(triggerInviteCallMock).toHaveBeenCalledWith("i7");
@@ -220,7 +228,11 @@ describe("invite relay routes", () => {
         await handleRevokeInvite({ pathParams: { id: "missing" } });
         throw new Error("expected handler to throw");
       } catch (err) {
-        const e = err as { statusCode?: number; code?: string; message: string };
+        const e = err as {
+          statusCode?: number;
+          code?: string;
+          message: string;
+        };
         expect(e.message).toBe("Invite not found");
         expect(e.statusCode).toBe(404);
         expect(e.code).toBe("NOT_FOUND");
@@ -230,7 +242,9 @@ describe("invite relay routes", () => {
 
   describe("invites_redeem carve-out", () => {
     test("redeem route is registered but NOT relayed to the gateway", () => {
-      const redeemRoute = ROUTES.find((r) => r.operationId === "invites_redeem");
+      const redeemRoute = ROUTES.find(
+        (r) => r.operationId === "invites_redeem",
+      );
       expect(redeemRoute).toBeDefined();
       // The redeem handler is daemon-local; it must not appear in the relayed
       // operation set above. No gateway IPC call is made by registering it.

@@ -22,9 +22,9 @@ mock.module("../util/secure-keys.js", () => ({
   getSecureKeyAsync: async () => undefined,
 }));
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { llmUsageEvents } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { llmUsageEvents } from "../persistence/schema/index.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { ROUTES } from "../runtime/routes/log-export-routes.js";
 import { getLogsDir } from "../util/platform.js";
