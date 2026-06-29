@@ -18,8 +18,8 @@ import type {
   TurnInterfaceContext,
 } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
-import type { Conversation } from "../daemon/conversation.js";
 import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
+import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
@@ -40,14 +40,6 @@ const log = getLogger("voice-session-bridge");
 // ---------------------------------------------------------------------------
 
 export interface VoiceBridgeDeps {
-  getOrCreateConversation: (
-    conversationId: string,
-    transport?: {
-      channelId: ChannelId;
-      hints?: string[];
-      uxBrief?: string;
-    },
-  ) => Promise<Conversation>;
   resolveAttachments: (attachmentIds: string[]) => Array<{
     id: string;
     filename: string;
@@ -363,13 +355,7 @@ export async function startVoiceTurn(
       : opts.voiceControlPrompt;
 
   // Get or create the conversation
-  const transport = {
-    channelId: turnChannelContext.userMessageChannel,
-  };
-  const conversation = await deps.getOrCreateConversation(
-    opts.conversationId,
-    transport,
-  );
+  const conversation = await getOrCreateConversation(opts.conversationId);
 
   if (conversation.isProcessing()) {
     // Voice barge-in can race with turn teardown. Wait briefly for the

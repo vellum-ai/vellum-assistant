@@ -99,7 +99,6 @@ import { startConversationEvictor } from "./conversation-evictor.js";
 import { getOrCreateConversation } from "./conversation-store.js";
 import { writePid } from "./daemon-control.js";
 import { setDbReady, setStartupComplete } from "./daemon-readiness.js";
-import { broadcastDaemonStatus } from "./daemon-status.js";
 import {
   evaluateDiskPressureNow,
   startDiskPressureGuard,
@@ -125,6 +124,7 @@ import {
 import { installShutdownHandlers } from "./shutdown-handlers.js";
 import { registerShutdownHook } from "./shutdown-registry.js";
 import { refreshSkillCapabilityMemories } from "./skill-memory-refresh.js";
+import { broadcastDaemonStatus } from "./status.js";
 
 const log = getLogger("lifecycle");
 let diskPressureStartupSampleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -612,10 +612,8 @@ export async function runDaemon(): Promise<void> {
   // Initialize providers before Qdrant so HTTP routes can begin accepting
   // requests while Qdrant initializes, then best-effort sync the workspace
   // identity name to the platform record.
-  log.info("Daemon startup: initializing providers");
   await initializeProviders(config);
   syncWorkspaceIdentityToPlatform();
-  log.info("Daemon startup: providers initialized");
 
   // Start the idle/LRU/memory-pressure sweep over the in-memory conversation
   // pool.
@@ -938,12 +936,10 @@ export async function runDaemon(): Promise<void> {
     log.warn({ err }, "Background Qdrant init failed"),
   );
 
-  // Inject voice bridge deps so route handlers + the relay pipeline can
-  // resolve a conversation by ID once a call lands. Module-level state,
-  // so available even when the HTTP server failed to bind.
+  // Inject voice bridge deps so the relay pipeline can resolve attachments
+  // once a call lands. Module-level state, so available even when the HTTP
+  // server failed to bind.
   setVoiceBridgeDeps({
-    getOrCreateConversation: (conversationId, _transport) =>
-      getOrCreateConversation(conversationId),
     resolveAttachments: (attachmentIds) => {
       const resolved = getAttachmentsByIds(attachmentIds, {
         hydrateFileData: true,
