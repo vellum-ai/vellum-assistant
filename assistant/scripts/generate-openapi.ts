@@ -217,12 +217,68 @@ async function collectRoutesFromModules(): Promise<RouteEntry[]> {
 }
 
 /**
+ * Trivial liveness/startup probe response. `/healthz` is the k8s startup +
+ * liveness target and stays intentionally minimal: a static `{ status, version }`
+ * answered the instant the HTTP server is up, with zero DB/CES/lifecycle access.
+ */
+const trivialHealthSchema = z.object({
+  status: z.string(),
+  version: z.string(),
+});
+
+/**
+ * Strict readiness probe response. `/readyz` gates on the daemon's synchronous
+ * startup latches (`isStartupComplete() && isDbReady()`), returning 503 with
+ * `ready: false` until both are set, then a stable 200. `notReady` lists the
+ * gates still failing (`"startup"`, `"db"`). CES is never consulted.
+ */
+const readyzSchema = z.object({
+  status: z.string(),
+  ready: z.boolean(),
+  notReady: z.array(z.string()),
+});
+
+/**
  * Top-level routes outside the /v1/ namespace.
  * These are added to the spec separately.
  */
-const NON_V1_ROUTES: Array<{ method: string; path: string }> = [
-  { method: "GET", path: "/healthz" },
-  { method: "GET", path: "/readyz" },
+const NON_V1_ROUTES: Array<{
+  method: string;
+  path: string;
+  summary?: string;
+  description?: string;
+  responseBody?: z.ZodType;
+  additionalResponses?: Record<
+    string,
+    { description: string; schema?: unknown }
+  >;
+}> = [
+  {
+    method: "GET",
+    path: "/healthz",
+    summary: "Liveness probe",
+    description:
+      "Trivial liveness/startup probe. Returns { status, version } the instant " +
+      "the HTTP server is up, with zero DB/CES/lifecycle access.",
+    responseBody: trivialHealthSchema,
+  },
+  {
+    method: "GET",
+    path: "/readyz",
+    summary: "Readiness probe",
+    description:
+      "Strict readiness probe. Returns 503 with { status, ready, notReady } until " +
+      "the daemon's synchronous startup latches (isStartupComplete() && isDbReady()) " +
+      "are set, then a stable 200. notReady lists the gates still failing " +
+      '("startup", "db"). CES is informational and never gates readiness.',
+    responseBody: readyzSchema,
+    additionalResponses: {
+      "503": {
+        description: "Not ready — startup incomplete or database not ready.",
+        schema: readyzSchema,
+      },
+    },
+  },
   { method: "GET", path: "/pages/{id}" },
 ];
 
@@ -322,7 +378,16 @@ function buildSpec(
         path: r.path,
         method: r.method,
         endpoint: r.path,
-        entry: { method: r.method, endpoint: r.path },
+        entry: {
+          method: r.method,
+          endpoint: r.path,
+          ...(r.summary ? { summary: r.summary } : {}),
+          ...(r.description ? { description: r.description } : {}),
+          ...(r.responseBody ? { responseBody: r.responseBody } : {}),
+          ...(r.additionalResponses
+            ? { additionalResponses: r.additionalResponses }
+            : {}),
+        },
       });
     }
   }

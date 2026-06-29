@@ -95,6 +95,7 @@ import { startAppSourceWatcher } from "./app-source-watcher.js";
 import { startConfigWatcher } from "./config-watcher.js";
 import { startConversationEvictor } from "./conversation-store.js";
 import { writePid } from "./daemon-control.js";
+import { setDbReady, setStartupComplete } from "./daemon-readiness.js";
 import {
   evaluateDiskPressureNow,
   startDiskPressureGuard,
@@ -270,15 +271,35 @@ export async function runDaemon(): Promise<void> {
   // depend on DB migrations having run (e.g. the inline-attachment-to-disk
   // backfill that populates attachment filePaths).
   //
-  // If DB initialization fails (e.g. a migration error), the daemon
-  // continues in a degraded state — DB-dependent features won't work but
-  // the HTTP server and config-based subsystems still start so the process
-  // remains reachable for health checks and diagnostics.
+  // The daemon continues in a degraded state on either DB failure mode:
+  // (a) initializeDb() throws (e.g. the DB can't be opened), or (b) the DB
+  // opens but one or more migrations failed (initializeDb resolves with
+  // migrationsOk:false rather than throwing, per the daemon-never-blocks
+  // philosophy). In both cases DB-dependent features won't work, but the
+  // HTTP server and config-based subsystems still start so the process
+  // remains reachable for diagnostics. The trivial /healthz and detailed
+  // /v1/health(z) endpoints still answer 200, but setDbReady(true) runs only
+  // when migrations all applied, so the readiness latch stays unset and
+  // /readyz reports not-ready (503) for the rest of the process lifetime.
+  // That 503 is intentional: a DB-broken daemon should fail readiness so it
+  // is not routed user traffic.
+  //
+  // The local `dbReady` and the module-level readiness latch intentionally
+  // diverge on the migration-failure path: `dbReady` stays true to allow the
+  // downstream best-effort seeding / workspace migrations, while the latch
+  // stays unset to keep /readyz 503.
   let dbReady = false;
   try {
-    await initializeDb();
+    const { migrationsOk } = await initializeDb();
     dbReady = true;
-    log.info("Daemon startup: DB initialized");
+    if (migrationsOk) {
+      setDbReady(true);
+      log.info("Daemon startup: DB initialized");
+    } else {
+      log.error(
+        "Daemon startup: DB opened but one or more migrations failed — /readyz will remain unready (degraded mode)",
+      );
+    }
   } catch (err) {
     log.error(
       { err },
@@ -1165,6 +1186,12 @@ export async function runDaemon(): Promise<void> {
   startFilingService();
 
   installShutdownHandlers({ server });
+
+  // The critical startup await-chain has completed and the daemon can serve
+  // requests, so latch readiness before logging "Daemon started". Any fatal
+  // failure earlier in startup propagates out of runDaemon before this line,
+  // so the latch is never set on a failed start.
+  setStartupComplete();
 
   log.info(
     {
