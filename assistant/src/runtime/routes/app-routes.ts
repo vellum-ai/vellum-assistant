@@ -8,6 +8,7 @@ import { extname, join } from "node:path";
 import JSZip from "jszip";
 import { z } from "zod";
 
+import { getApp, getAppDirPath, isMultifileApp } from "../../apps/app-store.js";
 import {
   createSharedAppLink,
   deleteSharedAppLinkByToken,
@@ -15,11 +16,6 @@ import {
   incrementDownloadCount,
 } from "../../apps/shared-app-links-store.js";
 import type { AppManifest } from "../../bundler/manifest.js";
-import {
-  getApp,
-  getAppDirPath,
-  isMultifileApp,
-} from "../../memory/app-store.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError, RouteError } from "./errors.js";

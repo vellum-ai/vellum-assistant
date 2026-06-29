@@ -8,7 +8,7 @@ import {
   createApp,
   getApp,
   listAppsByConversation,
-} from "../memory/app-store.js";
+} from "../apps/app-store.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

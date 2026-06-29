@@ -2,12 +2,12 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { disposeAcpSessionManager } from "../acp/index.js";
+import { getApp, getAppDirPath, isMultifileApp } from "../apps/app-store.js";
 import { compileApp } from "../bundler/app-compiler.js";
 import { getConfig } from "../config/loader.js";
 import { onContactChange } from "../contacts/contact-events.js";
 import { AssistantIpcServer } from "../ipc/assistant-server.js";
 import { SkillIpcServer } from "../ipc/skill-server.js";
-import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
 import { syncIdentityNameToPlatform } from "../platform/sync-identity.js";
 import { initializeProviders } from "../providers/registry.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";

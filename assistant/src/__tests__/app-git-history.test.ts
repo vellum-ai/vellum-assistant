@@ -14,7 +14,7 @@ import {
   getAppHistory,
   restoreAppVersion,
 } from "../apps/app-git-service.js";
-import { createApp, getAppDirPath, updateApp } from "../memory/app-store.js";
+import { createApp, getAppDirPath, updateApp } from "../apps/app-store.js";
 
 describe("App Git History", () => {
   beforeEach(() => {

@@ -11,7 +11,7 @@
 
 import { existsSync, type FSWatcher, watch } from "node:fs";
 
-import { getAppsDir, resolveAppIdByDirName } from "../memory/app-store.js";
+import { getAppsDir, resolveAppIdByDirName } from "../apps/app-store.js";
 import { DebouncerMap } from "../util/debounce.js";
 import { attachFsWatcherErrorHandler } from "../util/fs-watcher-error.js";
 import { getLogger } from "../util/logger.js";
