@@ -1,7 +1,8 @@
 import { CheckCircle, ChevronDown, ChevronRight, Hash, Phone, Send } from "lucide-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
+import { Card } from "@vellumai/design-library/components/card";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
@@ -9,6 +10,7 @@ import { Typography } from "@vellumai/design-library/components/typography";
 
 import { DetailCard } from "@/components/detail-card";
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
+import { publicAsset } from "@/utils/public-asset";
 import { ShareConnectionLinkButton } from "@/domains/contacts/components/share-connection-link-button";
 import { SlackSetupWizard, type SlackThreadMode } from "@/domains/contacts/components/slack-setup-wizard";
 import type { AssistantChannelState } from "@/domains/contacts/types";
@@ -385,7 +387,9 @@ function ChannelRow({
       ) : null}
 
       {!connected && channel.key === "slack" && expanded ? (
-        <SlackSetupWizard assistantName={assistantName} onSave={onSaveSlackConfig} />
+        <SlackChannelCard assistantName={assistantName}>
+          <SlackSetupWizard assistantName={assistantName} onSave={onSaveSlackConfig} />
+        </SlackChannelCard>
       ) : null}
 
       {!connected && channel.key === "phone" && expanded ? (
@@ -409,13 +413,15 @@ function ChannelRow({
           ) : null}
 
           {channel.key === "slack" ? (
-            <SlackSetupWizard
-              assistantName={assistantName}
-              connected
-              threadMode={slackThreadMode}
-              threadModePending={slackThreadModePending}
-              onThreadModeChange={onSlackThreadModeChange}
-            />
+            <SlackChannelCard assistantName={assistantName} connected>
+              <SlackSetupWizard
+                assistantName={assistantName}
+                connected
+                threadMode={slackThreadMode}
+                threadModePending={slackThreadModePending}
+                onThreadModeChange={onSlackThreadModeChange}
+              />
+            </SlackChannelCard>
           ) : null}
 
           {channel.key === "phone" ? (
@@ -496,6 +502,46 @@ function ChannelTrustFloorSection({
           </Typography>
         </>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Slack Channel Card — container chrome for SlackSetupWizard on the contacts page
+// ---------------------------------------------------------------------------
+
+interface SlackChannelCardProps {
+  assistantName: string;
+  connected?: boolean;
+  children: ReactNode;
+}
+
+function SlackChannelCard({ assistantName, connected = false, children }: SlackChannelCardProps) {
+  return (
+    <div className="pl-7">
+      <Card.Root>
+        <Card.Header>
+          <div className="flex items-center gap-3">
+            <img
+              src={publicAsset("/images/integrations/slack.svg")}
+              alt=""
+              className="size-8 rounded-lg bg-[var(--surface-sunken)] p-1"
+            />
+            <div className="flex flex-col">
+              <Typography as="span" variant="body-medium-default">
+                {connected ? "Slack settings" : "Slack setup"}
+              </Typography>
+              {connected ? (
+                <span className="flex items-center gap-1.5 text-body-small-default text-[var(--content-secondary)]">
+                  <span className="size-2 rounded-full bg-[var(--system-positive-strong)]" />
+                  Connected as {assistantName}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        </Card.Header>
+        <Card.Body>{children}</Card.Body>
+      </Card.Root>
     </div>
   );
 }
