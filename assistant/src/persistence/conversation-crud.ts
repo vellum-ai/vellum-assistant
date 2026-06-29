@@ -630,25 +630,31 @@ export function createConversation(
     seq: initialSeq > 0 ? initialSeq : null,
   };
 
-  // Synchronous primitive: it runs inside synchronous bun:sqlite transactions
-  // (the fork paths below), so it cannot itself await a retry. It does NOT
-  // retry on contention — callers on write-contended paths wrap the call (or
-  // their enclosing transaction) in `withSqliteRetry`. No explicit BEGIN/COMMIT
-  // here: callers that need atomicity wrap in their own transaction, and
-  // nesting raw BEGIN inside Drizzle's db.transaction() would crash SQLite.
-  db.insert(conversations).values(conversation).run();
-
-  // group_id is NOT in the Drizzle schema (raw-query-only pattern).
-  // Set via raw SQL after the INSERT succeeds.
-  // Always set group_id — default to "system:all" when none provided.
-  {
-    const effectiveGroupId = groupId ?? "system:all";
+  // Insert the row and set its group_id (raw-SQL-only, not in the Drizzle
+  // schema, so it's a second statement) atomically. A SAVEPOINT — not
+  // `db.transaction()` — because createConversation also runs INSIDE the fork
+  // paths' transactions, where a nested `BEGIN` would error; a savepoint nests
+  // cleanly and is still atomic at the top level. createConversation is a
+  // synchronous primitive and does not retry on contention: callers on
+  // write-contended paths wrap the call in `withSqliteRetry`, and because the
+  // insert+update are atomic here, such a retry re-runs the whole thing cleanly
+  // (a failed attempt rolls back, so no half-written row is ever left behind).
+  const effectiveGroupId = groupId ?? "system:all";
+  const raw = getSqliteFrom(db);
+  raw.exec("SAVEPOINT create_conv");
+  try {
+    db.insert(conversations).values(conversation).run();
     rawRun(
       "UPDATE conversations SET group_id = ?, is_pinned = ? WHERE id = ?",
       effectiveGroupId,
       effectiveGroupId === "system:pinned" ? 1 : 0,
       id,
     );
+    raw.exec("RELEASE create_conv");
+  } catch (err) {
+    raw.exec("ROLLBACK TO create_conv");
+    raw.exec("RELEASE create_conv");
+    throw err;
   }
 
   initConversationDir({ ...conversation, originChannel: null });
