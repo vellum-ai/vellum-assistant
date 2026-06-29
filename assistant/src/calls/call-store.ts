@@ -1,13 +1,13 @@
 import { and, desc, eq, notInArray, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb } from "../memory/db-connection.js";
-import { rawChanges, rawRun } from "../memory/raw-query.js";
+import { getDb } from "../persistence/db-connection.js";
+import { rawChanges, rawRun } from "../persistence/raw-query.js";
 import {
   callEvents,
   callPendingQuestions,
   callSessions,
-} from "../memory/schema.js";
+} from "../persistence/schema/index.js";
 import { getLogger } from "../util/logger.js";
 import { cast, createRowMapper } from "../util/row-mapper.js";
 import { syncActiveCallLeaseFromSession } from "./active-call-lease.js";

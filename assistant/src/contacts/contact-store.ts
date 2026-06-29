@@ -2,14 +2,14 @@ import { and, asc, desc, eq, like, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import type { ChannelId } from "../channels/types.js";
-import { getDb } from "../memory/db-connection.js";
+import { getDb } from "../persistence/db-connection.js";
 import {
   assistantContactMetadata,
   contactChannels,
   contacts,
-} from "../memory/schema.js";
+} from "../persistence/schema/index.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
-import { emitContactChange } from "./contact-events.js";
+import { notifyContactsChanged } from "./notify-contacts-changed.js";
 import type {
   AssistantContactMetadata,
   ChannelPolicy,
@@ -96,7 +96,9 @@ function parseContact(row: typeof contacts.$inferSelect): Contact {
     id: row.id,
     displayName: row.displayName,
     notes: row.notes,
-    role: row.role,
+    // gateway-owned; the serve layer stamps the real role from the gateway
+    // guardian id set.
+    role: "contact",
     lastInteraction: null,
     interactionCount: 0,
     createdAt: row.createdAt,
@@ -272,7 +274,7 @@ export function upsertContact(params: {
         );
       }
 
-      emitContactChange();
+      notifyContactsChanged();
       return { ...getContactInternal(contactId)!, created: false };
     }
   }
@@ -299,7 +301,7 @@ export function upsertContact(params: {
           .run();
 
         syncChannels(contactId, canonicalChannels, now);
-        emitContactChange();
+        notifyContactsChanged();
         return { ...getContactInternal(contactId)!, created: false };
       }
     }
@@ -332,7 +334,7 @@ export function upsertContact(params: {
     );
   }
 
-  emitContactChange();
+  notifyContactsChanged();
   return { ...getContactInternal(contactId)!, created: true };
 }
 
@@ -648,7 +650,7 @@ export function mergeContacts(
     tx.delete(contacts).where(eq(contacts.id, mergeId)).run();
   });
 
-  emitContactChange();
+  notifyContactsChanged();
   return getContactInternal(keepId)!;
 }
 
@@ -788,7 +790,7 @@ export function updateContactPrincipalAndChannel(
     .where(eq(contactChannels.id, channelId))
     .run();
 
-  emitContactChange();
+  notifyContactsChanged();
   return true;
 }
 

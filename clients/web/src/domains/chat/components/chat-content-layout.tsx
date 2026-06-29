@@ -26,6 +26,7 @@ import { useDeployStore } from "@/stores/deploy-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
+import { useAcpRunStore } from "@/domains/chat/acp-run-store";
 import { useEditApp } from "@/hooks/use-edit-app";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { routes } from "@/utils/routes";
@@ -37,11 +38,16 @@ const importSubagentDetailPanel = () =>
   import("@/domains/chat/components/subagent-detail-panel");
 const importToolDetailPanel = () =>
   import("@/domains/chat/components/tool-detail-panel");
+const importAcpRunDetailPanel = () =>
+  import("@/domains/chat/components/acp-run-detail-panel/acp-run-detail-panel");
 const importWorkflowDetailPanel = () =>
   import("@/domains/chat/components/workflow-detail-panel");
 
 const SubagentDetailPanel = lazy(() =>
   importSubagentDetailPanel().then((m) => ({ default: m.SubagentDetailPanel })),
+);
+const AcpRunDetailPanel = lazy(() =>
+  importAcpRunDetailPanel().then((m) => ({ default: m.AcpRunDetailPanel })),
 );
 const WorkflowDetailPanel = lazy(() =>
   importWorkflowDetailPanel().then((m) => ({ default: m.WorkflowDetailPanel })),
@@ -70,6 +76,11 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     activeSubagentId ? s.byId[activeSubagentId] : undefined,
   );
   const workflowById = useWorkflowStore((s) => s.byId);
+  const activeAcpRunId = useViewerStore.use.activeAcpRunId();
+  // Active run's entry only — same narrow selector as the subagent entry above.
+  const activeAcpRunEntry = useAcpRunStore((s) =>
+    activeAcpRunId ? s.byId[activeAcpRunId] : undefined,
+  );
 
   const isSharing = useDeployStore.use.isSharing();
   const isDeploying = useDeployStore.use.isDeploying();
@@ -150,9 +161,14 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     void useWorkflowStore.getState().fetchJournalIfNeeded(aid, runId);
   }, []);
 
+  const onCloseAcpRunDetail = useCallback(() => {
+    useViewerStore.getState().closeAcpRunDetail();
+  }, []);
+
   // -------------------------------------------------------------------------
   // Escape closes whichever right-hand side panel is open (tool detail /
-  // thought process, subagent detail, document viewer). Surfaces stacked
+  // thought process, subagent detail, workflow detail, acp run detail,
+  // document viewer). Surfaces stacked
   // above the panel that own Escape — Radix layers (dialogs, popovers,
   // dropdowns), the command palette, voice recording, the attachment
   // preview — all run before this bubble-phase window listener (document
@@ -182,6 +198,9 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
         case "workflow-detail":
           viewer.closeWorkflowDetail();
           break;
+        case "acp-run-detail":
+          viewer.closeAcpRunDetail();
+          break;
         case "document":
           viewer.closeDocument();
           break;
@@ -203,6 +222,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     const run = () => {
       importSubagentDetailPanel().catch(() => {});
       importToolDetailPanel().catch(() => {});
+      importAcpRunDetailPanel().catch(() => {});
       importWorkflowDetailPanel().catch(() => {});
     };
     if (typeof window.requestIdleCallback === "function") {
@@ -333,6 +353,19 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
             detail={activeToolDetail}
             onClose={closeToolDetail}
             onRiskBadgeClick={() => useViewerStore.getState().requestRuleEditorForActiveTool()}
+          />
+        </LazyBoundary>
+      );
+    } else if (
+      mainView === "acp-run-detail" &&
+      activeAcpRunId &&
+      activeAcpRunEntry
+    ) {
+      rightPanel = (
+        <LazyBoundary>
+          <AcpRunDetailPanel
+            entry={activeAcpRunEntry}
+            onClose={onCloseAcpRunDetail}
           />
         </LazyBoundary>
       );

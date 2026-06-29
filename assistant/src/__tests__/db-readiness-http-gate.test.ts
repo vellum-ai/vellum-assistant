@@ -30,28 +30,26 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-import {
-  markDbMigrationsReady,
-  markDbMigrationsRunning,
-} from "../memory/db-readiness.js";
+import { setDbMigrating, setDbReady } from "../daemon/daemon-readiness.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
+import { APP_VERSION } from "../version.js";
 
 describe("DB migration readiness HTTP gate", () => {
   let server: RuntimeHttpServer | null = null;
   let port = 0;
 
   beforeEach(() => {
-    markDbMigrationsReady();
+    setDbReady(true);
   });
 
   afterEach(async () => {
     await server?.stop();
     server = null;
-    markDbMigrationsReady();
+    setDbReady(true);
   });
 
   test("returns 503 for DB-backed API routes while migrations are running", async () => {
-    markDbMigrationsRunning();
+    setDbMigrating();
     await startServer();
 
     const response = await fetch(url("/conversations"));
@@ -63,7 +61,7 @@ describe("DB migration readiness HTTP gate", () => {
   });
 
   test("continues serving detailed health while migrations are running", async () => {
-    markDbMigrationsRunning();
+    setDbMigrating();
     await startServer();
 
     const response = await fetch(url("/health"));
@@ -78,18 +76,18 @@ describe("DB migration readiness HTTP gate", () => {
   });
 
   test("continues serving healthz while migrations are running", async () => {
-    markDbMigrationsRunning();
+    setDbMigrating();
     await startServer();
 
     const response = await fetch(`http://127.0.0.1:${port}/healthz`);
     expect(response.status).toBe(200);
 
     const body = (await response.json()) as Record<string, unknown>;
-    expect(body).toEqual({ status: "ok" });
+    expect(body).toEqual({ status: "ok", version: APP_VERSION });
   });
 
   test("continues serving readyz while migrations are running", async () => {
-    markDbMigrationsRunning();
+    setDbMigrating();
     await startServer();
 
     const response = await fetch(`http://127.0.0.1:${port}/readyz`);
@@ -100,7 +98,7 @@ describe("DB migration readiness HTTP gate", () => {
   });
 
   test("blocks config schema while migrations are running", async () => {
-    markDbMigrationsRunning();
+    setDbMigrating();
     await startServer();
 
     const response = await fetch(url("/config/schema"));
@@ -112,7 +110,7 @@ describe("DB migration readiness HTTP gate", () => {
   });
 
   test("returns 503 for Twilio webhooks before validation while migrations are running", async () => {
-    markDbMigrationsRunning();
+    setDbMigrating();
     await startServer();
 
     const response = await fetch(url("/calls/twilio/voice-webhook"), {
@@ -126,7 +124,7 @@ describe("DB migration readiness HTTP gate", () => {
   });
 
   test("returns 503 for shared pages while migrations are running", async () => {
-    markDbMigrationsRunning();
+    setDbMigrating();
     await startServer();
 
     const response = await fetch(`http://127.0.0.1:${port}/pages/app-123`);

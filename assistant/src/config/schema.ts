@@ -42,6 +42,7 @@ import {
 } from "./schemas/logging.js";
 import { McpConfigSchema } from "./schemas/mcp.js";
 import { MemoryConfigSchema } from "./schemas/memory.js";
+import { MigrationsConfigSchema } from "./schemas/migrations.js";
 import { NotificationsConfigSchema } from "./schemas/notifications.js";
 import {
   DaemonConfigSchema,
@@ -63,6 +64,7 @@ export const AssistantConfigSchema = z
   .object({
     services: ServicesSchema.default(ServicesSchema.parse({})),
     memory: MemoryConfigSchema.default(MemoryConfigSchema.parse({})),
+    migrations: MigrationsConfigSchema.default(MigrationsConfigSchema.parse({})),
     dataDir: z
       .string({ error: "dataDir must be a string" })
       .default(getDataDir())

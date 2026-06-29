@@ -14,7 +14,7 @@
  * (the engine, a later PR) own gating.
  */
 
-import { rawAll, rawGet, rawRun } from "../memory/raw-query.js";
+import { rawAll, rawGet, rawRun } from "../persistence/raw-query.js";
 
 export type WorkflowRunStatus =
   | "running"

@@ -10,7 +10,7 @@ import type { AdmissionPolicy, TrustVerdict } from "@vellumai/gateway-client";
 
 import { getConfig } from "../config/loader.js";
 import { getContact } from "../contacts/contact-store.js";
-import { findActiveVoiceInvites } from "../memory/invite-store.js";
+import { findActiveVoiceInvites } from "../persistence/invite-store.js";
 import {
   type ActorTrustContext,
   resolveActorTrust,

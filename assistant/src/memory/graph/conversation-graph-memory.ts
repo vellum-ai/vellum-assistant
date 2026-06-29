@@ -12,7 +12,13 @@ import { z } from "zod";
 import type { AssistantConfig } from "../../config/types.js";
 import { estimateTextTokens } from "../../context/token-estimator.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
-import { clearConversation as clearV3EverInjected } from "../../plugins/defaults/memory-v3-shadow/ever-injected-store.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { embedWithRetry } from "../../persistence/embeddings/embed.js";
+import { generateSparseEmbedding } from "../../persistence/embeddings/embedding-backend.js";
+import type { QdrantSparseVector } from "../../persistence/embeddings/qdrant-client.js";
+import { conversations } from "../../persistence/schema/conversations.js";
+import { memorySummaries } from "../../persistence/schema/index.js";
+import { clearConversation as clearV3EverInjected } from "../../plugins/defaults/memory/v3/ever-injected-store.js";
 import type {
   ContentBlock,
   ImageContent,
@@ -20,13 +26,7 @@ import type {
 } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
-import { getDb } from "../db-connection.js";
-import { embedWithRetry } from "../embed.js";
-import { generateSparseEmbedding } from "../embedding-backend.js";
 import { wrapMemoryBlock } from "../memory-marker.js";
-import type { QdrantSparseVector } from "../qdrant-client.js";
-import { memorySummaries } from "../schema.js";
-import { conversations } from "../schema/conversations.js";
 import {
   clearEverInjected as clearV2EverInjected,
   hydrate as hydrateV2State,
@@ -364,7 +364,7 @@ export class ConversationGraphMemory {
    * for PKB hybrid search. The PKB-reminder injector reuses the same
    * embedding (looked up by conversation id via {@link getLiveGraphMemory})
    * rather than receiving it threaded through the agent loop, so the vectors
-   * stay owned by the memory-retrieval domain that computes them.
+   * stay owned by the memory domain that computes them.
    */
   recordPkbQueryVectors(
     dense: number[] | undefined,

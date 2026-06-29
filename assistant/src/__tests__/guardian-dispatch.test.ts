@@ -32,46 +32,16 @@ mock.module("../config/loader.js", () => ({
 // by reseeding or clearing the local binding directly.
 mock.module("../contacts/guardian-delivery-reader.js", () => ({
   getGuardianDelivery: async (input?: { channelTypes?: string[] }) => {
-    const { getDb } = await import("../memory/db-connection.js");
-    const { contacts, contactChannels } = await import("../memory/schema.js");
-    const { and, eq } = await import("drizzle-orm");
-    const channels = input?.channelTypes ?? [];
-    return channels
-      .map((channelType) => {
-        const row = getDb()
-          .select({ contact: contacts, channel: contactChannels })
-          .from(contacts)
-          .innerJoin(
-            contactChannels,
-            eq(contacts.id, contactChannels.contactId),
-          )
-          .where(
-            and(
-              eq(contacts.role, "guardian"),
-              eq(contactChannels.type, channelType),
-              eq(contactChannels.status, "active"),
-            ),
-          )
-          .get();
-        if (!row) return null;
-        return {
-          channelType,
-          contactId: row.contact.id,
-          principalId: row.contact.principalId ?? null,
-          displayName: row.contact.displayName ?? null,
-          address: row.channel.address,
-          externalChatId: row.channel.externalChatId ?? null,
-          status: "active",
-          verifiedAt: row.channel.verifiedAt ?? null,
-        };
-      })
-      .filter((g) => g !== null);
+    const { deriveGuardianDeliveries } =
+      await import("./helpers/derive-guardian-delivery.js");
+    return deriveGuardianDeliveries({
+      channelTypes: input?.channelTypes ?? [],
+    });
   },
   guardianForChannel: (
     list: Array<{ channelType: string; status: string }>,
     channelType: string,
-  ) =>
-    list.find((g) => g.channelType === channelType && g.status === "active"),
+  ) => list.find((g) => g.channelType === channelType && g.status === "active"),
 }));
 
 const emitCalls: unknown[] = [];
@@ -113,10 +83,11 @@ import {
   createPendingQuestion,
 } from "../calls/call-store.js";
 import { dispatchGuardianQuestion } from "../calls/guardian-dispatch.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { conversations } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { conversations } from "../persistence/schema/index.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import { resetGatewayAclStore } from "./helpers/gateway-acl-store.js";
 
 await initializeDb();
 
@@ -145,6 +116,7 @@ function resetTables(): void {
   db.run("DELETE FROM conversations");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
+  resetGatewayAclStore();
 
   // Seed the vellum guardian binding (gateway does this at startup in production)
   createGuardianBinding({
@@ -240,6 +212,7 @@ describe("guardian-dispatch", () => {
     const db = getDb();
     db.run("DELETE FROM contact_channels");
     db.run("DELETE FROM contacts");
+    resetGatewayAclStore();
     createGuardianBinding({
       channel: "vellum",
       guardianExternalUserId: "local-actor-principal",
@@ -272,9 +245,7 @@ describe("guardian-dispatch", () => {
       .query(
         "SELECT * FROM canonical_guardian_requests WHERE call_session_id = ?",
       )
-      .get(session.id) as
-      | { guardian_principal_id: string | null }
-      | undefined;
+      .get(session.id) as { guardian_principal_id: string | null } | undefined;
     expect(request).toBeDefined();
     expect(request!.guardian_principal_id).toBe("local-actor-principal");
   });
@@ -283,6 +254,7 @@ describe("guardian-dispatch", () => {
     const db = getDb();
     db.run("DELETE FROM contact_channels");
     db.run("DELETE FROM contacts");
+    resetGatewayAclStore();
 
     const convId = "conv-dispatch-no-principal";
     ensureConversation(convId);

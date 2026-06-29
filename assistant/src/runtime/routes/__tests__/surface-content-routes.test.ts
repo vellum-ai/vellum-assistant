@@ -74,7 +74,7 @@ mock.module("../../../daemon/conversation-store.js", () => ({
   },
 }));
 
-mock.module("../../../memory/raw-query.js", () => ({
+mock.module("../../../persistence/raw-query.js", () => ({
   rawGet: (sql: string, ...params: unknown[]) => {
     rawGetCalls.push({ sql, params });
     return rawGetReturn;

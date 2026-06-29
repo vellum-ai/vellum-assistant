@@ -22,8 +22,6 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { and, desc, eq } from "drizzle-orm";
-
 import type { ChannelId } from "../channels/types.js";
 import { findContactChannel } from "../contacts/contact-store.js";
 import {
@@ -31,9 +29,8 @@ import {
   upsertContactChannel,
 } from "../contacts/contacts-write.js";
 import type { ChannelStatus } from "../contacts/types.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { contactChannels, contacts } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
 import {
   createOutboundSession,
@@ -44,6 +41,8 @@ import {
   setMemberVerdict,
 } from "../runtime/member-verdict-cache.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import { deriveGuardianForChannel } from "./helpers/derive-guardian-delivery.js";
+import { resetGatewayAclStore } from "./helpers/gateway-acl-store.js";
 
 await initializeDb();
 
@@ -57,6 +56,7 @@ function resetTables(): void {
   db.run("DELETE FROM channel_guardian_rate_limits");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
+  resetGatewayAclStore();
 }
 
 // Mirror a warmed gateway verdict so the sync resolveActorTrust fallback
@@ -77,28 +77,6 @@ function warmMemberVerdict(
     status,
     policy: "allow",
   });
-}
-
-/**
- * Read the local active guardian channel for a channel type, mirroring the
- * gateway's role/status resolution. Used by assertions that confirm the local
- * guardian binding state after verification flows.
- */
-function localGuardianForChannel(channelType: string) {
-  const row = getDb()
-    .select({ contact: contacts, channel: contactChannels })
-    .from(contacts)
-    .innerJoin(contactChannels, eq(contacts.id, contactChannels.contactId))
-    .where(
-      and(
-        eq(contacts.role, "guardian"),
-        eq(contactChannels.type, channelType),
-        eq(contactChannels.status, "active"),
-      ),
-    )
-    .orderBy(desc(contactChannels.verifiedAt))
-    .get();
-  return row ? { contact: row.contact, channel: row.channel } : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -413,9 +391,9 @@ describe("trusted contact verification → member activation", () => {
     }
 
     // The original guardian binding should remain intact
-    const guardianResult = localGuardianForChannel("telegram");
+    const guardianResult = deriveGuardianForChannel("telegram");
     expect(guardianResult).not.toBeNull();
-    expect(guardianResult!.channel.address).toBe("guardian-user-original");
+    expect(guardianResult!.address).toBe("guardian-user-original");
   });
 
   test("guardian inbound verification succeeds but does not create binding", async () => {
@@ -437,7 +415,7 @@ describe("trusted contact verification → member activation", () => {
       expect(result.verificationType).toBe("guardian");
     }
 
-    const guardianResult = localGuardianForChannel("telegram");
+    const guardianResult = deriveGuardianForChannel("telegram");
     expect(guardianResult).toBeNull();
   });
 });

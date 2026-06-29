@@ -4,12 +4,12 @@
 import {
   deleteConversationKey,
   getOrCreateConversation,
-} from "../../memory/conversation-key-store.js";
-import { buildScopedConversationKey } from "../../memory/delivery-crud.js";
+} from "../../persistence/conversation-key-store.js";
+import { buildScopedConversationKey } from "../../persistence/delivery-crud.js";
 import {
   deleteBindingByChannelChat,
   deleteBindingByChannelChatThread,
-} from "../../memory/external-conversation-store.js";
+} from "../../persistence/external-conversation-store.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteHandlerArgs } from "./types.js";
 

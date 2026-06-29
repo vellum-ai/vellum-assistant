@@ -1,14 +1,19 @@
 import { eq, isNotNull, like, ne } from "drizzle-orm";
 
 import { getConfig } from "../../config/loader.js";
-import { getLogger } from "../../util/logger.js";
-import { getDb } from "../db-connection.js";
-import { selectedBackendSupportsMultimodal } from "../embedding-backend.js";
-import { asString, BackendUnavailableError } from "../job-utils.js";
-import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
-import { extractMediaBlockMeta } from "../message-content.js";
-import { withQdrantBreaker } from "../qdrant-circuit-breaker.js";
-import { getQdrantClient } from "../qdrant-client.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { selectedBackendSupportsMultimodal } from "../../persistence/embeddings/embedding-backend.js";
+import { withQdrantBreaker } from "../../persistence/embeddings/qdrant-circuit-breaker.js";
+import { getQdrantClient } from "../../persistence/embeddings/qdrant-client.js";
+import {
+  asString,
+  BackendUnavailableError,
+} from "../../persistence/job-utils.js";
+import {
+  enqueueMemoryJob,
+  type MemoryJob,
+} from "../../persistence/jobs-store.js";
+import { extractMediaBlockMeta } from "../../persistence/message-content.js";
 import {
   mediaAssets,
   memoryEmbeddings,
@@ -17,7 +22,8 @@ import {
   memorySegments,
   memorySummaries,
   messages,
-} from "../schema.js";
+} from "../../persistence/schema/index.js";
+import { getLogger } from "../../util/logger.js";
 
 const log = getLogger("memory-jobs-worker");
 

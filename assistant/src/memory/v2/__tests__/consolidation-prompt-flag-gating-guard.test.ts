@@ -181,9 +181,25 @@ describe("default consolidation prompt flag-gating guard", () => {
     expect(v3).not.toContain("The `summary` field is required");
     // §10 rides along under the live flag.
     expect(v3).toContain(CORE_PAGES_CONSOLIDATION_SECTION);
-    // The raw template keeps both placeholders wired.
+    // The raw template keeps all placeholders wired.
     expect(CONSOLIDATION_PROMPT_V3).toContain("{{CUTOFF}}");
     expect(CONSOLIDATION_PROMPT_V3).toContain("{{CORE_PAGES_SECTION}}");
     expect(v3.match(/\{\{[A-Z0-9_]+\}\}/g) ?? []).toEqual([]);
+  });
+
+  test("the core-pages section renders only when its own gate is on", () => {
+    const on = renderConsolidationPrompt("Jan 1, 12:00 AM", {
+      includeCorePagesSection: true,
+      articleShape: "v3",
+    });
+    expect(on).toContain(CORE_PAGES_CONSOLIDATION_SECTION);
+    expect(on.match(/\{\{[A-Z0-9_]+\}\}/g) ?? []).toEqual([]);
+
+    const off = renderConsolidationPrompt("Jan 1, 12:00 AM", {
+      includeCorePagesSection: false,
+      articleShape: "v3",
+    });
+    expect(off).not.toContain(CORE_PAGES_CONSOLIDATION_SECTION);
+    expect(off.match(/\{\{[A-Z0-9_]+\}\}/g) ?? []).toEqual([]);
   });
 });

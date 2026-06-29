@@ -15,10 +15,10 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import type { TrustContext } from "../daemon/trust-context.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import * as deliveryCrud from "../memory/delivery-crud.js";
-import { channelInboundEvents, messages } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import * as deliveryCrud from "../persistence/delivery-crud.js";
+import { channelInboundEvents, messages } from "../persistence/schema/index.js";
 import { sweepFailedEvents } from "../runtime/channel-retry-sweep.js";
 import {
   resolveRoutingState,
@@ -30,6 +30,7 @@ import {
   setAdapterProcessMessage,
 } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import { resetGatewayAclStore } from "./helpers/gateway-acl-store.js";
 
 await initializeDb();
 
@@ -43,6 +44,7 @@ function resetTables(): void {
   db.run("DELETE FROM external_conversation_bindings");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
+  resetGatewayAclStore();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

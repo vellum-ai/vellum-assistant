@@ -10,12 +10,12 @@
 import { z } from "zod";
 
 import { findConversation } from "../../daemon/conversation-registry.js";
-import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import type {
   SecretDelivery,
   SecretPromptResult,
 } from "../../permissions/secret-prompter.js";
 import type { UserDecision } from "../../permissions/types.js";
+import { getConversationByKey } from "../../persistence/conversation-key-store.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import * as pendingInteractions from "../pending-interactions.js";
@@ -127,9 +127,7 @@ function handleSecret({ body }: RouteHandlerArgs) {
   // undefined) so the request settles cleanly rather than 400-ing and stranding
   // the pending interaction.
   const isCancel = delivery === "none";
-  const value = isCancel
-    ? undefined
-    : (body?.value as string | undefined);
+  const value = isCancel ? undefined : (body?.value as string | undefined);
 
   if (
     delivery !== undefined &&

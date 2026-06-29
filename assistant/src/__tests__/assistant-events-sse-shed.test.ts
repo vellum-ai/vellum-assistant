@@ -10,8 +10,8 @@
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import {

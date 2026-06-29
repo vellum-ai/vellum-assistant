@@ -45,10 +45,10 @@ mock.module("../contacts/contact-store.js", () => ({
 }));
 
 // Stub downstream side effects so the test isolates trust classification.
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
   addMessage: async () => ({ id: "msg-1" }),
 }));
-mock.module("../memory/delivery-crud.js", () => ({
+mock.module("../persistence/delivery-crud.js", () => ({
   recordInbound: () => ({
     eventId: "evt-1",
     conversationId: "conv-1",
@@ -58,10 +58,10 @@ mock.module("../memory/delivery-crud.js", () => ({
   clearPayload: () => {},
   linkMessage: () => {},
 }));
-mock.module("../memory/delivery-status.js", () => ({
+mock.module("../persistence/delivery-status.js", () => ({
   markProcessed: () => {},
 }));
-mock.module("../memory/external-conversation-store.js", () => ({
+mock.module("../persistence/external-conversation-store.js", () => ({
   upsertBinding: () => {},
 }));
 mock.module("../daemon/disk-pressure-guard.js", () => ({
@@ -74,12 +74,15 @@ mock.module("../daemon/disk-pressure-policy.js", () => ({
 // Capture the trustClass the guardian decision pipeline receives — this is the
 // classification produced by the sync resolve after the upstream warm.
 let receivedTrustClass: string | undefined;
-mock.module("../runtime/routes/inbound-stages/guardian-reply-intercept.js", () => ({
-  handleGuardianReplyIntercept: async (params: { trustClass: string }) => {
-    receivedTrustClass = params.trustClass;
-    return { response: { accepted: true, canonicalRouter: "applied" } };
-  },
-}));
+mock.module(
+  "../runtime/routes/inbound-stages/guardian-reply-intercept.js",
+  () => ({
+    handleGuardianReplyIntercept: async (params: { trustClass: string }) => {
+      receivedTrustClass = params.trustClass;
+      return { response: { accepted: true, canonicalRouter: "applied" } };
+    },
+  }),
+);
 
 import {
   __resetGuardianDeliveryCacheForTest,
@@ -115,7 +118,9 @@ describe("reaction intercept warms the channel guardian cache before sync trust"
 
   test("cold slack cache: guardian reaction classifies as guardian after upstream warm", async () => {
     // Precondition: cold cache for slack — the sync peek would miss.
-    expect(peekCachedGuardianDelivery({ channelTypes: ["slack"] })).toBeUndefined();
+    expect(
+      peekCachedGuardianDelivery({ channelTypes: ["slack"] }),
+    ).toBeUndefined();
 
     await handleSlackReactionIntercept(buildParams());
 
@@ -124,7 +129,8 @@ describe("reaction intercept warms the channel guardian cache before sync trust"
       ipcCalls.some(
         (c) =>
           c.route === "resolve_guardian_delivery" &&
-          JSON.stringify(c.input) === JSON.stringify({ channelTypes: ["slack"] }),
+          JSON.stringify(c.input) ===
+            JSON.stringify({ channelTypes: ["slack"] }),
       ),
     ).toBe(true);
 

@@ -14,8 +14,8 @@ mock.module("../prompts/user-reference.js", () => ({
   resolveUserReference: () => "Alice",
 }));
 
-import { getMemorySqlite, getSqlite } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getMemorySqlite, getSqlite } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   CONVERSATION_STARTERS_STALE_TTL_MS,
   orderStrongestFirst,

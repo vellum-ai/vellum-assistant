@@ -65,7 +65,7 @@ const updateMessageContentMock = mock((_id: string, _content: string) => {});
 // handler's persisted-seq writes are observable without a real database.
 const persistedSeqByConversation = new Map<string, number>();
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
   getConversation: () => null,
@@ -82,11 +82,11 @@ mock.module("../memory/conversation-crud.js", () => ({
     persistedSeqByConversation.get(id) ?? null,
 }));
 
-mock.module("../memory/conversation-disk-view.js", () => ({
+mock.module("../persistence/conversation-disk-view.js", () => ({
   syncMessageToDisk: () => {},
 }));
 
-mock.module("../memory/llm-request-log-store.js", () => ({
+mock.module("../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: () => {},
   backfillMessageIdOnLogs: () => {},
 }));
@@ -115,7 +115,7 @@ import {
   handleToolUsePreviewStart,
 } from "../daemon/conversation-agent-loop-handlers.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import { getConversationPersistedSeq } from "../memory/conversation-crud.js";
+import { getConversationPersistedSeq } from "../persistence/conversation-crud.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import {
   _resetStreamStateForTesting,
@@ -254,6 +254,72 @@ describe("tool preview lifecycle", () => {
       expect((emitted as any).toolUseId).toBe("toolu_abc123");
       expect((emitted as any).toolName).toBe("bash");
       expect((emitted as any).conversationId).toBe("test-session-id");
+    });
+
+    test("stamps previewStartedAt on the event and stores it in state", () => {
+      const collector = createEventCollector();
+      const deps = createMockDeps({
+        onEvent: collector.onEvent,
+        ctx: {
+          ...createMockDeps().ctx,
+          emitActivityState: collector.emitActivityState,
+        } as unknown as EventHandlerDeps["ctx"],
+      });
+
+      const before = Date.now();
+      handleToolUsePreviewStart(state, deps, {
+        type: "tool_use_preview_start",
+        toolUseId: "toolu_preview_ts",
+        toolName: "bash",
+      });
+      const after = Date.now();
+
+      const emitted = collector.events[0] as { previewStartedAt?: number };
+      expect(typeof emitted.previewStartedAt).toBe("number");
+      expect(emitted.previewStartedAt!).toBeGreaterThanOrEqual(before);
+      expect(emitted.previewStartedAt!).toBeLessThanOrEqual(after);
+      // The same first-byte timestamp is retained in state so tool_use_start
+      // can carry it through.
+      expect(state.toolPreviewStartedAt.get("toolu_preview_ts")).toBe(
+        emitted.previewStartedAt,
+      );
+    });
+
+    test("handleToolUse carries the stored previewStartedAt onto tool_use_start", () => {
+      const collector = createEventCollector();
+      const deps = createMockDeps({
+        onEvent: collector.onEvent,
+        ctx: {
+          ...createMockDeps().ctx,
+          emitActivityState: collector.emitActivityState,
+        } as unknown as EventHandlerDeps["ctx"],
+      });
+
+      // GIVEN a preview was recognized first
+      handleToolUsePreviewStart(state, deps, {
+        type: "tool_use_preview_start",
+        toolUseId: "toolu_carry",
+        toolName: "bash",
+      });
+      const previewStartedAt = state.toolPreviewStartedAt.get("toolu_carry");
+
+      // WHEN the tool actually begins executing
+      handleToolUse(state, deps, {
+        type: "tool_use",
+        id: "toolu_carry",
+        name: "bash",
+        input: { command: "ls" },
+      });
+
+      // THEN the tool_use_start event carries the first-byte anchor alongside
+      // its own (later) execution startedAt
+      const toolUseStart = collector.events.find(
+        (e) => e.type === "tool_use_start",
+      ) as { previewStartedAt?: number; startedAt?: number };
+      expect(toolUseStart).toBeDefined();
+      expect(toolUseStart.previewStartedAt).toBe(previewStartedAt);
+      expect(typeof toolUseStart.startedAt).toBe("number");
+      expect(toolUseStart.startedAt!).toBeGreaterThanOrEqual(previewStartedAt!);
     });
 
     test("emits activity state with tool_running phase and preview_start reason", () => {

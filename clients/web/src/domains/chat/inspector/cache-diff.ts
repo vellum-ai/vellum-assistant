@@ -58,6 +58,15 @@ export interface CacheDiffChangedGroups {
   settings: boolean;
 }
 
+/**
+ * Raw text a line diff was derived from, kept so an oversized diff
+ * (skipped on the default render) can be recomputed on demand.
+ */
+export interface LineDiffSource {
+  previousText: string;
+  currentText: string;
+}
+
 export interface CacheDiffResult {
   cause: CacheDiffCause;
   changedGroups: CacheDiffChangedGroups;
@@ -79,6 +88,8 @@ export interface CacheDiffResult {
   lineDiffTruncated: boolean;
   /** Heading for the line diff, e.g. "System prompt" or "user message". */
   lineDiffLabel: string | null;
+  /** Source text for the line diff, or `null` when none was attempted. */
+  lineDiffSource: LineDiffSource | null;
 }
 
 /** Resolved inputs for one call: its request sections plus the model id. */
@@ -89,6 +100,13 @@ export interface CacheDiffInput {
 
 /** Largest line count we will run the O(n·m) LCS diff over before bailing. */
 const MAX_DIFF_LINES = 500;
+
+/**
+ * Higher ceiling for an explicit, user-initiated diff of text that exceeded
+ * {@link MAX_DIFF_LINES} on the default render. Bounded so a pathological
+ * input can't exhaust memory even when the diff is requested on demand.
+ */
+export const MAX_ON_DEMAND_DIFF_LINES = 4000;
 
 type GroupKind = "system" | "tools" | "settings" | "messages";
 
@@ -144,31 +162,33 @@ function describeSection(section: LLMContextSection): string {
 /**
  * Line-level diff via longest-common-subsequence. Returns `null` when
  * the texts are identical, and a truncated marker when either side
- * exceeds {@link MAX_DIFF_LINES} so the quadratic table stays bounded.
+ * exceeds `maxLines` so the quadratic table stays bounded. The DP table is
+ * a single flat `Int32Array` of `(m + 1) * (n + 1)` cells, which keeps the
+ * higher on-demand ceiling memory-safe (no array-of-arrays overhead).
  */
 export function diffLines(
   previousText: string,
   currentText: string,
+  maxLines = MAX_DIFF_LINES,
 ): { lines: CacheDiffLine[]; truncated: boolean } | null {
   if (previousText === currentText) return null;
 
   const a = previousText.split("\n");
   const b = currentText.split("\n");
-  if (Math.max(a.length, b.length) > MAX_DIFF_LINES) {
+  if (Math.max(a.length, b.length) > maxLines) {
     return { lines: [], truncated: true };
   }
 
   const m = a.length;
   const n = b.length;
-  const dp: number[][] = Array.from({ length: m + 1 }, () =>
-    new Array<number>(n + 1).fill(0),
-  );
+  const width = n + 1;
+  const dp = new Int32Array((m + 1) * width);
   for (let i = m - 1; i >= 0; i--) {
     for (let j = n - 1; j >= 0; j--) {
-      dp[i][j] =
+      dp[i * width + j] =
         a[i] === b[j]
-          ? dp[i + 1][j + 1] + 1
-          : Math.max(dp[i + 1][j], dp[i][j + 1]);
+          ? dp[(i + 1) * width + (j + 1)] + 1
+          : Math.max(dp[(i + 1) * width + j], dp[i * width + (j + 1)]);
     }
   }
 
@@ -180,7 +200,7 @@ export function diffLines(
       lines.push({ type: "context", text: a[i] });
       i++;
       j++;
-    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+    } else if (dp[(i + 1) * width + j] >= dp[i * width + (j + 1)]) {
       lines.push({ type: "removed", text: a[i] });
       i++;
     } else {
@@ -225,6 +245,7 @@ export function computeCacheDiff(
       lineDiff: null,
       lineDiffTruncated: false,
       lineDiffLabel: null,
+      lineDiffSource: null,
     };
   }
 
@@ -290,16 +311,17 @@ export function computeCacheDiff(
   let lineDiff: CacheDiffLine[] | null = null;
   let lineDiffTruncated = false;
   let lineDiffLabel: string | null = null;
+  let lineDiffSource: LineDiffSource | null = null;
 
   if (cause === "system") {
-    const result = diffLines(
-      prevSystem.map((s) => s.text ?? "").join("\n"),
-      curSystem.map((s) => s.text ?? "").join("\n"),
-    );
+    const previousText = prevSystem.map((s) => s.text ?? "").join("\n");
+    const currentText = curSystem.map((s) => s.text ?? "").join("\n");
+    const result = diffLines(previousText, currentText);
     if (result) {
       lineDiff = result.lines;
       lineDiffTruncated = result.truncated;
       lineDiffLabel = "System prompt";
+      lineDiffSource = { previousText, currentText };
     }
   } else if (cause === "messages" && firstChangedMessageIndex >= 0) {
     const changed = curMessages[firstChangedMessageIndex];
@@ -316,6 +338,7 @@ export function computeCacheDiff(
         lineDiff = result.lines;
         lineDiffTruncated = result.truncated;
         lineDiffLabel = describeSection(changed);
+        lineDiffSource = { previousText: prior.text, currentText: changed.text };
       }
     }
   }
@@ -333,6 +356,7 @@ export function computeCacheDiff(
     lineDiff,
     lineDiffTruncated,
     lineDiffLabel,
+    lineDiffSource,
   };
 }
 

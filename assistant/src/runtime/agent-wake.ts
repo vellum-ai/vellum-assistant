@@ -66,6 +66,7 @@ import type { InterfaceId } from "../channels/types.js";
 import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import { conversationSupportsDynamicUi } from "../daemon/channel-ui-capability.js";
 import type { Conversation } from "../daemon/conversation.js";
 import { recordUsage } from "../daemon/conversation-usage.js";
 import { getDiskPressureStatus } from "../daemon/disk-pressure-guard.js";
@@ -79,6 +80,7 @@ import type {
   WakeToolContextPin,
 } from "../daemon/tool-setup-types.js";
 import type { TrustContext } from "../daemon/trust-context.js";
+import { resolveTurnCallSite } from "../daemon/turn-call-site.js";
 import {
   broadcastWakeSurface,
   emitWakeAgentEvent,
@@ -89,13 +91,13 @@ import {
 import {
   recordCompactionEndBestEffort,
   recordCompactionStartBestEffort,
-} from "../memory/compaction-log-store-clickhouse.js";
-import { getConversationOverrideProfile } from "../memory/conversation-crud.js";
+} from "../persistence/compaction-log-store-clickhouse.js";
+import { getConversationOverrideProfile } from "../persistence/conversation-crud.js";
 import {
   buildProviderErrorResponsePayload,
   recordRequestLog,
   setAgentLoopExitReasonOnLatestLog,
-} from "../memory/llm-request-log-store.js";
+} from "../persistence/llm-request-log-store.js";
 import type { SystemPromptPersonaOverride } from "../prompts/system-prompt.js";
 import type { Message } from "../providers/types.js";
 import {
@@ -317,6 +319,12 @@ export interface WakeOptions {
    * framing outside the fence.
    */
   untrustedOutput?: WakeUntrustedOutput;
+  /**
+   * Schedule-run id to stamp on the usage rows this wake records. Set when the
+   * wake is triggered by a script-mode schedule (the firing's run id), so the
+   * woken turn's cost is attributed to that firing.
+   */
+  cronRunId?: string;
 }
 
 /**
@@ -385,7 +393,8 @@ async function defaultResolveTarget(
   // module-evaluation time.  Callers that only import agent-wake for
   // the types or for explicit-deps usage (tests, shell tools) never
   // trigger these imports.
-  const { getConversation } = await import("../memory/conversation-crud.js");
+  const { getConversation } =
+    await import("../persistence/conversation-crud.js");
   const { getOrCreateConversation } =
     await import("../daemon/conversation-store.js");
   try {
@@ -663,7 +672,7 @@ export async function wakeAgentForOpportunity(
     const overrideProfile =
       opts.forceOverrideProfile ??
       getConversationOverrideProfile(conversationId);
-    const callSite = opts.callSite ?? "mainAgent";
+    const callSite = resolveTurnCallSite(opts.callSite, conversation);
     const config = getConfig();
     const effectiveContextWindow = resolveEffectiveContextWindow({
       llm: config.llm,
@@ -929,6 +938,7 @@ export async function wakeAgentForOpportunity(
               forceOverrideProfile,
               selectionSeed: conversationId,
             },
+            opts.cronRunId ?? null,
           );
         } catch (err) {
           log.warn(
@@ -1243,6 +1253,7 @@ export async function wakeAgentForOpportunity(
           // short-circuit and silently drop both per-callsite config and the
           // pinned `overrideProfile` below.
           callSite,
+          supportsDynamicUi: conversationSupportsDynamicUi(conversation),
           trust: wakeTrust,
           overrideProfile,
           forceOverrideProfile,

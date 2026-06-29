@@ -1,9 +1,14 @@
 import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
-import { setMemoryCheckpoint } from "../checkpoints.js";
-import { getMemoryDb } from "../db-connection.js";
-import { initializeDb } from "../db-init.js";
-import { rawAll, rawGet, rawRun, resetTestTables } from "../raw-query.js";
+import { setMemoryCheckpoint } from "../../persistence/checkpoints.js";
+import { getMemoryDb } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
+import {
+  rawAll,
+  rawGet,
+  rawRun,
+  resetTestTables,
+} from "../../persistence/raw-query.js";
 import { migrateToolCreatedItems } from "./bootstrap.js";
 
 // ---------------------------------------------------------------------------
@@ -16,9 +21,11 @@ const MIGRATE_ITEMS_CHECKPOINT = "graph_bootstrap:migrated_tool_items";
 // Setup
 // ---------------------------------------------------------------------------
 
+// initializeDb runs the full migration chain (hundreds of steps); under
+// parallel CI load it can exceed bun's default 5s hook timeout, so allow more.
 beforeAll(async () => {
   await initializeDb();
-});
+}, 30_000);
 
 beforeEach(() => {
   // Clear graph nodes and checkpoints between tests so each test starts clean.

@@ -19,7 +19,6 @@
 import {
   DEFAULT_PLUGIN_REF,
   type FetchLike,
-  INSTALL_META_FILENAME,
   type InstallMeta,
   readInstallMeta,
   sanitizePluginName,
@@ -31,6 +30,7 @@ import {
 import {
   compareFingerprint,
   type FingerprintComparison,
+  PRESERVED_ENTRIES,
 } from "./plugin-fingerprint.js";
 import {
   fetchMarketplaceEntries,
@@ -183,9 +183,7 @@ function readLocal(
   // Compare the on-disk tree against the install-time baseline, applying the
   // same exclusion so the sidecar is never counted as a local addition.
   const localChanges = manifest?.fingerprint
-    ? compareFingerprint(entry.target, manifest.fingerprint, [
-        INSTALL_META_FILENAME,
-      ])
+    ? compareFingerprint(entry.target, manifest.fingerprint, PRESERVED_ENTRIES)
     : null;
   return {
     target: entry.target,

@@ -6,8 +6,8 @@
  * and makes the wait-state logic independently testable.
  */
 
+import { getCanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
 import { findContactChannel } from "../contacts/contact-store.js";
-import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { getCachedMemberAcl } from "../runtime/member-verdict-cache.js";
 import { getLogger } from "../util/logger.js";

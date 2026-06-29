@@ -173,10 +173,12 @@ function dispatchCommandPaletteAction(
       } else if (item.id.startsWith("search-conv-")) {
         const convId = item.id.slice("search-conv-".length);
         ctx.switchConversation(convId);
-      } else if (
-        item.id.startsWith("search-schedule-") ||
-        item.id.startsWith("search-contact-")
-      ) {
+      } else if (item.id.startsWith("search-schedule-")) {
+        haptic.light();
+        ctx.navigate(
+          routes.schedules.detail(item.id.slice("search-schedule-".length)),
+        );
+      } else if (item.id.startsWith("search-contact-")) {
         haptic.light();
         ctx.navigate(routes.identity);
       }

@@ -21,7 +21,11 @@ import {
   handleStatusCallback,
   handleVoiceWebhook,
 } from "../calls/twilio-routes.js";
-import { isHttpAuthDisabled } from "../config/env.js";
+import {
+  getRuntimeHttpHost,
+  getRuntimeHttpPort,
+  isHttpAuthDisabled,
+} from "../config/env.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { processMessage } from "../daemon/process-message.js";
@@ -115,11 +119,13 @@ function dbMigrationUnavailableForEndpoint(endpoint: string): Response | null {
   return dbMigrationUnavailableResponse();
 }
 
-function isTwilioWebhookRequest(req: Request, path: string): boolean {
-  return (
-    req.method === "POST" &&
-    (TWILIO_WEBHOOK_RE.test(path) || TWILIO_GATEWAY_WEBHOOK_RE.test(path))
-  );
+function dbMigrationUnavailableForPath(path: string): Response | null {
+  if (path.startsWith("/v1/")) {
+    const endpoint = path.slice("/v1/".length).replace(/\/$/, "");
+    return dbMigrationUnavailableForEndpoint(endpoint);
+  }
+
+  return dbMigrationUnavailableResponse();
 }
 
 /**
@@ -572,6 +578,9 @@ export class RuntimeHttpServer {
       return handleReadyz();
     }
 
+    const migrationResponse = dbMigrationUnavailableForPath(path);
+    if (migrationResponse) return migrationResponse;
+
     // WebSocket upgrade for ConversationRelay — before auth check because
     // Twilio WebSocket connections don't use bearer tokens.
     if (
@@ -606,11 +615,6 @@ export class RuntimeHttpServer {
       req.headers.get("upgrade")?.toLowerCase() === "websocket"
     ) {
       return this.handleLiveVoiceUpgrade(req, server);
-    }
-
-    if (isTwilioWebhookRequest(req, path)) {
-      const migrationResponse = dbMigrationUnavailableResponse();
-      if (migrationResponse) return migrationResponse;
     }
 
     // Twilio webhook endpoints — before auth check because Twilio
@@ -674,9 +678,6 @@ export class RuntimeHttpServer {
     // Serve shareable app pages (outside /v1/ namespace, no rate limiting)
     const pagesMatch = path.match(/^\/pages\/([^/]+)$/);
     if (pagesMatch && req.method === "GET") {
-      const migrationResponse = dbMigrationUnavailableResponse();
-      if (migrationResponse) return migrationResponse;
-
       return withErrorHandling("pages", async () => {
         const pageDef = APP_ROUTES.find(
           (r) => r.operationId === "pages_serve",
@@ -705,8 +706,6 @@ export class RuntimeHttpServer {
     // caller includes one (e.g. platform proxy paths use Django's trailing-
     // slash convention, so the gateway may forward paths with a trailing /).
     const endpoint = path.slice("/v1/".length).replace(/\/$/, "");
-    const migrationResponse = dbMigrationUnavailableForEndpoint(endpoint);
-    if (migrationResponse) return migrationResponse;
 
     if (!isHttpAuthDisabled()) {
       const clientIp = extractClientIp(req, server);
@@ -1107,4 +1106,44 @@ export class RuntimeHttpServer {
 
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Singleton
+// ---------------------------------------------------------------------------
+
+let instance: RuntimeHttpServer | null = null;
+
+/**
+ * Start the runtime HTTP server singleton early in daemon startup so /healthz
+ * answers ASAP. A bind failure (port in use, permission denied, fd exhaustion)
+ * is non-fatal: it is logged and the daemon falls back to IPC-only operation,
+ * leaving the singleton unset.
+ */
+export async function startRuntimeHttpServer(): Promise<void> {
+  const port = getRuntimeHttpPort();
+  const hostname = getRuntimeHttpHost();
+  log.info({ port }, "Daemon startup: starting runtime HTTP server");
+  const server = new RuntimeHttpServer({ port, hostname });
+  try {
+    await server.start();
+    instance = server;
+    log.info(
+      { port, hostname },
+      "Daemon startup: runtime HTTP server listening",
+    );
+  } catch (err) {
+    log.warn(
+      { err, port },
+      "Failed to start runtime HTTP server, continuing without it",
+    );
+    instance = null;
+  }
+}
+
+/** Stop the runtime HTTP server singleton if one is running; no-op otherwise. */
+export async function stopRuntimeHttpServer(): Promise<void> {
+  if (!instance) return;
+  await instance.stop();
+  instance = null;
 }

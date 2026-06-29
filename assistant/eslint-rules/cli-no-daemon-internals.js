@@ -57,11 +57,6 @@ const ALLOWED_PREFIXES = {
     // job handler directly. Depth-2 for commands/memory/ nesting.
     "../../memory/memory-retrospective-job",
     "../../../memory/memory-retrospective-job",
-    // Memory worker control — the `memory worker` CLI spawns/probes/stops
-    // the worker OS process directly (no daemon, no IPC), so it imports the
-    // shared PID-file control helpers. Depth-2 for commands/memory/ nesting.
-    "../../memory/worker-control",
-    "../../../memory/worker-control",
     // Standalone tool execution — `tools run` executes a single tool
     // in-process from the filesystem (no daemon, no IPC), so it imports the
     // standalone runner directly. Depth-2 for commands/ nesting.

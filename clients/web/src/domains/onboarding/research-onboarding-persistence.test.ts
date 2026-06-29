@@ -37,11 +37,11 @@ function baseSnapshot(
 }
 
 beforeEach(() => {
-  sessionStorage.clear();
+  localStorage.clear();
 });
 
 afterEach(() => {
-  sessionStorage.clear();
+  localStorage.clear();
 });
 
 describe("read/write/clear round-trip", () => {
@@ -73,8 +73,14 @@ describe("read/write/clear round-trip", () => {
   });
 
   test("malformed stored JSON reads as null rather than throwing", () => {
-    sessionStorage.setItem(`research_onboarding:${USER}`, "{not json");
+    localStorage.setItem(`research_onboarding:${USER}`, "{not json");
     expect(readResearchSnapshot(USER)).toBeNull();
+  });
+
+  test("round-trips the research conversation id for mid-search resume", () => {
+    const snapshot = baseSnapshot({ researchConversationId: "conv-abc" });
+    writeResearchSnapshot(USER, snapshot);
+    expect(readResearchSnapshot(USER)?.researchConversationId).toBe("conv-abc");
   });
 });
 

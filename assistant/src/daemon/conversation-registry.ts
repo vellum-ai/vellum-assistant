@@ -3,14 +3,15 @@
  * conversation ID, plus the read/write accessors over it.
  *
  * This is a leaf module: it imports `Conversation` as a type only, so any
- * layer — including the memory-retrieval plugin's injectors, which only know a
+ * layer — including the memory plugin's injectors, which only know a
  * conversation id — can look up the live conversation and read its state
  * without pulling in the daemon-core creation graph (providers, system-prompt
  * assembly, the `Conversation` class value) that `getOrCreateConversation` in
- * `conversation-store` depends on. Keeping the registry free of those value
- * imports is what lets the injector chain consume it without forming an import
- * cycle (`injectors → store → conversation → agent-loop → runtime-assembly →
- * injector-chain → injectors`).
+ * `conversation-store` depends on. Keeping this conversation registry free of
+ * those value imports is what lets the memory plugin's injectors consume it
+ * without forming an import cycle back through the conversation-creation graph
+ * (`injectors → conversation-store → conversation → agent-loop →
+ * runtime-assembly`).
  *
  * `conversation-store` owns the creation/reuse lifecycle and writes top-level
  * conversations into this map via {@link setConversation}.

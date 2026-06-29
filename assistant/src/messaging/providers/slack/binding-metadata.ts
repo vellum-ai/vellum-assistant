@@ -1,5 +1,5 @@
 import { getConfig } from "../../../config/loader.js";
-import type { ExternalConversationBinding } from "../../../memory/external-conversation-store.js";
+import type { ExternalConversationBinding } from "../../../persistence/external-conversation-store.js";
 import type { ChannelBindingMetadata } from "../../channel-binding-schema.js";
 import {
   buildSlackMessageDeepLinks,

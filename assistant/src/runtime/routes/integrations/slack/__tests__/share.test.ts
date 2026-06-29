@@ -28,13 +28,12 @@ mock.module("../../../../../oauth/oauth-store.js", () => ({
 }));
 
 const FAKE_APP = { id: "app-1", name: "Test App", description: "desc" };
-mock.module("../../../../../memory/app-store.js", () => ({
+mock.module("../../../../../apps/app-store.js", () => ({
   getApp: (id: string) => (id === FAKE_APP.id ? FAKE_APP : undefined),
 }));
 
-const { handleListSlackChannels, handleShareToSlackChannel } = await import(
-  "../share.js"
-);
+const { handleListSlackChannels, handleShareToSlackChannel } =
+  await import("../share.js");
 
 // ── fetch capture ───────────────────────────────────────────────────────────
 

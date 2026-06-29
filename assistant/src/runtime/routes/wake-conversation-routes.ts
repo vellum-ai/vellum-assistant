@@ -6,7 +6,7 @@
 
 import { z } from "zod";
 
-import { getConversation } from "../../memory/conversation-crud.js";
+import { getConversation } from "../../persistence/conversation-crud.js";
 import { wakeAgentForOpportunity } from "../agent-wake.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { NotFoundError } from "./errors.js";
@@ -16,6 +16,7 @@ const WakeConversationBody = z.object({
   conversationId: z.string().min(1),
   hint: z.string().min(1),
   source: z.string().default("cli"),
+  cronRunId: z.string().min(1).optional(),
 });
 
 export const ROUTES: RouteDefinition[] = [
@@ -38,17 +39,20 @@ export const ROUTES: RouteDefinition[] = [
       reason: z.string().optional(),
     }),
     handler: async ({ body }) => {
-      const { conversationId, hint, source } =
+      const { conversationId, hint, source, cronRunId } =
         WakeConversationBody.parse(body);
 
       const conversation = getConversation(conversationId);
       if (!conversation) {
-        throw new NotFoundError(
-          `Conversation not found: ${conversationId}`,
-        );
+        throw new NotFoundError(`Conversation not found: ${conversationId}`);
       }
 
-      return wakeAgentForOpportunity({ conversationId, hint, source });
+      return wakeAgentForOpportunity({
+        conversationId,
+        hint,
+        source,
+        cronRunId,
+      });
     },
   },
 ];

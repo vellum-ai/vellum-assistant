@@ -68,8 +68,9 @@ mock.module("../../../config/loader.js", () => ({
   loadConfig: () => STUB_QDRANT_CONFIG,
 }));
 
-const realQdrantClient = await import("../../qdrant-client.js");
-mock.module("../../qdrant-client.js", () => ({
+const realQdrantClient =
+  await import("../../../persistence/embeddings/qdrant-client.js");
+mock.module("../../../persistence/embeddings/qdrant-client.js", () => ({
   ...realQdrantClient,
   resolveQdrantUrl: () => "http://127.0.0.1:6333",
 }));
@@ -89,8 +90,9 @@ const state = {
   },
 };
 
-const realEmbeddingBackend = await import("../../embedding-backend.js");
-mock.module("../../embedding-backend.js", () => ({
+const realEmbeddingBackend =
+  await import("../../../persistence/embeddings/embedding-backend.js");
+mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
   ...realEmbeddingBackend,
   embedWithBackend: async () => ({
     provider: "local",
@@ -392,15 +394,15 @@ afterAll(() => {
 
 // Static `import type` is fine — types erase, so they don't run module-init
 // code that would race the mocks above.
-import type { DrizzleDb } from "../../db-connection.js";
+import type { DrizzleDb } from "../../../persistence/db-connection.js";
 import type { SkillEntry } from "../types.js";
 
-const { getSqliteFrom } = await import("../../db-connection.js");
+const { getSqliteFrom } = await import("../../../persistence/db-connection.js");
 const { migrateActivationState } =
-  await import("../../migrations/232-activation-state.js");
+  await import("../../../persistence/migrations/232-activation-state.js");
 const { migrateMemoryV2InjectionEvents } =
-  await import("../../migrations/256-memory-v2-injection-events.js");
-const schema = await import("../../schema.js");
+  await import("../../../persistence/migrations/256-memory-v2-injection-events.js");
+const schema = await import("../../../persistence/schema/index.js");
 const { clearEverInjected, hydrate, save } =
   await import("../activation-store.js");
 const { injectMemoryV2Block } = await import("../injection.js");

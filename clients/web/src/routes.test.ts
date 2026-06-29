@@ -108,6 +108,25 @@ describe("remote web pairing route", () => {
   });
 });
 
+describe("schedules routes", () => {
+  // The Schedules tab and per-schedule deep links render the same lazy
+  // HomePageRoute as /home, inside the auth-protected assistant tree.
+  test.each([
+    "/assistant/schedules",
+    "/assistant/schedules/sch_123",
+  ])("%s matches inside the auth-protected app tree", (path) => {
+    const matches = matchRoutes(routeTree as never, path) ?? [];
+    expect(matches.length).toBeGreaterThan(0);
+    expect(matches.at(-1)?.pathname).toBe(path);
+    expect(hasRouteMiddleware(path)).toBe(true);
+  });
+
+  test("captures the schedule id as a route param", () => {
+    const matches = matchRoutes(routeTree as never, "/assistant/schedules/sch_123") ?? [];
+    expect(matches.at(-1)?.params.scheduleId).toBe("sch_123");
+  });
+});
+
 describe("settings route compatibility", () => {
   test("legacy MCP settings URL redirects to the Integrations MCP tab", () => {
     expect(leafRouteComponentName("/assistant/settings/mcp")).toBe(

@@ -17,9 +17,11 @@
  * - `useChatBannerSlots` — nudge/queued/slack banner assembly
  */
 
-import { type Dispatch, type MutableRefObject, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { type Dispatch, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { useActiveSubagentIds } from "@/domains/chat/hooks/use-active-subagent-ids";
+import { useActiveAcpRunIds } from "@/domains/chat/hooks/use-active-acp-run-ids";
+import { useAcpRunRehydration } from "@/domains/chat/hooks/use-acp-run-rehydration";
 import { useActiveWorkflowRunIds } from "@/domains/chat/hooks/use-active-workflow-run-ids";
 import { useChatUIState } from "@/domains/chat/hooks/use-chat-ui-state";
 import { useTranscriptData } from "@/domains/chat/hooks/use-transcript-data";
@@ -38,7 +40,9 @@ import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attach
 import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachment-gate";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { ActiveSubagentsOverlay } from "@/domains/chat/components/active-subagents-overlay/active-subagents-overlay";
+import { ActiveAcpRunsOverlay } from "@/domains/chat/components/active-acp-runs-overlay/active-acp-runs-overlay";
 import { ActiveWorkflowsOverlay } from "@/domains/chat/components/active-workflows-overlay/active-workflows-overlay";
+import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-drawer";
 import { ChatBody } from "@/domains/chat/components/chat-body";
 import { ChatComposer } from "@/domains/chat/components/chat-composer/chat-composer";
 import { ChatRuleEditorModal } from "@/domains/chat/components/chat-rule-editor-modal";
@@ -50,6 +54,10 @@ import { MicPermissionPrimer } from "@/domains/chat/components/mic-permission-pr
 import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card";
 import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner";
 import { SendErrorModal } from "@/domains/chat/components/send-error-modal";
+import { SuggestionDetailPanel } from "@/domains/chat/components/suggestion-detail-panel";
+import type { ThreadSuggestion } from "@/domains/chat/suggestions/types";
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { BottomSheet } from "@vellumai/design-library";
 import { useEditMessage } from "@/domains/chat/hooks/use-edit-message";
 import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice";
 import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh";
@@ -268,11 +276,20 @@ export function ChatMainPanel({
     if (assistantId) void useViewerStore.getState().loadDocument(assistantId, surfaceId);
   }, [assistantId]);
 
-  const activeSubagentIds = useActiveSubagentIds();
+  const activeSubagentIds = useActiveSubagentIds(activeConversationId);
+  const activeAcpRunIds = useActiveAcpRunIds(activeConversationId);
   const activeWorkflowRunIds = useActiveWorkflowRunIds();
+
+  // Rehydrate ACP runs from the daemon on conversation load so completed and
+  // in-progress runs reappear after a refresh / reconnect.
+  useAcpRunRehydration(assistantId, activeConversationId);
 
   const onSubagentClick = useCallback((id: string) => {
     useViewerStore.getState().openSubagentDetail(id);
+  }, []);
+
+  const onAcpRunClick = useCallback((acpSessionId: string) => {
+    useViewerStore.getState().openAcpRunDetail(acpSessionId);
   }, []);
 
   const onStopSubagent = useCallback(
@@ -656,6 +673,43 @@ export function ChatMainPanel({
   }, [submitMessage]);
 
   // -------------------------------------------------------------------------
+  // New-thread suggestion drawer (behind the flag, empty-state only)
+  // -------------------------------------------------------------------------
+  const newThreadSuggestionsEnabled =
+    useClientFeatureFlagStore.use.newThreadSuggestions();
+  // Called unconditionally — the desktop drawer vs mobile sheet choice below
+  // branches on this, but the hook must run on every render.
+  const isMobile = useIsMobile();
+  const [selectedSuggestion, setSelectedSuggestion] =
+    useState<ThreadSuggestion | null>(null);
+
+  // Clear any open suggestion detail when the active conversation changes or the
+  // thread leaves the empty state. Keying on `activeConversationId` covers the
+  // empty→empty switch (id changes while `isEmptyConversation` stays true), which
+  // the non-empty transition alone would miss — otherwise the stale drawer/sheet
+  // could submit the previous selection into the newly active thread, since
+  // ChatMainPanel is not keyed by conversation. Setting null on a fresh empty
+  // conversation is harmless because no card is selected yet.
+  useEffect(() => {
+    setSelectedSuggestion(null);
+  }, [activeConversationId, isEmptyConversation]);
+
+  // Close, and Save-for-later, both just dismiss the drawer: persisting saved
+  // suggestions is not implemented yet.
+  const handleCloseSuggestion = useCallback(() => setSelectedSuggestion(null), []);
+
+  const handleConfirmSuggestion = useCallback(
+    (s: ThreadSuggestion) => {
+      // Seed the composer before submitting (mirrors handleSelectStarter) so a
+      // blocked send leaves the prompt in the composer to retry, rather than
+      // silently dropping it when the drawer closes.
+      handleSelectStarter({ prompt: s.prompt });
+      setSelectedSuggestion(null);
+    },
+    [handleSelectStarter],
+  );
+
+  // -------------------------------------------------------------------------
   // Rule editor bridge (viewer-store seq → rule editor open)
   // -------------------------------------------------------------------------
   useRuleEditorBridge(messages, handleOpenRuleEditorForToolCall);
@@ -677,6 +731,8 @@ export function ChatMainPanel({
   const {
     emptyStateProps: chatEmptyStateProps,
     startersSlot,
+    belowFoldSlot,
+    dockStartersToBottom,
     renderAvatar,
     emptyStatePlaceholder,
   } = useChatEmptyState({
@@ -689,6 +745,9 @@ export function ChatMainPanel({
     isAssistantStreaming,
     activeConversationIsProcessing,
     onSelectStarter: handleSelectStarter,
+    onSelectSuggestion: newThreadSuggestionsEnabled
+      ? setSelectedSuggestion
+      : undefined,
   });
 
   // -------------------------------------------------------------------------
@@ -851,6 +910,14 @@ export function ChatMainPanel({
       />
     ) : undefined;
 
+  const activeAcpRunsSlot =
+    activeAcpRunIds.length > 0 ? (
+      <ActiveAcpRunsOverlay
+        acpRunIds={activeAcpRunIds}
+        onAcpRunClick={onAcpRunClick}
+      />
+    ) : undefined;
+
   const activeWorkflowsSlot =
     activeWorkflowRunIds.length > 0 ? (
       <ActiveWorkflowsOverlay
@@ -867,37 +934,109 @@ export function ChatMainPanel({
   const isSidePanel = mainView === "app-editing" && !!openedAppState && !!editingConversationId;
   const variant = isSidePanel ? "side-panel" : "main";
 
+  const chatBody = (
+    <ChatBody
+      variant={variant}
+      scrollAreaProps={{
+        ...chatBodyScrollAreaPropsBase,
+        showMaintenanceRecoveryCard: isSidePanel ? false : isInMaintenanceWithNoMessages,
+      }}
+      composerSlot={composerNode}
+      onStopGenerating={handleStopGenerating}
+      dragHandlers={attachmentDropHandlers}
+      isAttachmentDragOver={isAttachmentDragOver}
+      showScrollToLatest={
+        scrollCoordinator.showScrollToLatest && messages.length > 0
+      }
+      onScrollToLatest={handleScrollToLatest}
+      isStreaming={isAssistantStreaming}
+      refreshFeedback={refreshFeedback}
+      onDismissRefreshFeedback={handleDismissRefreshFeedback}
+      onRetryRefresh={handleRetryRefreshFromPill}
+      genericChatError={genericChatBanner}
+      onDismissChatError={handleDismissChatError}
+      isChannelReadonly={isChannelReadonly}
+      canStopGenerating={canStopGenerating}
+      bannerSlot={isSidePanel ? undefined : mainBannerSlot}
+      queuedDrawerSlot={isSidePanel ? undefined : mainQueuedDrawerSlot}
+      readonlyBannerSlot={channelReadonlyBannerSlot}
+      startersSlot={startersSlot}
+      belowFoldSlot={belowFoldSlot}
+      dockStartersToBottom={dockStartersToBottom}
+      activeSubagentsSlot={activeSubagentsSlot}
+      activeAcpRunsSlot={activeAcpRunsSlot}
+      activeWorkflowsSlot={activeWorkflowsSlot}
+    />
+  );
+
+  const suggestionDetailPanel = selectedSuggestion ? (
+    <SuggestionDetailPanel
+      suggestion={selectedSuggestion}
+      onClose={handleCloseSuggestion}
+      onConfirm={handleConfirmSuggestion}
+    />
+  ) : null;
+
+  // Behind the flag the picked suggestion's detail rides alongside the chat.
+  //
+  // Desktop: an animated right-hand drawer. The wrapper is gated on the flag
+  // (and desktop), NOT on `isEmptyConversation`, so the `chatBody` subtree keeps
+  // the same tree position across the empty→active transition and never
+  // remounts — preserving composer focus/textarea state through the first send.
+  // Suggestion cards only render in the empty state, so `selectedSuggestion` is
+  // null in active conversations and the drawer simply sits closed there.
+  //
+  // Mobile: `AnimatedRightDrawer` is a desktop split that overflows narrow
+  // viewports, so the chat renders normally and the detail floats above it in a
+  // `BottomSheet` instead.
+  //
+  // Flag off (either viewport): the chat renders exactly as before — no wrapper.
+  let mainContent: ReactNode = chatBody;
+  if (newThreadSuggestionsEnabled && !isMobile) {
+    mainContent = (
+      <AnimatedRightDrawer
+        open={Boolean(selectedSuggestion)}
+        storageKey="vellum:suggestion-drawer-width"
+        left={chatBody}
+        right={suggestionDetailPanel}
+      />
+    );
+  } else if (newThreadSuggestionsEnabled && isMobile) {
+    mainContent = (
+      <>
+        {chatBody}
+        <BottomSheet.Root
+          open={Boolean(selectedSuggestion)}
+          onOpenChange={(next) => {
+            if (!next) handleCloseSuggestion();
+          }}
+        >
+          {/* `SuggestionDetailPanel` brings its own visible heading + scroll-
+              body + footer, so it sits directly inside `Content` (no
+              BottomSheet.Body). The taller cap plus the panel's `h-full` give it
+              a bounded height inside the sheet's flex column so its body scrolls.
+              Radix Dialog still needs a Title for screen readers; the panel's
+              heading isn't a Dialog.Title, so a visually-hidden one mirrors it
+              (matches composer-settings-menu's pattern). */}
+          <BottomSheet.Content
+            aria-describedby={undefined}
+            className="h-[80dvh] max-h-[80dvh]"
+          >
+            <BottomSheet.Header className="sr-only">
+              <BottomSheet.Title>
+                {selectedSuggestion?.detail.heading ?? "Suggestion"}
+              </BottomSheet.Title>
+            </BottomSheet.Header>
+            {suggestionDetailPanel}
+          </BottomSheet.Content>
+        </BottomSheet.Root>
+      </>
+    );
+  }
+
   return (
     <>
-      <ChatBody
-        variant={variant}
-        scrollAreaProps={{
-          ...chatBodyScrollAreaPropsBase,
-          showMaintenanceRecoveryCard: isSidePanel ? false : isInMaintenanceWithNoMessages,
-        }}
-        composerSlot={composerNode}
-        onStopGenerating={handleStopGenerating}
-        dragHandlers={attachmentDropHandlers}
-        isAttachmentDragOver={isAttachmentDragOver}
-        showScrollToLatest={
-          scrollCoordinator.showScrollToLatest && messages.length > 0
-        }
-        onScrollToLatest={handleScrollToLatest}
-        isStreaming={isAssistantStreaming}
-        refreshFeedback={refreshFeedback}
-        onDismissRefreshFeedback={handleDismissRefreshFeedback}
-        onRetryRefresh={handleRetryRefreshFromPill}
-        genericChatError={genericChatBanner}
-        onDismissChatError={handleDismissChatError}
-        isChannelReadonly={isChannelReadonly}
-        canStopGenerating={canStopGenerating}
-        bannerSlot={isSidePanel ? undefined : mainBannerSlot}
-        queuedDrawerSlot={isSidePanel ? undefined : mainQueuedDrawerSlot}
-        readonlyBannerSlot={channelReadonlyBannerSlot}
-        startersSlot={startersSlot}
-        activeSubagentsSlot={activeSubagentsSlot}
-        activeWorkflowsSlot={activeWorkflowsSlot}
-      />
+      {mainContent}
       <MicPermissionPrimer
         open={showPrimer}
         onContinue={handlePrimerContinue}

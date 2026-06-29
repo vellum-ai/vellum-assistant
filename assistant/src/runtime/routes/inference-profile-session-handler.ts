@@ -20,8 +20,8 @@ import {
   getConversation,
   listActiveInferenceProfileSessions,
   setConversationInferenceProfileSession,
-} from "../../memory/conversation-crud.js";
-import { resolveConversationId } from "../../memory/conversation-key-store.js";
+} from "../../persistence/conversation-crud.js";
+import { resolveConversationId } from "../../persistence/conversation-key-store.js";
 import { publishConversationInferenceProfileChanged } from "../sync/resource-sync-events.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 

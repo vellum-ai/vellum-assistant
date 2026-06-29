@@ -485,7 +485,7 @@ async function activatePlugin(
   }
 
   // Run the `init` hook if present.
-  await runInitHook(pluginName);
+  await runInitHook(pluginName, pluginDir);
 
   activatedPlugins.push({ name: pluginName });
 }

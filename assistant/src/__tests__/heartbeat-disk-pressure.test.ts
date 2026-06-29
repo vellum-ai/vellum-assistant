@@ -69,9 +69,9 @@ mock.module("../schedule/recurrence-engine.js", () => ({
 }));
 
 const createdConversations: Array<{ conversationType: string }> = [];
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   getConversation: () => null,
   getMessages: () => [],
   createConversation: (opts: { conversationType: string }) => {
@@ -106,7 +106,7 @@ mock.module("../prompts/persona-resolver.js", () => ({
   resolveUserSlug: () => null,
 }));
 
-mock.module("../memory/conversation-title-service.js", () => ({
+mock.module("../persistence/conversation-title-service.js", () => ({
   GENERATING_TITLE: "Generating title...",
   AUTO_TITLE_DETERMINISTIC: 2,
   deriveDeterministicTitle: (context: { systemHint?: string }) =>
@@ -164,9 +164,7 @@ describe("HeartbeatService disk pressure gate", () => {
   });
 
   test("skips without creating heartbeat rows, conversations, or notifications", async () => {
-    const service = new HeartbeatService({
-      alerter: () => {},
-    });
+    const service = new HeartbeatService();
 
     const ran = await service.runOnce();
 
@@ -181,9 +179,7 @@ describe("HeartbeatService disk pressure gate", () => {
   });
 
   test("allows forced user-initiated heartbeat runs while locked", async () => {
-    const service = new HeartbeatService({
-      alerter: () => {},
-    });
+    const service = new HeartbeatService();
 
     const ran = await service.runOnce({ force: true });
 
@@ -199,9 +195,7 @@ describe("HeartbeatService disk pressure gate", () => {
 
   test("start recovery skips missed-run notifications while locked", async () => {
     mockMarkStaleRunsAsMissed.mockImplementationOnce(() => 1);
-    const service = new HeartbeatService({
-      alerter: () => {},
-    });
+    const service = new HeartbeatService();
 
     service.start();
     await service.stop();

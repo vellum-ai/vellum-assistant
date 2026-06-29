@@ -34,9 +34,9 @@ import {
   addMessage,
   createConversation,
   getMessages,
-} from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { persistUnsendableImageDowngrades } from "../plugins/defaults/image-recovery/recover.js";
 import type { ContentBlock } from "../providers/types.js";
 

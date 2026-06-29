@@ -19,6 +19,8 @@ import {
   ContactStore,
   CannotRevokeBlockedError,
   MergeContactsError,
+  type ChannelAcl,
+  type ContactAcl,
   type ContactWithInfo,
 } from "../../db/contact-store.js";
 import { contacts } from "../../db/schema.js";
@@ -782,6 +784,103 @@ function validateSpeciesMetadata(
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// ACL overlay for daemon-forwarded (filtered/search) contact reads
+// ---------------------------------------------------------------------------
+//
+// The gateway DB is the ACL source of truth. The daemon's search /
+// contactType-filtered reads carry NEUTRAL ACL (role "contact", channels with
+// no status/policy/verified*/reason), so we overlay authoritative ACL onto the
+// forwarded body before returning.
+
+/** Copy the six ACL fields from a gateway ChannelAcl onto a daemon channel. */
+function applyChannelAcl(
+  channel: Record<string, unknown>,
+  acl: ChannelAcl,
+): void {
+  channel.status = acl.status;
+  channel.policy = acl.policy;
+  channel.verifiedAt = acl.verifiedAt;
+  channel.verifiedVia = acl.verifiedVia;
+  channel.revokedReason = acl.revokedReason;
+  channel.blockedReason = acl.blockedReason;
+}
+
+/**
+ * Logical channel key: (type, lower(address)) — mirrors the case-insensitive
+ * key the gateway ACL uses (UNIQUE(type, address) collates NOCASE). The
+ * escaped NUL delimiter cannot appear in either field, so keys never collide.
+ */
+function channelKey(type: string, address: string): string {
+  return `${type}\u0000${address.toLowerCase()}`;
+}
+
+/**
+ * Overlay authoritative gateway ACL onto a parsed daemon contact-list body
+ * (in place). For each contact, replace contact-level `role` and per-channel
+ * ACL fields from the gateway map. Channels match by `id` first, then by
+ * `(type, address)`; an unmatched channel keeps the daemon's ACL. A contact
+ * absent from the gateway map (dual-write gap) is left untouched + warned.
+ *
+ * Pure aside from the warn log; mutates the passed contacts array's elements.
+ */
+function overlayAclOntoContacts(
+  contacts: Array<Record<string, unknown>>,
+  aclByContactId: Map<string, ContactAcl>,
+): void {
+  for (const contact of contacts) {
+    const id = contact.id;
+    if (typeof id !== "string") continue;
+    const acl = aclByContactId.get(id);
+    if (!acl) {
+      // Dual-write gap: present in the daemon read but absent from the gateway
+      // ACL source of truth. Leave the daemon's ACL; don't drop the contact.
+      log.warn(
+        { contactId: id },
+        "overlayAclOntoContacts: contact missing from gateway ACL (dual-write gap); leaving daemon ACL",
+      );
+      continue;
+    }
+
+    contact.role = acl.role;
+
+    const channels = contact.channels;
+    if (!Array.isArray(channels)) continue;
+
+    // Index gateway channels by (type, lower(address)) for the id-miss fallback.
+    const byTypeAddress = new Map<string, ChannelAcl>();
+    for (const ch of acl.channels.values()) {
+      byTypeAddress.set(channelKey(ch.type, ch.address), ch);
+    }
+
+    for (const ch of channels) {
+      if (typeof ch !== "object" || ch === null) continue;
+      const channel = ch as Record<string, unknown>;
+      const chId = channel.id;
+      let match =
+        typeof chId === "string" ? acl.channels.get(chId) : undefined;
+      if (!match) {
+        const type = channel.type;
+        const address = channel.address;
+        if (typeof type === "string" && typeof address === "string") {
+          match = byTypeAddress.get(channelKey(type, address));
+        }
+      }
+      if (match) applyChannelAcl(channel, match);
+    }
+  }
+}
+
+/** Locate the contacts array within the daemon `/v1/contacts` envelope. */
+function extractContactsArray(
+  body: unknown,
+): Array<Record<string, unknown>> | null {
+  if (typeof body !== "object" || body === null) return null;
+  const contacts = (body as Record<string, unknown>).contacts;
+  if (!Array.isArray(contacts)) return null;
+  return contacts as Array<Record<string, unknown>>;
+}
+
 export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
   async function forward(
     req: Request,
@@ -825,6 +924,63 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
     });
   }
 
+  /**
+   * Forward the filtered/search contact list to the daemon, then overlay
+   * authoritative gateway-DB ACL onto the response body (role + per-channel
+   * status/policy/verified/reasons). The daemon owns filter/search + info;
+   * the gateway owns ACL (the daemon emits neutral ACL).
+   *
+   * SOFT-FAIL: if the upstream status isn't 2xx, the body isn't the expected
+   * JSON envelope, or the gateway ACL read throws — the ORIGINAL daemon bytes
+   * are returned unchanged (preserving status). The overlay never turns a
+   * working (if stale) read into a 500.
+   *
+   * Entity headers (content-length, content-encoding) are dropped on both
+   * paths: we always emit a freshly-serialized string body, so the runtime
+   * recomputes content-length — reusing the upstream length would truncate the
+   * (resized) overlaid body.
+   */
+  async function forwardListWithAclOverlay(
+    req: Request,
+    upstreamSearch: string,
+  ): Promise<Response> {
+    const upstream = await forward(req, "/v1/contacts", upstreamSearch);
+
+    // Capture the body once; we both read it for overlay and replay it raw on
+    // any soft-fail. A Response body can only be consumed once.
+    const text = await upstream.text();
+    const headers = new Headers(upstream.headers);
+    headers.delete("content-length");
+    headers.delete("content-encoding");
+    const respond = (payload: string) =>
+      new Response(payload, { status: upstream.status, headers });
+
+    if (upstream.status < 200 || upstream.status >= 300) {
+      return respond(text);
+    }
+
+    try {
+      const body = JSON.parse(text) as unknown;
+      const contacts = extractContactsArray(body);
+      if (!contacts) return respond(text);
+
+      const ids = contacts
+        .map((c) => c.id)
+        .filter((id): id is string => typeof id === "string");
+      const aclByContactId = await new ContactStore().getAclByContactIds(ids);
+
+      overlayAclOntoContacts(contacts, aclByContactId);
+
+      return respond(JSON.stringify(body));
+    } catch (err) {
+      log.warn(
+        { err },
+        "list_contacts: ACL overlay failed; returning daemon response unchanged",
+      );
+      return respond(text);
+    }
+  }
+
   return {
     // ── Contact CRUD ──
     /**
@@ -859,11 +1015,12 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
         );
       }
 
-      // Search-style queries and contactType filter go through the daemon.
-      // contactType is an assistant-owned field — the gateway can't filter
-      // it without an assistant DB round-trip. The daemon handles it natively.
+      // Search-style queries and contactType filter go through the daemon
+      // (it owns filter/search + info/identity). The daemon emits NEUTRAL ACL,
+      // so overlay authoritative gateway-DB ACL onto the forwarded body before
+      // returning.
       if (query || channelAddress || channelType || contactType) {
-        return forward(req, "/v1/contacts", url.search);
+        return forwardListWithAclOverlay(req, url.search);
       }
 
       try {

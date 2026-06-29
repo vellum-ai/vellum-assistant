@@ -6,12 +6,12 @@ import {
   getMessages,
   relinkAttachments,
   updateMessageContent,
-} from "../memory/conversation-crud.js";
-import { isLastUserMessageToolResult } from "../memory/conversation-queries.js";
-import { enqueueMemoryJob } from "../memory/jobs-store.js";
-import { relinkLlmRequestLogs } from "../memory/llm-request-log-store.js";
-import { withQdrantBreaker } from "../memory/qdrant-circuit-breaker.js";
-import { getQdrantClient } from "../memory/qdrant-client.js";
+} from "../persistence/conversation-crud.js";
+import { isLastUserMessageToolResult } from "../persistence/conversation-queries.js";
+import { withQdrantBreaker } from "../persistence/embeddings/qdrant-circuit-breaker.js";
+import { getQdrantClient } from "../persistence/embeddings/qdrant-client.js";
+import { enqueueMemoryJob } from "../persistence/jobs-store.js";
+import { relinkLlmRequestLogs } from "../persistence/llm-request-log-store.js";
 import { getSummaryFromContextMessage } from "../plugins/defaults/compaction/window-manager.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";

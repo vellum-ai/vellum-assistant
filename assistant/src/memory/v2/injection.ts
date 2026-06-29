@@ -24,9 +24,9 @@
 // cached prefix bytes-identical across turns.
 
 import type { AssistantConfig } from "../../config/types.js";
+import type { DrizzleDb } from "../../persistence/db-connection.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
-import type { DrizzleDb } from "../db-connection.js";
 import {
   type MemoryV2ConceptRowRecord,
   recordMemoryV2ActivationLog,

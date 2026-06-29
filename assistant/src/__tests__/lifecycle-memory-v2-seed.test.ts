@@ -105,7 +105,7 @@ mock.module("../memory/v2/sparse-bm25.js", () => ({
   },
 }));
 
-mock.module("../memory/jobs-store.js", () => ({
+mock.module("../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: (
     type: string,
     payload: Record<string, unknown>,

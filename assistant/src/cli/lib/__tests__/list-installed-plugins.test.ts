@@ -17,7 +17,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { listAllPlugins, listInstalledPlugins } from "../list-installed-plugins.js";
+import {
+  listAllPlugins,
+  listInstalledPlugins,
+} from "../list-installed-plugins.js";
 
 let pluginsDir: string;
 
@@ -157,8 +160,8 @@ describe("listAllPlugins", () => {
   test("includes default plugins with source=default", () => {
     const result = listAllPlugins({ workspacePluginsDir: pluginsDir });
     const defaults = result.filter((p) => p.source === "default");
-    // All 14 default plugins should be present.
-    expect(defaults.length).toBe(14);
+    // All 18 default plugins should be present.
+    expect(defaults.length).toBe(18);
     // Names should all start with "default-".
     expect(defaults.every((p) => p.name.startsWith("default-"))).toBe(true);
     // None should be disabled by default in a fresh temp dir.
@@ -227,7 +230,9 @@ describe("listAllPlugins", () => {
 
     const result = listAllPlugins({ workspacePluginsDir: pluginsDir });
     // Should appear exactly once, as a default entry (not a user entry).
-    const compactionEntries = result.filter((p) => p.name === "default-compaction");
+    const compactionEntries = result.filter(
+      (p) => p.name === "default-compaction",
+    );
     expect(compactionEntries).toHaveLength(1);
     expect(compactionEntries[0]!.source).toBe("default");
   });

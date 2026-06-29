@@ -81,6 +81,8 @@ function makeCtx(
     additionalContext: null,
     model: "claude-test-model",
     maxInputTokens: 10_000,
+    callSite: "mainAgent",
+    supportsDynamicUi: true,
     logger: noopLogger,
   };
 }

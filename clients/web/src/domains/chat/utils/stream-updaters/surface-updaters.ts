@@ -27,6 +27,7 @@ export function attachSurface(
   prev: DisplayMessage[],
   surface: Surface,
   messageId?: string,
+  at: number = Date.now(),
 ): DisplayMessage[] {
   let targetIdx = -1;
 
@@ -51,7 +52,7 @@ export function attachSurface(
       surfaces: [surface],
       contentOrder: [{ type: "surface", id: surface.surfaceId }],
       contentBlocks: [{ type: "surface", surface }],
-      timestamp: Date.now(),
+      timestamp: at,
     });
   } else {
     const target = withMergedAlias(prev[targetIdx]!, messageId);

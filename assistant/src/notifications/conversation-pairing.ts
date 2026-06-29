@@ -25,11 +25,11 @@ import {
   addMessage,
   createConversation,
   getConversation,
-} from "../memory/conversation-crud.js";
+} from "../persistence/conversation-crud.js";
 import {
   getBindingByChannelChat,
   upsertOutboundBinding,
-} from "../memory/external-conversation-store.js";
+} from "../persistence/external-conversation-store.js";
 import { getLogger } from "../util/logger.js";
 import {
   composeConversationSeed,

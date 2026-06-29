@@ -189,23 +189,12 @@ function disableProfile(
     typeof llm.advisorProfile === "string" &&
     removed.has(llm.advisorProfile)
   ) {
-    // Repoint the advisor at the managed Frontier profile (the strongest).
-    // `frontier` is seeded unconditionally every boot, so target it even if it
-    // has not been materialized yet this startup — this reconcile can run before
-    // the seeder in the boot sequence, and the later seeder won't rewrite an
-    // already-set `advisorProfile`. The exception is a user-owned profile named
-    // `frontier`: that is not ours to route to, so fall back to the
-    // always-managed Quality profile, then clear the pointer as a last resort.
-    const frontierEntry = readObject(profiles["frontier"]);
-    const frontierIsUserOwned =
-      frontierEntry !== null && frontierEntry.source !== "managed";
-    if (!frontierIsUserOwned) {
-      llm.advisorProfile = "frontier";
-    } else if (readObject(profiles["quality-optimized"]) !== null) {
-      llm.advisorProfile = "quality-optimized";
-    } else {
-      delete llm.advisorProfile;
-    }
+    // Repoint the advisor at the managed Quality profile (the strongest).
+    // `quality-optimized` is a canonical name seeded unconditionally every boot,
+    // so target it even if it has not been materialized yet this startup — this
+    // reconcile can run before the seeder in the boot sequence, and the later
+    // seeder won't rewrite an already-set `advisorProfile`.
+    llm.advisorProfile = "quality-optimized";
   }
 
   // Clear any call-site `profile` reference to a removed profile; other override

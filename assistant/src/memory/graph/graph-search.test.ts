@@ -27,7 +27,7 @@ const searchCalls: Array<{
   filter?: unknown;
 }> = [];
 
-mock.module("../qdrant-circuit-breaker.js", () => ({
+mock.module("../../persistence/embeddings/qdrant-circuit-breaker.js", () => ({
   isQdrantBreakerOpen: () => breakerOpen,
   withQdrantBreaker: async <T>(fn: () => Promise<T>): Promise<T> => fn(),
   shouldAllowQdrantProbe: () => true,
@@ -35,7 +35,7 @@ mock.module("../qdrant-circuit-breaker.js", () => ({
   QdrantCircuitOpenError: class extends Error {},
 }));
 
-mock.module("../qdrant-client.js", () => ({
+mock.module("../../persistence/embeddings/qdrant-client.js", () => ({
   getQdrantClient: () => ({
     hybridSearch: async (params: {
       denseVector: number[];

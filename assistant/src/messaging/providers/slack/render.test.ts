@@ -126,11 +126,22 @@ describe("renderSlackBlocks", () => {
     expect(blocks!.some((b) => b.type === "markdown")).toBe(true);
   });
 
-  test("caps output at Slack's 50-block limit with a truncation note", () => {
+  test("emits one block per element with no whole-message cap (transport owns size)", () => {
+    // The renderer does not police total block count — Slack's 50-block limit is
+    // the transport's concern (it resends as plain text on rejection). 60
+    // headings render as 60 header blocks, not a truncated-with-note set.
     const text = Array.from({ length: 60 }, (_, i) => `# H${i}`).join("\n\n");
     const blocks = renderSlackBlocks(text);
-    expect(blocks!.length).toBe(50);
-    expect(blocks![49].type).toBe("context");
-    expect(JSON.stringify(blocks![49])).toContain("omitted");
+    expect(blocks!.length).toBe(60);
+    expect(blocks!.every((b) => b.type === "header")).toBe(true);
+  });
+
+  test("keeps an oversized run in a single markdown block (no chunking)", () => {
+    // A run over Slack's 12k per-block limit is left whole rather than split
+    // mid-content; the transport degrades to plain text if Slack rejects it.
+    const para = "word ".repeat(3000).trim();
+    expect(para.length).toBeGreaterThan(12_000);
+    const blocks = renderSlackBlocks(para);
+    expect(blocks).toEqual([{ type: "markdown", text: para }]);
   });
 });

@@ -153,8 +153,17 @@ export const ConversationMessageToolCallSchema = z.object({
   imageData: z.string().optional(),
   /** Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot, image generation). */
   imageDataList: z.array(z.string()).optional(),
-  /** Unix ms when the tool started executing. */
+  /** Unix ms when the tool started executing (the `tool_use_start` time). */
   startedAt: z.number().optional(),
+  /**
+   * Unix ms when the tool call was first recognized in the model stream (the
+   * `tool_use_preview_start` time), before its input finished streaming. The
+   * user-perceived latency anchors here so a snapshot fetched mid-tool (refresh
+   * / reconnect) restores the first-byte elapsed counter; the tool's own
+   * execution latency stays `completedAt - startedAt`. Absent for tool calls
+   * that produced no preview (e.g. native server tools) or older history rows.
+   */
+  previewStartedAt: z.number().optional(),
   /** Unix ms when the tool completed. */
   completedAt: z.number().optional(),
   /**
@@ -522,5 +531,18 @@ export const ConversationMessageSchema = z.object({
   contentBlocks: z.array(ConversationContentBlockSchema).optional(),
   subagentNotification: ConversationSubagentNotificationSchema.optional(),
   slackMessage: ConversationSlackMessageSchema.optional(),
+  /**
+   * Queue state for a user message that is still waiting in the daemon's
+   * in-memory queue (enqueued while the agent was mid-turn, not yet drained or
+   * persisted to the database). Derived at render time from the live
+   * conversation's queue, so it is present only while the message is genuinely
+   * pending and lets a cold reload restore the queued rows the live
+   * `message_queued` SSE events would otherwise be the only source of. Absent
+   * on already-persisted rows. Mirrors the client `DisplayMessage` fields so
+   * the wire and display shapes converge.
+   */
+  queueStatus: z.enum(["queued", "processing"]).optional(),
+  /** 1-based position in the queue, mirroring the `message_queued` SSE event. */
+  queuePosition: z.number().optional(),
 });
 export type ConversationMessage = z.infer<typeof ConversationMessageSchema>;

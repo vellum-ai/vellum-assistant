@@ -136,9 +136,9 @@ const mockStoredMessages: Array<{
   metadata: string | null;
 }> = [];
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
@@ -253,7 +253,7 @@ mock.module("../notifications/emit-signal.js", () => ({
 }));
 
 // Mock conversation title service
-mock.module("../memory/conversation-title-service.js", () => ({
+mock.module("../persistence/conversation-title-service.js", () => ({
   GENERATING_TITLE: "Generating title...",
   AUTO_TITLE_DETERMINISTIC: 2,
   deriveDeterministicTitle: (context: { systemHint?: string }) =>
@@ -335,6 +335,23 @@ const LLM_DEFAULT = {
   },
 };
 
+// Capture broadcastMessage so tests can observe the alerts and
+// conversation-created events the heartbeat service emits directly.
+type BroadcastedMessage = { type: string; [key: string]: unknown };
+const broadcastedMessages: BroadcastedMessage[] = [];
+let onBroadcast: ((msg: BroadcastedMessage) => void) | null = null;
+
+mock.module("../runtime/assistant-event-hub.js", () => ({
+  assistantEventHub: {
+    publish: async () => {},
+    subscribe: () => () => {},
+  },
+  broadcastMessage: (msg: BroadcastedMessage) => {
+    broadcastedMessages.push(msg);
+    onBroadcast?.(msg);
+  },
+}));
+
 describe("HeartbeatService", () => {
   let processMessageCalls: Array<{
     conversationId: string;
@@ -353,6 +370,12 @@ describe("HeartbeatService", () => {
   beforeEach(() => {
     processMessageCalls = [];
     alerterCalls = [];
+    broadcastedMessages.length = 0;
+    onBroadcast = (msg) => {
+      if (msg.type === "heartbeat_alert") {
+        alerterCalls.push(msg as { type: string; title: string; body: string });
+      }
+    };
     createdConversations.length = 0;
     conversationIdCounter = 0;
     mockStoredMessages.length = 0;
@@ -413,19 +436,11 @@ describe("HeartbeatService", () => {
   function createService(overrides?: {
     processMessage?: (...args: unknown[]) => Promise<{ messageId: string }>;
     getCurrentHour?: () => number;
-    onConversationCreated?: (info: {
-      conversationId: string;
-      title: string;
-    }) => void;
   }) {
     if (overrides?.processMessage) {
       setTestProcessMessage(overrides.processMessage);
     }
     return new HeartbeatService({
-      alerter: (alert: { type: string; title: string; body: string }) => {
-        alerterCalls.push(alert);
-      },
-      onConversationCreated: overrides?.onConversationCreated,
       getCurrentHour: overrides?.getCurrentHour,
     });
   }
@@ -770,17 +785,14 @@ describe("HeartbeatService", () => {
   });
 
   test("conversation surfaces to the sidebar on every successful run", async () => {
-    const conversationCreatedCalls: Array<{
-      conversationId: string;
-      title: string;
-    }> = [];
-    const service = createService({
-      onConversationCreated: (info) => conversationCreatedCalls.push(info),
-    });
+    const service = createService();
 
     await service.runOnce();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
+    const conversationCreatedCalls = broadcastedMessages
+      .filter((m) => m.type === "heartbeat_conversation_created")
+      .map((m) => ({ conversationId: m.conversationId, title: m.title }));
     expect(conversationCreatedCalls).toEqual([
       { conversationId: "conv-1", title: "Heartbeat" },
     ]);

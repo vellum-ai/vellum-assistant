@@ -1,8 +1,8 @@
-import { updateDeliveredSegmentCount } from "../memory/delivery-channels.js";
+import { updateDeliveredSegmentCount } from "../persistence/delivery-channels.js";
 import {
   markDeliveryDelivered,
   recordDeliveryFailure,
-} from "../memory/delivery-status.js";
+} from "../persistence/delivery-status.js";
 import { deliverReplyViaCallback } from "./channel-reply-delivery.js";
 import type { SlackDmTextDeliveryController } from "./slack-dm-text-delivery.js";
 

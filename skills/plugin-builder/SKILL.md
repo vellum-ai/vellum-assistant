@@ -72,11 +72,23 @@ You have an alignment problem if the user cannot answer questions 1 and 2. Push 
 
 Choose a kebab-case directory name. It becomes the install name. `@scope/<name>` is allowed; the loader strips the scope for the runtime plugin name. Duplicate names fail registration. See `references/plugins.md` for the full directory layout, manifest fields, and loader rules.
 
-To exercise the plugin locally before pushing to the catalog, copy the directory into the workspace's `plugins/` folder:
+To exercise the plugin locally before pushing to the catalog, you have two options:
+
+**Option A: direct copy.** Copy the directory into the workspace's `plugins/` folder:
 
 ```
 cp -R my-plugin $VELLUM_WORKSPACE_DIR/plugins/my-plugin
 ```
+
+**Option B: install from a GitHub URL (untrusted).** If the plugin is already pushed to a public GitHub repo, install it directly without waiting for marketplace review:
+
+```
+assistant plugins install https://github.com/owner/my-plugin
+assistant plugins install https://github.com/owner/repo/tree/my-branch/packages/my-plugin
+assistant plugins install owner/repo --name my-plugin
+```
+
+A URL install bypasses the marketplace entirely: the tree is cloned verbatim (no adapter stub is overlaid) and the source is **untrusted**. The CLI prints a yellow warning naming the source. See `references/distribution.md` for the full details.
 
 ## Verify before shipping
 

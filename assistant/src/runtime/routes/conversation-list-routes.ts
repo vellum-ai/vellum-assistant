@@ -10,28 +10,28 @@
 
 import { z } from "zod";
 
+import { channelBindingSchema } from "../../messaging/channel-binding-schema.js";
 import {
   type Confidence,
   getAttentionStateByConversationIds,
   markConversationUnread,
   recordConversationSeenSignal,
   type SignalType,
-} from "../../memory/conversation-attention-store.js";
-import { isConversationProcessing } from "../../memory/conversation-crud.js";
+} from "../../persistence/conversation-attention-store.js";
+import { isConversationProcessing } from "../../persistence/conversation-crud.js";
 import {
   type ConversationRow,
   getDisplayMetaForConversations,
-} from "../../memory/conversation-crud.js";
-import { resolveConversationId } from "../../memory/conversation-key-store.js";
+} from "../../persistence/conversation-crud.js";
+import { resolveConversationId } from "../../persistence/conversation-key-store.js";
 import {
   countConversations,
   listConversations,
   listPinnedConversations,
-} from "../../memory/conversation-queries.js";
-import type { ConversationType } from "../../memory/conversation-types.js";
-import { getBindingsForConversations } from "../../memory/external-conversation-store.js";
-import { listGroups } from "../../memory/group-crud.js";
-import { channelBindingSchema } from "../../messaging/channel-binding-schema.js";
+} from "../../persistence/conversation-queries.js";
+import type { ConversationType } from "../../persistence/conversation-types.js";
+import { getBindingsForConversations } from "../../persistence/external-conversation-store.js";
+import { listGroups } from "../../persistence/group-crud.js";
 import { UserError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";

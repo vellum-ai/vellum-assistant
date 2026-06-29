@@ -96,24 +96,20 @@ function richContactForId(contactId: string | undefined) {
   if (!contactId) return undefined;
   const contact = getContact(contactId);
   if (!contact) return undefined;
-  // ACL columns live on the still-present DB rows, not the slimmed interfaces;
-  // read them raw to build the gateway-rich response the production read parses.
-  const contactRole = (
-    getSqlite()
-      .query("SELECT role FROM contacts WHERE id = ?")
-      .get(contact.id) as { role: string } | undefined
-  )?.role;
+  // The gateway owns the ACL; tests seed it into the gateway ACL store. Source
+  // role/status/policy from there to build the gateway-rich response the
+  // production read parses (never the Phase-B-dropped assistant ACL columns).
   return {
     ok: true,
     contact: {
       id: contact.id,
       displayName: contact.displayName,
-      role: contactRole ?? "contact",
+      role: gatewayContactRole(contact.id) ?? "contact",
       interactionCount: contact.interactionCount,
       createdAt: contact.createdAt,
       updatedAt: contact.updatedAt,
       channels: contact.channels.map((c) => {
-        const acl = rawChannelAcl(c.id);
+        const acl = gatewayChannelAcl(c.id);
         return {
           id: c.id,
           contactId: c.contactId,
@@ -124,39 +120,35 @@ function richContactForId(contactId: string | undefined) {
           status: acl.status,
           policy: acl.policy,
           verifiedAt: acl.verifiedAt,
-          verifiedVia: acl.verifiedVia,
-          lastSeenAt: acl.lastSeenAt,
-          interactionCount: acl.interactionCount,
-          lastInteraction: acl.lastInteraction,
-          revokedReason: acl.revokedReason,
-          blockedReason: acl.blockedReason,
+          verifiedVia: null,
+          lastSeenAt: null,
+          interactionCount: 0,
+          lastInteraction: null,
+          revokedReason: null,
+          blockedReason: null,
         };
       }),
     },
   };
 }
 
-/** Read a channel's ACL columns straight off the still-present DB row. */
-function rawChannelAcl(channelId: string) {
-  return getSqlite()
-    .query(
-      `SELECT status, policy, verified_at AS verifiedAt, verified_via AS verifiedVia,
-              last_seen_at AS lastSeenAt, interaction_count AS interactionCount,
-              last_interaction AS lastInteraction, revoked_reason AS revokedReason,
-              blocked_reason AS blockedReason
-         FROM contact_channels WHERE id = ?`,
-    )
-    .get(channelId) as {
-    status: string;
-    policy: string;
-    verifiedAt: number | null;
-    verifiedVia: string | null;
-    lastSeenAt: number | null;
-    interactionCount: number;
-    lastInteraction: number | null;
-    revokedReason: string | null;
-    blockedReason: string | null;
+/** Read a channel's seeded ACL view from the gateway ACL store. */
+function gatewayChannelAcl(channelId: string): {
+  status: string;
+  policy: string;
+  verifiedAt: number | null;
+} {
+  const row = gatewayAclByChannelId(channelId);
+  return {
+    status: row?.status ?? "unverified",
+    policy: row?.policy ?? "allow",
+    verifiedAt: row?.verifiedAt ?? null,
   };
+}
+
+/** The seeded gateway role for any of a contact's channels. */
+function gatewayContactRole(contactId: string): string | undefined {
+  return gatewayAclRows().find((r) => r.contactId === contactId)?.role;
 }
 
 import {
@@ -164,13 +156,18 @@ import {
   getContact,
   upsertContact,
 } from "../contacts/contact-store.js";
-import { getDb, getSqlite } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { createInvite, revokeInvite } from "../memory/invite-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { createInvite, revokeInvite } from "../persistence/invite-store.js";
 import {
   handleChannelInbound,
   seedContactChannel,
 } from "./helpers/channel-test-adapter.js";
+import {
+  gatewayAclByChannelId,
+  gatewayAclRows,
+  resetGatewayAclStore,
+} from "./helpers/gateway-acl-store.js";
 
 await initializeDb();
 
@@ -194,6 +191,7 @@ function resetState(): void {
   db.run("DELETE FROM notification_events");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
+  resetGatewayAclStore();
   emitSignalCalls.length = 0;
   deliverReplyCalls.length = 0;
   gatewayIpcCalls.length = 0;

@@ -1,4 +1,4 @@
-import { listAppsByConversation } from "../../memory/app-store.js";
+import { listAppsByConversation } from "../../apps/app-store.js";
 
 /**
  * Resolve the `app_id` an app-builder tool should operate on.

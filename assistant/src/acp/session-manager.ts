@@ -11,8 +11,8 @@ import { eq, inArray } from "drizzle-orm";
 import { findConversation } from "../daemon/conversation-registry.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { AcpSessionUpdate } from "../daemon/message-types/acp.js";
-import { getDb } from "../memory/db-connection.js";
-import { acpSessionHistory } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { acpSessionHistory } from "../persistence/schema/index.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getLogger } from "../util/logger.js";
 import { AcpAgentProcess } from "./agent-process.js";
@@ -72,6 +72,10 @@ interface SessionEntry {
   currentPrompt: Promise<unknown> | null;
   parentConversationId: string;
   cwd: string;
+  /** Tool-use id of the `acp_spawn` call that spawned this session, if any. */
+  parentToolUseId?: string;
+  /** Objective text the session was spawned with, if known. */
+  task?: string;
   /** Resolved adapter command basename (e.g. "claude-agent-acp"). Used to
    *  gate resume hints to the only adapter (claude-agent-acp) whose CLI
    *  accepts `--resume`. */
@@ -191,6 +195,7 @@ export class AcpSessionManager {
     cwd: string,
     parentConversationId: string,
     sendToVellum: (msg: ServerMessage) => void,
+    parentToolUseId?: string,
   ): Promise<{ acpSessionId: string; protocolSessionId: string }> {
     this.assertCapacity();
 
@@ -214,6 +219,8 @@ export class AcpSessionManager {
       cwd,
       startedAt: Date.now(),
       sendToVellum,
+      parentToolUseId,
+      task,
     });
     const { process: agentProcess, state } = entry;
 
@@ -268,6 +275,8 @@ export class AcpSessionManager {
     cwd: string;
     startedAt: number;
     sendToVellum: (msg: ServerMessage) => void;
+    parentToolUseId?: string;
+    task?: string;
   }): SessionEntry {
     const { acpSessionId } = opts;
 
@@ -280,6 +289,20 @@ export class AcpSessionManager {
     const wrappedSend = (msg: ServerMessage) => {
       if (msg.type === "acp_session_update") {
         this.appendToBuffer(acpSessionId, msg);
+      } else if (msg.type === "acp_session_usage") {
+        // Track the latest usage gauge so a terminal transition can persist
+        // the final snapshot.
+        const state = this.sessions.get(acpSessionId)?.state;
+        if (state) {
+          state.latestUsage = {
+            usedTokens: msg.usedTokens,
+            contextSize: msg.contextSize,
+            costAmount: msg.costAmount,
+            costCurrency: msg.costCurrency,
+            inputTokens: msg.inputTokens ?? state.latestUsage?.inputTokens,
+            outputTokens: msg.outputTokens ?? state.latestUsage?.outputTokens,
+          };
+        }
       }
       opts.sendToVellum(msg);
     };
@@ -303,6 +326,8 @@ export class AcpSessionManager {
       parentConversationId: opts.parentConversationId,
       status: "initializing",
       startedAt: opts.startedAt,
+      task: opts.task,
+      parentToolUseId: opts.parentToolUseId,
     };
 
     const entry: SessionEntry = {
@@ -313,6 +338,8 @@ export class AcpSessionManager {
       currentPrompt: null,
       parentConversationId: opts.parentConversationId,
       cwd: opts.cwd,
+      parentToolUseId: opts.parentToolUseId,
+      task: opts.task,
       command: basename(opts.agentConfig.command),
     };
 
@@ -332,6 +359,8 @@ export class AcpSessionManager {
       acpSessionId,
       agent: entry.state.agentId,
       parentConversationId: entry.parentConversationId,
+      parentToolUseId: entry.parentToolUseId,
+      task: entry.task,
     });
   }
 
@@ -457,6 +486,13 @@ export class AcpSessionManager {
       cwd: row.cwd,
       startedAt: row.startedAt,
       sendToVellum,
+      // Carry the persisted metadata onto the fresh in-memory state so the
+      // next terminal upsert rewrites the same values instead of NULLing
+      // them. A resumed run only emits a usage_update if it does fresh work;
+      // without seeding, a resume->re-terminate would clobber the stored
+      // task/parentToolUseId/usage.
+      task: row.task ?? undefined,
+      parentToolUseId: row.parentToolUseId ?? undefined,
     });
 
     log.info(
@@ -465,14 +501,35 @@ export class AcpSessionManager {
     );
     const { process: agentProcess, state } = entry;
 
+    // Seed the latest usage snapshot from the persisted columns. A fresh
+    // usage_update during the resumed run overwrites this; if none fires the
+    // prior snapshot is re-persisted on terminal transition. Pre-migration
+    // rows have null token columns and leave latestUsage undefined.
+    if (row.usedTokens !== null && row.contextSize !== null) {
+      state.latestUsage = {
+        usedTokens: row.usedTokens,
+        contextSize: row.contextSize,
+        costAmount: row.costAmount ?? undefined,
+        costCurrency: row.costCurrency ?? undefined,
+        inputTokens: row.inputTokens ?? undefined,
+        outputTokens: row.outputTokens ?? undefined,
+      };
+    }
+
     // Re-seed the ring buffer from the persisted event log, routed through
     // appendToBuffer so the count/byte caps still apply. The terminal
-    // upsert then persists the merged (old + new) log.
+    // upsert then persists the merged (old + new) log. Track the highest
+    // persisted seq and advance the fresh handler's counter to it so live
+    // updates after resume continue strictly increasing instead of resetting
+    // to 1 (which the web client would drop as seq <= highWaterMark).
+    let maxSeq = 0;
     try {
       const persisted = JSON.parse(row.eventLogJson) as unknown;
       if (Array.isArray(persisted)) {
         for (const update of persisted) {
           this.appendToBuffer(acpSessionId, update as AcpSessionUpdate);
+          const seq = (update as AcpSessionUpdate)?.seq;
+          if (typeof seq === "number" && seq > maxSeq) maxSeq = seq;
         }
       }
     } catch (err) {
@@ -481,6 +538,8 @@ export class AcpSessionManager {
         "Failed to re-seed ACP event buffer from persisted history",
       );
     }
+    // Seed before the child process spawns so no live update can fire first.
+    entry.clientHandler.seedSeq(maxSeq);
 
     try {
       log.info(
@@ -793,6 +852,18 @@ export class AcpSessionManager {
   }
 
   /**
+   * Returns the live ring buffer for an active session as wire-shaped
+   * `AcpSessionUpdate[]` (each carrying `seq`), matching exactly what
+   * `persistTerminal` serializes to `eventLogJson` on terminal transition.
+   * Empty array for unknown/already-torn-down ids.
+   */
+  getBufferedUpdates(acpSessionId: string): AcpSessionUpdate[] {
+    const buffer = this.eventBuffers.get(acpSessionId);
+    if (!buffer) return [];
+    return buffer.map((b) => b.update);
+  }
+
+  /**
    * Appends a wire-shaped update to the ring buffer, evicting oldest events
    * when either the count or aggregate-byte cap is exceeded. Byte
    * accounting tracks the sum of element JSON sizes; the cap is a soft
@@ -830,6 +901,17 @@ export class AcpSessionManager {
     // Serialize only the wire-shaped updates — drop the byte-size accounting
     // metadata so persisted rows match the protocol shape clients receive.
     const eventLogJson = JSON.stringify(buffer.map((b) => b.update));
+    const usage = entry.state.latestUsage;
+    const usageColumns = {
+      task: entry.state.task ?? null,
+      parentToolUseId: entry.state.parentToolUseId ?? null,
+      usedTokens: usage?.usedTokens ?? null,
+      contextSize: usage?.contextSize ?? null,
+      costAmount: usage?.costAmount ?? null,
+      costCurrency: usage?.costCurrency ?? null,
+      inputTokens: usage?.inputTokens ?? null,
+      outputTokens: usage?.outputTokens ?? null,
+    };
     try {
       getDb()
         .insert(acpSessionHistory)
@@ -845,6 +927,7 @@ export class AcpSessionManager {
           error: entry.state.error ?? null,
           eventLogJson,
           cwd: entry.cwd,
+          ...usageColumns,
         })
         .onConflictDoUpdate({
           target: acpSessionHistory.id,
@@ -855,6 +938,7 @@ export class AcpSessionManager {
             error: entry.state.error ?? null,
             eventLogJson,
             cwd: entry.cwd,
+            ...usageColumns,
           },
         })
         .run();
@@ -893,6 +977,34 @@ export class AcpSessionManager {
             current.state.stopReason = response.stopReason;
           }
           current.currentPrompt = null;
+
+          // `PromptResponse.usage` carries cumulative input/output totals across
+          // all turns. Overwrite (not accumulate) onto the latest usage gauge so
+          // the terminal persist captures them, and emit so clients see the final
+          // counts. Reuse the most recent context-window snapshot for
+          // usedTokens/contextSize, which the prompt response does not report.
+          const usage = response.usage;
+          if (usage) {
+            const prior = current.state.latestUsage;
+            current.state.latestUsage = {
+              usedTokens: prior?.usedTokens ?? 0,
+              contextSize: prior?.contextSize ?? 0,
+              costAmount: prior?.costAmount,
+              costCurrency: prior?.costCurrency,
+              inputTokens: usage.inputTokens,
+              outputTokens: usage.outputTokens,
+            };
+            current.sendToVellum({
+              type: "acp_session_usage",
+              acpSessionId,
+              usedTokens: current.state.latestUsage.usedTokens,
+              contextSize: current.state.latestUsage.contextSize,
+              costAmount: current.state.latestUsage.costAmount,
+              costCurrency: current.state.latestUsage.costCurrency,
+              inputTokens: usage.inputTokens,
+              outputTokens: usage.outputTokens,
+            });
+          }
           log.info(
             { acpSessionId, stopReason: response.stopReason },
             "ACP prompt completed",

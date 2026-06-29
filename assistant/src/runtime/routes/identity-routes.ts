@@ -8,17 +8,16 @@ import { availableParallelism, cpus, totalmem } from "node:os";
 import { z } from "zod";
 
 import { getCpuLimit, getIsPlatform } from "../../config/env-registry.js";
+import { getDbMigrationReadiness } from "../../daemon/daemon-readiness.js";
 import { parseIdentityFields } from "../../daemon/handlers/identity.js";
 import { getProfilerRuntimeStatus } from "../../daemon/profiler-run-store.js";
-import { getDbMigrationReadiness } from "../../memory/db-readiness.js";
-import { getMaxRollbackVersion } from "../../memory/migrations/run-migrations.js";
-import { migrationSteps } from "../../memory/steps.js";
+import { getMaxRollbackVersion } from "../../persistence/migrations/run-migrations.js";
+import { migrationSteps } from "../../persistence/steps.js";
 import { getCesClient } from "../../security/secure-keys.js";
 import {
   getDiskUsageInfo,
   parseK8sMemoryBytes,
 } from "../../util/disk-usage.js";
-import { getLogger } from "../../util/logger.js";
 import { getWorkspacePromptPath } from "../../util/platform.js";
 import { APP_VERSION } from "../../version.js";
 import { resolveHatchedAtReadOnly } from "../../workspace/hatched-date.js";
@@ -315,8 +314,16 @@ function getCpuInfo(): CpuInfo {
   };
 }
 
+/**
+ * Trivial liveness/startup probe (`GET /healthz`).
+ *
+ * This is the k8s startup + liveness probe target: it must answer the instant
+ * the HTTP server is up and must NEVER touch DB, CES, migrations, or any other
+ * lifecycle state. Keep it to a static `{ status, version }` payload — no
+ * syscalls, no disk/memory/cpu reads, no async work.
+ */
 export function handleHealth(): Response {
-  return Response.json({ status: "ok" });
+  return Response.json({ status: "ok", version: APP_VERSION });
 }
 
 function getDetailedHealth() {
@@ -395,15 +402,6 @@ export function handleReadyz(): Response {
     });
   }
 
-  const cesClient = getCesClient();
-  if (!cesClient?.isReady()) {
-    // TODO: Return 503 once we confirm via logs that this won't cause
-    // regressions in the K8s readinessProbe.
-    getLogger("health").warn(
-      { reason: cesClient ? "ces_not_ready" : "ces_unavailable" },
-      "CES not ready — pod would be unready if 503 were enabled",
-    );
-  }
   return Response.json({ status: "ok", ready: true });
 }
 
@@ -498,21 +496,13 @@ const healthMigrationsSchema = z.object({
 
 const dbMigrationReadinessSchema = z.object({
   ready: z.boolean(),
-  state: z.enum(["ready", "not_started", "running", "failed"]),
-  reason: z
-    .enum([
-      "db_migrations_not_started",
-      "db_migrations_running",
-      "db_migrations_failed",
-    ])
-    .optional(),
+  state: z.enum(["not_started", "running", "failed", "ready"]),
+  reason: z.string().optional(),
   error: z.string().optional(),
 });
 
 const detailedHealthSchema = z.object({
   status: z.string(),
-  reason: z.string().optional(),
-  dbMigrations: dbMigrationReadinessSchema.optional(),
   timestamp: z.string(),
   version: z.string(),
   // `getDiskUsageInfo()` returns null when usage can't be measured.
@@ -523,6 +513,8 @@ const detailedHealthSchema = z.object({
   ces: cesHealthSchema,
   capabilities: healthCapabilitiesSchema,
   profiler: profilerStatusSchema.optional(),
+  reason: z.string().optional(),
+  dbMigrations: dbMigrationReadinessSchema.optional(),
 });
 
 // ---------------------------------------------------------------------------

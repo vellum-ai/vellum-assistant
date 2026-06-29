@@ -10,14 +10,14 @@ import { join } from "node:path";
 
 import { asc, eq } from "drizzle-orm";
 
-import { resolveConversationDirectoryPaths } from "../../memory/conversation-directories.js";
+import { resolveConversationDirectoryPaths } from "../../persistence/conversation-directories.js";
 import {
   initConversationDir,
   syncMessageToDisk,
   updateMetaFile,
-} from "../../memory/conversation-disk-view.js";
-import { getDb } from "../../memory/db-connection.js";
-import { conversations, messages } from "../../memory/schema.js";
+} from "../../persistence/conversation-disk-view.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { conversations, messages } from "../../persistence/schema/index.js";
 import { getLogger } from "../../util/logger.js";
 
 const log = getLogger("workspace-migrations");

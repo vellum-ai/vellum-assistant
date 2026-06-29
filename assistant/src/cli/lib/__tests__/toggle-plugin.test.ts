@@ -1,4 +1,10 @@
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
@@ -134,12 +140,12 @@ describe("enablePlugin", () => {
 
 describe("disable then enable round-trip", () => {
   it("default plugin: disable creates stub, enable removes it", () => {
-    const pluginDir = join(TMP_PLUGINS_DIR, "default-memory-retrieval");
+    const pluginDir = join(TMP_PLUGINS_DIR, "default-memory");
 
-    disablePlugin("default-memory-retrieval");
+    disablePlugin("default-memory");
     expect(existsSync(join(pluginDir, ".disabled"))).toBe(true);
 
-    enablePlugin("default-memory-retrieval");
+    enablePlugin("default-memory");
     expect(existsSync(pluginDir)).toBe(false);
   });
 

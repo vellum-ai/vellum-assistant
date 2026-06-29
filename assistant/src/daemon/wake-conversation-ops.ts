@@ -17,9 +17,9 @@ import {
   addMessage,
   getConversation,
   provenanceFromTrustContext,
-} from "../memory/conversation-crud.js";
-import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
-import { backfillMessageIdOnLogs } from "../memory/llm-request-log-store.js";
+} from "../persistence/conversation-crud.js";
+import { syncMessageToDisk } from "../persistence/conversation-disk-view.js";
+import { backfillMessageIdOnLogs } from "../persistence/llm-request-log-store.js";
 import type { Message } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
@@ -335,7 +335,9 @@ export async function persistWakeTriggerMessage(
  * {@link SubagentToolGateMode}. `toolContextPin`, when provided
  * (execution-gate-mode cache-parity wakes), freezes the client-context
  * inputs for tool-definition resolution — see {@link WakeToolContextPin}.
- * Both are set and restored alongside the allowlist.
+ * Its `requestOrigin`, when set, is stamped onto the conversation's per-turn
+ * origin so the permission checker's origin-scoped auto-grants fire for the
+ * wake. All are set and restored alongside the allowlist.
  */
 export function scopeWakeAllowedTools(
   conversation: Conversation,
@@ -346,12 +348,17 @@ export function scopeWakeAllowedTools(
   const previous = conversation.subagentAllowedTools;
   const previousGateMode = conversation.subagentToolGateMode;
   const previousToolContextPin = conversation.toolContextPin;
+  const previousRequestOrigin = conversation.currentTurnRequestOrigin;
   conversation.setSubagentAllowedTools(new Set(tools));
   conversation.subagentToolGateMode = gateMode;
   conversation.toolContextPin = toolContextPin;
+  if (toolContextPin?.requestOrigin !== undefined) {
+    conversation.currentTurnRequestOrigin = toolContextPin.requestOrigin;
+  }
   return () => {
     conversation.setSubagentAllowedTools(previous);
     conversation.subagentToolGateMode = previousGateMode;
     conversation.toolContextPin = previousToolContextPin;
+    conversation.currentTurnRequestOrigin = previousRequestOrigin;
   };
 }

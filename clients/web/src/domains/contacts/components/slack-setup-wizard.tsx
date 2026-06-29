@@ -1,9 +1,8 @@
 import { ExternalLink, Plus } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { Button, Card, Input, Radio, RadioGroup, Stepper, type StepperStep, Typography } from "@vellumai/design-library";
-
-import { publicAsset } from "@/utils/public-asset";
+import { Button, Input, Radio, RadioGroup, Stepper, type StepperStep, Typography } from "@vellumai/design-library";
+import { buildSlackManifestUrl } from "@/utils/slack-manifest";
 
 export type SlackThreadMode = "mention_only" | "mention_then_thread";
 
@@ -11,10 +10,10 @@ const WIZARD_STEP_IDS = ["create-app", "app-token", "install-app", "bot-token"] 
 type WizardStepId = (typeof WIZARD_STEP_IDS)[number];
 
 const WIZARD_STEPS: StepperStep[] = [
-  { id: "create-app", label: "1. Create App" },
-  { id: "app-token", label: "2. Generate App Token" },
-  { id: "install-app", label: "3. Install App" },
-  { id: "bot-token", label: "4. Add Bot Token" },
+  { id: "create-app", label: "Create App" },
+  { id: "app-token", label: "Generate App Token" },
+  { id: "install-app", label: "Install App" },
+  { id: "bot-token", label: "Add Bot Token" },
 ];
 
 export interface SlackSetupWizardProps {
@@ -27,85 +26,6 @@ export interface SlackSetupWizardProps {
   onSave?: (botToken: string, appToken: string) => Promise<void>;
 }
 
-const SLACK_MANIFEST_SCOPES = {
-  bot: [
-    "app_mentions:read",
-    "assistant:write",
-    "channels:history",
-    "channels:join",
-    "channels:read",
-    "chat:write",
-    "files:read",
-    "files:write",
-    "groups:history",
-    "groups:read",
-    "im:history",
-    "im:read",
-    "im:write",
-    "mpim:history",
-    "mpim:read",
-    "reactions:read",
-    "reactions:write",
-    "users:read",
-  ],
-  user: [
-    "channels:history",
-    "channels:read",
-    "groups:history",
-    "groups:read",
-    "im:history",
-    "im:read",
-    "mpim:history",
-    "mpim:read",
-    "users:read",
-    "search:read",
-    "reactions:read",
-  ],
-} as const;
-
-function buildSlackManifestUrl(name: string): string {
-  const manifest = {
-    display_information: {
-      name,
-      background_color: "#1a1a2e",
-    },
-    features: {
-      app_home: {
-        home_tab_enabled: false,
-        messages_tab_enabled: true,
-        messages_tab_read_only_enabled: false,
-      },
-      bot_user: { display_name: name, always_online: true },
-      assistant_view: {
-        assistant_description: name,
-        suggested_prompts: [],
-      },
-    },
-    oauth_config: { scopes: SLACK_MANIFEST_SCOPES },
-    settings: {
-      event_subscriptions: {
-        bot_events: [
-          "app_mention",
-          "message.channels",
-          "message.groups",
-          "message.im",
-          "message.mpim",
-          "reaction_added",
-        ],
-      },
-      interactivity: { is_enabled: true },
-      org_deploy_enabled: false,
-      socket_mode_enabled: true,
-      token_rotation_enabled: false,
-    },
-  };
-
-  return (
-    "https://api.slack.com/apps?new_app=1&manifest_json=" +
-    encodeURIComponent(JSON.stringify(manifest))
-  );
-}
-
 export function SlackSetupWizard({
   assistantName,
   initialStepId = "create-app",
@@ -116,6 +36,13 @@ export function SlackSetupWizard({
   onSave,
 }: SlackSetupWizardProps) {
   const [stepId, setStepId] = useState<WizardStepId>(initialStepId);
+  const [slackAppName, setSlackAppName] = useState(assistantName);
+  const userEditedName = useRef(false);
+
+  useEffect(() => {
+    if (!userEditedName.current) setSlackAppName(assistantName);
+  }, [assistantName]);
+
   const [appToken, setAppToken] = useState("");
   const [botToken, setBotToken] = useState("");
   const [saving, setSaving] = useState(false);
@@ -124,9 +51,10 @@ export function SlackSetupWizard({
   const stepIndex = WIZARD_STEP_IDS.indexOf(stepId);
 
   const handleCreateApp = useCallback(() => {
-    const url = buildSlackManifestUrl(assistantName);
+    const name = slackAppName.trim() || "My Assistant";
+    const url = buildSlackManifestUrl(name);
     window.open(url, "_blank", "noopener,noreferrer");
-  }, [assistantName]);
+  }, [slackAppName]);
 
   const handleSave = useCallback(async () => {
     if (!onSave || !botToken.trim() || !appToken.trim()) return;
@@ -159,114 +87,80 @@ export function SlackSetupWizard({
 
   if (connected) {
     return (
-      <div className="pl-7" data-slot="slack-setup-wizard">
-        <Card.Root>
-          <Card.Header>
-            <div className="flex items-center gap-3">
-              <img
-                src={publicAsset("/images/integrations/slack.svg")}
-                alt=""
-                className="size-8 rounded-lg bg-[var(--surface-sunken)] p-1"
-              />
-              <div className="flex flex-col">
-                <Typography as="span" variant="body-medium-default">
-                  Slack settings
-                </Typography>
-                <span className="flex items-center gap-1.5 text-body-small-default text-[var(--content-secondary)]">
-                  <span className="size-2 rounded-full bg-[var(--system-positive-strong)]" />
-                  Connected as {assistantName}
-                </span>
-              </div>
-            </div>
-          </Card.Header>
-          <Card.Body>
-            <div className="flex flex-col gap-3">
-              <Typography
-                as="span"
-                variant="body-small-emphasised"
-                className="text-[color:var(--content-secondary)]"
-              >
-                Thread Behavior
-              </Typography>
-              <RadioGroup<SlackThreadMode>
-                value={threadMode ?? "mention_then_thread"}
-                onValueChange={(next) => onThreadModeChange?.(next)}
-                disabled={threadModePending || !onThreadModeChange}
-                aria-label="Slack thread behavior"
-              >
-                <Radio<SlackThreadMode>
-                  value="mention_only"
-                  label="Mentions only"
-                  helperText="Bot only responds when @mentioned."
-                />
-                <Radio<SlackThreadMode>
-                  value="mention_then_thread"
-                  label="Follow threads after first mention"
-                  helperText="After an @mention in a thread, bot listens to all subsequent replies."
-                />
-              </RadioGroup>
-            </div>
-          </Card.Body>
-        </Card.Root>
+      <div data-slot="slack-setup-wizard">
+        <div className="flex flex-col gap-3">
+          <Typography
+            as="span"
+            variant="body-small-emphasised"
+            className="text-[color:var(--content-secondary)]"
+          >
+            Thread Behavior
+          </Typography>
+          <RadioGroup<SlackThreadMode>
+            value={threadMode ?? "mention_then_thread"}
+            onValueChange={(next) => onThreadModeChange?.(next)}
+            disabled={threadModePending || !onThreadModeChange}
+            aria-label="Slack thread behavior"
+          >
+            <Radio<SlackThreadMode>
+              value="mention_only"
+              label="Mentions only"
+              helperText="Bot only responds when @mentioned."
+            />
+            <Radio<SlackThreadMode>
+              value="mention_then_thread"
+              label="Follow threads after first mention"
+              helperText="After an @mention in a thread, bot listens to all subsequent replies."
+            />
+          </RadioGroup>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="pl-7" data-slot="slack-setup-wizard">
-      <Card.Root>
-        <Card.Header>
-          <div className="flex items-center gap-3">
-            <img
-              src={publicAsset("/images/integrations/slack.svg")}
-              alt=""
-              className="size-8 rounded-lg bg-[var(--surface-sunken)] p-1"
+    <div data-slot="slack-setup-wizard">
+      <div className="flex flex-col gap-4">
+        <Stepper
+          steps={WIZARD_STEPS}
+          current={stepIndex}
+          onStepSelect={handleStepSelect}
+          disabled={saving}
+        />
+
+        <div className="rounded-lg bg-[var(--surface-sunken)] p-4">
+          {stepId === "create-app" && (
+            <CreateAppStep
+              slackAppName={slackAppName}
+              onSlackAppNameChange={(v) => { userEditedName.current = true; setSlackAppName(v); }}
+              onCreateApp={handleCreateApp}
+              onNext={goNext}
             />
-            <span>Slack setup</span>
-          </div>
-        </Card.Header>
-        <Card.Body>
-          <div className="flex flex-col gap-4">
-            <Stepper
-              steps={WIZARD_STEPS}
-              current={stepIndex}
-              onStepSelect={handleStepSelect}
-              disabled={saving}
+          )}
+
+          {stepId === "app-token" && (
+            <AppTokenStep
+              appToken={appToken}
+              onAppTokenChange={setAppToken}
+              onNext={goNext}
             />
+          )}
 
-            <div className="rounded-lg bg-[var(--surface-sunken)] p-4">
-              {stepId === "create-app" && (
-                <CreateAppStep
-                  onCreateApp={handleCreateApp}
-                  onNext={goNext}
-                />
-              )}
+          {stepId === "install-app" && (
+            <InstallAppStep onNext={goNext} />
+          )}
 
-              {stepId === "app-token" && (
-                <AppTokenStep
-                  appToken={appToken}
-                  onAppTokenChange={setAppToken}
-                  onNext={goNext}
-                />
-              )}
-
-              {stepId === "install-app" && (
-                <InstallAppStep onNext={goNext} />
-              )}
-
-              {stepId === "bot-token" && (
-                <BotTokenStep
-                  botToken={botToken}
-                  saving={saving}
-                  error={error}
-                  onBotTokenChange={setBotToken}
-                  onSave={handleSave}
-                />
-              )}
-            </div>
-          </div>
-        </Card.Body>
-      </Card.Root>
+          {stepId === "bot-token" && (
+            <BotTokenStep
+              botToken={botToken}
+              saving={saving}
+              error={error}
+              onBotTokenChange={setBotToken}
+              onSave={handleSave}
+            />
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -276,19 +170,31 @@ export function SlackSetupWizard({
 // ---------------------------------------------------------------------------
 
 interface CreateAppStepProps {
+  slackAppName: string;
+  onSlackAppNameChange: (value: string) => void;
   onCreateApp: () => void;
   onNext: () => void;
 }
 
-function CreateAppStep({ onCreateApp, onNext }: CreateAppStepProps) {
+function CreateAppStep({ slackAppName, onSlackAppNameChange, onCreateApp, onNext }: CreateAppStepProps) {
+  const nameValid = slackAppName.trim().length > 0;
+
   return (
     <div className="flex flex-col gap-4">
       <p className="text-body-medium-lighter text-[var(--content-default)]">
-        First, let&apos;s create the app with my name on it:
+        Name your Slack app, then click below to create it:
       </p>
+      <Input
+        label="App Name"
+        value={slackAppName}
+        onChange={(e) => onSlackAppNameChange(e.target.value.slice(0, 35))}
+        placeholder="My Assistant"
+        fullWidth
+      />
       <div className="flex items-center">
         <Button
           type="button"
+          disabled={!nameValid}
           onClick={() => {
             onCreateApp();
             onNext();
@@ -325,12 +231,13 @@ function AppTokenStep({
 }: AppTokenStepProps) {
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-body-medium-lighter text-[var(--content-default)]">
-        Go to <strong>Basic Information</strong> &rarr;{" "}
-        <strong>App-Level Tokens</strong> and generate a token with the{" "}
-        <strong>connections:write</strong> scope. Copy the token that starts
-        with <strong>xapp-</strong>.
-      </p>
+      <ol className="list-decimal list-inside space-y-1 text-body-medium-lighter text-[var(--content-default)]">
+        <li>Go to <strong>Basic Information</strong> &rarr; <strong>App-Level Tokens</strong></li>
+        <li>Click <strong>Generate Token and Scopes</strong></li>
+        <li>Add the <strong>connections:write</strong> scope</li>
+        <li>Click <strong>Generate</strong></li>
+        <li>Copy the token (starts with <strong>xapp-</strong>) and paste it below</li>
+      </ol>
       <div className="flex items-end gap-3">
         <div className="flex-1">
           <Input
@@ -367,13 +274,14 @@ function InstallAppStep({ onNext }: InstallAppStepProps) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
-        <p className="text-body-medium-lighter text-[var(--content-default)]">
-          Go to <strong>Install App</strong> &rarr;{" "}
-          <strong>Install to Workspace</strong> and approve the app permissions.
-        </p>
+        <ol className="list-decimal list-inside space-y-1 text-body-medium-lighter text-[var(--content-default)]">
+          <li>Go to <strong>Install App</strong> in the sidebar</li>
+          <li>Click <strong>Install to Workspace</strong></li>
+          <li>Approve the requested permissions</li>
+        </ol>
         <p className="text-body-medium-lighter text-[var(--content-faint)]">
-          If Slack shows Request approval, a workspace admin needs to approve it
-          first.
+          If Slack shows &ldquo;Request approval&rdquo;, a workspace admin needs
+          to approve it first.
         </p>
       </div>
       <div className="flex justify-end">
@@ -406,10 +314,11 @@ function BotTokenStep({
 }: BotTokenStepProps) {
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-body-medium-lighter text-[var(--content-default)]">
-        After install, copy the <strong>Bot User OAuth Token</strong> that
-        starts with <strong>xoxb-</strong>.
-      </p>
+      <ol className="list-decimal list-inside space-y-1 text-body-medium-lighter text-[var(--content-default)]">
+        <li>Go to <strong>Install App</strong> in the sidebar</li>
+        <li>Copy the <strong>Bot User OAuth Token</strong> (starts with <strong>xoxb-</strong>)</li>
+        <li>Paste it below</li>
+      </ol>
       <div className="flex items-end gap-3">
         <div className="flex-1">
           <Input

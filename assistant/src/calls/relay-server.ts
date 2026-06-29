@@ -11,6 +11,8 @@ import { randomInt } from "node:crypto";
 import type { AdmissionPolicy, TrustVerdict } from "@vellumai/gateway-client";
 import type { ServerWebSocket } from "bun";
 
+import { revokeScopedApprovalGrantsForContext } from "../approvals/scoped-approval-grants.js";
+import { getCanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
 import {
   getGuardianDelivery,
   getGuardianDeliveryFresh,
@@ -19,9 +21,7 @@ import {
 import { getAssistantName } from "../daemon/identity-helpers.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
-import { addMessage } from "../memory/conversation-crud.js";
-import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
+import { addMessage } from "../persistence/conversation-crud.js";
 import { resolveGuardianName } from "../prompts/user-reference.js";
 import { notifyGuardianOfAccessRequest } from "../runtime/access-request-helper.js";
 import {

@@ -13,14 +13,8 @@ import { ArrowRight } from "lucide-react";
 
 import { OnboardingEdgeCharacters } from "@/domains/onboarding/components/onboarding-edge-characters";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
-import {
-  AutocompleteInput,
-  TagAutocompleteInput,
-} from "@/domains/onboarding/components/onboarding-autocomplete";
-import {
-  HOBBY_SUGGESTIONS,
-  ROLE_SUGGESTIONS,
-} from "@/domains/onboarding/onboarding-suggestions";
+import { TagAutocompleteInput } from "@/domains/onboarding/components/onboarding-autocomplete";
+import { HOBBY_SUGGESTIONS } from "@/domains/onboarding/onboarding-suggestions";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 
@@ -132,13 +126,13 @@ export function ResearchOnboardingScreen({
           </div>
 
           <div style={riseIn(0.34, 20)}>
-            <AutocompleteInput
+            <Input
               label="Your role"
               placeholder="What do you do for work?"
               value={role}
-              onChange={setRole}
-              suggestions={ROLE_SUGGESTIONS}
+              onChange={(e) => setRole(e.target.value)}
               required
+              fullWidth
             />
           </div>
 

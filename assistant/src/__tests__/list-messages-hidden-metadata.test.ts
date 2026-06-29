@@ -26,18 +26,18 @@ mock.module("../config/loader.js", () => ({
 }));
 
 import {
+  MEMORY_RETROSPECTIVE_FORK_SOURCE,
+  MEMORY_RETROSPECTIVE_INSTRUCTION_KIND,
+} from "../memory/memory-retrospective-constants.js";
+import {
   _setPaginationScanCapForTesting,
   addMessage,
   createConversation,
   getMessages,
-} from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import {
-  MEMORY_RETROSPECTIVE_FORK_SOURCE,
-  MEMORY_RETROSPECTIVE_INSTRUCTION_KIND,
-} from "../memory/memory-retrospective-constants.js";
-import { messages } from "../memory/schema.js";
+} from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { messages } from "../persistence/schema/index.js";
 import { handleListMessages } from "../runtime/routes/conversation-routes.js";
 
 await initializeDb();

@@ -45,9 +45,8 @@ mock.module("../../../ipc/gateway-client.js", () => ({
 
 // Session teardown — assert these still run locally on every revoke.
 const cancelOutboundMock = mock((_args: { channel: string }) => {});
-const actualOutboundActions = await import(
-  "../../verification-outbound-actions.js"
-);
+const actualOutboundActions =
+  await import("../../verification-outbound-actions.js");
 mock.module("../../verification-outbound-actions.js", () => ({
   ...actualOutboundActions,
   cancelOutbound: cancelOutboundMock,
@@ -58,15 +57,12 @@ const revokeBindingMock = mock((_assistantId: string, _channel: string) => {
   revokeGuardianBindingMock();
   return true;
 });
-let guardianBinding:
-  | {
-      guardianExternalUserId: string;
-      guardianDeliveryChatId?: string;
-    }
-  | null = null;
-const actualVerificationService = await import(
-  "../../channel-verification-service.js"
-);
+let guardianBinding: {
+  guardianExternalUserId: string;
+  guardianDeliveryChatId?: string;
+} | null = null;
+const actualVerificationService =
+  await import("../../channel-verification-service.js");
 mock.module("../../channel-verification-service.js", () => ({
   ...actualVerificationService,
   revokePendingSessions: revokePendingSessionsMock,
@@ -120,15 +116,13 @@ mock.module("../../../contacts/contacts-write.js", () => ({
   revokeGuardianBinding: revokeGuardianBindingMock,
 }));
 
-// Contact-change invalidation — emitted explicitly on relay success so open
+// Contact-change notification — fired explicitly on relay success so open
 // client views stop showing the channel as active (the gateway dual-write to
 // "revoked" precedes binding teardown, so revokeGuardianBinding no longer
 // fires it).
-const emitContactChangeMock = mock(() => {});
-const actualContactEvents = await import("../../../contacts/contact-events.js");
-mock.module("../../../contacts/contact-events.js", () => ({
-  ...actualContactEvents,
-  emitContactChange: emitContactChangeMock,
+const notifyContactsChangedMock = mock(() => {});
+mock.module("../../../contacts/notify-contacts-changed.js", () => ({
+  notifyContactsChanged: notifyContactsChangedMock,
 }));
 
 const { ROUTES } = await import("../channel-verification-routes.js");
@@ -169,7 +163,7 @@ describe("verification revoke relay", () => {
     revokeBindingMock.mockClear();
     revokeGuardianBindingMock.mockClear();
     localAclWrite.mockClear();
-    emitContactChangeMock.mockClear();
+    notifyContactsChangedMock.mockClear();
   });
 
   test("relays the downgrade outcome to the gateway and tears down sessions locally", async () => {
@@ -202,7 +196,7 @@ describe("verification revoke relay", () => {
     // Invalidation emitted explicitly on relay success: the gateway dual-write
     // to "revoked" precedes binding teardown, so revokeGuardianBinding's own
     // emit no longer fires.
-    expect(emitContactChangeMock).toHaveBeenCalledTimes(1);
+    expect(notifyContactsChangedMock).toHaveBeenCalledTimes(1);
 
     expect(result.success).toBe(true);
     expect(result.bound).toBe(false);
@@ -217,7 +211,7 @@ describe("verification revoke relay", () => {
     await revokeHandler({ body: { channel: "telegram" } });
 
     expect(ipcCalls).toHaveLength(1);
-    expect(emitContactChangeMock).toHaveBeenCalledTimes(1);
+    expect(notifyContactsChangedMock).toHaveBeenCalledTimes(1);
   });
 
   test("malformed gateway response surfaces as an error", async () => {
@@ -235,7 +229,7 @@ describe("verification revoke relay", () => {
 
     expect(thrown).toBeDefined();
     // Invalidation must not fire when the relay response is invalid.
-    expect(emitContactChangeMock).not.toHaveBeenCalled();
+    expect(notifyContactsChangedMock).not.toHaveBeenCalled();
     expect(revokeBindingMock).not.toHaveBeenCalled();
   });
 
@@ -261,7 +255,7 @@ describe("verification revoke relay", () => {
     }
 
     expect(thrown).toBeDefined();
-    expect(emitContactChangeMock).not.toHaveBeenCalled();
+    expect(notifyContactsChangedMock).not.toHaveBeenCalled();
     expect(revokeBindingMock).not.toHaveBeenCalled();
   });
 

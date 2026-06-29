@@ -7,7 +7,7 @@
 
 import { z } from "zod";
 
-import { getApp } from "../../../../memory/app-store.js";
+import { getApp } from "../../../../apps/app-store.js";
 import {
   listConversations,
   postMessage,

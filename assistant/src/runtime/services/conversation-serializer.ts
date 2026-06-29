@@ -9,21 +9,21 @@
 
 import { parseChannelId } from "../../channels/types.js";
 import { normalizeConversationType } from "../../daemon/message-types/shared.js";
+import { buildChannelBindingMetadata } from "../../messaging/channel-binding-metadata.js";
 import {
   type AttentionState,
   type Confidence,
   getAttentionStateByConversationIds,
   type SignalType,
-} from "../../memory/conversation-attention-store.js";
+} from "../../persistence/conversation-attention-store.js";
 import {
   type ConversationRow,
   getConversation,
   getDisplayMetaForConversations,
   isConversationProcessing,
-} from "../../memory/conversation-crud.js";
-import type { ExternalConversationBinding } from "../../memory/external-conversation-store.js";
-import { getBindingsForConversations } from "../../memory/external-conversation-store.js";
-import { buildChannelBindingMetadata } from "../../messaging/channel-binding-metadata.js";
+} from "../../persistence/conversation-crud.js";
+import type { ExternalConversationBinding } from "../../persistence/external-conversation-store.js";
+import { getBindingsForConversations } from "../../persistence/external-conversation-store.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

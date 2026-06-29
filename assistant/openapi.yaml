@@ -12,9 +12,26 @@ paths:
   /healthz:
     get:
       operationId: healthz_get
+      summary: Liveness probe
+      description:
+        Trivial liveness/startup probe. Returns { status, version } the instant the HTTP server is up, with zero
+        DB/CES/lifecycle access.
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  version:
+                    type: string
+                required:
+                  - status
+                  - version
+                additionalProperties: false
   /pages/{id}:
     get:
       operationId: pages__id__get
@@ -30,9 +47,52 @@ paths:
   /readyz:
     get:
       operationId: readyz_get
+      summary: Readiness probe
+      description:
+        Strict readiness probe. Returns 503 with { status, ready, notReady } until the daemon's synchronous startup
+        latches (isStartupComplete() && isDbReady()) are set, then a stable 200. notReady lists the gates still failing
+        ("startup", "db"). CES is informational and never gates readiness.
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  ready:
+                    type: boolean
+                  notReady:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - status
+                  - ready
+                  - notReady
+                additionalProperties: false
+        "503":
+          description: Not ready — startup incomplete or database not ready.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  ready:
+                    type: boolean
+                  notReady:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - status
+                  - ready
+                  - notReady
+                additionalProperties: false
   /v1/acp/{id}/cancel:
     post:
       operationId: acp_by_id_cancel_post
@@ -233,6 +293,22 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        task:
+                          type: string
+                        parentToolUseId:
+                          type: string
+                        usedTokens:
+                          type: number
+                        contextSize:
+                          type: number
+                        costAmount:
+                          type: number
+                        costCurrency:
+                          type: string
+                        inputTokens:
+                          type: number
+                        outputTokens:
+                          type: number
                         eventLog:
                           type: array
                           items: {}
@@ -4076,6 +4152,15 @@ paths:
                       properties:
                         channel:
                           type: string
+                          enum:
+                            - telegram
+                            - phone
+                            - vellum
+                            - whatsapp
+                            - slack
+                            - email
+                            - platform
+                            - a2a
                         ready:
                           type: boolean
                         setupStatus:
@@ -4154,14 +4239,20 @@ paths:
               type: object
               properties:
                 channel:
-                  type: string
                   description: Optional channel ID to refresh
+                  type: string
+                  enum:
+                    - telegram
+                    - phone
+                    - vellum
+                    - whatsapp
+                    - slack
+                    - email
+                    - platform
+                    - a2a
                 includeRemote:
-                  type: boolean
                   description: Include remote checks (default true)
-              required:
-                - channel
-                - includeRemote
+                  type: boolean
       responses:
         "200":
           description: Successful response
@@ -4179,6 +4270,15 @@ paths:
                       properties:
                         channel:
                           type: string
+                          enum:
+                            - telegram
+                            - phone
+                            - vellum
+                            - whatsapp
+                            - slack
+                            - email
+                            - platform
+                            - a2a
                         ready:
                           type: boolean
                         setupStatus:
@@ -7492,6 +7592,12 @@ paths:
                     required:
                       - role
                       - content
+                conversationType:
+                  type: string
+                  enum:
+                    - standard
+                    - background
+                    - scheduled
       responses:
         "200":
           description: Successful response
@@ -8637,8 +8743,6 @@ paths:
                             type: number
                           live:
                             type: boolean
-                          shadow:
-                            type: boolean
                           selections:
                             type: array
                             items:
@@ -8668,7 +8772,6 @@ paths:
                         required:
                           - turn
                           - live
-                          - shadow
                           - selections
                           - injectedText
                         additionalProperties: false
@@ -8991,6 +9094,9 @@ paths:
                 source:
                   default: cli
                   type: string
+                cronRunId:
+                  type: string
+                  minLength: 1
               required:
                 - conversationId
                 - hint
@@ -11472,32 +11578,6 @@ paths:
                 properties:
                   status:
                     type: string
-                  reason:
-                    type: string
-                  dbMigrations:
-                    type: object
-                    properties:
-                      ready:
-                        type: boolean
-                      state:
-                        type: string
-                        enum:
-                          - ready
-                          - not_started
-                          - running
-                          - failed
-                      reason:
-                        type: string
-                        enum:
-                          - db_migrations_not_started
-                          - db_migrations_running
-                          - db_migrations_failed
-                      error:
-                        type: string
-                    required:
-                      - ready
-                      - state
-                    additionalProperties: false
                   timestamp:
                     type: string
                   version:
@@ -11646,6 +11726,28 @@ paths:
                       - artifactCount
                       - budget
                       - lastCompletedRun
+                    additionalProperties: false
+                  reason:
+                    type: string
+                  dbMigrations:
+                    type: object
+                    properties:
+                      ready:
+                        type: boolean
+                      state:
+                        type: string
+                        enum:
+                          - not_started
+                          - running
+                          - failed
+                          - ready
+                      reason:
+                        type: string
+                      error:
+                        type: string
+                    required:
+                      - ready
+                      - state
                     additionalProperties: false
                 required:
                   - status
@@ -11675,32 +11777,6 @@ paths:
                 properties:
                   status:
                     type: string
-                  reason:
-                    type: string
-                  dbMigrations:
-                    type: object
-                    properties:
-                      ready:
-                        type: boolean
-                      state:
-                        type: string
-                        enum:
-                          - ready
-                          - not_started
-                          - running
-                          - failed
-                      reason:
-                        type: string
-                        enum:
-                          - db_migrations_not_started
-                          - db_migrations_running
-                          - db_migrations_failed
-                      error:
-                        type: string
-                    required:
-                      - ready
-                      - state
-                    additionalProperties: false
                   timestamp:
                     type: string
                   version:
@@ -11849,6 +11925,28 @@ paths:
                       - artifactCount
                       - budget
                       - lastCompletedRun
+                    additionalProperties: false
+                  reason:
+                    type: string
+                  dbMigrations:
+                    type: object
+                    properties:
+                      ready:
+                        type: boolean
+                      state:
+                        type: string
+                        enum:
+                          - not_started
+                          - running
+                          - failed
+                          - ready
+                      reason:
+                        type: string
+                      error:
+                        type: string
+                    required:
+                      - ready
+                      - state
                     additionalProperties: false
                 required:
                   - status
@@ -16475,6 +16573,104 @@ paths:
                 required:
                   - ok
                 additionalProperties: false
+  /v1/memory/worker/start:
+    post:
+      operationId: memory_worker_start_post
+      summary: Start the memory worker
+      description: Spawns (or reuses) the memory worker process as a child of the daemon and enables memory.worker.enabled.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pid:
+                    type: number
+                  alreadyRunning:
+                    type: boolean
+                  workerEnabled:
+                    type: boolean
+                    const: true
+                  pidPath:
+                    type: string
+                required:
+                  - pid
+                  - alreadyRunning
+                  - workerEnabled
+                  - pidPath
+                additionalProperties: false
+  /v1/memory/worker/status:
+    get:
+      operationId: memory_worker_status_get
+      summary: Memory worker status
+      description: Reports the memory worker process state, memory.worker.enabled, and the synchronous in-process runner.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - running
+                      - not_running
+                  pid:
+                    type: number
+                  workerEnabled:
+                    type: boolean
+                  syncRunner:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        enum:
+                          - running
+                          - not_running
+                      pid:
+                        type: number
+                    required:
+                      - status
+                    additionalProperties: false
+                required:
+                  - status
+                  - workerEnabled
+                  - syncRunner
+                additionalProperties: false
+  /v1/memory/worker/stop:
+    post:
+      operationId: memory_worker_stop_post
+      summary: Stop the memory worker
+      description: Disables memory.worker.enabled and SIGTERMs the memory worker process if it is running.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workerWasRunning:
+                    type: boolean
+                  pid:
+                    type: number
+                  workerEnabled:
+                    type: boolean
+                    const: false
+                required:
+                  - workerWasRunning
+                  - workerEnabled
+                additionalProperties: false
   /v1/messages:
     get:
       operationId: messages_get
@@ -16598,6 +16794,8 @@ paths:
                                 items:
                                   type: string
                               startedAt:
+                                type: number
+                              previewStartedAt:
                                 type: number
                               completedAt:
                                 type: number
@@ -17028,6 +17226,8 @@ paths:
                                         items:
                                           type: string
                                       startedAt:
+                                        type: number
+                                      previewStartedAt:
                                         type: number
                                       completedAt:
                                         type: number
@@ -17506,6 +17706,13 @@ paths:
                             - channelId
                             - channelTs
                           additionalProperties: false
+                        queueStatus:
+                          type: string
+                          enum:
+                            - queued
+                            - processing
+                        queuePosition:
+                          type: number
                       required:
                         - id
                         - role
@@ -18188,8 +18395,6 @@ paths:
                             type: number
                           live:
                             type: boolean
-                          shadow:
-                            type: boolean
                           selections:
                             type: array
                             items:
@@ -18219,7 +18424,6 @@ paths:
                         required:
                           - turn
                           - live
-                          - shadow
                           - selections
                           - injectedText
                         additionalProperties: false
@@ -18593,6 +18797,56 @@ paths:
                 type: object
         "404":
           description: No job matches the given id.
+  /v1/migrations/preflight-from-gcs:
+    post:
+      operationId: migrations_preflightfromgcs_post
+      summary: Dry-run import analysis from a signed GCS URL
+      description:
+        Fetch a .vbundle archive from a signed GCS download URL and return a preflight report — what would change
+        if the bundle were imported — without writing anything to disk. Enables `vellum teleport --dry-run` against
+        local and docker targets.
+      tags:
+        - migrations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                bundle_url:
+                  type: string
+                  format: uri
+                  description: Signed GCS GET URL for the bundle.
+              required:
+                - bundle_url
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  can_import:
+                    type: boolean
+                  summary:
+                    type: object
+                    properties: {}
+                    additionalProperties: {}
+                  files:
+                    type: array
+                    items: {}
+                  conflicts:
+                    type: array
+                    items: {}
+                  validation:
+                    type: object
+                    properties: {}
+                    additionalProperties: {}
+                required:
+                  - can_import
+                additionalProperties: false
   /v1/migrations/validate:
     post:
       operationId: migrations_validate_post
@@ -21323,7 +21577,9 @@ paths:
     get:
       operationId: ps_get
       summary: Process status
-      description: Returns a JSON summary of the assistant's process tree including qdrant and embed-worker status.
+      description:
+        "Returns the daemon's process tree: every descendant process parented to the assistant runtime, built from
+        the native OS process table."
       tags:
         - system
       responses:
@@ -24101,7 +24357,7 @@ paths:
           required: false
           schema:
             type: string
-          description: Filter by skill origin (e.g. 'vellum', 'clawhub', 'skillssh', 'custom').
+          description: Filter by skill origin (e.g. 'vellum', 'clawhub', 'skillssh', 'custom', 'assistant-memory').
         - name: kind
           in: query
           required: false
@@ -24394,6 +24650,60 @@ paths:
                             origin:
                               type: string
                               const: custom
+                          required:
+                            - id
+                            - name
+                            - description
+                            - kind
+                            - status
+                            - category
+                            - origin
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                            name:
+                              type: string
+                            description:
+                              type: string
+                            icon:
+                              type: string
+                            emoji:
+                              type: string
+                            kind:
+                              type: string
+                              enum:
+                                - bundled
+                                - installed
+                                - catalog
+                            status:
+                              type: string
+                              enum:
+                                - enabled
+                                - disabled
+                                - available
+                            category:
+                              type: string
+                            owner:
+                              type: object
+                              properties:
+                                kind:
+                                  type: string
+                                  enum:
+                                    - skill
+                                    - mcp
+                                    - plugin
+                                    - workspace
+                                id:
+                                  type: string
+                              required:
+                                - kind
+                                - id
+                              additionalProperties: false
+                            origin:
+                              type: string
+                              const: assistant-memory
                           required:
                             - id
                             - name
@@ -24779,6 +25089,60 @@ paths:
                           origin:
                             type: string
                             const: custom
+                        required:
+                          - id
+                          - name
+                          - description
+                          - kind
+                          - status
+                          - category
+                          - origin
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          id:
+                            type: string
+                          name:
+                            type: string
+                          description:
+                            type: string
+                          icon:
+                            type: string
+                          emoji:
+                            type: string
+                          kind:
+                            type: string
+                            enum:
+                              - bundled
+                              - installed
+                              - catalog
+                          status:
+                            type: string
+                            enum:
+                              - enabled
+                              - disabled
+                              - available
+                          category:
+                            type: string
+                          owner:
+                            type: object
+                            properties:
+                              kind:
+                                type: string
+                                enum:
+                                  - skill
+                                  - mcp
+                                  - plugin
+                                  - workspace
+                              id:
+                                type: string
+                            required:
+                              - kind
+                              - id
+                            additionalProperties: false
+                          origin:
+                            type: string
+                            const: assistant-memory
                         required:
                           - id
                           - name
@@ -25179,6 +25543,60 @@ paths:
                           origin:
                             type: string
                             const: custom
+                        required:
+                          - id
+                          - name
+                          - description
+                          - kind
+                          - status
+                          - category
+                          - origin
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          id:
+                            type: string
+                          name:
+                            type: string
+                          description:
+                            type: string
+                          icon:
+                            type: string
+                          emoji:
+                            type: string
+                          kind:
+                            type: string
+                            enum:
+                              - bundled
+                              - installed
+                              - catalog
+                          status:
+                            type: string
+                            enum:
+                              - enabled
+                              - disabled
+                              - available
+                          category:
+                            type: string
+                          owner:
+                            type: object
+                            properties:
+                              kind:
+                                type: string
+                                enum:
+                                  - skill
+                                  - mcp
+                                  - plugin
+                                  - workspace
+                              id:
+                                type: string
+                            required:
+                              - kind
+                              - id
+                            additionalProperties: false
+                          origin:
+                            type: string
+                            const: assistant-memory
                         required:
                           - id
                           - name
@@ -25766,6 +26184,60 @@ paths:
                             origin:
                               type: string
                               const: custom
+                          required:
+                            - id
+                            - name
+                            - description
+                            - kind
+                            - status
+                            - category
+                            - origin
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                            name:
+                              type: string
+                            description:
+                              type: string
+                            icon:
+                              type: string
+                            emoji:
+                              type: string
+                            kind:
+                              type: string
+                              enum:
+                                - bundled
+                                - installed
+                                - catalog
+                            status:
+                              type: string
+                              enum:
+                                - enabled
+                                - disabled
+                                - available
+                            category:
+                              type: string
+                            owner:
+                              type: object
+                              properties:
+                                kind:
+                                  type: string
+                                  enum:
+                                    - skill
+                                    - mcp
+                                    - plugin
+                                    - workspace
+                                id:
+                                  type: string
+                              required:
+                                - kind
+                                - id
+                              additionalProperties: false
+                            origin:
+                              type: string
+                              const: assistant-memory
                           required:
                             - id
                             - name
