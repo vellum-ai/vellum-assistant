@@ -1,10 +1,10 @@
 // Wraps one ACP chat block with a left timeline rail. The caller decides which
-// blocks anchor the rail: action blocks (tool calls + plan) pass showDot to get
-// a dot, while narration (agent messages, thinking, user turns) passes
-// showDot={false} and renders inline with only the connector running through.
-// Same chrome as the subagent / workflow timelines (14px dot box, 5px
-// `--content-disabled` dot, 1px `--border-element` connector at left-[6.5px]),
-// adapted for variable-height chat blocks instead of fixed-height step rows.
+// blocks anchor the rail (showDot): action blocks and the first/last block get
+// a dot; the narration in between passes showDot={false} and renders inline with
+// only the connector running through. Same chrome as the subagent / workflow
+// timelines (14px dot box, 5px `--content-disabled` dot, 1px `--border-element`
+// connector at left-[6.5px]), adapted for variable-height chat blocks instead of
+// fixed-height step rows.
 
 import type { ReactNode } from "react";
 
