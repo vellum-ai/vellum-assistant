@@ -275,6 +275,19 @@ export type ConversationSubagentNotification = z.infer<
 >;
 
 // ---------------------------------------------------------------------------
+// ACP run notification
+// ---------------------------------------------------------------------------
+
+/** Daemon-injected ACP-run lifecycle notification attached to a history row. */
+export const ConversationAcpNotificationSchema = z.object({
+  acpSessionId: z.string(),
+  agent: z.string().optional(),
+});
+export type ConversationAcpNotification = z.infer<
+  typeof ConversationAcpNotificationSchema
+>;
+
+// ---------------------------------------------------------------------------
 // Slack message envelope
 // ---------------------------------------------------------------------------
 
@@ -521,6 +534,7 @@ export const ConversationMessageSchema = z.object({
    */
   contentBlocks: z.array(ConversationContentBlockSchema).optional(),
   subagentNotification: ConversationSubagentNotificationSchema.optional(),
+  acpNotification: ConversationAcpNotificationSchema.optional(),
   slackMessage: ConversationSlackMessageSchema.optional(),
 });
 export type ConversationMessage = z.infer<typeof ConversationMessageSchema>;

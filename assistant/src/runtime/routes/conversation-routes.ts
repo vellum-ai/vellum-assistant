@@ -776,6 +776,7 @@ export function handleListMessages({
           conversationId?: string;
         }
       | undefined;
+    let acpNotification: { acpSessionId: string; agent?: string } | undefined;
     if (msg.metadata) {
       try {
         const meta = JSON.parse(msg.metadata);
@@ -794,6 +795,15 @@ export function handleListMessages({
               ...(typeof n.objective === "string"
                 ? { objective: n.objective }
                 : {}),
+            };
+          }
+        }
+        if (meta.acpNotification) {
+          const n = meta.acpNotification;
+          if (typeof n.acpSessionId === "string") {
+            acpNotification = {
+              acpSessionId: n.acpSessionId,
+              ...(typeof n.agent === "string" ? { agent: n.agent } : {}),
             };
           }
         }
@@ -822,6 +832,7 @@ export function handleListMessages({
       createdAt: msg.createdAt,
       sentAt,
       subagentNotification,
+      acpNotification,
       slackMessage,
       clientMessageId: msg.clientMessageId ?? undefined,
     };
@@ -1005,6 +1016,7 @@ export function handleListMessages({
       ...(m.subagentNotification
         ? { subagentNotification: m.subagentNotification }
         : {}),
+      ...(m.acpNotification ? { acpNotification: m.acpNotification } : {}),
       ...(m.slackMessage ? { slackMessage: m.slackMessage } : {}),
     };
   });
