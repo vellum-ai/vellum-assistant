@@ -53,8 +53,6 @@ const MEMORY_DIR = join(ASSISTANT_SRC, "memory");
 const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
   "assistant/src/persistence/conversation-crud.ts": new Set([
     "auto-analysis-constants",
-    "conversation-display-order-migration",
-    "conversation-group-migration",
     "graph/graph-memory-state-store",
     "indexer",
     "memory-retrospective-constants",
@@ -63,15 +61,8 @@ const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
     "v2/activation-store",
     "v2/injected-block-slugs",
   ]),
-  "assistant/src/persistence/conversation-queries.ts": new Set([
-    "conversation-display-order-migration",
-    "conversation-group-migration",
-  ]),
   "assistant/src/persistence/embeddings/embedding-backend.ts": new Set([
     "sparse-tokenize",
-  ]),
-  "assistant/src/persistence/group-crud.ts": new Set([
-    "conversation-group-migration",
   ]),
   "assistant/src/persistence/jobs-worker.ts": new Set([
     "cleanup-schedule-state",
