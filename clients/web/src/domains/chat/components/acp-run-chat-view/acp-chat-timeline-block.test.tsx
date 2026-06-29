@@ -4,9 +4,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { AcpChatTimelineBlock } from "@/domains/chat/components/acp-run-chat-view/acp-chat-timeline-block";
 
 describe("AcpChatTimelineBlock", () => {
-  test("renders the timeline dot and the child content", () => {
+  test("renders the timeline dot and the child content when it starts a phase", () => {
     const html = renderToStaticMarkup(
-      <AcpChatTimelineBlock isLast={false}>
+      <AcpChatTimelineBlock showDot isLast={false}>
         <span>BLOCK_CONTENT</span>
       </AcpChatTimelineBlock>,
     );
@@ -14,9 +14,23 @@ describe("AcpChatTimelineBlock", () => {
     expect(html).toContain("BLOCK_CONTENT");
   });
 
+  test("omits the dot for a mid-phase block but keeps the rail continuous", () => {
+    const html = renderToStaticMarkup(
+      <AcpChatTimelineBlock showDot={false} isLast={false}>
+        x
+      </AcpChatTimelineBlock>,
+    );
+    expect(html).not.toContain("acp-chat-timeline-dot");
+    // Connector still renders, full-height (top-0) through the empty dot slot.
+    expect(html).toContain("bg-[var(--border-element)]");
+    expect(html).toContain("top-0");
+  });
+
   test("draws a trailing connector and spacing for a non-last block", () => {
     const html = renderToStaticMarkup(
-      <AcpChatTimelineBlock isLast={false}>x</AcpChatTimelineBlock>,
+      <AcpChatTimelineBlock showDot isLast={false}>
+        x
+      </AcpChatTimelineBlock>,
     );
     expect(html).toContain("bg-[var(--border-element)]");
     expect(html).toContain("pb-4");
@@ -24,7 +38,9 @@ describe("AcpChatTimelineBlock", () => {
 
   test("omits the connector and trailing spacing on the last block", () => {
     const html = renderToStaticMarkup(
-      <AcpChatTimelineBlock isLast={true}>x</AcpChatTimelineBlock>,
+      <AcpChatTimelineBlock showDot isLast={true}>
+        x
+      </AcpChatTimelineBlock>,
     );
     expect(html).not.toContain("bg-[var(--border-element)]");
     expect(html).not.toContain("pb-4");

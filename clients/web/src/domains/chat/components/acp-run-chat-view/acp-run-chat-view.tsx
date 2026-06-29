@@ -209,14 +209,16 @@ export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
           >
             <ObjectiveSection task={entry.task} />
 
-            {/* Blocks render on a vertical timeline rail (dot + connector per
-                event), matching the subagent / workflow phase timelines. The
-                rail owns inter-block spacing via per-row padding, so this
-                container drops the parent `gap-4`. */}
+            {/* Blocks render on a vertical timeline rail grouped into phases:
+                one dot per run of same-kind blocks (a burst of tool calls reads
+                as one phase, not N events), matching the subagent / workflow
+                phase timelines. The rail owns inter-block spacing via per-row
+                padding, so this container drops the parent `gap-4`. */}
             <div className="flex flex-col" data-testid="acp-chat-timeline">
               {blocks.map((block, index) => (
                 <AcpChatTimelineBlock
                   key={blockKey(block, index)}
+                  showDot={index === 0 || block.kind !== blocks[index - 1].kind}
                   isLast={index === blocks.length - 1}
                 >
                   <ChatBlock
