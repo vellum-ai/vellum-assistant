@@ -110,10 +110,12 @@ async function defaultRecreateCollectionsAtDim(
  * collection only carries points under v3-live).
  *
  * Both enqueues dedup against an already-in-flight (pending or running) job of
- * the same type: on the lifecycle startup path the reconcile runs immediately
- * before `maybeRebuildMemoryV2Concepts`, which also enqueues `memory_v2_reembed`
- * when it finds the just-(re)created collection empty — without the guard the
- * corpus would re-embed twice.
+ * the same type. `memory_v2_reembed` can be enqueued from two startup sites that
+ * both guard on this in-flight check: the credential-arrival reconcile retry
+ * (reconcile-vs-reconcile), and the lifecycle reconcile-then-rebuild interleaving
+ * where `maybeRebuildMemoryV2Concepts` also enqueues a reembed when it finds the
+ * just-(re)created collection empty. The guard keeps the corpus re-embed to a
+ * single round-trip across either path.
  */
 function defaultEnqueueReembed(config: AssistantConfig): void {
   if (!hasActiveJobOfType("memory_v2_reembed")) {

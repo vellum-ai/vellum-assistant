@@ -335,7 +335,8 @@ export async function maybeRebuildMemoryV2Concepts(
       clearReembedSentinel,
     } = await import("../memory/v2/qdrant.js");
     const { hasConceptPages } = await import("../memory/v2/page-store.js");
-    const { enqueueMemoryJob } = await import("../persistence/jobs-store.js");
+    const { enqueueMemoryJob, hasActiveJobOfType } =
+      await import("../persistence/jobs-store.js");
 
     const { migrated } = await ensureConceptPageCollection();
 
@@ -348,6 +349,17 @@ export async function maybeRebuildMemoryV2Concepts(
     }
 
     if (shouldReembed) {
+      // The lifecycle startup path runs `reconcileEmbeddingIdentity` immediately
+      // before this, and on a commit-fresh/migrate action that reconcile already
+      // enqueues `memory_v2_reembed`. Dedup against the in-flight job so the
+      // reconcile-then-rebuild interleaving re-embeds the corpus once, not twice.
+      if (hasActiveJobOfType("memory_v2_reembed")) {
+        log.info(
+          "Memory v2 reembed already queued — skipping duplicate enqueue",
+        );
+        await clearReembedSentinel();
+        return;
+      }
       const jobId = enqueueMemoryJob("memory_v2_reembed", {});
       log.info(
         { jobId, collectionMigrated: migrated },
