@@ -439,6 +439,7 @@ async function drainSingleMessage(
     // and queue-drain stay in sync without duplicating the gate logic.
     conversation.applyHostEnvFromTransport(next.transport);
     conversation.applyClientTimezoneFromTransport(next.transport);
+    conversation.applyClientOsFromTransport(next.transport);
   }
 
   conversation.currentTurnAuthContext = next.authContext;
@@ -1000,6 +1001,7 @@ async function drainBatch(
     conversation.setTransportHints(buildTransportHints(head.transport));
     conversation.applyHostEnvFromTransport(head.transport);
     conversation.applyClientTimezoneFromTransport(head.transport);
+    conversation.applyClientOsFromTransport(head.transport);
   }
 
   conversation.currentTurnAuthContext = head.authContext;
