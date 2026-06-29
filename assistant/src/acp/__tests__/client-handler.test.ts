@@ -717,4 +717,45 @@ describe("VellumAcpClientHandler seq + enriched fields", () => {
     expect(serialized).not.toContain("justwords");
     expect(serialized).toContain("<redacted");
   });
+
+  test("tool_call redacts a shaped secret embedded in the title", async () => {
+    const { handler, sent } = makeHandler();
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tc-title",
+        // Claude's shell tools put the command in the title; a literal
+        // credential inline must not reach the wire or persisted event log.
+        title: "echo AKIAQ7XK4PNZ3RJD2WTV",
+        kind: "execute",
+        status: "completed",
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    const msg = sent[0] as { toolTitle?: string };
+    expect(msg.toolTitle).not.toContain("AKIAQ7XK4PNZ3RJD2WTV");
+    expect(msg.toolTitle).toContain("<redacted");
+  });
+
+  test("tool_call_update redacts a shaped secret embedded in the title", async () => {
+    const { handler, sent } = makeHandler();
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tc-title-update",
+        title: "echo AKIAFA01L49X7HW9DM2Y",
+        status: "completed",
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    const msg = sent[0] as { toolTitle?: string };
+    expect(msg.toolTitle).not.toContain("AKIAFA01L49X7HW9DM2Y");
+    expect(msg.toolTitle).toContain("<redacted");
+  });
 });

@@ -35,6 +35,7 @@ import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { AcpSessionUpdate } from "../daemon/message-types/acp.js";
 import { redactJsonStringLeaves } from "../security/redact-json.js";
 import { redactSensitiveFields } from "../security/redaction.js";
+import { redactSecrets } from "../security/secret-scanner.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("acp:client-handler");
@@ -47,6 +48,13 @@ function redactSensitivePayload(value: unknown): unknown {
     return redactSensitiveFields(value as Record<string, unknown>);
   }
   return value;
+}
+
+// The execute kind's title is the command line, which can carry a literal
+// credential — scrub shaped secrets before forwarding/persisting it.
+function redactTitle(title: string | null | undefined): string | undefined {
+  if (title == null) return undefined;
+  return redactSecrets(title);
 }
 
 interface TerminalState {
@@ -213,7 +221,7 @@ export class VellumAcpClientHandler implements Client {
         this.forwardUpdate({
           updateType: "tool_call",
           toolCallId: update.toolCallId,
-          toolTitle: update.title,
+          toolTitle: redactTitle(update.title),
           toolKind: update.kind,
           toolStatus: update.status,
           // An agent may put output/diff on the initial tool_call and never
@@ -235,7 +243,7 @@ export class VellumAcpClientHandler implements Client {
         this.forwardUpdate({
           updateType: "tool_call_update",
           toolCallId: update.toolCallId,
-          toolTitle: update.title ?? undefined,
+          toolTitle: redactTitle(update.title),
           toolKind: update.kind ?? undefined,
           toolStatus: update.status ?? undefined,
           content: update.content ? JSON.stringify(update.content) : undefined,
