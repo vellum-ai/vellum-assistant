@@ -194,7 +194,7 @@ export async function spawnMemoryWorkerProcess(
   }
 
   const pidPath = getMemoryWorkerPidPath();
-  const entry = new URL("./worker.ts", import.meta.url);
+  const entry = new URL("../memory/worker.ts", import.meta.url);
 
   // Pipe the worker's stderr into the same daily log file the daemon
   // writes to. The worker's pino logger already writes there directly,
