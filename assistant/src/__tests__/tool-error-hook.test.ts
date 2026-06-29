@@ -82,6 +82,7 @@ function makeCtx(
     model: "claude-test-model",
     maxInputTokens: 10_000,
     callSite: "mainAgent",
+    supportsDynamicUi: true,
     logger: noopLogger,
   };
 }

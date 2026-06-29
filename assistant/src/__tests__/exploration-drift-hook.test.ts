@@ -116,6 +116,7 @@ function makeCtx(
     model,
     maxInputTokens: 10_000,
     callSite,
+    supportsDynamicUi: true,
     logger: noopLogger,
   };
 }

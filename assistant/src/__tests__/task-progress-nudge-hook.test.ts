@@ -8,8 +8,9 @@
  * - Fires at most once per turn (dedupes parallel results / further rounds).
  * - Resets across turns so a later multi-step turn can nudge again.
  * - Gating: fires only for the plugin's target model families on a mainAgent
- *   call site; skips non-target models and non-mainAgent call sites (background
- *   work and subagents).
+ *   call site with a surface-capable client; skips non-target models,
+ *   non-mainAgent call sites (background work and subagents), and channels
+ *   without dynamic UI.
  * - Appends to (not overwrites) `additionalContext` set by an earlier hook.
  * - The nudge leaves the tool result's `content` untouched.
  */
@@ -78,7 +79,11 @@ function makeCtx(
   conversationId: string,
   toolResponse: ToolResultContent,
   messages: Message[],
-  opts: { callSite?: PostToolUseContext["callSite"]; model?: string } = {},
+  opts: {
+    callSite?: PostToolUseContext["callSite"];
+    model?: string;
+    supportsDynamicUi?: boolean;
+  } = {},
 ): PostToolUseContext {
   return {
     conversationId,
@@ -88,6 +93,7 @@ function makeCtx(
     model: opts.model ?? TARGET_MODEL,
     maxInputTokens: 10_000,
     callSite: opts.callSite ?? "mainAgent",
+    supportsDynamicUi: opts.supportsDynamicUi ?? true,
     logger: noopLogger,
   };
 }
@@ -275,6 +281,20 @@ describe("task-progress-nudge post-tool-use hook", () => {
       await postToolUse(ctx);
       expect(ctx.additionalContext).toBeNull();
     }
+  });
+
+  test("skips channels that cannot render dynamic UI surfaces", async () => {
+    const { messages, currentToolUseId } = turnWithRounds(
+      TASK_PROGRESS_NUDGE_ROUND_THRESHOLD + 2,
+    );
+    const ctx = makeCtx(
+      freshConversationId(),
+      currentResponse(currentToolUseId),
+      messages,
+      { supportsDynamicUi: false }, // e.g. SMS/phone/email — ui_show is filtered out
+    );
+    await postToolUse(ctx);
+    expect(ctx.additionalContext).toBeNull();
   });
 
   test("appends to existing additionalContext rather than overwriting", async () => {

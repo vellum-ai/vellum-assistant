@@ -369,6 +369,15 @@ export interface PostToolUseContext {
    */
   readonly callSite: LLMCallSite | null;
   /**
+   * Whether the connected client can render dynamic UI surfaces this turn —
+   * `true` unless the channel explicitly lacks the capability (SMS, phone,
+   * email, and most chat bridges). A fact about what the model can *do* this
+   * turn, not who is calling: a hook that prompts a surface tool (e.g. the
+   * `ui_show` progress card) gates on this so it does not coach the model
+   * toward a tool the channel filters out of the tool set.
+   */
+  readonly supportsDynamicUi: boolean;
+  /**
    * The model's context-window size in tokens. Plugins derive their own
    * character budget from this (e.g. a share of the window) rather than
    * receiving a precomputed limit.

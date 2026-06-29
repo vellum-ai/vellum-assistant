@@ -27,11 +27,15 @@
  * tool_result blocks). Within it we count tool-use rounds and detect whether a
  * `ui_show` task_progress card was issued.
  *
- * Gating (both cheap `ctx` reads, checked up front so the hot path
- * short-circuits before scanning history):
+ * Gating (cheap `ctx` reads, checked up front so the hot path short-circuits
+ * before scanning history):
  * - mainAgent call site only — background turns (wake, title-gen, memory) run
  *   under their own call sites and subagents under `subagentSpawn`, none of
  *   which have a live user watching a progress card.
+ * - the client must support dynamic UI surfaces — on channels that lack it
+ *   (SMS, phone, email, most chat bridges) `ui_show` is filtered out of the
+ *   tool set, so the nudge would only coach the model toward a tool it cannot
+ *   call.
  * - a weaker open-weight model family ({@link NUDGE_TARGET_MODEL_PATTERN});
  *   models that follow the static prompt never need the reminder.
  *
@@ -144,11 +148,13 @@ function scanTurn(messages: ReadonlyArray<Message>): {
 }
 
 const postToolUse: HookFunction<PostToolUseContext> = async (ctx) => {
-  // Both gates are cheap ctx reads, so short-circuit before scanning history:
+  // These gates are cheap ctx reads, so short-circuit before scanning history:
   // act only on a live user-facing main-agent turn (subagents run under
-  // `subagentSpawn`, background work under its own call sites) driven by a
-  // model family this nudge targets.
+  // `subagentSpawn`, background work under its own call sites), on a client
+  // that can actually render the card, driven by a model family this nudge
+  // targets.
   if (ctx.callSite !== "mainAgent") return;
+  if (!ctx.supportsDynamicUi) return;
   if (!NUDGE_TARGET_MODEL_PATTERN.test(ctx.model)) return;
 
   const { rounds, taskProgressShown } = scanTurn(ctx.messages);

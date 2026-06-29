@@ -66,6 +66,7 @@ import type { InterfaceId } from "../channels/types.js";
 import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import { conversationSupportsDynamicUi } from "../daemon/channel-ui-capability.js";
 import type { Conversation } from "../daemon/conversation.js";
 import { recordUsage } from "../daemon/conversation-usage.js";
 import { getDiskPressureStatus } from "../daemon/disk-pressure-guard.js";
@@ -1251,6 +1252,7 @@ export async function wakeAgentForOpportunity(
           // short-circuit and silently drop both per-callsite config and the
           // pinned `overrideProfile` below.
           callSite,
+          supportsDynamicUi: conversationSupportsDynamicUi(conversation),
           trust: wakeTrust,
           overrideProfile,
           forceOverrideProfile,

@@ -51,6 +51,7 @@ function makeCtx(content: string): PostToolUseContext {
     model: "claude-test-model",
     maxInputTokens: MAX_INPUT_TOKENS,
     callSite: "mainAgent",
+    supportsDynamicUi: true,
     logger: noopLogger,
   };
 }
