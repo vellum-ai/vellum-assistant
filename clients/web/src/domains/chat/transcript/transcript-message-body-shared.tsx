@@ -1,5 +1,6 @@
 import {
   isAcpSpawnCall,
+  isBackgroundBashCall,
   isRunWorkflowCall,
   isSubagentSpawnCall,
 } from "@/domains/chat/transcript/message-content";
@@ -315,6 +316,31 @@ function extractAcpSessionIdFromResult(
     return typeof parsed.acpSessionId === "string" ? parsed.acpSessionId : null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Extract the `bg-…` id from a backgrounded `bash`/`host_bash` tool call's
+ * synchronous result. The daemon returns `JSON.stringify({ backgrounded: true,
+ * id })` when the command is launched in the background. Returns `undefined`
+ * for a foreground command or a non-JSON/malformed result so callers can anchor
+ * only on real background runs.
+ */
+export function extractBgIdFromResult(
+  toolCall: ChatMessageToolCall,
+): string | undefined {
+  if (!isBackgroundBashCall(toolCall)) return undefined;
+  if (typeof toolCall.result !== "string" || !toolCall.result) return undefined;
+  try {
+    const parsed = JSON.parse(toolCall.result) as {
+      backgrounded?: unknown;
+      id?: unknown;
+    };
+    return parsed.backgrounded === true && typeof parsed.id === "string"
+      ? parsed.id
+      : undefined;
+  } catch {
+    return undefined;
   }
 }
 

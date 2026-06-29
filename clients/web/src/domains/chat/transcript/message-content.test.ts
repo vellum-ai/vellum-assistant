@@ -5,11 +5,13 @@ import type { Surface } from "@/domains/chat/types/types";
 import type { ConversationContentBlock } from "@vellumai/assistant-api";
 import {
   groupContentBlocks,
+  isBackgroundBashCall,
   isRunWorkflowCall,
   isSubagentSpawnCall,
   isSuppressedUiTool,
   isTaskProgressSurface,
 } from "@/domains/chat/transcript/message-content";
+import { extractBgIdFromResult } from "@/domains/chat/transcript/transcript-message-body-shared";
 
 function toolCall(
   overrides: Partial<ChatMessageToolCall> & Pick<ChatMessageToolCall, "id">,
@@ -225,6 +227,79 @@ describe("isRunWorkflowCall", () => {
         toolCall({ id: "x", name: "skill_execute", input: { tool: "other" } }),
       ),
     ).toBe(false);
+  });
+});
+
+describe("isBackgroundBashCall", () => {
+  test("matches bash with input.background === true", () => {
+    expect(
+      isBackgroundBashCall(
+        toolCall({ id: "x", name: "bash", input: { background: true } }),
+      ),
+    ).toBe(true);
+  });
+
+  test("matches host_bash with input.background === true", () => {
+    expect(
+      isBackgroundBashCall(
+        toolCall({ id: "x", name: "host_bash", input: { background: true } }),
+      ),
+    ).toBe(true);
+  });
+
+  test("does not match bash without the background flag", () => {
+    expect(isBackgroundBashCall(toolCall({ id: "x", name: "bash" }))).toBe(false);
+  });
+
+  test("does not match other tools or non-object input", () => {
+    expect(
+      isBackgroundBashCall(toolCall({ id: "x", name: "subagent_spawn" })),
+    ).toBe(false);
+    expect(
+      isBackgroundBashCall(
+        toolCall({ id: "x", name: "bash", input: null as never }),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("extractBgIdFromResult", () => {
+  test("returns the bg id for a backgrounded bash result", () => {
+    expect(
+      extractBgIdFromResult(
+        toolCall({
+          id: "x",
+          name: "bash",
+          input: { background: true },
+          result: JSON.stringify({ backgrounded: true, id: "bg-123" }),
+        }),
+      ),
+    ).toBe("bg-123");
+  });
+
+  test("returns undefined for a foreground (non-backgrounded) result", () => {
+    expect(
+      extractBgIdFromResult(
+        toolCall({
+          id: "x",
+          name: "bash",
+          result: JSON.stringify({ stdout: "ok" }),
+        }),
+      ),
+    ).toBeUndefined();
+  });
+
+  test("returns undefined for a non-JSON result", () => {
+    expect(
+      extractBgIdFromResult(
+        toolCall({
+          id: "x",
+          name: "bash",
+          input: { background: true },
+          result: "not json",
+        }),
+      ),
+    ).toBeUndefined();
   });
 });
 
