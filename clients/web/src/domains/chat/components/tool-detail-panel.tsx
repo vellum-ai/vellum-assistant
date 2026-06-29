@@ -144,7 +144,7 @@ function ThinkingDetailBody({
     detail.thinkingItemIndex,
   );
   return (
-    <DetailShell Glyph={Brain} title={detail.title} onClose={onClose}>
+    <DetailShell Glyph={Brain} title={detail.title} closeLabel="Close tool details" onClose={onClose}>
       <ChatMarkdownMessage
         content={live ?? detail.thinkingText ?? ""}
         hardLineBreaks
@@ -275,6 +275,7 @@ export function ToolDetailPanel({
     <DetailShell
       Glyph={Glyph}
       title={title}
+      closeLabel="Close tool details"
       onClose={onClose}
       headerTrailing={
         <RiskBadge level={detail.riskLevel} onClick={onRiskBadgeClick} />

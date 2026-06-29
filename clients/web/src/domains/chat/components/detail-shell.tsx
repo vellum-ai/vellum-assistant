@@ -18,6 +18,7 @@ export interface DetailShellProps {
   Glyph: LucideIcon;
   title: string;
   headerTrailing?: ReactNode;
+  closeLabel?: string;
   onClose: () => void;
   children: ReactNode;
 }
@@ -26,6 +27,7 @@ export function DetailShell({
   Glyph,
   title,
   headerTrailing,
+  closeLabel = "Close panel",
   onClose,
   children,
 }: DetailShellProps) {
@@ -49,7 +51,7 @@ export function DetailShell({
           variant="ghost"
           iconOnly={<X />}
           onClick={onClose}
-          aria-label="Close panel"
+          aria-label={closeLabel}
           tooltip="Close"
           className="shrink-0"
         />
