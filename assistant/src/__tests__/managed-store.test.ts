@@ -192,6 +192,18 @@ describe("buildSkillMarkdown", () => {
     expect(parsed.metadata.vellum.includes).toEqual(["child-a", "child-b"]);
   });
 
+  test("includes optional category in metadata.vellum", () => {
+    const result = buildSkillMarkdown({
+      name: "Categorized Skill",
+      description: "Has a category",
+      bodyMarkdown: "Body.",
+      category: "development",
+    });
+    const fmMatch = result.match(/^---\n([\s\S]*?)\n---/);
+    const parsed = parseYaml(fmMatch![1]);
+    expect(parsed.metadata.vellum.category).toBe("development");
+  });
+
   test("omits metadata when no vellum fields provided", () => {
     const result = buildSkillMarkdown({
       name: "Solo",
@@ -199,6 +211,17 @@ describe("buildSkillMarkdown", () => {
       bodyMarkdown: "Body.",
     });
     expect(result).not.toContain("metadata:");
+  });
+
+  test("omits category when blank or whitespace-only", () => {
+    expect(
+      buildSkillMarkdown({
+        name: "Blank Category",
+        description: "Blank",
+        bodyMarkdown: "Body.",
+        category: "   ",
+      }),
+    ).not.toContain("metadata:");
   });
 
   test("omits metadata when includes is empty array and no other vellum fields", () => {
@@ -291,6 +314,41 @@ describe("createManagedSkill", () => {
     expect(result3.created).toBe(true);
     const content = readFileSync(result3.path, "utf-8");
     expect(content).toContain("Overwritten");
+  });
+
+  test("writes category to frontmatter and round-trips through catalog load", () => {
+    createManagedSkill({
+      id: "categorized-skill",
+      name: "Categorized",
+      description: "Has a category",
+      bodyMarkdown: "Body.",
+      category: "development",
+    });
+
+    const content = readFileSync(
+      join(TEST_DIR, "skills", "categorized-skill", "SKILL.md"),
+      "utf-8",
+    );
+    expect(content).toContain("category: development");
+
+    const catalog = loadSkillCatalog(undefined, [join(TEST_DIR, "skills")]);
+    const skill = catalog.find((s) => s.id === "categorized-skill");
+    expect(skill).toBeDefined();
+    expect(skill!.category).toBe("development");
+  });
+
+  test("leaves category unset when omitted", () => {
+    createManagedSkill({
+      id: "no-category",
+      name: "No Category",
+      description: "Uncategorized",
+      bodyMarkdown: "Body.",
+    });
+
+    const catalog = loadSkillCatalog(undefined, [join(TEST_DIR, "skills")]);
+    const skill = catalog.find((s) => s.id === "no-category");
+    expect(skill).toBeDefined();
+    expect(skill!.category).toBeUndefined();
   });
 
   test("rejects invalid IDs", () => {

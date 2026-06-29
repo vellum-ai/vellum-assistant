@@ -137,6 +137,23 @@ export async function executeScaffoldManagedSkill(
     }
   }
 
+  // Validate and normalize the optional category (lowercased/trimmed for
+  // consistency with the lowercase Skills-UI sidebar buckets). Blank or
+  // whitespace-only values become undefined so they never land in frontmatter.
+  let category: string | undefined;
+  if (input.category !== undefined) {
+    if (typeof input.category !== "string") {
+      return {
+        content: "Error: category must be a string",
+        isError: true,
+      };
+    }
+    const normalized = input.category.trim().toLowerCase();
+    if (normalized) {
+      category = normalized;
+    }
+  }
+
   const id = skillId.trim();
   const fromRetrospective =
     context.requestOrigin === MEMORY_RETROSPECTIVE_ORIGIN;
@@ -194,6 +211,7 @@ export async function executeScaffoldManagedSkill(
         : undefined,
     overwrite: input.overwrite === true,
     includes,
+    category,
     files,
     author,
   });

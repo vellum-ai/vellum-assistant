@@ -324,6 +324,64 @@ describe("scaffold_managed_skill tool", () => {
     expect(content).not.toContain("includes");
   });
 
+  test("passes category through to the written skill, lowercased and trimmed", async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "categorized",
+        name: "Categorized",
+        description: "Has a category",
+        body_markdown: "Body.",
+        category: "  Development  ",
+      },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    const content = readFileSync(
+      join(TEST_DIR, "skills", "categorized", "SKILL.md"),
+      "utf-8",
+    );
+    expect(content).toContain("category: development");
+
+    const skill = loadSkillCatalog().find((s) => s.id === "categorized");
+    expect(skill!.category).toBe("development");
+  });
+
+  test("rejects non-string category", async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "bad-category",
+        name: "Bad Category",
+        description: "Non-string category",
+        body_markdown: "Body.",
+        category: 42,
+      },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("category must be a string");
+  });
+
+  test("omits category when not provided", async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "no-category",
+        name: "No Category",
+        description: "Uncategorized",
+        body_markdown: "Body.",
+      },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    const content = readFileSync(
+      join(TEST_DIR, "skills", "no-category", "SKILL.md"),
+      "utf-8",
+    );
+    expect(content).not.toContain("category");
+  });
+
   test("rejects invalid skill_id", async () => {
     const result = await executeScaffoldManagedSkill(
       {
