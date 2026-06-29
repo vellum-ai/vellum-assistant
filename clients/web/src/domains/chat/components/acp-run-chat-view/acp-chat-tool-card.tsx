@@ -1,8 +1,8 @@
 /**
  * A tool call rendered as a card in the ACP chat transcript: a kind glyph +
- * standardized label, a status pill, the command/title as a body line, markdown
- * output (collapsible when long), file-change chips (`onOpenDiff`), and a
- * collapsible raw input/output section.
+ * standardized label, a status pill, the command/title as a body line, an
+ * output button that opens the nested detail panel (`onOpenOutput`),
+ * file-change chips (`onOpenDiff`), and a collapsible raw input/output section.
  */
 
 import {
@@ -28,11 +28,11 @@ import {
   formatRawValue,
   getAcpFileChanges,
   getAcpToolCommand,
+  getAcpToolOutputText,
   parseAcpToolContent,
 } from "@/domains/chat/acp-tool-content";
 import type { AcpChatBlock } from "@/domains/chat/acp-run-message-projection";
 import type { AcpToolStatus } from "@/domains/chat/acp-run-step-projection";
-import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
 
 type AcpToolBlock = Extract<AcpChatBlock, { kind: "tool" }>;
@@ -60,10 +60,9 @@ export interface AcpChatToolCardProps {
    * blocks (the chip's `fileChange` is only a snapshot at click time).
    */
   onOpenDiff: (toolCallId: string, fileChange: AcpFileChange) => void;
+  /** Open this tool's console output in the nested detail panel. */
+  onOpenOutput?: (toolCallId: string) => void;
 }
-
-/** Output longer than this (chars) collapses behind a toggle. */
-const COLLAPSE_THRESHOLD = 600;
 
 /** Display status: the data model's `AcpToolStatus` plus a terminal-only
  *  "ended" state for a tool the agent never finalized. */
@@ -151,8 +150,8 @@ export function AcpChatToolCard({
   block,
   isTerminal = false,
   onOpenDiff,
+  onOpenOutput,
 }: AcpChatToolCardProps) {
-  const [expanded, setExpanded] = useState(false);
   const [expandedRaw, setExpandedRaw] = useState(false);
 
   const parsed = useMemo(
@@ -161,14 +160,18 @@ export function AcpChatToolCard({
   );
 
   const outputText = useMemo(
-    () =>
-      parsed
-        .filter((b) => b.type === "content" || b.type === "terminal")
-        .map((b) => ("text" in b ? (b.text ?? "") : ""))
-        .filter((text) => text.length > 0)
-        .join("\n"),
-    [parsed],
+    () => getAcpToolOutputText(block.content),
+    [block.content],
   );
+
+  // First non-empty, non-fence line — a glanceable preview on the open button.
+  const outputPreview = useMemo(() => {
+    const line = outputText
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => l.length > 0 && !l.startsWith("```"));
+    return line || "View output";
+  }, [outputText]);
 
   const fileChanges = useMemo(
     () => getAcpFileChanges(parsed, block.locations),
@@ -178,8 +181,6 @@ export function AcpChatToolCard({
   const displayStatus: ToolDisplayStatus =
     isTerminal && block.status === "running" ? "ended" : block.status;
   const isRunning = displayStatus === "running";
-  const isLong = outputText.length > COLLAPSE_THRESHOLD;
-  const showOutput = outputText.length > 0 && (!isLong || expanded);
 
   const kindLabel =
     (block.toolKind && KIND_LABEL[block.toolKind]) || DEFAULT_KIND_LABEL;
@@ -285,37 +286,24 @@ export function AcpChatToolCard({
       )}
 
       {outputText.length > 0 && (
-        <div className="mt-2">
-          {isLong && (
-            <button
-              type="button"
-              data-testid="acp-chat-tool-output-toggle"
-              aria-expanded={expanded}
-              onClick={() => setExpanded((prev) => !prev)}
-              className="mb-1.5 flex items-center gap-1 text-body-small-default text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-default)]"
-            >
-              {expanded ? (
-                <ChevronDown aria-hidden className="h-3.5 w-3.5 shrink-0" />
-              ) : (
-                <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0" />
-              )}
-              <span>{expanded ? "Hide output" : "Show output"}</span>
-            </button>
-          )}
-          {showOutput && (
-            <div
-              data-testid="acp-chat-tool-output"
-              // Drop the markdown code block's built-in 400px vertical cap so the
-              // output flows in the transcript and only the conversation scrolls
-              // — otherwise the `<pre>` scrolls independently and stacks a second
-              // scrollbar inside the timeline. Horizontal scroll on the `<pre>`
-              // (overflow-x-auto) is preserved for long lines.
-              className="rounded-md border border-[var(--border-element)] bg-[var(--surface-base)] p-2.5 [&_pre]:!max-h-none"
-            >
-              <ChatMarkdownMessage content={outputText} hardLineBreaks />
-            </div>
-          )}
-        </div>
+        <button
+          type="button"
+          data-testid="acp-chat-tool-output-open"
+          onClick={() => onOpenOutput?.(block.toolCallId)}
+          className="mt-2 flex w-full items-center gap-2 rounded-md border border-[var(--border-element)] bg-[var(--surface-base)] px-2.5 py-2 text-left transition-colors hover:bg-[var(--surface-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--border-focus)]"
+        >
+          <Terminal
+            aria-hidden
+            className="h-3.5 w-3.5 shrink-0 text-[var(--content-tertiary)]"
+          />
+          <span className="min-w-0 flex-1 truncate font-mono text-body-small-default text-[var(--content-secondary)]">
+            {outputPreview}
+          </span>
+          <ChevronRight
+            aria-hidden
+            className="h-3.5 w-3.5 shrink-0 text-[var(--content-tertiary)]"
+          />
+        </button>
       )}
 
       {hasRaw && (

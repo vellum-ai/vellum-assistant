@@ -183,6 +183,42 @@ describe("AcpRunChatView", () => {
     expect(screen.getByTestId("acp-chat-steer-form")).toBeDefined();
   });
 
+  test("opens the command output panel from a tool card and Back restores the conversation", () => {
+    const e = entry();
+    const content = JSON.stringify([
+      { type: "content", content: { type: "text", text: "```console\nbuild ok\n```" } },
+    ]);
+    seed(e, [
+      {
+        seq: 1,
+        updateType: "tool_call",
+        toolCallId: "call-2",
+        toolTitle: "Terminal",
+        toolKind: "execute",
+        toolStatus: "completed",
+        content,
+      },
+    ]);
+
+    render(<AcpRunChatView entry={e} onClose={() => {}} />);
+    expect(screen.getByTestId("acp-chat-conversation")).toBeDefined();
+
+    fireEvent.click(screen.getByTestId("acp-chat-tool-output-open"));
+
+    // The output panel replaces the conversation; Back shows; composer hidden.
+    expect(screen.getByTestId("acp-chat-command-output")).toBeDefined();
+    expect(screen.queryByTestId("acp-chat-conversation")).toBeNull();
+    expect(screen.getByTestId("acp-chat-diff-back")).toBeDefined();
+    expect(screen.queryByTestId("acp-chat-steer-form")).toBeNull();
+    expect(screen.getByTestId("acp-chat-command-output").textContent).toContain(
+      "build ok",
+    );
+
+    fireEvent.click(screen.getByTestId("acp-chat-diff-back"));
+    expect(screen.getByTestId("acp-chat-conversation")).toBeDefined();
+    expect(screen.queryByTestId("acp-chat-command-output")).toBeNull();
+  });
+
   test("keeps the open file diff synced as tool_call_update content streams in", () => {
     const e = entry();
     seed(e, [

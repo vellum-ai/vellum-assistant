@@ -167,51 +167,24 @@ describe("AcpChatToolCard", () => {
     expect(screen.queryByTestId("acp-chat-tool-running")).toBeNull();
   });
 
-  test("renders inline content output through the markdown renderer", () => {
+  test("renders an output-open button that opens the panel via onOpenOutput", () => {
     const content = JSON.stringify([
-      { type: "content", content: { type: "text", text: "file contents here" } },
+      { type: "content", content: { type: "text", text: "created" } },
     ]);
+    const onOpenOutput = mock((_id: string) => {});
     render(
-      <AcpChatToolCard block={toolBlock({ content })} onOpenDiff={() => {}} />,
+      <AcpChatToolCard
+        block={toolBlock({ toolCallId: "call-9", content })}
+        onOpenDiff={() => {}}
+        onOpenOutput={onOpenOutput}
+      />,
     );
-    const output = screen.getByTestId("acp-chat-tool-output");
-    expect(output.textContent).toContain("file contents here");
-    // Routed through ChatMarkdownMessage rather than a raw <pre>.
-    expect(output.querySelector("[data-slot='markdown-message']")).not.toBeNull();
-  });
-
-  test("renders a ```console fence as a code block, not literal backticks", () => {
-    const text = "```console\n$ ls -la\ntotal 0\n```";
-    const content = JSON.stringify([
-      { type: "content", content: { type: "text", text } },
-    ]);
-    render(
-      <AcpChatToolCard block={toolBlock({ content })} onOpenDiff={() => {}} />,
-    );
-    const output = screen.getByTestId("acp-chat-tool-output");
-    // The fence is parsed into a styled code block — no leaked backticks.
-    expect(output.textContent).not.toContain("```console");
-    expect(output.textContent).not.toContain("```");
-    // The inner command + stdout still render.
-    expect(output.textContent).toContain("$ ls -la");
-    expect(output.textContent).toContain("total 0");
-    expect(output.querySelector("code.language-console")).not.toBeNull();
-  });
-
-  test("preserves single newlines in unfenced output as hard line breaks", () => {
-    // Unfenced terminal-style output: single newlines must survive as <br>,
-    // not collapse into one wrapped paragraph (hardLineBreaks).
-    const content = JSON.stringify([
-      { type: "content", content: { type: "text", text: "line1\nline2" } },
-    ]);
-    render(
-      <AcpChatToolCard block={toolBlock({ content })} onOpenDiff={() => {}} />,
-    );
-    const output = screen.getByTestId("acp-chat-tool-output");
-    // The single newline renders as an explicit <br>, keeping the lines apart.
-    expect(output.querySelector("br")).not.toBeNull();
-    expect(output.textContent).toContain("line1");
-    expect(output.textContent).toContain("line2");
+    // Output opens the nested panel rather than expanding inline.
+    expect(screen.queryByTestId("acp-chat-tool-output")).toBeNull();
+    const open = screen.getByTestId("acp-chat-tool-output-open");
+    expect(open.textContent).toContain("created"); // first line previewed
+    fireEvent.click(open);
+    expect(onOpenOutput).toHaveBeenCalledWith("call-9");
   });
 
   test("renders a file chip per diff and fires onOpenDiff with the tool id + file change", () => {
@@ -254,19 +227,15 @@ describe("AcpChatToolCard", () => {
     expect(screen.queryByTestId("acp-chat-tool-file-chip")).toBeNull();
   });
 
-  test("collapses long output behind a toggle", () => {
-    const longText = "x".repeat(800);
+  test("shows no output-open button when there is no textual output", () => {
+    // A diff-only tool has file chips but no content/terminal text → no button.
     const content = JSON.stringify([
-      { type: "content", content: { type: "text", text: longText } },
+      { type: "diff", path: "src/a.ts", oldText: "old", newText: "new" },
     ]);
     render(
       <AcpChatToolCard block={toolBlock({ content })} onOpenDiff={() => {}} />,
     );
-
-    expect(screen.queryByTestId("acp-chat-tool-output")).toBeNull();
-    const toggle = screen.getByTestId("acp-chat-tool-output-toggle");
-    fireEvent.click(toggle);
-    expect(screen.getByTestId("acp-chat-tool-output")).toBeDefined();
+    expect(screen.queryByTestId("acp-chat-tool-output-open")).toBeNull();
   });
 });
 

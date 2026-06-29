@@ -120,6 +120,15 @@ export function getAcpToolCommand(rawInput: unknown): string | undefined {
   return typeof command === "string" ? command : undefined;
 }
 
+/** Join a tool call's `content`/`terminal` text into one string (diffs excluded). */
+export function getAcpToolOutputText(content?: string): string {
+  return parseAcpToolContent(content)
+    .filter((b) => b.type === "content" || b.type === "terminal")
+    .map((b) => ("text" in b ? (b.text ?? "") : ""))
+    .filter((text) => text.length > 0)
+    .join("\n");
+}
+
 /**
  * Format a raw ACP input/output value for display. `undefined`/`null` → no
  * value; strings pass through verbatim; objects pretty-print as JSON (falling
