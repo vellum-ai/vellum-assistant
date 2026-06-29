@@ -16,10 +16,11 @@ import {
 import type { PluginsByNameGetResponse } from "@/generated/daemon/types.gen";
 import { toast } from "@vellumai/design-library";
 
-/** First 7 chars of a commit SHA, matching git's default short form. */
-export function shortSha(sha: string | null): string {
-  return sha ? sha.slice(0, 7) : "unknown";
-}
+import { shortSha } from "./utils";
+
+// Re-export so existing importers/mocks that pull `shortSha` from this hook
+// module keep working now that the helper lives in `./utils`.
+export { shortSha };
 
 interface UsePluginDetailOptions {
   /**

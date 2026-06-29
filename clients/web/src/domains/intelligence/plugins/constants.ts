@@ -12,6 +12,9 @@ export const pluginRemoveConfirmMessage = (name: string): string =>
 export const pluginRiskyUpgradeConfirmMessage = (name: string): string =>
   `"${name}" has local edits that will be overwritten by the upgrade. Continue?`;
 
+/** Confirm-dialog button label for the risky (local-edit-overwriting) upgrade. */
+export const pluginRiskyUpgradeConfirmLabel = "Upgrade anyway";
+
 /** Failure copy for a failed install / remove / upgrade attempt. */
 export const PLUGIN_INSTALL_ERROR =
   "Failed to install plugin. Please try again.";

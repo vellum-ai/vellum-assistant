@@ -20,6 +20,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { PLUGIN_INSTALL_ERROR } from "@/domains/intelligence/plugins/constants";
 import type {
   PluginsByNameGetResponse,
   PluginsByNameInspectGetResponse,
@@ -77,6 +78,21 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
     data: pluginDetail(options.path.name),
     ...okResponse,
   })),
+}));
+
+// The tab-level mutations toast on success / error; spy on `toast` while
+// keeping the rest of the design library (Button, Card, ConfirmDialog) real so
+// the list still renders under happy-dom.
+const toastSuccessSpy = mock((_message: string) => {});
+const toastErrorSpy = mock((_message: string) => {});
+const dlActual = await import("@vellumai/design-library");
+mock.module("@vellumai/design-library", () => ({
+  ...dlActual,
+  toast: Object.assign((_message: string) => {}, {
+    success: toastSuccessSpy,
+    error: toastErrorSpy,
+    dismiss: () => {},
+  }),
 }));
 
 const { PluginsTab } = await import("./plugins-tab");
@@ -168,6 +184,8 @@ beforeEach(() => {
   installSpy.mockClear();
   deleteSpy.mockClear();
   upgradeSpy.mockClear();
+  toastSuccessSpy.mockClear();
+  toastErrorSpy.mockClear();
 });
 
 afterEach(() => {
@@ -231,6 +249,34 @@ describe("PluginsTab", () => {
       path: { assistant_id: ASSISTANT_ID },
       body: { name: "apollo-bot-brain" },
     });
+  });
+
+  test("a successful inline install fires a success toast", async () => {
+    catalogMatches = [catalog()];
+
+    const { findByLabelText } = renderTab();
+    fireEvent.click(await findByLabelText("Install plugin"));
+
+    await waitFor(() => expect(toastSuccessSpy).toHaveBeenCalledTimes(1));
+    expect(toastSuccessSpy.mock.calls[0]?.[0]).toContain("apollo-bot-brain");
+    expect(toastErrorSpy).not.toHaveBeenCalled();
+  });
+
+  test("a failed inline install surfaces an error toast", async () => {
+    catalogMatches = [catalog()];
+    // Force the next install into the mutation's error branch (the SDK throws
+    // because the generated mutationFn passes `throwOnError: true`).
+    installSpy.mockImplementationOnce(async () => {
+      throw new Error("install failed");
+    });
+
+    const { findByLabelText } = renderTab();
+    fireEvent.click(await findByLabelText("Install plugin"));
+
+    await waitFor(() =>
+      expect(toastErrorSpy).toHaveBeenCalledWith(PLUGIN_INSTALL_ERROR),
+    );
+    expect(toastSuccessSpy).not.toHaveBeenCalled();
   });
 
   test("inline Remove opens the confirm dialog without deleting yet", async () => {

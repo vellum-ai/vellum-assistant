@@ -9,6 +9,7 @@ import {
   filterByStatus,
   matchesQuery,
   mergePlugins,
+  shortSha,
   sortPlugins,
 } from "./utils";
 
@@ -152,5 +153,15 @@ describe("filterByStatus", () => {
 
   test("available returns only available", () => {
     expect(filterByStatus(items, "available").map((p) => p.name)).toEqual(["b"]);
+  });
+});
+
+describe("shortSha", () => {
+  test("truncates a commit SHA to its first 7 chars", () => {
+    expect(shortSha("1234567890abcdef1234567890abcdef12345678")).toBe("1234567");
+  });
+
+  test("returns 'unknown' for a null SHA", () => {
+    expect(shortSha(null)).toBe("unknown");
   });
 });
