@@ -23,7 +23,6 @@ import {
   AlertCircle,
   AlertTriangle,
   CheckCircle2,
-  Code,
   Square,
 } from "lucide-react";
 import {
@@ -37,6 +36,7 @@ import { Button, Typography } from "@vellumai/design-library";
 
 import { HeaderStepCarousel } from "@/domains/chat/components/tool-progress-card/header-step-carousel";
 import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
+import { AcpAgentIcon } from "@/domains/chat/components/acp-run-inline-card/acp-agent-icon";
 import { useAcpRunCardData } from "@/domains/chat/components/acp-run-inline-card/use-acp-run-card-data";
 import type { ToolProgressCardState } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell";
 import { stopAcpRun } from "@/domains/chat/utils/acp-run-actions";
@@ -157,7 +157,7 @@ export function AcpRunInlineProgressCard({
       >
         <StatusIndicator state={data.state} />
         <span className="mx-1 flex shrink-0 items-center">
-          <Code className="h-4 w-4 text-[var(--content-secondary)]" aria-hidden />
+          <AcpAgentIcon agent={data.agent} />
         </span>
         <HeaderStepCarousel
           currentStepTitle={data.currentStepTitle}
