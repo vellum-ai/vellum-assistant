@@ -26,9 +26,8 @@ export function shortSha(sha: string | null): string {
 
 interface UsePluginDetailOptions {
   /**
-   * Invoked after a successful removal. The full-page detail view uses this to
-   * navigate back to the list (nothing is left to render once the plugin is
-   * gone); an in-tab panel can use it to close itself instead.
+   * Invoked after a successful removal, when the plugin no longer exists to
+   * render. Callers use it to leave the detail view (navigate away or close it).
    */
   onRemoved?: () => void;
 }
@@ -59,13 +58,11 @@ export interface UsePluginDetailResult {
 /**
  * Single source of truth for a single plugin's detail view: the plugin read,
  * its update-drift inspection, and the install / remove / upgrade mutations
- * (with their toast + cache-invalidation side effects). Shared by the full-page
- * detail route and the in-tab detail panel so neither duplicates the wiring.
+ * with their toast + cache-invalidation side effects.
  *
- * Toast and invalidation behavior matches the original detail page exactly:
- * install and upgrade surface a success toast, all three invalidate the list /
- * search / detail / inspect queries, and removal defers its post-success
- * navigation to the caller via `onRemoved`.
+ * Install and upgrade surface a success toast; all three mutations invalidate
+ * the list / search / detail / inspect queries on success. Removal defers its
+ * post-success action to the caller via `onRemoved`.
  */
 export function usePluginDetail(
   assistantId: string,
