@@ -110,7 +110,7 @@ mock.module("../persistence/db-maintenance.js", () => ({
   maybeRunDbMaintenance: () => {},
 }));
 
-import { registerMemoryJobHandlers } from "../memory/register-job-handlers.js";
+import { registerMemoryJobHandlers } from "../jobs/register-job-handlers.js";
 import { getMemoryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { _resetQdrantBreaker } from "../persistence/embeddings/qdrant-circuit-breaker.js";
