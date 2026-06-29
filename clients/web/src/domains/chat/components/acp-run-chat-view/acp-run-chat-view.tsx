@@ -31,6 +31,7 @@ import {
 import { AcpChatAgentMessage } from "@/domains/chat/components/acp-run-chat-view/acp-chat-agent-message";
 import { AcpChatPlanBlock } from "@/domains/chat/components/acp-run-chat-view/acp-chat-plan-block";
 import { AcpChatTerminalBlock } from "@/domains/chat/components/acp-run-chat-view/acp-chat-terminal-block";
+import { AcpChatTimelineBlock } from "@/domains/chat/components/acp-run-chat-view/acp-chat-timeline-block";
 import { AcpChatThinkingBlock } from "@/domains/chat/components/acp-run-chat-view/acp-chat-thinking-block";
 import {
   AcpChatToolCard,
@@ -208,14 +209,24 @@ export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
           >
             <ObjectiveSection task={entry.task} />
 
-            {blocks.map((block, index) => (
-              <ChatBlock
-                key={blockKey(block, index)}
-                block={block}
-                isTerminal={isTerminal}
-                onOpenDiff={handleOpenDiff}
-              />
-            ))}
+            {/* Blocks render on a vertical timeline rail (dot + connector per
+                event), matching the subagent / workflow phase timelines. The
+                rail owns inter-block spacing via per-row padding, so this
+                container drops the parent `gap-4`. */}
+            <div className="flex flex-col" data-testid="acp-chat-timeline">
+              {blocks.map((block, index) => (
+                <AcpChatTimelineBlock
+                  key={blockKey(block, index)}
+                  isLast={index === blocks.length - 1}
+                >
+                  <ChatBlock
+                    block={block}
+                    isTerminal={isTerminal}
+                    onOpenDiff={handleOpenDiff}
+                  />
+                </AcpChatTimelineBlock>
+              ))}
+            </div>
 
             {!isRunning && (
               <AcpChatTerminalBlock
