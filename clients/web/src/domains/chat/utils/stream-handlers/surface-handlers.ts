@@ -12,6 +12,8 @@ import {
   updateSurfaceData,
 } from "@/domains/chat/utils/stream-updaters/surface-updaters";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
+import { useViewerStore } from "@/stores/viewer-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type {
   UISurfaceCompleteEvent,
   UISurfaceDismissEvent,
@@ -23,6 +25,18 @@ export function handleUISurfaceShow(
   event: UISurfaceShowEvent,
   ctx: StreamHandlerContext,
 ): void {
+  if (event.surfaceType === "channel_setup") {
+    const data = event.data as { channel?: string } | undefined;
+    const { assistants, activeAssistantId } =
+      useResolvedAssistantsStore.getState();
+    const assistantName =
+      assistants.find((a) => a.id === activeAssistantId)?.name ?? "Assistant";
+    useViewerStore.getState().openChannelSetup({
+      channel: (data?.channel as "slack") ?? "slack",
+      assistantName,
+    });
+    return;
+  }
   if (
     event.surfaceType === "dynamic_page" ||
     event.surfaceType === "document_preview"

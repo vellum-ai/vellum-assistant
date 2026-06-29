@@ -37,7 +37,8 @@ type OverlayView =
   | "subagent-detail"
   | "tool-detail"
   | "workflow-detail"
-  | "acp-run-detail";
+  | "acp-run-detail"
+  | "channel-setup";
 
 /**
  * Resolve the "view before" value for overlay navigation.
@@ -98,7 +99,8 @@ function resolveViewBefore(
     | "viewBeforeSubagentDetail"
     | "viewBeforeToolDetail"
     | "viewBeforeWorkflowDetail"
-    | "viewBeforeAcpRunDetail",
+    | "viewBeforeAcpRunDetail"
+    | "viewBeforeChannelSetup",
 ): Exclude<MainView, OverlayView> {
   const mv = state.mainView;
   if (
@@ -106,7 +108,8 @@ function resolveViewBefore(
     mv === "subagent-detail" ||
     mv === "tool-detail" ||
     mv === "workflow-detail" ||
-    mv === "acp-run-detail"
+    mv === "acp-run-detail" ||
+    mv === "channel-setup"
   ) {
     return state[field];
   }
@@ -125,7 +128,8 @@ export type MainView =
   | "subagent-detail"
   | "tool-detail"
   | "workflow-detail"
-  | "acp-run-detail";
+  | "acp-run-detail"
+  | "channel-setup";
 
 export type IntelligenceTab = "identity" | "skills" | "workspace" | "contacts";
 
@@ -141,6 +145,13 @@ export interface OpenedDocumentState {
   conversationId: string;
   documentName: string;
   content: string;
+}
+
+export type ChannelSetupType = "slack";
+
+export interface ChannelSetupPayload {
+  channel: ChannelSetupType;
+  assistantName: string;
 }
 
 export interface ToolDetailPayload {
@@ -249,6 +260,8 @@ export interface ViewerState {
   viewBeforeWorkflowDetail: Exclude<MainView, OverlayView>;
   activeAcpRunId: string | null;
   viewBeforeAcpRunDetail: Exclude<MainView, OverlayView>;
+  activeChannelSetup: ChannelSetupPayload | null;
+  viewBeforeChannelSetup: Exclude<MainView, OverlayView>;
   /**
    * Monotonic counter bumped when a viewer (e.g. the mobile tool-detail
    * overlay, which lives in a separate portal subtree) asks to open the trust
@@ -298,6 +311,10 @@ export interface ViewerActions {
   closeToolDetail: () => void;
   requestRuleEditorForActiveTool: () => void;
 
+  // --- Channel setup ---
+  openChannelSetup: (payload: ChannelSetupPayload) => void;
+  closeChannelSetup: () => void;
+
   // --- Document viewer ---
   openDocument: () => void;
   loadDocument: (assistantId: string, documentSurfaceId: string) => Promise<void>;
@@ -337,6 +354,8 @@ const INITIAL_STATE: ViewerState = {
   viewBeforeWorkflowDetail: "chat",
   activeAcpRunId: null,
   viewBeforeAcpRunDetail: "chat",
+  activeChannelSetup: null,
+  viewBeforeChannelSetup: "chat",
   ruleEditorRequestSeq: 0,
 };
 
@@ -493,6 +512,23 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     set({
       mainView: get().viewBeforeAcpRunDetail,
       activeAcpRunId: null,
+    });
+  },
+
+  // --- Channel setup ---
+
+  openChannelSetup: (payload) => {
+    set({
+      mainView: "channel-setup",
+      activeChannelSetup: payload,
+      viewBeforeChannelSetup: resolveViewBefore(get(), "viewBeforeChannelSetup"),
+    });
+  },
+
+  closeChannelSetup: () => {
+    set({
+      mainView: get().viewBeforeChannelSetup,
+      activeChannelSetup: null,
     });
   },
 

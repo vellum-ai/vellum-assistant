@@ -10,7 +10,7 @@ import { Typography } from "@vellumai/design-library/components/typography";
 import { DetailCard } from "@/components/detail-card";
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
 import { ShareConnectionLinkButton } from "@/domains/contacts/components/share-connection-link-button";
-import { SlackSetupWizard, type SlackThreadMode } from "@/domains/contacts/components/slack-setup-wizard";
+import { SlackSetupWizard, type SlackThreadMode } from "@/components/slack-setup-wizard";
 import type { AssistantChannelState } from "@/domains/contacts/types";
 import {
   ADMISSION_POLICY_DEFAULT,
@@ -20,7 +20,7 @@ import {
   type AdmissionPolicy,
 } from "@/lib/channel-admission-policy/types";
 
-export type { SlackThreadMode } from "@/domains/contacts/components/slack-setup-wizard";
+export type { SlackThreadMode } from "@/components/slack-setup-wizard";
 
 type ChannelKey = AssistantChannelState["key"];
 
