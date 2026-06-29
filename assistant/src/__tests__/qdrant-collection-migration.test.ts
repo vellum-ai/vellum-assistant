@@ -104,7 +104,7 @@ beforeEach(() => {
 });
 
 describe("Qdrant collection migration", () => {
-  test("leaves collection intact on pure dimension mismatch (defers to startup reconcile)", async () => {
+  test("deletes and recreates collection on pure dimension mismatch", async () => {
     mockCollectionExists = true;
     mockUseNamedVectors = true;
     mockCollectionSize = 384; // Current collection has 384-dim vectors
@@ -120,11 +120,12 @@ describe("Qdrant collection migration", () => {
 
     const result = await client.ensureCollection();
 
-    // The lazy ensure cannot run an embed probe, so it must not destroy the
-    // populated collection on dimension drift; the startup reconcile owns that.
-    expect(callLog.deleteCollection).toBe(0);
-    expect(callLog.createCollection).toBe(0);
-    expect(result.migrated).toBe(false);
+    // The v1 collection is not managed by the startup embedding reconcile, so
+    // dimension drift is repaired here: delete + recreate, then rebuild_index
+    // re-embeds from the SQLite cache via the lifecycle hook.
+    expect(callLog.deleteCollection).toBe(1);
+    expect(callLog.createCollection).toBe(1);
+    expect(result.migrated).toBe(true);
   });
 
   test("deletes and recreates collection on model-only mismatch", async () => {

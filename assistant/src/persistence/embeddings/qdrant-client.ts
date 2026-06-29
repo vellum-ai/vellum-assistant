@@ -189,35 +189,28 @@ export class VellumQdrantClient {
             await this.client.deleteCollection(this.collection);
             migrated = true;
             // Fall through to collection creation below
-          } else if (modelMismatch) {
+          } else if (dimMismatch || modelMismatch) {
+            // The v1 collection (config.memory.qdrant.collection) is not managed
+            // by the startup embedding reconcile — that reconcile owns only the
+            // v2 (memory_v2_concept_pages) and v3 (memory_v3_sections)
+            // collections. Dimension drift on v1 is therefore repaired here:
+            // delete and recreate, and the lifecycle hook re-embeds from the
+            // SQLite cache via rebuild_index when ensureCollection reports
+            // migrated and v2 is disabled.
             log.warn(
               {
                 collection: this.collection,
                 currentSize,
                 expectedSize: this.vectorSize,
+                dimMismatch,
                 modelMismatch,
               },
-              "Qdrant collection incompatible (model change) — deleting and recreating. Embeddings will be regenerated on demand.",
+              "Qdrant collection incompatible (dimension/model change) — deleting and recreating. Embeddings will be regenerated on demand.",
             );
             await this.client.deleteCollection(this.collection);
             migrated = true;
             // Fall through to collection creation below
           } else {
-            if (dimMismatch) {
-              // Pure dimension drift (no model change). This lazy path runs on
-              // hot upsert/query calls and cannot run an embed probe to confirm
-              // the new dimension, so it must not make the destroy-before-confirm
-              // decision. Destructive dimension migration is owned by the
-              // probe-gated startup reconcile; treat the collection as ready.
-              log.warn(
-                {
-                  collection: this.collection,
-                  currentSize,
-                  expectedSize: this.vectorSize,
-                },
-                "Qdrant collection dimension drift — deferring to startup reconcile; not recreating in the request path",
-              );
-            }
             if (await this.ensurePayloadIndexesSafe()) {
               this.collectionReady = true;
             }
