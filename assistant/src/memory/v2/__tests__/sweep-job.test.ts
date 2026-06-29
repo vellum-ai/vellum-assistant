@@ -225,7 +225,9 @@ beforeEach(async () => {
   providerCalls.length = 0;
   providerStub = null;
   emitCalls.length = 0;
-});
+  // initializeDb runs the full migration chain (hundreds of steps); under
+  // parallel CI load it can exceed bun's default 5s hook timeout, so allow more.
+}, 30_000);
 
 // ---------------------------------------------------------------------------
 

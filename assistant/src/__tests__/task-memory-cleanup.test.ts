@@ -66,9 +66,11 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
   const convId = "conv-task-cleanup";
   const otherConvId = "conv-other";
 
+  // initializeDb runs the full migration chain (hundreds of steps); under
+  // parallel CI load it can exceed bun's default 5s hook timeout, so allow more.
   beforeAll(async () => {
     await initializeDb();
-  });
+  }, 30_000);
 
   beforeEach(() => {
     const db = getDb();

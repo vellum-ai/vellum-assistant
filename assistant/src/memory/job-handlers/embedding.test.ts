@@ -61,15 +61,17 @@ const TEST_CONFIG: AssistantConfig = {
 };
 
 describe("embedMediaJob", () => {
+  // initializeDb runs the full migration chain (hundreds of steps); under
+  // parallel CI load it can exceed bun's default 5s hook timeout, so allow more.
   beforeAll(async () => {
     await initializeDb();
-  });
+  }, 30_000);
 
   beforeEach(async () => {
     embedAndUpsertCalls.length = 0;
     resetDbForTesting();
     await initializeDb();
-  });
+  }, 30_000);
 
   function makeJob(payload: Record<string, unknown>): MemoryJob {
     return {
