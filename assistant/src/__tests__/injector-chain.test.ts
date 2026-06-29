@@ -57,8 +57,10 @@ const {
 } = await import("../daemon/conversation-runtime-assembly.js");
 const { DEFAULT_INJECTOR_ORDER, defaultInjectors } =
   await import("../plugins/defaults/memory/injectors.js");
-const { getInjectorChain } =
-  await import("../plugins/defaults/memory/injector-chain.js");
+const { getRegisteredInjectors } =
+  await import("../plugins/injector-registry.js");
+const { registerDefaultPluginInjectors } =
+  await import("../plugins/defaults/index.js");
 import { eq } from "drizzle-orm";
 
 import {
@@ -279,6 +281,7 @@ function clearSeededSubagents(): void {
 
 describe("injector chain", () => {
   beforeEach(() => {
+    registerDefaultPluginInjectors();
     clearPkbContent();
     clearNowScratchpad();
     clearConversations();
@@ -351,7 +354,7 @@ describe("injector chain", () => {
     // The assembled chain merges the defaults with the two memory-v3
     // injectors and sorts by `order`, so the cards injector (order 1000) and
     // the spotlight injector (order 1001) sit last, in that order.
-    const chain = getInjectorChain();
+    const chain = getRegisteredInjectors();
     const orders = chain.map((i) => i.order);
     expect(orders).toEqual([...orders].sort((a, b) => a - b));
     expect(chain.map((i) => i.name)).toEqual([

@@ -44,12 +44,14 @@ import type {
 } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
 
-// Drive the suppression branch by controlling the static injector chain that
+// Drive the suppression branch by controlling the injector chain that
 // `applyRuntimeInjections` walks. The slot is mutated per-test to stand in for
 // the memory-v3 injectors producing (or not producing) blocks.
 const injectorChainSlot: Injector[] = [];
-mock.module("../plugins/defaults/memory/injector-chain.js", () => ({
-  getInjectorChain: () => injectorChainSlot,
+const realInjectorRegistry = await import("../plugins/injector-registry.js");
+mock.module("../plugins/injector-registry.js", () => ({
+  ...realInjectorRegistry,
+  getRegisteredInjectors: () => injectorChainSlot,
 }));
 
 // `applyRuntimeInjections` reads the v3-live gate (`config.memory.v3.live`)

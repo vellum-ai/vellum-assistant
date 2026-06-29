@@ -50,11 +50,11 @@ import {
 } from "../persistence/conversation-crud.js";
 import { isBackgroundConversationType } from "../persistence/conversation-types.js";
 import { createContextSummaryMessage } from "../plugins/defaults/compaction/window-manager.js";
-import { getInjectorChain } from "../plugins/defaults/memory/injector-chain.js";
 import {
   MEMORY_V3_BLOCK_ID,
   MEMORY_V3_COMMIT_META_KEY,
 } from "../plugins/defaults/memory/v3/types.js";
+import { getRegisteredInjectors } from "../plugins/injector-registry.js";
 import type {
   InjectionBlock,
   InjectionPlacement,
@@ -1573,8 +1573,9 @@ export interface RuntimeInjectionResult {
 }
 
 /**
- * Run every {@link Injector} in the chain ({@link getInjectorChain}, already
- * sorted by ascending `order`) and return every non-null block it produced.
+ * Run every {@link Injector} in the chain ({@link getRegisteredInjectors},
+ * already sorted by ascending `order`) and return every non-null block it
+ * produced.
  *
  * `runMessages` is the turn's working message array, forwarded to each
  * injector so producers that need the current prompt contents read it from a
@@ -1592,7 +1593,7 @@ async function collectInjectorBlocks(
   runMessages?: Message[],
 ): Promise<InjectionBlock[]> {
   const out: InjectionBlock[] = [];
-  for (const injector of getInjectorChain()) {
+  for (const injector of getRegisteredInjectors()) {
     const block = await injector.produce(ctx, runMessages);
     if (block) out.push(block);
   }

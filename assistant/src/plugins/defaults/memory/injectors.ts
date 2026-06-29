@@ -36,12 +36,11 @@
  * injectors slot additional blocks at fractional order values.
  *
  * This module exports the default injectors as a plain ordered array
- * ({@link defaultInjectors}). The chain assembler in
- * `plugins/defaults/memory/injector-chain.ts` sorts them by `order`
- * (alongside the memory-v3 injector) into the single sequence
- * `applyRuntimeInjections` walks each turn — injection is not a plugin
- * contribution, so injectors are imported directly rather than aggregated
- * through the registry.
+ * ({@link defaultInjectors}). `defaultMemoryPlugin` contributes them (alongside
+ * the memory-v3 injectors) to the global injector registry
+ * (`plugins/injector-registry.ts`), which unions every plugin's injectors and
+ * sorts by `order` into the single sequence `applyRuntimeInjections` walks each
+ * turn.
  */
 
 import { existsSync, readFileSync, rmSync } from "node:fs";

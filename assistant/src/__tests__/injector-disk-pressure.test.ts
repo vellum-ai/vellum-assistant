@@ -30,6 +30,7 @@ import {
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { conversations, messages } from "../persistence/schema/index.js";
+import { registerDefaultPluginInjectors } from "../plugins/defaults/index.js";
 import {
   DEFAULT_INJECTOR_ORDER,
   defaultInjectors,
@@ -193,6 +194,7 @@ function seedSlackChannelRows(
 
 describe("disk-pressure-warning injector", () => {
   beforeEach(() => {
+    registerDefaultPluginInjectors();
     clearConversations();
     resetLiveConversation();
     const db = getDb();

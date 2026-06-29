@@ -143,6 +143,7 @@ import type { MessageRow } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { conversations, messages } from "../persistence/schema/index.js";
+import { registerDefaultPluginInjectors } from "../plugins/defaults/index.js";
 import postCompact from "../plugins/defaults/memory/hooks/post-compact.js";
 import {
   buildUnifiedTurnContextBlock,
@@ -158,6 +159,12 @@ import { getWorkspacePromptPath } from "../util/platform.js";
 // reading the live conversation's persisted message rows, so the schema must
 // exist before any Slack-channel assembly test runs.
 await initializeDb();
+
+// Populate the injector registry with the default plugins' injectors the way
+// bootstrap does in production, so the `applyRuntimeInjections` suites below
+// walk a non-empty chain. Registered at module load (before any describe runs)
+// because the chain-driving tests span multiple `describe` blocks.
+registerDefaultPluginInjectors();
 
 // The pkb-reminder injector derives PKB-active state from the workspace itself
 // — `readPkbContext()` returning content behind the personal-memory trust gate
