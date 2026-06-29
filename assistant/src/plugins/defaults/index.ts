@@ -30,7 +30,11 @@ import {
 } from "../injector-registry.js";
 import { registerPlugin, resetPluginRegistryForTests } from "../registry.js";
 import { type Plugin, PluginExecutionError } from "../types.js";
+import { channelInjectors } from "./channel/injectors.js";
+import channelPkg from "./channel/package.json" with { type: "json" };
 import compactionPkg from "./compaction/package.json" with { type: "json" };
+import { documentsInjectors } from "./documents/injectors.js";
+import documentsPkg from "./documents/package.json" with { type: "json" };
 import emptyResponsePostModelCall from "./empty-response/hooks/post-model-call.js";
 import emptyResponseStop from "./empty-response/hooks/stop.js";
 import { resetEmptyResponseNudgeStoreForTests } from "./empty-response/nudge-state-store.js";
@@ -58,12 +62,14 @@ import maxTokensContinueStop from "./max-tokens-continue/hooks/stop.js";
 import maxTokensContinuePkg from "./max-tokens-continue/package.json" with { type: "json" };
 import memoryPostCompact from "./memory/hooks/post-compact.js";
 import memoryUserPromptSubmit from "./memory/hooks/user-prompt-submit.js";
-import { defaultInjectors } from "./memory/injectors.js";
+import { memoryInjectors } from "./memory/injectors.js";
 import memoryPkg from "./memory/package.json" with { type: "json" };
 import {
   memoryV3Injector,
   memoryV3SpotlightInjector,
 } from "./memory/v3/injector.js";
+import { sessionInjectors } from "./session/injectors.js";
+import sessionPkg from "./session/package.json" with { type: "json" };
 import surfaceCompletionNudgePostModelCall from "./surface-completion-nudge/hooks/post-model-call.js";
 import surfaceCompletionNudgeStop from "./surface-completion-nudge/hooks/stop.js";
 import { resetSurfaceCompletionNudgeStoreForTests } from "./surface-completion-nudge/nudge-state-store.js";
@@ -79,6 +85,10 @@ import toolErrorPostToolUse from "./tool-error/hooks/post-tool-use.js";
 import toolErrorPkg from "./tool-error/package.json" with { type: "json" };
 import toolResultTruncatePostToolUse from "./tool-result-truncate/hooks/post-tool-use.js";
 import toolResultTruncatePkg from "./tool-result-truncate/package.json" with { type: "json" };
+import { turnContextInjectors } from "./turn-context/injectors.js";
+import turnContextPkg from "./turn-context/package.json" with { type: "json" };
+import { workspaceInjectors } from "./workspace/injectors.js";
+import workspacePkg from "./workspace/package.json" with { type: "json" };
 
 /**
  * `image-fallback` — captions image blocks via a vision-capable profile when
@@ -139,12 +149,13 @@ export const defaultEmptyResponsePlugin: Plugin = {
  * memory-v3 orchestration engine (`memory/v3/`) and its injectors. Two hooks
  * drive it: `user-prompt-submit` runs memory-graph retrieval and the initial
  * injection, and `post-compact` re-applies the injections onto the compacted
- * history after a mid-turn compaction. It contributes the runtime injectors
- * (the default injectors plus the two memory-v3 injectors) to the global
- * injector registry via the `injectors` field; the registry sorts them by
- * `order` into the per-turn chain, and the v3 injectors self-gate on
- * `memory.v3.live`. Registered first among the default plugins so later
- * `user-prompt-submit` hooks (history repair, title) see the fully
+ * history after a mid-turn compaction. It contributes its personal-memory
+ * runtime injectors (PKB context/reminder and the memory-v2 static block, plus
+ * the two memory-v3 injectors) to the global injector registry via the
+ * `injectors` field; the registry unions them with the domain plugins'
+ * injectors and sorts by `order` into the per-turn chain, and the v3 injectors
+ * self-gate on `memory.v3.live`. Registered first among the default plugins so
+ * later `user-prompt-submit` hooks (history repair, title) see the fully
  * memory-injected history.
  */
 export const defaultMemoryPlugin: Plugin = {
@@ -156,7 +167,72 @@ export const defaultMemoryPlugin: Plugin = {
     "user-prompt-submit": memoryUserPromptSubmit,
     "post-compact": memoryPostCompact,
   },
-  injectors: [...defaultInjectors, memoryV3Injector, memoryV3SpotlightInjector],
+  injectors: [...memoryInjectors, memoryV3Injector, memoryV3SpotlightInjector],
+};
+
+/**
+ * `turn-context` — contributes the unified `<turn_context>` runtime injector
+ * (temporal, actor, channel, and interface grounding). Injector-only; it
+ * contributes no hooks.
+ */
+export const defaultTurnContextPlugin: Plugin = {
+  manifest: {
+    name: turnContextPkg.name,
+    version: turnContextPkg.version,
+  },
+  injectors: turnContextInjectors,
+};
+
+/**
+ * `workspace` — contributes the workspace-grounding runtime injectors
+ * (disk-pressure warning, `<workspace>` top-level context, config-quarantine
+ * notice, NOW.md scratchpad). Injector-only; it contributes no hooks.
+ */
+export const defaultWorkspacePlugin: Plugin = {
+  manifest: {
+    name: workspacePkg.name,
+    version: workspacePkg.version,
+  },
+  injectors: workspaceInjectors,
+};
+
+/**
+ * `documents` — contributes the open-document runtime injectors
+ * (`<active_documents>` and `<document_comments>`). Injector-only; it
+ * contributes no hooks.
+ */
+export const defaultDocumentsPlugin: Plugin = {
+  manifest: {
+    name: documentsPkg.name,
+    version: documentsPkg.version,
+  },
+  injectors: documentsInjectors,
+};
+
+/**
+ * `channel` — contributes the Slack channel runtime injectors (chronological
+ * transcript replacement and `<active_thread>` focus). Injector-only; it
+ * contributes no hooks.
+ */
+export const defaultChannelPlugin: Plugin = {
+  manifest: {
+    name: channelPkg.name,
+    version: channelPkg.version,
+  },
+  injectors: channelInjectors,
+};
+
+/**
+ * `session` — contributes the session-state runtime injectors
+ * (`<background_turn>` framing and `<active_subagents>` status).
+ * Injector-only; it contributes no hooks.
+ */
+export const defaultSessionPlugin: Plugin = {
+  manifest: {
+    name: sessionPkg.name,
+    version: sessionPkg.version,
+  },
+  injectors: sessionInjectors,
 };
 
 /**
@@ -328,6 +404,11 @@ export const defaultToolResultTruncatePlugin: Plugin = {
 export function getAllDefaultPlugins(): readonly Plugin[] {
   return [
     defaultMemoryPlugin,
+    defaultTurnContextPlugin,
+    defaultWorkspacePlugin,
+    defaultDocumentsPlugin,
+    defaultChannelPlugin,
+    defaultSessionPlugin,
     defaultImageFallbackPlugin,
     defaultToolResultTruncatePlugin,
     defaultEmptyResponsePlugin,

@@ -148,7 +148,7 @@ import postCompact from "../plugins/defaults/memory/hooks/post-compact.js";
 import {
   buildUnifiedTurnContextBlock,
   type UnifiedTurnContextOptions,
-} from "../plugins/defaults/memory/unified-turn-context.js";
+} from "../plugins/defaults/turn-context/unified-turn-context.js";
 import type { Message } from "../providers/types.js";
 import { wrapUntrustedContent } from "../security/untrusted-content.js";
 import { getSubagentManager } from "../subagent/index.js";

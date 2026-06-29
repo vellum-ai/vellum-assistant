@@ -1,0 +1,14 @@
+{
+  "name": "default-documents",
+  "version": "1.0.0",
+  "description": "First-party default plugin contributing the open-document runtime injectors (active documents and their open comments).",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20.12.0"
+  },
+  "peerDependencies": {
+    "@vellumai/plugin-api": "^0.8.0"
+  }
+}
