@@ -1,4 +1,4 @@
-import { ExternalLink, Plus } from "lucide-react";
+import { ClipboardCopy, ExternalLink, Plus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button, Input, Radio, RadioGroup, Stepper, type StepperStep, Typography } from "@vellumai/design-library";
@@ -143,6 +143,7 @@ export function SlackSetupWizard({
 
           {stepId === "app-token" && (
             <AppTokenStep
+              tokenName={slackAppName.trim() || assistantName}
               appToken={appToken}
               onAppTokenChange={setAppToken}
               onNext={goNext}
@@ -224,16 +225,26 @@ function CreateAppStep({ slackAppName, onSlackAppNameChange, onCreateApp, onNext
 // ---------------------------------------------------------------------------
 
 interface AppTokenStepProps {
+  tokenName: string;
   appToken: string;
   onAppTokenChange: (value: string) => void;
   onNext: () => void;
 }
 
 function AppTokenStep({
+  tokenName,
   appToken,
   onAppTokenChange,
   onNext,
 }: AppTokenStepProps) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(() => {
+    void navigator.clipboard.writeText(tokenName);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }, [tokenName]);
+
   return (
     <div className="flex flex-col gap-4">
       <p className="text-body-medium-lighter text-[var(--content-default)]">
@@ -242,7 +253,20 @@ function AppTokenStep({
       <ol className="list-decimal list-inside space-y-1 text-body-medium-lighter text-[var(--content-default)]">
         <li>Go to <strong>Basic Information</strong> &rarr; <strong>App-Level Tokens</strong></li>
         <li>Click <strong>Generate Token and Scopes</strong></li>
-        <li>Name it anything (e.g. &ldquo;socket&rdquo;) and add the <strong>connections:write</strong> scope</li>
+        <li>
+          Name it{" "}
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="inline-flex items-center gap-1 rounded bg-[var(--surface-base)] px-1.5 py-0.5 font-mono text-body-small-default text-[var(--content-strong)] hover:bg-[var(--surface-hover)]"
+            title="Click to copy"
+          >
+            {tokenName}
+            <ClipboardCopy aria-hidden className="size-3" />
+          </button>
+          {copied && <span className="ml-1 text-body-small-default text-[var(--content-positive)]">Copied!</span>}
+          {" "}and add the <strong>connections:write</strong> scope
+        </li>
         <li>Click <strong>Generate</strong> and copy the token</li>
       </ol>
       <div className="flex items-end gap-3">
