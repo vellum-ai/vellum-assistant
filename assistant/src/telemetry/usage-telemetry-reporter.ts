@@ -13,7 +13,6 @@
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getPlatformOrganizationId, getPlatformUserId } from "../config/env.js";
 import { getConfig } from "../config/loader.js";
-import { queryUnreportedAuthFallbackEvents } from "../memory/auth-fallback-events-store.js";
 import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
@@ -28,6 +27,7 @@ import {
   getCachedShareDiagnosticsVersion,
 } from "../platform/consent-cache.js";
 import { arePlatformFeaturesEnabled } from "../platform/feature-gate.js";
+import { queryUnreportedAuthFallbackEvents } from "../security/auth-fallback-events-store.js";
 import { queryUnreportedTurnEvents } from "../telemetry/turn-events-store.js";
 import {
   assembleBoundedTurnTrace,
