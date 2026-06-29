@@ -98,6 +98,26 @@ function parseTrustRuntimeContext(value: unknown): TrustContext | undefined {
         : undefined,
     requesterChatId:
       typeof raw.requesterChatId === "string" ? raw.requesterChatId : undefined,
+    requesterContactId:
+      typeof raw.requesterContactId === "string"
+        ? raw.requesterContactId
+        : undefined,
+    memberStatus:
+      typeof raw.memberStatus === "string" ? raw.memberStatus : undefined,
+    memberPolicy:
+      typeof raw.memberPolicy === "string" ? raw.memberPolicy : undefined,
+    requesterTimezone:
+      typeof raw.requesterTimezone === "string"
+        ? raw.requesterTimezone
+        : undefined,
+    requesterTimezoneLabel:
+      typeof raw.requesterTimezoneLabel === "string"
+        ? raw.requesterTimezoneLabel
+        : undefined,
+    requesterTimezoneOffsetSeconds:
+      typeof raw.requesterTimezoneOffsetSeconds === "number"
+        ? raw.requesterTimezoneOffsetSeconds
+        : undefined,
   };
 }
 
