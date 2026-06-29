@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { disposeAcpSessionManager } from "../acp/index.js";
 import { compileApp } from "../bundler/app-compiler.js";
 import { getConfig } from "../config/loader.js";
-import { onContactChange } from "../contacts/contact-events.js";
 import { AssistantIpcServer } from "../ipc/assistant-server.js";
 import { SkillIpcServer } from "../ipc/skill-server.js";
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
@@ -73,7 +72,6 @@ const daemonVersion = readPackageVersion();
 
 export class DaemonServer {
   private sharedRequestTimestamps: number[] = [];
-  private unsubscribeContactChange: (() => void) | null = null;
   private evictor: ConversationEvictor;
 
   // Composed subsystems
@@ -245,11 +243,6 @@ export class DaemonServer {
 
     this.appSourceWatcher.start((appId) => this.handleAppSourceChange(appId));
 
-    // Broadcast contacts_changed to all clients when any contact mutation occurs.
-    this.unsubscribeContactChange = onContactChange(() => {
-      broadcastMessage({ type: "contacts_changed" });
-    });
-
     log.info("DaemonServer started (HTTP-only mode)");
   }
 
@@ -261,10 +254,6 @@ export class DaemonServer {
     this.appSourceWatcher.stop();
     this.cliIpc.stop();
     this.skillIpc.stop();
-    if (this.unsubscribeContactChange) {
-      this.unsubscribeContactChange();
-      this.unsubscribeContactChange = null;
-    }
 
     log.info("Daemon server stopped");
   }
