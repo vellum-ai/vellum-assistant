@@ -88,11 +88,11 @@ export interface PolicyContext {
   /** Source channel the turn arrived on (e.g. "vellum" for internal jobs). */
   sourceChannel?: string;
   /**
-   * Whether procedural-memory-as-skills is active for this assistant (the
-   * `procedural-memory-as-skills` flag is on AND memory-v3 is live). Precomputed
-   * in {@link buildPolicyContext} so the checker can gate the memory-retrospective
-   * skill-authoring auto-grant on the feature without reading config itself.
-   * Undefined/false when the feature is inactive — the grant then never fires.
+   * Whether procedural-memory-as-skills is active for this assistant (memory-v3
+   * is live). Precomputed in {@link buildPolicyContext} so the checker can gate
+   * the memory-retrospective skill-authoring auto-grant on the feature without
+   * reading config itself. Undefined/false when the feature is inactive — the
+   * grant then never fires.
    */
   procToSkillsActive?: boolean;
 }

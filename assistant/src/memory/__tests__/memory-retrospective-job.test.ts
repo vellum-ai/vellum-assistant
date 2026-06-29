@@ -261,7 +261,6 @@ mock.module("../jobs-store.js", () => ({
 let mockProcToSkillsActive = false;
 mock.module("../../config/memory-v3-gate.js", () => ({
   isProcToSkillsActive: () => mockProcToSkillsActive,
-  isProcToSkillsEnabled: () => mockProcToSkillsActive,
   isMemoryV3Live: () => mockProcToSkillsActive,
 }));
 
