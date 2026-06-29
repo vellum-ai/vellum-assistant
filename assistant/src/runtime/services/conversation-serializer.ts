@@ -9,13 +9,13 @@
 
 import { parseChannelId } from "../../channels/types.js";
 import { normalizeConversationType } from "../../daemon/message-types/shared.js";
+import { buildChannelBindingMetadata } from "../../messaging/channel-binding-metadata.js";
 import {
   type AttentionState,
   type Confidence,
   getAttentionStateByConversationIds,
   type SignalType,
-} from "../../memory/conversation-attention-store.js";
-import { buildChannelBindingMetadata } from "../../messaging/channel-binding-metadata.js";
+} from "../../persistence/conversation-attention-store.js";
 import {
   type ConversationRow,
   getConversation,

@@ -81,10 +81,6 @@ import {
   writeRelationshipState,
 } from "../../home/relationship-state-writer.js";
 import { ipcCall } from "../../ipc/gateway-client.js";
-import {
-  getConversationByKey,
-  getOrCreateConversation,
-} from "../../memory/conversation-key-store.js";
 import { MEMORY_RETROSPECTIVE_FORK_SOURCE } from "../../memory/memory-retrospective-constants.js";
 import { buildSlackMessageDeepLinks } from "../../messaging/providers/slack/deep-link.js";
 import {
@@ -112,6 +108,10 @@ import {
   provenanceFromTrustContext,
   setConversationInferenceProfile,
 } from "../../persistence/conversation-crud.js";
+import {
+  getConversationByKey,
+  getOrCreateConversation,
+} from "../../persistence/conversation-key-store.js";
 import { searchConversations } from "../../persistence/conversation-queries.js";
 import { normalizeOnboardingContext } from "../../prompts/normalize-onboarding.js";
 import { writeOnboardingSection } from "../../prompts/persona-resolver.js";

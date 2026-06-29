@@ -184,7 +184,7 @@ describe("Call session mode metadata", () => {
     const { createCallSession, getCallSession } =
       await import("../calls/call-store.js");
     const { getOrCreateConversation } =
-      await import("../memory/conversation-key-store.js");
+      await import("../persistence/conversation-key-store.js");
 
     const { conversationId } = getOrCreateConversation("test-conv-mode");
     const session = createCallSession({
@@ -210,7 +210,7 @@ describe("Call session mode metadata", () => {
     const { createCallSession, getCallSession } =
       await import("../calls/call-store.js");
     const { getOrCreateConversation } =
-      await import("../memory/conversation-key-store.js");
+      await import("../persistence/conversation-key-store.js");
 
     const { conversationId } = getOrCreateConversation(
       "test-conv-mode-default",

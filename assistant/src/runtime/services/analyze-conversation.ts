@@ -21,7 +21,6 @@
  * when no override is set).
  */
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
-import { resolveConversationId } from "../../memory/conversation-key-store.js";
 import { isMemoryRetrospectiveSource } from "../../memory/memory-retrospective-constants.js";
 import {
   addMessage,
@@ -31,6 +30,7 @@ import {
   getConversationSource,
   getMessages,
 } from "../../persistence/conversation-crud.js";
+import { resolveConversationId } from "../../persistence/conversation-key-store.js";
 import { getLogger } from "../../util/logger.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
 import {

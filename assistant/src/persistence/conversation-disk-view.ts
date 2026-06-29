@@ -19,17 +19,17 @@ import {
 } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
 
+import { getLogger } from "../util/logger.js";
 import {
   getAttachmentContent,
   getAttachmentMetadataForMessage,
   getFilePathForAttachment,
-} from "../persistence/attachments-store.js";
+} from "./attachments-store.js";
 import {
   getConversation,
   getMessageById,
   getMessages,
-} from "../persistence/conversation-crud.js";
-import { getLogger } from "../util/logger.js";
+} from "./conversation-crud.js";
 import {
   getConversationDirName,
   getConversationDirPath,

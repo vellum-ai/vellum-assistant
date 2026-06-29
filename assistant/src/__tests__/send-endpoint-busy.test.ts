@@ -19,7 +19,7 @@ import type { ServerMessage } from "../daemon/message-protocol.js";
 import {
   getConversationByKey,
   getOrCreateConversation,
-} from "../memory/conversation-key-store.js";
+} from "../persistence/conversation-key-store.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 mock.module("../util/logger.js", () => ({

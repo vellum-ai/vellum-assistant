@@ -24,7 +24,7 @@ const mockGetConversationByKey = mock(
   }),
 );
 
-mock.module("../memory/conversation-key-store.js", () => ({
+mock.module("../persistence/conversation-key-store.js", () => ({
   getConversationByKey: mockGetConversationByKey,
 }));
 

@@ -4,7 +4,7 @@
 import {
   deleteConversationKey,
   getOrCreateConversation,
-} from "../../memory/conversation-key-store.js";
+} from "../../persistence/conversation-key-store.js";
 import { buildScopedConversationKey } from "../../persistence/delivery-crud.js";
 import {
   deleteBindingByChannelChat,

@@ -39,10 +39,6 @@ import { classifyDiskPressureTurnPolicy } from "../../daemon/disk-pressure-polic
 import { processMessage } from "../../daemon/process-message.js";
 import type { TrustContext } from "../../daemon/trust-context.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
-import {
-  recordConversationSeenSignal,
-  type SignalType,
-} from "../../memory/conversation-attention-store.js";
 import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
 import {
   resolveSlackBotUserId,
@@ -70,6 +66,10 @@ import {
   getAttachmentsByIds,
   validateAttachmentUpload,
 } from "../../persistence/attachments-store.js";
+import {
+  recordConversationSeenSignal,
+  type SignalType,
+} from "../../persistence/conversation-attention-store.js";
 import {
   addMessage,
   getMessageById,

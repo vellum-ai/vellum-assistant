@@ -17,7 +17,7 @@ const mockGetMessages = mock(() => [{ id: "m-source" }]);
 const mockCreateConversation = mock(() => ({ id: "analysis-1" }));
 const mockAddMessage = mock(async () => ({ id: "msg-1" }));
 
-mock.module("../memory/conversation-key-store.js", () => ({
+mock.module("../persistence/conversation-key-store.js", () => ({
   resolveConversationId: mockResolveConversationId,
 }));
 

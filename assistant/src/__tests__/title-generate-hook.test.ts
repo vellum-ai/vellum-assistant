@@ -14,7 +14,7 @@
  * broadcast the resulting `conversation_title_updated` / `sync_changed`
  * events.
  *
- * Mocks `memory/conversation-title-service.js` and `config/loader.js` so the
+ * Mocks `persistence/conversation-title-service.js` and `config/loader.js` so the
  * tests don't touch the real provider stack or config, and resets the plugin
  * registry between cases.
  */
@@ -37,7 +37,7 @@ const queueRegenerateConversationTitleMock = mock(
     onlyIfReplaceable?: boolean;
   }): void => undefined,
 );
-mock.module("../memory/conversation-title-service.js", () => ({
+mock.module("../persistence/conversation-title-service.js", () => ({
   AUTO_TITLE_DETERMINISTIC: 2,
   isReplaceableTitle: (title: string | null) =>
     title == null ||

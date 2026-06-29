@@ -62,7 +62,6 @@ import {
   CONFIG_RELOAD_DEBOUNCE_MS,
   log,
 } from "../../daemon/handlers/shared.js";
-import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../memory/memory-v2-activation-log-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
@@ -71,6 +70,7 @@ import {
   getConversation,
   getMessageById,
 } from "../../persistence/conversation-crud.js";
+import { getConversationByKey } from "../../persistence/conversation-key-store.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { clearEmbeddingBackendCache } from "../../persistence/embeddings/embedding-backend.js";
 import { getLlmRequestLogSource } from "../../persistence/llm-request-log-source.js";

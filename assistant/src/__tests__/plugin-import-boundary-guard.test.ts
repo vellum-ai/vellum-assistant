@@ -155,7 +155,7 @@ const BASELINE: Record<string, readonly string[]> = {
   ],
   "title-generate": [
     "../../../../config/loader.js",
-    "../../../../memory/conversation-title-service.js",
+    "../../../../persistence/conversation-title-service.js",
     "../../../../persistence/conversation-crud.js",
   ],
   "turn-context": [

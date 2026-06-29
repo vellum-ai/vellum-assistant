@@ -51,16 +51,8 @@ const MEMORY_DIR = join(ASSISTANT_SRC, "memory");
  * guard is to ratchet this set down to empty, never up.
  */
 const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
-  "assistant/src/persistence/attachments-store.ts": new Set([
-    "conversation-directories",
-  ]),
-  "assistant/src/persistence/conversation-bootstrap.ts": new Set([
-    "conversation-title-service",
-  ]),
   "assistant/src/persistence/conversation-crud.ts": new Set([
     "auto-analysis-constants",
-    "conversation-attention-store",
-    "conversation-disk-view",
     "conversation-display-order-migration",
     "conversation-group-migration",
     "graph/graph-memory-state-store",
@@ -74,9 +66,6 @@ const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
   "assistant/src/persistence/conversation-queries.ts": new Set([
     "conversation-display-order-migration",
     "conversation-group-migration",
-  ]),
-  "assistant/src/persistence/delivery-crud.ts": new Set([
-    "conversation-key-store",
   ]),
   "assistant/src/persistence/embeddings/embedding-backend.ts": new Set([
     "sparse-tokenize",
