@@ -226,6 +226,15 @@ function isHostableImageUrl(url: string): boolean {
   return /^https?:\/\//i.test(url) && url.length <= SLACK_IMAGE_URL_MAX_CHARS;
 }
 
+/**
+ * Whether a URL is safe to emit in a Slack `link` element. Slack validates link
+ * URLs and rejects the whole block on a relative path or bare fragment (e.g.
+ * `./README.md`, `#section`), so only absolute schemes are linkable.
+ */
+function isLinkableUrl(url: string): boolean {
+  return /^(https?|mailto|tel):/i.test(url);
+}
+
 type TableCell = RichTextBlock | RawTextElement;
 
 /**
@@ -371,12 +380,17 @@ function toRichText(
         out.push(...toRichText(node.children, { ...style, strike: true }));
         break;
       case "link": {
-        const link: RichTextElement = {
-          type: "link",
-          url: node.url,
-          text: serializePlain(node.children),
-        };
-        out.push(style ? { ...link, style } : link);
+        const text = serializePlain(node.children);
+        // Slack validates `link.url`; a relative/anchor URL (e.g. `./README.md`,
+        // `#section`) makes the whole table block fail with `invalid_blocks` and
+        // drops the entire message to plain text. Degrade an un-linkable URL to
+        // its visible text so the rest of the table still renders.
+        if (isLinkableUrl(node.url)) {
+          const link: RichTextElement = { type: "link", url: node.url, text };
+          out.push(style ? { ...link, style } : link);
+        } else if (text.length > 0) {
+          out.push(styledText(text, style));
+        }
         break;
       }
       case "break":
@@ -385,7 +399,8 @@ function toRichText(
       case "image":
         // rich_text can't embed an image; degrade to a link to it (keeping the
         // URL), matching how the markdown block renders an image as a link.
-        if (node.url) {
+        // An un-linkable URL would fail validation, so fall back to alt text.
+        if (node.url && isLinkableUrl(node.url)) {
           out.push({ type: "link", url: node.url, text: node.alt || node.url });
         } else if (node.alt) {
           out.push(styledText(node.alt, style));

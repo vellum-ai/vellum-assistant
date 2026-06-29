@@ -125,6 +125,35 @@ describe("renderSlackBlocks", () => {
     });
   });
 
+  test("degrades a cell link with a relative/anchor URL to plain text", () => {
+    const table = [
+      "| Doc | Note |",
+      "| --- | --- |",
+      "| [README](./README.md) | [api](#api) |",
+    ].join("\n");
+    const t = renderSlackBlocks(table)![0] as TableBlock;
+    expect(t.rows[1]).toEqual([
+      {
+        type: "rich_text",
+        elements: [
+          {
+            type: "rich_text_section",
+            elements: [{ type: "text", text: "README" }],
+          },
+        ],
+      },
+      {
+        type: "rich_text",
+        elements: [
+          {
+            type: "rich_text_section",
+            elements: [{ type: "text", text: "api" }],
+          },
+        ],
+      },
+    ]);
+  });
+
   test("keeps plain table cells as raw_text", () => {
     const table = ["| A | B |", "| --- | --- |", "| one | two |"].join("\n");
     const t = renderSlackBlocks(table)![0] as TableBlock;
