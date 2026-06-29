@@ -86,12 +86,12 @@ import {
   getOrCreateConversation,
 } from "../../memory/conversation-key-store.js";
 import { MEMORY_RETROSPECTIVE_FORK_SOURCE } from "../../memory/memory-retrospective-constants.js";
-import { recordOnboardingEvent } from "../../memory/onboarding-events-store.js";
 import { buildSlackMessageDeepLinks } from "../../messaging/providers/slack/deep-link.js";
 import {
   readSlackMetadataFromMessageMetadata,
   type SlackMessageMetadata,
 } from "../../messaging/providers/slack/message-metadata.js";
+import { recordOnboardingEvent } from "../../onboarding/onboarding-events-store.js";
 import {
   classifyKind,
   getAttachmentById,

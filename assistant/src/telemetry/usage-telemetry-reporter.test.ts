@@ -205,7 +205,7 @@ const mockQueryUnreportedOnboardingEvents = mock(
     }[],
 );
 
-mock.module("../memory/onboarding-events-store.js", () => ({
+mock.module("../onboarding/onboarding-events-store.js", () => ({
   queryUnreportedOnboardingEvents: mockQueryUnreportedOnboardingEvents,
 }));
 

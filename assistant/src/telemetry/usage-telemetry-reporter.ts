@@ -18,7 +18,7 @@ import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
 } from "../memory/checkpoints.js";
-import { queryUnreportedOnboardingEvents } from "../memory/onboarding-events-store.js";
+import { queryUnreportedOnboardingEvents } from "../onboarding/onboarding-events-store.js";
 import { queryUnreportedLifecycleEvents } from "../persistence/lifecycle-events-store.js";
 import { queryUnreportedUsageEvents } from "../persistence/llm-usage-store.js";
 import { VellumPlatformClient } from "../platform/client.js";

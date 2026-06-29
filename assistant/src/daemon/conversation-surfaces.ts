@@ -19,7 +19,7 @@ import {
   resolveEffectiveAppHtml,
   updateApp,
 } from "../memory/app-store.js";
-import { recordActivationEvent } from "../memory/onboarding-events-store.js";
+import { recordActivationEvent } from "../onboarding/onboarding-events-store.js";
 import {
   getMessages,
   updateMessageContent,
