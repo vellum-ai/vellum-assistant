@@ -251,15 +251,12 @@ function tryTableBlock(
       cellBlock(cellNodesAt(row, c)),
     ),
   );
-  // Slack's 10k budget counts visible cell text; derive it from the source nodes
-  // rather than re-walking the built blocks.
-  const cellChars = rows.reduce(
+  // Slack's 10k budget counts the text actually emitted, which can differ from
+  // the source (empty cells emit a space; empty-alt images emit their URL), so
+  // measure the built cells rather than the source nodes.
+  const cellChars = tableRows.reduce(
     (sum, row) =>
-      sum +
-      Array.from(
-        { length: columnCount },
-        (_, c) => serializePlain(cellNodesAt(row, c)).length,
-      ).reduce((rowSum, len) => rowSum + len, 0),
+      sum + row.reduce((rowSum, cell) => rowSum + cellTextLength(cell), 0),
     0,
   );
   if (cellChars > SLACK_TABLE_MAX_TOTAL_CHARS) return null;
@@ -293,6 +290,24 @@ function cellBlock(nodes: PhrasingContent[]): TableCell {
   }
   const text = serializePlain(nodes);
   return { type: "raw_text", text: text.length > 0 ? text : " " };
+}
+
+/**
+ * Number of characters a built cell contributes to Slack's 10k per-message
+ * table-cell budget — the text actually emitted, including link text (which for
+ * empty-alt images is the URL), so the estimate never undercounts the payload.
+ */
+function cellTextLength(cell: TableCell): number {
+  if (cell.type === "raw_text") return cell.text.length;
+  let total = 0;
+  for (const section of cell.elements) {
+    if (section.type !== "rich_text_section") continue;
+    for (const el of section.elements) {
+      if (el.type === "text") total += el.text.length;
+      else if (el.type === "link") total += (el.text ?? el.url).length;
+    }
+  }
+  return total;
 }
 
 /** Column-alignment settings derived from GFM table alignment, or `undefined`. */

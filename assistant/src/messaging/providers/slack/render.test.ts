@@ -233,6 +233,15 @@ describe("renderSlackBlocks", () => {
     expect(blocks!.some((b) => b.type === "table")).toBe(false);
   });
 
+  test("counts an empty-alt image cell's emitted URL toward the 10k budget", () => {
+    const url = "https://e.com/" + "x".repeat(10_001);
+    const table = ["| H | V |", "| --- | --- |", `| a | ![](${url}) |`].join(
+      "\n",
+    );
+    const blocks = renderSlackBlocks(table);
+    expect(blocks!.some((b) => b.type === "table")).toBe(false);
+  });
+
   test("falls back later tables once the per-message 10k cell budget is spent", () => {
     const big = "x".repeat(6000);
     const tableA = ["| H | V |", "| --- | --- |", `| a | ${big} |`].join("\n");
