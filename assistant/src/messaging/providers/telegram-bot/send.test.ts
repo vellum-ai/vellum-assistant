@@ -65,15 +65,28 @@ beforeEach(() => {
 });
 
 describe("sendTelegramRichReply", () => {
-  test("forwards markdown via sendRichMessage's nested rich_message object", async () => {
+  test("renders markdown to HTML and sends it via the nested rich_message object", async () => {
     await sendTelegramRichReply("123", "# Heading\n\n| a | b |\n| - | - |");
 
     expect(callsTo("sendRichMessage")).toHaveLength(1);
     expect(callsTo("sendMessage")).toHaveLength(0);
     expect(callTelegramBotApiMock).toHaveBeenCalledWith("sendRichMessage", {
       chat_id: "123",
-      rich_message: { markdown: "# Heading\n\n| a | b |\n| - | - |" },
+      rich_message: {
+        html: "<h1>Heading</h1><table><tr><th>a</th><th>b</th></tr></table>",
+        skip_entity_detection: true,
+      },
     });
+  });
+
+  test("escapes Telegram Rich-Markdown-only syntax so it renders as written", async () => {
+    // `$…$` math, `==highlight==`, `||spoiler||`, and literal `<` are Telegram
+    // Rich Markdown extensions; HTML mode keeps them literal.
+    await sendTelegramRichReply("123", "$100 to $200 ==x== ||y|| <b>");
+
+    const [, body] = callsTo("sendRichMessage")[0] ?? [];
+    const html = (body?.rich_message as { html: string }).html;
+    expect(html).toContain("$100 to $200 ==x== ||y|| &lt;b&gt;");
   });
 
   test("attaches the approval inline keyboard as reply_markup on the rich send", async () => {
@@ -81,7 +94,10 @@ describe("sendTelegramRichReply", () => {
 
     expect(callTelegramBotApiMock).toHaveBeenCalledWith("sendRichMessage", {
       chat_id: "123",
-      rich_message: { markdown: "Please approve" },
+      rich_message: {
+        html: "<p>Please approve</p>",
+        skip_entity_detection: true,
+      },
       reply_markup: expectedKeyboard,
     });
   });
@@ -170,7 +186,7 @@ describe("telegramTransport.deliver routing", () => {
 
     expect(callTelegramBotApiMock).toHaveBeenCalledWith("sendRichMessage", {
       chat_id: "123",
-      rich_message: { markdown: "hello" },
+      rich_message: { html: "<p>hello</p>", skip_entity_detection: true },
       reply_markup: expectedKeyboard,
     });
   });

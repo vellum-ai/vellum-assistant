@@ -15,6 +15,7 @@ import {
   callTelegramBotApiMultipart,
   TelegramNonRetryableError,
 } from "./api.js";
+import { renderTelegramHtml } from "./render.js";
 
 const log = getLogger("telegram-send");
 
@@ -119,33 +120,47 @@ export async function sendTelegramReply(
 }
 
 /**
- * Send a Telegram reply as a rich message (Bot API 10.1), forwarding the
- * reply's GFM markdown so tables, headings, code, and quotes render natively.
- * On a non-retryable rejection of the rich send, fall back to the plain-text
- * `sendTelegramReply` so the user still receives the message.
+ * Send a Telegram reply as a rich message (Bot API 10.1) so tables, headings,
+ * code, and quotes render natively. On a non-retryable rejection of the rich
+ * send, fall back to the plain-text `sendTelegramReply` so the user still
+ * receives the message.
  *
- * Telegram's Rich Markdown is GitHub-Flavored-Markdown-compatible, so the
- * canonical markdown forwards as-is via `InputRichMessage.markdown` — no
- * conversion to a block tree. Old clients degrade the display client-side; the
- * send itself does not fail on recipient version, so the only fallback trigger
- * is a request-level rejection (content over Telegram's documented rich-message
- * limits, or a Bot API server predating 10.1). The plain path splits at
- * `TELEGRAM_MAX_MESSAGE_LEN`, so it also covers the rare oversize case that the
- * single-shot rich send cannot.
+ * The canonical reply markdown is rendered to Telegram rich HTML (see
+ * `render.ts`) and sent via `InputRichMessage.html`. HTML mode keeps text
+ * content literal, so canonical GFM that overlaps Telegram's Rich *Markdown*
+ * extensions (`$…$` math, `==highlight==`, `||spoiler||`) renders exactly as
+ * written instead of being reinterpreted. `skip_entity_detection` is set
+ * because the canonical parser already turns bare URLs and e-mails into links;
+ * leaving Telegram's auto-detection on would additionally linkify cashtags,
+ * hashtags, mentions, phone numbers, and bank-card-like digit runs that GFM
+ * treats as plain text.
+ *
+ * Old clients degrade the display client-side; the send itself does not fail on
+ * recipient version, so the only fallback trigger is a request-level rejection
+ * (content over Telegram's documented rich-message limits, or a Bot API server
+ * predating 10.1). The plain path splits at `TELEGRAM_MAX_MESSAGE_LEN`, so it
+ * also covers the rare oversize case the single-shot rich send cannot.
  *
  * Wire shapes verified against the official Bot API docs:
  *   - sendRichMessage:  https://core.telegram.org/bots/api#sendrichmessage
  *   - InputRichMessage: https://core.telegram.org/bots/api#inputrichmessage
- *   - Rich Markdown:    https://core.telegram.org/bots/api#rich-message-formatting-options
+ *   - Rich HTML:        https://core.telegram.org/bots/api#rich-message-formatting-options
  */
 export async function sendTelegramRichReply(
   chatId: string,
   markdown: string,
   approval?: ApprovalUIMetadata,
 ): Promise<void> {
+  const html = renderTelegramHtml(markdown);
+  if (html === undefined) {
+    // No renderable rich content — send as plain text.
+    await sendTelegramReply(chatId, markdown, approval);
+    return;
+  }
+
   const payload: Record<string, unknown> = {
     chat_id: chatId,
-    rich_message: { markdown },
+    rich_message: { html, skip_entity_detection: true },
   };
   if (approval) {
     payload.reply_markup = buildInlineKeyboard(approval);
