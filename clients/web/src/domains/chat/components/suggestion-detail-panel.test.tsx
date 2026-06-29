@@ -45,7 +45,6 @@ describe("SuggestionDetailPanel", () => {
       <SuggestionDetailPanel
         suggestion={SUGGESTION}
         onClose={noop}
-        onSaveForLater={noop}
         onConfirm={noop}
       />,
     );
@@ -67,7 +66,6 @@ describe("SuggestionDetailPanel", () => {
       <SuggestionDetailPanel
         suggestion={SUGGESTION}
         onClose={noop}
-        onSaveForLater={noop}
         onConfirm={onConfirm}
       />,
     );
@@ -78,30 +76,12 @@ describe("SuggestionDetailPanel", () => {
     expect(onConfirm).toHaveBeenCalledWith(SUGGESTION);
   });
 
-  test("calls onSaveForLater with the suggestion when the secondary action is clicked", () => {
-    const onSaveForLater = mock((_suggestion: ThreadSuggestion) => {});
-    const { getByText } = render(
-      <SuggestionDetailPanel
-        suggestion={SUGGESTION}
-        onClose={noop}
-        onSaveForLater={onSaveForLater}
-        onConfirm={noop}
-      />,
-    );
-
-    fireEvent.click(getByText("Save for Later"));
-
-    expect(onSaveForLater).toHaveBeenCalledTimes(1);
-    expect(onSaveForLater).toHaveBeenCalledWith(SUGGESTION);
-  });
-
   test("calls onClose when the close button is clicked", () => {
     const onClose = mock(() => {});
     const { getByLabelText } = render(
       <SuggestionDetailPanel
         suggestion={SUGGESTION}
         onClose={onClose}
-        onSaveForLater={noop}
         onConfirm={noop}
       />,
     );

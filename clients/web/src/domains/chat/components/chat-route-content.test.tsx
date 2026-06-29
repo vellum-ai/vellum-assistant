@@ -10,7 +10,7 @@
  *
  * - clicking a featured card opens the drawer with that suggestion's detail;
  * - "Let's do it!" submits the suggestion's prompt and closes the drawer;
- * - close / Save for Later dismiss the drawer without submitting;
+ * - close dismisses the drawer without submitting;
  * - on mobile the detail opens in a `BottomSheet` (not the desktop drawer) and
  *   still opens/confirms correctly.
  *
@@ -176,14 +176,11 @@ function Harness({
     },
     [onSubmit],
   );
-  const handleSaveForLater = useCallback(() => setSelected(null), []);
-
   const detailPanel = selected ? (
     <SuggestionDetailPanel
       suggestion={selected}
       onClose={handleClose}
       onConfirm={handleConfirm}
-      onSaveForLater={handleSaveForLater}
     />
   ) : null;
 
@@ -272,21 +269,6 @@ describe("ChatMainPanel suggestion drawer wiring", () => {
 
     fireEvent.click(getByText(FEATURED.title));
     fireEvent.click(getByLabelText("Close"));
-
-    expect(submitted).toHaveLength(0);
-    expect(
-      container.querySelector('[data-slot="suggestion-detail-panel"]'),
-    ).toBeNull();
-  });
-
-  test("Save for Later dismisses the drawer without submitting", () => {
-    const submitted: string[] = [];
-    const { getByText, container } = render(
-      <Harness onSubmit={(p) => submitted.push(p)} />,
-    );
-
-    fireEvent.click(getByText(FEATURED.title));
-    fireEvent.click(getByText("Save for Later"));
 
     expect(submitted).toHaveLength(0);
     expect(

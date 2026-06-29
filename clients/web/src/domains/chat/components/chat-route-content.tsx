@@ -719,6 +719,8 @@ export function ChatMainPanel({
   const {
     emptyStateProps: chatEmptyStateProps,
     startersSlot,
+    belowFoldSlot,
+    dockStartersToBottom,
     renderAvatar,
     emptyStatePlaceholder,
   } = useChatEmptyState({
@@ -939,6 +941,8 @@ export function ChatMainPanel({
       queuedDrawerSlot={isSidePanel ? undefined : mainQueuedDrawerSlot}
       readonlyBannerSlot={channelReadonlyBannerSlot}
       startersSlot={startersSlot}
+      belowFoldSlot={belowFoldSlot}
+      dockStartersToBottom={dockStartersToBottom}
       activeSubagentsSlot={activeSubagentsSlot}
       activeWorkflowsSlot={activeWorkflowsSlot}
     />
@@ -949,7 +953,6 @@ export function ChatMainPanel({
       suggestion={selectedSuggestion}
       onClose={handleCloseSuggestion}
       onConfirm={handleConfirmSuggestion}
-      onSaveForLater={handleCloseSuggestion}
     />
   ) : null;
 

@@ -103,17 +103,26 @@ describe("useChatEmptyState startersSlot", () => {
     ).not.toBeNull();
   });
 
-  test("flag ON with onSelectSuggestion renders the suggestion library on a fresh thread", () => {
+  test("flag ON with onSelectSuggestion docks the featured row and groups below the fold", () => {
     flagRef.value = true;
     const { result } = renderHook(() =>
       useChatEmptyState(baseParams({ onSelectSuggestion: () => {} })),
     );
 
-    const { container, getByText } = render(<>{result.current.startersSlot}</>);
+    // The featured row is the docked first-screen slot; the categorized
+    // groups render below the fold.
+    expect(result.current.dockStartersToBottom).toBe(true);
+
+    const starters = render(<>{result.current.startersSlot}</>);
     expect(
-      container.querySelector('[data-slot="suggestion-library"]'),
+      starters.container.querySelector('[data-slot="suggestion-featured-row"]'),
     ).not.toBeNull();
-    expect(getByText(FEATURED.title)).toBeTruthy();
+    expect(starters.getByText(FEATURED.title)).toBeTruthy();
+
+    const below = render(<>{result.current.belowFoldSlot}</>);
+    expect(
+      below.container.querySelector('[data-slot="suggestion-groups"]'),
+    ).not.toBeNull();
   });
 
   test("flag ON without onSelectSuggestion falls back to the conversation-starter chips", () => {

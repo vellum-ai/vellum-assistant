@@ -13,7 +13,10 @@ import { type ReactNode, useMemo } from "react";
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state";
 import { ConversationStarterGrid } from "@/domains/chat/components/conversation-starter-grid";
-import { SuggestionLibrary } from "@/domains/chat/components/suggestion-library";
+import {
+  SuggestionFeaturedRow,
+  SuggestionGroups,
+} from "@/domains/chat/components/suggestion-library";
 import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-starters";
 import { useEmptyStateGreeting } from "@/domains/chat/hooks/use-empty-state-greeting";
 import { useThreadSuggestions } from "@/domains/chat/hooks/use-thread-suggestions";
@@ -52,6 +55,19 @@ export interface UseChatEmptyStateParams {
 export interface ChatEmptyStateResult {
   emptyStateProps: ChatEmptyStateProps;
   startersSlot: ReactNode | undefined;
+  /**
+   * Below-the-fold content rendered after the first viewport on the empty
+   * state. Set to the categorized suggestion groups when the library is
+   * shown; otherwise `undefined`.
+   */
+  belowFoldSlot: ReactNode | undefined;
+  /**
+   * When true, the empty state docks `startersSlot` to the bottom of the
+   * first viewport and centers the greeting + composer above it (the
+   * suggestions-library layout). Otherwise the starters sit directly below
+   * the composer (the conversation-starter chip layout).
+   */
+  dockStartersToBottom: boolean;
   renderAvatar: (() => ReactNode) | undefined;
   emptyStatePlaceholder: string;
 }
@@ -133,15 +149,15 @@ export function useChatEmptyState({
     : conversationStarters;
 
   let startersSlot: ReactNode | undefined;
+  let belowFoldSlot: ReactNode | undefined;
   if (showSuggestionLibrary) {
+    // `onSelectSuggestion` is non-null here (it's part of the
+    // `showSuggestionLibrary` predicate above).
     startersSlot = (
-      <div className="mt-4">
-        <SuggestionLibrary
-          featured={featured}
-          groups={groups}
-          onSelect={onSelectSuggestion}
-        />
-      </div>
+      <SuggestionFeaturedRow featured={featured} onSelect={onSelectSuggestion} />
+    );
+    belowFoldSlot = (
+      <SuggestionGroups groups={groups} onSelect={onSelectSuggestion} />
     );
   } else if (isEmptyConversation && emptyStateStarters.length > 0) {
     startersSlot = (
@@ -181,5 +197,12 @@ export function useChatEmptyState({
     ],
   );
 
-  return { emptyStateProps, startersSlot, renderAvatar, emptyStatePlaceholder };
+  return {
+    emptyStateProps,
+    startersSlot,
+    belowFoldSlot,
+    dockStartersToBottom: showSuggestionLibrary,
+    renderAvatar,
+    emptyStatePlaceholder,
+  };
 }
