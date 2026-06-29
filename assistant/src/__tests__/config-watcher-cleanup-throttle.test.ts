@@ -7,7 +7,7 @@
  * maybeEnqueueScheduledCleanupJobs (in jobs-worker) early-returns while
  * the throttle is still within its window.
  *
- * The shared throttle state lives in memory/cleanup-schedule-state.ts so
+ * The shared throttle state lives in persistence/cleanup-schedule-state.ts so
  * that config-watcher can reset it without pulling jobs-worker's large
  * transitive import graph into test modules. This test stubs the
  * schedule-state module so calls from config-watcher can be counted

@@ -7,7 +7,7 @@
  * threaded through the agent loop. The hook is a pure trigger — it schedules
  * the work and returns; persistence and the resulting
  * `conversation_title_updated` / `sync_changed` broadcast are owned by the
- * title service (see `memory/conversation-title-service.ts`).
+ * title service (see `persistence/conversation-title-service.ts`).
  */
 
 import type {
