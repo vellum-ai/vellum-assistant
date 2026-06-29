@@ -16,9 +16,11 @@ const MIGRATE_ITEMS_CHECKPOINT = "graph_bootstrap:migrated_tool_items";
 // Setup
 // ---------------------------------------------------------------------------
 
+// initializeDb runs the full migration chain (hundreds of steps); under
+// parallel CI load it can exceed bun's default 5s hook timeout, so allow more.
 beforeAll(async () => {
   await initializeDb();
-});
+}, 30_000);
 
 beforeEach(() => {
   // Clear graph nodes and checkpoints between tests so each test starts clean.
