@@ -23,6 +23,7 @@ import {
   useBackgroundTaskStore,
   type BackgroundTaskEntry,
 } from "@/domains/chat/background-task-store";
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 /** A single active-tool row from the daemon list route. */
@@ -108,4 +109,23 @@ export function useBackgroundTaskRehydration(
       cancelled = true;
     };
   }, [assistantId, conversationId]);
+
+  // Reconcile on SSE reopen: a connection that dropped past the daemon's replay
+  // ring can miss a `background_tool_completed`, leaving the entry stuck
+  // `running` (stale overlay + Stop control). Re-fetching the authoritative
+  // active snapshot retires those tasks. `fresh`/`anchor` opens are skipped —
+  // the conversation effect above already owns the initial load.
+  useBusSubscription(
+    "sse.opened",
+    ({ assistantId: openedAssistantId, cause }) => {
+      if (cause === "fresh" || cause === "anchor") return;
+      if (!assistantId || !conversationId || openedAssistantId !== assistantId) {
+        return;
+      }
+      const knownIds = knownTaskIdsFor(conversationId);
+      void fetchBackgroundTasks(assistantId, conversationId).then((entries) => {
+        applyBackgroundTaskSnapshot(entries, knownIds);
+      });
+    },
+  );
 }
