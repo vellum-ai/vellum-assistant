@@ -55,9 +55,11 @@ function makeUploadArgs(
 }
 
 describe("attachment upload — trustedSource flag", () => {
+  // initializeDb runs the full migration chain (hundreds of steps); under
+  // parallel CI load it can exceed bun's default 5s hook timeout, so allow more.
   beforeAll(async () => {
     await initializeDb();
-  });
+  }, 30_000);
 
   beforeEach(() => {
     // Each test uploads a fresh attachment with unique filename; no per-test
