@@ -124,6 +124,18 @@
       "category": "hobby",
       "homepage": "https://github.com/vellum-ai/nightstand",
       "license": "MIT"
+    },
+    {
+      "name": "inkwell",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/inkwell",
+        "ref": "e83bd129b221eef8c56048002d60bf80e50c6b29"
+      },
+      "description": "A writing coach in your pocket. Daily prompts that escalate with your streak, savage-but-constructive draft roasts, query letter critiques, and a word count enforcer with Balkan-mom energy.",
+      "category": "hobby",
+      "homepage": "https://github.com/vellum-ai/inkwell",
+      "license": "MIT"
     }
   ]
 }
