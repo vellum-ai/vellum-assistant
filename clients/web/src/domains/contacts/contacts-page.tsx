@@ -45,12 +45,12 @@ import {
 import {
     channelsAvailableGet,
     integrationsSlackChannelConfigDelete,
-    integrationsSlackChannelConfigPost,
     integrationsTelegramConfigDelete,
     integrationsTelegramConfigPost,
     integrationsTwilioCredentialsDelete,
     integrationsTwilioCredentialsPost,
 } from "@/generated/daemon/sdk.gen";
+import { useSaveSlackConfig } from "@/hooks/use-save-slack-config";
 import type {
     ChannelsAvailableGetResponse,
     IntegrationsSlackChannelConfigGetResponse,
@@ -414,15 +414,7 @@ export function ContactsPage({
     onSettled: () => invalidateReadiness(),
   });
 
-  const saveSlackMutation = useMutation({
-    mutationFn: ({ botToken, appToken }: { botToken: string; appToken: string }) =>
-      integrationsSlackChannelConfigPost({
-        path: { assistant_id: assistantId },
-        body: { botToken, appToken },
-        throwOnError: true,
-      }),
-    onSettled: () => invalidateReadiness(),
-  });
+  const saveSlackMutation = useSaveSlackConfig({ assistantId });
 
   const slackThreadModeMutation = useMutation({
     ...integrationsSlackChannelConfigPatchMutation(),
