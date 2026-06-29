@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+import { AcpSessionCompletedEventSchema } from "./events/acp-session-completed.js";
+import { AcpSessionErrorEventSchema } from "./events/acp-session-error.js";
+import { AcpSessionSpawnedEventSchema } from "./events/acp-session-spawned.js";
+import { AcpSessionUpdateEventSchema } from "./events/acp-session-update.js";
+import { AcpSessionUsageEventSchema } from "./events/acp-session-usage.js";
 import { AssistantActivityStateEventSchema } from "./events/assistant-activity-state.js";
 import { AssistantTextDeltaEventSchema } from "./events/assistant-text-delta.js";
 import { AssistantThinkingDeltaEventSchema } from "./events/assistant-thinking-delta.js";
@@ -67,6 +72,30 @@ export {
   SSE_REPLAY_RING_COUNT_LIMIT,
 } from "./constants/sse-replay.js";
 export { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "./constants/tool-execution.js";
+export {
+  type AcpSessionCompletedEvent,
+  AcpSessionCompletedEventSchema,
+  type AcpStopReason,
+  AcpStopReasonSchema,
+} from "./events/acp-session-completed.js";
+export {
+  type AcpSessionErrorEvent,
+  AcpSessionErrorEventSchema,
+} from "./events/acp-session-error.js";
+export {
+  type AcpSessionSpawnedEvent,
+  AcpSessionSpawnedEventSchema,
+} from "./events/acp-session-spawned.js";
+export {
+  type AcpSessionUpdateEvent,
+  AcpSessionUpdateEventSchema,
+  type AcpSessionUpdateType,
+  AcpSessionUpdateTypeSchema,
+} from "./events/acp-session-update.js";
+export {
+  type AcpSessionUsageEvent,
+  AcpSessionUsageEventSchema,
+} from "./events/acp-session-usage.js";
 export {
   type AssistantActivityAnchor,
   AssistantActivityAnchorSchema,
@@ -504,6 +533,11 @@ export {
  * migration recipe.
  */
 export const AssistantEventSchema = z.discriminatedUnion("type", [
+  AcpSessionCompletedEventSchema,
+  AcpSessionErrorEventSchema,
+  AcpSessionSpawnedEventSchema,
+  AcpSessionUpdateEventSchema,
+  AcpSessionUsageEventSchema,
   AssistantActivityStateEventSchema,
   AssistantTextDeltaEventSchema,
   AssistantThinkingDeltaEventSchema,

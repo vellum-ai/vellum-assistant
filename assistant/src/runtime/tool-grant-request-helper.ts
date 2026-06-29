@@ -15,7 +15,7 @@ import type { ChannelId } from "../channels/types.js";
 import {
   createCanonicalGuardianRequest,
   listCanonicalGuardianRequests,
-} from "../memory/canonical-guardian-store.js";
+} from "../contacts/canonical-guardian-store.js";
 import {
   recordApprovalCardDelivery,
   recordGuardianRequestDeliveries,

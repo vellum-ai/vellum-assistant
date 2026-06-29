@@ -115,6 +115,30 @@ function isValidSlug(slug: string): boolean {
   return basename(slug) === slug && slug !== "." && slug !== "..";
 }
 
+/** Names of the columns present on a table, via `PRAGMA table_info`. */
+function tableColumns(db: Database, table: string): Set<string> {
+  const rows = db
+    .query<{ name: string }, []>(`PRAGMA table_info(${table})`)
+    .all();
+  return new Set(rows.map((r) => r.name));
+}
+
+/**
+ * The guardian read below depends on the legacy ACL columns
+ * `contacts.role` and `contact_channels.status` / `verified_at`. Guardian ACL
+ * is gateway-owned, so these columns may be absent from the assistant DB; this
+ * one-time cleanup is skipped when they are.
+ */
+function aclColumnsPresent(db: Database): boolean {
+  const contactCols = tableColumns(db, "contacts");
+  const channelCols = tableColumns(db, "contact_channels");
+  return (
+    contactCols.has("role") &&
+    channelCols.has("status") &&
+    channelCols.has("verified_at")
+  );
+}
+
 /**
  * Strip LIKE metacharacters so the prefix match runs literally. SQLite has
  * no default LIKE escape character, so strip rather than escape. Inlined
@@ -201,6 +225,8 @@ export const dropUserMdMigration: WorkspaceMigration = {
     }
 
     try {
+      if (!aclColumnsPresent(db)) return; // ACL columns dropped — cleanup is a no-op.
+
       // Resolve the guardian contact from the local DB. Prefer the
       // vellum-channel binding (the canonical native guardian); fall back to
       // whichever guardian has the most recently verified active channel.

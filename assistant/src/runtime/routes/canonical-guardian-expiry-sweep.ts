@@ -21,7 +21,7 @@ import { notifyExpiredGuardianRequest } from "../../approvals/guardian-expiry-no
 import {
   listCanonicalGuardianRequests,
   resolveCanonicalGuardianRequest,
-} from "../../memory/canonical-guardian-store.js";
+} from "../../contacts/canonical-guardian-store.js";
 import { getLogger } from "../../util/logger.js";
 
 const log = getLogger("canonical-guardian-expiry-sweep");

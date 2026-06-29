@@ -43,13 +43,13 @@ import {
   unarchiveConversation,
   updateConversationTitle,
   wipeConversation,
-} from "../../memory/conversation-crud.js";
+} from "../../persistence/conversation-crud.js";
 import {
   getOrCreateConversation,
   resolveConversationId,
   setConversationKeyIfAbsent,
-} from "../../memory/conversation-key-store.js";
-import { enqueueMemoryJob } from "../../memory/jobs-store.js";
+} from "../../persistence/conversation-key-store.js";
+import { enqueueMemoryJob } from "../../persistence/jobs-store.js";
 import { deleteSchedule } from "../../schedule/schedule-store.js";
 import { UserError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";

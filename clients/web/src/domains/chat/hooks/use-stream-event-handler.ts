@@ -44,6 +44,7 @@ import {
   handleUISurfaceComplete,
 } from "@/domains/chat/utils/stream-handlers/surface-handlers";
 import {
+  handleToolUsePreviewStart,
   handleToolUseStart,
   handleToolResult,
   handleToolOutputChunk,
@@ -64,6 +65,13 @@ import {
   handleSubagentStatusChanged,
   handleSubagentEvent,
 } from "@/domains/chat/utils/stream-handlers/subagent-handlers";
+import {
+  handleAcpSessionSpawned,
+  handleAcpSessionUpdate,
+  handleAcpSessionUsage,
+  handleAcpSessionCompleted,
+  handleAcpSessionError,
+} from "@/domains/chat/utils/stream-handlers/acp-handlers";
 import {
   handleWorkflowStarted,
   handleWorkflowProgress,
@@ -326,8 +334,11 @@ export function useStreamEventHandler(
         case "tool_result":
           handleToolResult(event, ctx);
           break;
-        // The optimistic pre-input affordance has no transcript treatment.
+        // Optimistic pre-input affordance: seed a running tool card the moment
+        // the call is recognized, so the user-perceived elapsed timer starts at
+        // first byte rather than after the input-streaming gap.
         case "tool_use_preview_start":
+          handleToolUsePreviewStart(event, ctx);
           break;
         // Incremental tool output (e.g. foreground bash stdout/stderr) is
         // buffered onto the matching tool call's live `streamedOutput` tail
@@ -386,6 +397,22 @@ export function useStreamEventHandler(
           break;
         case "subagent_event":
           handleSubagentEvent(event, ctx);
+          break;
+
+        case "acp_session_spawned":
+          handleAcpSessionSpawned(event);
+          break;
+        case "acp_session_update":
+          handleAcpSessionUpdate(event);
+          break;
+        case "acp_session_usage":
+          handleAcpSessionUsage(event);
+          break;
+        case "acp_session_completed":
+          handleAcpSessionCompleted(event);
+          break;
+        case "acp_session_error":
+          handleAcpSessionError(event);
           break;
 
         case "workflow_started":

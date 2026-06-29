@@ -50,8 +50,8 @@ import type { AssistantConfig } from "../config/types.js";
 import {
   clearEmbeddingBackendCache,
   selectEmbeddingBackend,
-} from "../memory/embedding-backend.js";
-import { GeminiEmbeddingBackend } from "../memory/embedding-gemini.js";
+} from "../persistence/embeddings/embedding-backend.js";
+import { GeminiEmbeddingBackend } from "../persistence/embeddings/embedding-gemini.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -300,6 +300,7 @@ export async function clawhubInstall(
       slug,
       installedAt: new Date().toISOString(),
       ...(opts?.contactId ? { installedBy: opts.contactId } : {}),
+      author: "user",
       contentHash: computeSkillHash(installed.skillDir) ?? undefined,
     });
 

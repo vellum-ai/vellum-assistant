@@ -38,10 +38,10 @@ mock.module("../oauth/connection-resolver.js", () => ({
 mock.module("../config/env.js", () => ({
   getGatewayInternalBaseUrl: () => "http://localhost:3000",
 }));
-mock.module("../memory/conversation-key-store.js", () => ({
+mock.module("../persistence/conversation-key-store.js", () => ({
   getOrCreateConversation: async () => "conv-1",
 }));
-mock.module("../memory/external-conversation-store.js", () => ({
+mock.module("../persistence/external-conversation-store.js", () => ({
   getExternalConversation: () => undefined,
   setExternalConversation: () => {},
 }));

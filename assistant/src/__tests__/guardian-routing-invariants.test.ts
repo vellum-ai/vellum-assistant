@@ -42,9 +42,9 @@ import {
 import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
-} from "../memory/canonical-guardian-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../contacts/canonical-guardian-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { processGuardianDecision } from "../runtime/guardian-action-service.js";
 import { GUARDIAN_DECISION_ACTIONS } from "../runtime/guardian-decision-types.js";
 import {

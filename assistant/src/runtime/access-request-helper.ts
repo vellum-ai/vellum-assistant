@@ -12,12 +12,12 @@
  */
 
 import type { ChannelId } from "../channels/types.js";
-import { getGuardianDelivery } from "../contacts/guardian-delivery-reader.js";
-import type { ChannelStatus } from "../contacts/types.js";
 import {
   createCanonicalGuardianRequest,
   listCanonicalGuardianRequests,
-} from "../memory/canonical-guardian-store.js";
+} from "../contacts/canonical-guardian-store.js";
+import { getGuardianDelivery } from "../contacts/guardian-delivery-reader.js";
+import type { ChannelStatus } from "../contacts/types.js";
 import {
   recordApprovalCardDelivery,
   recordGuardianRequestDeliveries,

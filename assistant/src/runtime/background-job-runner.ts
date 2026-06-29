@@ -21,9 +21,6 @@
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { processMessage } from "../daemon/process-message.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
-import { addMessage } from "../memory/conversation-crud.js";
-import type { TitleOrigin } from "../memory/conversation-title-service.js";
 import {
   commitDeferredConversation,
   discardDeferredConversation,
@@ -31,6 +28,9 @@ import {
 } from "../notifications/deferred-emit.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import type { AttentionHints } from "../notifications/signal.js";
+import { bootstrapConversation } from "../persistence/conversation-bootstrap.js";
+import { addMessage } from "../persistence/conversation-crud.js";
+import type { TitleOrigin } from "../persistence/conversation-title-service.js";
 import { getLogger } from "../util/logger.js";
 import { hasReceivedUserMessage } from "./pre-first-message-gate.js";
 
@@ -73,6 +73,12 @@ export interface RunBackgroundJobOptions {
    * profile; omitted = the call site's default resolution.
    */
   overrideProfile?: string;
+  /**
+   * Firing's `cron_runs.id`, threaded into the turn's usage rows so a scheduled
+   * execute job attributes its LLM spend to that firing. Omitted for
+   * non-scheduled background jobs.
+   */
+  cronRunId?: string | null;
   /** Hard timeout for `processMessage` in milliseconds. */
   timeoutMs: number;
   /**
@@ -86,6 +92,16 @@ export interface RunBackgroundJobOptions {
   groupId?: string;
   /** Title origin tag for `bootstrapConversation`. */
   origin: TitleOrigin;
+  /**
+   * Origin tag threaded into the agent turn's tool context (and through it
+   * `buildPolicyContext`), letting the permission checker scope narrow
+   * non-interactive auto-grants to a specific internal background origin
+   * (e.g. memory-consolidation skill authoring). Background jobs cannot
+   * answer interactive approval prompts, so a job that legitimately needs an
+   * otherwise-gated tool opts in by setting this to the origin its grant
+   * keys on. Omitted = no origin-scoped grant can fire for the turn.
+   */
+  requestOrigin?: string;
   /** Conversation type to bootstrap with. Defaults to `"background"`. */
   conversationType?: "background" | "scheduled";
   /**
@@ -276,6 +292,8 @@ export async function runBackgroundJob(
       ...(opts.overrideProfile
         ? { overrideProfile: opts.overrideProfile }
         : {}),
+      ...(opts.requestOrigin ? { requestOrigin: opts.requestOrigin } : {}),
+      ...(opts.cronRunId ? { cronRunId: opts.cronRunId } : {}),
     });
     // Absorb late rejections: if the timeout wins the race, `work` keeps
     // running and may eventually reject — swallow so it doesn't surface as

@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import {
   getKeyframesForAsset,
   getMediaAssetById,
-} from "../../../../memory/media-store.js";
+} from "../../../../persistence/media-store.js";
 import type {
   ToolContext,
   ToolExecutionResult,

@@ -133,6 +133,40 @@ function makeRequest(body: Record<string, unknown>): Request {
 }
 
 // ---------------------------------------------------------------------------
+// IPC call inspectors
+//
+// The handler fires two IPC operations on a successful mutating submit: an
+// `emit_event` { kind: "contacts_changed" } cache-invalidation broadcast plus
+// the `resolve_contact_prompt` that unblocks the CLI. These helpers pick the
+// right call regardless of order.
+// ---------------------------------------------------------------------------
+
+function callsFor(
+  ipc: typeof ipcMock,
+  op: string,
+): { body: Record<string, unknown> }[] {
+  return (ipc.mock.calls as any[][])
+    .filter((c) => c[0] === op)
+    .map((c) => c[1] as { body: Record<string, unknown> });
+}
+
+function resolveCall(ipc: typeof ipcMock): { body: Record<string, unknown> } {
+  const calls = callsFor(ipc, "resolve_contact_prompt");
+  expect(calls).toHaveLength(1);
+  return calls[0];
+}
+
+function expectEmittedContactsChanged(ipc: typeof ipcMock): void {
+  const calls = callsFor(ipc, "emit_event");
+  expect(calls.length).toBeGreaterThanOrEqual(1);
+  expect(calls.some((c) => c.body.kind === "contacts_changed")).toBe(true);
+}
+
+function expectNoEmit(ipc: typeof ipcMock): void {
+  expect(callsFor(ipc, "emit_event")).toHaveLength(0);
+}
+
+// ---------------------------------------------------------------------------
 // Suite setup
 // ---------------------------------------------------------------------------
 
@@ -209,11 +243,12 @@ describe("handleContactPromptSubmit", () => {
     expect(gwGuardian[0].role).toBe("guardian");
 
     // IPC should have been called with the guardian contactId + gateway channel id.
-    expect(ipcMock).toHaveBeenCalledTimes(1);
-
-    const ipcCall = (ipcMock.mock.calls as any[][])[0][1] as { body: Record<string, unknown> };
+    const ipcCall = resolveCall(ipcMock);
     expect(ipcCall.body.contactId).toBe("guardian-1");
     expect(ipcCall.body.channelId).toBe(gwChannels[0].id);
+
+    // A successful guardian bind invalidates the daemon guardian-id cache.
+    expectEmittedContactsChanged(ipcMock);
   });
 
   test("guardian prompt — reuses channel already bound to guardian", async () => {
@@ -252,9 +287,9 @@ describe("handleContactPromptSubmit", () => {
     expect(gwChannels).toHaveLength(1);
     expect(gwChannels[0].id).toBe("chan-1");
 
-
-    const ipcCall = (ipcMock.mock.calls as any[][])[0][1] as { body: Record<string, unknown> };
+    const ipcCall = resolveCall(ipcMock);
     expect(ipcCall.body.channelId).toBe("chan-1");
+    expectEmittedContactsChanged(ipcMock);
   });
 
   test("guardian prompt — 409 when channel already belongs to another contact", async () => {
@@ -310,8 +345,11 @@ describe("handleContactPromptSubmit", () => {
     // IPC should have been called with an error so the CLI doesn't hang.
     expect(ipcMock).toHaveBeenCalledTimes(1);
 
-    const ipcCall = (ipcMock.mock.calls as any[][])[0][1] as { body: Record<string, unknown> };
+    const ipcCall = resolveCall(ipcMock);
     expect(typeof ipcCall.body.error).toBe("string");
+
+    // A 409 conflict mutated nothing — no cache-invalidation broadcast.
+    expectNoEmit(ipcMock);
   });
 
   test("guardian prompt — accepted even when assistant-DB mirror throws (gateway-first)", async () => {
@@ -377,9 +415,9 @@ describe("handleContactPromptSubmit", () => {
     expect(gwChannels).toHaveLength(1);
     expect(gwChannels[0].contactId).toBe(gwGuardians[0].id);
 
-
-    const ipcCall = (ipcMock.mock.calls as any[][])[0][1] as { body: Record<string, unknown> };
+    const ipcCall = resolveCall(ipcMock);
     expect(ipcCall.body.contactId).toBe(gwGuardians[0].id);
+    expectEmittedContactsChanged(ipcMock);
   });
 
   test("non-guardian prompt — creates new contact and channel (gateway-first)", async () => {
@@ -417,10 +455,12 @@ describe("handleContactPromptSubmit", () => {
     expect(gwChannelRows[0].isPrimary).toBe(true);
 
     // The channel id handed to resolve_contact_prompt matches the gateway row.
-
-    const ipcCall = (ipcMock.mock.calls as any[][])[0][1] as { body: Record<string, unknown> };
+    const ipcCall = resolveCall(ipcMock);
     expect(ipcCall.body.channelId).toBe(gwChannelRows[0].id);
     expect(ipcCall.body.contactId).toBe(gwContactRows[0].id);
+
+    // A successful non-guardian upsert invalidates the daemon contact caches.
+    expectEmittedContactsChanged(ipcMock);
   });
 
   test("non-guardian prompt — accepted even when assistant-DB mirror throws (gateway-first)", async () => {
@@ -505,9 +545,9 @@ describe("handleContactPromptSubmit", () => {
     // display_name not clobbered when displayName omitted from the body.
     expect(gwContactRows[0].displayName).toBe("Alice");
 
-
-    const ipcCall = (ipcMock.mock.calls as any[][])[0][1] as { body: Record<string, unknown> };
+    const ipcCall = resolveCall(ipcMock);
     expect(ipcCall.body.contactId).toBe("contact-1");
+    expectEmittedContactsChanged(ipcMock);
   });
 
   test("non-guardian prompt — explicit null displayName is treated as omitted (preserves name, no 500)", async () => {
@@ -633,10 +673,9 @@ describe("handleContactPromptSubmit", () => {
     expect(asChannels).toHaveLength(1);
     expect(asChannels[0].contact_id).toBe("guardian-1");
 
-    const ipcCall = (ipcMock.mock.calls as any[][])[0][1] as {
-      body: Record<string, unknown>;
-    };
+    const ipcCall = resolveCall(ipcMock);
     expect(ipcCall.body.channelId).toBe("chan-reuse");
+    expectEmittedContactsChanged(ipcMock);
   });
 
   test("guardian reuse — mirror-heal upsert throwing is non-fatal (still accepted, reuses channel)", async () => {
@@ -697,72 +736,13 @@ describe("handleContactPromptSubmit", () => {
     expect(gwChannels[0].contactId).toBe("guardian-1");
 
     // Daemon resolved with the existing channel id (success, not error).
-    const ipcCall = (ipcMock.mock.calls as any[][])[0][1] as {
-      body: Record<string, unknown>;
-    };
+    const ipcCall = resolveCall(ipcMock);
     expect(ipcCall.body.channelId).toBe("chan-reuse-fail");
     expect(ipcCall.body.error).toBeUndefined();
+    expectEmittedContactsChanged(ipcMock);
   });
 
-  test("guardian bootstrap-create — assistant mirror keeps role='guardian' even if create-mirror INSERT fails", async () => {
-    // No guardian seeded: handler mints one gateway-first. Make the
-    // bootstrap-create assistant mirror INSERT (role='guardian') fail, so the
-    // assistant DB has no guardian row when Phase-2 upsertContact runs. Without
-    // the role re-assert, that upsert would INSERT the id with role='contact',
-    // downgrading the guardian in the mirror.
-    const realDb = testAssistantDb!;
-    let failNextGuardianInsert = true;
-    testAssistantDb = {
-      prepare(sql: string) {
-        if (
-          failNextGuardianInsert &&
-          /INSERT INTO contacts/i.test(sql) &&
-          /'guardian'/.test(sql)
-        ) {
-          failNextGuardianInsert = false;
-          throw new Error("assistant DB guardian INSERT unavailable");
-        }
-        return realDb.prepare(sql);
-      },
-    } as unknown as Database;
-
-    let res: Response;
-    try {
-      res = await handleContactPromptSubmit(
-        makeRequest({
-          requestId: "req-boot-downgrade",
-          address: "+15552223333",
-          channelType: "phone",
-          role: "guardian",
-          displayName: "Mirror Guardian",
-        }),
-      );
-    } finally {
-      testAssistantDb = realDb;
-    }
-
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as Record<string, unknown>;
-    expect(body.accepted).toBe(true);
-
-    // Gateway DB: guardian minted with role=guardian (authoritative).
-    const gwGuardians = getGatewayDb()
-      .select()
-      .from(gwContacts)
-      .where(eq(gwContacts.role, "guardian"))
-      .all();
-    expect(gwGuardians).toHaveLength(1);
-
-    // Assistant mirror: the role re-assert healed any Phase-2 downgrade — the
-    // row exists and is role='guardian', NOT 'contact'.
-    const asContacts = testAssistantDb!
-      .prepare(`SELECT role FROM contacts WHERE id = ?`)
-      .all(gwGuardians[0].id) as { role: string }[];
-    expect(asContacts).toHaveLength(1);
-    expect(asContacts[0].role).toBe("guardian");
-  });
-
-  test("guardian bootstrap-create — assistant mirror row is role='guardian'", async () => {
+  test("guardian bootstrap-create — gateway is authoritative; assistant mirror row exists without ACL role", async () => {
     const res = await handleContactPromptSubmit(
       makeRequest({
         requestId: "req-boot-role",
@@ -776,6 +756,7 @@ describe("handleContactPromptSubmit", () => {
     expect(res.status).toBe(200);
     expect(((await res.json()) as Record<string, unknown>).accepted).toBe(true);
 
+    // Gateway DB is the source of truth for the guardian ACL role.
     const gwGuardians = getGatewayDb()
       .select()
       .from(gwContacts)
@@ -783,11 +764,13 @@ describe("handleContactPromptSubmit", () => {
       .all();
     expect(gwGuardians).toHaveLength(1);
 
+    // Assistant mirror is an identity mirror only — the row exists but no ACL
+    // role is written through, so it falls back to the schema default 'contact'.
     const asContacts = testAssistantDb!
       .prepare(`SELECT role FROM contacts WHERE id = ?`)
       .all(gwGuardians[0].id) as { role: string }[];
     expect(asContacts).toHaveLength(1);
-    expect(asContacts[0].role).toBe("guardian");
+    expect(asContacts[0].role).toBe("contact");
   });
 
   test("non-guardian prompt — 500 + daemon error when channel can't be resolved (no empty channelId)", async () => {
@@ -817,12 +800,14 @@ describe("handleContactPromptSubmit", () => {
     expect(body.accepted).toBe(false);
 
     // Daemon was notified with an error (not a success resolve with empty id).
-    expect(ipcMock).toHaveBeenCalledTimes(1);
-    const ipcCall = (ipcMock.mock.calls as any[][])[0][1] as {
-      body: Record<string, unknown>;
-    };
+    const ipcCall = resolveCall(ipcMock);
     expect(typeof ipcCall.body.error).toBe("string");
     expect(ipcCall.body.channelId).toBeUndefined();
+
+    // The non-guardian upsert already committed (no rollback on this path)
+    // before the read-back miss, so the caches are still invalidated — the
+    // emit fires before the channel-id guard.
+    expectEmittedContactsChanged(ipcMock);
   });
 
   test("guardian bind — rolls back freshly-created guardian + 500 when channel can't be resolved", async () => {
@@ -862,9 +847,49 @@ describe("handleContactPromptSubmit", () => {
     expect(gwGuardians).toHaveLength(0);
 
     // Daemon notified with an error.
-    const ipcCall = (ipcMock.mock.calls as any[][])[0][1] as {
-      body: Record<string, unknown>;
-    };
+    const ipcCall = resolveCall(ipcMock);
     expect(typeof ipcCall.body.error).toBe("string");
+
+    // The rolled-back bind mutated nothing net — no cache-invalidation broadcast.
+    expectNoEmit(ipcMock);
+  });
+
+  test("guardian bind — existing guardian, read-back miss still emits (committed bind, no rollback)", async () => {
+    // An existing guardian is bound to a NEW channel; the post-bind resolve
+    // misses. rollbackCreatedContact is a no-op (the guardian wasn't created
+    // here), so the committed channel bind persists and the caches MUST be
+    // invalidated despite the 500.
+    seedGuardian();
+    const spy = spyOn(
+      ContactStore.prototype,
+      "getChannelsForContact",
+    ).mockReturnValue([]);
+
+    let res: Response;
+    try {
+      res = await handleContactPromptSubmit(
+        makeRequest({
+          requestId: "req-existing-noresolve",
+          address: "+15557778888",
+          channelType: "phone",
+          role: "guardian",
+        }),
+      );
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(res.status).toBe(500);
+
+    // The existing guardian was NOT rolled back.
+    const gwGuardians = getGatewayDb()
+      .select()
+      .from(gwContacts)
+      .where(eq(gwContacts.role, "guardian"))
+      .all();
+    expect(gwGuardians).toHaveLength(1);
+
+    // Committed bind on an existing guardian — caches invalidated despite 500.
+    expectEmittedContactsChanged(ipcMock);
   });
 });

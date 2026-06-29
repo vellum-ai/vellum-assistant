@@ -31,11 +31,14 @@ mock.module("../daemon/handlers/shared.js", () => ({
 
 import { eq } from "drizzle-orm";
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import * as deliveryChannels from "../memory/delivery-channels.js";
-import { resetTestTables } from "../memory/raw-query.js";
-import { attachments, conversationAttentionEvents } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import * as deliveryChannels from "../persistence/delivery-channels.js";
+import { resetTestTables } from "../persistence/raw-query.js";
+import {
+  attachments,
+  conversationAttentionEvents,
+} from "../persistence/schema/index.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 import {

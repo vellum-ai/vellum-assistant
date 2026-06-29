@@ -292,7 +292,7 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
         {
           label: "Vellum Documentation",
           click: () => {
-            void shell.openExternal("https://docs.vellum.ai");
+            void shell.openExternal("https://www.vellum.ai/docs");
           },
         },
       ],

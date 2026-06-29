@@ -2,13 +2,13 @@
  * `assistant plugins` — manage external plugins installed under
  * `<workspaceDir>/plugins/`.
  *
- * Gated by the `external-plugins` feature flag (see
- * {@link ../../plugins/feature-gate}). Subcommands delegate the heavy
- * lifting to dedicated modules under {@link ../lib}.
+ * Subcommands delegate the heavy lifting to dedicated modules under
+ * {@link ../lib}.
  */
 
 import type { Command } from "commander";
 
+import { yellow } from "../lib/cli-colors.js";
 import { confirmPrompt } from "../lib/confirm-prompt.js";
 import {
   diffPlugin,
@@ -27,13 +27,21 @@ import {
   type InstallPluginOptions,
   InvalidPluginNameError,
   PluginAlreadyInstalledError,
+  type PluginFetchSource,
   PluginNotFoundError,
+  sanitizePluginName,
 } from "../lib/install-from-github.js";
 import {
   type AllPluginInfo,
   listAllPlugins,
   listInstalledPlugins,
 } from "../lib/list-installed-plugins.js";
+import {
+  DEFAULT_DIRECT_REF,
+  InvalidGitHubPluginSpecError,
+  looksLikeGitHubSpec,
+  parseGitHubPluginSpec,
+} from "../lib/parse-github-plugin-spec.js";
 import type { FingerprintComparison } from "../lib/plugin-fingerprint.js";
 import {
   DEFAULT_PIN_HISTORY_LIMIT,
@@ -84,6 +92,8 @@ export function registerPluginsCommand(program: Command): void {
 Examples:
   $ assistant plugins install example
   $ assistant plugins install example --force
+  $ assistant plugins install https://github.com/owner/repo
+  $ assistant plugins install https://github.com/owner/repo/tree/main/sub/path --name my-plugin
   $ assistant plugins install example --ref my-feature-branch
   $ assistant plugins versions example
   $ assistant plugins versions example --json
@@ -110,38 +120,67 @@ Examples:
       );
 
       plugins
-        .command("install <name>")
+        .command("install <name-or-url>")
         .description(
-          "Install a plugin from the curated plugins/marketplace.json catalog",
+          "Install a plugin by name from the curated plugins/marketplace.json catalog, or directly from a GitHub URL (untrusted)",
         )
         .option("--force", "Overwrite an existing install")
         .option(
           "--ref <ref>",
-          `Marketplace manifest revision to read the pin from (default: ${DEFAULT_PLUGIN_REF})`,
+          `Marketplace manifest revision to read the pin from (default: ${DEFAULT_PLUGIN_REF}). Marketplace installs only — for a GitHub URL, put the ref in the URL (.../tree/<ref>/...)`,
         )
         .option(
           "--pin <sha>",
-          "Install a specific reviewed marketplace pin (full commit SHA); run `plugins versions <name>` to list them",
+          "Install a specific reviewed marketplace pin (full commit SHA); run `plugins versions <name>` to list them. Marketplace installs only",
         )
         .option(
           "--allow-unreviewed",
-          "With --pin, install a SHA that is not in the reviewed marketplace history (advanced; the curated adapter may not match)",
+          "With --pin, install a SHA that is not in the reviewed marketplace history (advanced; the curated adapter may not match). Marketplace installs only",
+        )
+        .option(
+          "--name <name>",
+          "Install directory name for a GitHub-URL install (default: derived from the repo or sub-path leaf). Ignored for marketplace installs",
+        )
+        .addHelpText(
+          "after",
+          `
+A GitHub URL (anything containing a slash) installs directly from that repo,
+bypassing the marketplace whitelist. Such a plugin is UNTRUSTED — it has not
+been reviewed and its hooks/tools run with full assistant access — so the
+install prints a warning. Use it for a plugin still under development that is
+not in the catalog yet. The ref comes from the URL's /tree/<ref>/ segment, or
+defaults to the repository's default branch.
+
+Examples:
+  $ assistant plugins install https://github.com/owner/repo
+  $ assistant plugins install https://github.com/owner/repo/tree/my-branch/path/to/plugin
+  $ assistant plugins install owner/repo --name my-plugin --force`,
         )
         .action(
           async (
-            name: string,
+            nameOrUrl: string,
             opts: {
               force?: boolean;
               ref?: string;
               pin?: string;
               allowUnreviewed?: boolean;
+              name?: string;
             },
           ) => {
             try {
-              const installOpts = await resolveInstallOptions(name, opts);
+              const direct = looksLikeGitHubSpec(nameOrUrl);
+              const installOpts = direct
+                ? resolveDirectInstallOptions(nameOrUrl, opts)
+                : await resolveInstallOptions(nameOrUrl, opts);
               if (installOpts === null) {
                 process.exitCode = 1;
                 return;
+              }
+              if (installOpts.directSource) {
+                printUntrustedPluginWarning(
+                  installOpts.name,
+                  installOpts.directSource,
+                );
               }
               const result = await installPlugin(installOpts, {
                 fetch: globalThis.fetch.bind(globalThis),
@@ -153,14 +192,18 @@ Examples:
                   fileCount: result.fileCount,
                   ref: result.ref,
                   commit: result.commit,
+                  untrusted: Boolean(installOpts.directSource),
                 },
                 "external plugin installed",
               );
               const pinned = result.commit
                 ? ` at ${result.commit.slice(0, 7)}`
                 : "";
+              const label = installOpts.directSource
+                ? "untrusted plugin"
+                : "plugin";
               console.log(
-                `Installed plugin "${result.name}" (${result.fileCount} file${result.fileCount === 1 ? "" : "s"})${pinned} → ${result.target}`,
+                `Installed ${label} "${result.name}" (${result.fileCount} file${result.fileCount === 1 ? "" : "s"})${pinned} → ${result.target}`,
               );
             } catch (err) {
               if (err instanceof PluginAlreadyInstalledError) {
@@ -804,6 +847,99 @@ async function resolveInstallOptions(
     return null;
   }
   return { name, force, ref: entry.marketplaceCommit };
+}
+
+/**
+ * Resolve a GitHub-URL argument into {@link InstallPluginOptions} for an
+ * untrusted direct install, or `null` when the URL or flag combination is
+ * invalid (a message is printed in that case, and the caller exits non-zero).
+ *
+ * The marketplace-only flags (`--ref`, `--pin`, `--allow-unreviewed`) do not
+ * apply to a direct install — the ref lives in the URL — so combining them is
+ * rejected. The install name defaults to the repo / sub-path leaf and can be
+ * overridden with `--name`.
+ */
+function resolveDirectInstallOptions(
+  spec: string,
+  opts: {
+    force?: boolean;
+    ref?: string;
+    pin?: string;
+    allowUnreviewed?: boolean;
+    name?: string;
+  },
+): InstallPluginOptions | null {
+  if (opts.ref) {
+    console.error(
+      "--ref does not apply to a GitHub-URL install; put the ref in the URL (e.g. .../tree/<ref>/...).",
+    );
+    return null;
+  }
+  if (opts.pin || opts.allowUnreviewed) {
+    console.error(
+      "--pin and --allow-unreviewed only apply to marketplace installs by name, not a GitHub URL.",
+    );
+    return null;
+  }
+
+  let parsed;
+  try {
+    parsed = parseGitHubPluginSpec(spec);
+  } catch (err) {
+    if (err instanceof InvalidGitHubPluginSpecError) {
+      console.error(err.message);
+      return null;
+    }
+    throw err;
+  }
+
+  const requested = opts.name ?? parsed.defaultName;
+  let name: string;
+  try {
+    name = sanitizePluginName(requested);
+  } catch (err) {
+    if (err instanceof InvalidPluginNameError) {
+      console.error(
+        opts.name
+          ? err.message
+          : `Could not derive a valid plugin name from "${parsed.defaultName}". ` +
+              "Pass --name <name> to choose one (lowercase letters, digits, '-', '_').",
+      );
+      return null;
+    }
+    throw err;
+  }
+
+  const directSource: PluginFetchSource = {
+    owner: parsed.owner,
+    repo: parsed.repo,
+    rootPath: parsed.path,
+    ref: parsed.ref,
+  };
+  return { name, force: opts.force ?? false, directSource };
+}
+
+/**
+ * Print a prominent yellow warning before an untrusted direct install. Such a
+ * plugin is not in the curated marketplace, has not been reviewed, and its
+ * hooks/tools run inside the assistant with full access — so the user must
+ * decide whether they trust the source. Goes to stderr so it stays visible
+ * alongside (not interleaved with) the stdout result line.
+ */
+function printUntrustedPluginWarning(
+  name: string,
+  source: PluginFetchSource,
+): void {
+  const location = source.rootPath
+    ? `${source.owner}/${source.repo}/${source.rootPath}`
+    : `${source.owner}/${source.repo}`;
+  const ref = source.ref === DEFAULT_DIRECT_REF ? "default branch" : source.ref;
+  const lines = [
+    `⚠ Installing "${name}" from an unreviewed GitHub source: ${location} @ ${ref}.`,
+    "  This plugin is NOT in the Vellum marketplace and has not been reviewed.",
+    "  Its hooks and tools run inside the assistant with full access — install it only if you trust the source.",
+  ];
+  console.error(yellow(lines.join("\n")));
 }
 
 /**

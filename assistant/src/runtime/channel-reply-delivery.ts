@@ -1,21 +1,17 @@
 import { stripVellumLinks } from "../daemon/assistant-attachments.js";
 import type { RenderedHistoryContent } from "../daemon/handlers/shared.js";
 import { renderHistoryContent } from "../daemon/handlers/shared.js";
-import { getAttachmentMetadataForMessage } from "../memory/attachments-store.js";
+import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
+import { getAttachmentMetadataForMessage } from "../persistence/attachments-store.js";
 import {
   getMessageById,
   getMessages,
   updateMessageMetadata,
-} from "../memory/conversation-crud.js";
-import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
+} from "../persistence/conversation-crud.js";
 import { getLogger } from "../util/logger.js";
 import type { ChannelDeliveryResult } from "./gateway-client.js";
 import { deliverChannelReply } from "./gateway-client.js";
 import type { RuntimeAttachmentMetadata } from "./http-types.js";
-import {
-  isSlackCallbackUrl,
-  textToSlackBlocks,
-} from "./slack-block-formatting.js";
 
 const log = getLogger("channel-reply-delivery");
 
@@ -167,8 +163,6 @@ export async function deliverRenderedReplyViaCallback(
     return;
   }
 
-  const isSlack = isSlackCallbackUrl(callbackUrl);
-
   // Only the first segment uses messageTs for in-place update;
   // subsequent segments are posted as new messages.
   let currentMessageTs = messageTs;
@@ -177,13 +171,14 @@ export async function deliverRenderedReplyViaCallback(
     const isLastSegment = i === deliverableSegments.length - 1;
     const isFirstSegment = i === startFromSegment;
     const segmentText = deliverableSegments[i];
-    const blocks = isSlack ? textToSlackBlocks(segmentText) : undefined;
     const result: ChannelDeliveryResult = await deliverChannelReply(
       callbackUrl,
       {
         chatId,
         text: segmentText,
-        blocks,
+        // Ask the channel to render richly; each channel's adapter decides how
+        // (Slack → Block Kit). Channels without rich rendering send plain text.
+        useBlocks: true,
         attachments: isLastSegment ? replyAttachments : undefined,
         assistantId,
         ephemeral,

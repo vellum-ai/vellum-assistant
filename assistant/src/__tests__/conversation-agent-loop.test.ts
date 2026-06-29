@@ -23,12 +23,12 @@ import { ContextOverflowError } from "../providers/types.js";
 
 const conversationCrudRealSnapshot = {
   ...(createRequire(import.meta.url)(
-    "../memory/conversation-crud.js",
+    "../persistence/conversation-crud.js",
   ) as Record<string, unknown>),
 };
 const conversationDiskViewRealSnapshot = {
   ...(createRequire(import.meta.url)(
-    "../memory/conversation-disk-view.js",
+    "../persistence/conversation-disk-view.js",
   ) as Record<string, unknown>),
 };
 let mockUiConfig: { userTimezone?: string; detectedTimezone?: string } = {};
@@ -278,7 +278,8 @@ const deleteMessageByIdMock = mock(() => ({
 }));
 const reserveMessageMock = mock(async () => ({ id: "msg-reserve" }));
 const updateMessageContentMock = mock(() => {});
-mock.module("../memory/conversation-crud.js", () => ({
+const addMessageMock = mock(() => ({ id: "mock-msg-id" }));
+mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
@@ -292,7 +293,7 @@ mock.module("../memory/conversation-crud.js", () => ({
     trustContext: undefined,
   }),
   getConversationOriginInterface: () => null,
-  addMessage: () => ({ id: "mock-msg-id" }),
+  addMessage: addMessageMock,
   deleteMessageById: deleteMessageByIdMock,
   updateConversationContextWindow: () => {},
   updateConversationSlackContextWatermark:
@@ -303,6 +304,8 @@ mock.module("../memory/conversation-crud.js", () => ({
   getLastUserTimestampBefore: () => 0,
   reserveMessage: reserveMessageMock,
   updateMessageContent: updateMessageContentMock,
+  recordConversationPersistedSeq: () => {},
+  getConversationPersistedSeq: () => null,
   // The real schema is a Zod object; tests don't exercise validation,
   // so a passthrough is sufficient — the production code at
   // `handleMessageComplete` only branches on `success` and reads two
@@ -315,7 +318,7 @@ mock.module("../memory/conversation-crud.js", () => ({
 
 // The B3 indexing-restoration path imports `indexMessageNow` from
 // `../memory/indexer.js` and `projectAssistantMessage` from
-// `../memory/conversation-attention-store.js`; without these stubs the
+// `../persistence/conversation-attention-store.js`; without these stubs the
 // real modules would try to open a SQLite DB and read a real config.
 const indexMessageNowMock = mock(async () => ({
   indexedSegments: 0,
@@ -326,7 +329,7 @@ const publishSyncInvalidationMock = mock(async () => {});
 mock.module("../memory/indexer.js", () => ({
   indexMessageNow: indexMessageNowMock,
 }));
-mock.module("../memory/conversation-attention-store.js", () => ({
+mock.module("../persistence/conversation-attention-store.js", () => ({
   projectAssistantMessage: projectAssistantMessageMock,
 }));
 mock.module("../runtime/sync/sync-publisher.js", () => ({
@@ -335,18 +338,18 @@ mock.module("../runtime/sync/sync-publisher.js", () => ({
 
 afterAll(() => {
   mock.module(
-    "../memory/conversation-crud.js",
+    "../persistence/conversation-crud.js",
     () => conversationCrudRealSnapshot,
   );
   mock.module(
-    "../memory/conversation-disk-view.js",
+    "../persistence/conversation-disk-view.js",
     () => conversationDiskViewRealSnapshot,
   );
 });
 
 const syncMessageToDiskMock = mock(() => {});
 const rebuildConversationDiskViewFromDbStateMock = mock(() => {});
-mock.module("../memory/conversation-disk-view.js", () => ({
+mock.module("../persistence/conversation-disk-view.js", () => ({
   syncMessageToDisk: syncMessageToDiskMock,
   rebuildConversationDiskViewFromDbState:
     rebuildConversationDiskViewFromDbStateMock,
@@ -365,13 +368,13 @@ mock.module("../memory/retriever.js", () => ({
   injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
 }));
 
-mock.module("../memory/app-store.js", () => ({
+mock.module("../apps/app-store.js", () => ({
   getApp: () => null,
   listAppFiles: () => [],
   getAppsDir: () => "/tmp/apps",
 }));
 
-mock.module("../memory/app-git-service.js", () => ({
+mock.module("../apps/app-git-service.js", () => ({
   commitAppTurnChanges: () => Promise.resolve(),
 }));
 
@@ -558,13 +561,16 @@ mock.module("../workspace/git-service.js", () => ({
   }),
 }));
 
+let mockConversationErrorClassification = {
+  code: "CONVERSATION_PROCESSING_FAILED",
+  userMessage: "Something went wrong processing your message.",
+  retryable: false,
+  errorCategory: "processing_failed",
+};
+
 mock.module("../daemon/conversation-error.js", () => ({
-  classifyConversationError: (_err: unknown, _ctx: unknown) => ({
-    code: "CONVERSATION_PROCESSING_FAILED",
-    userMessage: "Something went wrong processing your message.",
-    retryable: false,
-    errorCategory: "processing_failed",
-  }),
+  classifyConversationError: (_err: unknown, _ctx: unknown) =>
+    mockConversationErrorClassification,
   isUserCancellation: (err: unknown, ctx: { aborted?: boolean }) => {
     if (!ctx.aborted) return false;
     if (err instanceof DOMException && err.name === "AbortError") return true;
@@ -600,7 +606,7 @@ mock.module("../memory/archive-store.js", () => ({
   }),
 }));
 
-mock.module("../memory/llm-request-log-store.js", () => ({
+mock.module("../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: recordRequestLogMock,
   backfillMessageIdOnLogs: backfillMessageIdOnLogsMock,
   setAgentLoopExitReasonOnLatestLog: setAgentLoopExitReasonOnLatestLogMock,
@@ -870,6 +876,13 @@ beforeEach(() => {
   deleteMessageByIdMock.mockClear();
   reserveMessageMock.mockClear();
   updateMessageContentMock.mockClear();
+  addMessageMock.mockClear();
+  mockConversationErrorClassification = {
+    code: "CONVERSATION_PROCESSING_FAILED",
+    userMessage: "Something went wrong processing your message.",
+    retryable: false,
+    errorCategory: "processing_failed",
+  };
   indexMessageNowMock.mockClear();
   projectAssistantMessageMock.mockClear();
   publishSyncInvalidationMock.mockClear();
@@ -2239,6 +2252,49 @@ describe("session-agent-loop", () => {
       expect(backfillCall[0]).toBe("test-conv");
       expect(backfillCall[1]).toBe("mock-msg-id");
     });
+
+    test("does not persist managed credential refresh failures as assistant text", async () => {
+      mockConversationErrorClassification = {
+        code: "MANAGED_KEY_INVALID",
+        userMessage: "Couldn't refresh assistant credentials.",
+        retryable: false,
+        errorCategory: "managed_key_invalid",
+      };
+      const events: ServerMessage[] = [];
+
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage() {
+            throw new Error("API key has expired.");
+          },
+        } as unknown as Provider,
+      });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      expect(
+        events.filter((event) => event.type === "assistant_text_delta"),
+      ).toHaveLength(0);
+
+      const conversationError = events.find(
+        (event) => event.type === "conversation_error",
+      );
+      expect(conversationError).toBeDefined();
+      expect(conversationError).toMatchObject({
+        code: "MANAGED_KEY_INVALID",
+        userMessage: "Couldn't refresh assistant credentials.",
+        errorCategory: "managed_key_invalid",
+      });
+
+      expect(addMessageMock).not.toHaveBeenCalled();
+      expect(recordRequestLogMock).not.toHaveBeenCalled();
+      expect(backfillMessageIdOnLogsMock).not.toHaveBeenCalled();
+      expect(deleteMessageByIdMock).toHaveBeenCalledTimes(1);
+      const deleteCall = deleteMessageByIdMock.mock.calls[0] as unknown as [
+        string,
+      ];
+      expect(deleteCall[0]).toBe("msg-reserve");
+    });
   });
 
   describe("B3 pre-allocation: indexing + cleanup", () => {
@@ -2449,6 +2505,41 @@ describe("session-agent-loop", () => {
       const lastSync = syncCalls[syncCalls.length - 1];
       expect(lastSync?.[1]).toBe("mock-msg-id");
       expect(lastSync?.[1]).not.toBe("msg-orphaned-reservation");
+    });
+
+    test("managed-key provider-error cleanup publishes message invalidation after deleting the reservation", async () => {
+      reserveMessageMock.mockImplementationOnce(async () => ({
+        id: "msg-managed-key-reservation",
+      }));
+      mockConversationErrorClassification = {
+        code: "MANAGED_KEY_INVALID",
+        userMessage: "Couldn't refresh assistant credentials.",
+        retryable: false,
+        errorCategory: "managed_key_invalid",
+      };
+
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage() {
+            throw new Error("API key has expired.");
+          },
+        } as unknown as Provider,
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+
+      expect(deleteMessageByIdMock).toHaveBeenCalledTimes(1);
+      const deleteCall = deleteMessageByIdMock.mock.calls[0] as unknown as [
+        string,
+      ];
+      expect(deleteCall[0]).toBe("msg-managed-key-reservation");
+      expect(addMessageMock).not.toHaveBeenCalled();
+      expect(syncMessageToDiskMock).not.toHaveBeenCalled();
+
+      const messagePublishes = (
+        publishSyncInvalidationMock.mock.calls as unknown as Array<[string[]]>
+      ).filter((args) => args[0]?.includes("conversation:test-conv:messages"));
+      expect(messagePublishes).toHaveLength(1);
     });
   });
 

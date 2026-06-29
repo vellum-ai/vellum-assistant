@@ -75,13 +75,23 @@ export type HookFunction<TCtx = unknown> = (
  * Context passed to `Plugin.init()` during bootstrap. Carries the resolved
  * config, a pino-compatible logger scoped to the plugin, a per-plugin
  * writable data directory, and the assistant's version metadata.
+ *
+ * For user-installed plugins, config is read from `<pluginDir>/config.json`
+ * and `pluginStorageDir` points at `<pluginDir>/data/`. For first-party
+ * default plugins and standalone workspace hooks, config comes from the
+ * global `config.plugins.<name>` block and `pluginStorageDir` points at
+ * `<workspaceDir>/plugins-data/<name>/`.
  */
 export interface InitContext {
   /** Parsed config for this plugin (may be `unknown` until the manifest validates). */
   config: unknown;
   /** Pino-compatible child logger bound to `{ plugin: <name> }`. */
   logger: PluginLogger;
-  /** Absolute path to `<workspaceDir>/plugins-data/<plugin>/` (created by bootstrap). */
+  /**
+   * Absolute path to the per-plugin writable data directory. For user plugins
+   * this is `<pluginDir>/data/`; for defaults and workspace hooks it falls back
+   * to `<workspaceDir>/plugins-data/<plugin>/`. Created by bootstrap.
+   */
   pluginStorageDir: string;
   /**
    * Assistant semver. Plugins can compare against this for defensive
@@ -345,9 +355,28 @@ export interface PostToolUseContext {
    * Model id reported by the provider for the assistant turn that issued
    * this tool call (e.g. `claude-opus-4-8`,
    * `accounts/fireworks/models/kimi-k2p6`). Hooks use it to vary coaching by
-   * model family — some models need earlier or firmer steering than others.
+   * model family — each plugin owns its own model policy (e.g. which families
+   * need firmer steering) and matches against this string directly.
    */
   readonly model: string;
+  /**
+   * The LLM call site driving this turn — `mainAgent` for a live user-facing
+   * turn, `subagentSpawn` for a subagent, or a background site (e.g.
+   * `heartbeatAgent`, `titleGenerate`). `null` when the run tagged none. A hook
+   * that should only act on a live user-facing turn gates on
+   * `callSite === "mainAgent"`; one that should skip subagents checks
+   * `callSite === "subagentSpawn"`.
+   */
+  readonly callSite: LLMCallSite | null;
+  /**
+   * Whether the connected client can render dynamic UI surfaces this turn —
+   * `true` unless the channel explicitly lacks the capability (SMS, phone,
+   * email, and most chat bridges). A fact about what the model can *do* this
+   * turn, not who is calling: a hook that prompts a surface tool (e.g. the
+   * `ui_show` progress card) gates on this so it does not coach the model
+   * toward a tool the channel filters out of the tool set.
+   */
+  readonly supportsDynamicUi: boolean;
   /**
    * The model's context-window size in tokens. Plugins derive their own
    * character budget from this (e.g. a share of the window) rather than

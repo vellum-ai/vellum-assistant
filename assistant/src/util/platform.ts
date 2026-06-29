@@ -248,20 +248,6 @@ export function getMemoryWorkerPidPath(): string {
 }
 
 /**
- * Returns the path to the memory sync-runner marker file
- * ($VELLUM_WORKSPACE_DIR/memory-sync-runner.pid).
- *
- * The daemon's in-process memory-jobs supervisor writes this marker (with its
- * own PID) while the synchronous in-process runner is actively draining the
- * queue, and removes it when it stands down for an out-of-process worker. It
- * lets `assistant memory worker status` report whether the synchronous runner
- * is still going without an IPC round-trip to the daemon.
- */
-export function getMemorySyncRunnerMarkerPath(): string {
-  return join(getWorkspaceDir(), "memory-sync-runner.pid");
-}
-
-/**
  * Returns the workspace root for user-facing state.
  *
  * When the VELLUM_WORKSPACE_DIR env var is set, returns that value (used in

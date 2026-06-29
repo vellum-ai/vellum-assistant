@@ -508,6 +508,7 @@ export async function installSkillLocally(
       installedAt: new Date().toISOString(),
       ...(catalogEntry.version ? { version: catalogEntry.version } : {}),
       ...(contactId ? { installedBy: contactId } : {}),
+      author: "user",
       contentHash: computeSkillHash(stagedDir) ?? undefined,
     });
 

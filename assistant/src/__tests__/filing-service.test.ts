@@ -50,9 +50,9 @@ const createdConversations: Array<{
 }> = [];
 let conversationIdCounter = 0;
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
@@ -101,7 +101,7 @@ mock.module("../util/logger.js", () => ({
 // Mock conversation title service. `deriveDeterministicTitle` mirrors the
 // real implementation's systemHint passthrough so bootstrap-created
 // conversations carry their job hint as the title.
-mock.module("../memory/conversation-title-service.js", () => ({
+mock.module("../persistence/conversation-title-service.js", () => ({
   GENERATING_TITLE: "Generating title...",
   AUTO_TITLE_DETERMINISTIC: 2,
   deriveDeterministicTitle: (context: { systemHint?: string }) =>

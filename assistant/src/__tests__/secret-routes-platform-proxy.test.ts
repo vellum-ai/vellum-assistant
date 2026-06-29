@@ -129,13 +129,20 @@ mock.module("../daemon/memory-v2-startup.js", () => ({
   maybeReseedCapabilitiesAfterManagedCredential: async () => {},
 }));
 
+// secret-routes evicts conversations after a credential change so the next turn
+// rebuilds against the new providers; count the calls to assert that happens.
+mock.module("../daemon/conversation-store.js", () => ({
+  evictConversationsForReload: () => {
+    providerRefreshCalls++;
+  },
+}));
+
 import {
   getProviderRoutingSource,
   initializeProviders,
   listProviders,
 } from "../providers/registry.js";
 import { ROUTES } from "../runtime/routes/secret-routes.js";
-import { registerSecretsDeps } from "../runtime/routes/secrets-deps.js";
 
 const addRoute = ROUTES.find(
   (r) => r.method === "POST" && r.endpoint === "secrets",
@@ -177,12 +184,6 @@ describe("secret routes managed proxy registry sync", () => {
     lastGeminiConstructorOpts = null;
     platformBaseUrlOverride = undefined;
     providerRefreshCalls = 0;
-    registerSecretsDeps({
-      getCesClient: () => undefined,
-      onProviderCredentialsChanged: () => {
-        providerRefreshCalls++;
-      },
-    });
     await initializeProviders(mockConfig);
   });
 

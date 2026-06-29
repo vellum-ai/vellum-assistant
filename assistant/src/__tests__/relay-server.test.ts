@@ -26,8 +26,6 @@ import {
   test,
 } from "bun:test";
 
-import { and, desc, eq } from "drizzle-orm";
-
 // ── Platform + logger mocks (must come before any source imports) ────
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -118,14 +116,12 @@ mock.module("../prompts/user-reference.js", () => ({
 // default), the guardian-delivery-reader mock below derives the binding from
 // the DB-seeded createGuardianBinding setup. Single mock registration lives
 // below since `mock.module` is process-global and last-write-wins in Bun.
-let mockGuardianDeliveryList:
-  | Array<{
-      channelType: string;
-      status: string;
-      displayName?: string | null;
-      address?: string;
-    }>
-  | null = null;
+let mockGuardianDeliveryList: Array<{
+  channelType: string;
+  status: string;
+  displayName?: string | null;
+  address?: string;
+}> | null = null;
 
 // ── Config mock ─────────────────────────────────────────────────────
 
@@ -211,9 +207,8 @@ mock.module("../calls/channel-admission-reader.js", () => ({
 // `mockMidCallVerdict`; null (the default) exercises the local fallback. As
 // with the admission reader, delegate to the real module for sibling files
 // that load later in the same worker.
-let mockMidCallVerdict:
-  | import("@vellumai/gateway-client").TrustVerdict
-  | null = null;
+let mockMidCallVerdict: import("@vellumai/gateway-client").TrustVerdict | null =
+  null;
 // When set, the mid-call re-resolution verdict reader blocks on this gate
 // before returning, simulating a slow gateway round-trip so a test can drive a
 // prompt into the re-resolution await window. The gate targets the mid-call
@@ -254,7 +249,7 @@ mock.module("../calls/inbound-trust-reader.js", () => ({
 // setup keeps driving guardian resolution without per-test changes. Both the
 // async read and the sync cache peek (read by resolveActorTrust) share the same
 // DB-derived snapshot mirroring the gateway's active-guardian-channel query.
-function deriveGuardianDeliveries(
+function resolveGuardianDeliveries(
   channelTypes?: string[],
 ): Array<Record<string, unknown>> {
   if (mockGuardianDeliveryList) {
@@ -264,41 +259,14 @@ function deriveGuardianDeliveries(
         )
       : mockGuardianDeliveryList;
   }
-  const rows = getDb()
-    .select({ contact: contacts, channel: contactChannels })
-    .from(contacts)
-    .innerJoin(contactChannels, eq(contacts.id, contactChannels.contactId))
-    .where(
-      and(eq(contacts.role, "guardian"), eq(contactChannels.status, "active")),
-    )
-    .orderBy(desc(contactChannels.verifiedAt))
-    .all();
-  if (rows.length === 0) return [];
-  const guardianId = rows[0].contact.id;
-  const list = rows
-    .filter((r) => r.contact.id === guardianId)
-    .map((r) => ({
-      channelType: r.channel.type,
-      contactId: r.contact.id,
-      principalId: r.contact.principalId ?? null,
-      displayName: r.contact.displayName ?? null,
-      address: r.channel.address,
-      externalChatId: r.channel.externalChatId ?? null,
-      status: r.channel.status,
-      verifiedAt: r.channel.verifiedAt ?? null,
-    }));
-  return channelTypes
-    ? list.filter((g) =>
-        channelTypes.includes(g.channelType),
-      )
-    : list;
+  return deriveGuardianDeliveries({ channelTypes });
 }
 
 mock.module("../contacts/guardian-delivery-reader.js", () => ({
   getGuardianDelivery: async (input?: { channelTypes?: string[] }) =>
-    deriveGuardianDeliveries(input?.channelTypes),
+    resolveGuardianDeliveries(input?.channelTypes),
   peekCachedGuardianDelivery: (input?: { channelTypes?: string[] }) =>
-    deriveGuardianDeliveries(input?.channelTypes),
+    resolveGuardianDeliveries(input?.channelTypes),
   guardianForChannel: (
     list: Array<{ channelType: string; status: string }>,
     channelType: string,
@@ -440,25 +408,21 @@ import {
   RelayConnection,
 } from "../calls/relay-server.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
-import { upsertContact } from "../contacts/contact-store.js";
-import {
-  listCanonicalGuardianRequests,
-  resolveCanonicalGuardianRequest,
-} from "../memory/canonical-guardian-store.js";
 import {
   createInboundSession,
   createVerificationSession,
-} from "../memory/channel-verification-sessions.js";
-import { addMessage, getMessages } from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { createInvite } from "../memory/invite-store.js";
-import { resetTestTables } from "../memory/raw-query.js";
+} from "../channels/channel-verification-sessions.js";
 import {
-  contactChannels,
-  contacts,
-  conversations,
-} from "../memory/schema.js";
+  listCanonicalGuardianRequests,
+  resolveCanonicalGuardianRequest,
+} from "../contacts/canonical-guardian-store.js";
+import { upsertContact } from "../contacts/contact-store.js";
+import { addMessage, getMessages } from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { createInvite } from "../persistence/invite-store.js";
+import { resetTestTables } from "../persistence/raw-query.js";
+import { conversations } from "../persistence/schema/index.js";
 import {
   createOutboundSession,
   getGuardianBinding,
@@ -466,6 +430,8 @@ import {
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import { deriveGuardianDeliveries } from "./helpers/derive-guardian-delivery.js";
+import { resetGatewayAclStore } from "./helpers/gateway-acl-store.js";
 import { seedContactChannel } from "./helpers/seed-contact-channel.js";
 
 await initializeDb();
@@ -548,6 +514,7 @@ function resetTables() {
     "contact_channels",
     "contacts",
   );
+  resetGatewayAclStore();
   ensuredConvIds = new Set();
 }
 
@@ -2758,9 +2725,7 @@ describe("relay-server", () => {
       }),
     );
     for (const digit of priorCode) {
-      await prior.relay.handleMessage(
-        JSON.stringify({ type: "dtmf", digit }),
-      );
+      await prior.relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
     }
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(prior.relay.getConnectionState()).toBe("connected");
@@ -2796,9 +2761,7 @@ describe("relay-server", () => {
       }),
     );
     for (const digit of freshCode) {
-      await fresh.relay.handleMessage(
-        JSON.stringify({ type: "dtmf", digit }),
-      );
+      await fresh.relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
     }
     await new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -2984,6 +2947,7 @@ describe("relay-server", () => {
     const db = getDb();
     db.run("DELETE FROM contact_channels");
     db.run("DELETE FROM contacts");
+    resetGatewayAclStore();
     try {
       ensureConversation("conv-invite-no-name");
       const session = createCallSession({
@@ -3028,6 +2992,7 @@ describe("relay-server", () => {
     const db = getDb();
     db.run("DELETE FROM contact_channels");
     db.run("DELETE FROM contacts");
+    resetGatewayAclStore();
     try {
       ensureConversation("conv-invite-uuid-name");
       const session = createCallSession({
@@ -5048,9 +5013,7 @@ describe("relay-server", () => {
       textMessages.some((m) => (m.token ?? "").startsWith("Hi there!")),
     ).toBe(true);
     expect(
-      textMessages.every(
-        (m) => !(m.token ?? "").includes("+15557775555"),
-      ),
+      textMessages.every((m) => !(m.token ?? "").includes("+15557775555")),
     ).toBe(true);
 
     relay.destroy();
@@ -5113,9 +5076,7 @@ describe("relay-server", () => {
       textMessages.some((m) => (m.token ?? "").startsWith("Hi there!")),
     ).toBe(true);
     expect(
-      textMessages.every(
-        (m) => !(m.token ?? "").includes("Stale Legacy Name"),
-      ),
+      textMessages.every((m) => !(m.token ?? "").includes("Stale Legacy Name")),
     ).toBe(true);
 
     relay.destroy();
@@ -5128,7 +5089,12 @@ describe("relay-server", () => {
 
     // Gateway binding carries a different displayName
     mockGuardianDeliveryList = [
-      { channelType: "phone", status: "active", address: "+15550000001", displayName: "Bob" },
+      {
+        channelType: "phone",
+        status: "active",
+        address: "+15550000001",
+        displayName: "Bob",
+      },
     ];
 
     ensureConversation("conv-label-user-md");
@@ -5168,7 +5134,12 @@ describe("relay-server", () => {
 
     // Gateway binding carries the guardian displayName
     mockGuardianDeliveryList = [
-      { channelType: "phone", status: "active", address: "+15550000002", displayName: "Charlie" },
+      {
+        channelType: "phone",
+        status: "active",
+        address: "+15550000002",
+        displayName: "Charlie",
+      },
     ];
 
     ensureConversation("conv-label-contact");
@@ -5612,7 +5583,9 @@ describe("relay-server", () => {
   // updated the binding) and falls back to local resolution on a missing/
   // failed/unusable verdict so a blip never drops the call.
 
-  function readControllerTrustClass(relay: RelayConnection): string | undefined {
+  function readControllerTrustClass(
+    relay: RelayConnection,
+  ): string | undefined {
     return (
       relay.getController() as unknown as {
         trustContext?: { trustClass?: string };

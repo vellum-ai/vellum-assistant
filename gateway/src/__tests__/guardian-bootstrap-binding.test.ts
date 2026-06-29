@@ -50,6 +50,14 @@ mock.module("../db/assistant-db-proxy.js", () => ({
   },
 }));
 
+// Mock IPC so the post-commit cache-invalidation emit doesn't dial a socket,
+// and so we can assert it fired.
+const ipcMock = mock(async () => ({}));
+
+mock.module("../ipc/assistant-client.js", () => ({
+  ipcCallAssistant: ipcMock,
+}));
+
 import { createGuardianBinding } from "../auth/guardian-bootstrap.js";
 import {
   initGatewayDb,
@@ -104,6 +112,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  ipcMock.mockClear();
   const db = getGatewayDb();
   db.delete(contactChannels).run();
   db.delete(contacts).run();
@@ -244,6 +253,25 @@ describe("createGuardianBinding gateway dual-write", () => {
     expect(row.status).toBe("active");
     expect(row.policy).toBe("allow");
     expect(row.contactId).toBe(result.contactId);
+  });
+
+  test("emits contacts_changed to invalidate the daemon guardian-id cache after a successful bind", async () => {
+    await createGuardianBinding({
+      channel: "slack",
+      externalUserId: "U_EMIT",
+      deliveryChatId: "D_EMIT",
+      guardianPrincipalId: "guardian-principal",
+      displayName: "Example User",
+      verifiedVia: "challenge",
+    });
+
+    const emitCalls = (ipcMock.mock.calls as any[][]).filter(
+      (c) => c[0] === "emit_event",
+    );
+    expect(emitCalls).toHaveLength(1);
+    expect(
+      (emitCalls[0][1] as { body: Record<string, unknown> }).body.kind,
+    ).toBe("contacts_changed");
   });
 });
 

@@ -17,13 +17,13 @@ const mockGetMessages = mock(() => [{ id: "m-source" }]);
 const mockCreateConversation = mock(() => ({ id: "analysis-1" }));
 const mockAddMessage = mock(async () => ({ id: "msg-1" }));
 
-mock.module("../memory/conversation-key-store.js", () => ({
+mock.module("../persistence/conversation-key-store.js", () => ({
   resolveConversationId: mockResolveConversationId,
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   getConversation: mockGetConversation,
   getMessages: mockGetMessages,
   createConversation: mockCreateConversation,

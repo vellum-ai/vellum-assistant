@@ -10,16 +10,16 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
-import type { Conversation } from "../daemon/conversation.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
-} from "../memory/canonical-guardian-store.js";
+} from "../contacts/canonical-guardian-store.js";
+import type { Conversation } from "../daemon/conversation.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 import {
   getConversationByKey,
   getOrCreateConversation,
-} from "../memory/conversation-key-store.js";
+} from "../persistence/conversation-key-store.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 mock.module("../util/logger.js", () => ({
@@ -141,8 +141,8 @@ mock.module("../ipc/gateway-client.js", () => ({
 }));
 
 import { __resetGuardianDeliveryCacheForTest } from "../contacts/guardian-delivery-reader.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import type { ApprovalConversationGenerator } from "../runtime/http-types.js";

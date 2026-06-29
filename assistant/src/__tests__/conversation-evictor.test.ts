@@ -1,4 +1,16 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+// The evictor's onEvict/shouldProtect methods consult the subagent manager.
+// Stub it so eviction tests run without a real manager: no protected children
+// by default, and abortAllForParent records the conversations it was called for.
+const abortedParents: string[] = [];
+let protectedChildren: Array<{ status: string }> = [];
+mock.module("../subagent/index.js", () => ({
+  getSubagentManager: () => ({
+    abortAllForParent: (id: string) => abortedParents.push(id),
+    getChildrenOf: () => protectedChildren,
+  }),
+}));
 
 import {
   ConversationEvictor,
@@ -24,6 +36,8 @@ describe("ConversationEvictor", () => {
   let evictor: ConversationEvictor;
 
   beforeEach(() => {
+    abortedParents.length = 0;
+    protectedChildren = [];
     sessions = new Map();
     evictor = new ConversationEvictor(
       sessions as Map<string, EvictableConversation>,
@@ -149,18 +163,29 @@ describe("ConversationEvictor", () => {
     });
   });
 
-  describe("onEvict callback", () => {
-    test("calls onEvict for each evicted session", () => {
-      const evicted: string[] = [];
-      evictor.onEvict = (id) => evicted.push(id);
-
+  describe("onEvict", () => {
+    test("aborts subagents for each evicted session", () => {
       const s1 = createMockSession();
       sessions.set("a", s1);
       // Never touched — will be TTL evicted
 
       evictor.sweep();
 
-      expect(evicted).toEqual(["a"]);
+      expect(abortedParents).toEqual(["a"]);
+    });
+  });
+
+  describe("shouldProtect", () => {
+    test("skips conversations with running or pending subagents", () => {
+      protectedChildren = [{ status: "running" }];
+      const s1 = createMockSession();
+      sessions.set("a", s1);
+
+      const result = evictor.sweep();
+
+      expect(result.skipped).toBe(1);
+      expect(sessions.has("a")).toBe(true);
+      expect(s1.disposed).toBe(false);
     });
   });
 

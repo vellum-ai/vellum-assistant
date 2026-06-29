@@ -6,19 +6,22 @@
  * The flow keeps its whole journey in React state, so a page refresh used to
  * remount at the form, re-fire the (expensive) "research me" background turn,
  * and risk re-booking the day-2 check-in. We snapshot the journey to
- * `sessionStorage` (per-tab, cleared on tab close) keyed by user so a refresh
- * resumes where the user left off:
+ * `localStorage` keyed by user (persists across reloads — and tab closes —
+ * until onboarding completes and the snapshot is cleared) so a refresh resumes
+ * where the user left off:
  *   - the collected details (form + avatar/name) are restored, so the early
  *     steps aren't re-asked;
  *   - the COMPLETED research output ({ claims, suggestions, installedPlugins })
  *     is restored, so the background search is NOT re-run and we land straight
  *     on the suggestions;
- *   - mid-flow (research not yet settled) resumes on the right step and lets the
- *     route re-fire the search once — the in-flight client turn can't survive a
- *     reload, so there's nothing to recover, but the meeting is never re-booked
- *     because the booking step is never replayed.
+ *   - mid-flow (research not yet settled) resumes on the right step and re-
+ *     attaches to the SAME research conversation via `researchConversationId`
+ *     rather than minting a second one: the prior turn keeps generating server-
+ *     side after the reload, so the route resumes polling it (and only re-posts
+ *     the prompt if it never landed) instead of running a fresh search. The
+ *     meeting is never re-booked because the booking step is never replayed.
  *
- * Best-effort: `sessionStorage` can throw under privacy modes / quota, so every
+ * Best-effort: `localStorage` can throw under privacy modes / quota, so every
  * access is guarded and a failure just degrades to the old restart-at-form
  * behavior.
  */
@@ -67,6 +70,14 @@ export interface ResearchOnboardingSnapshot {
   checkinBooked: boolean;
   /** Completed research output; null until the turn settles with results. */
   research: PersistedResearchResults | null;
+  /**
+   * Id of the behind-the-scenes "research me" conversation, saved as soon as it
+   * is minted so a refresh mid-search can re-attach to (resume) that same thread
+   * instead of starting a second search. Cleared implicitly with the snapshot
+   * once onboarding completes. Absent on older snapshots / before the turn
+   * starts.
+   */
+  researchConversationId?: string;
 }
 
 function storageKey(userId: string | null): string | null {
@@ -79,7 +90,7 @@ export function readResearchSnapshot(
   const key = storageKey(userId);
   if (!key) return null;
   try {
-    const raw = sessionStorage.getItem(key);
+    const raw = localStorage.getItem(key);
     if (!raw) return null;
     return JSON.parse(raw) as ResearchOnboardingSnapshot;
   } catch {
@@ -95,9 +106,9 @@ export function writeResearchSnapshot(
   const key = storageKey(userId);
   if (!key) return;
   try {
-    sessionStorage.setItem(key, JSON.stringify(snapshot));
+    localStorage.setItem(key, JSON.stringify(snapshot));
   } catch {
-    // sessionStorage can throw under privacy modes / quota — best-effort.
+    // localStorage can throw under privacy modes / quota — best-effort.
   }
 }
 
@@ -105,7 +116,7 @@ export function clearResearchSnapshot(userId: string | null): void {
   const key = storageKey(userId);
   if (!key) return;
   try {
-    sessionStorage.removeItem(key);
+    localStorage.removeItem(key);
   } catch {
     // Best-effort.
   }

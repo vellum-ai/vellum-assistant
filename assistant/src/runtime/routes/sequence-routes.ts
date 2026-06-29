@@ -7,7 +7,7 @@
 
 import { z } from "zod";
 
-import { getDb } from "../../memory/db-connection.js";
+import { getDb } from "../../persistence/db-connection.js";
 import {
   getGuardrailConfig,
   setGuardrailConfig,

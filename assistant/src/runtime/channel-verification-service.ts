@@ -9,19 +9,13 @@
 import { createHash, randomBytes } from "crypto";
 import { v4 as uuid } from "uuid";
 
-import { revokeGuardianBinding } from "../contacts/contacts-write.js";
-import {
-  getGuardianDelivery,
-  getGuardianDeliveryFresh,
-  guardianForChannel,
-} from "../contacts/guardian-delivery-reader.js";
 import type {
   GuardianBinding,
   IdentityBindingStatus,
   SessionStatus,
   VerificationPurpose,
   VerificationSession,
-} from "../memory/channel-verification-sessions.js";
+} from "../channels/channel-verification-sessions.js";
 import {
   bindSessionIdentity as storeBindSessionIdentity,
   consumeSession,
@@ -36,12 +30,18 @@ import {
   revokePendingSessions as storeRevokePendingSessions,
   updateSessionDelivery as storeUpdateSessionDelivery,
   updateSessionStatus as storeUpdateSessionStatus,
-} from "../memory/channel-verification-sessions.js";
+} from "../channels/channel-verification-sessions.js";
+import { revokeGuardianBinding } from "../contacts/contacts-write.js";
+import {
+  getGuardianDelivery,
+  getGuardianDeliveryFresh,
+  guardianForChannel,
+} from "../contacts/guardian-delivery-reader.js";
 import {
   getRateLimit,
   recordInvalidAttempt,
   resetRateLimit,
-} from "../memory/guardian-rate-limits.js";
+} from "../contacts/guardian-rate-limits.js";
 import { composeApprovalMessage } from "./approval-message-composer.js";
 
 // ---------------------------------------------------------------------------

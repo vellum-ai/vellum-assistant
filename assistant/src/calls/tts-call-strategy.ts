@@ -16,9 +16,10 @@
  *   routing logic required.
  *
  * - **synthesized-play** -- The assistant synthesises audio and streams
- *   chunks to Twilio via `play` messages. The profile uses a
- *   placeholder TTS provider (`"Google"`) and an empty voice string
- *   because Twilio never drives TTS itself on this path.
+ *   chunks to Twilio via `play` messages, so Twilio does not drive TTS on
+ *   the happy path. The profile still carries a valid native fallback voice
+ *   (see `resolveVoiceQualityProfile`) so a mid-call synthesis failure can
+ *   degrade to native token TTS instead of being rejected with error 64106.
  *
  * @module
  */

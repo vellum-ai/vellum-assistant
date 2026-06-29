@@ -71,6 +71,22 @@ export function shouldSettleResearchPoll({
 }): boolean {
   return complete && stableReads >= STABLE_READS_TO_SETTLE;
 }
+
+export function resolveResearchCompletionStatus({
+  sawCompletePayload,
+}: {
+  sawCompletePayload: boolean;
+}): ResearchStatus {
+  return sawCompletePayload ? "done" : "error";
+}
+
+export function shouldArchiveCompletedResearchConversation({
+  sawCompletePayload,
+}: {
+  sawCompletePayload: boolean;
+}): boolean {
+  return sawCompletePayload;
+}
 /**
  * Org that owns first-party, reviewed Vellum plugins. Onboarding only ever
  * surfaces and installs plugins from this owner — never third-party/external
@@ -201,6 +217,21 @@ export interface StartResearchOptions {
   subject: ResearchSubject;
   /** Friendly title for the behind-the-scenes research conversation. */
   conversationTitle?: string;
+  /**
+   * Resume a research conversation a prior session minted (a refresh mid-search)
+   * instead of creating a fresh one. The prior turn keeps generating server-side
+   * across the reload, so we re-attach and poll it — re-posting the prompt only
+   * if it never landed before the refresh — so the search is never run twice. If
+   * the conversation is gone (e.g. it completed and was archived), falls back to
+   * a fresh run so the user still gets results.
+   */
+  resumeConversationId?: string;
+  /**
+   * Invoked with the conversation id the moment a FRESH research conversation is
+   * minted (not on resume), so the caller can persist it and resume this exact
+   * thread if the page is refreshed mid-search.
+   */
+  onConversationCreated?: (conversationId: string) => void;
 }
 
 export interface UseResearchRunner extends ResearchRunnerState {
@@ -305,7 +336,13 @@ export function useResearchRunner(): UseResearchRunner {
   const queryClient = useQueryClient();
 
   const start = useCallback(
-    ({ awaitAssistantId, subject, conversationTitle }: StartResearchOptions) => {
+    ({
+      awaitAssistantId,
+      subject,
+      conversationTitle,
+      resumeConversationId,
+      onConversationCreated,
+    }: StartResearchOptions) => {
       const subjectKey = JSON.stringify(subject);
       if (subjectKeyRef.current === subjectKey) return;
       subjectKeyRef.current = subjectKey;
@@ -330,6 +367,7 @@ export function useResearchRunner(): UseResearchRunner {
       void (async () => {
         let resolvedAssistantId: string | undefined;
         let createdConversationId: string | undefined;
+        let sawCompletePayload = false;
         try {
           const assistantId = await awaitAssistantId();
           resolvedAssistantId = assistantId;
@@ -370,54 +408,102 @@ export function useResearchRunner(): UseResearchRunner {
             setState((s) => ({ ...s, installedPlugins: deterministicPlugins }));
           }
 
-          const conversation = await conversationsPost({
-            path: { assistant_id: assistantId },
-            body: {
-              conversationType: "standard",
-              ...(conversationTitle ? { title: conversationTitle } : {}),
-            },
-            throwOnError: false,
-          });
-          // Capture the created conversation id BEFORE the stale check so a
-          // superseded run still archives its throwaway side conversation in the
-          // finally block. The finally already guards on truthiness, so an
-          // undefined id here is harmless.
-          createdConversationId = conversation.data?.id;
-          if (isStale()) return;
-          const conversationId = conversation.data?.id;
-          if (!conversation.response?.ok || !conversationId) {
-            setState((s) => ({ ...s, status: "error" }));
-            return;
-          }
-
-          const body: MessagesPostData["body"] = {
-            conversationId,
-            content: buildResearchPrompt(subject, capabilities),
-            sourceChannel: "vellum",
-            // Report the real platform so the assistant's `client_os` context
-            // is correct for this onboarding side conversation too (mirrors
-            // the main send path in `domains/chat/api/messages.ts`).
-            interface: detectInterfaceId(),
-            clientMessageId: crypto.randomUUID(),
+          // Post the research prompt onto a conversation. Returns false on a
+          // failed POST so the caller can settle "error".
+          const postResearchPrompt = async (cid: string): Promise<boolean> => {
+            const body: MessagesPostData["body"] = {
+              conversationId: cid,
+              content: buildResearchPrompt(subject, capabilities),
+              sourceChannel: "vellum",
+              // Report the real platform so the assistant's `client_os` context
+              // is correct for this onboarding side conversation too (mirrors
+              // the main send path in `domains/chat/api/messages.ts`).
+              interface: detectInterfaceId(),
+              clientMessageId: crypto.randomUUID(),
+            };
+            // Carry the browser timezone so any time-relative reasoning resolves
+            // to the user's local clock. Mirrors `checkin-scheduler.ts`.
+            try {
+              const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+              if (tz) body.clientTimezone = tz;
+            } catch {
+              // Intl unavailable — daemon falls back to its own cascade.
+            }
+            const posted = await messagesPost({
+              path: { assistant_id: assistantId },
+              body,
+              throwOnError: false,
+            });
+            return Boolean(posted.response?.ok);
           };
-          // Carry the browser timezone so any time-relative reasoning resolves
-          // to the user's local clock. Mirrors `checkin-scheduler.ts`.
-          try {
-            const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-            if (tz) body.clientTimezone = tz;
-          } catch {
-            // Intl unavailable — daemon falls back to its own cascade.
+
+          // Mint a fresh research conversation + fire the prompt. Used for the
+          // initial run and as the resume fallback when the prior conversation
+          // is gone.
+          const startFreshConversation = async (): Promise<
+            string | undefined
+          > => {
+            const conversation = await conversationsPost({
+              path: { assistant_id: assistantId },
+              body: {
+                conversationType: "standard",
+                ...(conversationTitle ? { title: conversationTitle } : {}),
+              },
+              throwOnError: false,
+            });
+            // Capture before the stale check so the finally block can archive it
+            // once a complete payload settles.
+            createdConversationId = conversation.data?.id;
+            const id = conversation.data?.id;
+            if (!conversation.response?.ok || !id) return undefined;
+            // Surface the new id immediately so the caller can persist it and
+            // resume this exact thread across a refresh.
+            onConversationCreated?.(id);
+            return id;
+          };
+
+          let conversationId: string | undefined;
+          if (resumeConversationId) {
+            // Resume the prior session's research conversation rather than
+            // running a second search. The turn keeps generating server-side
+            // across the reload, so re-attach and poll it; only re-post the
+            // prompt if it never landed before the refresh (no user message).
+            const existing = await messagesGet({
+              path: { assistant_id: assistantId },
+              query: { conversationId: resumeConversationId },
+              throwOnError: false,
+            });
+            if (isStale()) return;
+            if (existing.response?.ok) {
+              conversationId = resumeConversationId;
+              createdConversationId = resumeConversationId;
+              const turnAlreadyStarted = (existing.data?.messages ?? []).some(
+                (m) => m.role === "user",
+              );
+              if (!turnAlreadyStarted) {
+                if (!(await postResearchPrompt(conversationId))) {
+                  setState((s) => ({ ...s, status: "error" }));
+                  return;
+                }
+                if (isStale()) return;
+              }
+            }
+            // Not ok → conversation gone (e.g. completed + archived); fall
+            // through to a fresh run below.
           }
 
-          const posted = await messagesPost({
-            path: { assistant_id: assistantId },
-            body,
-            throwOnError: false,
-          });
-          if (isStale()) return;
-          if (!posted.response?.ok) {
-            setState((s) => ({ ...s, status: "error" }));
-            return;
+          if (!conversationId) {
+            conversationId = await startFreshConversation();
+            if (isStale()) return;
+            if (!conversationId) {
+              setState((s) => ({ ...s, status: "error" }));
+              return;
+            }
+            if (!(await postResearchPrompt(conversationId))) {
+              setState((s) => ({ ...s, status: "error" }));
+              return;
+            }
+            if (isStale()) return;
           }
 
           // Poll the conversation, parsing the (possibly partial) reply each
@@ -471,17 +557,23 @@ export function useResearchRunner(): UseResearchRunner {
                   modelPlugins: validPlugins,
                 }),
               });
+              if (complete) sawCompletePayload = true;
               stableReads = text === lastText ? stableReads + 1 : 0;
               lastText = text;
               // Only a complete payload can settle early. A partial JSON object
               // can pause between claim/suggestion objects for long enough to
               // look stable, but it may still be mid-response.
-              if (shouldSettleResearchPoll({ complete, stableReads })) break;
+              if (shouldSettleResearchPoll({ complete, stableReads })) {
+                break;
+              }
             }
           }
 
           if (isStale()) return;
-          setState((s) => ({ ...s, status: "done" }));
+          setState((s) => ({
+            ...s,
+            status: resolveResearchCompletionStatus({ sawCompletePayload }),
+          }));
         } catch (err) {
           if (isStale()) return;
           captureError(err, { context: "research_onboarding_runner" });
@@ -491,11 +583,16 @@ export function useResearchRunner(): UseResearchRunner {
           // a stale bail-out, or a reply that never emitted a `plugins` array) so
           // `awaitPluginInstalls` can never hang.
           resolvePluginsReady();
-          // Archive the throwaway research conversation on every exit path (settled,
-          // errored, or superseded by a newer run) once it has been created, so the
-          // side channel never lingers in the sidebar on handoff. Best-effort +
-          // idempotent; awaiting lets the cache invalidation reflect the archived state.
-          if (resolvedAssistantId && createdConversationId) {
+          // Archive only after the full research payload is available. If the poll
+          // ceiling fired before that, the assistant turn may still be running and
+          // the conversation remains available for reconciliation/debugging.
+          if (
+            shouldArchiveCompletedResearchConversation({
+              sawCompletePayload,
+            }) &&
+            resolvedAssistantId &&
+            createdConversationId
+          ) {
             await archiveResearchConversation(
               resolvedAssistantId,
               createdConversationId,

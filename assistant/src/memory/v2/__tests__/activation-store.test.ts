@@ -3,9 +3,12 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { type DrizzleDb, getSqliteFrom } from "../../db-connection.js";
-import { migrateActivationState } from "../../migrations/232-activation-state.js";
-import * as schema from "../../schema.js";
+import {
+  type DrizzleDb,
+  getSqliteFrom,
+} from "../../../persistence/db-connection.js";
+import { migrateActivationState } from "../../../persistence/migrations/232-activation-state.js";
+import * as schema from "../../../persistence/schema/index.js";
 import {
   clearEverInjected,
   forkActivationState,

@@ -234,4 +234,43 @@ describe("sendSlackReply post path", () => {
       callSlackApiMock.mock.calls.filter((call) => call[0] === "chat.update"),
     ).toHaveLength(0);
   });
+
+  test("retries chat.postMessage without blocks on msg_blocks_too_long", async () => {
+    // Cumulative block text over Slack's ~13k ceiling comes back as
+    // `msg_blocks_too_long`, not `invalid_blocks`; it must still degrade to text.
+    callSlackApiMock
+      .mockImplementationOnce(async () => {
+        throw new SlackApiError("msg_blocks_too_long");
+      })
+      .mockImplementationOnce(async () => ({
+        ok: true,
+        ts: "1700000000.000300",
+      }));
+
+    const result = await sendSlackReply("C123", "Fresh reply", {
+      threadTs,
+      blocks,
+    });
+
+    expect(result).toEqual({ ok: true, ts: "1700000000.000300" });
+    expect(callSlackApiMock).toHaveBeenCalledTimes(2);
+    expect(callSlackApiMock).toHaveBeenNthCalledWith(2, "chat.postMessage", {
+      channel: "C123",
+      text: "Fresh reply",
+      thread_ts: threadTs,
+    });
+  });
+
+  test("does not drop blocks on a non-payload error", async () => {
+    // Errors unrelated to the Block Kit payload (here `channel_not_found`) must
+    // propagate, not trigger a wasteful block-free retry.
+    callSlackApiMock.mockImplementationOnce(async () => {
+      throw new SlackApiError("channel_not_found");
+    });
+
+    await expect(
+      sendSlackReply("C123", "Fresh reply", { threadTs, blocks }),
+    ).rejects.toThrow();
+    expect(callSlackApiMock).toHaveBeenCalledTimes(1);
+  });
 });

@@ -114,7 +114,7 @@ mock.module("../providers/registry.js", () => ({
   shouldUseNativeWebSearch: () => false,
 }));
 
-mock.module("../memory/embedding-backend.js", () => ({
+mock.module("../persistence/embeddings/embedding-backend.js", () => ({
   EmbeddingBackendUnavailableError: class EmbeddingBackendUnavailableError extends Error {},
   SPARSE_EMBEDDING_VERSION: 4,
   clearEmbeddingBackendCache: () => {},
@@ -123,6 +123,7 @@ mock.module("../memory/embedding-backend.js", () => ({
     model: "test",
     vectors: [],
   }),
+  geminiCacheExtras: () => [],
   generateSparseEmbedding: () => ({ indices: [], values: [] }),
   getMemoryBackendStatus: async () => ({
     enabled: false,

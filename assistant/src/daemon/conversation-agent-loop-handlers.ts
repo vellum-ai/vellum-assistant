@@ -10,6 +10,7 @@ import type pino from "pino";
 import { v4 as uuid } from "uuid";
 
 import type { AgentEvent } from "../agent/loop.js";
+import { getThreadTs } from "../channels/slack-thread-store.js";
 import type {
   TurnChannelContext,
   TurnInterfaceContext,
@@ -18,49 +19,46 @@ import { getConfig } from "../config/loader.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import { getCalibrationProviderKey } from "../context/token-estimator.js";
+import { indexMessageNow } from "../memory/indexer.js";
+import { backfillMemoryRecallLogMessageId } from "../memory/memory-recall-log-store.js";
+import { backfillMemoryV2ActivationMessageId } from "../memory/memory-v2-activation-log-store.js";
+import {
+  formatSlackTimezoneLabel,
+  type SlackMessageMetadata,
+  writeSlackMetadata,
+} from "../messaging/providers/slack/message-metadata.js";
 import {
   recordCompactionEndBestEffort,
   recordCompactionStartBestEffort,
-} from "../memory/compaction-log-store-clickhouse.js";
-import { projectAssistantMessage } from "../memory/conversation-attention-store.js";
+} from "../persistence/compaction-log-store-clickhouse.js";
+import { projectAssistantMessage } from "../persistence/conversation-attention-store.js";
 import {
   deleteMessageById,
   getConversation,
   getMessageById,
   messageMetadataSchema,
   provenanceFromTrustContext,
+  recordConversationPersistedSeq,
   reserveMessage,
   setConversationHistoryStrippedAt,
   setLastNotifiedInferenceProfile,
   updateMessageContent,
-} from "../memory/conversation-crud.js";
-import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
-import { indexMessageNow } from "../memory/indexer.js";
+} from "../persistence/conversation-crud.js";
+import { syncMessageToDisk } from "../persistence/conversation-disk-view.js";
 import {
   backfillMessageIdOnLogs,
   buildProviderErrorResponsePayload,
   recordRequestLog,
   setAgentLoopExitReasonOnLatestLog,
-} from "../memory/llm-request-log-store.js";
-import { backfillMemoryRecallLogMessageId } from "../memory/memory-recall-log-store.js";
-import { backfillMemoryV2ActivationMessageId } from "../memory/memory-v2-activation-log-store.js";
-import { getThreadTs } from "../memory/slack-thread-store.js";
-import {
-  formatSlackTimezoneLabel,
-  type SlackMessageMetadata,
-  writeSlackMetadata,
-} from "../messaging/providers/slack/message-metadata.js";
+} from "../persistence/llm-request-log-store.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
-import { backfillMemoryV3SelectionMessageId } from "../plugins/defaults/memory-v3-shadow/shadow-plugin.js";
+import { backfillMemoryV3SelectionMessageId } from "../plugins/defaults/memory/v3/shadow-plugin.js";
 import type {
   ContentBlock,
   ImageContent,
   Message,
 } from "../providers/types.js";
-import {
-  getCurrentSeq,
-  recordPersistedSeq,
-} from "../runtime/assistant-stream-state.js";
+import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { extractDomain } from "../tools/network/domain-normalize.js";
@@ -103,6 +101,12 @@ import type {
 } from "./message-types/web-activity.js";
 
 const log = getLogger("agent-loop-handlers");
+
+function shouldPersistProviderErrorAsAssistantMessage(classified: {
+  code: string;
+}): boolean {
+  return classified.code !== "MANAGED_KEY_INVALID";
+}
 
 /**
  * Persist the history-stripped marker after the loop strips runtime injections
@@ -163,6 +167,7 @@ export interface EventHandlerState {
   readonly exchangeRawResponses: unknown[];
   model: string;
   providerErrorUserMessage: string | null;
+  persistProviderErrorAsAssistantMessage: boolean;
   lastAssistantMessageId: string | undefined;
   /**
    * True when `handleLlmCallStarted` has reserved an empty assistant row
@@ -209,6 +214,15 @@ export interface EventHandlerState {
     string,
     { startedAt: number; completedAt?: number }
   >;
+  /**
+   * Tracks tool_use_id → the `tool_use_preview_start` timestamp (Unix ms), the
+   * first byte of the tool call. Stamped before execution begins, so it lives
+   * in its own map rather than `toolCallTimestamps` (whose record requires an
+   * execution `startedAt`). Read when emitting `tool_use_start` and when
+   * annotating the persisted block so the user-perceived latency survives a
+   * refresh.
+   */
+  readonly toolPreviewStartedAt: Map<string, number>;
   /** The tool_use_id of the currently executing tool (set in handleToolUse, cleared in handleToolResult). */
   currentToolUseId: string | undefined;
   /** Maps confirmation requestId → tool_use_id for linking decisions to tools. */
@@ -341,6 +355,7 @@ export function createEventHandlerState(): EventHandlerState {
     exchangeRawResponses: [],
     model: "",
     providerErrorUserMessage: null,
+    persistProviderErrorAsAssistantMessage: false,
     lastAssistantMessageId: undefined,
     assistantRowAwaitingFinalization: false,
     pendingToolResults: new Map(),
@@ -356,6 +371,7 @@ export function createEventHandlerState(): EventHandlerState {
     firstThinkingDeltaEmitted: false,
     lastCompletedToolName: undefined,
     toolCallTimestamps: new Map(),
+    toolPreviewStartedAt: new Map(),
     currentToolUseId: undefined,
     requestIdToToolUseId: new Map(),
     toolConfirmationOutcomes: new Map(),
@@ -530,7 +546,7 @@ async function flushAccumulatedContent(
     // Record only after the write commits, so the snapshot seq never
     // claims content that is not yet durable.
     if (flushedSeq != null) {
-      recordPersistedSeq(deps.ctx.conversationId, flushedSeq);
+      recordConversationPersistedSeq(deps.ctx.conversationId, flushedSeq);
     }
   } catch (err) {
     deps.rlog.warn(
@@ -897,6 +913,14 @@ export function handleToolUse(
   // fetched mid-tool (refresh / reconnect) carries it and clients can render a
   // running timer without having seen the live `tool_use_start` event.
   recordToolStartOnPersistedMessage(state, event.id, startedAt);
+  // Mirror the first-byte preview timestamp onto the same durable block so a
+  // mid-tool snapshot keeps the perceived-start anchor instead of falling back
+  // to execution start. The block exists now (message_complete wrote it before
+  // this tool event), unlike at `tool_use_preview_start` time.
+  const previewStartedAt = state.toolPreviewStartedAt.get(event.id);
+  if (previewStartedAt != null) {
+    recordToolPreviewStartOnPersistedMessage(state, event.id, previewStartedAt);
+  }
   const statusText = computeToolUseStatusText(event.name, event.input);
   deps.ctx.emitActivityState("tool_running", "tool_use_start", {
     requestId: deps.reqId,
@@ -910,6 +934,9 @@ export function handleToolUse(
     toolUseId: event.id,
     messageId: state.lastAssistantMessageId,
     startedAt,
+    // Carry the first-byte timestamp through so a client that connected after
+    // the preview event still anchors the perceived-latency timer to it.
+    previewStartedAt: state.toolPreviewStartedAt.get(event.id),
   });
   // `message_complete` always precedes tool events (see handleMessageComplete),
   // so this tool_use block is already durable in the assistant row. The
@@ -918,7 +945,7 @@ export function handleToolUse(
   // persisted seq to it. Without this the snapshot would advertise a seq below
   // an event it already incorporates, and a client applying `seq > snapshot.seq`
   // would replay this tool start.
-  recordPersistedSeq(deps.ctx.conversationId, getCurrentSeq());
+  recordConversationPersistedSeq(deps.ctx.conversationId, getCurrentSeq());
 }
 
 export function handleToolUsePreviewStart(
@@ -926,12 +953,24 @@ export function handleToolUsePreviewStart(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "tool_use_preview_start" }>,
 ): void {
+  // Stamp the first-byte timestamp on the server clock. The user-perceived
+  // latency timer anchors here, so clients can start rendering the tool card
+  // and ticking elapsed time the moment the call is recognized — well before
+  // its input finishes streaming (which can lag many seconds on a large input).
+  //
+  // We only record it in state here, not onto the persisted assistant row: the
+  // tool_use block does not exist yet (message_complete writes it after the
+  // stream ends, which is after this preview event). `handleToolUse` mirrors
+  // this timestamp onto the durable block once it exists.
+  const previewStartedAt = Date.now();
+  state.toolPreviewStartedAt.set(event.toolUseId, previewStartedAt);
   deps.onEvent({
     type: "tool_use_preview_start",
     toolUseId: event.toolUseId,
     toolName: event.toolName,
     conversationId: deps.ctx.conversationId,
     messageId: state.lastAssistantMessageId,
+    previewStartedAt,
   });
   const statusText = `Preparing ${friendlyToolName(event.toolName)}...`;
   deps.ctx.emitActivityState("tool_running", "preview_start", {
@@ -1136,7 +1175,7 @@ async function persistPendingToolResultRow(
     rowId,
     JSON.stringify(buildToolResultBlocks(state.pendingToolResults)),
   );
-  recordPersistedSeq(deps.ctx.conversationId, seq);
+  recordConversationPersistedSeq(deps.ctx.conversationId, seq);
   const conv = getConversation(deps.ctx.conversationId);
   if (conv != null) {
     syncMessageToDisk(deps.ctx.conversationId, rowId, conv.createdAt);
@@ -1470,6 +1509,45 @@ function recordToolStartOnPersistedMessage(
 }
 
 /**
+ * Stamp `_previewStartedAt` (the first-byte timestamp) onto the durable
+ * tool_use block, mirroring `recordToolStartOnPersistedMessage`. Called from
+ * `handleToolUse` rather than `handleToolUsePreviewStart`: the block only exists
+ * once message_complete has written it, which happens after the preview event
+ * but before the tool event. Without this a `/messages` snapshot fetched
+ * mid-tool would lose the perceived-start anchor and clients would fall back to
+ * execution start — hiding the input-streaming gap the user actually waited
+ * through.
+ */
+function recordToolPreviewStartOnPersistedMessage(
+  state: EventHandlerState,
+  toolUseId: string,
+  previewStartedAt: number,
+): void {
+  const messageId = state.lastAssistantMessageId;
+  if (!messageId) return;
+
+  const row = getMessageById(messageId);
+  if (!row) return;
+
+  let content: ContentBlock[];
+  try {
+    content = JSON.parse(row.content) as ContentBlock[];
+  } catch {
+    return;
+  }
+
+  for (const block of content) {
+    if (block.type !== "tool_use") continue;
+    const rec = block as unknown as Record<string, unknown>;
+    if (rec.id !== toolUseId) continue;
+    if (rec._previewStartedAt === previewStartedAt) return;
+    rec._previewStartedAt = previewStartedAt;
+    updateMessageContent(messageId, JSON.stringify(content));
+    return;
+  }
+}
+
+/**
  * After all tools for the current turn complete, fetch the persisted assistant
  * message, annotate its tool_use blocks with timing and confirmation metadata,
  * and update the DB. This runs post-tool-execution so the metadata maps are
@@ -1505,6 +1583,11 @@ function annotatePersistedAssistantMessage(
         if (ts.completedAt != null) {
           rec._completedAt = ts.completedAt;
         }
+        modified = true;
+      }
+      const previewStartedAt = state.toolPreviewStartedAt.get(id);
+      if (previewStartedAt != null) {
+        rec._previewStartedAt = previewStartedAt;
         modified = true;
       }
       const confirmation = state.toolConfirmationOutcomes.get(id);
@@ -1618,6 +1701,8 @@ function handleError(
     buildConversationErrorMessage(deps.ctx.conversationId, classified),
   );
   state.providerErrorUserMessage = classified.userMessage;
+  state.persistProviderErrorAsAssistantMessage =
+    shouldPersistProviderErrorAsAssistantMessage(classified);
 }
 
 export function handleMaxTokensReached(
@@ -1816,10 +1901,14 @@ export async function handleMessageComplete(
   // delta's seq -- the highest stamped content event this row reflects -- so
   // recording it is honest. A drained tool result was stamped earlier in the
   // turn, so this seq already covers it; a call that streams no content (a
-  // pure tool call) advances instead via `tool_use_start`. `recordPersistedSeq`
-  // clamps monotonically, so a lower value here never regresses the seq.
+  // pure tool call) advances instead via `tool_use_start`.
+  // `recordConversationPersistedSeq` clamps monotonically, so a lower value
+  // here never regresses the seq.
   if (state.lastPersistedContentSeq != null) {
-    recordPersistedSeq(deps.ctx.conversationId, state.lastPersistedContentSeq);
+    recordConversationPersistedSeq(
+      deps.ctx.conversationId,
+      state.lastPersistedContentSeq,
+    );
   }
   // Reset the partial-persist mirror so subsequent calls in this turn
   // start with an empty running view.
@@ -2127,6 +2216,13 @@ function handleProviderError(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "provider_error" }>,
 ): void {
+  const classified = classifyConversationError(event.error, {
+    phase: "agent_loop",
+  });
+  if (!shouldPersistProviderErrorAsAssistantMessage(classified)) {
+    return;
+  }
+
   try {
     recordRequestLog(
       deps.ctx.conversationId,

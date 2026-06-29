@@ -7,7 +7,7 @@
 
 import { z } from "zod";
 
-import { getConversation } from "../../memory/conversation-crud.js";
+import { getConversation } from "../../persistence/conversation-crud.js";
 import {
   cancelSchedule,
   createSchedule,

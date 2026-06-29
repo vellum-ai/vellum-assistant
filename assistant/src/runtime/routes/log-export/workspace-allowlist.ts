@@ -27,7 +27,7 @@ import {
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 
-import { parseConversationDirName } from "../../../memory/conversation-directories.js";
+import { parseConversationDirName } from "../../../persistence/conversation-directories.js";
 import { getLogger } from "../../../util/logger.js";
 import { getConversationsDir } from "../../../util/platform.js";
 

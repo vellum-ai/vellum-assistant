@@ -17,8 +17,8 @@
 // the message-count threshold trips once enough messages accumulate.
 
 import type { AssistantConfig } from "../config/types.js";
+import { countMessagesAfter } from "../persistence/conversation-crud.js";
 import { getLogger } from "../util/logger.js";
-import { countMessagesAfter } from "./conversation-crud.js";
 import { enqueueMemoryRetrospectiveIfEnabled } from "./memory-retrospective-enqueue.js";
 import { getRetrospectiveState } from "./memory-retrospective-state.js";
 

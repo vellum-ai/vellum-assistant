@@ -623,6 +623,24 @@ describe("classifyConversationError", () => {
       expect(result.errorCategory).toBe("provider_invalid_key");
     });
 
+    it("classifies managed-proxy auth failures as managed credential refresh failures", () => {
+      providerRoutingSources.anthropic = "managed-proxy";
+      const err = new ProviderError(
+        'Anthropic API error (403): {"detail":"API key has expired."}',
+        "anthropic",
+        403,
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("MANAGED_KEY_INVALID");
+      expect(result.userMessage).toBe(
+        "Couldn't refresh assistant credentials.",
+      );
+      expect(result.retryable).toBe(false);
+      expect(result.errorCategory).toBe("managed_key_invalid");
+    });
+
     it("classifies ProviderError 401 with 'invalid x-api-key' message as PROVIDER_INVALID_KEY", () => {
       // Regex-match branch — Anthropic's standard 401 wording.
       const err = new ProviderError(

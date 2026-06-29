@@ -95,7 +95,7 @@ mock.module("../inbound/public-ingress-urls.js", () => ({
     "https://test.example.com/webhooks/twilio/status",
 }));
 
-mock.module("../memory/conversation-title-service.js", () => ({
+mock.module("../persistence/conversation-title-service.js", () => ({
   queueGenerateConversationTitle: () => {},
 }));
 
@@ -116,10 +116,10 @@ import {
   startCall,
 } from "../calls/call-domain.js";
 import type { AssistantConfig } from "../config/types.js";
-import { getMessages } from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { conversations } from "../memory/schema.js";
+import { getMessages } from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { conversations } from "../persistence/schema/index.js";
 
 await initializeDb();
 

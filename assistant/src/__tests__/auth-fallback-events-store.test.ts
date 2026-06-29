@@ -13,14 +13,14 @@ mock.module("../platform/consent-cache.js", () => ({
   getCachedShareAnalytics: () => shareAnalytics,
 }));
 
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { authFallbackEvents } from "../persistence/schema/index.js";
 import {
   type AuthFallbackCount,
   queryUnreportedAuthFallbackEvents,
   recordAuthFallbackCounts,
-} from "../memory/auth-fallback-events-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { authFallbackEvents } from "../memory/schema.js";
+} from "../security/auth-fallback-events-store.js";
 
 await initializeDb();
 

@@ -3,8 +3,11 @@
 // may import production modules like any normal consumer) pass the db handle
 // and table objects in. The imports below are type-only and fully erased at
 // compile time, so loading this module has no side effects.
-import type { getDb } from "../../memory/db-connection.js";
-import type { conversations, toolInvocations } from "../../memory/schema.js";
+import type { getDb } from "../../persistence/db-connection.js";
+import type {
+  conversations,
+  toolInvocations,
+} from "../../persistence/schema/index.js";
 
 /**
  * Sentinel embedded in the seeded raw input/result payloads. Tests assert it

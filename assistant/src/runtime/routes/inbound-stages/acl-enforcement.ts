@@ -9,13 +9,16 @@ import { isInviteCodeRedemptionEnabled } from "../../../channels/config.js";
 import type { ChannelId } from "../../../channels/types.js";
 import { getGuardianDelivery } from "../../../contacts/guardian-delivery-reader.js";
 import { channelStatusToMemberStatus } from "../../../contacts/member-status.js";
-import { deleteInbound, recordInbound } from "../../../memory/delivery-crud.js";
-import { markProcessed } from "../../../memory/delivery-status.js";
+import { MESSAGE_PREVIEW_MAX_LENGTH } from "../../../notifications/notification-utils.js";
+import {
+  deleteInbound,
+  recordInbound,
+} from "../../../persistence/delivery-crud.js";
+import { markProcessed } from "../../../persistence/delivery-status.js";
 import {
   findByInviteCodeHash,
   findByInviteCodeHashAnyChannel,
-} from "../../../memory/invite-store.js";
-import { MESSAGE_PREVIEW_MAX_LENGTH } from "../../../notifications/notification-utils.js";
+} from "../../../persistence/invite-store.js";
 import { resolveGuardianName } from "../../../prompts/user-reference.js";
 import { getLogger } from "../../../util/logger.js";
 import { truncate } from "../../../util/truncate.js";
@@ -177,7 +180,8 @@ export async function enforceIngressAcl(
 
   // Member resolved from the gateway verdict (ACL + identity only); null for a
   // stranger verdict, which falls through to the non-member intercepts.
-  const resolvedMember: VerdictMember | null = verdictMemberFromVerdict(verdict);
+  const resolvedMember: VerdictMember | null =
+    verdictMemberFromVerdict(verdict);
 
   // A verdict carrying member identity but no resolvable member
   // (malformed/unknown ACL) fails closed, not treated as a stranger.
@@ -829,7 +833,10 @@ export async function enforceIngressAcl(
     }
   }
 
-  return { resolvedMember, ...(isValidatedBootstrap && { isValidatedBootstrap }) };
+  return {
+    resolvedMember,
+    ...(isValidatedBootstrap && { isValidatedBootstrap }),
+  };
 }
 
 // ---------------------------------------------------------------------------

@@ -59,14 +59,15 @@ afterAll(() => {
   rmSync(tmpWorkspace, { recursive: true, force: true });
 });
 
-const { getMemoryDb } = await import("../db-connection.js");
-const { initializeDb } = await import("../db-init.js");
-const { resetTestTables } = await import("../raw-query.js");
-const { memoryJobs } = await import("../schema.js");
+const { getMemoryDb } = await import("../../persistence/db-connection.js");
+const { initializeDb } = await import("../../persistence/db-init.js");
+const { resetTestTables } = await import("../../persistence/raw-query.js");
+const { memoryJobs } = await import("../../persistence/schema/index.js");
 const { applyNestedDefaults } = await import("../../config/loader.js");
 const { getMemoryCheckpoint, setMemoryCheckpoint, deleteMemoryCheckpoint } =
-  await import("../checkpoints.js");
-const { maybeEnqueueGraphMaintenanceJobs } = await import("../jobs-worker.js");
+  await import("../../persistence/checkpoints.js");
+const { maybeEnqueueGraphMaintenanceJobs } =
+  await import("../../persistence/jobs-worker.js");
 
 const CONSOLIDATE_CHECKPOINT_KEY = "memory_v2_consolidate_last_run";
 

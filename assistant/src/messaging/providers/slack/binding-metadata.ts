@@ -1,6 +1,6 @@
 import { getConfig } from "../../../config/loader.js";
-import type { ExternalConversationBinding } from "../../../memory/external-conversation-store.js";
-import type { ChannelBindingMetadata } from "../../provider-types.js";
+import type { ExternalConversationBinding } from "../../../persistence/external-conversation-store.js";
+import type { ChannelBindingMetadata } from "../../channel-binding-schema.js";
 import {
   buildSlackMessageDeepLinks,
   buildSlackWebChannelUrl,
@@ -12,10 +12,12 @@ import {
  * links that jump back to the source thread and channel in the Slack app or
  * web client.
  *
- * The returned fields are spread onto the channel-neutral binding by the
- * serializer — Slack is the only channel that can currently produce
- * message-level deep links, because the link inputs (workspace team id/url +
- * a stable per-message timestamp) only exist for Slack.
+ * The return type is derived from the channel-binding Zod schema
+ * (`ChannelBindingMetadata`) — the single source of truth that also drives
+ * `openapi.yaml` and the web client's generated types — so this builder cannot
+ * drift from the wire contract. Slack is the only channel that can currently
+ * produce message-level deep links, because the link inputs (workspace team
+ * id/url + a stable per-message timestamp) only exist for Slack.
  */
 export function buildSlackBindingMetadata(
   binding: ExternalConversationBinding,

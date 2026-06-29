@@ -2,7 +2,6 @@ import {
     lazy,
     useCallback,
     useEffect,
-    useMemo,
     useRef,
     useState,
     type ReactNode,
@@ -11,7 +10,6 @@ import { Outlet, useLocation, useNavigate, useNavigationType } from "react-route
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile";
 import { getLocalBool, getLocalNumber, setLocalBool, setLocalNumber } from "@/utils/local-settings";
 import { routes } from "@/utils/routes";
@@ -25,6 +23,7 @@ import {
 import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 
+import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useAttentionTracking } from "@/domains/chat/hooks/use-attention-tracking";
 import { useChatLayoutDrawer } from "@/domains/chat/hooks/use-chat-layout-drawer";
 import { useChatLayoutShortcuts } from "@/domains/chat/hooks/use-chat-layout-shortcuts";
@@ -172,16 +171,6 @@ export function ChatLayout() {
       conversationGroups,
     });
 
-  // Hydrate the sidebar assistant name at the layout level so the
-  // sidebar header shows the correct name on every chat-layout child
-  // route — not only inside a conversation where ChatPage owns the
-  // fetch.
-  useAssistantIdentityInit({
-    assistantId,
-    assistantStateKind,
-  });
-
-
   // Home page unread indicator — drives the red dot on the Home button in
   // the layout header.
   const { hasUnreadHome } = useHomeUnreadBadge(assistantId);
@@ -249,7 +238,10 @@ export function ChatLayout() {
     navigate(1);
   }, [navigate]);
 
-  const isHomeActive = location.pathname === routes.home;
+  const isHomeActive =
+    location.pathname === routes.home ||
+    location.pathname === routes.schedules.root ||
+    location.pathname.startsWith(`${routes.schedules.root}/`);
   const isIdentityActive =
     location.pathname === routes.identity ||
     location.pathname === routes.skills ||
@@ -360,10 +352,19 @@ export function ChatLayout() {
     prePinGroupIdsRef,
   });
 
-  const activeConversation = useMemo(
-    () => conversations.find((c) => c.conversationId === activeConversationId) ?? null,
-    [conversations, activeConversationId],
-  );
+  // Resolve the active row from whichever list cache holds it (foreground,
+  // background, or scheduled), fetching the single row when an open
+  // background/scheduled thread is in none. The foreground `conversations`
+  // list deliberately excludes background jobs, so a directly-opened
+  // background conversation — e.g. a memory retrospective ("… (Retrospective)")
+  // — is absent from it and the header would otherwise fall back to "New
+  // conversation". `ActiveChatView` resolves its copy through the same hook.
+  const activeConversation =
+    useActiveConversation(
+      assistantId,
+      activeConversationId,
+      isAssistantActive,
+    ) ?? null;
 
   const topBarCenter = topBarCenterSlot ?? (headerSupplements ? (
     <ChatConversationHeader

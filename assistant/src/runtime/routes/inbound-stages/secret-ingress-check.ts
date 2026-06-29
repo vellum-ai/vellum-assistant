@@ -7,8 +7,11 @@
  */
 import type { ChannelId } from "../../../channels/types.js";
 import type { TrustContext } from "../../../daemon/trust-context.js";
-import { recordConversationSeenSignal } from "../../../memory/conversation-attention-store.js";
-import { clearPayload, storePayload } from "../../../memory/delivery-crud.js";
+import { recordConversationSeenSignal } from "../../../persistence/conversation-attention-store.js";
+import {
+  clearPayload,
+  storePayload,
+} from "../../../persistence/delivery-crud.js";
 import { checkIngressForSecrets } from "../../../security/secret-ingress.js";
 import { getLogger } from "../../../util/logger.js";
 

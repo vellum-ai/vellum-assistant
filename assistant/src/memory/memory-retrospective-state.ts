@@ -22,8 +22,9 @@
 
 import { eq } from "drizzle-orm";
 
-import { type DrizzleDb, getDb } from "./db-connection.js";
-import { memoryRetrospectiveState } from "./schema.js";
+import { type DrizzleDb, getDb } from "../persistence/db-connection.js";
+import { memoryRetrospectiveState } from "../persistence/schema/index.js";
+import { withSqliteRetrySync } from "../util/sqlite-retry.js";
 
 export interface MemoryRetrospectiveState {
   conversationId: string;
@@ -122,24 +123,32 @@ export function upsertRetrospectiveState(
     args.rememberedLog === undefined
       ? undefined
       : serializeRememberedLog(args.rememberedLog);
-  db.insert(memoryRetrospectiveState)
-    .values({
-      conversationId: args.conversationId,
-      lastProcessedMessageId: args.lastProcessedMessageId,
-      lastRunAt: args.lastRunAt,
-      rememberedLog: serializedLog ?? null,
-    })
-    .onConflictDoUpdate({
-      target: memoryRetrospectiveState.conversationId,
-      set: {
-        lastProcessedMessageId: args.lastProcessedMessageId,
-        lastRunAt: args.lastRunAt,
-        ...(serializedLog !== undefined
-          ? { rememberedLog: serializedLog }
-          : {}),
-      },
-    })
-    .run();
+  withSqliteRetrySync(
+    () =>
+      db
+        .insert(memoryRetrospectiveState)
+        .values({
+          conversationId: args.conversationId,
+          lastProcessedMessageId: args.lastProcessedMessageId,
+          lastRunAt: args.lastRunAt,
+          rememberedLog: serializedLog ?? null,
+        })
+        .onConflictDoUpdate({
+          target: memoryRetrospectiveState.conversationId,
+          set: {
+            lastProcessedMessageId: args.lastProcessedMessageId,
+            lastRunAt: args.lastRunAt,
+            ...(serializedLog !== undefined
+              ? { rememberedLog: serializedLog }
+              : {}),
+          },
+        })
+        .run(),
+    {
+      op: "upsertRetrospectiveState",
+      context: { conversationId: args.conversationId },
+    },
+  );
 }
 
 /**
@@ -231,15 +240,20 @@ export function bumpRetrospectiveLastRunAt(
   lastRunAt: number,
 ): void {
   const db = getDb();
-  db.insert(memoryRetrospectiveState)
-    .values({
-      conversationId,
-      lastProcessedMessageId: "",
-      lastRunAt,
-    })
-    .onConflictDoUpdate({
-      target: memoryRetrospectiveState.conversationId,
-      set: { lastRunAt },
-    })
-    .run();
+  withSqliteRetrySync(
+    () =>
+      db
+        .insert(memoryRetrospectiveState)
+        .values({
+          conversationId,
+          lastProcessedMessageId: "",
+          lastRunAt,
+        })
+        .onConflictDoUpdate({
+          target: memoryRetrospectiveState.conversationId,
+          set: { lastRunAt },
+        })
+        .run(),
+    { op: "bumpRetrospectiveLastRunAt", context: { conversationId } },
+  );
 }

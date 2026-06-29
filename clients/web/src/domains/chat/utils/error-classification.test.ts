@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   getChatBillingBannerDecision,
+  isManagedCredentialChatError,
   shouldShowGenericChatErrorNotice,
   shouldSuppressGenericChatErrorNotice,
 } from "@/domains/chat/utils/error-classification";
@@ -50,6 +51,17 @@ describe("chat error classification", () => {
     };
 
     expect(getChatBillingBannerDecision(error)).toBeNull();
+    expect(shouldSuppressGenericChatErrorNotice(error)).toBe(false);
+    expect(shouldShowGenericChatErrorNotice(error)).toBe(true);
+  });
+
+  test("routes managed key failures through the generic Doctor-capable notice", () => {
+    const error = {
+      code: "MANAGED_KEY_INVALID",
+      errorCategory: "managed_key_invalid",
+    };
+
+    expect(isManagedCredentialChatError(error)).toBe(true);
     expect(shouldSuppressGenericChatErrorNotice(error)).toBe(false);
     expect(shouldShowGenericChatErrorNotice(error)).toBe(true);
   });

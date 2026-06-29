@@ -202,6 +202,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "platform callback-routes",
   "platform callback-routes register",
   "platform callback-routes list",
+  "ps",
   "routes",
   "routes list",
   "routes inspect",
@@ -241,6 +242,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "telemetry flush",
   "tools",
   "tools list",
+  "tools run",
   "trust",
   "trust list",
   "tts",
@@ -462,6 +464,12 @@ const riskOverrides: AssistantRiskOverride[] = [
       "Deletes a provider_connection row; refuses unless --force when profiles still reference it",
   },
   { path: "llm send", risk: "medium" },
+  {
+    path: "tools run",
+    risk: "medium",
+    reason:
+      "Executes a registered tool directly. Runs non-interactive and non-guardian, so prompt-gated tools auto-deny, but it still invokes a tool outside the agent loop.",
+  },
   {
     path: "inference session open",
     risk: "low",

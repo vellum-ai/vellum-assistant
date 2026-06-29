@@ -25,6 +25,7 @@ import {
   messagesQueuedByIdDelete,
 } from "@/generated/daemon/sdk.gen";
 import type {
+  MessagesGetData,
   MessagesGetResponse,
   MessagesPostData,
 } from "@/generated/daemon/types.gen";
@@ -299,6 +300,16 @@ export async function getChatHistory(
 }
 
 /**
+ * Default page size for reconciliation/seq snapshot fetches. The silent-stall
+ * watchdog and post-send seq probes only ever inspect the conversation tail
+ * (the current turn and any newly-appended rows) plus the snapshot `seq`, so
+ * pulling the latest page is sufficient — and avoids re-downloading the entire
+ * conversation, which on a long chat is a large payload fetched alongside the
+ * paginated history query that already loads the same tail.
+ */
+export const RECONCILE_LATEST_PAGE_LIMIT = 50;
+
+/**
  * Fetch the server's authoritative `/messages` snapshot for a conversation.
  * Used for post-stream reconciliation to ensure local state matches the
  * backend even if events were dropped or the stream was interrupted.
@@ -308,14 +319,26 @@ export async function getChatHistory(
  * read `messages` directly and use `seq` for the seq-aware reconcile, which
  * compares it against the live applied frontier. `seq` is absent on daemons
  * that predate the seq-on-snapshot contract.
+ *
+ * Pass `latestPageLimit` to fetch only the newest page (`page=latest`) instead
+ * of the full conversation. Reconciliation and seq probes use this: they only
+ * read the tail and `seq`, both of which the `page=latest` response carries
+ * (the daemon emits `seq`/`processing` on the paginated path identically to the
+ * full-snapshot path). Omit it — as the inspector does — to download every
+ * message, which the inspector genuinely needs to enumerate the conversation.
  */
 export async function fetchConversationMessages(
   assistantId: string,
   conversationId: string,
+  options?: { latestPageLimit?: number },
 ): Promise<MessagesGetResponse | undefined> {
+  const query: NonNullable<MessagesGetData["query"]> =
+    options?.latestPageLimit != null
+      ? { conversationId, page: "latest", limit: options.latestPageLimit }
+      : { conversationId };
   const { data, error, response } = await messagesGet({
     path: { assistant_id: assistantId },
-    query: { conversationId },
+    query,
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to fetch conversation messages");

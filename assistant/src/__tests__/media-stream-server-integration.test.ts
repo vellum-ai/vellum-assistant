@@ -210,7 +210,7 @@ mock.module("../calls/call-speech-output.js", () => ({
 }));
 
 // Mock scoped approval grants (used in handleTransportClosed and early teardown)
-mock.module("../memory/scoped-approval-grants.js", () => ({
+mock.module("../approvals/scoped-approval-grants.js", () => ({
   revokeScopedApprovalGrantsForContext: jest.fn(),
 }));
 

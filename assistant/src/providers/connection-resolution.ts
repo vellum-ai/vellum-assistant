@@ -28,7 +28,7 @@
  */
 
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
-import { getDb } from "../memory/db-connection.js";
+import { getDb } from "../persistence/db-connection.js";
 import { getLogger } from "../util/logger.js";
 import {
   describeSubscriptionModelIncompatibility,
@@ -120,7 +120,9 @@ export async function tryResolveProviderForConnectionName(
     // "anthropic-managed" leaked through). Try to find an active connection
     // for the expected provider before giving up.
     let resolved = false;
-    let mismatchCandidates: import("./inference/auth.js").ProviderConnection[] | undefined;
+    let mismatchCandidates:
+      | import("./inference/auth.js").ProviderConnection[]
+      | undefined;
     try {
       const db = getDb();
       mismatchCandidates = listConnections(db, { provider: expectedProvider });
@@ -203,7 +205,9 @@ export async function resolveDefaultProvider(
     // provider without a connection ("Any active" selection), and the merge
     // cleared or failed to inherit one. Try to find an active connection
     // for the provider before giving up.
-    let autoResolveCandidates: import("./inference/auth.js").ProviderConnection[] | undefined;
+    let autoResolveCandidates:
+      | import("./inference/auth.js").ProviderConnection[]
+      | undefined;
     if (resolved.provider) {
       try {
         autoResolveCandidates = listConnections(getDb(), {

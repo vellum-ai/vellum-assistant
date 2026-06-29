@@ -93,7 +93,7 @@ mock.module("../../security/secure-keys.js", () => ({
   getProviderKeyAsync: async () => undefined,
 }));
 
-mock.module("../../memory/conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   addMessage: async () => ({ id: "msg-123" }),
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));

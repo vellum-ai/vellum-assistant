@@ -25,14 +25,14 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-import { getLogsDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getLogsDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   getRequestLogById,
   recordRequestLog,
   setAgentLoopExitReasonOnLatestLog,
-} from "../memory/llm-request-log-store.js";
-import { llmRequestLogs } from "../memory/schema.js";
+} from "../persistence/llm-request-log-store.js";
+import { llmRequestLogs } from "../persistence/schema/index.js";
 
 await initializeDb();
 

@@ -9,9 +9,8 @@
 import type { Button, KnownBlock } from "@slack/types";
 import type { ApprovalUIMetadata } from "@vellumai/gateway-client";
 
-import { getAttachmentContent } from "../../../memory/attachments-store.js";
+import { getAttachmentContent } from "../../../persistence/attachments-store.js";
 import type { RuntimeAttachmentMetadata } from "../../../runtime/http-types.js";
-import { textToSlackBlocks } from "../../../runtime/slack-block-formatting.js";
 import { getLogger } from "../../../util/logger.js";
 import {
   callSlackApi,
@@ -20,12 +19,28 @@ import {
   SlackApiError,
   uploadToSlackUrl,
 } from "./api.js";
+import { renderSlackBlocks } from "./render.js";
 
 const log = getLogger("slack-send");
 
 // Slack's max attachment upload size is ~1 GB, but practical limit is lower.
 // Use a generous 100 MB cap for outbound attachments.
 const SLACK_MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
+
+/**
+ * Slack errors meaning the Block Kit payload is too big for one message:
+ * `invalid_blocks` (malformed blocks, or over the 50-block limit) and
+ * `msg_blocks_too_long` (cumulative block text over Slack's ~13k, undocumented,
+ * content-dependent ceiling). The remedy is identical — resend the same message
+ * without `blocks` so the text body is still delivered — which keeps Slack the
+ * authority on its own limits instead of pre-guessing a byte ceiling here. Other
+ * client errors (e.g. `msg_too_long`, where the text itself is too long) are
+ * deliberately excluded: dropping `blocks` wouldn't help, so retrying is waste.
+ */
+const SLACK_OVERSIZED_BLOCKS_ERRORS = new Set([
+  "invalid_blocks",
+  "msg_blocks_too_long",
+]);
 
 // ---------------------------------------------------------------------------
 // Approval Block Kit builder
@@ -73,7 +88,7 @@ function resolveBlocks(
     return buildApprovalBlocks(text || approval.plainTextFallback, approval);
   }
   if (useBlocks && text) {
-    return textToSlackBlocks(text) ?? [];
+    return renderSlackBlocks(text) ?? [];
   }
   return [];
 }
@@ -124,12 +139,13 @@ export interface SlackSendResult {
 
 /**
  * Call a Slack message API once, retrying a single time without Block Kit
- * blocks if Slack rejects the payload with `invalid_blocks`.
+ * blocks if Slack rejects the payload as too big (see
+ * `SLACK_OVERSIZED_BLOCKS_ERRORS`).
  *
- * `invalid_blocks` faults the Block Kit payload, not the target — the retry
- * repeats the *same* operation (same `chat.update` ts, same `chat.postMessage`
- * thread) without blocks, so it edits/posts in place rather than spawning a
- * second message. Any other error propagates to the caller.
+ * Those errors fault the Block Kit payload, not the target — the retry repeats
+ * the *same* operation (same `chat.update` ts, same `chat.postMessage` thread)
+ * without blocks, so it edits/posts in place rather than spawning a second
+ * message. Any other error propagates to the caller.
  */
 async function sendWithBlockFallback(
   method: string,
@@ -148,9 +164,13 @@ async function sendWithBlockFallback(
       options.fallbackWithoutBlocks &&
       blocks.length > 0 &&
       err instanceof SlackApiError &&
-      err.slackError === "invalid_blocks"
+      err.slackError !== undefined &&
+      SLACK_OVERSIZED_BLOCKS_ERRORS.has(err.slackError)
     ) {
-      log.warn({ method }, "Slack rejected blocks; retrying without blocks");
+      log.warn(
+        { method, slackError: err.slackError },
+        "Slack rejected blocks; retrying without blocks",
+      );
       const result = await callSlackApi(method, baseBody);
       return { ok: true, ts: result.ts };
     }
@@ -198,16 +218,16 @@ export async function sendSlackReply(
   if (options?.ephemeral) {
     if (!options.user)
       throw new Error("user is required for ephemeral messages");
-    const result = await callSlackApi("chat.postEphemeral", {
-      ...postBase,
-      ...(blocks.length > 0 ? { blocks } : {}),
-      user: options.user,
-    });
-    return { ok: true, ts: result.ts };
+    return sendWithBlockFallback(
+      "chat.postEphemeral",
+      { ...postBase, user: options.user },
+      blocks,
+      { fallbackWithoutBlocks: !options.approval },
+    );
   }
 
-  // Approval prompts carry their action buttons in `blocks`; dropping them on
-  // `invalid_blocks` would post a card with no way to respond, so only
+  // Approval prompts carry their action buttons in `blocks`; dropping them when
+  // Slack rejects the payload would post a card with no way to respond, so only
   // non-approval posts fall back to a block-free retry.
   const result = await sendWithBlockFallback(
     "chat.postMessage",

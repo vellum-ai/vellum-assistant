@@ -4,10 +4,10 @@
  * Calls the Telegram Bot API directly — no gateway proxy hop.
  */
 
-import { getOrCreateConversation } from "../../../memory/conversation-key-store.js";
-import { upsertOutboundBinding } from "../../../memory/external-conversation-store.js";
 import type { OAuthConnection } from "../../../oauth/connection.js";
 import { getConnectionByProvider } from "../../../oauth/oauth-store.js";
+import { getOrCreateConversation } from "../../../persistence/conversation-key-store.js";
+import { upsertOutboundBinding } from "../../../persistence/external-conversation-store.js";
 import { credentialKey } from "../../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../../security/secure-keys.js";
 import type { MessagingProvider } from "../../provider.js";

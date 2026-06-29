@@ -13,6 +13,7 @@ import { useCallback, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { Button, Input, Modal } from "@vellumai/design-library";
+import { Notice } from "@vellumai/design-library/components/notice";
 
 import { referralCodesMeRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 
@@ -67,13 +68,17 @@ function EarnCreditsModalInner() {
     });
   }, []);
 
-  const subtitle = data
-    ? buildSubtitle(
-        data.referrer_credit_amount,
-        data.credit_amount,
-        data.earning_cap,
-      )
-    : "Refer friends to earn free credits.";
+  const creditsGated = data?.is_eligible_for_credits === false;
+
+  const subtitle = !data
+    ? "Refer friends to earn free credits."
+    : creditsGated
+      ? "Invite friends to Vellum. You'll start earning referral credits once you've purchased credits or upgraded to Pro."
+      : buildSubtitle(
+          data.referrer_credit_amount,
+          data.credit_amount,
+          data.earning_cap,
+        );
 
   const cap = data ? stripDecimals(data.earning_cap) : "";
   const title = showTerms ? "Referral Program Terms" : "Earn free credits";
@@ -139,11 +144,23 @@ function EarnCreditsModalInner() {
               />
               <HowItWorksStep
                 icon={<Gift className="h-4 w-4" />}
-                label="You earn credits"
+                label={
+                  creditsGated
+                    ? "You earn credits — once you've purchased credits or upgraded to Pro"
+                    : "You earn credits"
+                }
               />
             </div>
 
             <div style={{ borderTop: "1px solid var(--border-base)" }} />
+
+            {creditsGated && (
+              <Notice tone="info">
+                You're not currently earning referral credits. Buy credits or
+                upgrade to Pro to start earning — your invite link still works
+                in the meantime.
+              </Notice>
+            )}
 
             <div className="flex items-center gap-2">
               <Input

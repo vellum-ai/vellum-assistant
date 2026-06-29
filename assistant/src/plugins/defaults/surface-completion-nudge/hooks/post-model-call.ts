@@ -45,9 +45,13 @@
  * the `post-model-call` chain — later hooks see (and may override) its decision.
  */
 
-import type { HookFunction, PostModelCallContext } from "@vellumai/plugin-api";
+import type {
+  ContentBlock,
+  HookFunction,
+  Message,
+  PostModelCallContext,
+} from "@vellumai/plugin-api";
 
-import type { ContentBlock, Message } from "../../../../providers/types.js";
 import {
   isSurfaceCompletionNudged,
   markSurfaceCompletionNudged,

@@ -109,6 +109,15 @@ function sortedLeaves(entry: WorkflowEntry): WorkflowLeaf[] {
 }
 
 /**
+ * Spawned-agent count: prefer the live leaf count, fall back to the run's
+ * reported `agentsSpawned`. Shared by the count text and the avatar seeds so
+ * the two stay consistent.
+ */
+function workflowAgentCount(entry: WorkflowEntry): number {
+  return entry.leaves.size || entry.agentsSpawned;
+}
+
+/**
  * Derive the header `(title, info)` tuple.
  *
  * The bold title is the workflow's *name* (`label`) — stable and
@@ -180,9 +189,8 @@ export function computeWorkflowCardData(
     leaves,
   );
 
-  // Step count reflects spawned agents, not generic "steps". Prefer the
-  // live leaf count, falling back to the run's reported `agentsSpawned`.
-  const count = entry.leaves.size || entry.agentsSpawned;
+  // Step count reflects spawned agents, not generic "steps".
+  const count = workflowAgentCount(entry);
   const stepCount = `${count} agent${count === 1 ? "" : "s"}`;
 
   return {
@@ -194,6 +202,54 @@ export function computeWorkflowCardData(
     // Workflow cards don't use the web-search carousel.
     carouselItems: [],
   };
+}
+
+/**
+ * Max avatars rendered in the workflow card's spawned-agent stack. Matches
+ * the Figma 3-avatar sample; the count text carries the total.
+ */
+const MAX_VISIBLE_WORKFLOW_AGENT_AVATARS = 3;
+
+/** Stable empty seed array so the hook returns a constant ref for unknown runs. */
+const EMPTY_SEEDS: string[] = [];
+
+/**
+ * Derive stable avatar seeds for a run's spawned agents. The count comes from
+ * the shared `workflowAgentCount` helper (same as the card's count text) so
+ * avatars and the count stay consistent. Live runs seed from the sorted
+ * leaves' `seq`; a
+ * hydrated count-only run (no per-leaf events) synthesizes index seeds. Each
+ * seed is a stable `${runId}:${seq}` string.
+ */
+export function selectWorkflowAgentAvatarSeeds(entry: WorkflowEntry): string[] {
+  const visible = Math.min(
+    workflowAgentCount(entry),
+    MAX_VISIBLE_WORKFLOW_AGENT_AVATARS,
+  );
+
+  const seqs =
+    entry.leaves.size > 0
+      ? sortedLeaves(entry)
+          .slice(0, visible)
+          .map((l) => l.seq)
+      : Array.from({ length: visible }, (_, i) => i);
+
+  return seqs.map((seq) => `${entry.runId}:${seq}`);
+}
+
+/**
+ * React hook: subscribe to the workflow store entry for `runId` and derive
+ * its spawned-agent avatar seeds. Selecting the stable `entry` ref then
+ * deriving in `useMemo` avoids returning a fresh array every render (which
+ * would loop a consumer's effects). Returns a constant empty array when no
+ * entry exists yet.
+ */
+export function useWorkflowAgentAvatarSeeds(runId: string): string[] {
+  const entry = useWorkflowStore((state) => state.byId[runId]);
+  return useMemo(
+    () => (entry ? selectWorkflowAgentAvatarSeeds(entry) : EMPTY_SEEDS),
+    [entry],
+  );
 }
 
 /**

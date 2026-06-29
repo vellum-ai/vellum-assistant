@@ -13,6 +13,7 @@ Bun + TypeScript monorepo with multiple packages:
 - `scripts/` — Utility scripts
 - `skills/` — First-party skill catalog (portable skill packages). See `skills/AGENTS.md` for contribution rules and portability requirements.
 - `.claude/` — Claude Code slash commands and helper scripts (see `.claude/README.md`). Most commands are shared from [`claude-skills`](https://github.com/vellum-ai/claude-skills) via symlinks; repo-local commands (`/update`, `/release`) live in `.claude/skills/<name>/` as local skill directories. The `/update` command uses `vellum ps`, `vellum sleep`, and `vellum wake` to manage assistant lifecycle.
+- Evals have moved to a dedicated repo: [vellum-ai/evals](https://github.com/vellum-ai/evals).
 
 **`meta/` is a parent package, NOT a shared package.** Its purpose is to be the root workspace that all service packages (`gateway/`, `assistant/`, etc.) descend from — it provides workspace-level tooling, CI configuration, and build scripts. It must never contain runtime code, constants, or configuration files that child services import. A gateway or assistant module importing from `../../meta/` is a layering violation. Static config files (e.g. allowlists, registries) that a service consumes at runtime belong in that service's own package directory. Existing `meta/` contents (feature flags, test infra) are either shared build/CI metadata or are being migrated out.
 
@@ -104,6 +105,14 @@ When a Vellum [Linear](https://linear.app/) ticket exists for the work, link it 
 ## Worktrees & Source Control
 
 Never commit worktree directories or worktree artifacts. Git worktrees are local working copies and must remain local. The `.gitignore` already excludes common patterns (`worktrees/`, `.worktrees/`, `.codex-worktrees/`, `*-worktrees/`); if a tool creates worktree directories under a new prefix, add the pattern to `.gitignore` before committing.
+
+## Single Source of Truth
+
+Don't copy-paste logic. Duplicated logic drifts: a bug gets fixed in one copy and left in the others, and the copies diverge silently over time. When the same behavior (a derivation, formatter, guard, validation, fetch/retry sequence, handler) appears in more than one place, extract it into one named function/hook/module that every caller imports — fix it once, it's fixed everywhere.
+
+- Extract on the **second** occurrence, not the fifth — two copies is the signal, not a milestone to pass.
+- Share **behavior**, not just shapes: reusing a type while re-implementing the logic around it still drifts.
+- Put the extracted code at the right layer (see the package's own docs — e.g. `clients/web/docs/CONVENTIONS.md` "Top-level shared directories"): used by one area → inside it; used by two or more → a shared module. Then delete the originals in the same change.
 
 ## Dead Code Removal
 

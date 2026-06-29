@@ -22,8 +22,8 @@ mock.module("../tools/registry.js", () => ({
 
 import type { Database } from "bun:sqlite";
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { renderTemplate } from "../tasks/task-runner.js";
 import {
   createTask,

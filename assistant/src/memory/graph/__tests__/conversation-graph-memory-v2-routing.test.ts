@@ -114,15 +114,17 @@ const generateSparseEmbeddingMock = mock((_text: string) => ({
   indices: [1, 2, 3],
   values: [0.5, 0.5, 0.5] as number[],
 }));
-const realEmbeddingBackend = await import("../../embedding-backend.js");
-mock.module("../../embedding-backend.js", () => ({
+const realEmbeddingBackend =
+  await import("../../../persistence/embeddings/embedding-backend.js");
+mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
   ...realEmbeddingBackend,
   embedWithBackend: embedWithBackendMock,
   generateSparseEmbedding: generateSparseEmbeddingMock,
 }));
 
-const realQdrantClient = await import("../../qdrant-client.js");
-mock.module("../../qdrant-client.js", () => ({
+const realQdrantClient =
+  await import("../../../persistence/embeddings/qdrant-client.js");
+mock.module("../../../persistence/embeddings/qdrant-client.js", () => ({
   ...realQdrantClient,
   resolveQdrantUrl: () => "http://127.0.0.1:6333",
 }));
@@ -165,19 +167,19 @@ afterAll(() => {
 // bindings resolve through the stubs.
 // ---------------------------------------------------------------------------
 
-import type { DrizzleDb } from "../../db-connection.js";
+import type { DrizzleDb } from "../../../persistence/db-connection.js";
 
 const { ConversationGraphMemory } =
   await import("../conversation-graph-memory.js");
 const { applyNestedDefaults } = await import("../../../config/loader.js");
-const { getSqliteFrom } = await import("../../db-connection.js");
+const { getSqliteFrom } = await import("../../../persistence/db-connection.js");
 const { migrateActivationState } =
-  await import("../../migrations/232-activation-state.js");
+  await import("../../../persistence/migrations/232-activation-state.js");
 const { migrateAddMemoryV3EverInjected } =
-  await import("../../migrations/277-add-memory-v3-ever-injected.js");
+  await import("../../../persistence/migrations/277-add-memory-v3-ever-injected.js");
 const { getActiveSlugs: getV3ActiveSlugs, recordInjected: recordV3Injected } =
-  await import("../../../plugins/defaults/memory-v3-shadow/ever-injected-store.js");
-const schema = await import("../../schema.js");
+  await import("../../../plugins/defaults/memory/v3/ever-injected-store.js");
+const schema = await import("../../../persistence/schema/index.js");
 const { _resetMemoryV2QdrantForTests } = await import("../../v2/qdrant.js");
 const { hydrate: hydrateActivationState, save: saveActivationState } =
   await import("../../v2/activation-store.js");
@@ -188,8 +190,8 @@ const { hydrate: hydrateActivationState, save: saveActivationState } =
 // others. A live mutable holder lets each `beforeEach` swap the handle
 // without re-registering the mock.
 let testDbHandle: DrizzleDb | null = null;
-const realDbModule = await import("../../db-connection.js");
-mock.module("../../db-connection.js", () => ({
+const realDbModule = await import("../../../persistence/db-connection.js");
+mock.module("../../../persistence/db-connection.js", () => ({
   ...realDbModule,
   getDb: () => {
     if (!testDbHandle) throw new Error("test db not initialized");
