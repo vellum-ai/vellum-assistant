@@ -268,10 +268,19 @@ export function resolveChannelCapabilities(
   switch (channel) {
     case "vellum": {
       const supportsDesktopUi = iface === "macos";
+      // The web, iOS (Capacitor), and macOS (Electron) clients all load the
+      // same `clients/web` renderer, which can mount dynamic UI
+      // (ui_show / ui_update / app_create). iOS must be listed explicitly:
+      // it now reports its real `interface: "ios"` so `client_os` is accurate,
+      // but it previously rode in as the legacy "vellum" alias (normalized to
+      // "web"). Without "ios" here it would silently lose dynamic UI even
+      // though the renderer fully supports it. Desktop-only capabilities
+      // (dashboard, voice input) remain gated on macOS.
       return {
         channel,
         dashboardCapable: supportsDesktopUi,
-        supportsDynamicUi: supportsDesktopUi || iface === "web",
+        supportsDynamicUi:
+          supportsDesktopUi || iface === "web" || iface === "ios",
         supportsVoiceInput: supportsDesktopUi,
         clientOS: iface ?? undefined,
         chatType: resolvedChatType,
