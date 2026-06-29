@@ -34,9 +34,20 @@ import type {
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { AcpSessionUpdate } from "../daemon/message-types/acp.js";
 import { redactJsonStringLeaves } from "../security/redact-json.js";
+import { redactSensitiveFields } from "../security/redaction.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("acp:client-handler");
+
+// Field-name redaction across object/array shapes (covers top-level arrays;
+// redactSensitiveFields handles the nested recursion within objects).
+function redactSensitivePayload(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactSensitivePayload);
+  if (value !== null && typeof value === "object") {
+    return redactSensitiveFields(value as Record<string, unknown>);
+  }
+  return value;
+}
 
 interface TerminalState {
   proc: ChildProcess;
@@ -113,15 +124,20 @@ export class VellumAcpClientHandler implements Client {
   }
 
   /**
-   * Redact secrets from a raw tool payload, then cap its size. Redaction runs
-   * first so a leaked credential (API key, token, connection string) can never
-   * reach the forwarded SSE stream, the session buffer, or the persisted
-   * `event_log_json` — matching how the rest of the daemon scrubs tool I/O
-   * before it is logged or stored. `undefined` passes straight through.
+   * Redact secrets, then cap size, before forwarding — so a leaked credential
+   * never reaches the SSE stream, the session buffer, or persisted
+   * `event_log_json`. Two passes: `redactSensitivePayload` blanks values under
+   * credential-named keys (value-only scanning misses these once JSON-leaf
+   * isolation drops the key↔value context), then `redactJsonStringLeaves`
+   * catches shape-based secrets anywhere in the payload. `undefined` passes
+   * straight through.
    */
   private prepareRawPayload(value: unknown): unknown {
     if (value === undefined) return undefined;
-    return this.capRawPayload(redactJsonStringLeaves(value).value);
+    const redacted = redactJsonStringLeaves(
+      redactSensitivePayload(value),
+    ).value;
+    return this.capRawPayload(redacted);
   }
 
   /**

@@ -668,4 +668,53 @@ describe("VellumAcpClientHandler seq + enriched fields", () => {
     expect(JSON.stringify(msg.rawInput)).toContain("<redacted");
     expect(JSON.stringify(msg.rawOutput)).toContain("<redacted");
   });
+
+  test("tool_call redacts credential-named fields whose values aren't secret-shaped", async () => {
+    const { handler, sent } = makeHandler();
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tc-cred",
+        title: "Configure",
+        kind: "execute",
+        status: "completed",
+        // Plain words — caught by field NAME, not by value shape.
+        rawInput: {
+          password: "correcthorsebattery",
+          nested: { api_key: "plainword" },
+        },
+        rawOutput: { token: "notasecretbutlong" },
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    const serialized = JSON.stringify(sent[0]);
+    expect(serialized).not.toContain("correcthorsebattery");
+    expect(serialized).not.toContain("plainword");
+    expect(serialized).not.toContain("notasecretbutlong");
+    expect(serialized).toContain("<redacted");
+  });
+
+  test("tool_call_update redacts credential-named fields whose values aren't secret-shaped", async () => {
+    const { handler, sent } = makeHandler();
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tc-cred-update",
+        status: "completed",
+        rawInput: { authorization: "plainwordvalue" },
+        rawOutput: { secret: "justwords" },
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    const serialized = JSON.stringify(sent[0]);
+    expect(serialized).not.toContain("plainwordvalue");
+    expect(serialized).not.toContain("justwords");
+    expect(serialized).toContain("<redacted");
+  });
 });
