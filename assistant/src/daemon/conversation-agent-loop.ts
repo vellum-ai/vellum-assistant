@@ -339,7 +339,15 @@ export async function runAgentLoopImpl(
   // `callSite`. The provider layer resolves provider/model/maxTokens via
   // `resolveCallSiteConfig`, picking up any user overrides under
   // `llm.callSites.mainAgent` (falling back to `llm.default` when absent).
-  const turnCallSite: LLMCallSite = options?.callSite ?? "mainAgent";
+  //
+  // Subagent conversations default to `subagentSpawn` even when no `callSite`
+  // is supplied — the spawn passes it explicitly, but a queued follow-up drains
+  // through the generic queue path without one, and a subagent's turns must
+  // stay subagent turns: they resolve under the subagent inference config, and
+  // post-tool-use hooks gate on `callSite` (e.g. exempting subagents from the
+  // exploration-drift delegation nudge).
+  const turnCallSite: LLMCallSite =
+    options?.callSite ?? (ctx.isSubagent ? "subagentSpawn" : "mainAgent");
   // Expose the turn's call site on the live conversation so the runtime
   // injection assembly self-resolves it for the turn's plugin contexts.
   ctx.currentCallSite = turnCallSite;
