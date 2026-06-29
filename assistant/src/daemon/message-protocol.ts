@@ -15,6 +15,7 @@
 // Re-export domain modules (all individual types remain importable)
 export * from "./message-types/acp.js";
 export * from "./message-types/apps.js";
+export * from "./message-types/background-tools.js";
 export * from "./message-types/bookmarks.js";
 export * from "./message-types/computer-use.js";
 export * from "./message-types/contacts.js";
@@ -56,6 +57,7 @@ import type {
   _AppsClientMessages,
   _AppsServerMessages,
 } from "./message-types/apps.js";
+import type { _BackgroundToolsServerMessages } from "./message-types/background-tools.js";
 import type { _BookmarksServerMessages } from "./message-types/bookmarks.js";
 import type {
   _ComputerUseClientMessages,
@@ -209,6 +211,7 @@ export type ServerMessage =
   | _NotificationsServerMessages
   | _UpgradesServerMessages
   | _AcpServerMessages
+  | _BackgroundToolsServerMessages
   | _BookmarksServerMessages
   | _WorkflowsServerMessages
   | DiskPressureStatusChangedEvent
