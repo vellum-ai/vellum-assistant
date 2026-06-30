@@ -9140,6 +9140,10 @@ paths:
                 cronRunId:
                   type: string
                   minLength: 1
+                persist:
+                  type: boolean
+                externalContent:
+                  type: string
               required:
                 - conversationId
                 - hint

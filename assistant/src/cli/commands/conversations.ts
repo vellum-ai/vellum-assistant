@@ -599,6 +599,14 @@ Examples:
           "Source label for logging (e.g. github-notification)",
           "cli",
         )
+        .option(
+          "--persist",
+          "Persist the trigger as a transcript-visible background event instead of an ephemeral hint",
+        )
+        .option(
+          "--external-content <string>",
+          "Raw third-party data to fence as untrusted content (implies --persist). The caller reads the data and passes it as a string. Visible in the process table (ps) and bounded by ARG_MAX",
+        )
         .option("--json", "Output result as JSON")
         .addHelpText(
           "after",
@@ -612,22 +620,42 @@ only to the LLM — it never appears in the transcript or SSE feed. If the
 agent produces output (text or tool calls), it is persisted and emitted to
 connected clients. Otherwise the wake is a silent no-op.
 
+--hint is TRUSTED framing authored by you. Any attacker-influenceable data
+(email bodies, PR text, fetched web pages, notification payloads) MUST be
+passed via --external-content — never inlined into --hint. Untrusted content is
+fenced inside <external_content> so the model treats it as data, never
+instructions, and implies --persist. The caller reads the data and passes it as
+a string; it is visible in the process table via 'ps' and bounded by ARG_MAX.
+
 Requires the assistant to be running. Communicates via IPC socket.
 
 Examples:
   $ assistant conversations wake abc123 --hint "PR #25933 received a review requesting changes"
   $ assistant conversations wake abc123 --hint "CI failed on commit abc" --source github-ci
-  $ assistant conversations wake abc123 --hint "New Slack DM from Vargas" --source slack --json`,
+  $ assistant conversations wake abc123 --hint "New Slack DM from Vargas" --source slack --json
+  $ assistant conversations wake abc123 --hint "New Slack msgs to triage" --external-content "$slack_dump"`,
         )
         .action(
           async (
             conversationId: string,
-            opts: { hint: string; source: string; json?: boolean },
+            opts: {
+              hint: string;
+              source: string;
+              persist?: boolean;
+              externalContent?: string;
+              json?: boolean;
+            },
           ) => {
             // A script-mode schedule injects __SCHEDULE_RUN_ID into its env
             // (see schedule/run-script.ts). When set, thread it through so the
             // woken turn's usage is attributed to the firing.
             const cronRunId = process.env.__SCHEDULE_RUN_ID;
+
+            // Fencing only exists on the persisted-event path, so
+            // --external-content implies --persist.
+            const externalContent = opts.externalContent;
+            const persist = opts.persist || externalContent !== undefined;
+
             const result = await cliIpcCall<{
               invoked: boolean;
               producedToolCalls: boolean;
@@ -638,6 +666,8 @@ Examples:
                 hint: opts.hint,
                 source: opts.source,
                 ...(cronRunId ? { cronRunId } : {}),
+                ...(persist ? { persist: true } : {}),
+                ...(externalContent !== undefined ? { externalContent } : {}),
               },
             });
 
