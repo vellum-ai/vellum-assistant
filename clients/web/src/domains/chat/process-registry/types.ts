@@ -1,4 +1,4 @@
-import type { ComponentType, ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import type { ToolProgressCardState } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell";
 
@@ -76,7 +76,6 @@ export type ProcessPillConfig =
  *   when the kind has no stop action.
  * - `renderCount` — optional custom count slot; overrides the default string
  *   `count` rendering when present (e.g. the workflow agent-avatar chip).
- * - `DetailPanel` — each kind renders a different detail UI.
  */
 export interface BackgroundProcessDescriptor {
   /** Discriminant used to look the descriptor up in the registry. */
@@ -107,6 +106,4 @@ export interface BackgroundProcessDescriptor {
    * present. Omit to fall back to the {@link CardSummary.count} string.
    */
   renderCount?: (id: string) => ReactNode;
-  /** Detail-panel component rendered for a single process. */
-  DetailPanel: ComponentType<{ id: string; onClose: () => void }>;
 }

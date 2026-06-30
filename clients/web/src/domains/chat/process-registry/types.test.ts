@@ -31,7 +31,6 @@ describe("BackgroundProcessDescriptor contract", () => {
       openCardAriaLabel: "Open agents",
       onOpenDetail: () => {},
       onStop: () => {},
-      DetailPanel: () => null,
     };
 
     expect(descriptor.pill.variant).toBe("stacked");
@@ -50,7 +49,6 @@ describe("BackgroundProcessDescriptor contract", () => {
       openCardAriaLabel: "Open tasks",
       onOpenDetail: () => {},
       // No `onStop` — valid for kinds without a stop action.
-      DetailPanel: () => null,
     };
 
     expect(descriptor.pill.variant).toBe("count");

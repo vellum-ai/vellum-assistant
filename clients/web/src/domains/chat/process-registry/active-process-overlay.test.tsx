@@ -115,7 +115,6 @@ function fakeDescriptor(
     pillAriaLabel: (count) => `${count} active processes`,
     openCardAriaLabel: "Open process",
     onOpenDetail: () => {},
-    DetailPanel: () => null,
     ...overrides,
   };
 }
