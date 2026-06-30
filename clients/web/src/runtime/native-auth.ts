@@ -101,14 +101,12 @@ export async function startNativeLogin(options?: {
   baseURL?: string;
   returnTo?: string | null;
   loginHint?: string;
-  providerHint?: string;
   intent?: string;
 }): Promise<void> {
   const baseURL = options?.baseURL ?? deriveAuthBaseURL();
   const { sessionToken } = await NativeAuth.startAuth({
     baseURL,
     ...(options?.loginHint ? { loginHint: options.loginHint } : {}),
-    ...(options?.providerHint ? { providerHint: options.providerHint } : {}),
     ...(options?.intent ? { intent: options.intent } : {}),
   });
 
@@ -250,7 +248,6 @@ export async function startAuthFlow(
             ? routes.onboarding.privacy
             : options.returnTo ?? null,
         loginHint: options.loginHint,
-        providerHint: options.providerHint,
         intent: options.intent,
       });
     } catch (err) {
@@ -274,7 +271,6 @@ export async function startAuthFlow(
     oauthFlowInFlight = true;
     try {
       const result = await window.vellum.auth.startOAuth({
-        providerHint: options.providerHint,
         loginHint: options.loginHint,
         intent: options.intent,
       });
