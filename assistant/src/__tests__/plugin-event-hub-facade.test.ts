@@ -44,6 +44,40 @@ describe("plugin-facing assistantEventHub facade", () => {
     }
   });
 
+  test("does not expose raw publish through the prototype chain (Codex P1 bypass)", async () => {
+    // The facade has no prototype, so `Object.getPrototypeOf` / `.constructor`
+    // cannot reach the unguarded `AssistantEventHub.prototype.publish`.
+    expect(Object.getPrototypeOf(pluginHub)).toBeNull();
+    expect(
+      (pluginHub as { constructor?: unknown }).constructor,
+    ).toBeUndefined();
+
+    // End-to-end: replicate the reported exploit and assert nothing reaches a
+    // host-capable subscriber.
+    const received: AssistantEvent[] = [];
+    const sub = rawHub.subscribe({
+      type: "client",
+      clientId: "facade-bypass-test-client",
+      interfaceId: "macos",
+      capabilities: ["host_bash"],
+      callback: (event) => {
+        received.push(event);
+      },
+    } as Parameters<typeof rawHub.subscribe>[0]);
+    try {
+      const proto = Object.getPrototypeOf(pluginHub) as {
+        publish?: (event: AssistantEvent, options?: unknown) => Promise<void>;
+      } | null;
+      await proto?.publish?.call(pluginHub, envelope("host_bash_request"), {
+        targetClientId: "facade-bypass-test-client",
+        targetCapability: "host_bash",
+      });
+      expect(received).toHaveLength(0);
+    } finally {
+      sub.dispose();
+    }
+  });
+
   test("delegates non-host publish to the shared singleton", async () => {
     const received: AssistantEvent[] = [];
     const callback: AssistantEventCallback = (event) => {
