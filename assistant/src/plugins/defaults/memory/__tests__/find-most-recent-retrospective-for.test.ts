@@ -9,13 +9,11 @@ mock.module("../../../../util/logger.js", () => ({
     }),
 }));
 
-import {
-  createConversation,
-  findMostRecentRetrospectiveFor,
-} from "../../../../persistence/conversation-crud.js";
+import { createConversation } from "../../../../persistence/conversation-crud.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import { initializeDb } from "../../../../persistence/db-init.js";
 import { conversations } from "../../../../persistence/schema/index.js";
+import { findMostRecentRetrospectiveFor } from "../find-most-recent-retrospective-for.js";
 import { MEMORY_RETROSPECTIVE_SOURCE } from "../memory-retrospective-constants.js";
 
 await initializeDb();

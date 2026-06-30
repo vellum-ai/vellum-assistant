@@ -52,9 +52,6 @@ const MEMORY_DIR = join(ASSISTANT_SRC, "plugins", "defaults", "memory");
  * guard is to ratchet this set down to empty, never up.
  */
 const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
-  "assistant/src/persistence/conversation-crud.ts": new Set([
-    "memory-retrospective-constants",
-  ]),
   "assistant/src/persistence/jobs-worker.ts": new Set(["v2/consolidation-job"]),
   "assistant/src/persistence/steps.ts": new Set(["graph/bootstrap"]),
 };
