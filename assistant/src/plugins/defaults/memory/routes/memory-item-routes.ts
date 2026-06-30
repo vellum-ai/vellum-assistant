@@ -24,37 +24,41 @@ import {
 } from "drizzle-orm";
 import { z } from "zod";
 
-import { getConfig } from "../../config/loader.js";
+import { getConfig } from "../../../../config/loader.js";
 import {
   createNode,
   deleteNode,
   getNode,
   updateNode,
-} from "../../memory/graph/store.js";
+} from "../../../../memory/graph/store.js";
 import type {
   Fidelity,
   ImageRef,
   MemoryNode,
   MemoryType,
   NewNode,
-} from "../../memory/graph/types.js";
-import { getDb } from "../../persistence/db-connection.js";
+} from "../../../../memory/graph/types.js";
+import { getDb } from "../../../../persistence/db-connection.js";
 import {
   embedWithBackend,
   generateSparseEmbedding,
   getMemoryBackendStatus,
-} from "../../persistence/embeddings/embedding-backend.js";
-import { withQdrantBreaker } from "../../persistence/embeddings/qdrant-circuit-breaker.js";
-import { getQdrantClient } from "../../persistence/embeddings/qdrant-client.js";
+} from "../../../../persistence/embeddings/embedding-backend.js";
+import { withQdrantBreaker } from "../../../../persistence/embeddings/qdrant-circuit-breaker.js";
+import { getQdrantClient } from "../../../../persistence/embeddings/qdrant-client.js";
 import {
   enqueueMemoryJob,
   isMemoryEnabled,
-} from "../../persistence/jobs-store.js";
-import { memoryGraphNodes } from "../../persistence/schema/index.js";
-import { getLogger } from "../../util/logger.js";
-import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
-import type { RouteDefinition } from "./types.js";
+} from "../../../../persistence/jobs-store.js";
+import { memoryGraphNodes } from "../../../../persistence/schema/index.js";
+import { ACTOR_PRINCIPALS } from "../../../../runtime/auth/route-policy.js";
+import {
+  BadRequestError,
+  ConflictError,
+  NotFoundError,
+} from "../../../../runtime/routes/errors.js";
+import type { RouteDefinition } from "../../../../runtime/routes/types.js";
+import { getLogger } from "../../../../util/logger.js";
 
 const log = getLogger("memory-item-routes");
 

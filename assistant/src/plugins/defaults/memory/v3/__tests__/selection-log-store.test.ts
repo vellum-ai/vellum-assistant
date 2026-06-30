@@ -378,6 +378,7 @@ describe("summarizeSelections", () => {
       edge: 2,
       reply: 0,
       learned: 0,
+      entity: 0,
     });
     expect(summary.turns).toBe(2);
     // page-1 and page-2 — distinct across the two turns.
@@ -395,6 +396,7 @@ describe("summarizeSelections", () => {
         edge: 0,
         reply: 0,
         learned: 0,
+        entity: 0,
       },
       turns: 0,
       distinctSlugs: 0,

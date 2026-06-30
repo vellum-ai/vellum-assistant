@@ -26,13 +26,13 @@ import type {
   SendMessageOptions,
   ToolDefinition,
   ToolUseContent,
-} from "../../../providers/types.js";
+} from "../../../../../providers/types.js";
 
 // ---------------------------------------------------------------------------
 // Mocks (installed before the route module is imported)
 // ---------------------------------------------------------------------------
 
-mock.module("../../../util/logger.js", () => ({
+mock.module("../../../../../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
@@ -40,7 +40,7 @@ mock.module("../../../util/logger.js", () => ({
 }));
 
 // Skill store: empty by default so the page index only contains test pages.
-mock.module("../../../memory/v2/skill-store.js", () => ({
+mock.module("../../../../../memory/v2/skill-store.js", () => ({
   SKILL_SLUG_PREFIX: "skills/",
   listSkillEntries: () => [],
   seedV2SkillEntries: async () => undefined,
@@ -48,7 +48,7 @@ mock.module("../../../memory/v2/skill-store.js", () => ({
 
 // NOW.md loader: return a fixed string. The route reads NOW from the
 // workspace at call time; stubbing keeps the test independent of disk state.
-mock.module("../../../memory/v2/now-text.js", () => ({
+mock.module("../../../../../memory/v2/now-text.js", () => ({
   loadNowText: async () => "2026-05-22 14:00 PT",
 }));
 
@@ -58,7 +58,7 @@ mock.module("../../../memory/v2/now-text.js", () => ({
 // for tier 2, once in the handler for the response payload); always returns
 // zero scores since the test workspace has no event history.
 const recordCalls: Array<{ slugs: readonly string[]; at: number }> = [];
-mock.module("../../../memory/v2/injection-events.js", () => ({
+mock.module("../../../../../memory/v2/injection-events.js", () => ({
   recordInjectionEvents: (
     _db: unknown,
     slugs: readonly string[],
@@ -76,7 +76,7 @@ mock.module("../../../memory/v2/injection-events.js", () => ({
 // Database handle: the simulate route only passes this through to
 // `runRouter` and `computeInjectionScores`. Both are stubbed above, so a
 // sentinel object is sufficient.
-mock.module("../../../persistence/db-connection.js", () => ({
+mock.module("../../../../../persistence/db-connection.js", () => ({
   getDb: () => ({ __stub: true }),
   getSqlite: () => ({ __stub: true }),
   getSqliteFrom: () => ({ __stub: true }),
@@ -105,7 +105,7 @@ const mockConfigValue = {
     },
   },
 };
-mock.module("../../../config/loader.js", () => ({
+mock.module("../../../../../config/loader.js", () => ({
   loadConfig: () => mockConfigValue,
   getConfig: () => mockConfigValue,
   getConfigReadOnly: () => mockConfigValue,
@@ -122,7 +122,7 @@ interface ProviderCall {
   options: SendMessageOptions | undefined;
 }
 const providerCalls: ProviderCall[] = [];
-mock.module("../../../providers/provider-send-message.js", () => ({
+mock.module("../../../../../providers/provider-send-message.js", () => ({
   getConfiguredProvider: async () => providerStub,
   extractToolUse: (response: ProviderResponse) =>
     response.content.find((b): b is ToolUseContent => b.type === "tool_use"),
@@ -131,7 +131,7 @@ mock.module("../../../providers/provider-send-message.js", () => ({
 // Platform helpers. `getWorkspaceDir` must return the per-test tmp dir so
 // the route's page index points at the test workspace.
 let workspaceDir = "";
-mock.module("../../../util/platform.js", () => {
+mock.module("../../../../../util/platform.js", () => {
   const stub = () => workspaceDir;
   return {
     getWorkspaceDir: () => workspaceDir,
@@ -185,9 +185,9 @@ mock.module("../../../util/platform.js", () => {
 // ---------------------------------------------------------------------------
 
 const { handleSimulateRouter } = await import("../memory-v2-routes.js");
-const { writePage } = await import("../../../memory/v2/page-store.js");
+const { writePage } = await import("../../../../../memory/v2/page-store.js");
 const { invalidatePageIndex } =
-  await import("../../../memory/v2/page-index.js");
+  await import("../../../../../memory/v2/page-index.js");
 
 // ---------------------------------------------------------------------------
 // Helpers

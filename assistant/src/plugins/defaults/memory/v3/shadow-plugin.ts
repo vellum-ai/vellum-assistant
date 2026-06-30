@@ -44,6 +44,8 @@ import { renderCard } from "./card.js";
 import { loadCoreSet } from "./core-set.js";
 import type { EdgeGraph } from "./edge.js";
 import { buildEdgeGraph } from "./edge.js";
+import type { EntityIndex } from "./entity-lane.js";
+import { buildEntityIndex } from "./entity-lane.js";
 import { computeFreshSet } from "./fresh-set.js";
 import { computeHotSet } from "./hot-set.js";
 import { computeLearnedEdgeGraph } from "./learned-edges.js";
@@ -90,6 +92,9 @@ const LEARNED_EDGES_WINDOW_DAYS = 90;
 export interface ShadowLanes {
   sectionIndex: SectionIndex;
   needle: SectionNeedle;
+  /** Heading-anchored entity catalog, built at lane init when the entity lane
+   *  is enabled (`memory.v3.entity.enabled`). Omitted disables the lane. */
+  entityIndex?: EntityIndex;
   /** Config the dense lane needs to embed the query + search the section
    *  collection. */
   denseConfig: AssistantConfig;
@@ -197,6 +202,18 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
 
   const sectionIndex = await buildSectionIndex(slugs, pageBody);
   const needle = buildSectionNeedle(sectionIndex);
+
+  // The entity lane's heading catalog: distinctive `## ` heading tokens → the
+  // sections they head, so a named entity in the turn message surfaces its page
+  // even when additive BM25 buries it under the message's bulk theme. Gated by
+  // the needle's corpus IDF so hub tokens (e.g. "vellum") never become keys.
+  const entityCfg = config.memory.v3.entity;
+  const entityIndex = entityCfg.enabled
+    ? buildEntityIndex(
+        sectionIndex,
+        (token) => needle.idf(token) >= entityCfg.idfFloor,
+      )
+    : undefined;
 
   // The stable-prefix lanes. Core is the maintainer-curated file (file order
   // preserved — it is the prefix's stable sort), filtered to pages that exist
@@ -329,6 +346,7 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   return {
     sectionIndex,
     needle,
+    entityIndex,
     denseConfig: config,
     edgeGraph,
     learnedGraph,
@@ -581,6 +599,7 @@ export async function observeTurn(
     const result = await orchestrate(turn, {
       sectionIndex: lanes.sectionIndex,
       needle: lanes.needle,
+      entityIndex: lanes.entityIndex,
       denseConfig: lanes.denseConfig,
       edgeGraph: lanes.edgeGraph,
       coreSlugs: lanes.coreSlugs,
@@ -590,6 +609,7 @@ export async function observeTurn(
       prefixCards: lanes.prefixCards,
       needleK: tuning.needleK,
       denseK: tuning.denseK,
+      entityCap: v3.entity.cap,
       replyQueryK: tuning.replyQueryK,
       edgeSeeds: tuning.edgeSeedCount,
       edgePerSeed: tuning.edgePerSeed,

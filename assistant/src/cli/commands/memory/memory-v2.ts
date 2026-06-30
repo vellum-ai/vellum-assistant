@@ -27,7 +27,7 @@ import type {
   MemoryV2ReembedSkillsResult,
   MemoryV2SimulateRouterResult,
   MemoryV2ValidateResult,
-} from "../../../runtime/routes/memory-v2-routes.js";
+} from "../../../plugins/defaults/memory/routes/memory-v2-routes.js";
 import { registerCommand } from "../../lib/register-command.js";
 import { log } from "../../logger.js";
 import {
