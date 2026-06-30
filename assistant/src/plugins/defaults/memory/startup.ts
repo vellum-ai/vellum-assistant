@@ -17,6 +17,10 @@ import { refreshSkillCapabilityMemories } from "../../../daemon/skill-memory-ref
 import { registerMemoryJobHandlers } from "../../../jobs/register-job-handlers.js";
 import { selectEmbeddingBackend } from "../../../persistence/embeddings/embedding-backend.js";
 import {
+  initMessagesLexicalIndex,
+  MESSAGES_LEXICAL_COLLECTION,
+} from "../../../persistence/embeddings/messages-lexical-index.js";
+import {
   initQdrantClient,
   resolveQdrantUrl,
 } from "../../../persistence/embeddings/qdrant-client.js";
@@ -112,6 +116,25 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
           "Qdrant client initialization failed — memory features will be degraded",
         );
       }
+    }
+
+    // Initialize the messages lexical index — a dedicated sparse-only Qdrant
+    // collection that is the lexical (BM25-style) replacement for SQLite FTS5
+    // over message content. Independent of the v1 dense collection lifecycle
+    // (sparse-only, no embedding model), so it is constructed whenever Qdrant
+    // is up regardless of the v2 flag. Lazy collection creation lives in the
+    // client, so this only wires the singleton.
+    try {
+      initMessagesLexicalIndex({
+        url: qdrantUrl,
+        collection: MESSAGES_LEXICAL_COLLECTION,
+        onDisk: config.memory.qdrant.onDisk,
+      });
+    } catch (err) {
+      log.warn(
+        { err },
+        "Messages lexical index initialization failed — lexical search will be degraded",
+      );
     }
 
     // Reconcile the committed embedding-collection dimension against a live

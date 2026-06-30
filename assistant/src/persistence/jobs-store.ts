@@ -62,6 +62,8 @@ export type MemoryJobType =
   | "memory_v2_reembed"
   | "memory_v2_activation_recompute"
   | "memory_v3_maintain"
+  | "index_message_lexical"
+  | "purge_conversation_lexical"
   // Retired/legacy — no live handler; persisted rows drop via LEGACY_JOB_TYPES.
   | "memory_v3_consolidate"
   | "memory_v3_index_maintenance"
