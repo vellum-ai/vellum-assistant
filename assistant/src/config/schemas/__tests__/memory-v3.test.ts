@@ -8,23 +8,23 @@ describe("MemoryV3ConfigSchema", () => {
     expect(parsed).toEqual({
       live: false,
       prune: { maxResidentBytes: 393216, targetResidentBytes: 262144 },
-      hotSet: { k: 40, halfLifeDays: 14 },
-      freshSet: { k: 100 },
+      hotSet: { k: 8, halfLifeDays: 14 },
+      freshSet: { k: 8 },
       learnedEdges: {
         halfLifeDays: 30,
         minCount: 3,
         npmiFloor: 0.2,
         maxPerPage: 6,
         perSeed: 3,
-        cap: 20,
+        cap: 0,
       },
       spotlight: { n: 6, windowTurns: 2 },
-      needleK: 100,
-      denseK: 100,
-      replyQueryK: 12,
-      selectorEnabled: true,
+      needleK: 12,
+      denseK: 0,
+      replyQueryK: 0,
+      selectorEnabled: false,
       selectorPromptPath: null,
-      edge: { hubDegree: 30, seedCount: 18, perSeed: 6, cap: 45 },
+      edge: { hubDegree: 30, seedCount: 6, perSeed: 1, cap: 6 },
     });
   });
 
@@ -105,9 +105,9 @@ describe("MemoryV3ConfigSchema", () => {
     const parsed = MemoryV3ConfigSchema.parse({ edge: { hubDegree: 10 } });
     expect(parsed.edge).toEqual({
       hubDegree: 10,
-      seedCount: 18,
-      perSeed: 6,
-      cap: 45,
+      seedCount: 6,
+      perSeed: 1,
+      cap: 6,
     });
   });
 

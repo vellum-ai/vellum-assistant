@@ -18,7 +18,7 @@ export const MemoryV3EdgeSchema = z
       .number({ error: "memory.v3.edge.seedCount must be a number" })
       .int("memory.v3.edge.seedCount must be an integer")
       .positive("memory.v3.edge.seedCount must be a positive integer")
-      .default(18)
+      .default(6)
       .describe(
         "Number of top needle+dense seeds (in rank order) expanded by the edge lane.",
       ),
@@ -26,13 +26,13 @@ export const MemoryV3EdgeSchema = z
       .number({ error: "memory.v3.edge.perSeed must be a number" })
       .int("memory.v3.edge.perSeed must be an integer")
       .positive("memory.v3.edge.perSeed must be a positive integer")
-      .default(6)
+      .default(1)
       .describe("Maximum neighbours surfaced per expanded seed."),
     cap: z
       .number({ error: "memory.v3.edge.cap must be a number" })
       .int("memory.v3.edge.cap must be an integer")
       .positive("memory.v3.edge.cap must be a positive integer")
-      .default(45)
+      .default(6)
       .describe(
         "Hard cap on the total number of distinct articles surfaced by the edge lane.",
       ),
@@ -49,7 +49,7 @@ export const MemoryV3HotSetSchema = z
       .number({ error: "memory.v3.hotSet.k must be a number" })
       .int("memory.v3.hotSet.k must be an integer")
       .nonnegative("memory.v3.hotSet.k must be a non-negative integer")
-      .default(40)
+      .default(8)
       .describe(
         "Number of top frecency-scored pages included in the hot-set lane. 0 disables the lane.",
       ),
@@ -76,7 +76,7 @@ export const MemoryV3FreshSetSchema = z
       .number({ error: "memory.v3.freshSet.k must be a number" })
       .int("memory.v3.freshSet.k must be an integer")
       .nonnegative("memory.v3.freshSet.k must be a non-negative integer")
-      .default(100)
+      .default(8)
       .describe(
         "Number of most-recently-modified pages included in the fresh-set lane (0 disables the lane). Sized to cover roughly the last day or two of page writes — the recency window conversations reference most.",
       ),
@@ -134,7 +134,7 @@ export const MemoryV3LearnedEdgesSchema = z
       .number({ error: "memory.v3.learnedEdges.cap must be a number" })
       .int("memory.v3.learnedEdges.cap must be an integer")
       .nonnegative("memory.v3.learnedEdges.cap must be a non-negative integer")
-      .default(20)
+      .default(0)
       .describe(
         "Hard cap on total learned-lane surfaced articles per turn (0 disables the pass).",
       ),
@@ -239,7 +239,7 @@ export const MemoryV3ConfigSchema = z
       .number({ error: "memory.v3.needleK must be a number" })
       .int("memory.v3.needleK must be an integer")
       .nonnegative("memory.v3.needleK must be a non-negative integer")
-      .default(100)
+      .default(12)
       .describe(
         "Number of section-grain BM25 needle articles folded into the candidate pool each turn. 0 disables the needle lane.",
       ),
@@ -247,7 +247,7 @@ export const MemoryV3ConfigSchema = z
       .number({ error: "memory.v3.denseK must be a number" })
       .int("memory.v3.denseK must be an integer")
       .nonnegative("memory.v3.denseK must be a non-negative integer")
-      .default(100)
+      .default(0)
       .describe(
         "Number of dense-lane articles folded into the candidate pool each turn after embedding the turn query. 0 disables dense retrieval for both current-message and reply-query passes.",
       ),
@@ -255,13 +255,13 @@ export const MemoryV3ConfigSchema = z
       .number({ error: "memory.v3.replyQueryK must be a number" })
       .int("memory.v3.replyQueryK must be an integer")
       .nonnegative("memory.v3.replyQueryK must be a non-negative integer")
-      .default(12)
+      .default(0)
       .describe(
         "Per-lane article budget for the reply-query finder pass: needle and dense each re-run over the assistant's previous message as separate queries (never concatenated with the user's message). 0 disables the pass. Deliberately small next to needleK/denseK — the pass adds the assistant-side retrieval signal, not a second full sweep.",
       ),
     selectorEnabled: z
       .boolean({ error: "memory.v3.selectorEnabled must be a boolean" })
-      .default(true)
+      .default(false)
       .describe(
         "Whether to run the memory-v3 selector LLM callsite over the candidate pool. When false, every pooled candidate is passed through to injection directly; an empty pool produces no memory block.",
       ),

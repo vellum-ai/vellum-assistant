@@ -63,9 +63,9 @@ import type {
 } from "./types.js";
 
 /** Default number of BM25 needle articles to fold into the pool. */
-export const DEFAULT_NEEDLE_K = 100;
+export const DEFAULT_NEEDLE_K = 12;
 /** Default number of dense-lane articles to fold into the pool. */
-export const DEFAULT_DENSE_K = 100;
+export const DEFAULT_DENSE_K = 0;
 
 export interface OrchestrateDeps {
   sectionIndex: SectionIndex;

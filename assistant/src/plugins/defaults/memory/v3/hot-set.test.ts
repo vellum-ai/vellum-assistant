@@ -116,7 +116,7 @@ describe("computeHotSet", () => {
 describe("MemoryV3ConfigSchema hotSet", () => {
   test("defaults apply when omitted", () => {
     const config = MemoryV3ConfigSchema.parse({});
-    expect(config.hotSet).toEqual({ k: 40, halfLifeDays: 14 });
+    expect(config.hotSet).toEqual({ k: 8, halfLifeDays: 14 });
   });
 
   test("explicit values parse", () => {
