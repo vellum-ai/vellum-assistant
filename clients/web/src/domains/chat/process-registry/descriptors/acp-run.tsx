@@ -109,7 +109,8 @@ export const ACP_RUN_DESCRIPTOR: BackgroundProcessDescriptor = {
   overlayTitle: (n) => `${n} Active Run${n === 1 ? "" : "s"}`,
   pillAriaLabel: () => "Active runs",
   openCardAriaLabel: "Open run",
-  onOpenDetail: (id) => useViewerStore.getState().openAcpRunDetail(id),
+  onOpenDetail: (id) =>
+    useViewerStore.getState().openProcessDetail({ kind: "acp-run", id }),
   onStop: (id) => void stopAcpRun(id),
   DetailPanel: AcpRunDetailPanelById,
 };

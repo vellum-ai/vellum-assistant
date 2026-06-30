@@ -90,7 +90,8 @@ export const SUBAGENT_DESCRIPTOR: BackgroundProcessDescriptor = {
   overlayTitle: (n) => `${n} Active Subagent${n === 1 ? "" : "s"}`,
   pillAriaLabel: () => "Active subagents",
   openCardAriaLabel: "Open subagent",
-  onOpenDetail: (id) => useViewerStore.getState().openSubagentDetail(id),
+  onOpenDetail: (id) =>
+    useViewerStore.getState().openProcessDetail({ kind: "subagent", id }),
   onStop: (id) => void useSubagentStore.getState().abortSubagent(id),
   DetailPanel: SubagentDetailPanelById,
 };

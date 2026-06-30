@@ -110,7 +110,8 @@ export const BACKGROUND_TASK_DESCRIPTOR: BackgroundProcessDescriptor = {
   overlayTitle: (count) => `${count} Active Command${count === 1 ? "" : "s"}`,
   pillAriaLabel: () => "Active commands",
   openCardAriaLabel: "Open command",
-  onOpenDetail: (id) => useViewerStore.getState().openBackgroundTaskDetail(id),
+  onOpenDetail: (id) =>
+    useViewerStore.getState().openProcessDetail({ kind: "background-task", id }),
   onStop: (id) => void stopBackgroundTask(id),
   DetailPanel: BackgroundTaskDetailPanelAdapter,
 };
