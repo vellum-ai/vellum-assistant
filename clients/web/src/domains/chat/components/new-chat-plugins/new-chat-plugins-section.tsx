@@ -18,12 +18,6 @@ const TOOLTIP_COPY =
 
 interface NewChatPluginsSectionProps {
   assistantId: string;
-  /**
-   * The draft conversation the pills belong to. The selection itself is keyed
-   * off the store's active conversation inside `useNewChatPlugins`, so this is
-   * accepted for the composer's API symmetry rather than read directly here.
-   */
-  conversationId: string | undefined;
 }
 
 /**

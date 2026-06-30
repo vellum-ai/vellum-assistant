@@ -46,10 +46,7 @@ function renderSection(plugins: InstalledPlugin[]): string {
   return renderToStaticMarkup(
     <MemoryRouter>
       <QueryClientProvider client={client}>
-        <NewChatPluginsSection
-          assistantId={ASSISTANT_ID}
-          conversationId="draft-1"
-        />
+        <NewChatPluginsSection assistantId={ASSISTANT_ID} />
       </QueryClientProvider>
     </MemoryRouter>,
   );

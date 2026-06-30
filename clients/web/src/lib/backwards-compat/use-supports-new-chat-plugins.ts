@@ -33,14 +33,15 @@ export const MIN_VERSION = "0.10.4";
 
 /**
  * Returns `true` when the active assistant accepts the per-chat plugin
- * set. Snapshot variant for non-hook contexts (request builders, event
- * handlers).
+ * set. Snapshot read shared by the hook and async variants below.
  *
  * Returns `false` while the identity store has no version yet, when the
- * version is unparseable, or when it falls below `MIN_VERSION`. Callers
- * must omit the per-chat plugin set on the `false` branch.
+ * version is unparseable, or when it falls below `MIN_VERSION`. Not
+ * exported: snapshot reads must go through {@link resolveSupportsNewChatPlugins}
+ * (send path) so the decision awaits version hydration rather than reading
+ * the pre-hydration `false`.
  */
-export function supportsNewChatPlugins(): boolean {
+function supportsNewChatPlugins(): boolean {
   return assistantSupports(MIN_VERSION);
 }
 

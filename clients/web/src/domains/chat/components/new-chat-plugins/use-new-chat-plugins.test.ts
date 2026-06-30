@@ -78,7 +78,6 @@ describe("useNewChatPlugins", () => {
 
     await waitFor(() => expect(result.current.plugins).toHaveLength(3));
 
-    expect(result.current.hasExplicitSelection).toBe(false);
     expect(result.current.isSelected("a")).toBe(true);
     expect(result.current.isSelected("b")).toBe(true);
     expect(result.current.isSelected("c")).toBe(true);
@@ -91,7 +90,6 @@ describe("useNewChatPlugins", () => {
 
     act(() => result.current.toggle("b"));
 
-    expect(result.current.hasExplicitSelection).toBe(true);
     expect(result.current.isSelected("a")).toBe(true);
     expect(result.current.isSelected("b")).toBe(false);
     expect(result.current.isSelected("c")).toBe(true);
@@ -113,7 +111,9 @@ describe("useNewChatPlugins", () => {
     act(() => result.current.toggle("b"));
     expect(result.current.isSelected("b")).toBe(true);
     // Re-enabling within the same draft keeps the explicit entry around.
-    expect(result.current.hasExplicitSelection).toBe(true);
+    expect(
+      useConversationStore.getState().pendingDraftPlugins.has("draft-1"),
+    ).toBe(true);
   });
 
   test("selection is independent per conversation id", async () => {
@@ -128,8 +128,7 @@ describe("useNewChatPlugins", () => {
     act(() =>
       useConversationStore.getState().setActiveConversationId("draft-2"),
     );
-    await waitFor(() => expect(result.current.hasExplicitSelection).toBe(false));
-    expect(result.current.isSelected("b")).toBe(true);
+    await waitFor(() => expect(result.current.isSelected("b")).toBe(true));
 
     // The first draft's selection is untouched.
     const stored = useConversationStore

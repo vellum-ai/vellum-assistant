@@ -3,16 +3,13 @@ import { useMemo } from "react";
 
 import type { PluginListItem } from "@/domains/intelligence/plugins/types";
 import { mergePlugins, sortPlugins } from "@/domains/intelligence/plugins/utils";
-import {
-    pluginsGetQueryKey,
-    pluginsSearchGetOptions,
-} from "@/generated/daemon/@tanstack/react-query.gen";
-import { pluginsGet } from "@/generated/daemon/sdk.gen";
-import type { PluginsGetResponse } from "@/generated/daemon/types.gen";
+import { pluginsSearchGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import { installedPluginsQueryOptions } from "@/lib/installed-plugins-query";
 
-// The installed list (local filesystem) and the catalog (the daemon's
-// cached, rate-limited GitHub listing) both change rarely, so `staleTime`
-// keeps each warm across tab switches and revisiting doesn't refetch.
+// The catalog (the daemon's cached, rate-limited GitHub listing) changes
+// rarely, so `staleTime` keeps it warm across tab switches and revisiting
+// doesn't refetch. The installed read carries its own staleTime via
+// `installedPluginsQueryOptions`.
 const CATALOG_STALE_TIME_MS = 5 * 60 * 1000; // 5 minutes
 
 export interface UsePluginsListResult {
@@ -48,26 +45,8 @@ export interface UsePluginsListResult {
  */
 export function usePluginsList(assistantId: string): UsePluginsListResult {
   const installedQuery = useQuery({
-    queryKey: pluginsGetQueryKey({
-      path: { assistant_id: assistantId },
-      query: { q: undefined },
-    }),
-    queryFn: async ({ signal }) => {
-      const result = await pluginsGet({
-        path: { assistant_id: assistantId },
-        query: { q: undefined },
-        signal,
-        throwOnError: false,
-      });
-      const status = result.response?.status;
-      // Older daemons return 404 when the list endpoint isn't
-      // implemented yet — degrade to an empty installed list.
-      if (status === 404) return { plugins: [] } as PluginsGetResponse;
-      if (!result.response?.ok) throw new Error("Failed to load plugins");
-      return result.data ?? ({ plugins: [] } as PluginsGetResponse);
-    },
+    ...installedPluginsQueryOptions(assistantId),
     enabled: Boolean(assistantId),
-    staleTime: CATALOG_STALE_TIME_MS,
   });
 
   const catalogQuery = useQuery({

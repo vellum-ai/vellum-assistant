@@ -934,10 +934,7 @@ export function ChatMainPanel({
 
   const newChatPluginsSlot =
     isEmptyConversation && supportsNewChatPlugins && assistantId ? (
-      <NewChatPluginsSection
-        assistantId={assistantId}
-        conversationId={activeConversation?.conversationId}
-      />
+      <NewChatPluginsSection assistantId={assistantId} />
     ) : undefined;
 
   // -------------------------------------------------------------------------
