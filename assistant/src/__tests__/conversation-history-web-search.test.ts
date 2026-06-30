@@ -82,7 +82,6 @@ mock.module("../persistence/embeddings/qdrant-client.js", () => ({
 import {
   consolidateAssistantMessages,
   findLastUndoableUserMessageIndex,
-  type HistoryConversationContext,
 } from "../daemon/conversation-history.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 
