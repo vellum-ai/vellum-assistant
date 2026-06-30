@@ -38,6 +38,7 @@ import { anchorColdStartReplay } from "@/lib/streaming/cold-anchor";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { reconcileSubagentStoreFromNotifications } from "@/domains/chat/hooks/reconcile-subagent-hydration";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
@@ -311,6 +312,16 @@ export function useConversationHistory({
         deduped.values(),
         Date.now(),
       );
+    }
+
+    // Seed background-task cards from the durable history aggregate: the
+    // daemon's in-memory completed ring doesn't survive a restart, so live
+    // `/background-tools` rehydration alone can't rebuild a finished card.
+    // `seedFromHistory` is a terminal-wins, idempotent merge (never clobbers a
+    // live entry); retiring stays owned by `useBackgroundTaskRehydration`.
+    const completions = pagination.backgroundToolCompletions;
+    if (completions && completions.length > 0) {
+      useBackgroundTaskStore.getState().seedFromHistory(completions);
     }
 
     // Restore pending interactions (secrets, confirmations).
