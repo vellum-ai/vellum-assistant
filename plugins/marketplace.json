@@ -142,7 +142,7 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/fitness-companion",
-        "ref": "2d889b556372a5b0fde8cfd4d904c269f5a4adf8"
+        "ref": "737cf7f33b43c82f0bfeb949b3f2a507c4a8b0d1"
       },
       "description": "Fitness and nutrition companion. Logs meals, workouts, and weight; looks up nutrition data from OpenFoodFacts; calculates macro targets; and injects daily fitness context into every conversation.",
       "category": "health",
