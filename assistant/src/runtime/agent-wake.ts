@@ -108,6 +108,7 @@ import {
   type UntrustedContentSource,
   wrapUntrustedContent,
 } from "../security/untrusted-content.js";
+import type { CompletedBackgroundTool } from "../tools/background-tool-registry.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("agent-wake");
@@ -323,6 +324,12 @@ export interface WakeOptions {
    * framing outside the fence.
    */
   untrustedOutput?: WakeUntrustedOutput;
+  /**
+   * Structured terminal record for a backgrounded bash/host_bash run, stamped
+   * onto the persisted background-event wake so the web can rebuild the inline
+   * card from history after a daemon restart.
+   */
+  backgroundToolCompletion?: CompletedBackgroundTool;
   /**
    * Schedule-run id to stamp on the usage rows this wake records. Set when the
    * wake is triggered by a script-mode schedule (the firing's run id), so the
@@ -784,7 +791,12 @@ export async function wakeAgentForOpportunity(
       };
       conversation.messages.push(triggerMessage);
       try {
-        await persistWakeTriggerMessage(conversation, triggerMessage, source);
+        await persistWakeTriggerMessage(
+          conversation,
+          triggerMessage,
+          source,
+          opts.backgroundToolCompletion,
+        );
       } catch (err) {
         log.warn(
           { conversationId, source, err },
