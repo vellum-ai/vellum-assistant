@@ -244,7 +244,7 @@ describe("background wake intent publisher hooks", () => {
     // computeNextBackgroundWakeIntent. Heartbeat startup republishes with the
     // live heartbeat timing via its own "heartbeat-*" refreshes.
     expect(schedulerSource).toContain(
-      'refreshBackgroundWakeIntentSoon("daemon-startup")',
+      'refreshBackgroundWakeIntent("daemon-startup")',
     );
     // Lifecycle no longer publishes the intent directly.
     expect(lifecycleSource).not.toContain("refreshBackgroundWakeIntent");

@@ -1,9 +1,11 @@
+import { refreshBackgroundWakeIntent } from "../background-wake/publisher.js";
 import { getConfig } from "../config/loader.js";
 import {
   checkDiskPressureBackgroundGate,
   diskPressureBackgroundSkipLogFields,
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
+import { processMessage } from "../daemon/process-message.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { bootstrapConversation } from "../persistence/conversation-bootstrap.js";
@@ -16,7 +18,7 @@ import { publishConversationListChanged } from "../runtime/sync/resource-sync-ev
 import { runSequencesOnce } from "../sequence/engine.js";
 import { areCoreToolsInitialized } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
-import { runWatchersOnce, type WatcherNotifier } from "../watcher/engine.js";
+import { runWatchersOnce } from "../watcher/engine.js";
 import { normalizeCapabilityManifest } from "../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { hasSetConstructs } from "./recurrence-engine.js";
@@ -41,25 +43,41 @@ import {
 
 const log = getLogger("scheduler");
 
-import type { ScheduleMessageProcessor } from "./scheduler-types.js";
-type ScheduleNotifyModeNotifier = (payload: {
-  id: string;
-  label: string;
-  message: string;
-  routingIntent: RoutingIntent;
-  routingHints: Record<string, unknown>;
-}) => void | Promise<void>;
-
-type ScheduleConversationCreatedNotifier = (info: {
-  conversationId: string;
-  scheduleJobId: string;
-  title: string;
-}) => void;
+import type { ScheduleMessageOptions } from "./scheduler-types.js";
 
 /**
- * Emit the attention signal for a `notify`-mode schedule firing. The default
- * `notifyScheduleOneShot` for {@link startScheduler}; tests inject a stub.
+ * Run a scheduled message through the daemon's agent pipeline, translating the
+ * schedule's `trustClass` into the trust context `processMessage` expects.
  */
+async function dispatchScheduleMessage(
+  conversationId: string,
+  message: string,
+  options?: ScheduleMessageOptions,
+): Promise<void> {
+  await processMessage(
+    conversationId,
+    message,
+    options
+      ? {
+          ...(options.trustClass
+            ? {
+                trustContext: {
+                  sourceChannel: "vellum",
+                  trustClass: options.trustClass,
+                },
+              }
+            : {}),
+          ...(options.taskRunId ? { taskRunId: options.taskRunId } : {}),
+          ...(options.overrideProfile
+            ? { overrideProfile: options.overrideProfile }
+            : {}),
+          ...(options.cronRunId ? { cronRunId: options.cronRunId } : {}),
+        }
+      : undefined,
+  );
+}
+
+/** Emit the attention signal for a `notify`-mode schedule firing. */
 async function emitScheduleNotifySignal(payload: {
   id: string;
   label: string;
@@ -198,27 +216,7 @@ async function handleExecutionFailure(params: {
 /** The running scheduler, retained so shutdown can stop it. */
 let instance: SchedulerHandle | null = null;
 
-/**
- * Publish the current background wake intent without statically importing the
- * publisher — `background-wake/next-wake.js` imports the schedule store, so a
- * static import here would close an import cycle. Best-effort and fire-and-forget.
- */
-function refreshBackgroundWakeIntentSoon(reason: string): void {
-  void import("../background-wake/publisher.js")
-    .then(({ refreshBackgroundWakeIntent }) =>
-      refreshBackgroundWakeIntent(reason),
-    )
-    .catch((err) =>
-      log.warn({ err, reason }, "Failed to queue background wake refresh"),
-    );
-}
-
-export function startScheduler(
-  processMessage: ScheduleMessageProcessor,
-  notifyScheduleOneShot: ScheduleNotifyModeNotifier = emitScheduleNotifySignal,
-  watcherNotifier: WatcherNotifier = emitWatcherNotifySignal,
-  onScheduleConversationCreated: ScheduleConversationCreatedNotifier = broadcastScheduleConversationCreated,
-): SchedulerHandle {
+export function startScheduler(): SchedulerHandle {
   let stopped = false;
   let tickRunning = false;
 
@@ -226,12 +224,7 @@ export function startScheduler(
     if (stopped || tickRunning) return;
     tickRunning = true;
     try {
-      await runScheduleOnce(
-        processMessage,
-        notifyScheduleOneShot,
-        watcherNotifier,
-        onScheduleConversationCreated,
-      );
+      await runScheduleOnce();
     } catch (err) {
       log.error({ err }, "Schedule tick failed");
     } finally {
@@ -247,23 +240,12 @@ export function startScheduler(
 
   instance = {
     async runOnce(): Promise<number> {
-      return runScheduleOnce(
-        processMessage,
-        notifyScheduleOneShot,
-        watcherNotifier,
-        onScheduleConversationCreated,
-      );
+      return runScheduleOnce();
     },
     async runDueWorkOnce(
       options?: SchedulerRunDueWorkOptions,
     ): Promise<SchedulerDueWorkResult> {
-      return runScheduleDueWorkOnce(
-        processMessage,
-        notifyScheduleOneShot,
-        watcherNotifier,
-        onScheduleConversationCreated,
-        options,
-      );
+      return runScheduleDueWorkOnce(options);
     },
     stop(): void {
       stopped = true;
@@ -273,7 +255,7 @@ export function startScheduler(
 
   // Publish the initial background wake intent now that the scheduler is live
   // and its schedules are visible to `computeNextBackgroundWakeIntent`.
-  refreshBackgroundWakeIntentSoon("daemon-startup");
+  refreshBackgroundWakeIntent("daemon-startup");
 
   return instance;
 }
@@ -290,26 +272,12 @@ export function getScheduler(): SchedulerHandle | null {
   return instance;
 }
 
-export async function runScheduleOnce(
-  processMessage: ScheduleMessageProcessor,
-  notifyScheduleOneShot: ScheduleNotifyModeNotifier,
-  watcherNotifier?: WatcherNotifier,
-  onScheduleConversationCreated?: ScheduleConversationCreatedNotifier,
-): Promise<number> {
-  const result = await runScheduleDueWorkOnce(
-    processMessage,
-    notifyScheduleOneShot,
-    watcherNotifier,
-    onScheduleConversationCreated,
-  );
+export async function runScheduleOnce(): Promise<number> {
+  const result = await runScheduleDueWorkOnce();
   return result.completed + result.failed + result.skipped;
 }
 
 export async function runScheduleDueWorkOnce(
-  processMessage: ScheduleMessageProcessor,
-  notifyScheduleOneShot: ScheduleNotifyModeNotifier,
-  watcherNotifier?: WatcherNotifier,
-  onScheduleConversationCreated?: ScheduleConversationCreatedNotifier,
   options: SchedulerRunDueWorkOptions = {},
 ): Promise<SchedulerDueWorkResult> {
   const now = options.now ?? Date.now();
@@ -367,7 +335,7 @@ export async function runScheduleDueWorkOnce(
           { jobId: job.id, name: job.name, isOneShot },
           "Firing schedule notification",
         );
-        await notifyScheduleOneShot({
+        await emitScheduleNotifySignal({
           id: job.id,
           label: job.name,
           message: job.message,
@@ -675,7 +643,7 @@ export async function runScheduleDueWorkOnce(
             scheduleJobId: job.id,
           },
           async (conversationId, message, taskRunId) => {
-            await processMessage(conversationId, message, {
+            await dispatchScheduleMessage(conversationId, message, {
               trustClass: "guardian",
               taskRunId,
               cronRunId: runId,
@@ -687,7 +655,7 @@ export async function runScheduleDueWorkOnce(
         );
 
         await setScheduleRunConversationId(runId, result.conversationId);
-        onScheduleConversationCreated?.({
+        broadcastScheduleConversationCreated({
           conversationId: result.conversationId,
           scheduleJobId: job.id,
           title: result.status === "failed" ? `${job.name}: Error` : job.name,
@@ -738,7 +706,7 @@ export async function runScheduleDueWorkOnce(
           origin: "schedule",
           systemHint: `Schedule: ${job.name}`,
         });
-        onScheduleConversationCreated?.({
+        broadcastScheduleConversationCreated({
           conversationId: fallbackConversation.id,
           scheduleJobId: job.id,
           title: `${job.name}: Error`,
@@ -801,18 +769,18 @@ export async function runScheduleDueWorkOnce(
     const runId = await createScheduleRun(job.id, reusedConversationId);
 
     if (reusedConversationId) {
-      // Reuse path: keep using the injected `processMessage` callback so the
-      // existing conversation is continued in place. `runBackgroundJob`
-      // unconditionally bootstraps a new conversation and is therefore not a
-      // drop-in replacement for the reuse semantics.
+      // Reuse path: dispatch the message into the existing conversation so it
+      // is continued in place. `runBackgroundJob` unconditionally bootstraps a
+      // new conversation and is therefore not a drop-in replacement for the
+      // reuse semantics.
       conversationId = reusedConversationId;
-      onScheduleConversationCreated?.({
+      broadcastScheduleConversationCreated({
         conversationId,
         scheduleJobId: job.id,
         title: job.name,
       });
       try {
-        await processMessage(conversationId, job.message, {
+        await dispatchScheduleMessage(conversationId, job.message, {
           trustClass: "guardian",
           cronRunId: runId,
           ...(job.inferenceProfile
@@ -854,7 +822,7 @@ export async function runScheduleDueWorkOnce(
         onConversationCreated: async (newConversationId) => {
           runConversationId = newConversationId;
           await setScheduleRunConversationId(runId, newConversationId);
-          onScheduleConversationCreated?.({
+          broadcastScheduleConversationCreated({
             conversationId: newConversationId,
             scheduleJobId: job.id,
             title: job.name,
@@ -924,13 +892,11 @@ export async function runScheduleDueWorkOnce(
   }
 
   // ── Watchers (event-driven polling) ────────────────────────────────
-  if (watcherNotifier) {
-    try {
-      const watcherProcessed = await runWatchersOnce(watcherNotifier);
-      result.completed += watcherProcessed;
-    } catch (err) {
-      log.error({ err }, "Watcher tick failed");
-    }
+  try {
+    const watcherProcessed = await runWatchersOnce(emitWatcherNotifySignal);
+    result.completed += watcherProcessed;
+  } catch (err) {
+    log.error({ err }, "Watcher tick failed");
   }
 
   // ── Sequences (multi-step outreach) ──────────────────────────────

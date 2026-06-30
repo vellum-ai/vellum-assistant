@@ -109,7 +109,6 @@ import {
 } from "./memory-v2-startup.js";
 import { startOrphanReaper } from "./orphan-reaper.js";
 import { elevatePointerConversationToGuardian } from "./pointer-conversation-trust.js";
-import { processMessage } from "./process-message.js";
 import { runProfilerSweep } from "./profiler-run-store.js";
 import {
   initializeProvidersAndTools,
@@ -855,29 +854,7 @@ export async function runDaemon(): Promise<void> {
     );
   }
 
-  startScheduler(async (conversationId, message, options) => {
-    await processMessage(
-      conversationId,
-      message,
-      options
-        ? {
-            ...(options.trustClass
-              ? {
-                  trustContext: {
-                    sourceChannel: "vellum",
-                    trustClass: options.trustClass,
-                  },
-                }
-              : {}),
-            ...(options.taskRunId ? { taskRunId: options.taskRunId } : {}),
-            ...(options.overrideProfile
-              ? { overrideProfile: options.overrideProfile }
-              : {}),
-            ...(options.cronRunId ? { cronRunId: options.cronRunId } : {}),
-          }
-        : undefined,
-    );
-  });
+  startScheduler();
 
   // Fire-and-forget: Qdrant init and memory worker startup run concurrently
   // with the rest of daemon boot. Must run AFTER `startRuntimeHttpServer()`

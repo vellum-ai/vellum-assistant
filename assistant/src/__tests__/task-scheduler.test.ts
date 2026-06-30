@@ -85,6 +85,23 @@ mock.module("../tools/registry.js", () => ({
   areCoreToolsInitialized: () => coreToolsReady,
 }));
 
+// The scheduler dispatches task/reuse-path messages through `processMessage`;
+// route them to a per-test delegate so tests can capture those calls. The
+// delegate receives the daemon-shaped options (trustContext, taskRunId, …)
+// that the scheduler maps from the schedule's trustClass.
+let processMessageImpl: (
+  conversationId: string,
+  message: string,
+  options?: unknown,
+) => Promise<unknown> = async () => {};
+mock.module("../daemon/process-message.js", () => ({
+  processMessage: (
+    conversationId: string,
+    message: string,
+    options?: unknown,
+  ) => processMessageImpl(conversationId, message, options),
+}));
+
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { recordUsageEvent } from "../persistence/llm-usage-store.js";
@@ -198,6 +215,7 @@ describe("scheduler run_task detection", () => {
     db.run("DELETE FROM conversations");
     onRunBackgroundJobCall = null;
     emitNotificationCalls.length = 0;
+    processMessageImpl = async () => {};
   });
 
   test("run_task:<id> messages trigger runTask instead of processMessage", async () => {
@@ -219,17 +237,20 @@ describe("scheduler run_task detection", () => {
     const directCalls: Array<{
       conversationId: string;
       message: string;
-      options?: { trustClass?: string; taskRunId?: string };
+      options?: {
+        trustContext?: { sourceChannel?: string; trustClass?: string };
+        taskRunId?: string;
+      };
     }> = [];
-    const processMessage = async (
-      conversationId: string,
-      message: string,
-      options?: { trustClass?: string; taskRunId?: string },
-    ) => {
-      directCalls.push({ conversationId, message, options });
+    processMessageImpl = async (conversationId, message, options) => {
+      directCalls.push({
+        conversationId,
+        message,
+        options: options as (typeof directCalls)[number]["options"],
+      });
     };
 
-    const scheduler = startScheduler(processMessage, () => {});
+    const scheduler = startScheduler();
 
     // Wait for the initial tick to complete
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -246,7 +267,7 @@ describe("scheduler run_task detection", () => {
     expect(runTaskCalls.length).toBe(1);
     // The scheduler should NOT pass the raw run_task: message to processMessage
     expect(rawCalls.length).toBe(0);
-    expect(runTaskCalls[0].options?.trustClass).toBe("guardian");
+    expect(runTaskCalls[0].options?.trustContext?.trustClass).toBe("guardian");
     expect(typeof runTaskCalls[0].options?.taskRunId).toBe("string");
   });
 
@@ -270,10 +291,7 @@ describe("scheduler run_task detection", () => {
       runnerCalls.push(info);
     };
 
-    const scheduler = startScheduler(
-      async () => {},
-      () => {},
-    );
+    const scheduler = startScheduler();
 
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
@@ -300,12 +318,7 @@ describe("scheduler run_task detection", () => {
 
     forceScheduleDue(schedule.id);
 
-    const processMessage = async (
-      _conversationId: string,
-      _message: string,
-    ) => {};
-
-    const scheduler = startScheduler(processMessage, () => {});
+    const scheduler = startScheduler();
 
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
@@ -350,32 +363,30 @@ describe("scheduler run_task detection", () => {
     let usageEventCreatedAt: number | null = null;
     let runsDuringProcessing: ReturnType<typeof getScheduleRuns> = [];
 
-    const result = await runScheduleDueWorkOnce(
-      async (conversationId) => {
-        processingConversationId = conversationId;
-        runsDuringProcessing = getScheduleRuns(schedule.id);
-        const event = recordUsageEvent(
-          {
-            conversationId,
-            runId: null,
-            requestId: "req-scheduled-task-usage",
-            actor: "main_agent",
-            callSite: "mainAgent",
-            inferenceProfile: "balanced",
-            provider: "anthropic",
-            model: "claude-sonnet-4-20250514",
-            inputTokens: 100,
-            outputTokens: 50,
-            cacheCreationInputTokens: 0,
-            cacheReadInputTokens: 0,
-            rawUsage: null,
-          },
-          { estimatedCostUsd: 0.25, pricingStatus: "priced" },
-        );
-        usageEventCreatedAt = event.createdAt;
-      },
-      () => {},
-    );
+    processMessageImpl = async (conversationId) => {
+      processingConversationId = conversationId;
+      runsDuringProcessing = getScheduleRuns(schedule.id);
+      const event = recordUsageEvent(
+        {
+          conversationId,
+          runId: null,
+          requestId: "req-scheduled-task-usage",
+          actor: "main_agent",
+          callSite: "mainAgent",
+          inferenceProfile: "balanced",
+          provider: "anthropic",
+          model: "claude-sonnet-4-20250514",
+          inputTokens: 100,
+          outputTokens: 50,
+          cacheCreationInputTokens: 0,
+          cacheReadInputTokens: 0,
+          rawUsage: null,
+        },
+        { estimatedCostUsd: 0.25, pricingStatus: "priced" },
+      );
+      usageEventCreatedAt = event.createdAt;
+    };
+    const result = await runScheduleDueWorkOnce();
     const to = Date.now() + 1000;
 
     expect(result.completed).toBe(1);
@@ -447,10 +458,7 @@ describe("scheduler run_task detection", () => {
       usageEventCreatedAt = event.createdAt;
     };
 
-    const result = await runScheduleDueWorkOnce(
-      async () => {},
-      () => {},
-    );
+    const result = await runScheduleDueWorkOnce();
     const to = Date.now() + 1000;
 
     expect(result.completed).toBe(1);
@@ -500,6 +508,7 @@ describe("scheduler workflow mode", () => {
       return { runId: "wf-run-1" };
     };
     coreToolsReady = true;
+    processMessageImpl = async () => {};
   });
 
   test("a due workflow-mode job triggers the run manager with name/args", async () => {
@@ -515,10 +524,7 @@ describe("scheduler workflow mode", () => {
     });
     forceScheduleDue(schedule.id);
 
-    const result = await runScheduleDueWorkOnce(
-      async () => {},
-      () => {},
-    );
+    const result = await runScheduleDueWorkOnce();
 
     expect(result.completed).toBe(1);
     expect(result.failed).toBe(0);
@@ -551,10 +557,7 @@ describe("scheduler workflow mode", () => {
     });
     forceScheduleDue(schedule.id);
 
-    await runScheduleDueWorkOnce(
-      async () => {},
-      () => {},
-    );
+    await runScheduleDueWorkOnce();
 
     expect(workflowStartCalls).toHaveLength(1);
     expect(workflowStartCalls[0]).toMatchObject({
@@ -578,10 +581,7 @@ describe("scheduler workflow mode", () => {
     });
     forceScheduleDue(schedule.id);
 
-    await runScheduleDueWorkOnce(
-      async () => {},
-      () => {},
-    );
+    await runScheduleDueWorkOnce();
 
     expect(workflowStartCalls).toHaveLength(1);
     expect(workflowStartCalls[0]).toMatchObject({
@@ -604,10 +604,7 @@ describe("scheduler workflow mode", () => {
     });
     forceScheduleDue(schedule.id);
 
-    await runScheduleDueWorkOnce(
-      async () => {},
-      () => {},
-    );
+    await runScheduleDueWorkOnce();
 
     expect(workflowStartCalls).toHaveLength(1);
     expect(workflowStartCalls[0]).toMatchObject({
@@ -628,10 +625,7 @@ describe("scheduler workflow mode", () => {
     });
     forceScheduleDue(schedule.id);
 
-    await runScheduleDueWorkOnce(
-      async () => {},
-      () => {},
-    );
+    await runScheduleDueWorkOnce();
 
     expect(workflowStartCalls[0]).toMatchObject({
       conversationId: "conv-wake",
@@ -649,10 +643,7 @@ describe("scheduler workflow mode", () => {
     });
     forceScheduleDue(schedule.id);
 
-    await runScheduleDueWorkOnce(
-      async () => {},
-      () => {},
-    );
+    await runScheduleDueWorkOnce();
 
     expect(workflowStartCalls).toHaveLength(1);
     expect(workflowStartCalls[0].args).toEqual({});
@@ -672,10 +663,7 @@ describe("scheduler workflow mode", () => {
     });
     forceScheduleDue(schedule.id);
 
-    const result = await runScheduleDueWorkOnce(
-      async () => {},
-      () => {},
-    );
+    const result = await runScheduleDueWorkOnce();
 
     expect(result.failed).toBe(1);
     const runs = getScheduleRuns(schedule.id);
@@ -693,10 +681,7 @@ describe("scheduler workflow mode", () => {
     });
     forceScheduleDue(schedule.id);
 
-    const result = await runScheduleDueWorkOnce(
-      async () => {},
-      () => {},
-    );
+    const result = await runScheduleDueWorkOnce();
 
     expect(result.skipped).toBe(1);
     expect(workflowStartCalls).toHaveLength(0);
@@ -716,10 +701,7 @@ describe("scheduler workflow mode", () => {
 
     // Tools not yet registered: the run must be deferred, not launched with an
     // empty baseline. No run-manager start, no run record, marked skipped.
-    const result = await runScheduleDueWorkOnce(
-      async () => {},
-      () => {},
-    );
+    const result = await runScheduleDueWorkOnce();
     expect(workflowStartCalls).toHaveLength(0);
     expect(result.skipped).toBe(1);
     expect(getScheduleRuns(schedule.id)).toHaveLength(0);
@@ -727,10 +709,7 @@ describe("scheduler workflow mode", () => {
     // Re-armed to due (not consumed): once tools are ready, a later tick fires
     // it with the full baseline.
     coreToolsReady = true;
-    await runScheduleDueWorkOnce(
-      async () => {},
-      () => {},
-    );
+    await runScheduleDueWorkOnce();
     expect(workflowStartCalls).toHaveLength(1);
     expect(workflowStartCalls[0]).toMatchObject({ name: "triage-inbox" });
   });
