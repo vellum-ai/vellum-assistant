@@ -113,6 +113,10 @@ export function ResearchOnboardingRoute() {
   // Belt-and-suspenders gate: the spike lives at a dedicated path AND behind
   // this flag (off by default; enable locally via the feature-flags panel).
   const enabled = useClientFeatureFlagStore.use.researchOnboarding();
+  // Sub-gate for the "Create my personality" step; when off it's skipped
+  // entirely (pitch → integration, with the back nav mirrored).
+  const personalityEnabled =
+    useClientFeatureFlagStore.use.personalityOnboarding();
   const flagsHydrated = useClientFeatureFlagStore.use.hydrated();
 
   // Sub-steps share this route: details form → avatar/name picker →
@@ -555,7 +559,9 @@ export function ResearchOnboardingRoute() {
         />
         {step === "different" && (
           <PitchStep
-            onContinue={() => goForwardTo("personality")}
+            onContinue={() =>
+              goForwardTo(personalityEnabled ? "personality" : "integration")
+            }
             onBack={() => goBackTo("intro")}
             onForward={onForward}
           />
@@ -593,7 +599,9 @@ export function ResearchOnboardingRoute() {
           <IntegrationStep
             onClaim={() => goForwardTo("letschat")}
             onBumpEyes={() => setEyesBump((n) => n + 1)}
-            onBack={() => goBackTo("personality")}
+            onBack={() =>
+              goBackTo(personalityEnabled ? "personality" : "different")
+            }
             onForward={onForward}
           />
         )}
