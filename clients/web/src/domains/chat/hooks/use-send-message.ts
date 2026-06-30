@@ -268,7 +268,7 @@ export function useSendMessage({
   // sendMessageViaStream — low-level POST + polling fallback
   // -------------------------------------------------------------------------
   const sendMessageViaStream = useCallback(
-    async (content: string, epoch: number, turnId: string, attachmentIds: string[] = [], isDraft = false, clientMessageId?: string): Promise<SendStreamResult> => {
+    async (content: string, epoch: number, turnId: string, attachmentIds: string[] = [], isDraft = false, clientMessageId?: string, isHidden = false): Promise<SendStreamResult> => {
       if (!activeConversationId || !assistantId) {
         return {
           status: "failed",
@@ -324,6 +324,7 @@ export function useSendMessage({
         onboardingContext ?? undefined,
         clientMessageId,
         inferenceProfileForSend,
+        isHidden,
       );
       if (
         useServerMint &&
@@ -637,7 +638,17 @@ export function useSendMessage({
   // sendMessage — high-level send with UI state, queuing, draft resolution
   // -------------------------------------------------------------------------
   const sendMessage = useCallback(
-    async (content: string, attachments: DisplayAttachment[] = []) => {
+    async (
+      content: string,
+      attachments: DisplayAttachment[] = [],
+      opts: { hidden?: boolean } = {},
+    ) => {
+      // A hidden send (e.g. the onboarding "Let's chat" kickoff) drives a turn
+      // and the assistant's reply, but renders NO user bubble: skip the
+      // optimistic row here and the daemon suppresses the echo. Hidden sends are
+      // always a fresh first message (conversation idle), so they never take the
+      // queue path below.
+      const isHidden = opts.hidden === true;
       if (!activeConversationId || !assistantId) {
         setError({ message: "No active conversation. Please try again." });
         return;
@@ -723,7 +734,7 @@ export function useSendMessage({
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(willQueue ? { queueStatus: "queued" as const, queuePosition: 0 } : {}),
       };
-      addOptimisticSend(userMessage);
+      if (!isHidden) addOptimisticSend(userMessage);
       void getSoundManager().play("message_sent");
 
       // Queue path: POST to assistant (it queues internally) but don't
@@ -831,6 +842,7 @@ export function useSendMessage({
           attachments.map((att) => att.id),
           isDraft,
           clientMessageId,
+          isHidden,
         );
 
         if (result.status === "failed") {

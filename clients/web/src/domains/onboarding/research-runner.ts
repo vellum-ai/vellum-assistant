@@ -232,6 +232,13 @@ export interface StartResearchOptions {
    * thread if the page is refreshed mid-search.
    */
   onConversationCreated?: (conversationId: string) => void;
+  /**
+   * Whether to ask the model for clickable `suggestions`. Off for the "Let's
+   * chat" final step (personality-onboarding flag), which installs the picked
+   * plugins and primes a chat instead of surfacing suggestion cards. Defaults to
+   * true so the legacy suggestions flow is unchanged.
+   */
+  includeSuggestions?: boolean;
 }
 
 export interface UseResearchRunner extends ResearchRunnerState {
@@ -342,6 +349,7 @@ export function useResearchRunner(): UseResearchRunner {
       conversationTitle,
       resumeConversationId,
       onConversationCreated,
+      includeSuggestions = true,
     }: StartResearchOptions) => {
       const subjectKey = JSON.stringify(subject);
       if (subjectKeyRef.current === subjectKey) return;
@@ -413,7 +421,9 @@ export function useResearchRunner(): UseResearchRunner {
           const postResearchPrompt = async (cid: string): Promise<boolean> => {
             const body: MessagesPostData["body"] = {
               conversationId: cid,
-              content: buildResearchPrompt(subject, capabilities),
+              content: buildResearchPrompt(subject, capabilities, {
+                includeSuggestions,
+              }),
               sourceChannel: "vellum",
               // `interface` is the transport ("web"); the real OS travels in
               // `clientOs` so the assistant's `client_os` context is correct

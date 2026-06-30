@@ -768,3 +768,185 @@ export function SuggestionsStep({
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Let's chat (plugins-ready terminal step)
+// ---------------------------------------------------------------------------
+
+/**
+ * Terminal step for the personality-onboarding flow (replaces SuggestionsStep
+ * when that flag is on). The suggestions idea is retired: instead this confirms
+ * the capabilities already set up for the assistant — chosen from the user's
+ * role, hobby, and what the web research surfaced — and offers a single "Let's
+ * chat" button. Clicking primes a fresh chat with a hidden kickoff message so
+ * the assistant opens by proactively greeting the user in the persona they just
+ * configured.
+ *
+ * Reuses SuggestionsStep's plugin choreography: one avatar rests over the
+ * heading and flies down to land beside the "already set up …" note once the
+ * installed plugins are known.
+ */
+export function LetsChatReadyStep({
+  installedPlugins = [],
+  loading,
+  onStart,
+  onBack,
+  onForward,
+}: {
+  /**
+   * Capabilities installed for the assistant this run (deterministic floor +
+   * the model's persona-level picks, catalog-gated). Surfaced as the
+   * confirmation note; empty when none were set up.
+   */
+  installedPlugins?: string[];
+  /** True while the research turn is still streaming (plugins may still land). */
+  loading: boolean;
+  /**
+   * Enter the chat: awaits any in-flight plugin installs / corrections, then
+   * hands off to the primed conversation. May be async — the button shows a
+   * pending state until it resolves.
+   */
+  onStart: () => void | Promise<void>;
+  onBack: () => void;
+  /** Redo into this step — only set when the user has stepped back. */
+  onForward?: () => void;
+}) {
+  // Constant dark surface for the UI; the avatar tone is only for the pills.
+  const tone = DARK_TONE;
+  const avatarTone = useOnboardingTone();
+  const reduce = useReducedMotion();
+  const [starting, setStarting] = useState(false);
+
+  const pluginLabels = installedPlugins
+    .map(pluginDisplayName)
+    .filter((label) => label.length > 0);
+  const hasNote = pluginLabels.length > 0;
+
+  // A single avatar starts over the heading slot and flies down to the note's
+  // landing slot — same choreography as SuggestionsStep. We measure both slot
+  // centers (relative to the column) so the flight follows the real layout as
+  // plugins stream in.
+  const columnRef = useRef<HTMLDivElement>(null);
+  const headSlotRef = useRef<HTMLDivElement>(null);
+  const noteSlotRef = useRef<HTMLDivElement>(null);
+  const [anchors, setAnchors] = useState<{ head: Anchor; note?: Anchor } | null>(
+    null,
+  );
+  const [flown, setFlown] = useState(false);
+  const [landed, setLanded] = useState(false);
+
+  useLayoutEffect(() => {
+    const measure = () => {
+      const col = columnRef.current;
+      const head = headSlotRef.current;
+      if (!col || !head) return;
+      const c = col.getBoundingClientRect();
+      const center = (r: DOMRect): Anchor => ({
+        x: r.left - c.left + r.width / 2,
+        y: r.top - c.top + r.height / 2,
+      });
+      const note = noteSlotRef.current;
+      setAnchors({
+        head: center(head.getBoundingClientRect()),
+        note: note ? center(note.getBoundingClientRect()) : undefined,
+      });
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+    // Intentionally not re-measuring on `flown`: the head anchor must stay at
+    // its pre-collapse position so the flight starts from where the avatar sat.
+  }, [hasNote]);
+
+  // Fly down the moment we have the data: as soon as the note slot is measured.
+  const noteY = anchors?.note?.y;
+  useEffect(() => {
+    if (!hasNote || noteY === undefined || flown) return;
+    setFlown(true);
+  }, [hasNote, noteY, flown]);
+
+  const handleStart = () => {
+    if (starting) return;
+    setStarting(true);
+    // If the handoff rejects, re-enable the button so the user can retry.
+    void Promise.resolve()
+      .then(onStart)
+      .catch(() => setStarting(false));
+  };
+
+  return (
+    <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
+      <OnboardingTopBar onBack={onBack} onNext={onForward} />
+
+      <div
+        ref={columnRef}
+        className="absolute left-1/2 top-[14%] sm:top-[26%] z-10 flex w-full max-w-xl -translate-x-1/2 flex-col px-6"
+      >
+        <div className="flex items-center">
+          {/*
+            Empty slot the flying avatar rests over. Once the avatar departs
+            (`flown`), it collapses its width + right margin so the title slides
+            smoothly to left-aligned.
+          */}
+          <motion.div
+            ref={headSlotRef}
+            className="shrink-0"
+            style={{ height: HEADING_AVATAR }}
+            initial={false}
+            animate={
+              flown
+                ? { width: 0, marginRight: 0 }
+                : { width: HEADING_AVATAR, marginRight: 12 }
+            }
+            transition={reduce ? { duration: 0 } : { duration: 0.5, ease: "easeInOut" }}
+          />
+          <h1 className="text-[2.2rem] leading-none" style={{ fontFamily: "var(--font-serif)" }}>
+            You&rsquo;re all set
+          </h1>
+        </div>
+        <p className="mb-7 mt-2 text-[15px]" style={{ color: tone.fgMuted }}>
+          {hasNote
+            ? "I've set myself up around who you are. Let's get into it."
+            : loading
+              ? "Getting everything ready…"
+              : "I've got what I need to help. Let's get into it."}
+        </p>
+
+        {hasNote && (
+          <PluginSetupNote
+            pluginLabels={pluginLabels}
+            tone={tone}
+            pillTone={avatarTone}
+            reduce={reduce}
+            slotRef={noteSlotRef}
+            revealed={landed}
+          />
+        )}
+
+        <button
+          type="button"
+          onClick={handleStart}
+          disabled={starting}
+          className="mt-12 flex cursor-pointer h-11 w-[200px] items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition duration-150 enabled:active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60"
+          style={{
+            backgroundColor: tone.isLight ? "#1A1A1A" : "#FFFFFF",
+            color: tone.isLight ? "#FFFFFF" : "#1A1A1A",
+          }}
+        >
+          {starting ? "Starting…" : "Let's chat"}
+          {!starting && <ArrowRight className="h-4 w-4" />}
+        </button>
+
+        {anchors && (
+          <FlyingHeadingAvatar
+            head={anchors.head}
+            note={anchors.note}
+            flyToNote={flown && hasNote && anchors.note !== undefined}
+            reduce={reduce}
+            onLanded={() => setLanded(true)}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
