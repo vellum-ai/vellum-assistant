@@ -549,9 +549,22 @@ export async function isEmbeddingDimensionAvailable(
   const { backend } = await selectEmbeddingBackend(config);
   if (!backend) return false;
 
-  const dim = await resolveBackendDimension(backend);
-  if (dim == null) return false;
-  return dim === config.memory.qdrant.vectorSize;
+  const expected = config.memory.qdrant.vectorSize;
+  if ((await resolveBackendDimension(backend)) === expected) return true;
+
+  // Under `auto`, `embedWithBackend` falls through to the configured fallback
+  // backends when the primary's dimension does not match the collection, so
+  // dense recall is still available if any fallback produces the committed
+  // dimension. Mirror that chain here instead of disabling dense recall when
+  // only the primary mismatches. `resolveBackendDimension` memoizes per
+  // provider:model, so each fallback is probed at most once.
+  if (config.memory.embeddings.provider === "auto") {
+    const fallbacks = await selectFallbackBackends(config, backend.provider);
+    for (const fallback of fallbacks) {
+      if ((await resolveBackendDimension(fallback)) === expected) return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -571,6 +584,12 @@ export async function resolveBackendDimension(
   const cached = backendDimCache.get(key);
   if (cached != null) return cached;
 
+  // Respect the embedding billing breaker: once a 402 opens it,
+  // `embedWithBackend` fail-fasts, so probing here would only burn provider
+  // requests that cannot succeed (failed probes are not cached, so every read
+  // lane calling this would re-probe). Treat an open breaker as "unknown".
+  if (isEmbeddingBillingBreakerOpen()) return null;
+
   try {
     const [vector] = await backend.embed([EMBEDDING_DIMENSION_PROBE_TEXT]);
     const dim = vector?.length;
@@ -578,6 +597,9 @@ export async function resolveBackendDimension(
     backendDimCache.set(key, dim);
     return dim;
   } catch (err) {
+    // A 402 means billing is depleted — trip the breaker so sibling probes and
+    // embeds stop hammering the provider, mirroring `embedWithBackend`.
+    if (extractHttpStatus(err) === 402) recordBillingBlock();
     log.warn(
       { err, provider: backend.provider, model: backend.model },
       "Embedding-dimension availability probe failed; treating as degraded",

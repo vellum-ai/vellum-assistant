@@ -8,6 +8,10 @@ import {
   resetLocalEmbeddingFailureState,
   selectEmbeddingBackend,
 } from "./embedding-backend.js";
+import {
+  _resetEmbeddingBillingBreaker,
+  recordBillingBlock,
+} from "./embedding-billing-breaker.js";
 
 const getProviderKeyAsyncMock = mock(
   async (_provider: string): Promise<string | undefined> => undefined,
@@ -99,6 +103,9 @@ describe("embedding backend cache invalidation", () => {
 describe("isEmbeddingDimensionAvailable", () => {
   afterEach(() => {
     clearEmbeddingBackendCache();
+    _resetEmbeddingBillingBreaker();
+    getProviderKeyAsyncMock.mockReset();
+    getProviderKeyAsyncMock.mockImplementation(async () => undefined);
   });
 
   function localConfigWithVectorSize(vectorSize: number): AssistantConfig {
@@ -174,6 +181,68 @@ describe("isEmbeddingDimensionAvailable", () => {
     } as unknown as AssistantConfig;
 
     expect(await isEmbeddingDimensionAvailable(config)).toBe(false);
+  });
+
+  test("under auto, returns true when a configured fallback matches the committed dimension", async () => {
+    // Primary (local) produces 384, the committed collection is 3072, and a
+    // configured OpenAI fallback produces 3072. `embedWithBackend` would fall
+    // through to the fallback, so dense recall must stay available rather than
+    // being disabled because only the primary mismatches.
+    getProviderKeyAsyncMock.mockImplementation(async (p: string) =>
+      p === "openai" ? "sk-test" : undefined,
+    );
+    const config = {
+      // `selectFallbackBackends` probes ollama via `resolveCallSiteConfig`, which
+      // reads `llm.default`; provide a minimal one so the fallback chain builds.
+      llm: { default: {} },
+      memory: {
+        enabled: true,
+        embeddings: {
+          provider: "auto",
+          localModel: "BAAI/bge-small-en-v1.5",
+          openaiModel: "text-embedding-3-small",
+          required: false,
+        },
+        qdrant: { vectorSize: 3072 },
+      },
+    } as unknown as AssistantConfig;
+
+    // Stub the primary (local) → 384.
+    const { backend: primary } = await selectEmbeddingBackend(config);
+    if (!primary) throw new Error("expected a primary backend");
+    (primary as { embed: typeof primary.embed }).embed = mock(async () => [
+      new Array(384).fill(0),
+    ]) as unknown as typeof primary.embed;
+
+    // Warm + stub the OpenAI fallback instance (cached by provider:model, so the
+    // chain probe inside isEmbeddingDimensionAvailable reuses this stub) → 3072.
+    const { backend: openai } = await selectEmbeddingBackend({
+      memory: {
+        embeddings: {
+          provider: "openai",
+          openaiModel: "text-embedding-3-small",
+        },
+        qdrant: { vectorSize: 3072 },
+      },
+    } as unknown as AssistantConfig);
+    if (!openai) throw new Error("expected an openai fallback backend");
+    (openai as { embed: typeof openai.embed }).embed = mock(async () => [
+      new Array(3072).fill(0),
+    ]) as unknown as typeof openai.embed;
+
+    expect(await isEmbeddingDimensionAvailable(config)).toBe(true);
+  });
+
+  test("returns false (and does not probe) when the billing breaker is open", async () => {
+    const config = localConfigWithVectorSize(384);
+    const embedMock = await stubSelectedBackendProbeDim(config, 384);
+
+    recordBillingBlock(); // open the breaker
+
+    expect(await isEmbeddingDimensionAvailable(config)).toBe(false);
+    // The probe is skipped entirely so a depleted-billing breaker is not
+    // hammered with per-lane dimension probes.
+    expect(embedMock).toHaveBeenCalledTimes(0);
   });
 });
 
