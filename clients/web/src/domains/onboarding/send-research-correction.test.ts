@@ -16,7 +16,12 @@ import * as sdkGen from "@/generated/daemon/sdk.gen";
 
 interface PostCall {
   path: { assistant_id: string };
-  body: { conversationId: string; content: string };
+  body: {
+    conversationId: string;
+    content: string;
+    interface?: string;
+    clientOs?: string;
+  };
   throwOnError: false;
 }
 interface ArchiveCall {
@@ -49,9 +54,8 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
-const { buildResearchCorrection, sendResearchCorrection } = await import(
-  "./send-research-correction"
-);
+const { buildResearchCorrection, sendResearchCorrection } =
+  await import("./send-research-correction");
 
 afterEach(() => {
   postCalls = [];
@@ -81,7 +85,10 @@ describe("buildResearchCorrection", () => {
   });
 
   test("disowns the whole search on full rejection, ignoring the list", () => {
-    const msg = buildResearchCorrection({ removedClaims: [], rejectedAll: true });
+    const msg = buildResearchCorrection({
+      removedClaims: [],
+      rejectedAll: true,
+    });
     expect(msg).toContain("none of what you found");
     expect(msg).toContain("similar name");
   });
@@ -100,6 +107,10 @@ describe("sendResearchCorrection", () => {
     expect(postCalls[0]?.path).toEqual({ assistant_id: "a1" });
     expect(postCalls[0]?.body.conversationId).toBe("c1");
     expect(postCalls[0]?.throwOnError).toBe(false);
+    // The correction turn carries the transport interface + real OS so the
+    // assistant keeps platform context (mirrors the initial research send).
+    expect(postCalls[0]?.body.interface).toBe("web");
+    expect(postCalls[0]?.body.clientOs).toBe("web");
 
     expect(archiveCalls).toHaveLength(1);
     expect(archiveCalls[0]?.path).toEqual({ assistant_id: "a1", id: "c1" });

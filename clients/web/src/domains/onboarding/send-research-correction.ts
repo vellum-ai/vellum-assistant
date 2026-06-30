@@ -29,6 +29,7 @@
 import { messagesPost } from "@/generated/daemon/sdk.gen";
 import type { MessagesPostData } from "@/generated/daemon/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
+import { detectClientOs } from "@/runtime/platform-detection";
 import { archiveResearchConversation } from "@/domains/onboarding/archive-research-conversation";
 
 export interface ResearchCorrection {
@@ -93,7 +94,11 @@ export async function sendResearchCorrection({
       conversationId,
       content,
       sourceChannel: "vellum",
-      interface: "vellum",
+      // `interface` is the transport ("web"); the real OS travels in `clientOs`
+      // so the correction turn keeps the assistant's `client_os` context too,
+      // matching the initial research send (`research-runner.ts`).
+      interface: "web",
+      clientOs: detectClientOs(),
       clientMessageId: crypto.randomUUID(),
     };
     await messagesPost({
