@@ -102,4 +102,23 @@ describe("entityLane", () => {
   test("cap <= 0 disables the lane", () => {
     expect(entityLane(entity, index, "alice", 0)).toEqual([]);
   });
+
+  test("ranks multi-token headings first so a common first name can't starve the exact page", () => {
+    // The exact "Alice Chen" page is LAST in section order; many "Alice …" pages
+    // precede it. Section-order truncation would drop it at a small cap — overlap
+    // ranking keeps it because its heading matches both "alice" and "chen".
+    const roster = mkIndex([
+      { article: "alice-smith", title: "Alice Smith" },
+      { article: "alice-jones", title: "Alice Jones" },
+      { article: "alice-park", title: "Alice Park" },
+      { article: "alice-chen", title: "Alice Chen" },
+    ]);
+    const cat = buildEntityIndex(
+      roster,
+      distinctive("alice", "smith", "jones", "park", "chen"),
+    );
+    expect(entityLane(cat, roster, "any update from alice chen?", 1)).toEqual([
+      { article: "alice-chen", section: 3 },
+    ]);
+  });
 });

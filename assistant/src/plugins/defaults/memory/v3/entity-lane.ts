@@ -61,11 +61,14 @@ export function buildEntityIndex(
 }
 
 /**
- * For each distinctive entity token the message names, surface the matching
- * heading section(s), deduped to distinct articles and capped at `cap`. A
- * message word that is not an entity heading (e.g. "sale", "glad") yields
- * nothing, so the lane stays precise where a raw rare-term sweep would inject
- * noise. Each hit carries its heading section index (into
+ * Surface the heading sections the message's distinctive tokens name, ranked by
+ * how many of those tokens a heading contains, deduped to distinct articles and
+ * truncated to `cap`. Ranking before truncation is what makes multi-token names
+ * work: for "Alice Chen", the `## Alice Chen` heading (two matched tokens)
+ * outranks the many `## Alice …` pages (one token each), so the exact page is
+ * never starved out of the cap by a common first name — and a message word that
+ * is not an entity heading (e.g. "sale", "glad") still yields nothing, keeping
+ * the lane precise. Each hit carries its heading section index (into
  * `SectionIndex.sections`) so the caller renders the matched section.
  */
 export function entityLane(
@@ -75,18 +78,36 @@ export function entityLane(
   cap: number,
 ): { article: Slug; section: number }[] {
   if (cap <= 0) return [];
-  const out: { article: Slug; section: number }[] = [];
-  const seen = new Set<Slug>();
+
+  // Per heading section hit by ≥1 message token, count how many DISTINCT message
+  // tokens its heading contains (the entity index maps token → sections whose
+  // heading holds it, so the per-section hit count IS that heading-overlap).
+  const sectionScore = new Map<number, number>();
   for (const token of new Set(tokenize(message))) {
-    const docs = entity.get(token);
-    if (!docs) continue;
-    for (const doc of docs) {
-      const article = index.sections[doc]!.article;
-      if (seen.has(article)) continue;
-      seen.add(article);
-      out.push({ article, section: doc });
-      if (out.length >= cap) return out;
+    for (const doc of entity.get(token) ?? []) {
+      sectionScore.set(doc, (sectionScore.get(doc) ?? 0) + 1);
     }
   }
-  return out;
+
+  // Collapse to one representative section per article: the highest-overlap
+  // heading (ties → lowest section index, for determinism).
+  const best = new Map<Slug, { section: number; score: number }>();
+  for (const [doc, score] of sectionScore) {
+    const article = index.sections[doc]!.article;
+    const cur = best.get(article);
+    if (
+      !cur ||
+      score > cur.score ||
+      (score === cur.score && doc < cur.section)
+    ) {
+      best.set(article, { section: doc, score });
+    }
+  }
+
+  // Rank articles by descending overlap (multi-token names first), tie-broken by
+  // section index, then take the top `cap`.
+  return [...best.entries()]
+    .sort((a, c) => c[1].score - a[1].score || a[1].section - c[1].section)
+    .slice(0, cap)
+    .map(([article, { section }]) => ({ article, section }));
 }
