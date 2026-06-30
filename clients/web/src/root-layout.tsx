@@ -313,7 +313,15 @@ export function RootLayout() {
     >
       <UpdateToast />
       {!electron && !isPopout && !suppressStatusBanner ? (
-        <StatusBanner placement="web" />
+        <div
+          className="shrink-0"
+          style={{
+            paddingTop:
+              "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
+          }}
+        >
+          <StatusBanner placement="web" />
+        </div>
       ) : null}
       <div className="flex min-w-0 flex-col overflow-hidden w-full" style={{ flex: "1 1 0%", minHeight: 0 }}>
         <Outlet />
