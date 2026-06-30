@@ -1,11 +1,8 @@
 /**
- * `BackgroundProcessDescriptor` for ACP runs — the registry projection of the
- * existing acp-run inline-card / detail-panel / overlay-pill surface.
- *
- * Behavior-preserving: every axis maps onto a symbol the current ACP UI
- * already uses, so the generic registry renders the same agent-glyph leading
- * mark, the same stacked `AcpAgentChip` pill, and the same `warning` state for
- * a cancelled-completed run.
+ * `BackgroundProcessDescriptor` for ACP runs — projects the acp-run store into
+ * the shared inline-card / detail-panel / overlay-pill surface, rendering an
+ * agent-glyph leading mark, a stacked `AcpAgentChip` pill, and the `warning`
+ * state for a cancelled-completed run.
  */
 
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
@@ -13,18 +10,15 @@ import { AcpAgentIcon } from "@/domains/chat/components/acp-run-inline-card/acp-
 import { useAcpRunCardData } from "@/domains/chat/components/acp-run-inline-card/use-acp-run-card-data";
 import { AcpRunDetailPanel } from "@/domains/chat/components/acp-run-detail-panel/acp-run-detail-panel";
 import { useActiveAcpRunIds } from "@/domains/chat/hooks/use-active-acp-run-ids";
+import { MAX_VISIBLE_STACKED_CHIPS } from "@/domains/chat/process-registry/constants";
 import type {
   BackgroundProcessDescriptor,
   CardSummary,
 } from "@/domains/chat/process-registry/types";
 import { stopAcpRun } from "@/domains/chat/utils/acp-run-actions";
+import { captureError } from "@/lib/sentry/capture-error";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
-
-// Visible agent-mark cap before the "+N" overflow. Mirrors the literal in
-// `active-acp-runs-pill.tsx` (and the subagents pill) so the registry pill caps
-// at the same count as the surface it generalizes.
-const MAX_VISIBLE_ACP_AGENTS = 6;
 
 /**
  * No-arg active-id hook for the descriptor. `useActiveAcpRunIds` is scoped to a
@@ -104,13 +98,18 @@ export const ACP_RUN_DESCRIPTOR: BackgroundProcessDescriptor = {
   pill: {
     variant: "stacked",
     renderChip: (id) => <AcpAgentChip key={id} id={id} />,
-    max: MAX_VISIBLE_ACP_AGENTS,
+    max: MAX_VISIBLE_STACKED_CHIPS,
   },
   overlayTitle: (n) => `${n} Active Run${n === 1 ? "" : "s"}`,
   pillAriaLabel: () => "Active runs",
   openCardAriaLabel: "Open run",
   onOpenDetail: (id) =>
     useViewerStore.getState().openProcessDetail({ kind: "acp-run", id }),
-  onStop: (id) => void stopAcpRun(id),
+  // `stopAcpRun` can reject (offline / non-OK / no active assistant); report
+  // instead of leaving an unhandled rejection. Mirrors the bespoke callers.
+  onStop: (id) =>
+    void stopAcpRun(id).catch((err) => {
+      captureError(err, { context: "AcpRunDescriptor.stop" });
+    }),
   DetailPanel: AcpRunDetailPanelById,
 };

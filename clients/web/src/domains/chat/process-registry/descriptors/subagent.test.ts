@@ -80,7 +80,7 @@ describe("SUBAGENT_DESCRIPTOR — useCardSummary projection", () => {
     expect(result.current).toBeNull();
   });
 
-  test("projects a running, no-step subagent's card data", () => {
+  test("promotes the subagent label to the title; info falls back to the activity verb", () => {
     act(() => {
       seed("sa-1", "running", [], "Find tigers");
     });
@@ -89,17 +89,19 @@ describe("SUBAGENT_DESCRIPTOR — useCardSummary projection", () => {
       SUBAGENT_DESCRIPTOR.useCardSummary("sa-1"),
     );
 
-    // Mirrors `deriveSubagentCardData` for a running entry with no steps:
-    // state "loading", title "Working", info = label, count "0 steps".
+    // Title = the subagent's label (its task name), so labeled subagents read
+    // distinctly. `currentStepInfo` for a no-step running entry is the label
+    // itself, so the info line falls back to the activity verb ("Working")
+    // rather than echoing the title — mirroring the bespoke card.
     expect(result.current).toEqual({
       state: "loading",
-      title: "Working",
-      info: "Find tigers",
+      title: "Find tigers",
+      info: "Working",
       count: "0 steps",
     });
   });
 
-  test("projects step title/info/count for a subagent mid-tool-call", () => {
+  test("keeps the live activity on the info line when it differs from the label", () => {
     act(() => {
       seed("sa-2", "running", [
         {
@@ -117,9 +119,11 @@ describe("SUBAGENT_DESCRIPTOR — useCardSummary projection", () => {
       SUBAGENT_DESCRIPTOR.useCardSummary("sa-2"),
     );
 
+    // Label ("Research Agent") is the title; the live tool activity ("ls -la")
+    // differs from the label so it stays on the info line.
     expect(result.current).toEqual({
       state: "loading",
-      title: "Working",
+      title: "Research Agent",
       info: "ls -la",
       count: "1 step",
     });
@@ -141,7 +145,7 @@ describe("SUBAGENT_DESCRIPTOR — useCardSummary projection", () => {
 
     expect(result.current).toEqual({
       state: "complete",
-      title: "Thought",
+      title: "Wrap up",
       info: "Done.",
       count: "1 step",
     });

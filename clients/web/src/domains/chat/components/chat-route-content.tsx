@@ -39,6 +39,7 @@ import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachmen
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { ActiveProcessOverlay } from "@/domains/chat/process-registry/active-process-overlay";
 import { PROCESS_KINDS } from "@/domains/chat/process-registry/registry";
+import type { ProcessKind } from "@/domains/chat/process-registry/types";
 import { SUBAGENT_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/subagent";
 import { ACP_RUN_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/acp-run";
 import { WORKFLOW_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/workflow";
@@ -157,7 +158,8 @@ export type ChatRouteContentProps = ChatMainPanelProps;
  * active conversation internally, so the hooks are called here at the
  * orchestrator level (where the conversation lives in context). They must be
  * called explicitly per-kind — the Rules of Hooks forbid iterating
- * `PROCESS_KINDS` with hooks — and kept aligned with `PROCESS_KINDS` order.
+ * `PROCESS_KINDS` with hooks — and the results are keyed by `descriptor.kind`,
+ * so the overlay row order follows `PROCESS_KINDS` without positional coupling.
  *
  * `hasAny` lets the caller omit the row entirely when nothing is active, so the
  * absolutely-positioned container never mounts empty; the overlays themselves
@@ -168,13 +170,20 @@ function useActiveProcessSlots() {
   const acpRunIds = ACP_RUN_DESCRIPTOR.useActiveIds();
   const workflowIds = WORKFLOW_DESCRIPTOR.useActiveIds();
   const backgroundTaskIds = BACKGROUND_TASK_DESCRIPTOR.useActiveIds();
-  const idsByKind = [subagentIds, acpRunIds, workflowIds, backgroundTaskIds];
-  const hasAny = idsByKind.some((ids) => ids.length > 0);
-  const overlays = PROCESS_KINDS.map((descriptor, i) => (
+  // Keyed by `descriptor.kind` (not array position) so reordering
+  // `PROCESS_KINDS` can't silently feed an overlay the wrong kind's ids.
+  const idsByKind: Record<ProcessKind, string[]> = {
+    subagent: subagentIds,
+    "acp-run": acpRunIds,
+    workflow: workflowIds,
+    "background-task": backgroundTaskIds,
+  };
+  const hasAny = Object.values(idsByKind).some((ids) => ids.length > 0);
+  const overlays = PROCESS_KINDS.map((descriptor) => (
     <ActiveProcessOverlay
       key={descriptor.kind}
       descriptor={descriptor}
-      ids={idsByKind[i]}
+      ids={idsByKind[descriptor.kind]}
     />
   ));
   return { overlays, hasAny };

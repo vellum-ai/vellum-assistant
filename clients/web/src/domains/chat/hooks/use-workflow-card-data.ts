@@ -1,6 +1,7 @@
 /**
- * Builds the props for `WorkflowInlineProgressCard` from a single
- * workflow run's store entry. Projects the run's leaves
+ * Builds the `ToolCallCardData` consumed by `InlineProcessCard` via the
+ * workflow descriptor, from a single workflow run's store entry. Projects the
+ * run's leaves
  * (`WorkflowLeaf[]`) into the unified `ToolCallCardStep[]` shape consumed
  * by the shared tool-progress card chrome — the same shape the subagent
  * inline card uses, so both share one renderer contract.

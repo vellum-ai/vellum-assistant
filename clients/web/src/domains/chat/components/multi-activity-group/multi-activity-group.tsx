@@ -219,8 +219,8 @@ function expandedHeaderLabel(
  *   is preserved bit-for-bit from the legacy card.
  * - Zero renderable steps (today: a group made up entirely of
  *   `subagent_spawn` calls, which `useToolCallCardData` filters out) → render
- *   `null`; the spawned subagents render as inline
- *   `SubagentInlineProgressCard`s elsewhere in the transcript.
+ *   `null`; the spawned subagents render as inline `InlineProcessCard`s (via the
+ *   subagent descriptor) elsewhere in the transcript.
  */
 export function MultiActivityGroup(props: MultiActivityGroupProps) {
   const {
@@ -238,9 +238,9 @@ export function MultiActivityGroup(props: MultiActivityGroupProps) {
   // once via a single hook call so there are no conditional hooks.
   //
   // `subagent_spawn` calls are filtered out inside the projection — they're
-  // rendered inline by `SubagentInlineProgressCard` at the transcript level.
-  // If a group reduces to zero renderable steps the dispatcher falls through
-  // to a no-op below.
+  // rendered inline by `InlineProcessCard` (via the subagent descriptor) at the
+  // transcript level. If a group reduces to zero renderable steps the
+  // dispatcher falls through to a no-op below.
   const effectiveItems = useMemo(
     () => props.items ?? buildDefaultItems(toolCalls),
     [props.items, toolCalls],

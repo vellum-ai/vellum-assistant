@@ -6,10 +6,6 @@
  * {@link CardSummary} omits `count` and the inline card leads with a
  * tool-keyed terminal glyph (`bash` → square-terminal, `host_bash` →
  * file-terminal) instead of an avatar.
- *
- * Behavior-preserving: every projection here mirrors the existing
- * `useBackgroundTaskCardData`, `ActiveBackgroundTasksPill`, and
- * `BackgroundTaskDetailPanel` surfaces — see the per-field notes below.
  */
 
 import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
@@ -17,17 +13,12 @@ import { BackgroundTaskGlyph } from "@/domains/chat/components/background-task-g
 import { BackgroundTaskDetailPanel } from "@/domains/chat/components/background-task-detail-panel/background-task-detail-panel";
 import { useBackgroundTaskCardData } from "@/domains/chat/components/background-task-inline-card/use-background-task-card-data";
 import { useActiveBackgroundTaskIds } from "@/domains/chat/hooks/use-active-background-task-ids";
+import { MAX_VISIBLE_STACKED_CHIPS } from "@/domains/chat/process-registry/constants";
 import { stopBackgroundTask } from "@/domains/chat/utils/background-task-actions";
 import type { BackgroundProcessDescriptor } from "@/domains/chat/process-registry/types";
+import { captureError } from "@/lib/sentry/capture-error";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
-
-/**
- * Cap on stacked terminal glyphs before the overlay pill collapses the
- * remainder to "+N". Mirrors the local cap in `ActiveBackgroundTasksPill`,
- * which is file-private there.
- */
-const MAX_VISIBLE_BACKGROUND_TASK_GLYPHS = 6;
 
 /**
  * Active background-task ids for the currently-selected conversation.
@@ -105,13 +96,19 @@ export const BACKGROUND_TASK_DESCRIPTOR: BackgroundProcessDescriptor = {
   pill: {
     variant: "stacked",
     renderChip: (id) => <BackgroundTaskChip key={id} id={id} />,
-    max: MAX_VISIBLE_BACKGROUND_TASK_GLYPHS,
+    max: MAX_VISIBLE_STACKED_CHIPS,
   },
   overlayTitle: (count) => `${count} Active Command${count === 1 ? "" : "s"}`,
   pillAriaLabel: () => "Active commands",
   openCardAriaLabel: "Open command",
   onOpenDetail: (id) =>
     useViewerStore.getState().openProcessDetail({ kind: "background-task", id }),
-  onStop: (id) => void stopBackgroundTask(id),
+  // `stopBackgroundTask` can reject (offline / non-OK / no active assistant);
+  // report instead of leaving an unhandled rejection. Mirrors the bespoke
+  // callers.
+  onStop: (id) =>
+    void stopBackgroundTask(id).catch((err) => {
+      captureError(err, { context: "BackgroundTaskDescriptor.stop" });
+    }),
   DetailPanel: BackgroundTaskDetailPanelAdapter,
 };

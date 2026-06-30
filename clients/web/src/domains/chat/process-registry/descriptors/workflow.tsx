@@ -2,11 +2,9 @@
  * Background-process descriptor for the **workflow** kind.
  *
  * Workflow is the lone count-variant surface: its overlay pill renders a single
- * static {@link Workflow} glyph next to the active count (see
- * `active-workflows-pill.tsx`), not a stack of per-process chips. The card,
- * detail panel, and copy mirror the existing workflow UI exactly — this
- * descriptor is a behavior-preserving adapter onto the shared
- * {@link BackgroundProcessDescriptor} contract.
+ * static {@link Workflow} glyph next to the active count, not a stack of
+ * per-process chips. The inline card's count slot is a custom
+ * {@link WorkflowAgentsChip} (avatar stack + "N agents") via `renderCount`.
  */
 
 import { Workflow } from "lucide-react";
@@ -17,6 +15,7 @@ import type {
   BackgroundProcessDescriptor,
   CardSummary,
 } from "@/domains/chat/process-registry/types";
+import { WorkflowAgentsChip } from "@/domains/chat/process-registry/descriptors/workflow-agents-chip";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { WorkflowDetailPanel } from "@/domains/chat/components/workflow-detail-panel";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -95,5 +94,6 @@ export const WORKFLOW_DESCRIPTOR: BackgroundProcessDescriptor = {
   onOpenDetail: (id) =>
     useViewerStore.getState().openProcessDetail({ kind: "workflow", id }),
   onStop: (id) => void useWorkflowStore.getState().abortRun(id),
+  renderCount: (id) => <WorkflowAgentsChip runId={id} />,
   DetailPanel: WorkflowDetailPanelAdapter,
 };

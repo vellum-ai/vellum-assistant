@@ -47,8 +47,8 @@ export interface CardSummary {
  * - `count` — renders a single static `glyph` next to the count. Used by kinds
  *   whose processes are visually interchangeable.
  */
-export type ProcessPillConfig<Id extends string = string> =
-  | { variant: "stacked"; renderChip: (id: Id) => ReactNode; max: number }
+export type ProcessPillConfig =
+  | { variant: "stacked"; renderChip: (id: string) => ReactNode; max: number }
   | { variant: "count"; glyph: ReactNode };
 
 /**
@@ -74,22 +74,24 @@ export type ProcessPillConfig<Id extends string = string> =
  *   navigation/selection logic.
  * - `onStop` — only some kinds support stopping an in-flight process; omitted
  *   when the kind has no stop action.
+ * - `renderCount` — optional custom count slot; overrides the default string
+ *   `count` rendering when present (e.g. the workflow agent-avatar chip).
  * - `DetailPanel` — each kind renders a different detail UI.
  */
-export interface BackgroundProcessDescriptor<Id extends string = string> {
+export interface BackgroundProcessDescriptor {
   /** Discriminant used to look the descriptor up in the registry. */
   kind: ProcessKind;
   /** Hook returning the ids of the currently-active processes for this kind. */
-  useActiveIds: () => Id[];
+  useActiveIds: () => string[];
   /**
    * Hook projecting a single process's store state into a {@link CardSummary},
    * or `null` when the process has no card-worthy state.
    */
-  useCardSummary: (id: Id) => CardSummary | null;
+  useCardSummary: (id: string) => CardSummary | null;
   /** Renders the leading slot of the inline card for a single process. */
-  renderCardLeading: (id: Id) => ReactNode;
+  renderCardLeading: (id: string) => ReactNode;
   /** Overlay-pill presentation config. */
-  pill: ProcessPillConfig<Id>;
+  pill: ProcessPillConfig;
   /** Count-dependent overlay title copy, e.g. `(3) => "3 agents"`. */
   overlayTitle: (count: number) => string;
   /** Count-dependent aria label for the overlay pill. */
@@ -97,9 +99,14 @@ export interface BackgroundProcessDescriptor<Id extends string = string> {
   /** Static aria label for the inline card's open affordance. */
   openCardAriaLabel: string;
   /** Opens the detail panel for a single process. */
-  onOpenDetail: (id: Id) => void;
+  onOpenDetail: (id: string) => void;
   /** Stops an in-flight process; omitted for kinds without a stop action. */
-  onStop?: (id: Id) => void;
+  onStop?: (id: string) => void;
+  /**
+   * Custom count slot; overrides the default string `count` rendering when
+   * present. Omit to fall back to the {@link CardSummary.count} string.
+   */
+  renderCount?: (id: string) => ReactNode;
   /** Detail-panel component rendered for a single process. */
-  DetailPanel: ComponentType<{ id: Id; onClose: () => void }>;
+  DetailPanel: ComponentType<{ id: string; onClose: () => void }>;
 }

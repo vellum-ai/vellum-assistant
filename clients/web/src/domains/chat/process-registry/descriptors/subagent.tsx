@@ -2,11 +2,6 @@
  * The `subagent` {@link BackgroundProcessDescriptor} — the registry entry that
  * projects the subagent store into the shared inline-card + overlay-pill +
  * detail-panel surface.
- *
- * Behaviour-preserving: every field mirrors what the bespoke subagent surface
- * already renders (the inline progress card, the active-subagents overlay/pill,
- * and the subagent detail panel). Nothing consumes this descriptor yet — the
- * registry + generic surface wiring lands in a later PR.
  */
 
 import { SubagentAvatarChip } from "@/components/avatar/subagent-avatar-chip";
@@ -40,14 +35,26 @@ function useActiveIds(): string[] {
  * inline card's short-circuit. The 4-value `ToolCallCardData["state"]` is a
  * subset of `ToolProgressCardState` (it never emits `warning`/`denied`), so it
  * passes through unchanged.
+ *
+ * Title = the subagent's `label` (its task name), so labeled/multiple subagents
+ * read distinctly instead of all showing the generic activity verb; falls back
+ * to the live `currentStepTitle` when there's no label. The info line keeps the
+ * live activity (`currentStepInfo`), but falls back to `currentStepTitle` when
+ * it would just echo the label-as-title — mirroring the bespoke card.
  */
 function useCardSummary(id: string): CardSummary | null {
+  const label = useSubagentStore((s) => s.byId[id]?.label);
   const data = useSubagentCardData(id);
   if (data === null) return null;
+  const title = label ?? data.currentStepTitle;
+  const info =
+    data.currentStepInfo && data.currentStepInfo !== label
+      ? data.currentStepInfo
+      : data.currentStepTitle;
   return {
     state: data.state,
-    title: data.currentStepTitle,
-    info: data.currentStepInfo,
+    title,
+    info,
     count: data.stepCount,
   };
 }
