@@ -10,7 +10,7 @@
 import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
-import { FilingService } from "../../filing/filing-service.js";
+import { FilingService } from "../../plugins/defaults/memory/filing-service.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError } from "./errors.js";

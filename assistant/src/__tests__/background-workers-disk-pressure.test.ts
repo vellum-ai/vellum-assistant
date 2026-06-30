@@ -213,7 +213,8 @@ mock.module("../persistence/cleanup-schedule-state.js", () => ({
 }));
 
 const { runMemoryJobsOnce } = await import("../persistence/jobs-worker.js");
-const { FilingService } = await import("../filing/filing-service.js");
+const { FilingService } =
+  await import("../plugins/defaults/memory/filing-service.js");
 const { WorkspaceHeartbeatService } =
   await import("../workspace/heartbeat-service.js");
 

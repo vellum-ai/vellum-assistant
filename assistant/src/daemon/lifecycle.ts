@@ -16,7 +16,6 @@ import { reconcileFlagGatedProfiles } from "../config/sync-gated-profiles.js";
 import { expireAllPendingCanonicalRequests } from "../contacts/canonical-guardian-store.js";
 import { startCes } from "../credential-execution/ces-runtime.js";
 import { refreshManagedConnectionCache } from "../credential-execution/managed-catalog.js";
-import { startFilingService } from "../filing/filing-service.js";
 import { startHeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
@@ -1192,12 +1191,6 @@ export async function runDaemon(): Promise<void> {
 
   startHeartbeatService();
   refreshBackgroundWakeIntent("daemon-startup");
-
-  // Filing yields to the memory v2 consolidation job when v2 is enabled — both
-  // serve the same role (periodic background memory processing) and running both
-  // is redundant. The consolidation job runs through the memory jobs worker
-  // (see `maybeEnqueueGraphMaintenanceJobs`).
-  startFilingService();
 
   installShutdownHandlers();
 
