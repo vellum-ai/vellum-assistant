@@ -2,7 +2,6 @@ import { and, asc, eq, inArray, lte, notInArray, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../config/loader.js";
-import { rawMemoryAll, rawMemoryChanges } from "../persistence/raw-query.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
 import { type DrizzleDb, getMemoryDb } from "./db-connection.js";
@@ -14,6 +13,7 @@ import {
   isQdrantBreakerOpen,
   shouldAllowQdrantProbe,
 } from "./embeddings/qdrant-circuit-breaker.js";
+import { rawMemoryAll, rawMemoryChanges } from "./raw-query.js";
 import { memoryJobs } from "./schema/index.js";
 
 const log = getLogger("memory-jobs-store");
@@ -36,6 +36,7 @@ export type MemoryJobType =
   | "prune_old_conversations"
   | "prune_old_llm_request_logs"
   | "prune_old_trace_events"
+  | "prune_old_tool_invocations"
   | "build_conversation_summary"
   | "conversation_analyze"
   | "backfill"
@@ -499,6 +500,55 @@ export function enqueuePruneOldTraceEventsJob(retentionDays?: number): string {
       ? { retentionDays }
       : {};
   return enqueueMemoryJob("prune_old_trace_events", payload);
+}
+
+export function enqueuePruneOldToolInvocationsJob(
+  retentionDays?: number,
+): string {
+  const db = memoryDb();
+  const existing = db
+    .select()
+    .from(memoryJobs)
+    .where(
+      and(
+        eq(memoryJobs.type, "prune_old_tool_invocations"),
+        inArray(memoryJobs.status, ["pending", "running"]),
+      ),
+    )
+    .orderBy(asc(memoryJobs.createdAt))
+    .get();
+  if (existing) {
+    if (
+      existing.status === "pending" &&
+      typeof retentionDays === "number" &&
+      Number.isFinite(retentionDays) &&
+      retentionDays >= 0
+    ) {
+      let payload: Record<string, unknown> = {};
+      try {
+        payload = JSON.parse(existing.payload) as Record<string, unknown>;
+      } catch {
+        payload = {};
+      }
+      if (payload.retentionDays !== retentionDays) {
+        db.update(memoryJobs)
+          .set({
+            payload: JSON.stringify({ ...payload, retentionDays }),
+            updatedAt: Date.now(),
+          })
+          .where(eq(memoryJobs.id, existing.id))
+          .run();
+      }
+    }
+    return existing.id;
+  }
+  const payload =
+    typeof retentionDays === "number" &&
+    Number.isFinite(retentionDays) &&
+    retentionDays >= 0
+      ? { retentionDays }
+      : {};
+  return enqueueMemoryJob("prune_old_tool_invocations", payload);
 }
 
 export interface LaneBudgets {

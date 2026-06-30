@@ -22,16 +22,6 @@ mock.module("../config/loader.js", () => ({
 }));
 
 import {
-  loadGraphMemoryState,
-  saveGraphMemoryState,
-} from "../memory/graph/graph-memory-state-store.js";
-import {
-  bumpRetrospectiveLastRunAt,
-  getRetrospectiveState,
-  upsertRetrospectiveState,
-} from "../memory/memory-retrospective-state.js";
-import { hydrate as hydrateActivationState } from "../memory/v2/activation-store.js";
-import {
   getAttachmentsForMessage,
   linkAttachmentToMessage,
   uploadAttachment,
@@ -65,6 +55,17 @@ import {
   memoryRetrospectiveState,
   toolInvocations,
 } from "../persistence/schema/index.js";
+import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/index.js";
+import {
+  loadGraphMemoryState,
+  saveGraphMemoryState,
+} from "../plugins/defaults/memory/graph/graph-memory-state-store.js";
+import {
+  bumpRetrospectiveLastRunAt,
+  getRetrospectiveState,
+  upsertRetrospectiveState,
+} from "../plugins/defaults/memory/memory-retrospective-state.js";
+import { hydrate as hydrateActivationState } from "../plugins/defaults/memory/v2/activation-store.js";
 import {
   getInjected as getV3Injected,
   markPruned as markV3Pruned,
@@ -100,6 +101,7 @@ function parseMetadata(metadata: string | null): unknown {
 describe("forkConversation", () => {
   beforeEach(() => {
     resetTables();
+    registerDefaultPluginPersistenceHooks();
   });
 
   test("forks a full transcript with copied history and lineage", async () => {
@@ -1391,6 +1393,7 @@ describe("forkConversation", () => {
 describe("forkConversation + memory_retrospective_state", () => {
   beforeEach(() => {
     resetTables();
+    registerDefaultPluginPersistenceHooks();
   });
 
   test("does not seed state when the source has none", async () => {

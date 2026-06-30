@@ -17,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // reach into the real hub (which can pull in platform services we
 // don't want to boot in a unit test).
 const publishSpy = mock<(event: unknown) => Promise<void>>(async () => {});
-mock.module("../../../runtime/assistant-event-hub.js", () => ({
+mock.module("../../assistant-event-hub.js", () => ({
   assistantEventHub: {
     publish: publishSpy,
     subscribe: () => () => {},

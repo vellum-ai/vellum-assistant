@@ -188,7 +188,7 @@ describe("background wake intent publisher hooks", () => {
   });
 
   test("schedule create, update, and delete mutations refresh the wake intent", async () => {
-    const job = createSchedule({
+    const job = await createSchedule({
       name: "Wake hook",
       cronExpression: "* * * * *",
       message: "wake",
@@ -197,11 +197,11 @@ describe("background wake intent publisher hooks", () => {
     await flushQueuedWakeRefresh();
     expect(mockPublishBackgroundWakeIntent).toHaveBeenCalledTimes(1);
 
-    updateSchedule(job.id, { name: "Wake hook updated" });
+    await updateSchedule(job.id, { name: "Wake hook updated" });
     await flushQueuedWakeRefresh();
     expect(mockPublishBackgroundWakeIntent).toHaveBeenCalledTimes(2);
 
-    expect(deleteSchedule(job.id)).toBe(true);
+    expect(await deleteSchedule(job.id)).toBe(true);
     await flushQueuedWakeRefresh();
     expect(mockPublishBackgroundWakeIntent).toHaveBeenCalledTimes(3);
   });
@@ -229,19 +229,25 @@ describe("background wake intent publisher hooks", () => {
     );
   });
 
-  test("daemon lifecycle publishes once after heartbeat and scheduler startup", () => {
+  test("scheduler startup publishes the daemon-startup wake intent", () => {
+    const schedulerSource = readFileSync(
+      new URL("../schedule/scheduler.ts", import.meta.url),
+      "utf-8",
+    );
     const lifecycleSource = readFileSync(
       new URL("../daemon/lifecycle.ts", import.meta.url),
       "utf-8",
     );
 
-    // The wake intent is published once, immediately after the heartbeat is
-    // started (the scheduler is started earlier), so the daemon-startup intent
-    // reflects the live singletons. Tolerant of indentation so the assertion
-    // survives reformatting of lifecycle.ts.
-    expect(lifecycleSource).toMatch(
-      /startHeartbeatService\(\);\n[ \t]*refreshBackgroundWakeIntent\("daemon-startup"\);/,
+    // The daemon-startup intent is published from the end of startScheduler(),
+    // so it lands once the scheduler is live and its schedules are visible to
+    // computeNextBackgroundWakeIntent. Heartbeat startup republishes with the
+    // live heartbeat timing via its own "heartbeat-*" refreshes.
+    expect(schedulerSource).toContain(
+      'refreshBackgroundWakeIntent("daemon-startup")',
     );
+    // Lifecycle no longer publishes the intent directly.
+    expect(lifecycleSource).not.toContain("refreshBackgroundWakeIntent");
   });
 
   test("shutdown paths do not clear background wake intents", () => {

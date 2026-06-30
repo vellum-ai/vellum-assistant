@@ -1,5 +1,8 @@
-import { getNode, updateNode } from "../../../../memory/graph/store.js";
 import { parsePlaybookStatement } from "../../../../playbooks/types.js";
+import {
+  getNode,
+  updateNode,
+} from "../../../../plugins/defaults/memory/graph/store.js";
 import type {
   ToolContext,
   ToolExecutionResult,

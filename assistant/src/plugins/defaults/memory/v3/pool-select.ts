@@ -55,7 +55,6 @@ import { z } from "zod";
 
 import { classifyConversationError } from "../../../../daemon/conversation-error.js";
 import type { PendingConversationNotice } from "../../../../daemon/conversation-notices.js";
-import { loadPromptOverride } from "../../../../memory/prompt-override.js";
 import { cachedTextBlock } from "../../../../providers/cache-control.js";
 import {
   extractToolUse,
@@ -65,6 +64,7 @@ import type { ToolDefinition } from "../../../../providers/types.js";
 import { redactLogString } from "../../../../util/log-redact.js";
 import { getLogger } from "../../../../util/logger.js";
 import { truncate } from "../../../../util/truncate.js";
+import { loadPromptOverride } from "../prompt-override.js";
 import { retryForResult } from "./llm-retry.js";
 import type { MemoryRoutingTurn, SelectedPage, Slug } from "./types.js";
 

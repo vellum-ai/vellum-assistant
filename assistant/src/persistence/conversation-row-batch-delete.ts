@@ -49,8 +49,15 @@ import {
  * for a contending foreground write is one short batch, even on a bloated
  * database; per-batch statement overhead stays negligible and delete latency
  * doesn't matter (nobody waits on a background GC).
+ *
+ * Each deleted `messages` row fires the per-row `messages_fts_ad` trigger,
+ * whose `DELETE FROM messages_fts WHERE message_id = old.id` scans the FTS
+ * index (`message_id` is an fts5 `UNINDEXED` column), so a single batch is far
+ * more expensive than its row count suggests. A small batch keeps that
+ * per-batch lock-hold short enough that a contending live user turn isn't
+ * starved.
  */
-export const DEFAULT_DELETE_BATCH_SIZE = 50;
+export const DEFAULT_DELETE_BATCH_SIZE = 5;
 
 /**
  * Pause inserted between batch subprocess calls. Without it the delete releases

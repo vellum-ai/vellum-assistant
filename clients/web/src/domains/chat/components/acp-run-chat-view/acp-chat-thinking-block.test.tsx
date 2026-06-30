@@ -10,7 +10,7 @@ describe("AcpChatThinkingBlock", () => {
     render(<AcpChatThinkingBlock content="reasoning" isComplete={false} />);
     expect(screen.getByTestId("acp-chat-thinking-body")).toBeDefined();
     expect(screen.getByTestId("acp-chat-thinking-streaming")).toBeDefined();
-    expect(screen.getByText("Thinking…")).toBeDefined();
+    expect(screen.getByText("Thinking")).toBeDefined();
   });
 
   test("collapses by default once complete", () => {
@@ -70,7 +70,7 @@ describe("AcpChatThinkingBlock", () => {
 
   test("shows the live indicator for an empty thought signal while streaming", () => {
     render(<AcpChatThinkingBlock content="" isComplete={false} />);
-    expect(screen.getByText("Thinking…")).toBeDefined();
+    expect(screen.getByText("Thinking")).toBeDefined();
     expect(screen.getByTestId("acp-chat-thinking-streaming")).toBeDefined();
     expect(screen.queryByTestId("acp-chat-thinking-toggle")).toBeNull();
   });

@@ -38,6 +38,8 @@ export interface AcpRunCardData {
   currentStepInfo: string;
   /** Pre-formatted tool-step count, e.g. `"2 steps"`. */
   stepCount: string;
+  /** Backing agent (e.g. "claude", "codex") — drives the brand glyph. */
+  agent: string;
 }
 
 /**
@@ -111,6 +113,7 @@ export function useAcpRunCardData(acpSessionId: string): AcpRunCardData | null {
       currentStepTitle: latest?.label ?? "Working",
       currentStepInfo: deriveCurrentStepInfo(steps),
       stepCount: `${toolStepCount} step${toolStepCount === 1 ? "" : "s"}`,
+      agent: entry.agent,
     };
   }, [entry, steps]);
 }

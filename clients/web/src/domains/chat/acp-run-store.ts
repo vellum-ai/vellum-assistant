@@ -50,6 +50,9 @@ export interface AcpRunRawEvent {
   toolStatus?: string;
   /** Files touched by this tool call (for the file-diff affordance). */
   locations?: { path: string; line?: number }[];
+  /** Raw tool input/output (ACP rawInput/rawOutput); absent on older daemons. */
+  rawInput?: unknown;
+  rawOutput?: unknown;
   messageId?: string;
 }
 

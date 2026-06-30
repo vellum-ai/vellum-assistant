@@ -9,7 +9,14 @@
  * nested-diff selection in LOCAL state (not the viewer store).
  */
 
-import { ArrowDown, ArrowLeft, ChevronRight, Code, Send, Square, X } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowLeft,
+  ChevronRight,
+  Send,
+  Square,
+  X,
+} from "lucide-react";
 import { useCallback, useMemo, useState, type FormEvent } from "react";
 
 import { Button, Typography } from "@vellumai/design-library";
@@ -20,6 +27,7 @@ import {
 } from "@/domains/chat/acp-run-message-projection";
 import {
   getAcpFileChanges,
+  getAcpToolCommand,
   parseAcpToolContent,
 } from "@/domains/chat/acp-tool-content";
 import {
@@ -31,6 +39,7 @@ import {
 import { AcpChatAgentMessage } from "@/domains/chat/components/acp-run-chat-view/acp-chat-agent-message";
 import { AcpChatPlanBlock } from "@/domains/chat/components/acp-run-chat-view/acp-chat-plan-block";
 import { AcpChatTerminalBlock } from "@/domains/chat/components/acp-run-chat-view/acp-chat-terminal-block";
+import { AcpChatTimelineBlock } from "@/domains/chat/components/acp-run-chat-view/acp-chat-timeline-block";
 import { AcpChatThinkingBlock } from "@/domains/chat/components/acp-run-chat-view/acp-chat-thinking-block";
 import {
   AcpChatToolCard,
@@ -38,18 +47,13 @@ import {
 } from "@/domains/chat/components/acp-run-chat-view/acp-chat-tool-card";
 import { AcpChatUserTurn } from "@/domains/chat/components/acp-run-chat-view/acp-chat-user-turn";
 import { AcpUsageMeter } from "@/domains/chat/components/acp-run-chat-view/acp-usage-meter";
+import { CommandOutputView } from "@/domains/chat/components/acp-run-chat-view/command-output-view";
 import { FileDiffView } from "@/domains/chat/components/acp-run-chat-view/file-diff-view";
 import { useStickToBottom } from "@/domains/chat/components/acp-run-chat-view/use-stick-to-bottom";
+import { AcpAgentIcon } from "@/domains/chat/components/acp-run-inline-card/acp-agent-icon";
 import { StatusBadgePill } from "@/domains/chat/components/status-badge-pill";
-import {
-  steerAcpRun,
-  stopAcpRun,
-} from "@/domains/chat/utils/acp-run-actions";
-import {
-  acpRunStatusColor,
-  acpRunStatusLabel,
-  isActiveAcpStatus,
-} from "@/utils/acp-run-status";
+import { steerAcpRun, stopAcpRun } from "@/domains/chat/utils/acp-run-actions";
+import { acpRunStatusBadge, isActiveAcpStatus } from "@/utils/acp-run-status";
 import { captureError } from "@/lib/sentry/capture-error";
 
 /** Stable per-block key so React reconciles blocks across streamed re-renders. */
@@ -69,6 +73,11 @@ function blockKey(block: AcpChatBlock, index: number): string {
 }
 
 const EMPTY_EVENTS: AcpRunRawEvent[] = [];
+
+/** The nested detail panel open over the transcript, if any. */
+type ActiveDetail =
+  | { kind: "diff"; toolCallId: string; path: string }
+  | { kind: "output"; toolCallId: string };
 
 // ---------------------------------------------------------------------------
 // Props
@@ -91,49 +100,63 @@ export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
   );
   const blocks = useAcpRunChatBlocks(events);
 
-  // Nested file diff in LOCAL state (never the viewer store). We store only the
-  // diff's IDENTITY (which tool + which file) and re-derive the diff from the
-  // live blocks below, so an open diff stays in sync as `tool_call_update`
-  // content replaces the snapshot while the tool is still running.
-  const [activeDiffRef, setActiveDiffRef] = useState<{
-    toolCallId: string;
-    path: string;
-  } | null>(null);
+  // Nested detail (file diff or console output) in LOCAL state, never the viewer
+  // store. We keep only the IDENTITY (which tool + which file) and re-derive the
+  // body from live blocks, so it tracks streaming `tool_call_update` content.
+  const [activeDetail, setActiveDetail] = useState<ActiveDetail | null>(null);
 
-  // Reset nested diff (parent-owned state) on run switch — render-phase guard
-  // tracking the prev id. Run-specific state that lives inside subcomponents
-  // (header `stopping`, composer `input`/`pending`) is reset by keying them on
-  // `entry.acpSessionId` below so they remount fresh.
+  // Reset the nested detail on run switch — render-phase guard tracking the prev
+  // id. Run-specific subcomponent state (header `stopping`, composer
+  // `input`/`pending`) is reset by keying them on `entry.acpSessionId` below.
   const [prevSessionId, setPrevSessionId] = useState(entry.acpSessionId);
   if (prevSessionId !== entry.acpSessionId) {
     setPrevSessionId(entry.acpSessionId);
-    setActiveDiffRef(null);
+    setActiveDetail(null);
   }
 
   const handleOpenDiff = useCallback(
     (toolCallId: string, fileChange: AcpFileChange) =>
-      setActiveDiffRef({ toolCallId, path: fileChange.path }),
+      setActiveDetail({ kind: "diff", toolCallId, path: fileChange.path }),
     [],
   );
-  const handleCloseDiff = useCallback(() => setActiveDiffRef(null), []);
+  const handleOpenOutput = useCallback(
+    (toolCallId: string) => setActiveDetail({ kind: "output", toolCallId }),
+    [],
+  );
+  const handleCloseDetail = useCallback(() => setActiveDetail(null), []);
 
-  // Live diff for the open chip, re-derived from the current blocks so it tracks
-  // streaming `tool_call_update` content. `null` once its tool block is gone or
-  // the path no longer resolves a change (callers fall back to the path-only
-  // header so the view stays open rather than flickering shut).
+  // The open detail's live tool block, re-found from current blocks so the panel
+  // tracks streaming `tool_call_update` content.
+  const activeToolBlock = useMemo(() => {
+    if (!activeDetail) return null;
+    return (
+      blocks.find(
+        (b): b is Extract<AcpChatBlock, { kind: "tool" }> =>
+          b.kind === "tool" && b.toolCallId === activeDetail.toolCallId,
+      ) ?? null
+    );
+  }, [activeDetail, blocks]);
+
+  // Live diff for an open diff detail. `null` once its block is gone or the path
+  // no longer resolves (the header then falls back so the view stays open).
   const activeDiff = useMemo<AcpFileChange | null>(() => {
-    if (!activeDiffRef) return null;
-    const toolBlock = blocks.find(
-      (b): b is Extract<AcpChatBlock, { kind: "tool" }> =>
-        b.kind === "tool" && b.toolCallId === activeDiffRef.toolCallId,
-    );
-    if (!toolBlock) return null;
+    if (activeDetail?.kind !== "diff" || !activeToolBlock) return null;
     const changes = getAcpFileChanges(
-      parseAcpToolContent(toolBlock.content),
-      toolBlock.locations,
+      parseAcpToolContent(activeToolBlock.content),
+      activeToolBlock.locations,
     );
-    return changes.find((c) => c.path === activeDiffRef.path) ?? null;
-  }, [activeDiffRef, blocks]);
+    return changes.find((c) => c.path === activeDetail.path) ?? null;
+  }, [activeDetail, activeToolBlock]);
+
+  // Breadcrumb label for the open detail: the file path, or the command/title.
+  const detailCrumb =
+    activeDetail?.kind === "diff"
+      ? activeDetail.path
+      : activeToolBlock
+        ? (getAcpToolCommand(activeToolBlock.rawInput) ??
+          activeToolBlock.title ??
+          "Output")
+        : "Output";
 
   // The hook re-pins in a layout effect keyed on this content key. `blocks`
   // identity changes on every streamed append; status/completedAt are folded in
@@ -155,11 +178,11 @@ export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
-      {activeDiffRef && (
+      {activeDetail && (
         <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-hover)] px-5 py-3">
           <button
             type="button"
-            onClick={handleCloseDiff}
+            onClick={handleCloseDetail}
             title={entry.agent}
             className="min-w-0 shrink cursor-pointer truncate text-left text-[var(--content-default)] hover:underline"
           >
@@ -174,10 +197,10 @@ export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
           <Typography
             variant="body-small-default"
             as="span"
-            title={activeDiffRef.path}
+            title={detailCrumb}
             className="min-w-0 shrink truncate font-mono text-[var(--content-secondary)]"
           >
-            {activeDiffRef.path}
+            {detailCrumb}
           </Typography>
         </div>
       )}
@@ -187,17 +210,21 @@ export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
         entry={entry}
         isRunning={isRunning}
         onClose={onClose}
-        showBack={!!activeDiffRef}
-        onBack={handleCloseDiff}
+        showBack={!!activeDetail}
+        onBack={handleCloseDetail}
       />
 
-      {activeDiffRef ? (
+      {activeDetail ? (
         <div className="flex-1 overflow-y-auto px-5 py-5">
-          <FileDiffView
-            path={activeDiffRef.path}
-            oldText={activeDiff?.oldText}
-            newText={activeDiff?.newText}
-          />
+          {activeDetail.kind === "diff" ? (
+            <FileDiffView
+              path={activeDetail.path}
+              oldText={activeDiff?.oldText}
+              newText={activeDiff?.newText}
+            />
+          ) : (
+            <CommandOutputView content={activeToolBlock?.content} />
+          )}
         </div>
       ) : (
         <div className="relative min-h-0 flex-1">
@@ -208,14 +235,35 @@ export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
           >
             <ObjectiveSection task={entry.task} />
 
-            {blocks.map((block, index) => (
-              <ChatBlock
-                key={blockKey(block, index)}
-                block={block}
-                isTerminal={isTerminal}
-                onOpenDiff={handleOpenDiff}
-              />
-            ))}
+            {/* Blocks render on a vertical timeline rail with a dot on action
+                blocks (tool calls + plan), plus the first and last block so the
+                rail is always bracketed top and bottom rather than dangling into
+                opening/closing narration. The narration in between — agent
+                messages, thinking, user turns — renders inline without a dot, so
+                the rail reads as a sparse list of what the agent did. The rail
+                owns inter-block spacing via per-row padding, so this container
+                drops the parent `gap-4`. */}
+            <div className="flex flex-col" data-testid="acp-chat-timeline">
+              {blocks.map((block, index) => (
+                <AcpChatTimelineBlock
+                  key={blockKey(block, index)}
+                  showDot={
+                    index === 0 ||
+                    index === blocks.length - 1 ||
+                    block.kind === "tool" ||
+                    block.kind === "plan"
+                  }
+                  isLast={index === blocks.length - 1}
+                >
+                  <ChatBlock
+                    block={block}
+                    isTerminal={isTerminal}
+                    onOpenDiff={handleOpenDiff}
+                    onOpenOutput={handleOpenOutput}
+                  />
+                </AcpChatTimelineBlock>
+              ))}
+            </div>
 
             {!isRunning && (
               <AcpChatTerminalBlock
@@ -242,7 +290,7 @@ export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
         </div>
       )}
 
-      {isRunning && !activeDiffRef && (
+      {isRunning && !activeDetail && (
         <SteerComposer
           key={`steer-${entry.acpSessionId}`}
           acpSessionId={entry.acpSessionId}
@@ -271,6 +319,10 @@ function ChatViewHeader({
 }) {
   const [stopping, setStopping] = useState(false);
 
+  // Stop-reason-aware so a run cancelled mid-flight (completed + cancelled)
+  // shows "Cancelled", not a green "Completed".
+  const statusBadge = acpRunStatusBadge(entry.status, entry.stopReason);
+
   const handleStop = useCallback(() => {
     setStopping(true);
     void stopAcpRun(entry.acpSessionId).catch((err) => {
@@ -292,10 +344,7 @@ function ChatViewHeader({
           className="shrink-0 rounded-lg"
         />
       )}
-      <Code
-        aria-hidden
-        className="h-5 w-5 shrink-0 text-[var(--content-secondary)]"
-      />
+      <AcpAgentIcon agent={entry.agent} className="h-5 w-5 shrink-0" />
       <Typography
         variant="title-medium"
         title={entry.agent}
@@ -303,10 +352,7 @@ function ChatViewHeader({
       >
         {entry.agent}
       </Typography>
-      <StatusBadgePill
-        color={acpRunStatusColor(entry.status)}
-        label={acpRunStatusLabel(entry.status)}
-      />
+      <StatusBadgePill color={statusBadge.color} label={statusBadge.label} />
       <span className="flex-1" />
       <AcpUsageMeter entry={entry} />
       {isRunning && (
@@ -368,11 +414,13 @@ function ChatBlock({
   block,
   isTerminal,
   onOpenDiff,
+  onOpenOutput,
 }: {
   block: AcpChatBlock;
   /** When the run is terminal, force trailing live agent/thinking blocks complete. */
   isTerminal: boolean;
   onOpenDiff: (toolCallId: string, fileChange: AcpFileChange) => void;
+  onOpenOutput: (toolCallId: string) => void;
 }) {
   switch (block.kind) {
     case "user":
@@ -397,6 +445,7 @@ function ChatBlock({
           block={block}
           isTerminal={isTerminal}
           onOpenDiff={onOpenDiff}
+          onOpenOutput={onOpenOutput}
         />
       );
     case "plan":
@@ -448,7 +497,11 @@ function SteerComposer({ acpSessionId }: { acpSessionId: string }) {
     <form
       onSubmit={handleSubmit}
       data-testid="acp-chat-steer-form"
-      className="shrink-0 border-t border-[var(--border-hover)] px-5 py-3"
+      // Sticky footer: pinned as a shrink-0 flex child in the bounded side
+      // panel, and `sticky bottom-0` keeps it on-screen in any context where an
+      // unbounded-height ancestor would otherwise let it scroll past the fold.
+      // The solid panel background prevents transcript content showing through.
+      className="sticky bottom-0 z-10 shrink-0 border-t border-[var(--border-hover)] bg-[var(--surface-lift)] px-5 py-3"
     >
       <div className="flex items-center gap-2 rounded-md bg-[var(--surface-base)] px-3 py-2">
         <input

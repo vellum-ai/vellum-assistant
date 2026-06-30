@@ -178,6 +178,8 @@ render(<App />, document.getElementById("app")!);
 2. **`file_write`** each real file, one per tool call, overwriting the placeholders and adding components.
 3. **`app_refresh`** ONCE at the end to compile.
 
+**Actually write the files.** Source code in reasoning/thinking is invisible to the app sandbox and is not a file write. Put every real file body in an `app_create.source_files`, `file_write`, `file_edit`, or `app_update.source_files` tool call, then verify the files exist before `app_refresh` when there is any doubt.
+
 **Allowed packages** (esbuild-resolved, no CDN): `date-fns`, `chart.js`, `lodash-es`, `zod`, `clsx`. For icons, write inline `<svg>` markup directly — no icon package is bundled.
 
 **Constraints:** Preact not React. No CDN imports. No external fonts/images (system fonts, inline CSS/SVG). Responsive only, no fixed-pixel widths. The WebView blocks navigation — `href` and form `action` don't work.

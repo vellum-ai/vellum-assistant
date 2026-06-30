@@ -90,17 +90,11 @@ export function useConversationSecondaryActions({
 }: UseConversationSecondaryActionsParams): UseConversationSecondaryActionsReturn {
   const navigate = useNavigate();
 
-  // Fork / inspect / copy operate on the whole conversation, which lives in the
-  // query cache. Mirror the derived transcript into a ref so these callbacks can
-  // read the latest union at call time without taking it as a dependency (that
-  // would re-create them — and re-register the header menu — on every streamed
-  // token).
-  const secondaryAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  const secondaryConversationId = useConversationStore.use.activeConversationId();
-  const transcript = useTranscriptMessages(
-    secondaryAssistantId,
-    secondaryConversationId,
-  );
+  // Fork / inspect / copy operate on the whole conversation. Mirror the derived
+  // transcript into a ref so these callbacks can read the latest at call time
+  // without taking it as a dependency (that would re-create them — and
+  // re-register the header menu — on every streamed token).
+  const transcript = useTranscriptMessages();
   const transcriptRef = useRef(transcript);
   useEffect(() => {
     transcriptRef.current = transcript;

@@ -39,6 +39,13 @@ export interface SectionNeedle {
    * attach a matched-section descriptor to an article they surface.
    */
   bestSection(article: Slug, queryText: string): number;
+  /**
+   * Corpus IDF of `term` over the section index (its head+body postings): higher
+   * means the term occurs in fewer sections. The entity lane gates heading
+   * tokens by this so only terms distinctive enough to disambiguate become
+   * entity keys (hub words like "vellum" fall below the floor).
+   */
+  idf(term: string): number;
 }
 
 /** Lowercase, split on non-alphanumeric, drop empties. */
@@ -112,6 +119,16 @@ export function buildSectionNeedle(index: SectionIndex): SectionNeedle {
 
   const avgDocLength = docCount > 0 ? totalLength / docCount : 0;
 
+  /** Okapi IDF from a document frequency: higher for rarer terms. */
+  function idfFromDf(df: number): number {
+    return Math.log(1 + (docCount - df + 0.5) / (df + 0.5));
+  }
+
+  /** Corpus IDF of `term`; an unseen term gets the maximum (df 0) IDF. */
+  function idf(term: string): number {
+    return idfFromDf(postings.get(term)?.length ?? 0);
+  }
+
   /** BM25F score per section for the given query terms. */
   function scoreSections(queryTerms: Set<string>): Map<number, number> {
     const scores = new Map<number, number>();
@@ -121,15 +138,13 @@ export function buildSectionNeedle(index: SectionIndex): SectionNeedle {
       const list = postings.get(term);
       if (!list) continue;
 
-      const idf = Math.log(
-        1 + (docCount - list.length + 0.5) / (list.length + 0.5),
-      );
+      const termIdf = idfFromDf(list.length);
 
       for (const { doc, weightedTf } of list) {
         const norm = weightedTf * (k1 + 1);
         const denom =
           weightedTf + k1 * (1 - b + b * (docLengths[doc]! / avgDocLength));
-        scores.set(doc, (scores.get(doc) ?? 0) + idf * (norm / denom));
+        scores.set(doc, (scores.get(doc) ?? 0) + termIdf * (norm / denom));
       }
     }
 
@@ -196,5 +211,5 @@ export function buildSectionNeedle(index: SectionIndex): SectionNeedle {
     return best;
   }
 
-  return { query, bestSection };
+  return { query, bestSection, idf };
 }

@@ -110,8 +110,10 @@ export function hasAnyInteractiveSurface(messages: DisplayMessage[]): boolean {
   return false;
 }
 
-export function hasAssistantMessage(messages: DisplayMessage[]): boolean {
-  return messages.some((message) => message.role === "assistant");
+export function hasAssistantMessage(
+  messages: DisplayMessage[] | null | undefined,
+): boolean {
+  return !!messages?.some((message) => message.role === "assistant");
 }
 
 export function shouldClearFirstMessageGateOnConversationChange({

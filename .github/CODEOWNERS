@@ -9,6 +9,7 @@
 
 # Memory system (Sidd)
 assistant/src/memory/ @siddseethepalli
+assistant/src/plugins/defaults/memory/ @siddseethepalli
 
 # Background-job worker composition root (Sidd)
 assistant/src/jobs/ @siddseethepalli

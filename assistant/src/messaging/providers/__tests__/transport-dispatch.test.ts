@@ -21,6 +21,7 @@ const slack = {
 };
 const telegram = {
   sendTelegramReply: mock((..._args: unknown[]) => Promise.resolve()),
+  sendTelegramRichReply: mock((..._args: unknown[]) => Promise.resolve()),
   sendTelegramTypingIndicator: mock((..._args: unknown[]) => Promise.resolve()),
   sendTelegramAttachments: mock((..._args: unknown[]) =>
     Promise.resolve({ allFailed: false, failureCount: 0 }),

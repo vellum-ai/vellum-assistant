@@ -11,8 +11,9 @@ import { Glob } from "bun";
  * direction is one-way: memory → persistence. `persistence/` provides the DB
  * core, conversation/message storage, job-queue mechanics, delivery/media
  * stores, LLM request-log/usage stores, and embeddings/Qdrant infra. The
- * memory *feature* (graph, v2, v3, retrospective, pkb) lives in `memory/` and
- * depends on persistence, never the reverse.
+ * memory *feature* (graph, v2, v3, retrospective, pkb) lives in the
+ * `default-memory` plugin (`plugins/defaults/memory/`) and depends on
+ * persistence, never the reverse.
  *
  * Two invariants are enforced:
  *  (a) Nothing under `assistant/src/**` imports a persistence module via a
@@ -30,7 +31,7 @@ function getRepoRoot(): string {
 
 const ASSISTANT_SRC = "assistant/src";
 const PERSISTENCE_DIR = join(ASSISTANT_SRC, "persistence");
-const MEMORY_DIR = join(ASSISTANT_SRC, "memory");
+const MEMORY_DIR = join(ASSISTANT_SRC, "plugins", "defaults", "memory");
 
 /**
  * TECH DEBT — residual `persistence/` → `memory/` feature back-imports.
@@ -38,7 +39,7 @@ const MEMORY_DIR = join(ASSISTANT_SRC, "memory");
  * These are genuine couplings to the memory *feature* (conversation
  * title/disk-view services, conversation/group migrations, retrospective +
  * v2 state, the graph bootstrap, the conversation-key store, raw-query helpers,
- * the sparse tokenizer, the job checkpoint/cleanup/worker controls) that the
+ * the job checkpoint/cleanup/worker controls) that the
  * persistence layer still depends on. They violate the
  * one-way memory → persistence direction and are scheduled for decoupling in a
  * follow-up (move the depended-on feature logic behind a persistence-owned
@@ -52,21 +53,9 @@ const MEMORY_DIR = join(ASSISTANT_SRC, "memory");
  */
 const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
   "assistant/src/persistence/conversation-crud.ts": new Set([
-    "graph/graph-memory-state-store",
-    "indexer",
     "memory-retrospective-constants",
-    "memory-retrospective-state",
-    "task-memory-cleanup",
-    "v2/activation-store",
-    "v2/injected-block-slugs",
   ]),
-  "assistant/src/persistence/embeddings/embedding-backend.ts": new Set([
-    "sparse-tokenize",
-  ]),
-  "assistant/src/persistence/jobs-worker.ts": new Set([
-    "memory-retrospective-startup-cleanup",
-    "v2/consolidation-job",
-  ]),
+  "assistant/src/persistence/jobs-worker.ts": new Set(["v2/consolidation-job"]),
   "assistant/src/persistence/steps.ts": new Set(["graph/bootstrap"]),
 };
 

@@ -104,7 +104,7 @@ beforeEach(() => {
 });
 
 describe("Qdrant collection migration", () => {
-  test("deletes and recreates collection on dimension mismatch", async () => {
+  test("deletes and recreates collection on pure dimension mismatch", async () => {
     mockCollectionExists = true;
     mockUseNamedVectors = true;
     mockCollectionSize = 384; // Current collection has 384-dim vectors
@@ -120,6 +120,9 @@ describe("Qdrant collection migration", () => {
 
     const result = await client.ensureCollection();
 
+    // The v1 collection is not managed by the startup embedding reconcile, so
+    // dimension drift is repaired here: delete + recreate, then rebuild_index
+    // re-embeds from the SQLite cache via the lifecycle hook.
     expect(callLog.deleteCollection).toBe(1);
     expect(callLog.createCollection).toBe(1);
     expect(result.migrated).toBe(true);

@@ -25,7 +25,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
 }));
 
 const recordMemoryRecallLogMock = mock((_entry: unknown) => {});
-mock.module("../memory/memory-recall-log-store.js", () => ({
+mock.module("../plugins/defaults/memory/memory-recall-log-store.js", () => ({
   recordMemoryRecallLog: recordMemoryRecallLogMock,
 }));
 
@@ -72,8 +72,8 @@ import type { UserPromptSubmitContext } from "@vellumai/plugin-api";
 import type { AssistantConfig } from "../config/schema.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import type { QdrantSparseVector } from "../persistence/embeddings/qdrant-client.js";
+import type { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
 import userPromptSubmitMemoryRetrieval from "../plugins/defaults/memory/hooks/user-prompt-submit.js";
 import type { Message } from "../providers/types.js";
 
@@ -158,7 +158,7 @@ function makeHookCtx(
     latestMessages: [],
     requestId: "req-test",
     isNonInteractive: false,
-    modelProfileKey: null,
+    modelProfileKey: "balanced",
     prompt: "",
     originalMessages: [],
     ...overrides,

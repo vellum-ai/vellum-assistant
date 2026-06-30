@@ -44,11 +44,11 @@ mock.module("../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: enqueueJob,
 }));
 
-mock.module("../memory/v2/skill-store.js", () => ({
+mock.module("../plugins/defaults/memory/v2/skill-store.js", () => ({
   seedV2SkillEntries: seedSkill,
 }));
 
-mock.module("../memory/v2/cli-command-store.js", () => ({
+mock.module("../plugins/defaults/memory/v2/cli-command-store.js", () => ({
   seedV2CliCommandEntries: seedCli,
 }));
 

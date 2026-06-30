@@ -190,14 +190,22 @@ export class VellumQdrantClient {
             migrated = true;
             // Fall through to collection creation below
           } else if (dimMismatch || modelMismatch) {
+            // The v1 collection (config.memory.qdrant.collection) is not managed
+            // by the startup embedding reconcile — that reconcile owns only the
+            // v2 (memory_v2_concept_pages) and v3 (memory_v3_sections)
+            // collections. Dimension drift on v1 is therefore repaired here:
+            // delete and recreate, and the lifecycle hook re-embeds from the
+            // SQLite cache via rebuild_index when ensureCollection reports
+            // migrated and v2 is disabled.
             log.warn(
               {
                 collection: this.collection,
                 currentSize,
                 expectedSize: this.vectorSize,
+                dimMismatch,
                 modelMismatch,
               },
-              "Qdrant collection incompatible (dimension or model change) — deleting and recreating. Embeddings will be regenerated on demand.",
+              "Qdrant collection incompatible (dimension/model change) — deleting and recreating. Embeddings will be regenerated on demand.",
             );
             await this.client.deleteCollection(this.collection);
             migrated = true;

@@ -20,10 +20,6 @@ mock.module("../config/loader.js", () => ({
 }));
 
 import {
-  loadGraphMemoryState,
-  saveGraphMemoryState,
-} from "../memory/graph/graph-memory-state-store.js";
-import {
   getAttachmentsForMessage,
   linkAttachmentToMessage,
   uploadAttachment,
@@ -54,6 +50,11 @@ import {
   memoryRetrospectiveState,
   toolInvocations,
 } from "../persistence/schema/index.js";
+import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/index.js";
+import {
+  loadGraphMemoryState,
+  saveGraphMemoryState,
+} from "../plugins/defaults/memory/graph/graph-memory-state-store.js";
 
 await initializeDb();
 
@@ -110,6 +111,7 @@ async function seedSource(title: string): Promise<{ id: string }> {
 describe("forkConversationForRetrospective", () => {
   beforeEach(() => {
     resetTables();
+    registerDefaultPluginPersistenceHooks();
   });
 
   test("full fork is row-identical to the synchronous fork", async () => {

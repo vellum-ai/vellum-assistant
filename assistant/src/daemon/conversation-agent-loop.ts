@@ -30,6 +30,7 @@ import {
 import {
   resolveCallSiteConfig,
   resolveDefaultProfileKey,
+  resolveProfilelessModelKey,
 } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
@@ -42,8 +43,6 @@ import {
   clearSentryConversationContext,
   setSentryConversationContext,
 } from "../instrument.js";
-import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
-import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
 import {
   addMessage,
   deleteMessageById,
@@ -66,6 +65,8 @@ import {
 } from "../persistence/llm-request-log-store.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
+import type { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
+import { enqueueMemoryRetrospectiveOnCompaction } from "../plugins/defaults/memory/memory-retrospective-enqueue.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
@@ -124,6 +125,7 @@ import type {
 } from "./message-protocol.js";
 import type { TrustContext } from "./trust-context.js";
 import { resolveTurnCallSite } from "./turn-call-site.js";
+import { TurnLatencyTracker } from "./turn-latency-tracker.js";
 
 const log = getLogger("conversation-agent-loop");
 
@@ -317,6 +319,11 @@ export async function runAgentLoopImpl(
 
   const abortController = ctx.abortController;
   const reqId = ctx.currentRequestId ?? uuid();
+  // First-token latency instrumentation for this turn. Stamped here at the
+  // earliest point of turn processing, then through the prompt-submit hook
+  // (memory/context retrieval) and the agent loop's per-call marks.
+  const latencyTracker = new TurnLatencyTracker();
+  latencyTracker.mark("turn_start");
   const rlog = log.child({
     conversationId: ctx.conversationId,
     requestId: reqId,
@@ -847,28 +854,34 @@ export async function runAgentLoopImpl(
     ctx.currentTurnClientOs = ctx.clientOs ?? undefined;
 
     // Resolve the effective profile key for this turn and detect changes.
-    // Only inject model_profile into the turn context when the profile
-    // changed since the last turn (or on the first turn of a conversation)
-    // to avoid per-turn token cost.
+    // `modelProfileKey` is the actual profile used for this turn. The
+    // notice key is narrower: it only marks turns where runtime context should
+    // remind the model that the profile changed.
     const effectiveProfileKey =
       turnOverrideProfile ??
       config.llm.activeProfile ??
-      resolveDefaultProfileKey("mainAgent", config.llm);
+      resolveDefaultProfileKey("mainAgent", config.llm) ??
+      resolveProfilelessModelKey(turnCallSite, config.llm, {
+        ...(turnOverrideProfile != null
+          ? { overrideProfile: turnOverrideProfile }
+          : {}),
+        ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
+        selectionSeed: ctx.conversationId,
+      });
     const lastNotified = ctx.lastNotifiedInferenceProfile;
-    const modelProfileKey =
-      effectiveProfileKey != null && effectiveProfileKey !== lastNotified
-        ? effectiveProfileKey
-        : null;
-    // The key is threaded as plain turn data to the user-prompt-submit and
-    // post-compaction hooks, which render the `Label (model)` line from it
-    // themselves.
-    if (modelProfileKey != null) {
+    const modelProfileKey = effectiveProfileKey;
+    const modelProfileNoticeKey =
+      modelProfileKey !== lastNotified ? modelProfileKey : null;
+    ctx.currentTurnModelProfileNoticeKey = modelProfileNoticeKey ?? undefined;
+    // Persist the notice only after delivery; hooks still receive
+    // `modelProfileKey` as the effective profile for this turn.
+    if (modelProfileNoticeKey != null) {
       // Record the notification for persistence on delivery rather than here:
       // the model only "learns" the profile once it receives this turn
       // context, signalled by the first `message_complete`. Persisting inline
       // would mark the profile notified even if the turn is cancelled or fails
       // before the model ever sees the notice.
-      state.pendingNotifiedInferenceProfile = modelProfileKey;
+      state.pendingNotifiedInferenceProfile = modelProfileNoticeKey;
     }
 
     // user-prompt-submit hook chain. Fires once per user turn at the primary
@@ -895,10 +908,12 @@ export async function runAgentLoopImpl(
       modelProfileKey,
       isNonInteractive,
     };
+    latencyTracker.mark("prompt_hook_start");
     const finalUserPromptCtx = await runHook(
       HOOKS.USER_PROMPT_SUBMIT,
       userPromptCtx,
     );
+    latencyTracker.mark("prompt_hook_end");
     const runMessages = finalUserPromptCtx.latestMessages;
 
     // Reset the manager's turn-scoped overflow-recovery ladder at the turn
@@ -919,6 +934,7 @@ export async function runAgentLoopImpl(
       turnChannelContext: capturedTurnChannelContext,
       turnInterfaceContext: capturedTurnInterfaceContext,
       applyCompaction: applySuccessfulCompaction,
+      latencyTracker,
     };
     const eventHandler = (event: AgentEvent): Promise<void> => {
       if (
@@ -999,6 +1015,7 @@ export async function runAgentLoopImpl(
           compactInPlace,
           isNonInteractive,
           modelProfileKey,
+          latencyTracker,
           ...(ctx.modelOverride ? { model: ctx.modelOverride } : {}),
         }),
         abortController.signal,
@@ -1583,6 +1600,7 @@ export async function runAgentLoopImpl(
     ctx.diskPressureCleanupModeActive = false;
     ctx.preactivatedSkillIds = undefined;
     ctx.currentTurnOverrideProfile = undefined;
+    ctx.currentTurnModelProfileNoticeKey = undefined;
     // Turn-scoped interactivity. Clear it so paths that bypass this loop (e.g.
     // opportunity wakes calling `agentLoop.run` directly) don't inherit a stale
     // value and instead fall back to live client state in the tool context.

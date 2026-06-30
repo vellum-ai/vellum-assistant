@@ -8527,6 +8527,49 @@ paths:
                                     - type: "null"
                               additionalProperties: false
                             - type: "null"
+                        latency:
+                          anyOf:
+                            - type: object
+                              properties:
+                                phases:
+                                  type: array
+                                  items:
+                                    type: object
+                                    properties:
+                                      key:
+                                        type: string
+                                      label:
+                                        type: string
+                                      ms:
+                                        type: number
+                                    required:
+                                      - key
+                                      - label
+                                      - ms
+                                    additionalProperties: false
+                                ttftMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                totalToFirstTokenMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                providerDurationMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                firstTokenKind:
+                                  anyOf:
+                                    - type: string
+                                      enum:
+                                        - thinking
+                                        - text
+                                    - type: "null"
+                              required:
+                                - phases
+                              additionalProperties: false
+                            - type: "null"
                       required:
                         - id
                         - createdAt
@@ -9097,6 +9140,10 @@ paths:
                 cronRunId:
                   type: string
                   minLength: 1
+                persist:
+                  type: boolean
+                externalContent:
+                  type: string
               required:
                 - conversationId
                 - hint
@@ -15521,6 +15568,49 @@ paths:
                               - type: "null"
                         additionalProperties: false
                       - type: "null"
+                  latency:
+                    anyOf:
+                      - type: object
+                        properties:
+                          phases:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                key:
+                                  type: string
+                                label:
+                                  type: string
+                                ms:
+                                  type: number
+                              required:
+                                - key
+                                - label
+                                - ms
+                              additionalProperties: false
+                          ttftMs:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          totalToFirstTokenMs:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          providerDurationMs:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          firstTokenKind:
+                            anyOf:
+                              - type: string
+                                enum:
+                                  - thinking
+                                  - text
+                              - type: "null"
+                        required:
+                          - phases
+                        additionalProperties: false
+                      - type: "null"
                 required:
                   - id
                   - createdAt
@@ -16563,7 +16653,9 @@ paths:
     get:
       operationId: memory_worker_status_get
       summary: Memory worker status
-      description: Reports the memory worker process state, memory.worker.enabled, and the synchronous in-process runner.
+      description:
+        Reports the memory worker process state, memory.worker.enabled, the synchronous in-process runner, and the
+        embedding-backend status (including a degraded flag and reason when no backend resolves).
       tags:
         - system
       responses:
@@ -16596,10 +16688,42 @@ paths:
                     required:
                       - status
                     additionalProperties: false
+                  embedding:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      degraded:
+                        type: boolean
+                      provider:
+                        anyOf:
+                          - type: string
+                            enum:
+                              - local
+                              - openai
+                              - gemini
+                              - ollama
+                          - type: "null"
+                      model:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      reason:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                    required:
+                      - enabled
+                      - degraded
+                      - provider
+                      - model
+                      - reason
+                    additionalProperties: false
                 required:
                   - status
                   - workerEnabled
                   - syncRunner
+                  - embedding
                 additionalProperties: false
   /v1/memory/worker/stop:
     post:
@@ -17599,6 +17723,16 @@ paths:
                             - label
                             - status
                           additionalProperties: false
+                        acpNotification:
+                          type: object
+                          properties:
+                            acpSessionId:
+                              type: string
+                            agent:
+                              type: string
+                          required:
+                            - acpSessionId
+                          additionalProperties: false
                         slackMessage:
                           type: object
                           properties:
@@ -18138,6 +18272,49 @@ paths:
                                   anyOf:
                                     - type: string
                                     - type: "null"
+                              additionalProperties: false
+                            - type: "null"
+                        latency:
+                          anyOf:
+                            - type: object
+                              properties:
+                                phases:
+                                  type: array
+                                  items:
+                                    type: object
+                                    properties:
+                                      key:
+                                        type: string
+                                      label:
+                                        type: string
+                                      ms:
+                                        type: number
+                                    required:
+                                      - key
+                                      - label
+                                      - ms
+                                    additionalProperties: false
+                                ttftMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                totalToFirstTokenMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                providerDurationMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                firstTokenKind:
+                                  anyOf:
+                                    - type: string
+                                      enum:
+                                        - thinking
+                                        - text
+                                    - type: "null"
+                              required:
+                                - phases
                               additionalProperties: false
                             - type: "null"
                       required:
@@ -20310,6 +20487,10 @@ paths:
                     type: boolean
                   hasWebhookSecret:
                     type: boolean
+                  clientInstallationId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   available:
                     type: boolean
                   organizationId:
@@ -20341,6 +20522,7 @@ paths:
                   - assistantId
                   - hasAssistantApiKey
                   - hasWebhookSecret
+                  - clientInstallationId
                   - available
                   - organizationId
                   - userId

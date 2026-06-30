@@ -186,6 +186,7 @@ mock.module("../persistence/jobs-store.js", () => ({
   enqueuePruneOldConversationsJob: mock(() => "job-prune-conv"),
   enqueuePruneOldLlmRequestLogsJob: mock(() => "job-prune-llm"),
   enqueuePruneOldTraceEventsJob: mock(() => "job-prune-trace"),
+  enqueuePruneOldToolInvocationsJob: mock(() => "job-prune-tool"),
   failMemoryJob: mock(() => {}),
   failStalledJobs: mockFailStalledJobs,
   getMemoryJobCounts: mock(() => ({})),
@@ -213,7 +214,8 @@ mock.module("../persistence/cleanup-schedule-state.js", () => ({
 }));
 
 const { runMemoryJobsOnce } = await import("../persistence/jobs-worker.js");
-const { FilingService } = await import("../filing/filing-service.js");
+const { FilingService } =
+  await import("../plugins/defaults/memory/filing-service.js");
 const { WorkspaceHeartbeatService } =
   await import("../workspace/heartbeat-service.js");
 

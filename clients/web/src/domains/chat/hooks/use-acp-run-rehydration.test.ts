@@ -178,6 +178,36 @@ describe("rehydration — terminal session", () => {
     ]);
   });
 
+  test("carries persisted rawInput/rawOutput onto the rehydrated event", async () => {
+    await seed([
+      {
+        id: "acp-1",
+        acpSessionId: "proto-1",
+        agentId: "claude",
+        parentConversationId: "conv-1",
+        status: "completed",
+        startedAt: 1000,
+        completedAt: 5000,
+        eventLog: [
+          {
+            type: "acp_session_update",
+            updateType: "tool_call",
+            toolCallId: "t-1",
+            toolTitle: "Bash",
+            rawInput: { command: "ls -la" },
+            rawOutput: "total 0",
+            seq: 4,
+          },
+        ],
+      },
+    ]);
+
+    // Raw I/O survives history rehydration so a reopened run keeps it.
+    const event = getState().byId["acp-1"]!.events[0]!;
+    expect(event.rawInput).toEqual({ command: "ls -la" });
+    expect(event.rawOutput).toBe("total 0");
+  });
+
   test("carries cumulative input/output tokens from the session row", async () => {
     await seed([
       {

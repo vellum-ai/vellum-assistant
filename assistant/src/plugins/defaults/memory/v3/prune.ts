@@ -61,16 +61,13 @@
 import type { ContentBlock, Message } from "@vellumai/plugin-api";
 
 import { getConfig } from "../../../../config/loader.js";
-import {
-  unwrapMemoryBlock,
-  wrapMemoryBlock,
-} from "../../../../memory/memory-marker.js";
+import { getDb, getSqliteFrom } from "../../../../persistence/db-connection.js";
+import { getLogger } from "../../../../util/logger.js";
+import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory-marker.js";
 import {
   INJECTED_CONCEPT_HEADER_REGEX,
   readInjectedBlock,
-} from "../../../../memory/v2/injected-block-slugs.js";
-import { getDb, getSqliteFrom } from "../../../../persistence/db-connection.js";
-import { getLogger } from "../../../../util/logger.js";
+} from "../v2/injected-block-slugs.js";
 import {
   getActiveEntries,
   getPrunedSlugs,

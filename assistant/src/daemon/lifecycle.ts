@@ -2,7 +2,6 @@ import { join } from "node:path";
 
 import { config as dotenvConfig } from "dotenv";
 
-import { refreshBackgroundWakeIntent } from "../background-wake/publisher.js";
 import { setPointerMessageProcessor } from "../calls/call-pointer-messages.js";
 import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { setRelayBroadcast } from "../calls/relay-server.js";
@@ -16,16 +15,12 @@ import { reconcileFlagGatedProfiles } from "../config/sync-gated-profiles.js";
 import { expireAllPendingCanonicalRequests } from "../contacts/canonical-guardian-store.js";
 import { startCes } from "../credential-execution/ces-runtime.js";
 import { refreshManagedConnectionCache } from "../credential-execution/managed-catalog.js";
-import { startFilingService } from "../filing/filing-service.js";
 import { startHeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { startCliIpcServer } from "../ipc/assistant-server.js";
 import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
-import { startSkillIpcServer } from "../ipc/skill-server.js";
 import { registerMemoryJobHandlers } from "../jobs/register-job-handlers.js";
-import { sweepConceptPageFrontmatter } from "../memory/v2/frontmatter-sweep.js";
-import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import {
@@ -55,6 +50,7 @@ import {
   stopConsentRefresh,
 } from "../platform/consent-cache.js";
 import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";
+import { sweepConceptPageFrontmatter } from "../plugins/defaults/memory/v2/frontmatter-sweep.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
 import { initializeProviders } from "../providers/registry.js";
@@ -66,13 +62,9 @@ import {
 import { startRuntimeHttpServer } from "../runtime/http-server.js";
 import { warmLocalGuardianPrincipalCache } from "../runtime/local-actor-identity.js";
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
-import {
-  publishConfigChanged,
-  publishConversationListChanged,
-} from "../runtime/sync/resource-sync-events.js";
+import { publishConfigChanged } from "../runtime/sync/resource-sync-events.js";
 import { recoverStaleSchedules } from "../schedule/schedule-recovery.js";
 import { startScheduler } from "../schedule/scheduler.js";
-import { rotateToolInvocations } from "../telemetry/tool-usage-store.js";
 import { startUsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { syncFlagGatedTools } from "../tools/registry.js";
 import { registerBuiltinTtsProviders } from "../tts/providers/register-builtins.js";
@@ -104,6 +96,7 @@ import {
   startDiskPressureGuard,
   stopDiskPressureGuard,
 } from "./disk-pressure-guard.js";
+import { reconcileEmbeddingIdentity } from "./embedding-reconcile.js";
 import { startEventLoopWatchdog } from "./event-loop-watchdog.js";
 import { initializePlugins } from "./external-plugins-bootstrap.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
@@ -114,7 +107,6 @@ import {
 } from "./memory-v2-startup.js";
 import { startOrphanReaper } from "./orphan-reaper.js";
 import { elevatePointerConversationToGuardian } from "./pointer-conversation-trust.js";
-import { processMessage } from "./process-message.js";
 import { runProfilerSweep } from "./profiler-run-store.js";
 import {
   initializeProvidersAndTools,
@@ -633,11 +625,6 @@ export async function runDaemon(): Promise<void> {
   // against the shared database as an unmanageable duplicate.
   await startCliIpcServer();
 
-  // Start the skill IPC server so first-party skill processes can connect for
-  // host capabilities. The meet-host supervisor reads the live server from the
-  // skill-server singleton at dispatch time.
-  await startSkillIpcServer();
-
   // Warm the gateway guardian-delivery cache so the SSE eager-subscribe path
   // (sync, IO-free) resolves the local actor principal on the FIRST client
   // registration. Without this, a cold cache regresses host-proxy same-user
@@ -732,6 +719,20 @@ export async function runDaemon(): Promise<void> {
         }
       }
 
+      // Reconcile the committed embedding-collection dimension against a live
+      // backend probe (confirm-before-destroy) before the v2 rebuild and the
+      // worker drain, so `memory.qdrant.vectorSize` is settled first. Its own
+      // try/catch keeps an unreachable backend or reconcile failure from
+      // blocking startup.
+      try {
+        await reconcileEmbeddingIdentity(config);
+      } catch (err) {
+        log.warn(
+          { err },
+          "Embedding-identity reconcile threw — continuing startup",
+        );
+      }
+
       // Detect schema drift on the v2 concept-page collection (e.g.
       // pre-#29823 collections lacking summary_dense / summary_sparse) and
       // recreate + enqueue a reembed when needed. Awaited inline so the
@@ -756,9 +757,9 @@ export async function runDaemon(): Promise<void> {
         void (async () => {
           try {
             const { reconcilePkbIndex } =
-              await import("../memory/pkb/pkb-reconcile.js");
+              await import("../plugins/defaults/memory/pkb/pkb-reconcile.js");
             const { PKB_WORKSPACE_SCOPE } =
-              await import("../memory/pkb/types.js");
+              await import("../plugins/defaults/memory/pkb/types.js");
             const pkbRoot = join(getWorkspaceDir(), "pkb");
             await reconcilePkbIndex(pkbRoot, PKB_WORKSPACE_SCOPE);
           } catch (err) {
@@ -794,7 +795,7 @@ export async function runDaemon(): Promise<void> {
     // Seed capability graph nodes (new memory graph system)
     try {
       const { seedCliGraphNodes } =
-        await import("../memory/graph/capability-seed.js");
+        await import("../plugins/defaults/memory/graph/capability-seed.js");
       refreshSkillCapabilityMemories(config);
       await seedCliGraphNodes();
     } catch (err) {
@@ -806,7 +807,7 @@ export async function runDaemon(): Promise<void> {
     // graph from conversation history and journal files.
     try {
       const { maybeEnqueueGraphBootstrap, cleanupStaleItemVectors } =
-        await import("../memory/graph/bootstrap.js");
+        await import("../plugins/defaults/memory/graph/bootstrap.js");
       maybeEnqueueGraphBootstrap();
       // Fire-and-forget: clean up orphaned Qdrant vectors from dropped memory_items table
       void cleanupStaleItemVectors().catch((err) =>
@@ -821,7 +822,7 @@ export async function runDaemon(): Promise<void> {
   registerMessagingProviders();
 
   try {
-    recoverStaleSchedules();
+    await recoverStaleSchedules();
   } catch (err) {
     log.error({ err }, "Schedule recovery failed — continuing startup");
   }
@@ -846,85 +847,7 @@ export async function runDaemon(): Promise<void> {
     );
   }
 
-  startScheduler(
-    async (conversationId, message, options) => {
-      await processMessage(
-        conversationId,
-        message,
-        options
-          ? {
-              ...(options.trustClass
-                ? {
-                    trustContext: {
-                      sourceChannel: "vellum",
-                      trustClass: options.trustClass,
-                    },
-                  }
-                : {}),
-              ...(options.taskRunId ? { taskRunId: options.taskRunId } : {}),
-              ...(options.overrideProfile
-                ? { overrideProfile: options.overrideProfile }
-                : {}),
-              ...(options.cronRunId ? { cronRunId: options.cronRunId } : {}),
-            }
-          : undefined,
-      );
-    },
-    async (schedule) => {
-      await emitNotificationSignal({
-        sourceEventName: "schedule.notify",
-        sourceChannel: "scheduler",
-        sourceContextId: schedule.id,
-        attentionHints: {
-          requiresAction: true,
-          urgency: "high",
-          isAsyncBackground: false,
-          visibleInSourceNow: false,
-        },
-        contextPayload: {
-          scheduleId: schedule.id,
-          label: schedule.label,
-          message: schedule.message,
-        },
-        routingIntent: schedule.routingIntent,
-        routingHints: schedule.routingHints,
-        conversationMetadata: {
-          groupId: "system:scheduled",
-          scheduleJobId: schedule.id,
-          source: "schedule",
-        },
-        dedupeKey: `schedule:notify:${schedule.id}:${Date.now()}`,
-        throwOnError: true,
-      });
-    },
-    (notification) => {
-      void emitNotificationSignal({
-        sourceEventName: "watcher.notification",
-        sourceChannel: "watcher",
-        sourceContextId: `watcher-${Date.now()}`,
-        attentionHints: {
-          requiresAction: false,
-          urgency: "low",
-          isAsyncBackground: true,
-          visibleInSourceNow: false,
-        },
-        contextPayload: {
-          title: notification.title,
-          body: notification.body,
-        },
-        dedupeKey: `watcher:notification:${crypto.randomUUID()}`,
-      });
-    },
-    (info) => {
-      broadcastMessage({
-        type: "schedule_conversation_created",
-        conversationId: info.conversationId,
-        scheduleJobId: info.scheduleJobId,
-        title: info.title,
-      });
-      publishConversationListChanged("created");
-    },
-  );
+  startScheduler();
 
   // Fire-and-forget: Qdrant init and memory worker startup run concurrently
   // with the rest of daemon boot. Must run AFTER `startRuntimeHttpServer()`
@@ -1167,22 +1090,9 @@ export async function runDaemon(): Promise<void> {
     }
   })();
 
-  if (config.auditLog.retentionDays > 0) {
-    void rotateToolInvocations(config.auditLog.retentionDays).catch((err) => {
-      log.warn({ err }, "Audit log rotation failed");
-    });
-  }
-
   startWorkspaceHeartbeatService();
 
   startHeartbeatService();
-  refreshBackgroundWakeIntent("daemon-startup");
-
-  // Filing yields to the memory v2 consolidation job when v2 is enabled — both
-  // serve the same role (periodic background memory processing) and running both
-  // is redundant. The consolidation job runs through the memory jobs worker
-  // (see `maybeEnqueueGraphMaintenanceJobs`).
-  startFilingService();
 
   installShutdownHandlers();
 

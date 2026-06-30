@@ -54,9 +54,10 @@ const ALLOWED_PREFIXES = {
     "../../../util/platform",
     // Memory retrospective — the retrospective CLI runs the fork-based
     // retrospective in-process (no daemon, no IPC), so it imports the
-    // job handler directly. Depth-2 for commands/memory/ nesting.
-    "../../memory/memory-retrospective-job",
-    "../../../memory/memory-retrospective-job",
+    // job handler directly from the default-memory plugin. Depth-2 for
+    // commands/memory/ nesting.
+    "../../plugins/defaults/memory/memory-retrospective-job",
+    "../../../plugins/defaults/memory/memory-retrospective-job",
     // Standalone tool execution — `tools run` executes a single tool
     // in-process from the filesystem (no daemon, no IPC), so it imports the
     // standalone runner directly. Depth-2 for commands/ nesting.

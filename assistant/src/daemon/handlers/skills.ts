@@ -19,7 +19,7 @@ import {
 import { resolveSkillStates, skillFlagKey } from "../../config/skill-state.js";
 import type { SkillSummary } from "../../config/skills.js";
 import { loadSkillCatalog } from "../../config/skills.js";
-import { deleteSkillCapabilityNode } from "../../memory/graph/capability-seed.js";
+import { deleteSkillCapabilityNode } from "../../plugins/defaults/memory/graph/capability-seed.js";
 import {
   createTimeout,
   extractText,

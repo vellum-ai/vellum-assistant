@@ -8,9 +8,8 @@
  * `latestMessages` and before they flow into `agentLoop.run()`. It:
  *
  * 1. Checks whether the turn's model needs image→text fallback via
- *    {@link needsImageFallback} (resolving the turn's `modelProfileKey`, or the
- *    workspace's active profile when the key is `null`). If the model handles
- *    images, the hook is a no-op.
+ *    {@link needsImageFallback}, using the turn's effective `modelProfileKey`.
+ *    If the model handles images, the hook is a no-op.
  * 2. Finds a vision-capable profile for captioning via `findVisionProfile`.
  *    If none exists, images are replaced with a fail-open placeholder so the
  *    model at least knows an image was present.

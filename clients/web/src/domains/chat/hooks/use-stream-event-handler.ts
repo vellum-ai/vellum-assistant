@@ -47,7 +47,6 @@ import {
   handleToolUsePreviewStart,
   handleToolUseStart,
   handleToolResult,
-  handleToolOutputChunk,
 } from "@/domains/chat/utils/stream-handlers/tool-call-handlers";
 import {
   handleUsageUpdate,
@@ -142,15 +141,7 @@ export function useStreamEventHandler(
 
   // --- Refs owned by this hook (only used inside handleStreamEvent) ---
   const lastActivityVersionRef = useRef<Map<string, number>>(new Map());
-  const toolCallIdCounterRef = useRef(0);
   const currentAssistantMessageIdRef = useRef<string | undefined>(undefined);
-  // Per-toolUseId buffer of pending tool_output_chunk text + the rAF handle
-  // that drains it, for coalesced (one-per-frame) flushes. See
-  // handleToolOutputChunk / flushToolOutput.
-  const toolOutputBufferRef = useRef<
-    Map<string, { conversationId?: string; messageId?: string; text: string }>
-  >(new Map());
-  const toolOutputFlushHandleRef = useRef<number | null>(null);
 
   // --- Main event handler ---
 
@@ -212,7 +203,7 @@ export function useStreamEventHandler(
       const isStreamingDelta =
         event.type === "assistant_text_delta" ||
         event.type === "assistant_thinking_delta";
-      if (!isStreamingDelta || !tailIsAssistant(store.liveTurn)) {
+      if (!isStreamingDelta || !tailIsAssistant(store.snapshot?.messages ?? [])) {
         recordDiagnostic(
           event.type === "assistant_text_delta"
             ? "sse_assistant_text_delta_start"
@@ -235,8 +226,8 @@ export function useStreamEventHandler(
         isNative,
         streamContext: streamState.streamContext,
         assistantId: useResolvedAssistantsStore.getState().activeAssistantId,
-        setMessages: store.setLiveTurn,
-        messages: store.liveTurn,
+        setOptimisticSends: store.setOptimisticSends,
+        clearOptimisticSend: store.clearOptimisticSend,
         turnActions: useTurnStore.getState(),
         getTurnState: () => useTurnStore.getState(),
         endTurn,
@@ -258,10 +249,7 @@ export function useStreamEventHandler(
         popRequestIdMapping: store.popRequestIdMapping,
         consumePendingLocalDeletion: store.consumePendingLocalDeletion,
         lastActivityVersionRef,
-        toolCallIdCounterRef,
         currentAssistantMessageIdRef,
-        toolOutputBufferRef,
-        toolOutputFlushHandleRef,
       };
 
       switch (event.type) {
@@ -340,12 +328,10 @@ export function useStreamEventHandler(
         case "tool_use_preview_start":
           handleToolUsePreviewStart(event, ctx);
           break;
-        // Incremental tool output (e.g. foreground bash stdout/stderr) is
-        // buffered onto the matching tool call's live `streamedOutput` tail
-        // (coalesced per animation frame) and surfaced in the tool-detail
-        // drawer while the call runs.
+        // Incremental tool output (e.g. foreground bash stdout/stderr) folds
+        // onto the matching tool call's live `streamedOutput` tail directly in
+        // the rolling-snapshot reducer (`use-event-stream`); no handler work.
         case "tool_output_chunk":
-          handleToolOutputChunk(event, ctx);
           break;
         case "usage_update":
           handleUsageUpdate(event, ctx);
@@ -454,7 +440,7 @@ export function useStreamEventHandler(
         // and defers the active one here, so retire any matching confirmation
         // card before the user can tap a prompt the server has discarded.
         case "interaction_resolved":
-          handleInteractionResolved(event, ctx);
+          handleInteractionResolved(event);
           break;
         // Diagnostic timeline events. The logs domain fetches these from
         // the daemon's trace-events endpoint on demand; the chat stream

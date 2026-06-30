@@ -38,6 +38,7 @@ import {
   createConversation,
 } from "../../persistence/conversation-crud.js";
 import { getLogger } from "../../util/logger.js";
+import { withSqliteRetry } from "../../util/sqlite-retry.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -321,10 +322,14 @@ export async function handlePostFeedAction({
   }
 
   try {
-    const conversation = createConversation({
-      title: action.label,
-      source: "home-feed",
-    });
+    const conversation = await withSqliteRetry(
+      () =>
+        createConversation({
+          title: action.label,
+          source: "home-feed",
+        }),
+      { op: "homeFeed.createConversation" },
+    );
     await addMessage(
       conversation.id,
       "user",

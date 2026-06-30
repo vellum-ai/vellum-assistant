@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { TableBlock } from "@slack/types";
+import type { ImageBlock, TableBlock } from "@slack/types";
 
 import { renderSlackBlocks } from "./render.js";
 
@@ -75,7 +75,7 @@ describe("renderSlackBlocks", () => {
     });
   });
 
-  test("flattens inline formatting inside table cells to plain text", () => {
+  test("preserves inline formatting inside table cells via rich_text", () => {
     const table = [
       "| Name | Link |",
       "| --- | --- |",
@@ -84,9 +84,162 @@ describe("renderSlackBlocks", () => {
     const blocks = renderSlackBlocks(table);
     const t = blocks![0] as TableBlock;
     expect(t.rows[1]).toEqual([
-      { type: "raw_text", text: "bob" },
-      { type: "raw_text", text: "site" },
+      {
+        type: "rich_text",
+        elements: [
+          {
+            type: "rich_text_section",
+            elements: [{ type: "text", text: "bob", style: { bold: true } }],
+          },
+        ],
+      },
+      {
+        type: "rich_text",
+        elements: [
+          {
+            type: "rich_text_section",
+            elements: [{ type: "link", url: "https://e.com", text: "site" }],
+          },
+        ],
+      },
     ]);
+  });
+
+  test("degrades an image in a formatted cell to a link, keeping the URL", () => {
+    const table = [
+      "| Name | Logo |",
+      "| --- | --- |",
+      "| **acme** | ![logo](https://e.com/l.png) |",
+    ].join("\n");
+    const t = renderSlackBlocks(table)![0] as TableBlock;
+    expect(t.rows[1]![1]).toEqual({
+      type: "rich_text",
+      elements: [
+        {
+          type: "rich_text_section",
+          elements: [
+            { type: "link", url: "https://e.com/l.png", text: "logo" },
+          ],
+        },
+      ],
+    });
+  });
+
+  test("degrades a cell link with a relative/anchor URL to plain text", () => {
+    const table = [
+      "| Doc | Note |",
+      "| --- | --- |",
+      "| [README](./README.md) | [api](#api) |",
+    ].join("\n");
+    const t = renderSlackBlocks(table)![0] as TableBlock;
+    expect(t.rows[1]).toEqual([
+      {
+        type: "rich_text",
+        elements: [
+          {
+            type: "rich_text_section",
+            elements: [{ type: "text", text: "README" }],
+          },
+        ],
+      },
+      {
+        type: "rich_text",
+        elements: [
+          {
+            type: "rich_text_section",
+            elements: [{ type: "text", text: "api" }],
+          },
+        ],
+      },
+    ]);
+  });
+
+  test("keeps plain table cells as raw_text", () => {
+    const table = ["| A | B |", "| --- | --- |", "| one | two |"].join("\n");
+    const t = renderSlackBlocks(table)![0] as TableBlock;
+    expect(t.rows[1]).toEqual([
+      { type: "raw_text", text: "one" },
+      { type: "raw_text", text: "two" },
+    ]);
+  });
+
+  test("maps GFM column alignment to column_settings", () => {
+    const table = [
+      "| L | C | R | D |",
+      "| :-- | :-: | --: | --- |",
+      "| a | b | c | d |",
+    ].join("\n");
+    const t = renderSlackBlocks(table)![0] as TableBlock;
+    expect(t.column_settings).toEqual([
+      { align: "left" },
+      { align: "center" },
+      { align: "right" },
+      {},
+    ]);
+  });
+
+  test("omits column_settings when no column is aligned", () => {
+    const table = ["| A | B |", "| --- | --- |", "| a | b |"].join("\n");
+    const t = renderSlackBlocks(table)![0] as TableBlock;
+    expect(t.column_settings).toBeUndefined();
+  });
+
+  test("renders a standalone image as an image block", () => {
+    const blocks = renderSlackBlocks("![a cat](https://example.com/cat.png)");
+    expect(blocks).toEqual([
+      {
+        type: "image",
+        image_url: "https://example.com/cat.png",
+        alt_text: "a cat",
+      },
+    ]);
+  });
+
+  test("keeps an image inline with prose in the markdown block", () => {
+    const blocks = renderSlackBlocks(
+      "Look: ![a cat](https://example.com/cat.png) cute.",
+    );
+    expect(blocks).toEqual([
+      {
+        type: "markdown",
+        text: "Look: ![a cat](https://example.com/cat.png) cute.",
+      },
+    ]);
+  });
+
+  test("truncates image alt_text to Slack's 2000-char cap", () => {
+    const alt = "x".repeat(2500);
+    const blocks = renderSlackBlocks(`![${alt}](https://example.com/cat.png)`);
+    const image = blocks![0] as ImageBlock;
+    expect(image.type).toBe("image");
+    expect(image.alt_text).toBe("x".repeat(2000));
+  });
+
+  test("falls back to a non-empty alt_text for an image with no alt", () => {
+    const blocks = renderSlackBlocks("![](https://example.com/cat.png)");
+    const image = blocks![0] as ImageBlock;
+    expect(image.type).toBe("image");
+    expect(image.alt_text).toBe("image");
+  });
+
+  test("leaves a non-hostable image URL in the markdown block", () => {
+    const blocks = renderSlackBlocks("![x](/relative/path.png)");
+    expect(blocks).toEqual([
+      { type: "markdown", text: "![x](/relative/path.png)" },
+    ]);
+  });
+
+  test("falls back a formatted heading to a markdown block", () => {
+    const blocks = renderSlackBlocks("## See the [docs](https://e.com)");
+    expect(blocks).toEqual([
+      { type: "markdown", text: "## See the [docs](https://e.com)" },
+    ]);
+  });
+
+  test("falls back an over-150-char heading to a markdown block", () => {
+    const long = "# " + "x".repeat(151);
+    const blocks = renderSlackBlocks(long);
+    expect(blocks).toEqual([{ type: "markdown", text: long }]);
   });
 
   test("does not treat a lone pipe in prose as a table", () => {
@@ -112,6 +265,15 @@ describe("renderSlackBlocks", () => {
   test("falls back to markdown when one table's cells exceed 10k chars", () => {
     const big = "x".repeat(10_001);
     const table = ["| H | V |", "| --- | --- |", `| a | ${big} |`].join("\n");
+    const blocks = renderSlackBlocks(table);
+    expect(blocks!.some((b) => b.type === "table")).toBe(false);
+  });
+
+  test("counts an empty-alt image cell's emitted URL toward the 10k budget", () => {
+    const url = "https://e.com/" + "x".repeat(10_001);
+    const table = ["| H | V |", "| --- | --- |", `| a | ![](${url}) |`].join(
+      "\n",
+    );
     const blocks = renderSlackBlocks(table);
     expect(blocks!.some((b) => b.type === "table")).toBe(false);
   });

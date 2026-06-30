@@ -30,17 +30,13 @@
 import { Database } from "bun:sqlite";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { Message, Provider, ProviderResponse } from "@vellumai/plugin-api";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import type { PageIndexEntry } from "../../../../../memory/v2/page-index.js";
 import { migrateAddMemoryV3Selections } from "../../../../../persistence/migrations/268-add-memory-v3-selections.js";
 import { migrateMemoryV3SelectionsMessageIdAndSections } from "../../../../../persistence/migrations/283-memory-v3-selections-message-id-and-sections.js";
 import * as schema from "../../../../../persistence/schema/index.js";
-import type {
-  Message,
-  Provider,
-  ProviderResponse,
-} from "../../../../../providers/types.js";
+import type { PageIndexEntry } from "../../v2/page-index.js";
 import { renderCard } from "../card.js";
 import type { EdgeGraph } from "../edge.js";
 import { buildEdgeGraph } from "../edge.js";
@@ -302,6 +298,9 @@ async function runTurn(
     lanes: Awaited<ReturnType<typeof buildLanes>>;
     core?: Slug[];
     hot?: Slug[];
+    /** Dense-lane budget. Omitted → orchestrate's lean `DEFAULT_DENSE_K` (dense
+     *  off by default); set positive to exercise the stubbed dense hits. */
+    denseK?: number;
   },
 ): Promise<OrchestrateResult> {
   providerStub = selectProvider(keep, pin);
@@ -310,6 +309,7 @@ async function runTurn(
     sectionIndex: deps.lanes.sectionIndex,
     needle: deps.lanes.needle,
     denseConfig: config,
+    denseK: deps.denseK,
     edgeGraph: deps.lanes.edgeGraph,
     coreSlugs: deps.core ?? [],
     hotSlugs: deps.hot ?? [],
@@ -346,11 +346,12 @@ afterAll(() => {
 describe("memory-v3 integration — candidate pool", () => {
   test("pool unions needle ∪ dense ∪ edge; one select per turn", async () => {
     const lanes = await buildLanes();
-    // "apple" hits page-a (needle). Dense returns page-b. page-a links to
-    // topic-x (edge). "apple" does NOT match the capability page, so it is not
-    // pooled this turn — capability pages are lane-ranked, not always-added.
+    // "apple" hits page-a (needle). Dense returns page-b (denseK enables the
+    // lane — it is off by default). page-a links to topic-x (edge). "apple"
+    // does NOT match the capability page, so it is not pooled this turn —
+    // capability pages are lane-ranked, not always-added.
     denseHits = [{ article: "page-b", section: 0 }];
-    await runTurn(1, "apple", [], [], { lanes });
+    await runTurn(1, "apple", [], [], { lanes, denseK: 100 });
 
     expect(selectCalls).toBe(1);
     expect(new Set(lastPool)).toEqual(new Set(["page-a", "page-b", "topic-x"]));
@@ -449,9 +450,14 @@ describe("memory-v3 integration — selection-log readout", () => {
 
     // Turn 1: needle selects page-a (matched "apple"), plus the hot topic-x.
     await runTurn(1, "apple", ["page-a", "topic-x"], [], { lanes, ...prefix });
-    // Turn 2: needle selects page-b (matched "banana").
+    // Turn 2: needle selects page-b (matched "banana"); dense also surfaces it
+    // (denseK enables the lane), but needle precedence wins the attribution.
     denseHits = [{ article: "page-b", section: 0 }];
-    await runTurn(2, "banana", ["page-b"], [], { lanes, ...prefix });
+    await runTurn(2, "banana", ["page-b"], [], {
+      lanes,
+      ...prefix,
+      denseK: 100,
+    });
     // Turn 3: needle selects the capability page (matched "durian" in its
     // content).
     denseHits = [];
@@ -486,6 +492,7 @@ describe("memory-v3 integration — selection-log readout", () => {
         edge: 0,
         reply: 0,
         learned: 0,
+        entity: 0,
       },
       turns: 0,
       distinctSlugs: 0,

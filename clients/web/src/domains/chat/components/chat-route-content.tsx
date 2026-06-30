@@ -220,7 +220,7 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Store reads — per-conversation state
   // -------------------------------------------------------------------------
-  const messages = useTranscriptMessages(assistantId, activeConversationId);
+  const messages = useTranscriptMessages();
   const error = useChatSessionStore.use.error();
   const notice = useChatSessionStore.use.notice();
   const isLoadingHistory = useChatSessionStore.use.isLoadingHistory();

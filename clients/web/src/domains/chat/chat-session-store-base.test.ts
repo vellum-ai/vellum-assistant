@@ -44,7 +44,6 @@ const store = () => useChatSessionStore.getState();
 
 beforeEach(() => {
   resetSseDebugStateForTests();
-  store().setLiveTurn([]);
   useChatSessionStore.setState({ snapshot: null, optimisticSends: [] });
 });
 afterEach(() => {
