@@ -40,9 +40,18 @@ preloadBundledAvatarComponents();
 const DESKTOP_MIN_WIDTH = 640;
 
 interface CreatePersonalityStepProps {
-  /** Continue, reporting the slider values (keyed by axis id) so the route can
-   *  apply them to the assistant's persona. */
-  onContinue: (values: Record<string, number>) => void;
+  /** Slider values keyed by axis id, owned by the route so they survive a step
+   *  back (and stay shown once locked). Missing keys default to centered. */
+  values: Record<string, number>;
+  /** Report a single slider's new value. */
+  onValueChange: (axisId: string, value: number) => void;
+  /**
+   * Once the user has continued, the personality prompt has already been sent
+   * to the assistant — lock the sliders so a step-back can't silently diverge
+   * from what was applied.
+   */
+  locked: boolean;
+  onContinue: () => void;
   onBack: () => void;
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
@@ -236,11 +245,14 @@ function PersonalitySlider({
   value,
   onValueChange,
   fg,
+  disabled,
 }: {
   axis: PersonalityAxis;
   value: number;
   onValueChange: (next: number) => void;
   fg: string;
+  /** Locked after continue — no drag/keyboard, dimmed grab cursor. */
+  disabled: boolean;
 }) {
   // Responsive: on mobile the labels sit on one line split to the slider's two
   // ends (left label hard-left, right label hard-right) above a full-width
@@ -264,6 +276,7 @@ function PersonalitySlider({
         className="relative order-3 flex h-6 w-full touch-none items-center select-none sm:order-2 sm:w-auto sm:flex-1"
         value={[value]}
         onValueChange={(next) => onValueChange(next[0] ?? DEFAULT_VALUE)}
+        disabled={disabled}
         min={0}
         max={100}
         step={1}
@@ -274,7 +287,7 @@ function PersonalitySlider({
           style={{ backgroundColor: TRACK_COLOR }}
         />
         <SliderPrimitive.Thumb
-          className="block h-6 w-6 cursor-grab rounded-full shadow-sm transition-transform active:scale-95 active:cursor-grabbing keyboard-focus:outline-none keyboard-focus:ring-2 keyboard-focus:ring-white/70"
+          className="block h-6 w-6 cursor-grab rounded-full shadow-sm transition-transform active:scale-95 active:cursor-grabbing keyboard-focus:outline-none keyboard-focus:ring-2 keyboard-focus:ring-white/70 data-[disabled]:cursor-not-allowed data-[disabled]:active:scale-100"
           style={{ backgroundColor: THUMB_COLOR }}
         />
       </SliderPrimitive.Root>
@@ -334,6 +347,9 @@ function EdgeAvatarLayer({
 }
 
 export function CreatePersonalityStep({
+  values,
+  onValueChange,
+  locked,
   onContinue,
   onBack,
   onForward,
@@ -372,10 +388,6 @@ export function CreatePersonalityStep({
       right: { ...axis.rightAvatar, color: rightColors[i] ?? axis.rightAvatar.color },
     }));
   }, [components, selectedColor]);
-  // Frontend-only: keep each axis' value locally; nothing is persisted yet.
-  const [values, setValues] = useState<Record<string, number>>(() =>
-    Object.fromEntries(PERSONALITY_AXES.map((axis) => [axis.id, DEFAULT_VALUE])),
-  );
 
   return (
     <div className="absolute inset-0 z-10 overflow-hidden" style={{ color: tone.fg }}>
@@ -391,30 +403,40 @@ export function CreatePersonalityStep({
       )}
 
       <div className="absolute left-1/2 top-[14%] flex w-full max-w-2xl -translate-x-1/2 flex-col items-center gap-10 px-6">
-        <h1
-          className="text-center text-[2.6rem] leading-none"
-          style={{ fontFamily: "var(--font-serif)" }}
-        >
-          Create my personality
-        </h1>
+        <div className="flex flex-col items-center gap-2">
+          <h1
+            className="text-center text-[2.6rem] leading-none"
+            style={{ fontFamily: "var(--font-serif)" }}
+          >
+            Create my personality
+          </h1>
+          {locked && (
+            <p className="text-center text-[15px]" style={{ color: tone.fgMuted }}>
+              Personality locked — chat with your assistant to make any more
+              updates
+            </p>
+          )}
+        </div>
 
-        <div className="flex w-full flex-col gap-8 sm:gap-11">
+        <div
+          className="flex w-full flex-col gap-8 sm:gap-11"
+          style={{ opacity: locked ? 0.7 : 1 }}
+        >
           {PERSONALITY_AXES.map((axis) => (
             <PersonalitySlider
               key={axis.id}
               axis={axis}
               value={values[axis.id] ?? DEFAULT_VALUE}
-              onValueChange={(next) =>
-                setValues((prev) => ({ ...prev, [axis.id]: next }))
-              }
+              onValueChange={(next) => onValueChange(axis.id, next)}
               fg={tone.fg}
+              disabled={locked}
             />
           ))}
         </div>
 
         <button
           type="button"
-          onClick={() => onContinue(values)}
+          onClick={onContinue}
           className="mt-4 flex h-11 w-[234px] cursor-pointer items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition-transform duration-150 active:scale-[0.97]"
           style={{
             backgroundColor: tone.isLight ? "#1A1A1A" : "#FFFFFF",

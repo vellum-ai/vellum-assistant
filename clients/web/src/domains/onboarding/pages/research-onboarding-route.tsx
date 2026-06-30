@@ -173,6 +173,13 @@ export function ResearchOnboardingRoute() {
     null,
   );
   const [faceValues, setFaceValues] = useState<GiveMeAFaceValues | null>(null);
+  // Personality sliders live here (not in the step) so they survive a step-back
+  // and stay shown once locked. `personalityLocked` flips true on the first
+  // continue — the prompt has been sent, so the sliders can't be edited again.
+  const [personalityValues, setPersonalityValues] = useState<
+    Record<string, number>
+  >({});
+  const [personalityLocked, setPersonalityLocked] = useState(false);
   // Id of the behind-the-scenes "research me" conversation. Captured the moment
   // it's minted (and restored from the snapshot on refresh) so a mid-search
   // reload re-attaches to that same thread instead of starting a second search.
@@ -555,16 +562,27 @@ export function ResearchOnboardingRoute() {
         )}
         {step === "personality" && (
           <CreatePersonalityStep
-            onContinue={(personalityValues) => {
-              // Apply the sliders to the assistant's persona on a throwaway side
-              // thread (awaits hatch readiness internally, then archives). Fire-
-              // and-forget — the rewrite turn finishes during the later steps,
-              // well before the chat handoff. Best-effort; never blocks the flow.
-              void applyPersonality({
-                awaitAssistantId: awaitHatchReady,
-                values: personalityValues,
-                userName: formValues?.firstName?.trim() || undefined,
-              });
+            values={personalityValues}
+            onValueChange={(axisId, value) =>
+              setPersonalityValues((prev) => ({ ...prev, [axisId]: value }))
+            }
+            locked={personalityLocked}
+            onContinue={() => {
+              // First continue applies the sliders to the assistant's persona on
+              // a throwaway side thread (awaits hatch readiness internally, then
+              // archives) and locks them — the prompt has been sent, so a later
+              // step-back can't silently diverge. Fire-and-forget: the rewrite
+              // turn finishes during the later steps, well before the chat
+              // handoff. Best-effort; never blocks the flow. A continue while
+              // already locked just advances.
+              if (!personalityLocked) {
+                void applyPersonality({
+                  awaitAssistantId: awaitHatchReady,
+                  values: personalityValues,
+                  userName: formValues?.firstName?.trim() || undefined,
+                });
+                setPersonalityLocked(true);
+              }
               goForwardTo("integration");
             }}
             onBack={() => goBackTo("different")}
