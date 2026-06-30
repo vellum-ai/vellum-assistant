@@ -173,6 +173,22 @@ export async function authHeaders(
   }
 }
 
+export function authHeadersForOrganization(
+  token: string,
+  organizationId: string,
+): Record<string, string> {
+  const base: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...tokenAuthHeader(token),
+  };
+
+  if (token.startsWith(VAK_PREFIX)) {
+    return base;
+  }
+
+  return { ...base, "Vellum-Organization-Id": organizationId };
+}
+
 export interface HatchedAssistant {
   id: string;
   name: string;
