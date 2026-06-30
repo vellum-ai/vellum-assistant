@@ -24,6 +24,9 @@ const CATALOG_STALE_TIME_MS = 5 * 60 * 1000; // 5 minutes
 const EMPTY_INSTALLED: InstalledPlugin[] = [];
 const EMPTY_MATCHES: PluginCatalogMatch[] = [];
 
+// Uncategorized bucket slug; mirrors the daemon's UNCATEGORIZED.
+export const SYSTEM_CATEGORY = "system";
+
 export interface UsePluginsListResult {
   /** Installed + catalog merged into one deduped, sorted list. */
   items: PluginListItem[];
@@ -171,7 +174,7 @@ export function usePluginsList(
     const availableMatches = (
       category === null
         ? matches
-        : matches.filter((m) => (m.category ?? "system") === category)
+        : matches.filter((m) => (m.category ?? SYSTEM_CATEGORY) === category)
     ).filter((m) => !unfilteredInstalledNames.has(m.name));
     return sortPlugins(mergePlugins(installed, availableMatches));
   }, [
