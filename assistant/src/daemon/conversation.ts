@@ -257,6 +257,18 @@ export interface ConversationConstructorOptions {
    * access; non-native providers get nothing. Defaults to false.
    */
   enableNativeWebSearch?: boolean;
+  /**
+   * Explicit signal that `systemPrompt` is a fixed override to use verbatim
+   * every turn (true) rather than a default base to rebuild per turn (false).
+   * Callers that derive `systemPrompt` from `buildSystemPrompt()` MUST pass
+   * this: `buildSystemPrompt()` is non-deterministic (its persona slot resolves
+   * through the volatile guardian-delivery cache plus a contact lookup), so
+   * inferring override-ness by comparing two of its outputs can spuriously
+   * freeze a conversation onto a stale persona. When omitted, the constructor
+   * falls back to that string comparison, which is reliable only for callers
+   * (the subagent manager) whose `systemPrompt` is genuinely non-default.
+   */
+  hasSystemPromptOverride?: boolean;
 }
 
 export class Conversation {
@@ -699,9 +711,16 @@ export class Conversation {
     const resolveTools = createResolveToolsCallback(toolDefs, this);
 
     const configuredMaxTokens = maxTokens;
-    // When a systemPromptOverride was provided, use it as-is; otherwise
-    // rebuild the full prompt each turn (picks up any workspace file changes).
-    const hasSystemPromptOverride = systemPrompt !== buildSystemPrompt();
+    // Whether `systemPrompt` is a fixed override to freeze and reuse verbatim
+    // each turn, versus a default base to rebuild per turn so live
+    // trust/persona/workspace state is picked up. Prefer the caller's explicit
+    // signal; fall back to a string comparison only for callers that don't
+    // provide one. The comparison is unreliable when `systemPrompt` came from
+    // `buildSystemPrompt()` because that builder is non-deterministic (its
+    // persona slot resolves through the volatile guardian-delivery cache), so
+    // the per-turn-rebuild path passes the flag explicitly.
+    const hasSystemPromptOverride =
+      options?.hasSystemPromptOverride ?? systemPrompt !== buildSystemPrompt();
     this.hasSystemPromptOverride = hasSystemPromptOverride;
 
     // Store the model override for per-run resolution. The loop receives it

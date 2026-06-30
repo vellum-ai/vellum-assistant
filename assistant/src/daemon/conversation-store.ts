@@ -159,6 +159,12 @@ export async function getOrCreateConversation(
           maxTokens,
           speedOverride: storedOptions?.speed,
           modelOverride: storedOptions?.modelOverride,
+          // `systemPrompt` above is the default base build unless a real
+          // override was supplied. Signal which explicitly so a normal chat
+          // rebuilds the prompt per turn (picking up live trust/persona) rather
+          // than freezing onto a non-deterministic construction-time build.
+          hasSystemPromptOverride:
+            storedOptions?.systemPromptOverride !== undefined,
         },
       );
       newConversation.updateClient(sendToClient, true);
