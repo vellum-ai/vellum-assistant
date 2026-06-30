@@ -400,6 +400,8 @@ function toRichText(
         // rich_text can't embed an image; degrade to a link to it (keeping the
         // URL), matching how the markdown block renders an image as a link.
         // An un-linkable URL would fail validation, so fall back to alt text.
+        // With no alt the URL itself is the link text, so the user can still
+        // see and click through to the image.
         if (node.url && isLinkableUrl(node.url)) {
           out.push({ type: "link", url: node.url, text: node.alt || node.url });
         } else if (node.alt) {
