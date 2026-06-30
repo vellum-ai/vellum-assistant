@@ -38,7 +38,18 @@ let catalogResult: PluginsSearchGetResponse | Error;
 let catalogGate: Promise<unknown> | null = null;
 
 const sdkActual = await import("@/generated/daemon/sdk.gen");
-const pluginsGetSpy = mock(async () => installedResult);
+// Mirrors the daemon: an unfiltered read returns `installedResult` as-is; a
+// `?category=` read narrows the installed plugins to that category server-side.
+const pluginsGetSpy = mock(
+  async (options: { query?: { category?: string } }) => {
+    const selected = options?.query?.category;
+    if (!selected) return installedResult;
+    const plugins = (installedResult.data?.plugins ?? []).filter(
+      (p) => (p.category ?? "system") === selected,
+    );
+    return { ...installedResult, data: { ...installedResult.data, plugins } };
+  },
+);
 const pluginsSearchGetSpy = mock(async () => {
   if (catalogGate) await catalogGate;
   if (catalogResult instanceof Error) throw catalogResult;
@@ -68,6 +79,7 @@ function match(overrides: Partial<CatalogMatch> = {}): CatalogMatch {
   return {
     name: "beta",
     path: "github:acme/beta@main",
+    category: null,
     source: { kind: "github", repo: "acme/beta", ref: "main" },
     ...overrides,
   };
@@ -81,7 +93,7 @@ function catalogOk(matches: CatalogMatch[]): PluginsSearchGetResponse {
   return { query: "", ref: "main", matches };
 }
 
-function renderPluginsList() {
+function renderPluginsList(category: string | null = null) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -90,7 +102,7 @@ function renderPluginsList() {
     return createElement(QueryClientProvider, { client }, children);
   }
 
-  return renderHook(() => usePluginsList(ASSISTANT_ID), { wrapper });
+  return renderHook(() => usePluginsList(ASSISTANT_ID, category), { wrapper });
 }
 
 beforeEach(() => {
@@ -149,6 +161,27 @@ describe("usePluginsList", () => {
     expect(result.current.items.find((p) => p.name === "dup")?.status).toBe(
       "installed",
     );
+  });
+
+  test("dedups catalog rows against installed in another category (unfiltered)", async () => {
+    // `dup` is installed under category "a", but its catalog entry is "b".
+    installedResult = installedOk([
+      installed({ id: "dup", name: "dup", category: "a" }),
+    ]);
+    catalogResult = catalogOk([
+      match({ name: "dup", category: "b" }),
+      match({ name: "fresh", category: "b" }),
+    ]);
+
+    // Selecting "b": the installed read is server-filtered to "b" (empty, since
+    // `dup` is in "a"), yet `dup` must still be deduped against the UNFILTERED
+    // installed set and never appear as Available.
+    const { result } = renderPluginsList("b");
+
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+    expect(result.current.items.map((p) => p.name)).toEqual(["fresh"]);
+    expect(result.current.items[0]?.status).toBe("available");
+    expect(result.current.unfilteredInstalledNames.has("dup")).toBe(true);
   });
 
   test("installed 404 degrades to an empty installed list, not an error", async () => {

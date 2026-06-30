@@ -1,7 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 
-import type { PluginListItem } from "@/domains/intelligence/plugins/types";
+import type {
+    InstalledPlugin,
+    PluginCatalogMatch,
+    PluginListItem,
+} from "@/domains/intelligence/plugins/types";
 import { mergePlugins, sortPlugins } from "@/domains/intelligence/plugins/utils";
 import {
     pluginsGetQueryKey,
@@ -14,6 +18,11 @@ import type { PluginsGetResponse } from "@/generated/daemon/types.gen";
 // cached, rate-limited GitHub listing) both change rarely, so `staleTime`
 // keeps each warm across tab switches and revisiting doesn't refetch.
 const CATALOG_STALE_TIME_MS = 5 * 60 * 1000; // 5 minutes
+
+// Stable empty references so consumers' `useMemo`s don't recompute while a
+// query is still pending (`?? []` would mint a new array each render).
+const EMPTY_INSTALLED: InstalledPlugin[] = [];
+const EMPTY_MATCHES: PluginCatalogMatch[] = [];
 
 export interface UsePluginsListResult {
   /** Installed + catalog merged into one deduped, sorted list. */
@@ -34,6 +43,51 @@ export interface UsePluginsListResult {
    * installed plugins; the view surfaces this as a degraded "installed only".
    */
   catalogError: boolean;
+  /**
+   * True once the installed read returns `categoryCounts` — the daemon
+   * understands the Skills category taxonomy. Older daemons omit it; the tab
+   * uses this to gate the category rail (version-skew safeguard).
+   */
+  categorySupported: boolean;
+  /**
+   * Unfiltered installed category counts from the server (before the category
+   * filter is applied). Undefined on daemons without taxonomy support.
+   */
+  installedCategoryCounts: Record<string, number> | undefined;
+  /** Unfiltered installed plugins — the client-side fallback for rail counts. */
+  installedPlugins: InstalledPlugin[];
+  /** Unfiltered installed total, the rail's installed baseline. */
+  installedTotal: number | undefined;
+  /** Full, unfiltered catalog matches (carry `category`) for rail counts. */
+  catalogMatches: PluginCatalogMatch[];
+  /**
+   * Names of ALL installed plugins, unfiltered by category. Catalog rows and
+   * rail counts dedup against this so an installed plugin is never surfaced as
+   * "Available" (nor double-counted) regardless of its category bucket — even
+   * when its catalog category sits in a different bucket or degraded to
+   * null/system.
+   */
+  unfilteredInstalledNames: Set<string>;
+}
+
+/** Installed read with the older-daemon 404 → empty degradation. */
+async function fetchInstalled(
+  assistantId: string,
+  category: string | undefined,
+  signal: AbortSignal,
+): Promise<PluginsGetResponse> {
+  const result = await pluginsGet({
+    path: { assistant_id: assistantId },
+    query: { q: undefined, category },
+    signal,
+    throwOnError: false,
+  });
+  const status = result.response?.status;
+  // Older daemons return 404 when the list endpoint isn't implemented yet —
+  // degrade to an empty installed list.
+  if (status === 404) return { plugins: [] } as PluginsGetResponse;
+  if (!result.response?.ok) throw new Error("Failed to load plugins");
+  return result.data ?? ({ plugins: [] } as PluginsGetResponse);
 }
 
 /**
@@ -45,28 +99,38 @@ export interface UsePluginsListResult {
  * The installed list is fatal — its failure surfaces as `isError`. The
  * catalog is best-effort: a failure degrades to "installed only" and is
  * exposed via `catalogError` rather than failing the whole list.
+ *
+ * When a `category` slug is passed, the installed list is filtered server-side
+ * (`?category=`) while the catalog stays full and is filtered client-side, so
+ * both sections honor the selected category. A parallel unfiltered installed
+ * read backs the rail badges so they stay stable across category changes.
  */
-export function usePluginsList(assistantId: string): UsePluginsListResult {
+export function usePluginsList(
+  assistantId: string,
+  category: string | null = null,
+): UsePluginsListResult {
+  const categoryParam = category ?? undefined;
+
   const installedQuery = useQuery({
+    queryKey: pluginsGetQueryKey({
+      path: { assistant_id: assistantId },
+      query: { q: undefined, category: categoryParam },
+    }),
+    queryFn: ({ signal }) => fetchInstalled(assistantId, categoryParam, signal),
+    enabled: Boolean(assistantId),
+    staleTime: CATALOG_STALE_TIME_MS,
+  });
+
+  // Unfiltered installed read so the rail badges reflect totals across every
+  // category while one is selected. Disabled until a category is chosen — when
+  // none is, the main read above is already unfiltered (same query key).
+  const installedCountsQuery = useQuery({
     queryKey: pluginsGetQueryKey({
       path: { assistant_id: assistantId },
       query: { q: undefined },
     }),
-    queryFn: async ({ signal }) => {
-      const result = await pluginsGet({
-        path: { assistant_id: assistantId },
-        query: { q: undefined },
-        signal,
-        throwOnError: false,
-      });
-      const status = result.response?.status;
-      // Older daemons return 404 when the list endpoint isn't
-      // implemented yet — degrade to an empty installed list.
-      if (status === 404) return { plugins: [] } as PluginsGetResponse;
-      if (!result.response?.ok) throw new Error("Failed to load plugins");
-      return result.data ?? ({ plugins: [] } as PluginsGetResponse);
-    },
-    enabled: Boolean(assistantId),
+    queryFn: ({ signal }) => fetchInstalled(assistantId, undefined, signal),
+    enabled: Boolean(assistantId) && category !== null,
     staleTime: CATALOG_STALE_TIME_MS,
   });
 
@@ -79,16 +143,46 @@ export function usePluginsList(assistantId: string): UsePluginsListResult {
     staleTime: CATALOG_STALE_TIME_MS,
   });
 
-  const items = useMemo(
-    () =>
-      sortPlugins(
-        mergePlugins(
-          installedQuery.data?.plugins ?? [],
-          catalogQuery.data?.matches ?? [],
-        ),
-      ),
-    [installedQuery.data?.plugins, catalogQuery.data?.matches],
-  );
+  // Names of every installed plugin, unfiltered by category. While no category
+  // is selected the main read is itself unfiltered; once one is, the parallel
+  // counts read backs the set, falling back to the (filtered) main read until
+  // it resolves so we never crash — we only briefly under-suppress.
+  const unfilteredInstalledNames = useMemo(() => {
+    const source =
+      category !== null
+        ? (installedCountsQuery.data?.plugins ?? installedQuery.data?.plugins)
+        : installedQuery.data?.plugins;
+    return new Set((source ?? EMPTY_INSTALLED).map((p) => p.name));
+  }, [
+    category,
+    installedCountsQuery.data?.plugins,
+    installedQuery.data?.plugins,
+  ]);
+
+  const items = useMemo(() => {
+    const installed = installedQuery.data?.plugins ?? EMPTY_INSTALLED;
+    const matches = catalogQuery.data?.matches ?? EMPTY_MATCHES;
+    // Installed is filtered server-side; filter the catalog client-side so the
+    // "available" section honors the same category. Then drop any match already
+    // installed under ANY category (unfiltered) so an installed plugin bucketed
+    // elsewhere — or with a null/system category — is never shown as Available.
+    const availableMatches = (
+      category === null
+        ? matches
+        : matches.filter((m) => (m.category ?? "system") === category)
+    ).filter((m) => !unfilteredInstalledNames.has(m.name));
+    return sortPlugins(mergePlugins(installed, availableMatches));
+  }, [
+    installedQuery.data?.plugins,
+    catalogQuery.data?.matches,
+    category,
+    unfilteredInstalledNames,
+  ]);
+
+  // Counts come from the unfiltered installed read: the main read while no
+  // category is selected, the parallel read once one is.
+  const countsSource =
+    category !== null ? installedCountsQuery.data : installedQuery.data;
 
   return {
     items,
@@ -99,5 +193,11 @@ export function usePluginsList(assistantId: string): UsePluginsListResult {
     isError: installedQuery.isError,
     isFetching: installedQuery.isFetching || catalogQuery.isFetching,
     catalogError: catalogQuery.isError,
+    categorySupported: installedQuery.data?.categoryCounts !== undefined,
+    installedCategoryCounts: countsSource?.categoryCounts,
+    installedPlugins: countsSource?.plugins ?? EMPTY_INSTALLED,
+    installedTotal: countsSource?.totalCount,
+    catalogMatches: catalogQuery.data?.matches ?? EMPTY_MATCHES,
+    unfilteredInstalledNames,
   };
 }
