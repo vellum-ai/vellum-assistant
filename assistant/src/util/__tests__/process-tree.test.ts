@@ -39,8 +39,16 @@ describe("deriveName", () => {
     expect(deriveName("bun run /worker.ts")).toBe("worker");
   });
 
-  test("falls back to the interpreter when there is no script arg", () => {
-    expect(deriveName("bun repl")).toBe("bun");
+  test("surfaces the arguments when an interpreter runs no script file", () => {
+    expect(deriveName("bun repl")).toBe("bun repl");
+    expect(deriveName("bun run dev")).toBe("bun run dev");
+    expect(deriveName("bun x prettier --write .")).toBe("bun x prettier .");
+    expect(deriveName("node --inspect server")).toBe("node server");
+  });
+
+  test("falls back to the bare interpreter when only flags follow", () => {
+    expect(deriveName("bun --version")).toBe("bun");
+    expect(deriveName("bun")).toBe("bun");
   });
 
   test("handles empty input", () => {
