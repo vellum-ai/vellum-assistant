@@ -1,4 +1,5 @@
 import type { AssistantConfig } from "../../config/types.js";
+import { rotateToolInvocations } from "../../telemetry/tool-usage-store.js";
 import { getLogger } from "../../util/logger.js";
 import { getLogsDbPath } from "../../util/logs-db-path.js";
 import { runAsyncSqlite } from "../db-async-query.js";
@@ -137,6 +138,32 @@ SELECT changes();`,
     },
     "Pruned old trace events",
   );
+}
+
+/**
+ * Delete audit-log (`tool_invocations`) entries older than the configured
+ * retention window. Retention comes from `auditLog.retentionDays` (0 = keep
+ * forever). The DELETE itself lives in {@link rotateToolInvocations}; this
+ * handler just resolves the window and dispatches, mirroring the other
+ * scheduled cleanup jobs.
+ */
+export async function pruneOldToolInvocationsJob(
+  job: MemoryJob,
+  config: AssistantConfig,
+): Promise<void> {
+  const rawRetention = job.payload.retentionDays;
+  const retentionDays =
+    typeof rawRetention === "number" &&
+    Number.isFinite(rawRetention) &&
+    rawRetention >= 0
+      ? rawRetention
+      : config.auditLog.retentionDays;
+
+  // 0 means disabled. rotateToolInvocations no-ops on this too, but
+  // short-circuit so we don't dispatch a pointless async query.
+  if (!retentionDays) return;
+
+  await rotateToolInvocations(retentionDays);
 }
 
 /**
