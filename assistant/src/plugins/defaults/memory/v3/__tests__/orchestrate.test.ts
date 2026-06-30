@@ -358,6 +358,7 @@ describe("orchestrate — candidate pool composition", () => {
         return [];
       },
       bestSection: () => -1,
+      idf: () => 0,
     };
     providerStub = selectProvider([]);
     await orchestrate(makeTurn(1, "x"), depsOf(lanes, { needle }));
@@ -888,7 +889,9 @@ describe("orchestrate — degradation", () => {
     providerStub = selectProvider([]);
     const result = await orchestrate(
       makeTurn(1, "zzzzz no-match"),
-      depsOf(lanes, { needle: { query: () => [], bestSection: () => -1 } }),
+      depsOf(lanes, {
+        needle: { query: () => [], bestSection: () => -1, idf: () => 0 },
+      }),
     );
     expect(result.selections).toEqual([]);
     expect(result.lanes.finder).toEqual([]);
