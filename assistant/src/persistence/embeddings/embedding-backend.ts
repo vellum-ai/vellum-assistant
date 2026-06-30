@@ -3,11 +3,6 @@ import { createHash } from "node:crypto";
 import { getOllamaBaseUrlEnv } from "../../config/env.js";
 import { resolveCallSiteConfig } from "../../config/llm-resolver.js";
 import type { AssistantConfig } from "../../config/types.js";
-import {
-  SPARSE_VOCAB_SIZE,
-  tokenHash,
-  tokenize,
-} from "../../plugins/defaults/memory/sparse-tokenize.js";
 import { PLATFORM_PROVIDER_META } from "../../providers/platform-proxy/constants.js";
 import { resolveManagedProxyContext } from "../../providers/platform-proxy/context.js";
 import { getProviderKeyAsync } from "../../security/secure-keys.js";
@@ -34,6 +29,7 @@ import {
   type SparseEmbedding,
   type TextEmbeddingInput,
 } from "./embedding-types.js";
+import { SPARSE_VOCAB_SIZE, tokenHash, tokenize } from "./sparse-tokenize.js";
 
 export type { EmbeddingInput, MultimodalEmbeddingInput, TextEmbeddingInput };
 
