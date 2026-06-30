@@ -114,15 +114,15 @@
       "license": "MIT"
     },
     {
-      "name": "nightstand",
+      "name": "reading-pal",
       "source": {
         "source": "github",
-        "repo": "vellum-ai/nightstand",
-        "ref": "71890dbcd7c692247fe6af99fe90e13e7cd9908e"
+        "repo": "vellum-ai/reading-pal",
+        "ref": "5226ff8ae6ae3636e695791b07dbae1f34e2217a"
       },
       "description": "Your reading life in one plugin. Track your TBR pile, get guilt-tripped about your backlog, find your next read, and sync from Goodreads.",
       "category": "hobby",
-      "homepage": "https://github.com/vellum-ai/nightstand",
+      "homepage": "https://github.com/vellum-ai/reading-pal",
       "license": "MIT"
     },
     {
