@@ -17,6 +17,7 @@ import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import { getBindingByConversation } from "../persistence/external-conversation-store.js";
+import { DEFAULT_PLUGIN_NAMES } from "../plugins/defaults/default-plugin-names.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
@@ -127,11 +128,21 @@ export function resolveConversationAttribution(
  * apply — otherwise a Set of the scoped plugin ids. Later tool/skill/hook
  * filters intersect their candidate set against this; `null` is the no-op
  * sentinel (no intersection).
+ *
+ * The first-party default plugins are ALWAYS unioned into a non-null scope:
+ * they are core runtime infrastructure (memory, turn-context, workspace
+ * grounding, session framing, history repair, title generation, …), not
+ * user-toggleable extensions. The per-chat pills only list user-INSTALLED
+ * plugins (`/v1/plugins` = installed plugins), so without this union,
+ * deselecting any pill would intersect the defaults out and silently disable
+ * core behavior. Unioning here fixes every consumer (tools/skills/injectors/
+ * hooks) at the single chokepoint.
  */
 export function getEffectiveEnabledPluginSet(conv: {
   enabledPlugins?: string[] | null;
 }): Set<string> | null {
-  return conv.enabledPlugins == null ? null : new Set(conv.enabledPlugins);
+  if (conv.enabledPlugins == null) return null;
+  return new Set([...conv.enabledPlugins, ...DEFAULT_PLUGIN_NAMES]);
 }
 
 // ── createToolExecutor ───────────────────────────────────────────────
@@ -415,13 +426,6 @@ export interface SkillProjectionContext {
   /** When set, only tools in this set are included in the resolved tool list (subagent delegation). */
   subagentAllowedTools?: Set<string>;
   /**
-   * Per-chat plugin scope. `null`/absent means no per-chat restriction (all
-   * globally-enabled plugins apply); otherwise plugin tools are intersected
-   * with this set via {@link getEffectiveEnabledPluginSet} at per-turn
-   * resolution. Read lazily so a mid-conversation scope change is picked up.
-   */
-  enabledPlugins?: string[] | null;
-  /**
    * How {@link subagentAllowedTools} is enforced — see
    * {@link SubagentToolGateMode}. Absent means `"wire"`.
    */
@@ -451,9 +455,10 @@ export interface SkillProjectionContext {
   /**
    * The conversation's per-chat plugin scope (mirrors
    * {@link Conversation.enabledPlugins}). `null`/absent means no per-chat
-   * restriction. Read per turn so skill resolution drops plugin-owned skills
-   * outside the conversation's effective set via
-   * {@link getEffectiveEnabledPluginSet}.
+   * restriction; otherwise plugin-owned tools and skills are intersected with
+   * the effective set (the scope unioned with the always-on first-party
+   * defaults) via {@link getEffectiveEnabledPluginSet}. Read per turn so a
+   * mid-conversation scope change is picked up.
    */
   readonly enabledPlugins?: string[] | null;
   /**
