@@ -61,14 +61,12 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
     }),
 }));
 
+
 // Stub the credential hooks so the inline ProviderCreateForm renders without
 // issuing real daemon queries.
 mock.module("@/domains/settings/ai/use-stored-credential-presence", () => ({
-  credentialPresenceQueryKey: (
-    assistantId: string,
-    kind: string,
-    name: string,
-  ) => ["credentialPresence", assistantId, kind, name] as const,
+  credentialPresenceQueryKey: (assistantId: string, kind: string, name: string) =>
+    ["credentialPresence", assistantId, kind, name] as const,
   useStoredCredentialPresence: () => ({
     hasStoredCredential: false,
     isLoading: false,
@@ -82,8 +80,9 @@ mock.module("@/domains/settings/ai/use-provider-credentials-list", () => ({
   }),
 }));
 
-const { ProfileEditorModal } =
-  await import("@/domains/settings/ai/profile-editor-modal");
+const { ProfileEditorModal } = await import(
+  "@/domains/settings/ai/profile-editor-modal"
+);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -91,10 +90,7 @@ const { ProfileEditorModal } =
 
 const ASSISTANT_ID = "asst-1";
 
-function makeConnection(
-  name: string,
-  provider = "anthropic",
-): ProviderConnection {
+function makeConnection(name: string, provider = "anthropic"): ProviderConnection {
   return {
     name,
     label: null,
@@ -289,9 +285,9 @@ function topPSwitch(): HTMLElement {
  */
 function findTopPSlider(): HTMLElement | null {
   return (
-    Array.from(document.querySelectorAll<HTMLElement>('[role="slider"]')).find(
-      (el) => el.getAttribute("aria-valuemax") === "1",
-    ) ?? null
+    Array.from(
+      document.querySelectorAll<HTMLElement>('[role="slider"]'),
+    ).find((el) => el.getAttribute("aria-valuemax") === "1") ?? null
   );
 }
 
@@ -472,7 +468,9 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 
     // After create, the sub-form collapses and the provider is selected.
     await waitFor(() => {
-      expect(document.body.textContent).toContain(
+      expect(
+        document.body.textContent,
+      ).toContain(
         "New provider connection will show up in the Providers section.",
       );
     });
@@ -612,10 +610,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 // ---------------------------------------------------------------------------
 
 describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
-  function renderEdit(
-    initialValues: Record<string, unknown>,
-    connection: ProviderConnection,
-  ) {
+  function renderEdit(initialValues: Record<string, unknown>, connection: ProviderConnection) {
     return render(
       <Wrapper>
         <ProfileEditorModal
