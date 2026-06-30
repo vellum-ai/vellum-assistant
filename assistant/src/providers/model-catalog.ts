@@ -232,11 +232,13 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        // Introductory pricing in effect through 2026-08-31 ($2/$10 vs the
+        // $3/$15 standard rate). Bump to standard once the intro window ends.
         pricing: {
-          inputPer1mTokens: 3,
-          outputPer1mTokens: 15,
-          cacheWritePer1mTokens: 3.75,
-          cacheReadPer1mTokens: 0.3,
+          inputPer1mTokens: 2,
+          outputPer1mTokens: 10,
+          cacheWritePer1mTokens: 2.5,
+          cacheReadPer1mTokens: 0.2,
         },
       },
       {
@@ -931,11 +933,13 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        // Introductory pricing in effect through 2026-08-31 ($2/$10 vs the
+        // $3/$15 standard rate). Bump to standard once the intro window ends.
         pricing: {
-          inputPer1mTokens: 3,
-          outputPer1mTokens: 15,
-          cacheWritePer1mTokens: 3.75,
-          cacheReadPer1mTokens: 0.3,
+          inputPer1mTokens: 2,
+          outputPer1mTokens: 10,
+          cacheWritePer1mTokens: 2.5,
+          cacheReadPer1mTokens: 0.2,
         },
       },
       {
