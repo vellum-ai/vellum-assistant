@@ -14,6 +14,10 @@ const storedReplyMessageIds: Array<{
   eventId: string;
   replyMessageId: string;
 }> = [];
+const storedStreamedReplyTs: Array<{
+  eventId: string;
+  messageTs: string;
+}> = [];
 const replyDeliveryCalls: Array<{
   messageId?: string;
   startFromSegment?: number;
@@ -44,6 +48,10 @@ mock.module("../../../persistence/delivery-crud.js", () => ({
   linkMessage: () => {},
   storeReplyMessageId: (eventId: string, replyMessageId: string) => {
     storedReplyMessageIds.push({ eventId, replyMessageId });
+  },
+  storeStreamedReplyTs: (eventId: string, messageTs: string) => {
+    operationOrder.push("store-streamed-ts");
+    storedStreamedReplyTs.push({ eventId, messageTs });
   },
 }));
 
@@ -115,6 +123,7 @@ beforeEach(() => {
   deliveredSegmentCounts.length = 0;
   operationOrder.length = 0;
   storedReplyMessageIds.length = 0;
+  storedStreamedReplyTs.length = 0;
   replyDeliveryCalls.length = 0;
   deliverChannelReplyImpl = async () => ({ ok: true });
   deliverReplyViaCallbackImpl = async () => {};
@@ -607,7 +616,11 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
 
     expect(slackStreamOps().map((op) => op.action)).toEqual(["start", "stop"]);
     expect(replyDeliveryCalls).toEqual([]);
+    expect(storedStreamedReplyTs).toEqual([
+      { eventId: "evt-stream-processing-failure", messageTs: streamTs },
+    ]);
     expect(processingFailureEvents).toEqual(["evt-stream-processing-failure"]);
+    expect(operationOrder).toEqual(["store-streamed-ts", "processing-failure"]);
 
     clearThreadTs(conversationId);
   });
