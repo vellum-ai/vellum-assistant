@@ -129,10 +129,13 @@ export type {
   AssistantEventSubscription,
 } from "../runtime/assistant-event-hub.js";
 // The hub plugins receive is a capability-restricted facade over the daemon
-// singleton: `subscribe` and reads share the real hub's state, but `publish`
-// refuses daemon-to-client host-proxy control events (`host_*`) so a workspace
-// plugin cannot drive privileged host execution without the host proxies'
-// approval gate. See `event-hub-facade.ts`.
+// singleton (see `event-hub-facade.ts`): plugins may `subscribe` to runtime
+// events (shared subscriber state), `publish` non-host events, and check
+// `hasSubscribersForEvent`. `publish` refuses daemon-to-client host-proxy
+// control events (`host_*`), and methods that return live subscriber callbacks
+// or mutate hub state are withheld — both would let a plugin drive privileged
+// host execution without the host proxies' approval gate.
+export type { PluginEventHub } from "./event-hub-facade.js";
 export { pluginAssistantEventHub as assistantEventHub } from "./event-hub-facade.js";
 export { getModelProfiles } from "./model-profiles.js";
 // Check whether a model or profile can process image input. Accepts a concrete
