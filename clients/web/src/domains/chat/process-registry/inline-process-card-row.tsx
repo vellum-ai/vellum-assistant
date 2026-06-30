@@ -48,7 +48,7 @@ export function InlineProcessCardRow({
       openAriaLabel={descriptor.openCardAriaLabel}
       onOpen={onOpen}
       onStop={onStop}
-      stopAriaLabel={stopAriaLabel}
+      stopAriaLabel={stopAriaLabel ?? descriptor.stopAriaLabel}
       countSlot={descriptor.renderCount?.(id)}
       testId={testId}
     />

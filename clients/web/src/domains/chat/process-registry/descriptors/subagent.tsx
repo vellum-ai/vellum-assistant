@@ -70,7 +70,7 @@ export const SUBAGENT_DESCRIPTOR: BackgroundProcessDescriptor = {
         key={id}
         subagentId={id}
         size={16}
-        className="-ml-1 ring-2 ring-[var(--surface-lift)]"
+        className="[&:not(:first-child)]:-ml-1 [&:not(:first-child)]:ring-2 [&:not(:first-child)]:ring-[var(--surface-lift)]"
       />
     ),
     max: MAX_VISIBLE_SUBAGENT_AVATARS,
@@ -78,6 +78,7 @@ export const SUBAGENT_DESCRIPTOR: BackgroundProcessDescriptor = {
   overlayTitle: (n) => `${n} Active Subagent${n === 1 ? "" : "s"}`,
   pillAriaLabel: () => "Active subagents",
   openCardAriaLabel: "Open subagent",
+  stopAriaLabel: "Stop subagent",
   onOpenDetail: (id) =>
     useViewerStore.getState().openProcessDetail({ kind: "subagent", id }),
   onStop: (id) => void useSubagentStore.getState().abortSubagent(id),

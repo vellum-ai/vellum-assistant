@@ -84,6 +84,7 @@ export const ACP_RUN_DESCRIPTOR: BackgroundProcessDescriptor = {
   overlayTitle: (n) => `${n} Active Run${n === 1 ? "" : "s"}`,
   pillAriaLabel: () => "Active runs",
   openCardAriaLabel: "Open run",
+  stopAriaLabel: "Stop run",
   onOpenDetail: (id) =>
     useViewerStore.getState().openProcessDetail({ kind: "acp-run", id }),
   // `stopAcpRun` can reject (offline / non-OK / no active assistant); report

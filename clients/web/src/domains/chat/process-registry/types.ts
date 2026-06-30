@@ -97,6 +97,13 @@ export interface BackgroundProcessDescriptor {
   pillAriaLabel: (count: number) => string;
   /** Static aria label for the inline card's open affordance. */
   openCardAriaLabel: string;
+  /**
+   * Aria label for the inline card's stop button. The overlay rows render
+   * through {@link InlineProcessCardRow} without an explicit label, so they
+   * fall back to this per-kind value (transcript call sites may still override
+   * it). Omit for kinds without a stop action.
+   */
+  stopAriaLabel?: string;
   /** Opens the detail panel for a single process. */
   onOpenDetail: (id: string) => void;
   /** Stops an in-flight process; omitted for kinds without a stop action. */

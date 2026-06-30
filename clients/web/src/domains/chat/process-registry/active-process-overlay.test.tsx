@@ -10,6 +10,7 @@
  *  - Expanding renders one `InlineProcessCard` row per id.
  *  - Opening a row calls `onOpenDetail(id)` and closes the dropdown.
  *  - The stop button calls `onStop(id)`.
+ *  - The stop button's aria label falls back to the descriptor's `stopAriaLabel`.
  *  - Both `pill.variant` branches ("stacked" + "count") render their pill chrome.
  */
 
@@ -218,6 +219,21 @@ describe("ActiveProcessOverlay — row interactions", () => {
 
     expect(onStop).toHaveBeenCalledTimes(1);
     expect(onStop.mock.calls[0]![0]).toBe("a");
+  });
+
+  test("the stop button uses the descriptor's stopAriaLabel (overlay passes no explicit label)", () => {
+    const descriptor = fakeDescriptor(STACKED_PILL, {
+      onStop: () => {},
+      stopAriaLabel: "Stop subagent",
+    });
+    render(<ActiveProcessOverlay descriptor={descriptor} ids={["a"]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "1 active processes" }));
+
+    // OverlayRow renders without an explicit stopAriaLabel, so the stop button
+    // falls back to the descriptor's per-kind label rather than the generic
+    // "Stop" — keeping the active-process kinds distinguishable to a11y tech.
+    expect(screen.getByRole("button", { name: "Stop subagent" })).toBeTruthy();
   });
 
   test("no stop button when the descriptor omits onStop", () => {

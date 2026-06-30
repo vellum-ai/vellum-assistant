@@ -55,6 +55,7 @@ export const WORKFLOW_DESCRIPTOR: BackgroundProcessDescriptor = {
   overlayTitle: (n) => `${n} Active Workflow${n === 1 ? "" : "s"}`,
   pillAriaLabel: (n) => `${n} active workflow${n === 1 ? "" : "s"}`,
   openCardAriaLabel: "Open workflow",
+  stopAriaLabel: "Stop workflow",
   onOpenDetail: (id) =>
     useViewerStore.getState().openProcessDetail({ kind: "workflow", id }),
   onStop: (id) => void useWorkflowStore.getState().abortRun(id),
