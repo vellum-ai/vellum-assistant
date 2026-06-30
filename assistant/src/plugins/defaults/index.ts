@@ -24,6 +24,7 @@
  * {@link registerDefaultPlugins} at call time.
  */
 
+import { registerMemoryPersistenceHooks } from "../../persistence/memory-lifecycle-hooks.js";
 import {
   clearInjectorRegistry,
   registerPluginInjectors,
@@ -69,6 +70,7 @@ import memoryUserPromptSubmit from "./memory/hooks/user-prompt-submit.js";
 import { memoryInjectors } from "./memory/injectors.js";
 import { memoryJobHandlers } from "./memory/job-handlers.js";
 import memoryPkg from "./memory/package.json" with { type: "json" };
+import { memoryPersistenceHooks } from "./memory/persistence-hooks.js";
 import {
   memoryV3Injector,
   memoryV3SpotlightInjector,
@@ -496,6 +498,19 @@ export function registerDefaultPluginJobHandlers(): void {
 }
 
 /**
+ * Install the memory feature's persistence-lifecycle handlers into the
+ * persistence seam — the persistence-hooks analog of
+ * {@link registerDefaultPluginJobHandlers}. `bootstrapPlugins` calls this
+ * before the per-plugin init loop so the seam is wired regardless of the
+ * memory plugin's disabled-state (a disabled memory plugin's indexer no-ops
+ * via its own config gate). The seam holds a single handler set, so this
+ * replaces any prior registration.
+ */
+export function registerDefaultPluginPersistenceHooks(): void {
+  registerMemoryPersistenceHooks(memoryPersistenceHooks);
+}
+
+/**
  * Test-only helper: clear the hook registry and re-register every default
  * so integration tests that exercise the full agent loop have a
  * production-parity plugin stack. Use this in `beforeEach` of tests that
@@ -520,4 +535,5 @@ export function resetPluginRegistryAndRegisterDefaults(): void {
   registerDefaultPluginInjectors();
   clearJobHandlerRegistry();
   registerDefaultPluginJobHandlers();
+  registerDefaultPluginPersistenceHooks();
 }

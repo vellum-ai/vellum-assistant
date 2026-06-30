@@ -65,6 +65,7 @@ import {
   getAllDefaultPlugins,
   registerDefaultPluginInjectors,
   registerDefaultPluginJobHandlers,
+  registerDefaultPluginPersistenceHooks,
   registerDefaultPlugins,
 } from "../plugins/defaults/index.js";
 import {
@@ -227,6 +228,12 @@ export async function bootstrapPlugins(): Promise<void> {
   // worker dispatch table; pre-registering here keeps the daemon path symmetric
   // with tools/routes/injectors (the standalone worker self-registers instead).
   registerDefaultPluginJobHandlers();
+
+  // Install the memory feature's persistence-lifecycle handlers into the
+  // persistence seam up front, so the layer below memory can drive memory
+  // side effects (message indexing) without importing memory internals.
+  // Symmetric with the injector/job-handler registration above.
+  registerDefaultPluginPersistenceHooks();
 
   // Combine the canonical default plugins with any plugins registered via
   // `registerPlugin` (test fixtures). In production, `getRegisteredPlugins`

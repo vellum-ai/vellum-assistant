@@ -178,6 +178,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../persistence/embeddings/embedding-runtime-manager.js",
     "../../../persistence/embeddings/embedding-types.js",
     "../../../persistence/jobs-store.js",
+    "../../../persistence/memory-lifecycle-hooks.js",
     "../../../persistence/message-content.js",
     "../../../persistence/raw-query.js",
     "../../../persistence/schema/index.js",

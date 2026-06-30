@@ -23,14 +23,12 @@ import { z } from "zod";
 import type { ChannelId, InterfaceId } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { CHANNEL_IDS, isChannelId } from "../channels/types.js";
-import { getConfig } from "../config/loader.js";
 import { findDisplayTurnEndIndex } from "../conversations/message-consolidation.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
 import { forkGraphMemoryState } from "../plugins/defaults/memory/graph/graph-memory-state-store.js";
-import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
 import { MEMORY_RETROSPECTIVE_SOURCES } from "../plugins/defaults/memory/memory-retrospective-constants.js";
 import { forkRetrospectiveState } from "../plugins/defaults/memory/memory-retrospective-state.js";
 import { cancelPendingJobsForConversation } from "../plugins/defaults/memory/task-memory-cleanup.js";
@@ -87,6 +85,7 @@ import {
   copyForkMessagesViaSubprocess,
   type ForkIdPair,
 } from "./fork-message-copy.js";
+import { getMemoryPersistenceHooks } from "./memory-lifecycle-hooks.js";
 import {
   rawExec,
   rawGet,
@@ -1743,7 +1742,6 @@ export async function addMessage(
 
   if (!skipIndexing) {
     try {
-      const config = getConfig();
       const parsed = metadata
         ? messageMetadataSchema.safeParse(metadata)
         : null;
@@ -1751,19 +1749,15 @@ export async function addMessage(
         ? parsed.data.provenanceTrustClass
         : undefined;
       const automated = parsed?.success ? parsed.data.automated : undefined;
-      await indexMessageNow(
-        {
-          messageId: message.id,
-          conversationId: message.conversationId,
-          role: message.role,
-          content: message.content,
-          createdAt: message.createdAt,
-          scopeId: "default",
-          provenanceTrustClass,
-          automated,
-        },
-        config.memory,
-      );
+      await getMemoryPersistenceHooks().onMessagePersisted({
+        messageId: message.id,
+        conversationId: message.conversationId,
+        role: message.role,
+        content: message.content,
+        createdAt: message.createdAt,
+        provenanceTrustClass,
+        automated,
+      });
     } catch (err) {
       log.warn(
         { err, conversationId, messageId: message.id },
