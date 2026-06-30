@@ -35,6 +35,15 @@ mock.module("@/assistant/use-active-assistant-id", () => ({
   useActiveAssistantId: () => "assistant-1",
 }));
 
+// The worker toggle has its own unit test (memory-worker-toggle.test.tsx); stub
+// it here so these tests stay focused on the memory.enabled control and don't
+// need the worker status/start/stop query mocks.
+mock.module("@/domains/settings/components/memory-worker-toggle", () => ({
+  MemoryWorkerToggle: ({ memoryEnabled }: { memoryEnabled: boolean }) => (
+    <div data-testid="memory-worker-toggle" data-memory-enabled={memoryEnabled} />
+  ),
+}));
+
 mock.module("@/generated/daemon/sdk.gen", () => ({
   configGet: mock(async () => ({ data: daemonConfig })),
   configPatch: async () => {
@@ -92,6 +101,11 @@ describe("AdvancedPage memory settings", () => {
     expect(screen.getByText("Memory")).toBeTruthy();
     const toggle = screen.getByRole("switch", { name: "Enable memory" });
     expect(toggle.getAttribute("aria-checked")).toBe("true");
+
+    // The background-worker sub-control renders inside the memory card and is
+    // told memory is currently enabled.
+    const workerToggle = screen.getByTestId("memory-worker-toggle");
+    expect(workerToggle.getAttribute("data-memory-enabled")).toBe("true");
 
     fireEvent.click(toggle);
 
