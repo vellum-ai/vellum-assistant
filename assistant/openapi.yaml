@@ -7213,22 +7213,6 @@ paths:
       responses:
         "200":
           description: Successful response
-  /v1/conversations/{id}/regenerate:
-    post:
-      operationId: conversations_by_id_regenerate_post
-      summary: Regenerate response
-      description: Re-run the assistant for the last user message in a conversation.
-      tags:
-        - conversations
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "202":
-          description: Successful response
   /v1/conversations/{id}/slash:
     post:
       operationId: conversations_by_id_slash_post

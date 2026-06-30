@@ -1,5 +1,3 @@
-import { v4 as uuid } from "uuid";
-
 import {
   deleteLastExchange,
   deleteMessageById,
@@ -15,9 +13,6 @@ import { relinkLlmRequestLogs } from "../persistence/llm-request-log-store.js";
 import { getSummaryFromContextMessage } from "../plugins/defaults/compaction/window-manager.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
-import { truncate } from "../util/truncate.js";
-import type { ServerMessage } from "./message-protocol.js";
-import type { TraceEmitter } from "./trace-emitter.js";
 
 const log = getLogger("conversation-history");
 
@@ -122,7 +117,7 @@ async function cleanupQdrantVectors(
         failed,
         segments: segmentIds.length,
       },
-      "Cleaned up Qdrant vectors after regenerate",
+      "Cleaned up Qdrant vectors after undo",
     );
   }
 }
@@ -345,26 +340,12 @@ export function consolidateAssistantMessages(
 // ── Undo ─────────────────────────────────────────────────────────────
 
 /**
- * Subset of Conversation state that undo/regenerate need access to.
+ * Subset of Conversation state that undo needs access to.
  */
 export interface HistoryConversationContext {
   readonly conversationId: string;
-  readonly traceEmitter: TraceEmitter;
-  /** @internal */ sendToClient: (msg: ServerMessage) => void;
   messages: Message[];
   isProcessing(): boolean;
-  setProcessing(value: boolean): void;
-  abortController: AbortController | null;
-  currentRequestId?: string;
-  runAgentLoop(
-    content: string,
-    userMessageId: string,
-    options?: {
-      onEvent?: (msg: ServerMessage) => void;
-      isUserMessage?: boolean;
-      titleText?: string;
-    },
-  ): Promise<void>;
 }
 
 /**
@@ -405,211 +386,4 @@ export function undo(conversation: HistoryConversationContext): number {
   }
 
   return removed;
-}
-
-// ── Regenerate ───────────────────────────────────────────────────────
-
-/**
- * Regenerate the last assistant response: remove the assistant's reply
- * (and any intermediate tool_result messages) from memory, DB, and
- * Qdrant, then re-run the agent loop with the same user message.
- */
-export async function regenerate(
-  conversation: HistoryConversationContext,
-  requestId?: string,
-): Promise<void> {
-  if (conversation.isProcessing()) {
-    conversation.sendToClient({
-      type: "error",
-      conversationId: conversation.conversationId,
-      message: "Cannot regenerate while processing",
-    });
-    if (requestId) {
-      conversation.traceEmitter.emit(
-        "request_error",
-        "Cannot regenerate while processing",
-        {
-          requestId,
-          status: "error",
-          attributes: { reason: "already_processing" },
-        },
-      );
-    }
-    return;
-  }
-
-  // Find the last undoable user message — everything after it is the
-  // assistant's exchange that we want to regenerate.
-  const lastUserIdx = findLastUndoableUserMessageIndex(conversation.messages);
-  if (lastUserIdx === -1) {
-    conversation.sendToClient({
-      type: "error",
-      conversationId: conversation.conversationId,
-      message: "No messages to regenerate",
-    });
-    if (requestId) {
-      conversation.traceEmitter.emit(
-        "request_error",
-        "No messages to regenerate",
-        {
-          requestId,
-          status: "error",
-          attributes: { reason: "no_messages" },
-        },
-      );
-    }
-    return;
-  }
-
-  // There must be at least one message after the user message (the assistant reply).
-  if (lastUserIdx >= conversation.messages.length - 1) {
-    conversation.sendToClient({
-      type: "error",
-      conversationId: conversation.conversationId,
-      message: "No assistant response to regenerate",
-    });
-    if (requestId) {
-      conversation.traceEmitter.emit(
-        "request_error",
-        "No assistant response to regenerate",
-        {
-          requestId,
-          status: "error",
-          attributes: { reason: "no_assistant_response" },
-        },
-      );
-    }
-    return;
-  }
-
-  // Remove the assistant's exchange from in-memory history (keep the user message).
-  conversation.messages = conversation.messages.slice(0, lastUserIdx + 1);
-
-  // Find DB message IDs to delete: get all messages from the DB, then
-  // identify the ones that come after the last user message.
-  const dbMessages = getMessages(conversation.conversationId);
-
-  // Walk backwards to find the last real (non-tool_result) user message in the DB.
-  let dbUserMsgIdx = -1;
-  for (let i = dbMessages.length - 1; i >= 0; i--) {
-    if (dbMessages[i].role !== "user") continue;
-    try {
-      const parsed = JSON.parse(dbMessages[i].content);
-      if (
-        Array.isArray(parsed) &&
-        parsed.length > 0 &&
-        parsed.every((b: Record<string, unknown>) => isToolResultBlock(b))
-      ) {
-        continue; // Skip tool_result-only user messages
-      }
-    } catch {
-      /* plain text = real user message */
-    }
-    dbUserMsgIdx = i;
-    break;
-  }
-
-  if (dbUserMsgIdx === -1) {
-    conversation.sendToClient({
-      type: "error",
-      conversationId: conversation.conversationId,
-      message: "No user message found in DB",
-    });
-    if (requestId) {
-      conversation.traceEmitter.emit(
-        "request_error",
-        "No user message found in DB",
-        {
-          requestId,
-          status: "error",
-          attributes: { reason: "no_db_user_message" },
-        },
-      );
-    }
-    return;
-  }
-
-  // Capture the existing DB user message ID so we can pass it to
-  // runAgentLoop without re-persisting the user message.
-  const existingUserMessageId = dbMessages[dbUserMsgIdx].id;
-
-  // Everything after the user message needs to be deleted.
-  const messagesToDelete = dbMessages.slice(dbUserMsgIdx + 1);
-
-  // Delete each message via deleteMessageById and collect IDs for Qdrant cleanup.
-  const allSegmentIds: string[] = [];
-  for (const msg of messagesToDelete) {
-    const deleted = deleteMessageById(msg.id);
-    allSegmentIds.push(...deleted.segmentIds);
-  }
-
-  // Clean up Qdrant vectors (fire-and-forget).
-  cleanupQdrantVectors(conversation.conversationId, allSegmentIds).catch(
-    (err) => {
-      log.warn(
-        { err, conversationId: conversation.conversationId },
-        "Qdrant cleanup after regenerate failed (non-fatal)",
-      );
-    },
-  );
-
-  // Re-extract the user message content for the agent loop.
-  // Use all content blocks (text, image, file) so attachments are
-  // preserved — not just text blocks.
-  const userMessage = conversation.messages[lastUserIdx];
-  const textBlocks = userMessage.content.filter((b) => b.type === "text");
-  const content = textBlocks
-    .map((b) => (b as { type: "text"; text: string }).text)
-    .join("");
-
-  // Notify client that the old response has been removed.
-  conversation.sendToClient({
-    type: "undo_complete",
-    removedCount: messagesToDelete.length,
-    conversationId: conversation.conversationId,
-  });
-
-  // Set up processing state manually and call runAgentLoop directly,
-  // bypassing processMessage to avoid duplicating the user message
-  // in both this.messages and the DB.
-  conversation.setProcessing(true);
-  conversation.abortController = new AbortController();
-  const resolvedRequestId = requestId ?? uuid();
-  conversation.currentRequestId = resolvedRequestId;
-
-  // Fire-and-forget: matches the /v1/messages pattern so the HTTP handler
-  // returns 202 immediately rather than blocking on the full agent turn.
-  // Otherwise the client's 15s POST timeout fires on any non-trivial
-  // regenerate and surfaces a misleading "Failed to regenerate message"
-  // banner even though the response streams in normally via SSE.
-  //
-  // runAgentLoop catches most errors internally and emits `request_error`
-  // itself, but anything thrown from its `finally` block (commit, drain,
-  // profiler) would otherwise escape silently because the caller does
-  // not await the agent loop. Emit a structured trace event so the
-  // observability contract is preserved on those paths too.
-  void conversation
-    .runAgentLoop(content, existingUserMessageId, {
-      isUserMessage: true,
-    })
-    .catch((err) => {
-      const message = err instanceof Error ? err.message : String(err);
-      log.error(
-        { err, conversationId: conversation.conversationId },
-        "runAgentLoop after regenerate failed",
-      );
-      conversation.traceEmitter.emit(
-        "request_error",
-        truncate(message, 200, ""),
-        {
-          requestId: resolvedRequestId,
-          status: "error",
-          attributes: {
-            errorClass: err instanceof Error ? err.constructor.name : "Error",
-            message: truncate(message, 500, ""),
-            source: "regenerate_fire_and_forget",
-          },
-        },
-      );
-    });
 }

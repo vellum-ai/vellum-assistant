@@ -33,7 +33,6 @@ mock.module("../daemon/handlers/conversations.js", () => ({
   },
   switchConversation: async () => null,
   undoLastMessage: async () => null,
-  regenerateResponse: async () => null,
 }));
 
 import {

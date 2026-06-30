@@ -51,7 +51,6 @@ mock.module("../daemon/handlers/conversations.js", () => ({
   switchConversation: async () => null,
   clearAllConversations: async () => 0,
   undoLastMessage: async () => null,
-  regenerateResponse: async () => null,
 }));
 
 import { getOrCreateConversation } from "../persistence/conversation-key-store.js";

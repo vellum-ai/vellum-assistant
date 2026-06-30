@@ -15,7 +15,6 @@
  * POST   /v1/conversations/:id/surface    — promote to / demote from Recents
  * POST   /v1/conversations/:id/cancel     — cancel generation
  * POST   /v1/conversations/:id/undo       — undo last message
- * POST   /v1/conversations/:id/regenerate — regenerate last assistant response
  * POST   /v1/conversations/reorder        — reorder / pin conversations
  */
 
@@ -25,7 +24,6 @@ import { destroyActiveConversation } from "../../daemon/conversation-store.js";
 import {
   cancelGeneration,
   clearAllConversations,
-  regenerateResponse,
   resolveMetaSlashCommand,
   switchConversation,
   undoLastMessage,
@@ -491,25 +489,6 @@ async function handleResolveMetaSlashCommand({
   return result;
 }
 
-async function handleRegenerateResponse({ pathParams = {} }: RouteHandlerArgs) {
-  const conversationId = pathParams.id!;
-  try {
-    const result = await regenerateResponse(conversationId);
-    if (!result) {
-      throw new NotFoundError(`No active conversation for ${pathParams.id}`);
-    }
-    return undefined;
-  } catch (err) {
-    if (err instanceof NotFoundError) throw err;
-    const message = err instanceof Error ? err.message : String(err);
-    log.error(
-      { err, conversationId: pathParams.id },
-      "Error regenerating via HTTP",
-    );
-    throw new InternalError(`Failed to regenerate: ${message}`);
-  }
-}
-
 function handleReorderConversations({ body = {}, headers }: RouteHandlerArgs) {
   const updates = body.updates as
     | Array<{
@@ -898,22 +877,6 @@ export const ROUTES: RouteDefinition[] = [
         .optional(),
     }),
     handler: handleResolveMetaSlashCommand,
-  },
-  {
-    operationId: "regenerateResponse",
-    endpoint: "conversations/:id/regenerate",
-    method: "POST",
-    policy: {
-      requiredScopes: ["chat.write"],
-      allowedPrincipalTypes: ACTOR_PRINCIPALS,
-    },
-    summary: "Regenerate response",
-    description:
-      "Re-run the assistant for the last user message in a conversation.",
-    tags: ["conversations"],
-    pathParams: [{ name: "id", type: "uuid" }],
-    responseStatus: "202",
-    handler: handleRegenerateResponse,
   },
   {
     operationId: "reorderConversations",

@@ -156,7 +156,7 @@ const CANCEL_PATTERNS = [/abort/i, /cancel/i];
  */
 export interface ErrorContext {
   /** Where in the processing pipeline the error occurred. */
-  phase: "agent_loop" | "regenerate" | "handler" | "persist";
+  phase: "agent_loop" | "handler" | "persist";
   /** Whether the abort signal was active when the error occurred. */
   aborted?: boolean;
   /**
@@ -263,20 +263,6 @@ export function classifyConversationError(
       ...(attribution.profileName
         ? { profileName: attribution.profileName }
         : {}),
-    };
-  }
-
-  // Phase-specific overrides
-  if (ctx.phase === "regenerate") {
-    const base = classifyCore(error, message, attribution);
-    return {
-      code: "REGENERATE_FAILED",
-      userMessage: `Could not regenerate the response. ${base.userMessage}`,
-      retryable: true,
-      debugDetails,
-      errorCategory: `regenerate:${base.errorCategory}`,
-      ...(base.connectionName ? { connectionName: base.connectionName } : {}),
-      ...(base.profileName ? { profileName: base.profileName } : {}),
     };
   }
 

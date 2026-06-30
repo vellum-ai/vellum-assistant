@@ -26,7 +26,6 @@ mock.module("../daemon/handlers/conversations.js", () => ({
   clearAllConversations: async () => 0,
   switchConversation: async () => null,
   undoLastMessage: async () => null,
-  regenerateResponse: async () => null,
 }));
 
 import type { Database } from "bun:sqlite";
