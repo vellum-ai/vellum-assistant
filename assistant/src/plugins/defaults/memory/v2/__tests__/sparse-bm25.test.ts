@@ -7,7 +7,7 @@ import {
   SPARSE_VOCAB_SIZE,
   tokenHash,
   tokenizeStemmed,
-} from "../../sparse-tokenize.js";
+} from "../../../../../persistence/embeddings/sparse-tokenize.js";
 import {
   _resetCorpusStatsForTests,
   _setCorpusStatsForTests,
