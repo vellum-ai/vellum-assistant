@@ -14,6 +14,12 @@ import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
 import { isActiveAcpStatus, type AcpRunStatus } from "@/utils/acp-run-status";
+import {
+  optimisticCancel,
+  optimisticRestore,
+  optimisticRetire,
+  type OptimisticLifecycleConfig,
+} from "@/domains/chat/store-helpers/optimistic-lifecycle";
 
 import { setToolUseAnchor } from "./store-helpers/by-tool-use-id-index";
 
@@ -324,6 +330,34 @@ function bumpHighWaterMark(
   return new Map(highWaterMark).set(acpSessionId, seq);
 }
 
+/**
+ * Build the optimistic cancel/restore/retire config for the acp-run store. An
+ * optimistic cancel stamps `completedAt`; a retire additionally records a stop
+ * reason (e.g. `daemon_restarted`). Restore clears `completedAt`.
+ */
+function acpLifecycleConfig(
+  completedAt?: number,
+  stopReason?: string,
+): OptimisticLifecycleConfig<AcpRunEntry, AcpRunStatus> {
+  return {
+    getStatus: (entry) => entry.status,
+    isActive: isActiveAcpStatus,
+    cancelledStatus: "cancelled",
+    applyCancel: (entry) => ({ ...entry, status: "cancelled", completedAt }),
+    applyRestore: (entry, prev) => ({
+      ...entry,
+      status: prev,
+      completedAt: undefined,
+    }),
+    applyRetire: (entry) => ({
+      ...entry,
+      status: "cancelled",
+      stopReason,
+      completedAt,
+    }),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
@@ -489,53 +523,36 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
 
   cancelRun: (params) => {
     const { byId } = get();
-    const existing = byId[params.acpSessionId];
-    if (!existing || !isActiveAcpStatus(existing.status)) return;
+    const next = optimisticCancel(
+      byId[params.acpSessionId],
+      acpLifecycleConfig(params.completedAt),
+    );
+    if (!next) return;
 
-    set({
-      byId: {
-        ...byId,
-        [params.acpSessionId]: {
-          ...existing,
-          status: "cancelled",
-          completedAt: params.completedAt,
-        },
-      },
-    });
+    set({ byId: { ...byId, [params.acpSessionId]: next } });
   },
 
   restoreRunStatus: (params) => {
     const { byId } = get();
-    const existing = byId[params.acpSessionId];
-    // Only revert our own optimistic cancel; if a real terminal already landed,
-    // leave it.
-    if (!existing || existing.status !== "cancelled") return;
+    const next = optimisticRestore(
+      byId[params.acpSessionId],
+      params.status,
+      acpLifecycleConfig(),
+    );
+    if (!next) return;
 
-    set({
-      byId: {
-        ...byId,
-        [params.acpSessionId]: {
-          ...existing,
-          status: params.status,
-          completedAt: undefined,
-        },
-      },
-    });
+    set({ byId: { ...byId, [params.acpSessionId]: next } });
   },
 
   retireMissingRuns: (params) => {
     const { byId } = get();
+    const config = acpLifecycleConfig(params.completedAt, "daemon_restarted");
     let changed = false;
     const next = { ...byId };
     for (const id of params.acpSessionIds) {
-      const existing = next[id];
-      if (!existing || !isActiveAcpStatus(existing.status)) continue;
-      next[id] = {
-        ...existing,
-        status: "cancelled",
-        stopReason: "daemon_restarted",
-        completedAt: params.completedAt,
-      };
+      const retired = optimisticRetire(next[id], config);
+      if (!retired) continue;
+      next[id] = retired;
       changed = true;
     }
     if (changed) set({ byId: next });
