@@ -1,5 +1,5 @@
 // Collapsible wrapper for a set of spawned subagents: the SubagentAvatarRow
-// summary when collapsed, the SubagentInlineProgressCard list when expanded.
+// summary when collapsed, the generic inline-process card list when expanded.
 
 import { ChevronUp } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
@@ -8,7 +8,8 @@ import { useState } from "react";
 import { Typography } from "@vellumai/design-library";
 
 import { SubagentAvatarRow } from "@/domains/chat/components/subagent-inline-progress-card/subagent-avatar-row";
-import { SubagentInlineProgressCard } from "@/domains/chat/components/subagent-inline-progress-card/subagent-inline-progress-card";
+import { SUBAGENT_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/subagent";
+import { InlineProcessCardRow } from "@/domains/chat/process-registry/inline-process-card-row";
 
 export interface SubagentSpawnGroupProps {
   subagentIds: string[];
@@ -57,11 +58,14 @@ export function SubagentSpawnGroup({
         >
           <div className="flex w-full flex-col gap-1">
             {subagentIds.map((id) => (
-              <SubagentInlineProgressCard
+              <InlineProcessCardRow
                 key={id}
-                subagentId={id}
-                onSubagentClick={onSubagentClick}
-                onStopSubagent={onStopSubagent}
+                descriptor={SUBAGENT_DESCRIPTOR}
+                id={id}
+                onOpen={onSubagentClick ? () => onSubagentClick(id) : undefined}
+                onStop={onStopSubagent ? () => onStopSubagent(id) : undefined}
+                stopAriaLabel="Stop subagent"
+                testId="inline-process-card"
               />
             ))}
           </div>
