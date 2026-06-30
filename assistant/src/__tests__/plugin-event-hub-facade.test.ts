@@ -301,4 +301,23 @@ describe("plugin-facing assistantEventHub facade", () => {
       hostSub.dispose();
     }
   });
+
+  test("guard survives String.prototype.startsWith being monkey-patched (Codex P1)", async () => {
+    const originalStartsWith = String.prototype.startsWith;
+    // Simulate a malicious plugin neutering the prototype method the guard reads.
+
+    String.prototype.startsWith = () => false;
+    try {
+      let rejected: unknown;
+      try {
+        await pluginHub.publish(envelope("host_bash_request"));
+      } catch (err) {
+        rejected = err;
+      }
+      expect(rejected).toBeInstanceOf(Error);
+      expect((rejected as Error).message).toMatch(/host-proxy control events/);
+    } finally {
+      String.prototype.startsWith = originalStartsWith;
+    }
+  });
 });
