@@ -20,6 +20,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { PLUGIN_INSTALL_ERROR } from "@/domains/intelligence/plugins/constants";
 import type {
   PluginsByNameGetResponse,
@@ -154,14 +155,19 @@ function catalog(overrides: Partial<CatalogMatch> = {}): CatalogMatch {
   };
 }
 
-function renderTab(props: { initialPluginName?: string } = {}) {
+function renderTab(props: { plugin?: string } = {}) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
+  const entry = props.plugin
+    ? `/assistant/plugins?plugin=${encodeURIComponent(props.plugin)}`
+    : "/assistant/plugins";
   return render(
-    <QueryClientProvider client={client}>
-      <PluginsTab assistantId={ASSISTANT_ID} {...props} />
-    </QueryClientProvider>,
+    <MemoryRouter initialEntries={[entry]}>
+      <QueryClientProvider client={client}>
+        <PluginsTab assistantId={ASSISTANT_ID} />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
 }
 
@@ -311,8 +317,8 @@ describe("PluginsTab", () => {
     // Click the row (the name bubbles up to the row's `onSelect`).
     fireEvent.click(await findByText("simple-memory"));
 
-    // The detail renders in-tab — its back affordance appears and the list
-    // chrome (the search box) is gone. No route change is involved.
+    // The detail renders in-tab (the open plugin is held in `?plugin=`) — its
+    // back affordance appears and the list chrome (the search box) is gone.
     const back = await findByLabelText("Back to plugins");
     expect(queryByLabelText("Search plugins")).toBeNull();
 
@@ -323,10 +329,10 @@ describe("PluginsTab", () => {
     expect(await findByText("simple-memory")).toBeTruthy();
   });
 
-  test("initialPluginName deep-links straight into the detail on mount", async () => {
+  test("?plugin= deep-links straight into the detail on mount", async () => {
     installedPlugins = [installed()];
 
-    const { findByLabelText } = renderTab({ initialPluginName: "simple-memory" });
+    const { findByLabelText } = renderTab({ plugin: "simple-memory" });
 
     expect(await findByLabelText("Back to plugins")).toBeTruthy();
   });

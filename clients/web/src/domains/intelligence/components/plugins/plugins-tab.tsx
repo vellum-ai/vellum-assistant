@@ -9,6 +9,7 @@ import {
     X,
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 
 import { PluginDetail } from "@/domains/intelligence/components/plugins/plugin-detail";
 import { PluginDetailMobile } from "@/domains/intelligence/components/plugins/plugin-detail-mobile";
@@ -49,12 +50,6 @@ import { Button, Card, ConfirmDialog, toast } from "@vellumai/design-library";
 
 interface PluginsTabProps {
   assistantId: string;
-  /**
-   * Optional plugin name to open in the detail view on first mount. Comes from
-   * the `?plugin=<name>` deep-link. Only seeds the initial state — internal
-   * navigation thereafter is local state.
-   */
-  initialPluginName?: string;
 }
 
 const TIP_STORAGE_KEY = "vellum:plugins:tipDismissed";
@@ -64,18 +59,18 @@ const TIP_STORAGE_KEY = "vellum:plugins:tipDismissed";
  * status-filter bar, and a single installed-first list of `PluginListRow`s.
  * Install / remove / upgrade live here (the rows are presentational) so the
  * tab can gate destructive Remove and local-edit-overwriting Upgrade behind a
- * `ConfirmDialog`. Selecting a row opens the detail in-tab (like `SkillsTab`)
- * via local selection state, seeded once from the `?plugin=` deep-link.
+ * `ConfirmDialog`. Selecting a row opens the detail in-tab (like `SkillsTab`);
+ * the open plugin is held in the `?plugin=<name>` URL param, so browser
+ * back/forward and the Plugins tab link stay in sync with the detail.
  */
-export function PluginsTab({ assistantId, initialPluginName }: PluginsTabProps) {
+export function PluginsTab({ assistantId }: PluginsTabProps) {
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedPluginName = searchParams.get("plugin");
 
   const [searchValue, setSearchValue] = useState("");
   const [filter, setFilter] = useState<PluginFilter>("all");
-  const [selectedPluginName, setSelectedPluginName] = useState<string | null>(
-    initialPluginName ?? null,
-  );
   const [installingName, setInstallingName] = useState<string | null>(null);
   const [removingName, setRemovingName] = useState<string | null>(null);
   const [upgradingName, setUpgradingName] = useState<string | null>(null);
@@ -134,9 +129,30 @@ export function PluginsTab({ assistantId, initialPluginName }: PluginsTabProps) 
     },
   });
 
+  // Selection lives in the `?plugin=` URL param so back/forward and the tab
+  // link stay in sync with the open detail (opening pushes history; closing
+  // replaces it so the in-detail Back acts as "close", not a forward step).
   const handleSelect = useCallback(
-    (item: PluginListItem) => setSelectedPluginName(item.name),
-    [],
+    (item: PluginListItem) =>
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.set("plugin", item.name);
+        return next;
+      }),
+    [setSearchParams],
+  );
+
+  const handleCloseDetail = useCallback(
+    () =>
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("plugin");
+          return next;
+        },
+        { replace: true },
+      ),
+    [setSearchParams],
   );
 
   const handleInstall = useCallback(
@@ -203,10 +219,10 @@ export function PluginsTab({ assistantId, initialPluginName }: PluginsTabProps) 
   const isSearching = isFetching && !isLoading;
 
   if (selectedPluginName) {
-    // Seed the detail header icon from the already-loaded list row so
-    // click-through shows the right glyph immediately (no load-time flash);
-    // `undefined` for a deep-link with no matching row falls back to a
-    // glyph-less placeholder until the detail query resolves.
+    // Seed the detail header icon from the already-loaded list row: catalog
+    // rows are known-external (📦 immediately, no load-time flash). Installed
+    // rows and unmatched deep-links are `undefined` (origin unknown), so the
+    // header shows a glyph-less placeholder until the detail query resolves.
     const selectedExternalHint = items.find(
       (p) => p.name === selectedPluginName,
     )?.external;
@@ -214,7 +230,7 @@ export function PluginsTab({ assistantId, initialPluginName }: PluginsTabProps) 
       assistantId,
       name: selectedPluginName,
       externalHint: selectedExternalHint,
-      onBack: () => setSelectedPluginName(null),
+      onBack: handleCloseDetail,
     };
     return isMobile ? (
       <PluginDetailMobile {...detailProps} />
