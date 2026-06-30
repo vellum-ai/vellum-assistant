@@ -425,4 +425,32 @@ describe("reconcileEmbeddingIdentity default side-effecting deps", () => {
     expect(spies.recreateConceptPageCollection).toHaveBeenCalledTimes(1);
     expect(spies.recreateSectionCollection).toHaveBeenCalledTimes(1);
   });
+
+  test("migrate does not roll back when only the v3 recreate fails (v2 already rebuilt)", async () => {
+    const config = fakeConfig("gemini");
+    const { spies, reconcile, defaultDeps } = await withDefaultDepsMocks({
+      v3Live: true,
+    });
+    // v2 rebuilds successfully; the v3 section recreate then throws.
+    spies.recreateSectionCollection.mockImplementation(async () => {
+      throw new Error("v3 recreate failed");
+    });
+
+    // The reconcile must NOT reject: v2 is rebuilt at the new dimension, so the
+    // v3 failure is swallowed (v3 self-heals via its lazy recreate + maintain)
+    // rather than rolling the committed dimension back below the rebuilt v2.
+    await reconcile(config, {
+      ...defaultDeps(config),
+      ...driveBranch({ kind: "migrate", fromDim: 384, toDim: 3072 }, 384),
+    });
+
+    expect(spies.recreateConceptPageCollection).toHaveBeenCalledTimes(1);
+    expect(spies.recreateSectionCollection).toHaveBeenCalledTimes(1);
+    // Reaching the reembed enqueue proves the migrate completed without the
+    // rollback/re-throw a propagated v3 failure would have triggered.
+    expect(spies.enqueueMemoryJob).toHaveBeenCalledWith(
+      "memory_v2_reembed",
+      {},
+    );
+  });
 });

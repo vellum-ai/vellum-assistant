@@ -123,9 +123,28 @@ async function defaultRecreateCollectionsAtDim(
   config: AssistantConfig,
   dim: number,
 ): Promise<void> {
+  // Recreate v2 first. A failure here means v2 was NOT rebuilt at the new
+  // dimension, so the caller's rollback (restoring the old committed dimension)
+  // is correct — config still matches the old/absent v2 collection and the next
+  // reconcile re-migrates cleanly.
   await recreateConceptPageCollection();
+
+  // v2 is now rebuilt at `dim`. A v3 recreate failure must NOT propagate: the
+  // caller would then roll the committed dimension back below the already-
+  // rebuilt v2, desyncing config from v2 and wedging the next reconcile into a
+  // no-op (it reads v2's new dimension as committed). The v3 section collection
+  // is page-derived and self-heals — its lazy ensure recreates on dimension
+  // drift and the enqueued maintain repopulates it — so log and continue,
+  // keeping the committed dimension at the rebuilt v2 size.
   if (isMemoryV3Live(config)) {
-    await recreateSectionCollection(configWithVectorSize(config, dim));
+    try {
+      await recreateSectionCollection(configWithVectorSize(config, dim));
+    } catch (err) {
+      log.warn(
+        { err, dim },
+        "v3 section collection recreate failed after v2 rebuilt; deferring to its lazy recreate + maintain",
+      );
+    }
   }
 }
 
