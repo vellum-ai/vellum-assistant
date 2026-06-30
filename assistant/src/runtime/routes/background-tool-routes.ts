@@ -13,7 +13,7 @@ import {
   listBackgroundTools,
   listCompletedBackgroundTools,
 } from "../../tools/background-tool-registry.js";
-import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -83,9 +83,12 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "background_tool_list",
     endpoint: "background-tools",
     method: "GET",
+    // Read path for the chat UI's background-task rehydration, like the ACP
+    // `acp_list_sessions` route — so the web actor (not just a local CLI
+    // caller) can re-seed inline cards on reload.
     policy: {
-      requiredScopes: ["settings.read"],
-      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     handler: handleBackgroundToolList,
     summary: "List active background tools",
@@ -109,9 +112,11 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "background_tool_cancel",
     endpoint: "background-tools/cancel",
     method: "POST",
+    // Write path for the inline card's Stop button, like ACP `acp_cancel` —
+    // the web actor cancels a running task it can see.
     policy: {
-      requiredScopes: ["settings.write"],
-      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     handler: handleBackgroundToolCancel,
     summary: "Cancel a background tool",
