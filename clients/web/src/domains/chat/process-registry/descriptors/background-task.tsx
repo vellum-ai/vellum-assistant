@@ -41,7 +41,15 @@ function useActiveIds(): string[] {
  */
 function BackgroundTaskCardLeading({ id }: { id: string }) {
   const toolName = useBackgroundTaskStore((s) => s.byId[id]?.toolName);
-  return <BackgroundTaskGlyph toolName={toolName ?? "bash"} />;
+  // `BackgroundTaskGlyph` forwards only the className it's given (no default
+  // size), so size/colour the inline-card glyph to match the other process
+  // rows — 16px secondary, the same as the ACP card's `AcpAgentIcon` default.
+  return (
+    <BackgroundTaskGlyph
+      toolName={toolName ?? "bash"}
+      className="h-4 w-4 text-[var(--content-secondary)]"
+    />
+  );
 }
 
 /**
