@@ -913,3 +913,68 @@ describe("orchestrate — degradation", () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// Entity lane: the heading section is the identity the lane exists to surface,
+// so it overrides a bulk-theme section a prior lane already recorded for the
+// same page, and surfaces a heading-named page no other lane found.
+// ---------------------------------------------------------------------------
+
+describe("orchestrate — entity lane", () => {
+  test("overrides the matched section + descriptor to the heading when another lane already surfaced the page", async () => {
+    const lanes = await buildLanes();
+    const { sectionIndex } = lanes;
+    // topic-a sections: [leadDoc] = lead (bulk), [headingDoc] = "## Details".
+    const [leadDoc, headingDoc] = sectionIndex.byArticle.get("topic-a")!;
+    const lead = sectionIndex.sections[leadDoc!]!;
+    const heading = sectionIndex.sections[headingDoc!]!;
+
+    // needle surfaces topic-a for its BULK lead section; the entity catalog
+    // maps a message token to topic-a's HEADING section.
+    const needle = {
+      query: () => [{ article: "topic-a", section: leadDoc! }],
+      bestSection: () => leadDoc!,
+      idf: () => 0,
+    };
+    const entityIndex = new Map<string, number[]>([["widget", [headingDoc!]]]);
+
+    const result = await orchestrate(
+      makeTurn(1, "tell me about the widget"),
+      depsOf(lanes, { needle, entityIndex, selectorEnabled: false }),
+    );
+
+    // The page is surfaced once and keeps the needle's first-lane attribution…
+    const hits = result.lanes.finder.filter((c) => c.slug === "topic-a");
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.lane).toBe("needle");
+    // …but its matched section and pool descriptor are the HEADING, not the
+    // bulk lead the needle recorded.
+    expect(result.matchedSections.get("topic-a")).toBe(heading);
+    expect(result.matchedSections.get("topic-a")).not.toBe(lead);
+    expect(hits[0]!.descriptor).toBe(heading.text);
+  });
+
+  test("surfaces a heading-named page no other lane found, tagged `entity`", async () => {
+    const lanes = await buildLanes();
+    const { sectionIndex } = lanes;
+    const [, headingDoc] = sectionIndex.byArticle.get("topic-c")!;
+    const heading = sectionIndex.sections[headingDoc!]!;
+    const needle = {
+      query: () => [] as { article: Slug; section: number }[],
+      bestSection: () => -1,
+      idf: () => 0,
+    };
+    const entityIndex = new Map<string, number[]>([["gadget", [headingDoc!]]]);
+
+    const result = await orchestrate(
+      makeTurn(1, "what about the gadget"),
+      depsOf(lanes, { needle, entityIndex, selectorEnabled: false }),
+    );
+
+    const hits = result.lanes.finder.filter((c) => c.slug === "topic-c");
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.lane).toBe("entity");
+    expect(result.matchedSections.get("topic-c")).toBe(heading);
+    expect(result.selections.map((s) => s.slug)).toContain("topic-c");
+  });
+});

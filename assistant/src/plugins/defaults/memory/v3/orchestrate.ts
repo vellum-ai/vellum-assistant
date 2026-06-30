@@ -309,10 +309,17 @@ export async function orchestrate(
   // entity the message mentions. Additive BM25 buries a single named entity
   // under a long, multi-topic message's bulk theme; this keys on the heading
   // vocabulary so the page the user named surfaces regardless of the bulk
-  // theme. The hit carries its heading section, so injection renders it. Runs
-  // before edge expansion so an entity hit joins `finderSeen` (edge won't
-  // re-surface it section-less); it is NOT added to the edge seeds, so it only
-  // contributes its own page.
+  // theme. Runs before edge expansion so an entity hit joins `finderSeen` (edge
+  // won't re-surface it section-less); it is NOT added to the edge seeds, so it
+  // only contributes its own page.
+  //
+  // The heading section IS the identity this lane exists to surface, so it
+  // takes precedence over any bulk-theme section a prior lane (needle / dense /
+  // reply) already recorded for the SAME page: `addFinder` keeps the first
+  // matched section and skips duplicate slugs, so override the matched section
+  // and the existing finder descriptor here before delegating, ensuring
+  // injection, the spotlight, and the selector snippet all render the heading
+  // rather than the earlier non-entity match.
   if (deps.entityIndex) {
     for (const hit of entityLane(
       deps.entityIndex,
@@ -320,7 +327,13 @@ export async function orchestrate(
       turn.currentMessage,
       deps.entityCap ?? DEFAULT_ENTITY_CAP,
     )) {
-      addFinder(hit.article, sections[hit.section], undefined, "entity");
+      const section = sections[hit.section];
+      if (section) {
+        matchedSections.set(hit.article, section);
+        const existing = finder.find((c) => c.slug === hit.article);
+        if (existing) existing.descriptor = section.text;
+      }
+      addFinder(hit.article, section, undefined, "entity");
     }
   }
 
