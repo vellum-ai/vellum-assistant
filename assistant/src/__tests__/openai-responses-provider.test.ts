@@ -89,6 +89,10 @@ function textDeltaEvent(delta: string): FakeStreamEvent {
   return { type: "response.output_text.delta", delta };
 }
 
+function userMsg(text: string): Message {
+  return { role: "user", content: [{ type: "text", text }] };
+}
+
 function functionCallAddedEvent(
   callId: string,
   name: string,
@@ -393,6 +397,42 @@ describe("OpenAIResponsesProvider", () => {
       name: "file_read",
       input: { path: "/tmp/test" },
     });
+  });
+
+  test("fires tool preview and argument progress events while tool calls stream", async () => {
+    fakeStreamEvents = [
+      functionCallAddedEvent("call_write", "app_create"),
+      functionCallArgsDeltaEvent(
+        '{"source_files":[{"path":"src/App.tsx","content":"hello"}]}',
+        "call_write",
+      ),
+      functionCallArgsDoneEvent(
+        "call_write",
+        "app_create",
+        '{"source_files":[{"path":"src/App.tsx","content":"hello"}]}',
+      ),
+      completedEvent(10, 15),
+    ];
+
+    const events: ProviderEvent[] = [];
+    await provider.sendMessage([userMsg("Create an app")], {
+      onEvent: (e) => events.push(e),
+    });
+
+    expect(events.slice(0, 2)).toEqual([
+      {
+        type: "tool_use_preview_start",
+        toolUseId: "call_write",
+        toolName: "app_create",
+      },
+      {
+        type: "input_json_delta",
+        toolUseId: "call_write",
+        toolName: "app_create",
+        accumulatedJson:
+          '{"source_files":[{"path":"src/App.tsx","content":"hello"}]}',
+      },
+    ]);
   });
 
   // -----------------------------------------------------------------------

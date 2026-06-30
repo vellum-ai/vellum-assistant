@@ -7,6 +7,7 @@ import { getLogger } from "../../util/logger.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { escapeXmlAttr } from "../../util/xml.js";
 import { createStreamTimeout } from "../stream-timeout.js";
+import { createToolProgressEmitter } from "../tool-progress-events.js";
 import type {
   ContentBlock,
   Message,
@@ -293,6 +294,7 @@ export class OpenAIResponsesProvider implements Provider {
       >();
       // Maps item_id → callId so we can look up tool calls from delta events.
       const itemIdToCallId = new Map<string, string>();
+      const toolProgress = createToolProgressEmitter(onEvent);
       // Track web search call item IDs so we can emit server_tool_complete.
       const webSearchCallIds: string[] = [];
       let finishReason = "unknown";
@@ -348,6 +350,7 @@ export class OpenAIResponsesProvider implements Provider {
                   args: "",
                 });
                 itemIdToCallId.set(itemId, callId);
+                toolProgress.emitPreviewStart(callId, name);
               } else if (item?.type === "web_search_call") {
                 const toolUseId = item.id ?? "";
                 webSearchCallIds.push(toolUseId);
@@ -372,6 +375,11 @@ export class OpenAIResponsesProvider implements Provider {
                   const entry = toolCallMap.get(callId);
                   if (entry) {
                     entry.args += delta;
+                    toolProgress.emitInputJsonDelta(
+                      entry.callId,
+                      entry.name,
+                      entry.args,
+                    );
                   }
                 }
               }
@@ -388,7 +396,14 @@ export class OpenAIResponsesProvider implements Provider {
                 if (callId) {
                   const entry = toolCallMap.get(callId);
                   if (entry) {
+                    if (event.name) entry.name = event.name;
                     entry.args = event.arguments;
+                    toolProgress.emitInputJsonDelta(
+                      entry.callId,
+                      entry.name,
+                      entry.args,
+                      { force: true },
+                    );
                   }
                 }
               }
@@ -462,6 +477,9 @@ export class OpenAIResponsesProvider implements Provider {
         content.push({ type: "text", text: contentText });
       }
       for (const [, tc] of toolCallMap) {
+        toolProgress.emitInputJsonDelta(tc.callId, tc.name, tc.args, {
+          force: true,
+        });
         let input: Record<string, unknown>;
         try {
           input = JSON.parse(tc.args);
