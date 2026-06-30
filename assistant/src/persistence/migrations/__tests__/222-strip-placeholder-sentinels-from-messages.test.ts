@@ -130,6 +130,35 @@ describe("migration 222 — strip placeholder sentinels from assistant messages"
     expect(blocks(id)).toEqual([]);
   });
 
+  test("strips a leading-space-corrupted sentinel (proxy dropped the guard byte)", async () => {
+    // An Anthropic-compatible proxy can echo the marker back with the null-byte
+    // guard replaced by a space; the all-sentinel row collapses to [].
+    const corrupted = ` ${PLACEHOLDER_EMPTY_TURN.slice(1)}`;
+    const { id } = insert(
+      "assistant",
+      JSON.stringify([{ type: "text", text: corrupted }]),
+    );
+
+    await migrateStripPlaceholderSentinelsFromMessages(getDb());
+
+    expect(blocks(id)).toEqual([]);
+  });
+
+  test("strips a leading-space-corrupted sentinel but keeps real content", async () => {
+    const corrupted = ` ${PLACEHOLDER_BLOCKS_OMITTED.slice(1)}`;
+    const { id } = insert(
+      "assistant",
+      JSON.stringify([
+        { type: "text", text: corrupted },
+        { type: "text", text: "kept" },
+      ]),
+    );
+
+    await migrateStripPlaceholderSentinelsFromMessages(getDb());
+
+    expect(blocks(id)).toEqual([{ type: "text", text: "kept" }]);
+  });
+
   test("preserves blocks with a missing/null type", async () => {
     const { id } = insert(
       "assistant",

@@ -45,18 +45,28 @@ const SENTINEL_TEXT_LIST = [PLACEHOLDER_EMPTY_TURN, PLACEHOLDER_BLOCKS_OMITTED]
   })
   .join(", ");
 
+/**
+ * The text value to match, with surrounding whitespace trimmed so an echo whose
+ * `\x00` guard byte arrived as a leading space still matches. The trim set lists
+ * whitespace bytes only (tab, newline, carriage return, space) and deliberately
+ * omits `char(0)`: SQLite treats an embedded NUL as a string terminator, so a
+ * NUL in the trim set collapses it and trims nothing. The NUL-prefixed forms are
+ * matched directly via SENTINEL_TEXT_LIST instead.
+ */
+const SENTINEL_TEXT_EXPR = `trim(json_extract(value, '$.text'), char(9) || char(10) || char(13) || char(32))`;
+
 /** SQL predicate: this `json_each` element is a placeholder-sentinel text block. */
 const ELEMENT_IS_SENTINEL = `(json_extract(value, '$.type') = 'text'
-   AND json_extract(value, '$.text') IN (${SENTINEL_TEXT_LIST})) IS 1`;
+   AND ${SENTINEL_TEXT_EXPR} IN (${SENTINEL_TEXT_LIST})) IS 1`;
 
 /**
  * SQL predicate: this `json_each` element is kept. `IS NOT 1` (rather than a
  * bare `NOT`) keeps any element whose sentinel test is false *or* NULL, so a
  * non-text block — or one with an absent `type`/`text` — survives, dropping only
- * exact sentinel text blocks.
+ * sentinel text blocks (matched after trimming surrounding whitespace).
  */
 const ELEMENT_IS_KEPT = `(json_extract(value, '$.type') = 'text'
-   AND json_extract(value, '$.text') IN (${SENTINEL_TEXT_LIST})) IS NOT 1`;
+   AND ${SENTINEL_TEXT_EXPR} IN (${SENTINEL_TEXT_LIST})) IS NOT 1`;
 
 /**
  * Build the two set-based UPDATEs that sweep one rowid window `(lo, hi]`.
@@ -111,7 +121,9 @@ function windowSql(lo: number, hi: number): string {
  * otherwise be empty. They are never supposed to be persisted, but a leak path
  * caused them to be stored in the messages table where they render in chat
  * bubbles as bold "PLACEHOLDER[...]" (markdown interprets the double-underscore
- * surround as bold).
+ * surround as bold). An Anthropic-compatible proxy can echo the marker back with
+ * the `\x00` guard byte replaced by a leading space, so the match trims
+ * surrounding whitespace to catch that variant.
  *
  * The strip runs entirely inside SQLite (via JSON1), dispatched through
  * {@link runAsyncSqlite} a rowid window at a time. On a host with the `sqlite3`
