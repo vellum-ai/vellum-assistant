@@ -17,13 +17,16 @@
 
 import { z } from "zod";
 
-import { getConfig } from "../../config/loader.js";
-import type { AssistantConfig } from "../../config/types.js";
-import { backfillAllSections } from "../../plugins/defaults/memory/v3/maintain-job.js";
-import { invalidateLanes } from "../../plugins/defaults/memory/v3/shadow-plugin.js";
-import { getLogger } from "../../util/logger.js";
-import { ACTOR_PRINCIPALS, type RoutePolicy } from "../auth/route-policy.js";
-import type { RouteDefinition } from "./types.js";
+import { getConfig } from "../../../../config/loader.js";
+import type { AssistantConfig } from "../../../../config/types.js";
+import {
+  ACTOR_PRINCIPALS,
+  type RoutePolicy,
+} from "../../../../runtime/auth/route-policy.js";
+import type { RouteDefinition } from "../../../../runtime/routes/types.js";
+import { getLogger } from "../../../../util/logger.js";
+import { backfillAllSections } from "../v3/maintain-job.js";
+import { invalidateLanes } from "../v3/shadow-plugin.js";
 
 const log = getLogger("memory-v3-routes");
 
