@@ -460,6 +460,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      modelProfileKey: "balanced",
       resolveContextWindow: () => ({
         maxInputTokens: 10,
         overflowRecovery: { enabled: false, safetyMarginRatio: 0 },
@@ -500,6 +501,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
       onEvent: (event) => {
         events.push(event);
       },
+      modelProfileKey: "balanced",
       resolveContextWindow: () => ({
         maxInputTokens: 10,
         overflowRecovery: { enabled: true, safetyMarginRatio: 0 },

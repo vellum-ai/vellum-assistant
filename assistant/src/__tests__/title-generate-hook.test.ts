@@ -109,7 +109,7 @@ function makeCtx(
     conversationId: "conv-1",
     userMessageId: "msg-1",
     requestId: "req-1",
-    modelProfileKey: null,
+    modelProfileKey: "balanced",
     isNonInteractive: false,
     prompt: "first message",
     originalMessages: messages,

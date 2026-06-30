@@ -29,15 +29,9 @@ export const Step2GenerateAppToken: Story = {
   },
 };
 
-export const Step3InstallApp: Story = {
+export const Step3InstallAndConnect: Story = {
   args: {
-    initialStepId: "install-app",
-  },
-};
-
-export const Step4AddBotToken: Story = {
-  args: {
-    initialStepId: "bot-token",
+    initialStepId: "install-and-connect",
     onSave: async (_botToken: string, _appToken: string) => {
       await new Promise((resolve) => setTimeout(resolve, 1000));
     },

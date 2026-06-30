@@ -209,12 +209,16 @@ mock.module("../../daemon/conversation-store.js", () => ({
   },
 }));
 
+const mockConfig = {
+  llm: { profiles: { balanced: {} }, activeProfile: "balanced" },
+};
+
 mock.module("../../config/loader.js", () => ({
-  getConfig: () => ({ llm: {} }),
-  loadConfig: () => ({ llm: {} }),
+  getConfig: () => mockConfig,
+  loadConfig: () => mockConfig,
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
-  getConfigReadOnly: () => ({ llm: {} }),
+  getConfigReadOnly: () => mockConfig,
   applyNestedDefaults: (config: unknown) => config,
   deepMergeOverwrite: (base: unknown) => base,
   mergeDefaultWorkspaceConfig: () => {},

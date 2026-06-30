@@ -26,6 +26,7 @@
 import { captureError } from "@/lib/sentry/capture-error";
 import { create } from "zustand";
 
+import type { SetupChannelId } from "@/types/channel-types";
 import { appsByIdOpenPost, documentsByIdGet } from "@/generated/daemon/sdk.gen";
 import { primeAppHtmlCache } from "@/utils/app-html-cache";
 
@@ -39,7 +40,8 @@ type OverlayView =
   | "tool-detail"
   | "workflow-detail"
   | "acp-run-detail"
-  | "background-task-detail";
+  | "background-task-detail"
+  | "channel-setup";
 
 /**
  * Resolve the "view before" value for overlay navigation.
@@ -101,7 +103,8 @@ function resolveViewBefore(
     | "viewBeforeToolDetail"
     | "viewBeforeWorkflowDetail"
     | "viewBeforeAcpRunDetail"
-    | "viewBeforeBackgroundTaskDetail",
+    | "viewBeforeBackgroundTaskDetail"
+    | "viewBeforeChannelSetup",
 ): Exclude<MainView, OverlayView> {
   const mv = state.mainView;
   if (
@@ -110,7 +113,8 @@ function resolveViewBefore(
     mv === "tool-detail" ||
     mv === "workflow-detail" ||
     mv === "acp-run-detail" ||
-    mv === "background-task-detail"
+    mv === "background-task-detail" ||
+    mv === "channel-setup"
   ) {
     return state[field];
   }
@@ -130,7 +134,8 @@ export type MainView =
   | "tool-detail"
   | "workflow-detail"
   | "acp-run-detail"
-  | "background-task-detail";
+  | "background-task-detail"
+  | "channel-setup";
 
 export type IntelligenceTab = "identity" | "skills" | "workspace" | "contacts";
 
@@ -146,6 +151,14 @@ export interface OpenedDocumentState {
   conversationId: string;
   documentName: string;
   content: string;
+}
+
+export type ChannelSetupType = SetupChannelId;
+
+export interface ChannelSetupPayload {
+  channel: ChannelSetupType;
+  assistantId: string;
+  assistantName: string;
 }
 
 export interface ToolDetailPayload {
@@ -256,6 +269,8 @@ export interface ViewerState {
   viewBeforeAcpRunDetail: Exclude<MainView, OverlayView>;
   activeBackgroundTaskId: string | null;
   viewBeforeBackgroundTaskDetail: Exclude<MainView, OverlayView>;
+  activeChannelSetup: ChannelSetupPayload | null;
+  viewBeforeChannelSetup: Exclude<MainView, OverlayView>;
   /**
    * Monotonic counter bumped when a viewer (e.g. the mobile tool-detail
    * overlay, which lives in a separate portal subtree) asks to open the trust
@@ -309,6 +324,10 @@ export interface ViewerActions {
   closeToolDetail: () => void;
   requestRuleEditorForActiveTool: () => void;
 
+  // --- Channel setup ---
+  openChannelSetup: (payload: ChannelSetupPayload) => void;
+  closeChannelSetup: () => void;
+
   // --- Document viewer ---
   openDocument: () => void;
   loadDocument: (assistantId: string, documentSurfaceId: string) => Promise<void>;
@@ -350,6 +369,8 @@ const INITIAL_STATE: ViewerState = {
   viewBeforeAcpRunDetail: "chat",
   activeBackgroundTaskId: null,
   viewBeforeBackgroundTaskDetail: "chat",
+  activeChannelSetup: null,
+  viewBeforeChannelSetup: "chat",
   ruleEditorRequestSeq: 0,
 };
 
@@ -523,6 +544,23 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     set({
       mainView: get().viewBeforeBackgroundTaskDetail,
       activeBackgroundTaskId: null,
+    });
+  },
+
+  // --- Channel setup ---
+
+  openChannelSetup: (payload) => {
+    set({
+      mainView: "channel-setup",
+      activeChannelSetup: payload,
+      viewBeforeChannelSetup: resolveViewBefore(get(), "viewBeforeChannelSetup"),
+    });
+  },
+
+  closeChannelSetup: () => {
+    set({
+      mainView: get().viewBeforeChannelSetup,
+      activeChannelSetup: null,
     });
   },
 

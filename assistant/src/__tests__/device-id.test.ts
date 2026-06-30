@@ -19,7 +19,11 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { getDeviceId, resetDeviceIdCache } from "../util/device-id.js";
+import {
+  getDeviceId,
+  getExistingDeviceId,
+  resetDeviceIdCache,
+} from "../util/device-id.js";
 
 const originalVellumEnvironment = process.env.VELLUM_ENVIRONMENT;
 const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
@@ -177,5 +181,38 @@ describe("getDeviceId VELLUM_DEVICE_ID precedence", () => {
 
     resetDeviceIdCache();
     expect(getDeviceId()).not.toBe("env-id");
+  });
+});
+
+describe("getExistingDeviceId", () => {
+  beforeEach(() => {
+    delete process.env.IS_CONTAINERIZED;
+    process.env.VELLUM_ENVIRONMENT = "dev";
+    process.env.XDG_CONFIG_HOME = tempDir;
+  });
+
+  test("returns null without creating device.json when no id exists", () => {
+    const expectedPath = join(tempDir, "vellum-dev", "device.json");
+
+    expect(getExistingDeviceId()).toBeNull();
+    expect(existsSync(expectedPath)).toBe(false);
+  });
+
+  test("reads an existing device.json id", () => {
+    const dir = join(tempDir, "vellum-dev");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "device.json"),
+      JSON.stringify({ deviceId: "file-id" }),
+    );
+
+    expect(getExistingDeviceId()).toBe("file-id");
+  });
+
+  test("returns the env override without writing device.json", () => {
+    process.env.VELLUM_DEVICE_ID = "env-id";
+
+    expect(getExistingDeviceId()).toBe("env-id");
+    expect(readdirSync(tempDir)).toEqual([]);
   });
 });

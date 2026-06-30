@@ -279,7 +279,7 @@ describe("orchestrate — candidate pool composition", () => {
     denseHits = [{ article: "topic-b", section: 0 }];
     providerStub = selectProvider([]); // selection is irrelevant to pool union
 
-    await orchestrate(makeTurn(1, "apple"), depsOf(lanes));
+    await orchestrate(makeTurn(1, "apple"), depsOf(lanes, { denseK: 100 }));
 
     expect(selectCalls).toBe(1);
     expect(new Set(lastPool)).toEqual(
@@ -362,8 +362,9 @@ describe("orchestrate — candidate pool composition", () => {
     providerStub = selectProvider([]);
     await orchestrate(makeTurn(1, "x"), depsOf(lanes, { needle }));
     expect(needleK).toBe(DEFAULT_NEEDLE_K);
-    expect(denseCalls[0]?.k).toBe(DEFAULT_DENSE_K);
-    expect(DEFAULT_DENSE_K).toBe(100);
+    expect(DEFAULT_NEEDLE_K).toBe(12);
+    expect(denseCalls).toEqual([]);
+    expect(DEFAULT_DENSE_K).toBe(0);
   });
 
   test("denseK override controls the embedding-backed candidate budget", async () => {
@@ -396,7 +397,7 @@ describe("orchestrate — candidate pool composition", () => {
 
     const result = await orchestrate(
       makeTurn(1, "apple"),
-      depsOf(lanes, { selectorEnabled: false }),
+      depsOf(lanes, { denseK: 100, selectorEnabled: false }),
     );
 
     expect(selectCalls).toBe(0);
@@ -451,7 +452,11 @@ describe("orchestrate — cache-ordered pool (core + hot + finders)", () => {
 
     const result = await orchestrate(
       makeTurn(1, "apple"),
-      depsOf(lanes, { coreSlugs: ["topic-c"], hotSlugs: ["topic-d"] }),
+      depsOf(lanes, {
+        coreSlugs: ["topic-c"],
+        hotSlugs: ["topic-d"],
+        denseK: 100,
+      }),
     );
 
     expect(lastPool).toEqual(["topic-c", "topic-d", "topic-a", "topic-b"]);
@@ -811,7 +816,10 @@ describe("orchestrate — dense liveness filter", () => {
       { article: "gone-page", section: 0 },
     ];
     providerStub = selectProvider([]); // selection irrelevant to pool membership
-    const result = await orchestrate(makeTurn(1, "apple"), depsOf(lanes));
+    const result = await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, { denseK: 100 }),
+    );
 
     // The live dense hit is pooled; the deleted page is dropped entirely.
     expect(lastPool).toContain("topic-b");
@@ -825,7 +833,7 @@ describe("orchestrate — dense liveness filter", () => {
     // text — its finder line falls back to the page's lead-section text.
     denseHits = [{ article: "topic-b", section: 99 }];
     providerStub = selectProvider([]);
-    await orchestrate(makeTurn(1, "zzzz"), depsOf(lanes));
+    await orchestrate(makeTurn(1, "zzzz"), depsOf(lanes, { denseK: 100 }));
 
     const line = lastPoolLines.find((l) => / topic-b — /.test(l));
     expect(line).toContain("lead for topic b");
@@ -845,7 +853,10 @@ describe("orchestrate — finder lane provenance", () => {
     // topic-d (edge). So each lane contributes exactly one distinct slug.
     denseHits = [{ article: "topic-b", section: 0 }];
     providerStub = selectProvider([]); // selection irrelevant to pool provenance
-    const result = await orchestrate(makeTurn(1, "apple"), depsOf(lanes));
+    const result = await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, { denseK: 100 }),
+    );
 
     const laneOf = new Map(result.lanes.finder.map((c) => [c.slug, c.lane]));
     expect(laneOf.get("topic-a")).toBe("needle");
@@ -892,7 +903,7 @@ describe("orchestrate — degradation", () => {
     };
     const result = await orchestrate(
       makeTurn(1, "apple"),
-      depsOf(lanes, { coreSlugs: ["topic-c"] }),
+      depsOf(lanes, { coreSlugs: ["topic-c"], denseK: 100 }),
     );
     expect(new Set(result.selections.map((s) => s.slug))).toEqual(
       new Set(["topic-c", "topic-a", "topic-b", "topic-d"]),

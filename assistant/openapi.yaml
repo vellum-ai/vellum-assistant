@@ -8527,6 +8527,49 @@ paths:
                                     - type: "null"
                               additionalProperties: false
                             - type: "null"
+                        latency:
+                          anyOf:
+                            - type: object
+                              properties:
+                                phases:
+                                  type: array
+                                  items:
+                                    type: object
+                                    properties:
+                                      key:
+                                        type: string
+                                      label:
+                                        type: string
+                                      ms:
+                                        type: number
+                                    required:
+                                      - key
+                                      - label
+                                      - ms
+                                    additionalProperties: false
+                                ttftMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                totalToFirstTokenMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                providerDurationMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                firstTokenKind:
+                                  anyOf:
+                                    - type: string
+                                      enum:
+                                        - thinking
+                                        - text
+                                    - type: "null"
+                              required:
+                                - phases
+                              additionalProperties: false
+                            - type: "null"
                       required:
                         - id
                         - createdAt
@@ -15521,6 +15564,49 @@ paths:
                               - type: "null"
                         additionalProperties: false
                       - type: "null"
+                  latency:
+                    anyOf:
+                      - type: object
+                        properties:
+                          phases:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                key:
+                                  type: string
+                                label:
+                                  type: string
+                                ms:
+                                  type: number
+                              required:
+                                - key
+                                - label
+                                - ms
+                              additionalProperties: false
+                          ttftMs:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          totalToFirstTokenMs:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          providerDurationMs:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          firstTokenKind:
+                            anyOf:
+                              - type: string
+                                enum:
+                                  - thinking
+                                  - text
+                              - type: "null"
+                        required:
+                          - phases
+                        additionalProperties: false
+                      - type: "null"
                 required:
                   - id
                   - createdAt
@@ -18145,6 +18231,49 @@ paths:
                                     - type: "null"
                               additionalProperties: false
                             - type: "null"
+                        latency:
+                          anyOf:
+                            - type: object
+                              properties:
+                                phases:
+                                  type: array
+                                  items:
+                                    type: object
+                                    properties:
+                                      key:
+                                        type: string
+                                      label:
+                                        type: string
+                                      ms:
+                                        type: number
+                                    required:
+                                      - key
+                                      - label
+                                      - ms
+                                    additionalProperties: false
+                                ttftMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                totalToFirstTokenMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                providerDurationMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                firstTokenKind:
+                                  anyOf:
+                                    - type: string
+                                      enum:
+                                        - thinking
+                                        - text
+                                    - type: "null"
+                              required:
+                                - phases
+                              additionalProperties: false
+                            - type: "null"
                       required:
                         - id
                         - createdAt
@@ -20315,6 +20444,10 @@ paths:
                     type: boolean
                   hasWebhookSecret:
                     type: boolean
+                  clientInstallationId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   available:
                     type: boolean
                   organizationId:
@@ -20346,6 +20479,7 @@ paths:
                   - assistantId
                   - hasAssistantApiKey
                   - hasWebhookSecret
+                  - clientInstallationId
                   - available
                   - organizationId
                   - userId

@@ -30,6 +30,7 @@ import {
 import {
   resolveCallSiteConfig,
   resolveDefaultProfileKey,
+  resolveProfilelessModelKey,
 } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
@@ -846,28 +847,34 @@ export async function runAgentLoopImpl(
     };
 
     // Resolve the effective profile key for this turn and detect changes.
-    // Only inject model_profile into the turn context when the profile
-    // changed since the last turn (or on the first turn of a conversation)
-    // to avoid per-turn token cost.
+    // `modelProfileKey` is the actual profile used for this turn. The
+    // notice key is narrower: it only marks turns where runtime context should
+    // remind the model that the profile changed.
     const effectiveProfileKey =
       turnOverrideProfile ??
       config.llm.activeProfile ??
-      resolveDefaultProfileKey("mainAgent", config.llm);
+      resolveDefaultProfileKey("mainAgent", config.llm) ??
+      resolveProfilelessModelKey(turnCallSite, config.llm, {
+        ...(turnOverrideProfile != null
+          ? { overrideProfile: turnOverrideProfile }
+          : {}),
+        ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
+        selectionSeed: ctx.conversationId,
+      });
     const lastNotified = ctx.lastNotifiedInferenceProfile;
-    const modelProfileKey =
-      effectiveProfileKey != null && effectiveProfileKey !== lastNotified
-        ? effectiveProfileKey
-        : null;
-    // The key is threaded as plain turn data to the user-prompt-submit and
-    // post-compaction hooks, which render the `Label (model)` line from it
-    // themselves.
-    if (modelProfileKey != null) {
+    const modelProfileKey = effectiveProfileKey;
+    const modelProfileNoticeKey =
+      modelProfileKey !== lastNotified ? modelProfileKey : null;
+    ctx.currentTurnModelProfileNoticeKey = modelProfileNoticeKey ?? undefined;
+    // Persist the notice only after delivery; hooks still receive
+    // `modelProfileKey` as the effective profile for this turn.
+    if (modelProfileNoticeKey != null) {
       // Record the notification for persistence on delivery rather than here:
       // the model only "learns" the profile once it receives this turn
       // context, signalled by the first `message_complete`. Persisting inline
       // would mark the profile notified even if the turn is cancelled or fails
       // before the model ever sees the notice.
-      state.pendingNotifiedInferenceProfile = modelProfileKey;
+      state.pendingNotifiedInferenceProfile = modelProfileNoticeKey;
     }
 
     // user-prompt-submit hook chain. Fires once per user turn at the primary
@@ -1586,6 +1593,7 @@ export async function runAgentLoopImpl(
     ctx.diskPressureCleanupModeActive = false;
     ctx.preactivatedSkillIds = undefined;
     ctx.currentTurnOverrideProfile = undefined;
+    ctx.currentTurnModelProfileNoticeKey = undefined;
     // Turn-scoped interactivity. Clear it so paths that bypass this loop (e.g.
     // opportunity wakes calling `agentLoop.run` directly) don't inherit a stale
     // value and instead fall back to live client state in the tool context.

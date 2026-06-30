@@ -188,8 +188,8 @@ export function resolveTurnInboundActorContext(
 }
 
 /**
- * Render the `model_profile:` turn-context label for a turn from its resolved
- * inference profile key, for the unified `<turn_context>` block.
+ * Render the `model_profile:` turn-context label from the turn's profile
+ * notice key, for the unified `<turn_context>` block.
  *
  * Returns `null` when there is no key to announce (the caller gates this to the
  * turns where the active profile changed since the one last delivered to the
@@ -207,21 +207,23 @@ export function resolveTurnInboundActorContext(
  * random arm that can disagree with the model actually serving the turn.
  */
 export function resolveTurnModelProfileLabel(
-  modelProfileKey: string | null,
+  modelProfileNoticeKey: string | null,
   callSite: LLMCallSite,
   llm: LLMConfig,
   selectionSeed?: string,
 ): string | null {
-  if (modelProfileKey == null) {
+  if (modelProfileNoticeKey == null) {
     return null;
   }
-  const profileEntry = llm.profiles?.[modelProfileKey];
+  const profileEntry = llm.profiles?.[modelProfileNoticeKey];
   const resolved = resolveCallSiteConfig(callSite, llm, {
-    overrideProfile: modelProfileKey,
+    overrideProfile: modelProfileNoticeKey,
     selectionSeed,
   });
-  const label = profileEntry?.label ?? modelProfileKey;
-  return resolved.model ? `${label} (${resolved.model})` : label;
+  const label = profileEntry?.label ?? modelProfileNoticeKey;
+  return resolved.model && resolved.model !== label
+    ? `${label} (${resolved.model})`
+    : label;
 }
 
 /** Derive channel capabilities from source channel + interface identifiers. */

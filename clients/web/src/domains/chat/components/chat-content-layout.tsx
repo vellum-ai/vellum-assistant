@@ -28,6 +28,7 @@ import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
 import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
+import { ChannelSetupPanel } from "@/domains/chat/components/channel-setup-panel";
 import { useEditApp } from "@/hooks/use-edit-app";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { routes } from "@/utils/routes";
@@ -96,6 +97,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   const activeBackgroundTaskEntry = useBackgroundTaskStore((s) =>
     activeBackgroundTaskId ? s.byId[activeBackgroundTaskId] : undefined,
   );
+  const activeChannelSetup = useViewerStore.use.activeChannelSetup();
 
   const isSharing = useDeployStore.use.isSharing();
   const isDeploying = useDeployStore.use.isDeploying();
@@ -184,6 +186,23 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     useViewerStore.getState().closeBackgroundTaskDetail();
   }, []);
 
+  const onCloseChannelSetup = useCallback(() => {
+    useViewerStore.getState().closeChannelSetup();
+  }, []);
+
+  // -------------------------------------------------------------------------
+  // Mobile fallback: side-drawer panels don't render on narrow viewports, so
+  // redirect to the Contacts page with the Slack channel pre-expanded.
+  // -------------------------------------------------------------------------
+
+  useEffect(() => {
+    if (!isMobile) return;
+    if (mainView !== "channel-setup" || !activeChannelSetup) return;
+    const channel = activeChannelSetup.channel;
+    useViewerStore.getState().closeChannelSetup();
+    navigate(`${routes.contacts.root}?setup=${channel}`);
+  }, [isMobile, mainView, activeChannelSetup, navigate]);
+
   // -------------------------------------------------------------------------
   // Escape closes whichever right-hand side panel is open (tool detail /
   // thought process, subagent detail, workflow detail, acp run detail,
@@ -222,6 +241,9 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
           break;
         case "background-task-detail":
           viewer.closeBackgroundTaskDetail();
+          break;
+        case "channel-setup":
+          viewer.closeChannelSetup();
           break;
         case "document":
           viewer.closeDocument();
@@ -419,6 +441,13 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
             onRequestJournal={onRequestWorkflowJournal}
           />
         </LazyBoundary>
+      );
+    } else if (mainView === "channel-setup" && activeChannelSetup) {
+      rightPanel = (
+        <ChannelSetupPanel
+          payload={activeChannelSetup}
+          onClose={onCloseChannelSetup}
+        />
       );
     }
   }
