@@ -36,23 +36,37 @@ const MEMORY_DIR = join(ASSISTANT_SRC, "plugins", "defaults", "memory");
 /**
  * TECH DEBT — residual `persistence/` → `memory/` feature back-imports.
  *
- * These are genuine couplings to the memory *feature* (conversation
- * title/disk-view services, conversation/group migrations, retrospective +
- * v2 state, the graph bootstrap, the conversation-key store, raw-query helpers,
- * the job checkpoint/cleanup/worker controls) that the
- * persistence layer still depends on. They violate the
- * one-way memory → persistence direction and are scheduled for decoupling in a
- * follow-up (move the depended-on feature logic behind a persistence-owned
- * seam, or invert the dependency so memory injects it). Until then they are
- * pinned here so the guard fails the moment a NEW back-import is introduced.
+ * A genuine coupling to the memory *feature* that violates the one-way
+ * memory → persistence direction, pinned here so the guard fails the moment a
+ * NEW back-import is introduced.
+ *
+ * The lone remaining entry is the in-worker memory consolidation /
+ * graph-maintenance SCHEDULER (`jobs-worker.ts` → `v2/consolidation-job` for
+ * `countBufferLines`). Inverting it means memory deciding what to enqueue on
+ * each worker tick — that is roadmap bullet #4 (memory-jobs → schedule-jobs),
+ * deferred until the Schedules worker + `/workspace/schedules` API land.
+ * Decouple it then; do not add to this list without a decoupling plan.
  *
  * Keyed by the importing persistence file (relative to repo root); the value
  * is the set of allowed `memory/<specifier>` module paths it may import.
- * Do NOT add to this list without a decoupling plan — the whole point of the
- * guard is to ratchet this set down to empty, never up.
  */
 const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
   "assistant/src/persistence/jobs-worker.ts": new Set(["v2/consolidation-job"]),
+};
+
+/**
+ * PERMANENT exception — the migration registry, NOT tech debt.
+ *
+ * `steps.ts` is the ordered list of every migration step; it imports each
+ * migration's forward/down function from the domain that owns it (memory's
+ * `graph/bootstrap`, apps' `app-store`, …). Migrations are append-only and
+ * checkpointed by stable function name, so they live in their owning feature by
+ * design and are merely *referenced* here by the registry — this is the
+ * registry's job, not a layering violation to ratchet to zero. Validated by the
+ * no-stale-entries test like the allowlist, so a removed migration drops its
+ * entry here.
+ */
+const MIGRATION_REGISTRY_MEMORY_IMPORTS: Record<string, ReadonlySet<string>> = {
   "assistant/src/persistence/steps.ts": new Set(["graph/bootstrap"]),
 };
 
@@ -137,7 +151,10 @@ describe("persistence-layering boundary", () => {
       cwd: repoRoot,
     })) {
       const filePath = join(repoRoot, rel);
-      const allowed = PERSISTENCE_TO_MEMORY_ALLOWLIST[rel] ?? new Set<string>();
+      const allowed = new Set<string>([
+        ...(PERSISTENCE_TO_MEMORY_ALLOWLIST[rel] ?? []),
+        ...(MIGRATION_REGISTRY_MEMORY_IMPORTS[rel] ?? []),
+      ]);
       for (const { resolvedFromRoot } of relativeImports(filePath, repoRoot)) {
         const target = stripJs(resolvedFromRoot);
         if (
@@ -175,9 +192,10 @@ describe("persistence-layering boundary", () => {
     const memoryFromRoot = relative(repoRoot, join(repoRoot, MEMORY_DIR));
     const stale: string[] = [];
 
-    for (const [file, allowed] of Object.entries(
-      PERSISTENCE_TO_MEMORY_ALLOWLIST,
-    )) {
+    for (const [file, allowed] of [
+      ...Object.entries(PERSISTENCE_TO_MEMORY_ALLOWLIST),
+      ...Object.entries(MIGRATION_REGISTRY_MEMORY_IMPORTS),
+    ]) {
       const filePath = join(repoRoot, file);
       const actual = new Set<string>();
       for (const { resolvedFromRoot } of relativeImports(filePath, repoRoot)) {
