@@ -45,6 +45,7 @@ function makeConversationRow(
     archivedAt: null,
     surfacedAt: null,
     inferenceProfile: null,
+    enabledPlugins: null,
     inferenceProfileSessionId: null,
     inferenceProfileExpiresAt: null,
     lastNotifiedInferenceProfile: null,
