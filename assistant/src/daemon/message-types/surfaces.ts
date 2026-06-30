@@ -23,6 +23,7 @@ export {
 
 export type SurfaceType =
   | "card"
+  | "channel_setup"
   | "choice"
   | "copy_block"
   | "oauth_connect"

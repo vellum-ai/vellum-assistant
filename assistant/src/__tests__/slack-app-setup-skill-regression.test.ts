@@ -8,19 +8,28 @@ const SKILL_PATH = resolve(REPO_ROOT, "skills", "slack-app-setup", "SKILL.md");
 const skillContent = readFileSync(SKILL_PATH, "utf-8");
 
 describe("slack-app-setup skill regression", () => {
-  test("keeps Slack token collection on the secure credential prompt path", () => {
-    expect(skillContent).toContain(
-      "assistant credentials prompt --service slack_channel",
-    );
-    expect(skillContent).toContain(
-      "same Slack settings handler used by Settings",
-    );
+  test("uses the channel_setup surface to open the wizard", () => {
+    expect(skillContent).toContain("channel_setup");
+    expect(skillContent).toContain("ui_show");
+    expect(skillContent).toContain('"channel": "slack"');
   });
 
-  test("forbids plaintext forms and chat-pasted secrets", () => {
-    expect(skillContent).toContain("Do NOT use `ui_show`");
+  test("tokens are collected via the wizard, never in chat", () => {
     expect(skillContent).toContain(
-      "Do NOT ask the user to paste tokens in chat",
+      "tokens go from input fields directly to the API, never through the conversation",
+    );
+    expect(skillContent).toContain("Do not collect tokens in chat");
+  });
+
+  test("verifies credentials after user completes wizard", () => {
+    expect(skillContent).toContain("assistant credentials list");
+    expect(skillContent).toContain("app_token");
+    expect(skillContent).toContain("bot_token");
+  });
+
+  test("uses the settings handler for clearing credentials", () => {
+    expect(skillContent).toContain(
+      "same Slack settings handler used by Settings",
     );
   });
 

@@ -3061,6 +3061,42 @@ export async function surfaceProxyResolver(
       };
     }
 
+    // Navigation-only surfaces open a client-side panel without persisting in
+    // message history or tracking surface state. Fire the event and return.
+    if (surfaceType === "channel_setup") {
+      const channel =
+        typeof (rawData as Record<string, unknown>).channel === "string"
+          ? ((rawData as Record<string, unknown>).channel as string)
+          : undefined;
+      if (!channel || channel.trim().length === 0) {
+        return {
+          content:
+            'channel_setup surfaces require data.channel (e.g. "slack").',
+          isError: true,
+        };
+      }
+      log.info(
+        { surfaceId, surfaceType, channel, conversationId: ctx.conversationId },
+        "Sending navigation surface to client",
+      );
+      ctx.sendToClient({
+        type: "ui_surface_show",
+        conversationId: ctx.conversationId,
+        surfaceId,
+        surfaceType,
+        data: rawData as SurfaceData,
+        ...(toolUseId ? { toolCallId: toolUseId } : {}),
+      } as unknown as UiSurfaceShow);
+      return {
+        content: JSON.stringify({
+          surfaceId,
+          channel,
+          message: "Channel setup wizard opened for the user.",
+        }),
+        isError: false,
+      };
+    }
+
     const isInteractive =
       surfaceType === "card"
         ? hasActions
