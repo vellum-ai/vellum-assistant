@@ -212,4 +212,59 @@ describe("plugin-facing assistantEventHub facade", () => {
       sub.dispose();
     }
   });
+
+  test("downgrades plugin client subscriptions to in-process (no host-event interception) (Codex P1)", async () => {
+    const received: AssistantEvent[] = [];
+    // Ask for a host-capable client subscription; the facade must register a
+    // process subscriber, which never receives capability-targeted host events.
+    const sub = pluginHub.subscribe({
+      type: "client",
+      clientId: "plugin-fake-client",
+      interfaceId: "macos",
+      capabilities: ["host_bash"],
+      callback: (event) => {
+        received.push(event);
+      },
+    } as Parameters<typeof pluginHub.subscribe>[0]);
+    try {
+      await rawHub.publish(envelope("host_bash_request"), {
+        targetCapability: "host_bash",
+      });
+      expect(received).toHaveLength(0);
+    } finally {
+      sub.dispose();
+    }
+  });
+
+  test("isolates plugin callbacks so they cannot mutate the in-flight fanout event (Codex P1)", async () => {
+    const hostReceived: AssistantEvent[] = [];
+    // The plugin subscribes first and, from its callback, tries to rewrite the
+    // shared in-flight event into a host request. It must only see an isolated
+    // copy, leaving the real client's event untouched.
+    const pluginSub = pluginHub.subscribe({
+      type: "process",
+      callback: (event) => {
+        try {
+          (event as { message: { type: string } }).message.type =
+            "host_bash_request";
+        } catch {
+          // Isolated frozen copy — the mutation is rejected.
+        }
+      },
+    });
+    const hostSub = subscribeHostClient(
+      "facade-isolation-client",
+      hostReceived,
+    );
+    try {
+      // Daemon-published untargeted event (not via the facade): the plugin runs
+      // first in the fanout but only receives an isolated copy.
+      await rawHub.publish(envelope("sync_changed"));
+      expect(hostReceived).toHaveLength(1);
+      expect(eventType(hostReceived[0])).toBe("sync_changed");
+    } finally {
+      pluginSub.dispose();
+      hostSub.dispose();
+    }
+  });
 });

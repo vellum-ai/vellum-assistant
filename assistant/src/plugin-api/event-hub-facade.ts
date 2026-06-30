@@ -24,6 +24,12 @@
  *   handing one to a plugin would let it deliver a forged host event without
  *   going through the guarded `publish` at all.
  *
+ * `subscribe` registers the plugin as an in-process consumer only (never a
+ * device "client"), so it cannot impersonate a real client by id or receive
+ * host-capability-targeted events; its callback is handed an isolated, frozen
+ * snapshot so it cannot mutate an in-flight event a real client receives later
+ * in the same fanout.
+ *
  * `publish` canonicalizes the caller's event (and options) to their JSON wire
  * form — the exact representation the client receives — then deep-freezes that
  * snapshot before checking the type and forwards it. JSON canonicalization
@@ -99,7 +105,26 @@ function hostControlEventType(event: AssistantEvent): string | undefined {
 
 /** The plugin-facing event hub. See module docs. */
 export const pluginAssistantEventHub: PluginEventHub = Object.freeze({
-  subscribe: (subscriber) => assistantEventHub.subscribe(subscriber),
+  subscribe: (subscriber) =>
+    // Plugins subscribe as in-process consumers only — never as device
+    // "clients" — so a plugin cannot impersonate/evict a real client by id or
+    // receive host-capability-targeted events meant for the desktop app. Its
+    // callback is handed an isolated, frozen snapshot so it cannot mutate an
+    // in-flight event that a real client receives later in the same fanout (the
+    // hub delivers one shared object to every subscriber in turn).
+    assistantEventHub.subscribe({
+      type: "process",
+      filter: subscriber.filter,
+      callback: (event) => {
+        let isolated: AssistantEvent;
+        try {
+          isolated = deepFreeze(wireSnapshot(event));
+        } catch {
+          return;
+        }
+        return subscriber.callback(isolated);
+      },
+    }),
 
   publish: async (event, options) => {
     let snapshot: AssistantEvent;
