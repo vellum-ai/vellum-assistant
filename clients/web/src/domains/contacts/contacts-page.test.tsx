@@ -162,6 +162,44 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
+describe("ContactsPage guardian auto-selection", () => {
+  test("?setup= deep link suppresses guardian auto-select", async () => {
+    render(
+      createElement(
+        MemoryRouter,
+        { initialEntries: ["/contacts?setup=slack"] },
+        createElement(
+          QueryClientProvider,
+          {
+            client: new QueryClient({
+              defaultOptions: { queries: { retry: false } },
+            }),
+          },
+          createElement(ContactsPage, { assistantId: "asst-1" }),
+        ),
+      ),
+    );
+
+    // Wait for the guardian data to load (contactsGetOptions resolves).
+    await waitFor(() => {
+      // The "Channels" heading is part of AssistantChannelsDetail which renders
+      // only when selection.kind === "assistant". If guardian auto-selected,
+      // this would not be in the document.
+      expect(
+        document.querySelector('[data-testid="channels-detail"]') ??
+          document.body.textContent?.includes("Channels"),
+      ).toBeTruthy();
+    });
+
+    // The name input (from guardian detail) should NOT be rendered because
+    // guardian auto-selection was suppressed.
+    const nameInput = document.querySelector<HTMLInputElement>(
+      'input[placeholder="Your name"]',
+    );
+    expect(nameInput).toBeNull();
+  });
+});
+
 describe("ContactsPage mutation error handling", () => {
   test("a failed contact save surfaces a toast and does not reject", async () => {
     upsertShouldReject = true;

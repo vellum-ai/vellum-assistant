@@ -227,14 +227,13 @@ export function ContactsPage({
   }, [contactsData, selectedContact]);
   const canMerge = mergeCandidates.length > 0;
 
-  const guardianAutoSelectedRef = useRef(false);
+  const guardianAutoSelectedRef = useRef(!!setupChannel);
   useEffect(() => {
     if (guardianAutoSelectedRef.current) return;
     if (!guardian) return;
-    if (setupChannel) return;
     guardianAutoSelectedRef.current = true;
     setSelection({ kind: "contact", contactId: guardian.id });
-  }, [guardian, setupChannel]);
+  }, [guardian]);
 
   const channels = useMemo(
     () => deriveChannelStates(readinessData),
