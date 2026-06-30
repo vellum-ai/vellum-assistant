@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type {
     InstalledPlugin,
@@ -44,9 +44,11 @@ export interface UsePluginsListResult {
    */
   catalogError: boolean;
   /**
-   * True once the installed read returns `categoryCounts` — the daemon
-   * understands the Skills category taxonomy. Older daemons omit it; the tab
-   * uses this to gate the category rail (version-skew safeguard).
+   * True once the UNFILTERED installed read returns `categoryCounts` — the
+   * daemon understands the Skills category taxonomy. Latched sticky so it never
+   * regresses while a category-filtered read is pending. Older daemons omit
+   * `categoryCounts`; the tab uses this to gate the category rail (version-skew
+   * safeguard).
    */
   categorySupported: boolean;
   /**
@@ -179,10 +181,28 @@ export function usePluginsList(
     unfilteredInstalledNames,
   ]);
 
-  // Counts come from the unfiltered installed read: the main read while no
-  // category is selected, the parallel read once one is.
-  const countsSource =
+  // The unfiltered installed read backs both the rail counts and category
+  // support: the main read while no category is selected (its key is already
+  // unfiltered), the parallel counts read once one is. Reading the filtered
+  // main read instead would make these go undefined mid-selection while the
+  // filtered request is in flight.
+  const unfilteredInstalledData =
     category !== null ? installedCountsQuery.data : installedQuery.data;
+
+  // Category support is a daemon capability that holds for the session, so latch
+  // it sticky once the unfiltered read first carries `categoryCounts`. The live
+  // OR covers the current render; the latch keeps it true across a category
+  // switch even if the unfiltered source is momentarily uncached and pending, so
+  // the rail (and the mobile sheet's Categories section) never vanishes
+  // mid-filter.
+  const categoryCountsObserved =
+    unfilteredInstalledData?.categoryCounts !== undefined;
+  const [categorySupportedLatched, setCategorySupportedLatched] =
+    useState(false);
+  useEffect(() => {
+    if (categoryCountsObserved) setCategorySupportedLatched(true);
+  }, [categoryCountsObserved]);
+  const categorySupported = categorySupportedLatched || categoryCountsObserved;
 
   return {
     items,
@@ -193,10 +213,10 @@ export function usePluginsList(
     isError: installedQuery.isError,
     isFetching: installedQuery.isFetching || catalogQuery.isFetching,
     catalogError: catalogQuery.isError,
-    categorySupported: installedQuery.data?.categoryCounts !== undefined,
-    installedCategoryCounts: countsSource?.categoryCounts,
-    installedPlugins: countsSource?.plugins ?? EMPTY_INSTALLED,
-    installedTotal: countsSource?.totalCount,
+    categorySupported,
+    installedCategoryCounts: unfilteredInstalledData?.categoryCounts,
+    installedPlugins: unfilteredInstalledData?.plugins ?? EMPTY_INSTALLED,
+    installedTotal: unfilteredInstalledData?.totalCount,
     catalogMatches: catalogQuery.data?.matches ?? EMPTY_MATCHES,
     unfilteredInstalledNames,
   };

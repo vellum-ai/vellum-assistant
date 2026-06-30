@@ -36,12 +36,16 @@ let catalogResult: PluginsSearchGetResponse | Error;
 // When set, the catalog mock awaits this gate before resolving — lets a test
 // hold the catalog query pending while the installed query resolves.
 let catalogGate: Promise<unknown> | null = null;
+// When set, the installed mock awaits this gate before resolving — lets a test
+// hold a category-filtered installed read pending after the initial load.
+let installedGate: Promise<unknown> | null = null;
 
 const sdkActual = await import("@/generated/daemon/sdk.gen");
 // Mirrors the daemon: an unfiltered read returns `installedResult` as-is; a
 // `?category=` read narrows the installed plugins to that category server-side.
 const pluginsGetSpy = mock(
   async (options: { query?: { category?: string } }) => {
+    if (installedGate) await installedGate;
     const selected = options?.query?.category;
     if (!selected) return installedResult;
     const plugins = (installedResult.data?.plugins ?? []).filter(
@@ -109,6 +113,7 @@ beforeEach(() => {
   installedResult = installedOk([]);
   catalogResult = catalogOk([]);
   catalogGate = null;
+  installedGate = null;
   pluginsGetSpy.mockClear();
   pluginsSearchGetSpy.mockClear();
 });
@@ -242,5 +247,50 @@ describe("usePluginsList", () => {
     // Installed list still renders; the catalog failure is not fatal.
     expect(result.current.items.map((p) => p.name)).toEqual(["alpha"]);
     expect(result.current.isError).toBe(false);
+  });
+
+  test("category support stays true while a category-filtered read is pending", async () => {
+    // The initial unfiltered load is taxonomy-aware (carries categoryCounts),
+    // so support latches true.
+    installedResult = {
+      data: {
+        plugins: [installed({ category: "email" })],
+        categoryCounts: { email: 1 },
+        totalCount: 1,
+      } as PluginsGetResponse,
+      response: { ok: true, status: 200 },
+    };
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    function wrapper({ children }: { children: ReactNode }) {
+      return createElement(QueryClientProvider, { client }, children);
+    }
+    const { result, rerender } = renderHook(
+      ({ category }: { category: string | null }) =>
+        usePluginsList(ASSISTANT_ID, category),
+      { wrapper, initialProps: { category: null as string | null } },
+    );
+
+    await waitFor(() => expect(result.current.categorySupported).toBe(true));
+
+    // Hold every subsequent installed read pending, then select a category. The
+    // filtered main read is now in flight (as is any uncached unfiltered
+    // re-read), so the unfiltered source is momentarily undefined — yet support
+    // must NOT regress to false, which would collapse the category rail.
+    let releaseInstalled: () => void = () => {};
+    installedGate = new Promise<void>((resolve) => {
+      releaseInstalled = resolve;
+    });
+    rerender({ category: "email" });
+
+    await waitFor(() => expect(result.current.isFetching).toBe(true));
+    expect(result.current.categorySupported).toBe(true);
+
+    // It stays true once the filtered read finally resolves, too.
+    releaseInstalled();
+    await waitFor(() => expect(result.current.isFetching).toBe(false));
+    expect(result.current.categorySupported).toBe(true);
   });
 });
