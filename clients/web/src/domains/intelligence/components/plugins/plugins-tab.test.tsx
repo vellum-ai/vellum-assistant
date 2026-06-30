@@ -216,6 +216,28 @@ function clickStatusOption(label: string): void {
   fireEvent.click(option);
 }
 
+/**
+ * Force `useIsMobile` true so the filter button opens the BottomSheet (the
+ * mobile category surface) instead of the desktop Status popover. Returns a
+ * restore fn the caller invokes once done.
+ */
+function forceMobile(): () => void {
+  const original = window.matchMedia;
+  window.matchMedia = ((query: string) => ({
+    matches: true,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia;
+  return () => {
+    window.matchMedia = original;
+  };
+}
+
 beforeEach(() => {
   installedPlugins = [];
   installedStatus = 200;
@@ -484,6 +506,50 @@ describe("PluginsTab", () => {
     expect(
       queryByRole("navigation", { name: "Plugin categories" }),
     ).toBeNull();
+  });
+
+  test("the mobile filter sheet surfaces the category taxonomy", async () => {
+    installedPlugins = [
+      installed({ id: "mailer", name: "mailer", category: "email" }),
+    ];
+    installedCategoryCounts = { email: 1 };
+    catalogMatches = [catalog({ name: "sys-cat", category: "system" })];
+
+    const restoreMatchMedia = forceMobile();
+    try {
+      const { findByLabelText } = renderTab();
+      // The desktop <aside> rail is hidden on mobile; the sheet is the only
+      // category surface. Open it via the filter button.
+      fireEvent.click(await findByLabelText("Filter plugins"));
+
+      const sheet = await screen.findByRole("dialog");
+      // Status stays available alongside the new Categories axis.
+      expect(within(sheet).getByText("Status")).toBeTruthy();
+      expect(within(sheet).getByText("Categories")).toBeTruthy();
+      // "All" + each seeded Skills category renders a selectable row.
+      expect(within(sheet).getByText("Email")).toBeTruthy();
+      expect(within(sheet).getByText("System")).toBeTruthy();
+    } finally {
+      restoreMatchMedia();
+    }
+  });
+
+  test("the mobile filter sheet omits Categories when the daemon lacks support", async () => {
+    installedPlugins = [installed()];
+    // installedCategoryCounts stays undefined → older daemon, no taxonomy.
+
+    const restoreMatchMedia = forceMobile();
+    try {
+      const { findByLabelText } = renderTab();
+      fireEvent.click(await findByLabelText("Filter plugins"));
+
+      const sheet = await screen.findByRole("dialog");
+      // Status is still offered, but no Categories section is rendered.
+      expect(within(sheet).getByText("Status")).toBeTruthy();
+      expect(within(sheet).queryByText("Categories")).toBeNull();
+    } finally {
+      restoreMatchMedia();
+    }
   });
 
   test("hides the rail when no categories load even if categoryCounts is present", async () => {

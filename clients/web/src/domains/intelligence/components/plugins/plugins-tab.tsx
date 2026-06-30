@@ -320,11 +320,17 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
       {!tipDismissed && <TipBanner onDismiss={handleDismissTip} />}
 
       <FilterBar
-        searchValue={searchValue}
+        search={searchValue}
         onSearchChange={setSearchValue}
         filter={filter}
         onFilterChange={setFilter}
         isSearching={isSearching}
+        categories={categoryRailEnabled ? categories : []}
+        category={category}
+        onCategoryChange={setCategory}
+        counts={counts}
+        totalCount={totalCount}
+        showCounts
       />
 
       {catalogError && !isLoading && !isError ? (
