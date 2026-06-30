@@ -1751,6 +1751,7 @@ export async function handleSendMessage(
         attachments,
         requestId: crypto.randomUUID(),
         metadata: greetingMeta,
+        clientMessageId,
       });
 
       const conversationId = mapping.conversationId;
