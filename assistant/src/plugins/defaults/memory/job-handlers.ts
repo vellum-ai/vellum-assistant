@@ -38,6 +38,10 @@ import {
   deleteQdrantVectorsJob,
   rebuildIndexJob,
 } from "./job-handlers/index-maintenance.js";
+import {
+  indexMessageLexicalJob,
+  purgeConversationLexicalJob,
+} from "./job-handlers/index-message-lexical.js";
 import { embedConceptPageJob } from "./jobs/embed-concept-page.js";
 import { embedPkbFileJob } from "./jobs/embed-pkb-file.js";
 import { memoryRetrospectiveJob } from "./memory-retrospective-job.js";
@@ -199,5 +203,13 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
   {
     type: "memory_retrospective",
     handler: (job, config) => memoryRetrospectiveJob(job, config),
+  },
+  {
+    type: "index_message_lexical",
+    handler: (job, config) => indexMessageLexicalJob(job, config),
+  },
+  {
+    type: "purge_conversation_lexical",
+    handler: (job, config) => purgeConversationLexicalJob(job, config),
   },
 ];
