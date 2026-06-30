@@ -725,6 +725,14 @@ export function loadConfig(): AssistantConfig {
     // Validate and apply defaults via Zod schema
     const config = validateWithSchema(fileConfig);
 
+    // Snapshot the schema-defaulted config BEFORE deployment-context fills are
+    // layered on — but only when the first-launch seed below will actually
+    // persist it. Disk records user intent (schema defaults only), while the
+    // in-memory `config` returned below carries the deployment-context fills as
+    // this run's effective values.
+    const willSeed = !configFileExisted && suppressConfigDiskWritesDepth === 0;
+    const firstLaunchSeed = willSeed ? structuredClone(config) : null;
+
     // Layer deployment-context defaults (e.g. IS_PLATFORM=true → all service
     // modes = "managed") onto the in-memory config for any leaves that aren't
     // explicitly set in `fileConfig`. This runs on every load — not just the
@@ -745,28 +753,29 @@ export function loadConfig(): AssistantConfig {
     }
 
     // First-launch seed only: when config.json does not exist, write the full
-    // schema defaults (with any deployment-context overrides already applied
-    // above) to disk so users can discover and edit all available options.
+    // schema defaults to disk so users can discover and edit all available
+    // options. Deployment-context defaults are deliberately excluded from the
+    // persisted seed — they are applied in-memory on every load (above) and are
+    // intentionally NOT persisted, so disk records user intent (schema defaults
+    // only) while the in-memory cache holds the effective values. Persisting the
+    // platform fills (e.g. IS_PLATFORM=true → provider "gemini", managed service
+    // modes) would make them sticky and able to override a later non-platform
+    // run of the same workspace.
+    //
     // When the file already exists, leave it alone — disk represents user
     // intent, while the in-memory `cached: AssistantConfig` (above) has all
     // schema defaults applied via `applyNestedDefaults`/`validateWithSchema`,
     // so consumers calling `getConfig().memory.v2.bm25_b` continue to receive
-    // the schema default whenever the field is absent on disk.
-    //
-    // The previous behavior — eagerly merging missing keys back into the file
-    // on every load — silently baked stale defaults into existing users'
-    // config.json. Once a default landed in the file, future schema-default
-    // changes were inert because the merge only filled absent keys and never
-    // reconciled existing values. Contract: disk = user intent, in-memory
-    // cache = effective values.
-    if (!configFileExisted && suppressConfigDiskWritesDepth === 0) {
+    // the schema default whenever the field is absent on disk. Contract: disk =
+    // user intent, in-memory cache = effective values.
+    if (willSeed && firstLaunchSeed) {
       try {
         const dir = dirname(configPath);
         if (!existsSync(dir)) {
           mkdirSync(dir, { recursive: true });
         }
         // Strip dataDir (runtime-derived) from the persisted config
-        const { dataDir: _, ...persistable } = config;
+        const { dataDir: _, ...persistable } = firstLaunchSeed;
         writeFileSync(configPath, JSON.stringify(persistable, null, 2) + "\n");
         log.info("Wrote default config to %s", configPath);
       } catch (err) {

@@ -186,24 +186,56 @@ export function defaultDeps(config: AssistantConfig): ReconcileDeps {
  * the configured embedding backend, then execute the resulting action:
  *
  *  - `noop` — committed dimension already matches (or auto-mode declines to
- *    thrash); no writes, no destructive calls.
+ *    thrash); no writes, no destructive calls. Also returned immediately when
+ *    `memory.enabled === false`, before any probe/read/persist/enqueue.
  *  - `commit-fresh` — fresh install adopts the reachable backend's dimension:
  *    commit the dim, ensure the collections EXIST at it (create-if-absent, never
  *    destroy), and enqueue a reembed.
  *  - `migrate` — deliberate provider intent with a confirmed probe: commit the
  *    new dim, then destroy + recreate the collections (the only destructive
  *    path) and enqueue a reembed.
- *  - `defer-degraded` — backend unreachable: no write, no destructive call;
- *    warn and leave the collections untouched.
+ *  - `defer-degraded` — backend unreachable, OR the committed dimension could
+ *    not be read (Qdrant unreachable / existing collection unreadable): no
+ *    write, no destructive call; warn and leave the collections untouched.
  */
 export async function reconcileEmbeddingIdentity(
   config: AssistantConfig,
   deps: ReconcileDeps = defaultDeps(config),
 ): Promise<ReconcileOutcome> {
-  const [committedDim, probe] = await Promise.all([
-    deps.readConceptPageCollectionDim(config),
-    deps.probeBackendDimension(config),
-  ]);
+  // Memory disabled: the user has opted out, so incur none of the reconcile's
+  // cost — no probe (a provider embed call), no committed-dim read, no
+  // persist/recreate/enqueue. `memory.enabled` defaults to true; gate strictly
+  // on the explicit `false`. This gate covers both the lifecycle startup call
+  // and the credential-arrival retry call.
+  if (config.memory.enabled === false) {
+    log.info("Memory disabled — skipping embedding-identity reconcile");
+    return { action: "noop", dim: null };
+  }
+
+  // Read the committed dimension first, isolated in its own try/catch. A thrown
+  // error means Qdrant was unreachable or the existing collection's dimension
+  // was unreadable — distinct from a confirmed-absent collection (which returns
+  // `null`). Treating "unreadable" as a fresh install would commit the probed
+  // dimension while the old collection still exists at the old size, so we
+  // defer (degraded) WITHOUT probing, persisting, recreating, or enqueuing.
+  // Reading before probing (rather than in a single `Promise.all`) keeps the
+  // throw from discarding a successful probe; this is startup, not latency-
+  // critical.
+  let committedDim: number | null;
+  try {
+    committedDim = await deps.readConceptPageCollectionDim(config);
+  } catch (err) {
+    log.warn(
+      { err },
+      "Could not read committed embedding-collection dimension — deferring reconcile; no destructive action taken",
+    );
+    return {
+      action: "defer-degraded",
+      reason: "could not read committed collection dimension",
+    };
+  }
+
+  const probe = await deps.probeBackendDimension(config);
 
   const action = deps.decideEmbeddingReconcile({
     committedDim,

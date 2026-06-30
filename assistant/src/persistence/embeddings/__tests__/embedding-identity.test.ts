@@ -126,23 +126,31 @@ describe("readConceptPageCollectionDim", () => {
     expect(await readConceptPageCollectionDim(CONFIG)).toBe(768);
   });
 
-  test("returns null when the collection is absent", async () => {
+  test("returns null only when the collection is confirmed absent", async () => {
     collectionExistsResult = { exists: false };
     expect(await readConceptPageCollectionDim(CONFIG)).toBeNull();
   });
 
-  test("returns null when the dense size is unreadable", async () => {
+  test("throws when an existing collection's dense size is unreadable", async () => {
+    // Collection exists but the dense vector size is missing: "unknown" must
+    // not be reported as "absent" (which the reconcile reads as a fresh
+    // install), so this is an error.
     getCollectionResult = { config: { params: { vectors: {} } } };
-    expect(await readConceptPageCollectionDim(CONFIG)).toBeNull();
+    expect(readConceptPageCollectionDim(CONFIG)).rejects.toThrow();
   });
 
-  test("returns null on probe failure (existence check throws)", async () => {
+  test("propagates a Qdrant read failure (existence check throws)", async () => {
+    // A transient Qdrant outage must propagate rather than be misread as a
+    // confirmed-absent collection, so the reconcile defers instead of committing
+    // a new dimension while the old collection still exists.
     collectionExistsThrows = true;
-    expect(await readConceptPageCollectionDim(CONFIG)).toBeNull();
+    expect(readConceptPageCollectionDim(CONFIG)).rejects.toThrow("qdrant down");
   });
 
-  test("returns null on probe failure (getCollection throws)", async () => {
+  test("propagates a Qdrant read failure (getCollection throws)", async () => {
     getCollectionThrows = true;
-    expect(await readConceptPageCollectionDim(CONFIG)).toBeNull();
+    expect(readConceptPageCollectionDim(CONFIG)).rejects.toThrow(
+      "qdrant probe failed",
+    );
   });
 });

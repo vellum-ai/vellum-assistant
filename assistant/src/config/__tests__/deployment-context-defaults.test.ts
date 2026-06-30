@@ -150,6 +150,39 @@ describe("deployment-context embedding-provider default (via loadConfig)", () =>
     expect(qdrantRaw.vectorSize).toBeUndefined();
   });
 
+  test("first launch (no config.json) does not persist deployment-context fills", () => {
+    // No config.json on disk: this is the first-launch SEED path that writes a
+    // default config so the file exists for users to edit.
+    if (existsSync(CONFIG_PATH)) rmSync(CONFIG_PATH, { force: true });
+    process.env.IS_PLATFORM = "true";
+
+    const config = loadConfig();
+
+    // In-memory effective config still reflects the platform intent.
+    expect(config.memory.embeddings.provider).toBe("gemini");
+
+    // But the seeded config.json on disk records user intent (schema defaults
+    // only) — the platform fills are applied in-memory on every load and are
+    // intentionally NOT persisted. The embedding provider reflects the schema
+    // default ("auto"), never the platform "gemini", and the managed service
+    // modes are absent so a later non-platform run is not overridden by them.
+    const raw = readConfig();
+    const memoryRaw = (raw.memory ?? {}) as Record<string, unknown>;
+    const embeddingsRaw = (memoryRaw.embeddings ?? {}) as Record<
+      string,
+      unknown
+    >;
+    expect(embeddingsRaw.provider).not.toBe("gemini");
+    expect(embeddingsRaw.provider ?? "auto").toBe("auto");
+
+    const servicesRaw = (raw.services ?? {}) as Record<string, unknown>;
+    const webSearchRaw = (servicesRaw["web-search"] ?? {}) as Record<
+      string,
+      unknown
+    >;
+    expect(webSearchRaw.mode).not.toBe("managed");
+  });
+
   test("IS_PLATFORM='1' also fills provider=gemini in memory", () => {
     writeConfig({});
     process.env.IS_PLATFORM = "1";
