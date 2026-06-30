@@ -870,15 +870,18 @@ export class AnthropicProvider implements Provider {
         (restConfig as Record<string, unknown>).model?.toString() ?? this.model;
       const isHaiku = effectiveModel.includes("haiku");
       const supportsEffort = !isHaiku;
-      // opus-4-7 / opus-4-8 reject `temperature` and `top_p` with a 400
-      // "`temperature`/`top_p` is deprecated for this model" — model-wide, not
-      // effort-conditional (verified 2026-06-23). opus-4-6 / sonnet-4-6 /
-      // haiku-4-5 still accept them. fable-5 is included conservatively (a
-      // frontier model that could not be verified directly but follows the same
-      // deprecation direction). Stripping the params here keeps callers that set
-      // them (e.g. the memory-v3 L2 selector's `temperature: 0`) from 400ing.
+      // opus-4-7 / opus-4-8 and sonnet-5 reject `temperature`, `top_p`, and
+      // `top_k` with a 400 "`temperature`/`top_p` is deprecated for this model"
+      // — model-wide, not effort-conditional (verified 2026-06-23). opus-4-6 /
+      // sonnet-4-6 / haiku-4-5 still accept them. fable-5 is included
+      // conservatively (a frontier model that could not be verified directly
+      // but follows the same deprecation direction). Stripping the params here
+      // keeps callers that set them (e.g. the memory-v3 L2 selector's
+      // `temperature: 0`) from 400ing. OpenRouter `anthropic/...` models
+      // delegate to this provider, so the bare-id suffix is what matches.
       const deprecatesSamplingParams =
         /claude-opus-4-[78]\b/.test(effectiveModel) ||
+        /claude-sonnet-5\b/.test(effectiveModel) ||
         effectiveModel.startsWith("claude-fable-");
       const mergedOutputConfig = {
         ...(output_config ?? {}),
