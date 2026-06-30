@@ -253,7 +253,13 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
     [items, filter, searchValue],
   );
 
+  // Background-fetch state (focus refetch, post-install invalidation); drives
+  // the search spinner only.
   const isSearching = isFetching && !isLoading;
+  // Counts gate on the live term, not isSearching: search is client-side, so
+  // it never trips the background-fetch signal — keying counts off that would
+  // never hide them while filtering.
+  const hasActiveSearch = searchValue.trim().length > 0;
 
   if (selectedPluginName) {
     // Seed the detail header icon from the already-loaded list row: catalog
@@ -334,7 +340,7 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
         onCategoryChange={setCategory}
         counts={counts}
         totalCount={totalCount}
-        showCounts={!isSearching}
+        showCounts={!hasActiveSearch}
       />
 
       {catalogError && !isLoading && !isError ? (
@@ -350,7 +356,7 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
               onSelect={setCategory}
               counts={counts}
               totalCount={totalCount}
-              showCounts={!isSearching}
+              showCounts={!hasActiveSearch}
               categories={categories}
             />
           </aside>
