@@ -38,6 +38,8 @@ import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
 import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachment-gate";
+import { useSupportsNewChatPlugins } from "@/lib/backwards-compat/use-supports-new-chat-plugins";
+import { NewChatPluginsSection } from "@/domains/chat/components/new-chat-plugins/new-chat-plugins-section";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { ActiveSubagentsOverlay } from "@/domains/chat/components/active-subagents-overlay/active-subagents-overlay";
 import { ActiveAcpRunsOverlay } from "@/domains/chat/components/active-acp-runs-overlay/active-acp-runs-overlay";
@@ -200,6 +202,9 @@ export function ChatMainPanel({
     activeConversation,
   } = useChatUIState();
   const isChannelReadonly = isChannelConversation(activeConversation);
+
+  // Gated to daemons that accept the per-chat plugin set (web is always-latest).
+  const supportsNewChatPlugins = useSupportsNewChatPlugins();
 
   // -------------------------------------------------------------------------
   // Composer — `ChatComposer` and `ComposerDraftNotices` self-source every
@@ -927,6 +932,14 @@ export function ChatMainPanel({
       />
     ) : undefined;
 
+  const newChatPluginsSlot =
+    isEmptyConversation && supportsNewChatPlugins && assistantId ? (
+      <NewChatPluginsSection
+        assistantId={assistantId}
+        conversationId={activeConversation?.conversationId}
+      />
+    ) : undefined;
+
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
@@ -942,6 +955,7 @@ export function ChatMainPanel({
         showMaintenanceRecoveryCard: isSidePanel ? false : isInMaintenanceWithNoMessages,
       }}
       composerSlot={composerNode}
+      pluginPillsSlot={newChatPluginsSlot}
       onStopGenerating={handleStopGenerating}
       dragHandlers={attachmentDropHandlers}
       isAttachmentDragOver={isAttachmentDragOver}
