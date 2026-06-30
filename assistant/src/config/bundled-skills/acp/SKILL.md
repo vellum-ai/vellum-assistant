@@ -8,26 +8,26 @@ metadata:
     display-name: "ACP"
     category: "development"
     activation-hints:
-      - "User asks to use Claude Code, Codex, or Gemini to do something"
-      - "User wants to delegate a coding task to Claude Code, Codex, Gemini, or another ACP agent"
+      - "User asks to use Claude Code or Codex to do something"
+      - "User wants to delegate a coding task to Claude Code, Codex, or another ACP agent"
       - "User wants to hand a coding task to another agent and check on it later"
       - "User wants to spawn an external coding agent that runs autonomously and streams results back"
-      - "User mentions ACP, claude-agent-acp, codex-acp, gemini --acp, or running multiple coding agents in parallel"
+      - "User mentions ACP, claude-agent-acp, codex-acp, or running multiple coding agents in parallel"
     avoid-when:
       - "Task is small enough to do inline with the assistant's own tools - no need for an external agent"
 ---
 
-ACP agent orchestration - spawn external coding agents (Claude Code, Codex, Gemini) to work on tasks via the Agent Client Protocol. Each agent runs as its own subprocess speaking ACP over stdio and streams results back into the conversation.
+ACP agent orchestration - spawn external coding agents (Claude Code, Codex) to work on tasks via the Agent Client Protocol. Each agent runs as its own subprocess speaking ACP over stdio and streams results back into the conversation.
 
 ## Usage
 
 Use `acp_spawn` to delegate a coding task to an external agent. The agent runs as a subprocess speaking the ACP protocol over stdio and streams results back.
 
-Users can refer to agents by natural names: "claude code", "codex cli", "openai codex", "gemini cli", and "google gemini" all resolve to the canonical `claude`, `codex`, and `gemini` ids (unless the user's config defines an agent literally keyed by that name, which always wins).
+Users can refer to agents by natural names: "claude code", "codex cli", and "openai codex" all resolve to the canonical `claude` and `codex` ids (unless the user's config defines an agent literally keyed by that name, which always wins).
 
 ## First-time setup
 
-ACP is always available - default profiles for `claude`, `codex`, and `gemini` ship out-of-box, so no config edit is needed to start. First-time setup is just making the adapter binary available, then spawning:
+ACP is always available - default profiles for `claude` and `codex` ship out-of-box, so no config edit is needed to start. First-time setup is just making the adapter binary available, then spawning:
 
 1. Install the adapter binary if it's missing. This happens automatically: when `acp_spawn` finds the agent's binary missing from PATH, the assistant installs it once via a sandboxed bun global install and proceeds in the same call (see "Automatic adapter availability" below).
 
@@ -35,16 +35,15 @@ ACP is always available - default profiles for `claude`, `codex`, and `gemini` s
 
 ## Automatic adapter availability
 
-When `acp_spawn` finds the agent's binary missing from PATH, the assistant installs it once via a sandboxed bun global install and then runs the real installed binary. The install runs in a fresh empty temporary directory (never the task's project directory), with the Claude/Gemini secrets stripped from the installer environment and the registry pinned to the public npm registry, so a malicious project directory cannot hijack package resolution or capture a token. After this one-time install, the adapter is a normal trusted binary on PATH and every later spawn (and resume) uses it directly.
+When `acp_spawn` finds the agent's binary missing from PATH, the assistant installs it once via a sandboxed bun global install and then runs the real installed binary. The install runs in a fresh empty temporary directory (never the task's project directory), with known secrets stripped from the installer environment and the registry pinned to the public npm registry, so a malicious project directory cannot hijack package resolution or capture a token. After this one-time install, the adapter is a normal trusted binary on PATH and every later spawn (and resume) uses it directly.
 
-Only the allowlisted out-of-box packages are ever installed this way (`@agentclientprotocol/claude-agent-acp`, `@zed-industries/codex-acp`, `@google/gemini-cli`); user-configured agents with custom commands are never installed automatically.
+Only the allowlisted out-of-box packages are ever installed this way (`@agentclientprotocol/claude-agent-acp`, `@zed-industries/codex-acp`); user-configured agents with custom commands are never installed automatically.
 
 Manual installation is fallback guidance for unusual setups: bun unavailable, restricted global installs, or an auto-install failure (the failure reason is surfaced in the tool result).
 
 ```bash
 bun add -g @agentclientprotocol/claude-agent-acp   # claude
 bun add -g @zed-industries/codex-acp               # codex
-bun add -g @google/gemini-cli                       # gemini
 ```
 
 ## Claude setup
@@ -68,43 +67,14 @@ The `codex-acp` adapter is installed automatically when missing, but it shells o
    - `CODEX_API_KEY` environment variable
    - `OPENAI_API_KEY` environment variable
 
-## Gemini setup
-
-Gemini CLI speaks ACP natively (`gemini --acp`) - there is no separate adapter binary. The CLI itself is installed from `@google/gemini-cli` when missing.
-
-**Authenticate** with an API key through the credential store (the primary path):
-
-```bash
-assistant credentials set --service acp --field gemini_api_key <key>
-```
-
-Or collect the key via the secure prompt: `assistant credentials prompt --service acp --field gemini_api_key --label "Gemini API Key"`. Either way the key never appears in chat or workspace config, and every spawn injects it as `GEMINI_API_KEY` automatically. The key is optional - a spawn proceeds without it when the vault has no entry.
-
-The alternative is browser OAuth: run `gemini` once interactively and complete the sign-in flow. This is impractical on hosted assistants (no browser), so prefer the credential store there.
-
 Do NOT put API keys (or any secret) in the workspace config file - secrets never belong in the workspace directory. Use the credential store instead.
-
-A workspace `acp.agents.gemini` override is only for non-secret customization (custom binary path, extra args, non-secret env vars). It must spell out the full `command` and `args` - see "Critical: correct agent command" below for the replace-not-merge rule:
-  ```json
-  {
-    "acp": {
-      "agents": {
-        "gemini": {
-          "command": "gemini",
-          "args": ["--acp"],
-          "env": { "NO_COLOR": "1" }
-        }
-      }
-    }
-  }
-  ```
 
 ## Critical: correct agent command
 
-- Three agents are supported out-of-box: `claude` (via the `claude-agent-acp` adapter), `codex` (via the `codex-acp` adapter), and `gemini` (via `gemini --acp` - Gemini speaks ACP natively, no adapter binary).
-- NEVER use `claude`, `claude -p`, `claude --acp`, or the bare `codex` CLI as the ACP `command`. Claude and Codex only speak the protocol through their dedicated `*-acp` adapters. Gemini is the exception: the `gemini` CLI itself speaks ACP when launched with `--acp`.
-- Default profiles for all three ship out-of-box. Users only need an `agents.<id>` entry in config if they want to override the defaults (e.g. point to a custom binary path or pass extra args/env). An `acp.agents.<id>` entry replaces the bundled default entirely (no field merge), so any override must spell out the full `command` and `args`, not just the field being changed.
-- NEVER change an existing ACP config to use a different command. If the config already has `claude-agent-acp`, `codex-acp`, or `gemini`, leave it alone.
+- Two agents are supported out-of-box: `claude` (via the `claude-agent-acp` adapter) and `codex` (via the `codex-acp` adapter).
+- NEVER use `claude`, `claude -p`, `claude --acp`, or the bare `codex` CLI as the ACP `command`. Claude and Codex only speak the protocol through their dedicated `*-acp` adapters.
+- Default profiles for both ship out-of-box. Users only need an `agents.<id>` entry in config if they want to override the defaults (e.g. point to a custom binary path or pass extra args/env). An `acp.agents.<id>` entry replaces the bundled default entirely (no field merge), so any override must spell out the full `command` and `args`, not just the field being changed.
+- NEVER change an existing ACP config to use a different command. If the config already has `claude-agent-acp` or `codex-acp`, leave it alone.
 
 ## Updating an adapter
 
@@ -114,8 +84,6 @@ Adapters are installed once via a bun global install. To update one to the lates
 bun add -g @agentclientprotocol/claude-agent-acp@latest
 # or
 bun add -g @zed-industries/codex-acp@latest
-# or
-bun add -g @google/gemini-cli@latest
 ```
 
 Then retry the `acp_spawn` call.
@@ -128,7 +96,7 @@ Then retry the `acp_spawn` call.
 
 ## Discoverability
 
-Use `acp_list_agents` to see what's set up and what's missing. It returns each available agent profile, whether the agent's binary is on PATH (missing binaries are installed automatically on first spawn), and an install hint if not. This is the right tool to call when deciding between `claude`, `codex`, and `gemini`, or when the user asks "what coding agents do I have?"
+Use `acp_list_agents` to see what's set up and what's missing. It returns each available agent profile, whether the agent's binary is on PATH (missing binaries are installed automatically on first spawn), and an install hint if not. This is the right tool to call when deciding between `claude` and `codex`, or when the user asks "what coding agents do I have?"
 
 ## Working directory
 
