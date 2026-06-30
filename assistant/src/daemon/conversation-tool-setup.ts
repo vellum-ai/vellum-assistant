@@ -25,6 +25,7 @@ import {
   getMcpToolDefinitions,
   getPluginToolDefinitions,
   getTool,
+  getToolOwner,
   getWorkspaceToolDefinitions,
   getWorkspaceToolNames,
 } from "../tools/registry.js";
@@ -414,6 +415,13 @@ export interface SkillProjectionContext {
   /** When set, only tools in this set are included in the resolved tool list (subagent delegation). */
   subagentAllowedTools?: Set<string>;
   /**
+   * Per-chat plugin scope. `null`/absent means no per-chat restriction (all
+   * globally-enabled plugins apply); otherwise plugin tools are intersected
+   * with this set via {@link getEffectiveEnabledPluginSet} at per-turn
+   * resolution. Read lazily so a mid-conversation scope change is picked up.
+   */
+  enabledPlugins?: string[] | null;
+  /**
    * How {@link subagentAllowedTools} is enforced — see
    * {@link SubagentToolGateMode}. Absent means `"wire"`.
    */
@@ -440,6 +448,14 @@ export interface SkillProjectionContext {
   readonly transportInterface?: InterfaceId;
   /** Per-turn override profile. */
   currentTurnOverrideProfile?: string;
+  /**
+   * The conversation's per-chat plugin scope (mirrors
+   * {@link Conversation.enabledPlugins}). `null`/absent means no per-chat
+   * restriction. Read per turn so skill resolution drops plugin-owned skills
+   * outside the conversation's effective set via
+   * {@link getEffectiveEnabledPluginSet}.
+   */
+  readonly enabledPlugins?: string[] | null;
   /**
    * Conversation id for `skill_loaded` telemetry. Absent (e.g. minimal test
    * contexts) disables telemetry recording in the skill projection.
@@ -731,10 +747,24 @@ export function createResolveToolsCallback(
     // so combine them with the core snapshot before filtering.
     const currentPluginDefs = getPluginToolDefinitions();
 
+    // Scope plugin tools to the conversation's per-chat plugin set. `null`
+    // leaves the list unchanged (no per-chat restriction); otherwise keep only
+    // tools whose owning plugin id is in the set, mirroring the
+    // `subagentAllowedTools` intersection below. Ownership lives in the registry
+    // (queried via getToolOwner), not on the Tool object.
+    const enabledPlugins = getEffectiveEnabledPluginSet(ctx);
+    const scopedPluginDefs =
+      enabledPlugins === null
+        ? currentPluginDefs
+        : currentPluginDefs.filter((d) => {
+            const ownerId = getToolOwner(d.name)?.id;
+            return ownerId !== undefined && enabledPlugins.has(ownerId);
+          });
+
     // Filter core + plugin tools based on current conversation context so that
     // tools irrelevant to this turn (e.g. UI tools when no client is connected)
     // are omitted from the definitions sent to the provider.
-    const filteredCoreDefs = [...coreToolDefs, ...currentPluginDefs].filter(
+    const filteredCoreDefs = [...coreToolDefs, ...scopedPluginDefs].filter(
       (d) => isToolActiveForContext(d.name, ctx),
     );
 
@@ -788,6 +818,9 @@ export function createResolveToolsCallback(
       preactivatedSkillIds: effectivePreactivated,
       previouslyActiveSkillIds: ctx.skillProjectionState,
       cache: ctx.skillProjectionCache,
+      // Scope plugin-contributed skills to the conversation's per-chat plugin
+      // selection (null = no restriction).
+      effectiveEnabledPluginSet: getEffectiveEnabledPluginSet(ctx),
       // skill_loaded telemetry context — resolved per turn so attribution
       // reflects the call site/profile the current turn actually runs on.
       telemetry:

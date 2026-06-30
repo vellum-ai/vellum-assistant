@@ -106,6 +106,7 @@ import {
   isConversationProcessing,
   type MessageRow,
   provenanceFromTrustContext,
+  setConversationEnabledPlugins,
   setConversationInferenceProfile,
 } from "../../persistence/conversation-crud.js";
 import {
@@ -1254,6 +1255,7 @@ export async function handleSendMessage(
     clientId?: string;
     clientMessageId?: string;
     inferenceProfile?: string | null;
+    enabledPlugins?: string[] | null;
     riskThreshold?: string;
     onboarding?: {
       tools: string[];
@@ -1312,6 +1314,18 @@ export async function handleSendMessage(
         `Profile "${requestedInferenceProfile}" is not defined in llm.profiles`,
       );
     }
+  }
+  // `undefined` leaves the stored scope untouched; `null` clears it to the
+  // default; `[]` scopes the chat to no plugins.
+  const requestedEnabledPlugins = body.enabledPlugins;
+  if (
+    requestedEnabledPlugins != null &&
+    (!Array.isArray(requestedEnabledPlugins) ||
+      requestedEnabledPlugins.some((p) => typeof p !== "string"))
+  ) {
+    throw new BadRequestError(
+      "enabledPlugins must be an array of strings or null",
+    );
   }
   if (
     requestedRiskThreshold !== undefined &&
@@ -1541,6 +1555,14 @@ export async function handleSendMessage(
       sessionId: null,
       expiresAt: null,
     });
+  }
+
+  if (requestedEnabledPlugins !== undefined) {
+    setConversationEnabledPlugins(
+      mapping.conversationId,
+      requestedEnabledPlugins,
+    );
+    conversation.setEnabledPlugins(requestedEnabledPlugins);
   }
 
   // Store pre-chat onboarding context on the conversation when this is the
