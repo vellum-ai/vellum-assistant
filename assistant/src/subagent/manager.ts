@@ -614,8 +614,11 @@ export class SubagentManager {
     // Read the current parent sender so reconnects are picked up.
     const getSender = () => managed.parentSendToClient;
 
-    this.setStatus(subagentId, "running", getSender());
+    // Stamp startedAt before the status transition so the persistence hook
+    // inside setStatus captures it on the running row (otherwise a crash mid-run
+    // rehydrates as interrupted with no start time).
     managed.state.startedAt = Date.now();
+    this.setStatus(subagentId, "running", getSender());
 
     try {
       // For forks, inject the parent's message history before the first message.
