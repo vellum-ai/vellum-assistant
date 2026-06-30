@@ -81,7 +81,7 @@ mock.module("@qdrant/js-client-rest", () => ({
   QdrantClient: MockQdrantClient,
 }));
 
-const { denseLane, OVERSAMPLE } = await import("../dense.js");
+const { denseLane, denseLaneScored, OVERSAMPLE } = await import("../dense.js");
 const { SECTION_COLLECTION, _resetSectionDenseStoreForTests } =
   await import("../section-dense-store.js");
 
@@ -207,5 +207,80 @@ describe("memory v3 dense lane", () => {
     expect(hits).toEqual([]);
     expect(embedState.calls).toEqual([]);
     expect(state.queryCalls).toHaveLength(0);
+  });
+});
+
+describe("denseLaneScored", () => {
+  beforeEach(resetState);
+  afterEach(resetState);
+
+  test("flows raw cosine scores through in descending order, deduped to best section per article", async () => {
+    // page-a's best section is ordinal 2 (highest score); the later page-a
+    // section is ignored once the article is already represented.
+    state.points = [
+      point("page-a", 2, 0.95),
+      point("topic-x", 0, 0.9),
+      point("page-a", 1, 0.5),
+    ];
+
+    const hits = await denseLaneScored(CONFIG, "query", 5);
+
+    expect(hits).toEqual([
+      { article: "page-a", section: 2, score: 0.95 },
+      { article: "topic-x", section: 0, score: 0.9 },
+    ]);
+  });
+
+  test("a missing point.score defaults to 0", async () => {
+    state.points = [
+      {
+        payload: { article: "page-a", ordinal: 0 },
+      } as unknown as MockPoint,
+    ];
+
+    const hits = await denseLaneScored(CONFIG, "query", 5);
+
+    expect(hits).toEqual([{ article: "page-a", section: 0, score: 0 }]);
+  });
+
+  test("non-positive k short-circuits to []", async () => {
+    const hits = await denseLaneScored(CONFIG, "query", 0);
+
+    expect(hits).toEqual([]);
+    expect(embedState.calls).toEqual([]);
+    expect(state.queryCalls).toHaveLength(0);
+  });
+
+  test("a committed-dimension/reachable-backend mismatch degrades to []", async () => {
+    embedState.dimensionAvailable = false;
+
+    const hits = await denseLaneScored(CONFIG, "query", 5);
+
+    expect(hits).toEqual([]);
+    expect(embedState.calls).toEqual([]);
+    expect(state.queryCalls).toHaveLength(0);
+  });
+
+  test("a thrown Qdrant search degrades to []", async () => {
+    state.queryThrows = new Error("qdrant unreachable");
+
+    const hits = await denseLaneScored(CONFIG, "query", 5);
+
+    expect(hits).toEqual([]);
+  });
+
+  test("denseLane returns denseLaneScored hits with the score stripped", async () => {
+    state.points = [
+      point("page-a", 2, 0.95),
+      point("topic-x", 0, 0.9),
+      point("page-a", 1, 0.5),
+    ];
+
+    const scored = await denseLaneScored(CONFIG, "query", 5);
+    const plain = await denseLane(CONFIG, "query", 5);
+
+    expect(plain).toEqual(
+      scored.map(({ article, section }) => ({ article, section })),
+    );
   });
 });

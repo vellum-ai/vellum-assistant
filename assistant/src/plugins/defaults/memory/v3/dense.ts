@@ -42,12 +42,21 @@ export interface DenseHit {
   section: number;
 }
 
+/** A dense-lane hit plus the raw cosine similarity Qdrant returned. */
+export interface DenseHitScored {
+  article: Slug;
+  section: number;
+  score: number;
+}
+
 /**
- * Run the dense lane: embed `query`, search the section collection for the top
- * `k * OVERSAMPLE` section points, then dedupe to the top-`k` distinct articles
- * — each with its best-scoring section ordinal. Section points are returned by
- * Qdrant in descending score order, so the first time an article is seen is its
- * best section; subsequent sections of the same article are ignored.
+ * Run the dense lane and keep each hit's raw cosine score: embed `query`, search
+ * the section collection for the top `k * OVERSAMPLE` section points, then dedupe
+ * to the top-`k` distinct articles — each with its best-scoring section ordinal
+ * and that section's cosine score. Section points are returned by Qdrant in
+ * descending score order, so the first time an article is seen is its best
+ * section; subsequent sections of the same article are ignored. A point that
+ * arrives without a `score` is recorded as `0`.
  *
  * Returns `[]` on any embedding or Qdrant failure (logged at warn level), and
  * short-circuits to `[]` when the reachable backend cannot produce vectors of
@@ -55,11 +64,11 @@ export interface DenseHit {
  * so a 3072-dim collection committed while only a 384-dim backend is reachable
  * narrows recall cleanly rather than failing the dimension assertion every turn.
  */
-export async function denseLane(
+export async function denseLaneScored(
   config: AssistantConfig,
   query: string,
   k: number,
-): Promise<DenseHit[]> {
+): Promise<DenseHitScored[]> {
   if (k <= 0) return [];
 
   if (!(await isEmbeddingDimensionAvailable(config))) {
@@ -89,7 +98,7 @@ export async function denseLane(
   // Walk hits in score order, keeping the first (best) section per article and
   // stopping once we have `k` distinct articles.
   const seen = new Set<Slug>();
-  const hits: DenseHit[] = [];
+  const hits: DenseHitScored[] = [];
   for (const point of points) {
     const payload = point.payload as
       | { article?: unknown; ordinal?: unknown }
@@ -100,9 +109,35 @@ export async function denseLane(
     if (typeof article !== "string" || typeof ordinal !== "number") continue;
     if (seen.has(article)) continue;
     seen.add(article);
-    hits.push({ article, section: ordinal });
+    hits.push({ article, section: ordinal, score: point.score ?? 0 });
     if (hits.length >= k) break;
   }
 
   return hits;
+}
+
+/**
+ * Run the dense lane: embed `query`, search the section collection for the top
+ * `k * OVERSAMPLE` section points, then dedupe to the top-`k` distinct articles
+ * — each with its best-scoring section ordinal. Section points are returned by
+ * Qdrant in descending score order, so the first time an article is seen is its
+ * best section; subsequent sections of the same article are ignored.
+ *
+ * Returns `[]` on any embedding or Qdrant failure (logged at warn level), and
+ * short-circuits to `[]` when the reachable backend cannot produce vectors of
+ * the committed collection dimension (degraded backend or dimension mismatch) —
+ * so a 3072-dim collection committed while only a 384-dim backend is reachable
+ * narrows recall cleanly rather than failing the dimension assertion every turn.
+ *
+ * Thin wrapper over {@link denseLaneScored} that drops the raw cosine score for
+ * callers that only need the matched article and section.
+ */
+export async function denseLane(
+  config: AssistantConfig,
+  query: string,
+  k: number,
+): Promise<DenseHit[]> {
+  return (await denseLaneScored(config, query, k)).map(
+    ({ article, section }) => ({ article, section }),
+  );
 }
