@@ -99,19 +99,22 @@ const memoryRetroCalls: Array<{
   trigger: string;
 }> = [];
 
-mock.module("../../memory/memory-retrospective-enqueue.js", () => ({
-  enqueueMemoryRetrospectiveIfEnabled: (args: {
-    conversationId: string;
-    trigger: string;
-  }) => {
-    memoryRetroCalls.push(args);
-  },
-  // Also export sibling functions other modules import from this file, so
-  // mocking it here doesn't break transitive imports loaded during the
-  // `disposeConversation` dynamic-import chain.
-  enqueueMemoryRetrospectiveOnCompaction: () => {},
-  isMemoryRetrospectiveConversation: (_id: string) => false,
-}));
+mock.module(
+  "../../plugins/defaults/memory/memory-retrospective-enqueue.js",
+  () => ({
+    enqueueMemoryRetrospectiveIfEnabled: (args: {
+      conversationId: string;
+      trigger: string;
+    }) => {
+      memoryRetroCalls.push(args);
+    },
+    // Also export sibling functions other modules import from this file, so
+    // mocking it here doesn't break transitive imports loaded during the
+    // `disposeConversation` dynamic-import chain.
+    enqueueMemoryRetrospectiveOnCompaction: () => {},
+    isMemoryRetrospectiveConversation: (_id: string) => false,
+  }),
+);
 
 // Stub all side-effecting cleanup helpers that disposeConversation chains
 // into after the enqueue block. We assert on enqueue behavior only.

@@ -1,16 +1,16 @@
-import {
-  invalidateConfigCache,
-  loadRawConfig,
-  saveRawConfig,
-  setNestedValue,
-} from "../../../../config/loader.js";
-import { VALID_CONVERSATION_TIMEOUTS } from "../../../../config/schemas/elevenlabs.js";
 import { normalizeActivationKey } from "../../../../daemon/handlers/config-voice.js";
 import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import { listCatalogProviderIds } from "../../../../tts/provider-catalog.js";
+import {
+  invalidateConfigCache,
+  loadRawConfig,
+  saveRawConfig,
+  setNestedValue,
+} from "../../../loader.js";
+import { VALID_CONVERSATION_TIMEOUTS } from "../../../schemas/elevenlabs.js";
 
 /**
  * Valid voice config settings and their UserDefaults key mappings.

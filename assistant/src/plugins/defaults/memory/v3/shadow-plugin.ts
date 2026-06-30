@@ -25,11 +25,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { getConfig } from "../../../../config/loader.js";
 import type { AssistantConfig } from "../../../../config/schema.js";
 import { loadSkillCatalog } from "../../../../config/skills.js";
-import { getPageIndex } from "../../../../memory/v2/page-index.js";
-import {
-  readPage,
-  renderPageContent,
-} from "../../../../memory/v2/page-store.js";
 import { getMessages } from "../../../../persistence/conversation-crud.js";
 import { getDb, getSqliteFrom } from "../../../../persistence/db-connection.js";
 import { stringifyMessageContent } from "../../../../persistence/message-content.js";
@@ -39,6 +34,8 @@ import {
   getWorkspacePromptPath,
 } from "../../../../util/platform.js";
 import { stripCommentLines } from "../../../../util/strip-comment-lines.js";
+import { getPageIndex } from "../v2/page-index.js";
+import { readPage, renderPageContent } from "../v2/page-store.js";
 import { capabilityOrDiskBody } from "./capabilities.js";
 import { renderCard } from "./card.js";
 import { loadCoreSet } from "./core-set.js";

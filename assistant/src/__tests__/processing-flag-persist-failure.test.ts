@@ -144,7 +144,7 @@ mock.module("../memory/query-builder.js", () => ({
   buildMemoryQuery: () => "",
 }));
 
-mock.module("../memory/retrieval-budget.js", () => ({
+mock.module("../plugins/defaults/memory/retrieval-budget.js", () => ({
   computeRecallBudget: () => 0,
 }));
 

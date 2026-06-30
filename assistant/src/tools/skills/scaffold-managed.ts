@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { SkillSource } from "../../config/skills.js";
 import { loadSkillCatalog } from "../../config/skills.js";
 import { refreshSkillCapabilityMemories } from "../../daemon/skill-memory-refresh.js";
-import { MEMORY_RETROSPECTIVE_ORIGIN } from "../../memory/memory-retrospective-constants.js";
+import { MEMORY_RETROSPECTIVE_ORIGIN } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
 import { readInstallMeta } from "../../skills/install-meta.js";
 import {
   createManagedSkill,

@@ -23,10 +23,10 @@ const log = getLogger("memory-v2-startup");
  */
 export function maybeSeedMemoryV2Skills(config: AssistantConfig): void {
   if (!config.memory.v2.enabled) return;
-  void import("../memory/v2/skill-store.js")
+  void import("../plugins/defaults/memory/v2/skill-store.js")
     .then(({ seedV2SkillEntries }) => seedV2SkillEntries())
     .catch((err) => log.warn({ err }, "Failed to seed v2 skill entries"));
-  void import("../memory/v2/qdrant.js")
+  void import("../plugins/defaults/memory/v2/qdrant.js")
     .then(({ dropLegacySkillsCollection }) => dropLegacySkillsCollection())
     .catch((err) =>
       log.warn(
@@ -44,7 +44,7 @@ export function maybeSeedMemoryV2Skills(config: AssistantConfig): void {
  */
 export function maybeSeedMemoryV2CliCommands(config: AssistantConfig): void {
   if (!config.memory.v2.enabled) return;
-  void import("../memory/v2/cli-command-store.js")
+  void import("../plugins/defaults/memory/v2/cli-command-store.js")
     .then(({ seedV2CliCommandEntries }) => seedV2CliCommandEntries())
     .catch((err) => log.warn({ err }, "Failed to seed v2 CLI-command entries"));
 }
@@ -167,7 +167,7 @@ export async function maybeReseedCapabilitiesAfterManagedCredential(
       "skill",
       async () => {
         const { seedV2SkillEntries } =
-          await import("../memory/v2/skill-store.js");
+          await import("../plugins/defaults/memory/v2/skill-store.js");
         await seedV2SkillEntries({ throwOnError: true });
       },
     ],
@@ -175,7 +175,7 @@ export async function maybeReseedCapabilitiesAfterManagedCredential(
       "CLI-command",
       async () => {
         const { seedV2CliCommandEntries } =
-          await import("../memory/v2/cli-command-store.js");
+          await import("../plugins/defaults/memory/v2/cli-command-store.js");
         await seedV2CliCommandEntries({ throwOnError: true });
       },
     ],
@@ -262,7 +262,7 @@ export async function rebuildBm25CorpusStatsAndReseedSkills(
 
   try {
     const { rebuildConceptPageCorpusStats } =
-      await import("../memory/v2/sparse-bm25.js");
+      await import("../plugins/defaults/memory/v2/sparse-bm25.js");
     await rebuildConceptPageCorpusStats(getWorkspaceDir());
     log.info("Memory v2 BM25 corpus stats built");
   } catch (err) {
@@ -279,7 +279,7 @@ export async function rebuildBm25CorpusStatsAndReseedSkills(
     (async () => {
       try {
         const { seedV2SkillEntries } =
-          await import("../memory/v2/skill-store.js");
+          await import("../plugins/defaults/memory/v2/skill-store.js");
         await seedV2SkillEntries({ throwOnError: true });
         log.info(
           "Memory v2 skill embeddings re-seeded with BM25 vectors after corpus-stats build",
@@ -294,7 +294,7 @@ export async function rebuildBm25CorpusStatsAndReseedSkills(
     (async () => {
       try {
         const { seedV2CliCommandEntries } =
-          await import("../memory/v2/cli-command-store.js");
+          await import("../plugins/defaults/memory/v2/cli-command-store.js");
         await seedV2CliCommandEntries({ throwOnError: true });
         log.info(
           "Memory v2 CLI-command embeddings re-seeded with BM25 vectors after corpus-stats build",
@@ -333,8 +333,9 @@ export async function maybeRebuildMemoryV2Concepts(
       ensureConceptPageCollection,
       countConceptPagePoints,
       clearReembedSentinel,
-    } = await import("../memory/v2/qdrant.js");
-    const { hasConceptPages } = await import("../memory/v2/page-store.js");
+    } = await import("../plugins/defaults/memory/v2/qdrant.js");
+    const { hasConceptPages } =
+      await import("../plugins/defaults/memory/v2/page-store.js");
     const { enqueueMemoryJob, hasActiveJobOfType } =
       await import("../persistence/jobs-store.js");
 

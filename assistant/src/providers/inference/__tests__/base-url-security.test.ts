@@ -116,7 +116,7 @@ describe("resolveAuth defense-in-depth", () => {
   }));
 
   // Mock the platform proxy context to avoid real platform calls.
-  mock.module("../../../providers/platform-proxy/context.js", () => ({
+  mock.module("../../platform-proxy/context.js", () => ({
     buildManagedBaseUrl: async () => null,
     resolveManagedProxyContext: async () => ({
       assistantApiKey: "platform-key",

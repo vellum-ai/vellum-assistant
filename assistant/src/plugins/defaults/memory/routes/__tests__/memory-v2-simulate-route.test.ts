@@ -24,9 +24,10 @@ import type {
   Provider,
   ProviderResponse,
   SendMessageOptions,
-  ToolDefinition,
   ToolUseContent,
-} from "../../../../../providers/types.js";
+} from "@vellumai/plugin-api";
+
+import type { ToolDefinition } from "../../../../../providers/types.js";
 
 // ---------------------------------------------------------------------------
 // Mocks (installed before the route module is imported)
@@ -40,7 +41,7 @@ mock.module("../../../../../util/logger.js", () => ({
 }));
 
 // Skill store: empty by default so the page index only contains test pages.
-mock.module("../../../../../memory/v2/skill-store.js", () => ({
+mock.module("../../v2/skill-store.js", () => ({
   SKILL_SLUG_PREFIX: "skills/",
   listSkillEntries: () => [],
   seedV2SkillEntries: async () => undefined,
@@ -48,7 +49,7 @@ mock.module("../../../../../memory/v2/skill-store.js", () => ({
 
 // NOW.md loader: return a fixed string. The route reads NOW from the
 // workspace at call time; stubbing keeps the test independent of disk state.
-mock.module("../../../../../memory/v2/now-text.js", () => ({
+mock.module("../../v2/now-text.js", () => ({
   loadNowText: async () => "2026-05-22 14:00 PT",
 }));
 
@@ -58,7 +59,7 @@ mock.module("../../../../../memory/v2/now-text.js", () => ({
 // for tier 2, once in the handler for the response payload); always returns
 // zero scores since the test workspace has no event history.
 const recordCalls: Array<{ slugs: readonly string[]; at: number }> = [];
-mock.module("../../../../../memory/v2/injection-events.js", () => ({
+mock.module("../../v2/injection-events.js", () => ({
   recordInjectionEvents: (
     _db: unknown,
     slugs: readonly string[],
@@ -185,9 +186,8 @@ mock.module("../../../../../util/platform.js", () => {
 // ---------------------------------------------------------------------------
 
 const { handleSimulateRouter } = await import("../memory-v2-routes.js");
-const { writePage } = await import("../../../../../memory/v2/page-store.js");
-const { invalidatePageIndex } =
-  await import("../../../../../memory/v2/page-index.js");
+const { writePage } = await import("../../v2/page-store.js");
+const { invalidatePageIndex } = await import("../../v2/page-index.js");
 
 // ---------------------------------------------------------------------------
 // Helpers

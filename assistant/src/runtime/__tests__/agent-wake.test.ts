@@ -163,7 +163,7 @@ mock.module("../../persistence/conversation-disk-view.js", () => ({
 // event to a wire frame and broadcasts it; `broadcastWakeSurface` broadcasts
 // the ui_surface card. Route both back to the originating conversation's
 // probe by the `conversationId` stamped on the frame.
-mock.module("../../runtime/assistant-event-hub.js", () => ({
+mock.module("../assistant-event-hub.js", () => ({
   broadcastMessage: (frame: CapturedFrame & { conversationId?: string }) => {
     const probe = frame.conversationId
       ? wakeConvRegistry.get(frame.conversationId)
@@ -191,7 +191,7 @@ mock.module("../../runtime/assistant-event-hub.js", () => ({
 // told to refetch the message list so the visible trigger renders live. Reset
 // in beforeEach.
 const publishMessagesChangedCalls: string[] = [];
-mock.module("../../runtime/sync/resource-sync-events.js", () => ({
+mock.module("../sync/resource-sync-events.js", () => ({
   publishConversationMessagesChanged: (conversationId: string) => {
     publishMessagesChangedCalls.push(conversationId);
   },

@@ -22,16 +22,6 @@ mock.module("../config/loader.js", () => ({
 }));
 
 import {
-  loadGraphMemoryState,
-  saveGraphMemoryState,
-} from "../memory/graph/graph-memory-state-store.js";
-import {
-  bumpRetrospectiveLastRunAt,
-  getRetrospectiveState,
-  upsertRetrospectiveState,
-} from "../memory/memory-retrospective-state.js";
-import { hydrate as hydrateActivationState } from "../memory/v2/activation-store.js";
-import {
   getAttachmentsForMessage,
   linkAttachmentToMessage,
   uploadAttachment,
@@ -65,6 +55,16 @@ import {
   memoryRetrospectiveState,
   toolInvocations,
 } from "../persistence/schema/index.js";
+import {
+  loadGraphMemoryState,
+  saveGraphMemoryState,
+} from "../plugins/defaults/memory/graph/graph-memory-state-store.js";
+import {
+  bumpRetrospectiveLastRunAt,
+  getRetrospectiveState,
+  upsertRetrospectiveState,
+} from "../plugins/defaults/memory/memory-retrospective-state.js";
+import { hydrate as hydrateActivationState } from "../plugins/defaults/memory/v2/activation-store.js";
 import {
   getInjected as getV3Injected,
   markPruned as markV3Pruned,

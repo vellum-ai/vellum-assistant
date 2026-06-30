@@ -20,10 +20,6 @@ mock.module("../config/loader.js", () => ({
 }));
 
 import {
-  loadGraphMemoryState,
-  saveGraphMemoryState,
-} from "../memory/graph/graph-memory-state-store.js";
-import {
   getAttachmentsForMessage,
   linkAttachmentToMessage,
   uploadAttachment,
@@ -54,6 +50,10 @@ import {
   memoryRetrospectiveState,
   toolInvocations,
 } from "../persistence/schema/index.js";
+import {
+  loadGraphMemoryState,
+  saveGraphMemoryState,
+} from "../plugins/defaults/memory/graph/graph-memory-state-store.js";
 
 await initializeDb();
 

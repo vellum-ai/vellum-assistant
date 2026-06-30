@@ -19,7 +19,6 @@
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../../ipc/cli-client.js";
-import type { ComparisonReport } from "../../../memory/v2/harness/runner.js";
 import type {
   MemoryV2BackfillOp,
   MemoryV2BackfillResult,
@@ -28,6 +27,7 @@ import type {
   MemoryV2SimulateRouterResult,
   MemoryV2ValidateResult,
 } from "../../../plugins/defaults/memory/routes/memory-v2-routes.js";
+import type { ComparisonReport } from "../../../plugins/defaults/memory/v2/harness/runner.js";
 import { registerCommand } from "../../lib/register-command.js";
 import { log } from "../../logger.js";
 import {

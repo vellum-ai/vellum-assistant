@@ -11,8 +11,9 @@ import { Glob } from "bun";
  * direction is one-way: memory → persistence. `persistence/` provides the DB
  * core, conversation/message storage, job-queue mechanics, delivery/media
  * stores, LLM request-log/usage stores, and embeddings/Qdrant infra. The
- * memory *feature* (graph, v2, v3, retrospective, pkb) lives in `memory/` and
- * depends on persistence, never the reverse.
+ * memory *feature* (graph, v2, v3, retrospective, pkb) lives in the
+ * `default-memory` plugin (`plugins/defaults/memory/`) and depends on
+ * persistence, never the reverse.
  *
  * Two invariants are enforced:
  *  (a) Nothing under `assistant/src/**` imports a persistence module via a
@@ -30,7 +31,7 @@ function getRepoRoot(): string {
 
 const ASSISTANT_SRC = "assistant/src";
 const PERSISTENCE_DIR = join(ASSISTANT_SRC, "persistence");
-const MEMORY_DIR = join(ASSISTANT_SRC, "memory");
+const MEMORY_DIR = join(ASSISTANT_SRC, "plugins", "defaults", "memory");
 
 /**
  * TECH DEBT — residual `persistence/` → `memory/` feature back-imports.
@@ -59,6 +60,7 @@ const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
     "task-memory-cleanup",
     "v2/activation-store",
     "v2/injected-block-slugs",
+    "v3/ever-injected-store",
   ]),
   "assistant/src/persistence/embeddings/embedding-backend.ts": new Set([
     "sparse-tokenize",

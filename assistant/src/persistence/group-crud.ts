@@ -7,8 +7,8 @@
 
 import { v4 as uuid } from "uuid";
 
-import { rawAll, rawExec, rawGet, rawRun } from "../persistence/raw-query.js";
 import { ensureGroupMigration } from "./conversation-group-migration.js";
+import { rawAll, rawExec, rawGet, rawRun } from "./raw-query.js";
 export interface ConversationGroupRow {
   id: string;
   name: string;

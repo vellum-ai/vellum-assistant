@@ -27,12 +27,6 @@ import {
 } from "../context/strip-injections.js";
 import { getDocumentsForConversation } from "../documents/document-store.js";
 import {
-  countMemoryPrefixBlocks,
-  extractMemoryPrefixBlocks,
-  getLiveGraphMemory,
-} from "../memory/graph/conversation-graph-memory.js";
-import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory/memory-marker.js";
-import {
   readSlackMetadata,
   readSlackMetadataFromMessageMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
@@ -50,6 +44,15 @@ import {
 } from "../persistence/conversation-crud.js";
 import { isBackgroundConversationType } from "../persistence/conversation-types.js";
 import { createContextSummaryMessage } from "../plugins/defaults/compaction/window-manager.js";
+import {
+  countMemoryPrefixBlocks,
+  extractMemoryPrefixBlocks,
+  getLiveGraphMemory,
+} from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
+import {
+  unwrapMemoryBlock,
+  wrapMemoryBlock,
+} from "../plugins/defaults/memory/memory-marker.js";
 import {
   MEMORY_V3_BLOCK_ID,
   MEMORY_V3_COMMIT_META_KEY,

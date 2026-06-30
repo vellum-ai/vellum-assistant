@@ -34,12 +34,12 @@ async function withMocks(opts: { reembedInFlight: boolean }) {
     enqueueMemoryJob: spies.enqueueMemoryJob,
     hasActiveJobOfType: spies.hasActiveJobOfType,
   }));
-  mock.module("../../memory/v2/qdrant.js", () => ({
+  mock.module("../../plugins/defaults/memory/v2/qdrant.js", () => ({
     ensureConceptPageCollection: spies.ensureConceptPageCollection,
     countConceptPagePoints: spies.countConceptPagePoints,
     clearReembedSentinel: spies.clearReembedSentinel,
   }));
-  mock.module("../../memory/v2/page-store.js", () => ({
+  mock.module("../../plugins/defaults/memory/v2/page-store.js", () => ({
     hasConceptPages: spies.hasConceptPages,
   }));
   const realPlatform = await import("../../util/platform.js");

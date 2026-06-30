@@ -9,8 +9,8 @@ import {
   truncateRecallEvidenceToBudget,
   validateFinishRecallPayload,
   validateRecallCitationIds,
-} from "../memory/context-search/agent-protocol.js";
-import type { RecallEvidence } from "../memory/context-search/types.js";
+} from "../plugins/defaults/memory/context-search/agent-protocol.js";
+import type { RecallEvidence } from "../plugins/defaults/memory/context-search/types.js";
 
 function makeEvidence(
   id: string,

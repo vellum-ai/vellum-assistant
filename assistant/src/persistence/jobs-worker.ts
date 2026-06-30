@@ -8,8 +8,8 @@ import {
   diskPressureBackgroundSkipLogFields,
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
-import { sweepOrphanMemoryRetrospectiveConversations } from "../memory/memory-retrospective-startup-cleanup.js";
-import { countBufferLines } from "../memory/v2/consolidation-job.js";
+import { sweepOrphanMemoryRetrospectiveConversations } from "../plugins/defaults/memory/memory-retrospective-startup-cleanup.js";
+import { countBufferLines } from "../plugins/defaults/memory/v2/consolidation-job.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";

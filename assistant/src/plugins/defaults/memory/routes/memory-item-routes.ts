@@ -25,19 +25,6 @@ import {
 import { z } from "zod";
 
 import { getConfig } from "../../../../config/loader.js";
-import {
-  createNode,
-  deleteNode,
-  getNode,
-  updateNode,
-} from "../../../../memory/graph/store.js";
-import type {
-  Fidelity,
-  ImageRef,
-  MemoryNode,
-  MemoryType,
-  NewNode,
-} from "../../../../memory/graph/types.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import {
   embedWithBackend,
@@ -59,6 +46,14 @@ import {
 } from "../../../../runtime/routes/errors.js";
 import type { RouteDefinition } from "../../../../runtime/routes/types.js";
 import { getLogger } from "../../../../util/logger.js";
+import { createNode, deleteNode, getNode, updateNode } from "../graph/store.js";
+import type {
+  Fidelity,
+  ImageRef,
+  MemoryNode,
+  MemoryType,
+  NewNode,
+} from "../graph/types.js";
 
 const log = getLogger("memory-item-routes");
 

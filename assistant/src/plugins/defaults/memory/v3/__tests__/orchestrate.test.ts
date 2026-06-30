@@ -17,12 +17,9 @@
 
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { PageIndexEntry } from "../../../../../memory/v2/page-index.js";
-import type {
-  Message,
-  Provider,
-  ProviderResponse,
-} from "../../../../../providers/types.js";
+import type { Message, Provider, ProviderResponse } from "@vellumai/plugin-api";
+
+import type { PageIndexEntry } from "../../v2/page-index.js";
 import { renderCard } from "../card.js";
 import type { EdgeGraph } from "../edge.js";
 import { buildEdgeGraph } from "../edge.js";

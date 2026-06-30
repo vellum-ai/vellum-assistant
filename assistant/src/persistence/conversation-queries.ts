@@ -1,6 +1,5 @@
 import { and, count, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 
-import { rawAll } from "../persistence/raw-query.js";
 import {
   parseExternalContentEnvelope,
   type UntrustedContentSource,
@@ -14,6 +13,7 @@ import { ensureDisplayOrderMigration } from "./conversation-display-order-migrat
 import { ensureGroupMigration } from "./conversation-group-migration.js";
 import type { ConversationType } from "./conversation-types.js";
 import { getDb } from "./db-connection.js";
+import { rawAll } from "./raw-query.js";
 import { conversations, messages } from "./schema/index.js";
 
 const log = getLogger("conversation-store");

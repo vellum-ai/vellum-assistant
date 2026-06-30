@@ -25,9 +25,9 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { AssistantConfig } from "../config/schema.js";
-import type { RecallSearchContext } from "../memory/context-search/types.js";
-import type { EdgeIndex } from "../memory/v2/edge-index.js";
-import type { ConceptPage } from "../memory/v2/types.js";
+import type { RecallSearchContext } from "../plugins/defaults/memory/context-search/types.js";
+import type { EdgeIndex } from "../plugins/defaults/memory/v2/edge-index.js";
+import type { ConceptPage } from "../plugins/defaults/memory/v2/types.js";
 import { makeMockLogger } from "./helpers/mock-logger.js";
 
 mock.module("../util/logger.js", () => ({
@@ -54,7 +54,7 @@ let qdrantHits: QdrantHit[] = [];
 let qdrantThrows: Error | null = null;
 const qdrantCalls: Array<{ limit: number }> = [];
 
-mock.module("../memory/v2/qdrant.js", () => ({
+mock.module("../plugins/defaults/memory/v2/qdrant.js", () => ({
   hybridQueryConceptPages: async (
     _dense: number[],
     _sparse: { indices: number[]; values: number[] },
@@ -71,7 +71,7 @@ let edgeIndex: EdgeIndex = {
   incoming: new Map<string, Set<string>>(),
 };
 
-mock.module("../memory/v2/edge-index.js", () => ({
+mock.module("../plugins/defaults/memory/v2/edge-index.js", () => ({
   getEdgeIndex: async (): Promise<EdgeIndex> => edgeIndex,
   invalidateEdgeIndex: () => {},
   getReachable: () => new Set<string>(),
@@ -81,7 +81,7 @@ mock.module("../memory/v2/edge-index.js", () => ({
 
 const pageStore = new Map<string, ConceptPage>();
 
-mock.module("../memory/v2/page-store.js", () => ({
+mock.module("../plugins/defaults/memory/v2/page-store.js", () => ({
   getConceptsDir: (workspaceDir: string): string =>
     join(workspaceDir, "memory", "concepts"),
   listPages: async (): Promise<string[]> => [...pageStore.keys()],
@@ -101,7 +101,7 @@ mock.module("../memory/v2/page-store.js", () => ({
 }));
 
 const { searchMemoryV2Source } =
-  await import("../memory/context-search/sources/memory-v2.js");
+  await import("../plugins/defaults/memory/context-search/sources/memory-v2.js");
 
 const testDirs: string[] = [];
 

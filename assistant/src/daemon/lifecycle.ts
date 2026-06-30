@@ -24,7 +24,6 @@ import { startCliIpcServer } from "../ipc/assistant-server.js";
 import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
 import { startSkillIpcServer } from "../ipc/skill-server.js";
 import { registerMemoryJobHandlers } from "../jobs/register-job-handlers.js";
-import { sweepConceptPageFrontmatter } from "../memory/v2/frontmatter-sweep.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
@@ -55,6 +54,7 @@ import {
   stopConsentRefresh,
 } from "../platform/consent-cache.js";
 import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";
+import { sweepConceptPageFrontmatter } from "../plugins/defaults/memory/v2/frontmatter-sweep.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
 import { initializeProviders } from "../providers/registry.js";
@@ -771,9 +771,9 @@ export async function runDaemon(): Promise<void> {
         void (async () => {
           try {
             const { reconcilePkbIndex } =
-              await import("../memory/pkb/pkb-reconcile.js");
+              await import("../plugins/defaults/memory/pkb/pkb-reconcile.js");
             const { PKB_WORKSPACE_SCOPE } =
-              await import("../memory/pkb/types.js");
+              await import("../plugins/defaults/memory/pkb/types.js");
             const pkbRoot = join(getWorkspaceDir(), "pkb");
             await reconcilePkbIndex(pkbRoot, PKB_WORKSPACE_SCOPE);
           } catch (err) {
@@ -809,7 +809,7 @@ export async function runDaemon(): Promise<void> {
     // Seed capability graph nodes (new memory graph system)
     try {
       const { seedCliGraphNodes } =
-        await import("../memory/graph/capability-seed.js");
+        await import("../plugins/defaults/memory/graph/capability-seed.js");
       refreshSkillCapabilityMemories(config);
       await seedCliGraphNodes();
     } catch (err) {
@@ -821,7 +821,7 @@ export async function runDaemon(): Promise<void> {
     // graph from conversation history and journal files.
     try {
       const { maybeEnqueueGraphBootstrap, cleanupStaleItemVectors } =
-        await import("../memory/graph/bootstrap.js");
+        await import("../plugins/defaults/memory/graph/bootstrap.js");
       maybeEnqueueGraphBootstrap();
       // Fire-and-forget: clean up orphaned Qdrant vectors from dropped memory_items table
       void cleanupStaleItemVectors().catch((err) =>

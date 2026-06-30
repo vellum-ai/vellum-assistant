@@ -30,17 +30,13 @@
 import { Database } from "bun:sqlite";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { Message, Provider, ProviderResponse } from "@vellumai/plugin-api";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import type { PageIndexEntry } from "../../../../../memory/v2/page-index.js";
 import { migrateAddMemoryV3Selections } from "../../../../../persistence/migrations/268-add-memory-v3-selections.js";
 import { migrateMemoryV3SelectionsMessageIdAndSections } from "../../../../../persistence/migrations/283-memory-v3-selections-message-id-and-sections.js";
 import * as schema from "../../../../../persistence/schema/index.js";
-import type {
-  Message,
-  Provider,
-  ProviderResponse,
-} from "../../../../../providers/types.js";
+import type { PageIndexEntry } from "../../v2/page-index.js";
 import { renderCard } from "../card.js";
 import type { EdgeGraph } from "../edge.js";
 import { buildEdgeGraph } from "../edge.js";

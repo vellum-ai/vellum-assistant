@@ -148,7 +148,7 @@ mock.module("../skills/managed-store.js", () => ({
   validateManagedSkillId: () => null,
 }));
 
-mock.module("../memory/graph/capability-seed.js", () => ({
+mock.module("../plugins/defaults/memory/graph/capability-seed.js", () => ({
   deleteSkillCapabilityNode: () => {},
 }));
 

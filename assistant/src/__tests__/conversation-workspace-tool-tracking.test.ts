@@ -172,7 +172,7 @@ mock.module("../memory/retriever.js", () => ({
 mock.module("../memory/query-builder.js", () => ({
   buildMemoryQuery: () => "",
 }));
-mock.module("../memory/retrieval-budget.js", () => ({
+mock.module("../plugins/defaults/memory/retrieval-budget.js", () => ({
   computeRecallBudget: () => 0,
 }));
 mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
