@@ -212,6 +212,30 @@ describe("bash tool background mode", () => {
     expect(wakeCall.hint).toContain("exit=1");
   });
 
+  test("cancelled background process wakes with the cancellation, not a completed result", async () => {
+    await shellTool.execute(
+      { command: "sleep 30", activity: "test", background: true },
+      baseContext,
+    );
+
+    // User presses Stop: cancel aborts the run and kills the process.
+    const registered = mockRegisterBackgroundTool.mock
+      .calls[0]![0] as BackgroundTool;
+    registered.cancel();
+
+    await waitForWake(mockWakeAgentForOpportunity);
+
+    const wakeCall = mockWakeAgentForOpportunity.mock
+      .calls[0]![0] as WakeOptions;
+    // The wake must reflect the cancellation, not the generic "completed"
+    // framing + SIGKILL-failed output the assistant used to receive — so it
+    // matches the recorded/broadcast status and the inline card.
+    expect(wakeCall.hint).toContain("bg-test1234");
+    expect(wakeCall.hint).toContain("cancelled");
+    expect(wakeCall.hint).not.toContain("completed");
+    expect(wakeCall.untrustedOutput?.content).toContain("cancelled");
+  });
+
   test("foreground mode still works when background is not set", async () => {
     const result = await shellTool.execute(
       { command: "echo foreground_test_789", activity: "test" },

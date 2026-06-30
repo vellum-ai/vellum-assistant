@@ -340,16 +340,19 @@ export const hostShellTool = {
               },
               context.conversationId,
             );
-            const framing = result.isError
-              ? `Background host command failed (id=${bgId}):`
-              : `Background host command completed (id=${bgId}):`;
+            const framing =
+              status === "cancelled"
+                ? `Background host command cancelled (id=${bgId}):`
+                : result.isError
+                  ? `Background host command failed (id=${bgId}):`
+                  : `Background host command completed (id=${bgId}):`;
             void wakeAgentForOpportunity({
               conversationId: context.conversationId,
               hint: framing,
               source: "background-tool",
               persistTriggerAsEvent: true,
               untrustedOutput: {
-                content: result.content || "(no output)",
+                content: output || "(no output)",
                 source: "tool_result",
                 // Preserve formatShellOutput's recovery marker (see shell.ts).
                 maxChars: MAX_OUTPUT_LENGTH * 2,
@@ -391,7 +394,10 @@ export const hostShellTool = {
             );
             void wakeAgentForOpportunity({
               conversationId: context.conversationId,
-              hint: `Background host command failed (id=${bgId}): ${err instanceof Error ? err.message : String(err)}`,
+              hint:
+                status === "cancelled"
+                  ? `Background host command cancelled (id=${bgId}):`
+                  : `Background host command failed (id=${bgId}): ${err instanceof Error ? err.message : String(err)}`,
               source: "background-tool",
               persistTriggerAsEvent: true,
             });
@@ -576,16 +582,19 @@ export const hostShellTool = {
           },
           context.conversationId,
         );
-        const framing = result.isError
-          ? `Background host command failed (id=${bgId}):`
-          : `Background host command completed (id=${bgId}):`;
+        const framing =
+          status === "cancelled"
+            ? `Background host command cancelled (id=${bgId}):`
+            : result.isError
+              ? `Background host command failed (id=${bgId}):`
+              : `Background host command completed (id=${bgId}):`;
         void wakeAgentForOpportunity({
           conversationId: context.conversationId,
           hint: framing,
           source: "background-tool",
           persistTriggerAsEvent: true,
           untrustedOutput: {
-            content: result.content || "(no output)",
+            content: output || "(no output)",
             source: "tool_result",
             // Preserve formatShellOutput's recovery marker (see shell.ts).
             maxChars: MAX_OUTPUT_LENGTH * 2,
@@ -628,7 +637,10 @@ export const hostShellTool = {
         );
         void wakeAgentForOpportunity({
           conversationId: context.conversationId,
-          hint: `Background host command failed (id=${bgId}): ${err.message}`,
+          hint:
+            status === "cancelled"
+              ? `Background host command cancelled (id=${bgId}):`
+              : `Background host command failed (id=${bgId}): ${err.message}`,
           source: "background-tool",
           persistTriggerAsEvent: true,
         });

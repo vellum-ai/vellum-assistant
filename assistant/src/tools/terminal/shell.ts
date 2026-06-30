@@ -413,21 +413,6 @@ export const shellTool = {
           timeoutSec,
         );
 
-        const framing = `Background command completed (id=${bgId}, exit=${code ?? "unknown"}):`;
-        void wakeAgentForOpportunity({
-          conversationId: context.conversationId,
-          hint: framing,
-          source: "background-tool",
-          persistTriggerAsEvent: true,
-          untrustedOutput: {
-            content: fmtResult.content,
-            source: "tool_result",
-            // Already bounded + recovery-marked by formatShellOutput; a larger
-            // budget keeps wrapUntrustedContent from re-truncating the marker.
-            maxChars: MAX_OUTPUT_LENGTH * 2,
-          },
-        });
-
         const status: BackgroundToolCompleted["status"] = aborted
           ? "cancelled"
           : timedOut
@@ -442,6 +427,27 @@ export const shellTool = {
             ? `Background command cancelled (id=${bgId}).`
             : fmtResult.content;
         const completedAt = Date.now();
+
+        // Wake AFTER the terminal status is known so a user-cancelled run wakes
+        // the assistant with the cancellation — not the SIGKILL-framed "completed"
+        // output — matching the recorded/broadcast status and the inline card.
+        const framing =
+          status === "cancelled"
+            ? `Background command cancelled (id=${bgId}):`
+            : `Background command completed (id=${bgId}, exit=${code ?? "unknown"}):`;
+        void wakeAgentForOpportunity({
+          conversationId: context.conversationId,
+          hint: framing,
+          source: "background-tool",
+          persistTriggerAsEvent: true,
+          untrustedOutput: {
+            content: output,
+            source: "tool_result",
+            // Already bounded + recovery-marked by formatShellOutput; a larger
+            // budget keeps wrapUntrustedContent from re-truncating the marker.
+            maxChars: MAX_OUTPUT_LENGTH * 2,
+          },
+        });
         recordCompletedBackgroundTool({
           id: bgId,
           toolName: "bash",
