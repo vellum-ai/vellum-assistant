@@ -81,9 +81,16 @@ export function validateCompanionPath(
       error: `companion file path must resolve under the skill directory: "${filePath}"`,
     };
   }
-  // A companion write must never clobber a top-level store-owned file: SKILL.md
-  // is the discovery entry point (generated from name/description/body), and the
-  // metadata files carry provenance the store owns.
+  // A companion write must never target a top-level store-owned file: SKILL.md
+  // is the discovery entry point (generated from name/description/body), the
+  // metadata files carry provenance the store owns, and TOOLS.json is reserved
+  // because it is the manifest that registers executable skill tools. Allowing a
+  // scaffold companion write to plant a TOOLS.json would let an author (the
+  // memory retrospective runs unattended over prompt-injectable content) turn an
+  // instruction-only managed skill into one that registers — and dynamically
+  // imports — attacker-controlled executors, a code-injection surface. Managed
+  // skills authored via scaffold carry instructions and reference files only;
+  // executable tools are a first-party/bundled concept.
   if (RESERVED_COMPANION_NAMES.has(rel.replaceAll(sep, "/"))) {
     return {
       error: `companion file path must not overwrite the store-owned file: "${filePath}"`,
@@ -97,6 +104,7 @@ const RESERVED_COMPANION_NAMES = new Set([
   "SKILL.md",
   "install-meta.json",
   "version.json",
+  "TOOLS.json",
 ]);
 
 // ─── SKILL.md generation ─────────────────────────────────────────────────────

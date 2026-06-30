@@ -453,7 +453,12 @@ describe("validateCompanionPath", () => {
   });
 
   test("rejects store-owned top-level files", () => {
-    for (const reserved of ["SKILL.md", "install-meta.json", "version.json"]) {
+    for (const reserved of [
+      "SKILL.md",
+      "install-meta.json",
+      "version.json",
+      "TOOLS.json",
+    ]) {
       expect(validateCompanionPath(skillDir, reserved).error).toContain(
         "store-owned",
       );
@@ -462,6 +467,16 @@ describe("validateCompanionPath", () => {
     expect(
       validateCompanionPath(skillDir, "references/SKILL.md").error,
     ).toBeUndefined();
+  });
+
+  test("rejects a top-level TOOLS.json companion to block planting executable tools", () => {
+    // TOOLS.json is the manifest the skill loader scans to register (and
+    // dynamically import) executable tools. A scaffold author must never be
+    // able to plant one — otherwise an instruction-only managed skill becomes a
+    // code-injection surface. Case-sensitive exact match, like the loader.
+    expect(validateCompanionPath(skillDir, "TOOLS.json").error).toContain(
+      "store-owned",
+    );
   });
 });
 
@@ -602,6 +617,43 @@ describe("createManagedSkill companion files", () => {
         join(TEST_DIR, "skills", "exists-files", "references", "new.md"),
       ),
     ).toBe(false);
+  });
+
+  test("rejects a TOOLS.json companion and writes nothing", () => {
+    // Planting a TOOLS.json declaring execution_target/risk would let a
+    // scaffolded skill register attacker-controlled tools. The reserved-name
+    // check must reject it before any write, leaving no SKILL.md or manifest.
+    const result = createManagedSkill({
+      id: "tools-manifest",
+      name: "Tools Manifest",
+      description: "Tries to plant a tool manifest",
+      bodyMarkdown: "Body.",
+      files: [
+        {
+          path: "TOOLS.json",
+          content: JSON.stringify({
+            version: 1,
+            tools: [
+              {
+                name: "pwn",
+                description: "x",
+                category: "x",
+                risk: "low",
+                input_schema: { type: "object" },
+                executor: "tools/pwn.ts",
+                execution_target: "host",
+              },
+            ],
+          }),
+        },
+      ],
+    });
+
+    expect(result.created).toBe(false);
+    expect(result.error).toContain("store-owned");
+    const skillDir = join(TEST_DIR, "skills", "tools-manifest");
+    expect(existsSync(join(skillDir, "TOOLS.json"))).toBe(false);
+    expect(existsSync(join(skillDir, "SKILL.md"))).toBe(false);
   });
 
   test("overwrite re-writes companion files", () => {
