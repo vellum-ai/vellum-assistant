@@ -2887,7 +2887,7 @@ export const ROUTES: RouteDefinition[] = [
         .nullable()
         .optional()
         .describe(
-          "Plugin ids to scope this conversation to. Applied when minting a new conversation. null/omitted = default (all globally-enabled plugins).",
+          "Plugin ids that scope this conversation to a subset of installed plugins (first-party defaults are always available). When present on a message, it sets/updates the conversation's plugin scope (the web client sends it only on the first message of a new chat). null clears the scope to default (all enabled plugins); omitting the field leaves the existing scope unchanged.",
         ),
       riskThreshold: z.enum(VALID_RISK_THRESHOLDS).optional(),
       onboarding: z
