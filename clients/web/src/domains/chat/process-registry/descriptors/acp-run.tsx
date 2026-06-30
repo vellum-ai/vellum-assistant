@@ -8,7 +8,6 @@
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
 import { AcpAgentIcon } from "@/domains/chat/components/acp-run-inline-card/acp-agent-icon";
 import { useAcpRunCardData } from "@/domains/chat/components/acp-run-inline-card/use-acp-run-card-data";
-import { AcpRunDetailPanel } from "@/domains/chat/components/acp-run-detail-panel/acp-run-detail-panel";
 import { useActiveAcpRunIds } from "@/domains/chat/hooks/use-active-acp-run-ids";
 import { MAX_VISIBLE_STACKED_CHIPS } from "@/domains/chat/process-registry/constants";
 import type {
@@ -72,24 +71,6 @@ function AcpAgentChip({ id }: { id: string }) {
   );
 }
 
-/**
- * Adapter to the descriptor's `{ id; onClose }` detail-panel contract.
- * `AcpRunDetailPanel` takes the full store entry, so resolve it by id here and
- * short-circuit to `null` for an unknown run (the entry is gone / not yet
- * spawned).
- */
-function AcpRunDetailPanelById({
-  id,
-  onClose,
-}: {
-  id: string;
-  onClose: () => void;
-}) {
-  const entry = useAcpRunStore((s) => s.byId[id]);
-  if (!entry) return null;
-  return <AcpRunDetailPanel entry={entry} onClose={onClose} />;
-}
-
 export const ACP_RUN_DESCRIPTOR: BackgroundProcessDescriptor = {
   kind: "acp-run",
   useActiveIds,
@@ -111,5 +92,4 @@ export const ACP_RUN_DESCRIPTOR: BackgroundProcessDescriptor = {
     void stopAcpRun(id).catch((err) => {
       captureError(err, { context: "AcpRunDescriptor.stop" });
     }),
-  DetailPanel: AcpRunDetailPanelById,
 };

@@ -17,43 +17,7 @@ import type {
 } from "@/domains/chat/process-registry/types";
 import { WorkflowAgentsChip } from "@/domains/chat/process-registry/descriptors/workflow-agents-chip";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
-import { WorkflowDetailPanel } from "@/domains/chat/components/workflow-detail-panel";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useViewerStore } from "@/stores/viewer-store";
-
-/**
- * Adapts the `{ id; onClose }` descriptor contract onto
- * {@link WorkflowDetailPanel}, which keys on a resolved `WorkflowEntry` rather
- * than a run id. Subscribes to the workflow store entry for `id` and wires the
- * panel's stop + journal callbacks to the store the same way the existing
- * chat-content-layout host does (`abortRun` / `fetchJournalIfNeeded`). Renders
- * `null` until an entry exists, matching the host's `workflowById[id]` guard.
- */
-function WorkflowDetailPanelAdapter({
-  id,
-  onClose,
-}: {
-  id: string;
-  onClose: () => void;
-}) {
-  const entry = useWorkflowStore((s) => s.byId[id]);
-  if (!entry) return null;
-  return (
-    <WorkflowDetailPanel
-      entry={entry}
-      onClose={onClose}
-      onStop={(runId) => void useWorkflowStore.getState().abortRun(runId)}
-      onRequestJournal={(runId) => {
-        const assistantId =
-          useResolvedAssistantsStore.getState().activeAssistantId;
-        if (!assistantId) return;
-        void useWorkflowStore
-          .getState()
-          .fetchJournalIfNeeded(assistantId, runId);
-      }}
-    />
-  );
-}
 
 /**
  * Projects a single run's {@link useWorkflowCardData} into the shared
@@ -95,5 +59,4 @@ export const WORKFLOW_DESCRIPTOR: BackgroundProcessDescriptor = {
     useViewerStore.getState().openProcessDetail({ kind: "workflow", id }),
   onStop: (id) => void useWorkflowStore.getState().abortRun(id),
   renderCount: (id) => <WorkflowAgentsChip runId={id} />,
-  DetailPanel: WorkflowDetailPanelAdapter,
 };

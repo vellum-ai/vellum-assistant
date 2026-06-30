@@ -5,7 +5,6 @@
  */
 
 import { SubagentAvatarChip } from "@/components/avatar/subagent-avatar-chip";
-import { SubagentDetailPanel } from "@/domains/chat/components/subagent-detail-panel";
 import { MAX_VISIBLE_SUBAGENT_AVATARS } from "@/domains/chat/components/subagent-inline-progress-card/subagent-avatar-row";
 import { useActiveSubagentIds } from "@/domains/chat/hooks/use-active-subagent-ids";
 import { useSubagentCardData } from "@/domains/chat/hooks/use-subagent-card-data";
@@ -59,24 +58,6 @@ function useCardSummary(id: string): CardSummary | null {
   };
 }
 
-/**
- * Detail-panel adapter: the shared descriptor renders `DetailPanel` with an
- * `{ id, onClose }` contract, but `SubagentDetailPanel` reads its `entry` from
- * the store. Resolve the entry by id here and short-circuit to `null` when it's
- * absent (spawn race / cleared), matching the inline surface.
- */
-function SubagentDetailPanelById({
-  id,
-  onClose,
-}: {
-  id: string;
-  onClose: () => void;
-}) {
-  const entry = useSubagentStore((s) => s.byId[id]);
-  if (!entry) return null;
-  return <SubagentDetailPanel entry={entry} onClose={onClose} />;
-}
-
 export const SUBAGENT_DESCRIPTOR: BackgroundProcessDescriptor = {
   kind: "subagent",
   useActiveIds,
@@ -100,5 +81,4 @@ export const SUBAGENT_DESCRIPTOR: BackgroundProcessDescriptor = {
   onOpenDetail: (id) =>
     useViewerStore.getState().openProcessDetail({ kind: "subagent", id }),
   onStop: (id) => void useSubagentStore.getState().abortSubagent(id),
-  DetailPanel: SubagentDetailPanelById,
 };

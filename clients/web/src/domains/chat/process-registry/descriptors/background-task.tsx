@@ -10,7 +10,6 @@
 
 import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
 import { BackgroundTaskGlyph } from "@/domains/chat/components/background-task-glyph";
-import { BackgroundTaskDetailPanel } from "@/domains/chat/components/background-task-detail-panel/background-task-detail-panel";
 import { useBackgroundTaskCardData } from "@/domains/chat/components/background-task-inline-card/use-background-task-card-data";
 import { useActiveBackgroundTaskIds } from "@/domains/chat/hooks/use-active-background-task-ids";
 import { MAX_VISIBLE_STACKED_CHIPS } from "@/domains/chat/process-registry/constants";
@@ -63,25 +62,6 @@ function BackgroundTaskChip({ id }: { id: string }) {
   );
 }
 
-/**
- * Adapter from the registry's `{ id; onClose }` detail-panel contract to
- * `BackgroundTaskDetailPanel`'s `{ entry; onClose }` shape. Resolves the live
- * store entry by id; renders `null` when no entry exists (e.g. the panel was
- * opened for a task that has since been cleared), matching how the existing
- * call sites guard on the resolved entry being present.
- */
-function BackgroundTaskDetailPanelAdapter({
-  id,
-  onClose,
-}: {
-  id: string;
-  onClose: () => void;
-}) {
-  const entry = useBackgroundTaskStore((s) => s.byId[id]);
-  if (!entry) return null;
-  return <BackgroundTaskDetailPanel entry={entry} onClose={onClose} />;
-}
-
 export const BACKGROUND_TASK_DESCRIPTOR: BackgroundProcessDescriptor = {
   kind: "background-task",
   useActiveIds,
@@ -110,5 +90,4 @@ export const BACKGROUND_TASK_DESCRIPTOR: BackgroundProcessDescriptor = {
     void stopBackgroundTask(id).catch((err) => {
       captureError(err, { context: "BackgroundTaskDescriptor.stop" });
     }),
-  DetailPanel: BackgroundTaskDetailPanelAdapter,
 };
