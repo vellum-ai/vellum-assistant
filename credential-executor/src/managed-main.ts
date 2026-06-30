@@ -668,12 +668,23 @@ async function main(): Promise<void> {
   // `unregister` miss a tool registered in an earlier session and orphan its
   // bundle.
   //
-  // The in-memory temporary-grant store is also process-scoped, and (unlike
-  // before) is NOT cleared between sessions: ephemeral approvals are shared
-  // across all of a daemon's connections for the process lifetime. Its own
-  // semantics keep this safe — `allow_once` is consumed on first use,
-  // `allow_10m` expires by wall-clock TTL, `allow_conversation` is cleared when
-  // its conversation ends (see the serve loop below).
+  // The in-memory temporary-grant store instance is also process-scoped and is
+  // deliberately reused — contents included — across reconnects. Ephemeral
+  // approvals (`allow_once` / `allow_10m` / `allow_conversation`) are keyed by
+  // proposal hash (plus a caller-supplied conversation ID), not by the
+  // connection that produced them, precisely so a single guardian approval can
+  // be shared by any connection entitled to use it. That sharing is what the
+  // multi-process daemon model needs: several assistant processes will each
+  // talk to CES, and an approval granted while one is connected must remain
+  // usable by the others. Grant lifetime is therefore bounded by per-grant TTLs
+  // (every kind now carries an expiry), not by tearing the store down on
+  // disconnect — so an approval that is never consumed expires on its own
+  // instead of surviving indefinitely and being replayed by a much later
+  // connection without a fresh guardian prompt (ATL-935). A future
+  // multi-connection daemon may additionally evict on quiescence (when the
+  // count of live CES connections reaches zero) to scope grants to assistant
+  // presence; that is connection-lifecycle machinery the multi-connection work
+  // should own, and is intentionally not added here.
   //
   // The mutable refs carry the handshake-provided API key and assistant ID;
   // handlers read them at call time. These don't vary across a daemon's
@@ -682,11 +693,7 @@ async function main(): Promise<void> {
   // at call time for audit attribution).
   const apiKeyRef: ApiKeyRef = { current: "" };
   const assistantIdRef: AssistantIdRef = { current: "" };
-  const handlers = buildHandlers(
-    apiKeyRef,
-    assistantIdRef,
-    secureKeyBackend,
-  );
+  const handlers = buildHandlers(apiKeyRef, assistantIdRef, secureKeyBackend);
 
   // Serve loop. CES is a long-lived sidecar that must outlive any single
   // assistant session: the assistant container can crash and be restarted
@@ -782,16 +789,6 @@ async function main(): Promise<void> {
 
     rpcConnected = false;
 
-    // Temporary grants are process-shared: they are NOT cleared when a session
-    // ends. CES is moving to a model where the assistant daemon's multiple
-    // processes each hold their own connection, so an ephemeral approval
-    // (`allow_once` / `allow_10m` / `allow_conversation`) granted on one
-    // connection must remain usable by the others rather than being scoped to a
-    // single session. The store's own semantics keep this safe across a
-    // reconnect: `allow_once` is consumed on first use, `allow_10m` is bounded
-    // by its wall-clock TTL, and `allow_conversation` is cleared when its
-    // conversation ends.
-    //
     // A signal-driven end means the process is shutting down; exit the loop.
     // Any other end reason (the assistant disconnected, its stream closed,
     // or the transport errored) means we keep the sidecar up and await a
