@@ -91,7 +91,14 @@ export function validateCompanionPath(
   // imports — attacker-controlled executors, a code-injection surface. Managed
   // skills authored via scaffold carry instructions and reference files only;
   // executable tools are a first-party/bundled concept.
-  if (RESERVED_COMPANION_NAMES.has(rel.replaceAll(sep, "/"))) {
+  //
+  // The comparison is case-insensitive. The install target includes
+  // case-insensitive filesystems (macOS APFS/HFS+ default), where a companion
+  // written as `tools.json` / `Tools.json` resolves to the very file the
+  // manifest scanner later reads as `TOOLS.json` (and likewise for `skill.md`).
+  // An exact-case check would let a varied-case name slip a manifest past this
+  // guard, so lowercase the candidate before testing membership.
+  if (RESERVED_COMPANION_NAMES.has(rel.replaceAll(sep, "/").toLowerCase())) {
     return {
       error: `companion file path must not overwrite the store-owned file: "${filePath}"`,
     };
@@ -99,12 +106,16 @@ export function validateCompanionPath(
   return { resolvedPath };
 }
 
-/** Top-level files owned by the store; companion writes may never target them. */
+/**
+ * Top-level files owned by the store; companion writes may never target them.
+ * Entries are lowercase — the membership check lowercases the candidate path so
+ * case variants (e.g. `tools.json`) are rejected on case-insensitive filesystems.
+ */
 const RESERVED_COMPANION_NAMES = new Set([
-  "SKILL.md",
+  "skill.md",
   "install-meta.json",
   "version.json",
-  "TOOLS.json",
+  "tools.json",
 ]);
 
 // ─── SKILL.md generation ─────────────────────────────────────────────────────

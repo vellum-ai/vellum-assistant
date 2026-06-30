@@ -473,10 +473,32 @@ describe("validateCompanionPath", () => {
     // TOOLS.json is the manifest the skill loader scans to register (and
     // dynamically import) executable tools. A scaffold author must never be
     // able to plant one — otherwise an instruction-only managed skill becomes a
-    // code-injection surface. Case-sensitive exact match, like the loader.
+    // code-injection surface.
     expect(validateCompanionPath(skillDir, "TOOLS.json").error).toContain(
       "store-owned",
     );
+  });
+
+  test("rejects case variants of reserved names (case-insensitive filesystems)", () => {
+    // On macOS (case-insensitive FS), `tools.json` resolves to the same file
+    // the scanner reads as `TOOLS.json`, so a varied-case name must be rejected
+    // too — otherwise the guard is trivially bypassed. Same for SKILL.md.
+    for (const variant of [
+      "tools.json",
+      "Tools.json",
+      "TOOLS.JSON",
+      "skill.md",
+      "Skill.MD",
+      "INSTALL-META.JSON",
+    ]) {
+      expect(validateCompanionPath(skillDir, variant).error).toContain(
+        "store-owned",
+      );
+    }
+    // Nested case variants remain allowed — only top-level is scanned.
+    expect(
+      validateCompanionPath(skillDir, "references/tools.json").error,
+    ).toBeUndefined();
   });
 });
 
