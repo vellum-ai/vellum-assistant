@@ -23,6 +23,7 @@ import { backfillMessageIdOnLogs } from "../persistence/llm-request-log-store.js
 import type { Message } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
+import type { CompletedBackgroundTool } from "../tools/background-tool-registry.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
 import type { ServerMessage } from "./message-protocol.js";
@@ -273,6 +274,7 @@ export async function persistWakeTriggerMessage(
   conversation: Conversation,
   message: Message,
   source: string,
+  completion?: CompletedBackgroundTool,
 ): Promise<void> {
   const turnChannelCtx = conversation.getTurnChannelContext();
   const turnInterfaceCtx = conversation.getTurnInterfaceContext();
@@ -287,6 +289,7 @@ export async function persistWakeTriggerMessage(
     kind: "background-event",
     backgroundEventSource: source,
     automated: true,
+    ...(completion ? { backgroundToolCompletion: completion } : {}),
   };
   const persisted = await addMessage(
     conversation.conversationId,
