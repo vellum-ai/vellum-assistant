@@ -16,9 +16,10 @@ import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-mes
 import { toast } from "@vellumai/design-library";
 import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
 import { SubagentSpawnGroup } from "@/domains/chat/components/subagent-inline-progress-card/subagent-spawn-group";
-import { WorkflowInlineProgressCard } from "@/domains/chat/components/workflow-inline-progress-card/workflow-inline-progress-card";
-import { AcpRunInlineProgressCard } from "@/domains/chat/components/acp-run-inline-card/acp-run-inline-progress-card";
-import { BackgroundTaskInlineProgressCard } from "@/domains/chat/components/background-task-inline-card/background-task-inline-progress-card";
+import { InlineProcessCardRow } from "@/domains/chat/process-registry/inline-process-card-row";
+import { WORKFLOW_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/workflow";
+import { ACP_RUN_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/acp-run";
+import { BACKGROUND_TASK_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/background-task";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
 import { SingleActivity } from "@/domains/chat/components/single-activity/single-activity";
 import { MultiActivityGroup } from "@/domains/chat/components/multi-activity-group/multi-activity-group";
@@ -352,11 +353,14 @@ export function TranscriptMessageBody({
     return (
       <div className="flex w-full flex-col gap-1.5">
         {runIds.map((runId) => (
-          <WorkflowInlineProgressCard
+          <InlineProcessCardRow
             key={runId}
-            runId={runId}
-            onWorkflowClick={onWorkflowClick}
-            onStopWorkflow={onStopWorkflow}
+            descriptor={WORKFLOW_DESCRIPTOR}
+            id={runId}
+            onOpen={onWorkflowClick ? () => onWorkflowClick(runId) : undefined}
+            onStop={onStopWorkflow ? () => onStopWorkflow(runId) : undefined}
+            stopAriaLabel="Stop workflow"
+            testId="inline-process-card"
           />
         ))}
       </div>
@@ -373,10 +377,12 @@ export function TranscriptMessageBody({
     return (
       <div className="flex w-full flex-col gap-1.5">
         {acpSessionIds.map((acpSessionId) => (
-          <AcpRunInlineProgressCard
+          <InlineProcessCardRow
             key={acpSessionId}
-            acpSessionId={acpSessionId}
-            onAcpRunClick={handleAcpRunClick}
+            descriptor={ACP_RUN_DESCRIPTOR}
+            id={acpSessionId}
+            onOpen={() => handleAcpRunClick(acpSessionId)}
+            testId="inline-process-card"
           />
         ))}
       </div>
@@ -391,10 +397,12 @@ export function TranscriptMessageBody({
     return (
       <div className="flex w-full flex-col gap-1.5">
         {taskIds.map((id) => (
-          <BackgroundTaskInlineProgressCard
+          <InlineProcessCardRow
             key={id}
+            descriptor={BACKGROUND_TASK_DESCRIPTOR}
             id={id}
-            onClick={handleBackgroundTaskClick}
+            onOpen={() => handleBackgroundTaskClick(id)}
+            testId="inline-process-card"
           />
         ))}
       </div>
