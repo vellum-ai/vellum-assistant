@@ -12,6 +12,7 @@ import {
 } from "../../agent/message-types.js";
 import {
   type ConversationContentBlock,
+  type ConversationMessage,
   ConversationMessageSchema,
 } from "../../api/responses/conversation-message.js";
 import {
@@ -840,6 +841,7 @@ export function handleListMessages({
       | undefined;
     let acpNotification: { acpSessionId: string; agent?: string } | undefined;
     let backgroundToolNotification: boolean | undefined;
+    let backgroundToolCompletion: ConversationMessage["backgroundToolCompletion"];
     if (msg.metadata) {
       try {
         const meta = JSON.parse(msg.metadata);
@@ -851,6 +853,29 @@ export function handleListMessages({
         // the status.
         if (meta.backgroundEventSource === "background-tool") {
           backgroundToolNotification = true;
+        }
+        // `persistWakeTriggerMessage` stamps the structured completion onto the
+        // same wake row, letting the web rebuild a terminal inline card from
+        // history after a restart (the in-memory completed ring does not survive).
+        const c = meta.backgroundToolCompletion as
+          | Record<string, unknown>
+          | undefined;
+        if (
+          c &&
+          typeof c.id === "string" &&
+          typeof c.completedAt === "number"
+        ) {
+          backgroundToolCompletion = {
+            id: c.id,
+            toolName: String(c.toolName ?? ""),
+            conversationId: String(c.conversationId ?? ""),
+            command: String(c.command ?? ""),
+            startedAt: Number(c.startedAt ?? 0),
+            status: c.status as "completed" | "failed" | "cancelled",
+            exitCode: (c.exitCode ?? null) as number | null,
+            output: String(c.output ?? ""),
+            completedAt: c.completedAt,
+          };
         }
         if (meta.subagentNotification) {
           const n = meta.subagentNotification;
@@ -905,6 +930,7 @@ export function handleListMessages({
       subagentNotification,
       acpNotification,
       backgroundToolNotification,
+      backgroundToolCompletion,
       slackMessage,
       clientMessageId: msg.clientMessageId ?? undefined,
     };
@@ -1091,6 +1117,9 @@ export function handleListMessages({
       ...(m.acpNotification ? { acpNotification: m.acpNotification } : {}),
       ...(m.backgroundToolNotification
         ? { backgroundToolNotification: true }
+        : {}),
+      ...(m.backgroundToolCompletion
+        ? { backgroundToolCompletion: m.backgroundToolCompletion }
         : {}),
       ...(m.slackMessage ? { slackMessage: m.slackMessage } : {}),
     };
