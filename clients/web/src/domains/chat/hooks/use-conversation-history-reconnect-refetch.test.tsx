@@ -27,6 +27,7 @@ function paginationStub(): HistoryPaginationResult {
     messages: [],
     latestPage: undefined,
     subagentNotifications: undefined,
+    backgroundToolCompletions: undefined,
     isLoading: false,
     isSuccess: false,
     isError: false,
