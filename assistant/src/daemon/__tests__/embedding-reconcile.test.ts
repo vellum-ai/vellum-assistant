@@ -179,6 +179,31 @@ describe("reconcileEmbeddingIdentity", () => {
     expect(deps.probeBackendDimension).toHaveBeenCalledTimes(1);
   });
 
+  test("migrate rolls back the committed dimension when the recreate throws", async () => {
+    const deps = makeDeps({
+      decision: { kind: "migrate", fromDim: 384, toDim: 3072 },
+      committedDim: 384,
+      probeDim: 3072,
+    });
+    // The destructive recreate fails mid-migration (e.g. a transient Qdrant error).
+    deps.recreateCollectionsAtDim = mock(async () => {
+      throw new Error("qdrant recreate failed");
+    });
+
+    await expect(
+      reconcileEmbeddingIdentity(fakeConfig("gemini"), deps),
+    ).rejects.toThrow("qdrant recreate failed");
+
+    // The new dim is committed for the recreate, then rolled back to the old dim
+    // so config stays consistent with the still-existing old collection; the
+    // next reconcile re-migrates from a consistent state.
+    expect(deps.persistVectorSize).toHaveBeenNthCalledWith(1, 3072);
+    expect(deps.persistVectorSize).toHaveBeenNthCalledWith(2, 384);
+    expect(deps.setInMemoryVectorSize).toHaveBeenNthCalledWith(2, 384);
+    // No reembed is enqueued when the recreate failed.
+    expect(deps.enqueueReembed).toHaveBeenCalledTimes(0);
+  });
+
   test("commit-fresh persists and ensures-without-destroy, never recreates", async () => {
     const deps = makeDeps({
       decision: { kind: "commit-fresh", dim: 3072 },

@@ -276,9 +276,29 @@ export async function reconcileEmbeddingIdentity(
     }
 
     case "migrate": {
+      // The committed dimension must be persisted before the recreate so the
+      // v2/v3 collection helpers build at the new size. If the destructive
+      // recreate then throws (e.g. a transient Qdrant delete/create failure),
+      // roll the committed dimension back so config keeps matching the
+      // still-existing old collection — otherwise config would advertise the
+      // new dimension while the collection stays old, and the availability
+      // check would admit new-dimension queries that Qdrant rejects until the
+      // next restart. Rolling back leaves a consistent state the next reconcile
+      // re-migrates cleanly. The reembed is enqueued only after a successful
+      // recreate so it never runs against a collection that was not rebuilt.
       deps.setInMemoryVectorSize(action.toDim);
       deps.persistVectorSize(action.toDim);
-      await deps.recreateCollectionsAtDim(action.toDim);
+      try {
+        await deps.recreateCollectionsAtDim(action.toDim);
+      } catch (err) {
+        deps.setInMemoryVectorSize(action.fromDim);
+        deps.persistVectorSize(action.fromDim);
+        log.warn(
+          { err, fromDim: action.fromDim, toDim: action.toDim },
+          "Embedding dimension migration failed during collection recreate; rolled back committed dimension — next reconcile retries",
+        );
+        throw err;
+      }
       deps.enqueueReembed();
       log.warn(
         { fromDim: action.fromDim, toDim: action.toDim },

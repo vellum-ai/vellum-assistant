@@ -731,14 +731,6 @@ export function loadConfig(): AssistantConfig {
     // in-memory `config` returned below carries the deployment-context fills as
     // this run's effective values.
     const willSeed = !configFileExisted && suppressConfigDiskWritesDepth === 0;
-    // Snapshot the embedding provider BEFORE deployment-context fills. The
-    // first-launch seed persists the service-mode context defaults (for
-    // discoverability), but the platform embedding-provider intent must stay
-    // in-memory only: persisting `provider: "gemini"` would make it sticky and
-    // override a later non-platform run of this workspace.
-    const preContextEmbeddingProvider = willSeed
-      ? config.memory.embeddings.provider
-      : null;
 
     // Layer deployment-context defaults (e.g. IS_PLATFORM=true → all service
     // modes = "managed") onto the in-memory config for any leaves that aren't
@@ -763,9 +755,13 @@ export function loadConfig(): AssistantConfig {
     // effective config to disk so users can discover and edit all available
     // options. Deployment-context service-mode defaults (e.g. IS_PLATFORM=true →
     // managed service modes) are included for discoverability, but the platform
-    // embedding-provider intent is restored to its pre-context value so it is
-    // never persisted — writing `provider: "gemini"` would make it sticky and
-    // able to override a later non-platform run of the same workspace.
+    // embedding-provider intent is OMITTED entirely — not even persisted as the
+    // schema default "auto". `fillContextDefaultsForMissingKeys` only fills a
+    // leaf absent from disk, so persisting any provider value (including "auto")
+    // would be read back as an explicit user choice on the next load and
+    // permanently suppress re-applying the platform "gemini" default. Leaving
+    // the leaf absent keeps the platform intent in-memory-only yet re-applied on
+    // every load.
     //
     // When the file already exists, leave it alone — disk represents user
     // intent, while the in-memory `cached: AssistantConfig` (above) has all
@@ -780,9 +776,9 @@ export function loadConfig(): AssistantConfig {
           mkdirSync(dir, { recursive: true });
         }
         const seed = structuredClone(config);
-        if (preContextEmbeddingProvider !== null) {
-          seed.memory.embeddings.provider = preContextEmbeddingProvider;
-        }
+        // Drop the deployment-context embedding provider so it is never
+        // persisted (see above); the schema default re-applies in memory.
+        delete (seed.memory.embeddings as { provider?: unknown }).provider;
         // Strip dataDir (runtime-derived) from the persisted config
         const { dataDir: _, ...persistable } = seed;
         writeFileSync(configPath, JSON.stringify(persistable, null, 2) + "\n");

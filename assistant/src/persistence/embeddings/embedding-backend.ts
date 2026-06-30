@@ -549,20 +549,15 @@ export async function isEmbeddingDimensionAvailable(
   const { backend } = await selectEmbeddingBackend(config);
   if (!backend) return false;
 
+  // Probe the exact backend chain `embedWithBackend` would try (primary +
+  // auto-mode fallbacks + the managed→direct Gemini fallback) via the shared
+  // assembler, so this preflight can never be more pessimistic than the real
+  // embed path. Dense recall stays available if ANY backend in the chain
+  // produces the committed dimension. `resolveBackendDimension` memoizes per
+  // provider:model, so each backend is probed at most once.
   const expected = config.memory.qdrant.vectorSize;
-  if ((await resolveBackendDimension(backend)) === expected) return true;
-
-  // Under `auto`, `embedWithBackend` falls through to the configured fallback
-  // backends when the primary's dimension does not match the collection, so
-  // dense recall is still available if any fallback produces the committed
-  // dimension. Mirror that chain here instead of disabling dense recall when
-  // only the primary mismatches. `resolveBackendDimension` memoizes per
-  // provider:model, so each fallback is probed at most once.
-  if (config.memory.embeddings.provider === "auto") {
-    const fallbacks = await selectFallbackBackends(config, backend.provider);
-    for (const fallback of fallbacks) {
-      if ((await resolveBackendDimension(fallback)) === expected) return true;
-    }
+  for (const candidate of await assembleEmbeddingBackends(config, backend)) {
+    if ((await resolveBackendDimension(candidate)) === expected) return true;
   }
   return false;
 }
@@ -622,6 +617,42 @@ export class EmbeddingBackendUnavailableError extends Error {
   }
 }
 
+/**
+ * Assemble the ordered backend chain {@link embedWithBackend} will try for a
+ * given primary selection: the primary, then (in `auto` mode, non-Gemini
+ * primary) the configured fallbacks, then a direct-key Gemini fallback when the
+ * primary is managed-proxy Gemini. This is the single source of truth for the
+ * fallback chain, shared with the dimension-availability preflight
+ * ({@link isEmbeddingDimensionAvailable}) so the preflight cannot diverge from
+ * what the real embed path attempts.
+ */
+async function assembleEmbeddingBackends(
+  config: AssistantConfig,
+  primary: EmbeddingBackend,
+): Promise<EmbeddingBackend[]> {
+  // In auto mode, fall through to all configured backends (excluding the
+  // primary) so e.g. multimodal inputs can reach Gemini even when the primary
+  // is local or openai.
+  const fallbacks: EmbeddingBackend[] =
+    config.memory.embeddings.provider === "auto" &&
+    primary.provider !== "gemini"
+      ? await selectFallbackBackends(config, primary.provider)
+      : [];
+
+  // A managed-proxy Gemini primary can fail at the proxy (e.g. a stale or
+  // revoked platform credential) while a valid direct Gemini key sits in the
+  // credential store. The provider chain above never includes Gemini when
+  // Gemini IS the primary, so without this the direct key would never be tried.
+  if (primary instanceof GeminiEmbeddingBackend && primary.managed) {
+    const geminiKey = await getProviderKeyAsync("gemini");
+    if (geminiKey) {
+      fallbacks.push(getDirectGeminiBackend(config, geminiKey));
+    }
+  }
+
+  return [primary, ...fallbacks];
+}
+
 export async function embedWithBackend(
   config: AssistantConfig,
   inputs: EmbeddingInput[],
@@ -646,31 +677,6 @@ export async function embedWithBackend(
 
   const expectedDim = config.memory.qdrant.vectorSize;
   const { provider: primaryProvider, model: primaryModel } = selection.backend;
-
-  // ── Build fallback backends list (needed for embed fallback) ──
-  // In auto mode, build a fallback chain from all configured backends
-  // (excluding the primary). This lets multimodal inputs fall through
-  // to Gemini even when the primary is local or openai.
-  const fallbacks: EmbeddingBackend[] =
-    config.memory.embeddings.provider === "auto" &&
-    selection.backend.provider !== "gemini"
-      ? await selectFallbackBackends(config, selection.backend.provider)
-      : [];
-
-  // A managed-proxy Gemini primary can fail at the proxy (e.g. a stale or
-  // revoked platform credential) while a valid direct Gemini key sits in the
-  // credential store. The provider-level chain above never includes Gemini
-  // when Gemini IS the primary, so without this the direct key would never
-  // be tried and the provider would stay down for the whole process.
-  if (
-    selection.backend instanceof GeminiEmbeddingBackend &&
-    selection.backend.managed
-  ) {
-    const geminiKey = await getProviderKeyAsync("gemini");
-    if (geminiKey) {
-      fallbacks.push(getDirectGeminiBackend(config, geminiKey));
-    }
-  }
 
   // ── Compute provider-specific vector cache extras ───────────────
   const vectorExtras =
@@ -700,7 +706,7 @@ export async function embedWithBackend(
   }
 
   // ── Embed uncached inputs ───────────────────────────────────────
-  const backends: EmbeddingBackend[] = [selection.backend, ...fallbacks];
+  const backends = await assembleEmbeddingBackends(config, selection.backend);
 
   let lastErr: unknown;
   let anyBackendAttempted = false;

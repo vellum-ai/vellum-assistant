@@ -162,18 +162,17 @@ describe("deployment-context embedding-provider default (via loadConfig)", () =>
     expect(config.memory.embeddings.provider).toBe("gemini");
 
     // The seeded config.json persists the managed service modes (for
-    // discoverability), but the platform embedding-provider intent is kept
-    // in-memory only: persisting "gemini" would make it sticky and override a
-    // later non-platform run of this workspace. So on disk the embedding
-    // provider reflects the schema default ("auto"), never "gemini".
+    // discoverability) but OMITS the embedding provider entirely — not even the
+    // schema default "auto". Persisting any value would be read back on the next
+    // load as an explicit user choice and permanently suppress re-applying the
+    // platform "gemini" default.
     const raw = readConfig();
     const memoryRaw = (raw.memory ?? {}) as Record<string, unknown>;
     const embeddingsRaw = (memoryRaw.embeddings ?? {}) as Record<
       string,
       unknown
     >;
-    expect(embeddingsRaw.provider).not.toBe("gemini");
-    expect(embeddingsRaw.provider ?? "auto").toBe("auto");
+    expect(embeddingsRaw.provider).toBeUndefined();
 
     // Managed service modes ARE persisted on first launch (existing behavior).
     const servicesRaw = (raw.services ?? {}) as Record<string, unknown>;
@@ -182,6 +181,12 @@ describe("deployment-context embedding-provider default (via loadConfig)", () =>
       unknown
     >;
     expect(webSearchRaw.mode).toBe("managed");
+
+    // Regression guard: on the NEXT load (config.json now exists with the
+    // provider leaf absent), the platform default re-applies in memory rather
+    // than being lost to a persisted "auto" read back as an explicit choice.
+    invalidateConfigCache();
+    expect(loadConfig().memory.embeddings.provider).toBe("gemini");
   });
 
   test("IS_PLATFORM='1' also fills provider=gemini in memory", () => {
