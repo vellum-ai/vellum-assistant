@@ -340,6 +340,8 @@ describe("GET /v1/plugins", () => {
       categoryCounts: {},
       totalCount: 0,
     });
+    // Nothing to categorize → the network-bound catalog lookup is skipped.
+    expect(getCatalogSpy).not.toHaveBeenCalled();
   });
 
   test("projects InstalledPluginInfo → response shape with all fields populated", async () => {

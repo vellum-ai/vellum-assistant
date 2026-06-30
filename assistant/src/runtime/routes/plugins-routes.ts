@@ -815,6 +815,13 @@ async function handleListPlugins({
   const installed = listInstalledPlugins();
   const projected = installed.map(projectPlugin);
 
+  // Nothing installed → `categoryCounts`/`totalCount` are deterministically
+  // empty and there is nothing to categorize, so skip the network-bound catalog
+  // lookup entirely (no wasted GitHub request / up-to-1.5s stall wait).
+  if (projected.length === 0) {
+    return { plugins: [], categoryCounts: {}, totalCount: 0 };
+  }
+
   // Categories live only in the catalog. A marketplace outage OR slowdown must
   // never block the installed list, so the lookup is bounded: it degrades to an
   // empty map (every category becomes `null`) on a rejection or a stall.
