@@ -95,6 +95,25 @@
           }
         },
         {
+          "id": "claude-sonnet-5",
+          "displayName": "Claude Sonnet 5",
+          "contextWindowTokens": 1000000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 3,
+            "outputPer1mTokens": 15,
+            "cacheWritePer1mTokens": 3.75,
+            "cacheReadPer1mTokens": 0.3
+          }
+        },
+        {
           "id": "claude-sonnet-4-6",
           "displayName": "Claude Sonnet 4.6",
           "contextWindowTokens": 1000000,
@@ -828,6 +847,25 @@
             "outputPer1mTokens": 25,
             "cacheWritePer1mTokens": 6.25,
             "cacheReadPer1mTokens": 0.5
+          }
+        },
+        {
+          "id": "anthropic/claude-sonnet-5",
+          "displayName": "Claude Sonnet 5",
+          "contextWindowTokens": 1000000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 3,
+            "outputPer1mTokens": 15,
+            "cacheWritePer1mTokens": 3.75,
+            "cacheReadPer1mTokens": 0.3
           }
         },
         {
