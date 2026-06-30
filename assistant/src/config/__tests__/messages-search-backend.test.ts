@@ -43,18 +43,13 @@ describe("getMessagesSearchBackend", () => {
     expect(getMessagesSearchBackend(CONFIG)).toBe("fts5");
   });
 
-  test("returns qdrant when the flag value is qdrant", () => {
-    setOverridesForTesting({ "messages-search-backend": "qdrant" });
+  test("returns fts5 when the flag is disabled", () => {
+    setOverridesForTesting({ "messages-search-backend": false });
+    expect(getMessagesSearchBackend(CONFIG)).toBe("fts5");
+  });
+
+  test("returns qdrant when the flag is enabled", () => {
+    setOverridesForTesting({ "messages-search-backend": true });
     expect(getMessagesSearchBackend(CONFIG)).toBe("qdrant");
-  });
-
-  test("returns fts5 when the flag value is explicitly fts5", () => {
-    setOverridesForTesting({ "messages-search-backend": "fts5" });
-    expect(getMessagesSearchBackend(CONFIG)).toBe("fts5");
-  });
-
-  test("coerces an unexpected value back to fts5", () => {
-    setOverridesForTesting({ "messages-search-backend": "bogus" });
-    expect(getMessagesSearchBackend(CONFIG)).toBe("fts5");
   });
 });

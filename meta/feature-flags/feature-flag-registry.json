@@ -415,12 +415,8 @@
       "scope": "assistant",
       "key": "messages-search-backend",
       "label": "Messages Search Backend",
-      "description": "Select the backend that resolves lexical message-content search. fts5 = the SQLite FTS5 full-text index (default); qdrant = the BM25-style sparse Qdrant lexical index (messages_lexical collection). The fts5 default keeps existing full-text search behavior unchanged until the read sites are cut over.",
-      "defaultEnabled": "fts5",
-      "values": [
-        "fts5",
-        "qdrant"
-      ]
+      "description": "When disabled (default), message content search uses the SQLite FTS5 index (fts5). When enabled, it uses the sparse Qdrant lexical index (qdrant, messages_lexical collection).",
+      "defaultEnabled": false
     }
   ]
 }
