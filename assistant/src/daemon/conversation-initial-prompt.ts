@@ -6,7 +6,7 @@
  * widely-imported guardian-delivery / system-prompt modules — global module
  * mocks of those leak across test files in the shared-process runner.
  */
-import { getGuardianDelivery } from "../contacts/guardian-delivery-reader.js";
+import { getGuardianDeliveryFresh } from "../contacts/guardian-delivery-reader.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import type { ConversationCreateOptions } from "./handlers/shared.js";
 
@@ -19,10 +19,17 @@ type GuardianDeliveryFetch = (input?: {
  * reads: the `"vellum"`-channel key for `peekGuardianForChannel("vellum")` and
  * the unfiltered key for its `peekAnyGuardian()` fallback. Warming only one
  * would still freeze `users/default.md` when the guardian lives on a non-vellum
- * channel (phone / Telegram). Best-effort — the reader swallows failures.
+ * channel (phone / Telegram).
+ *
+ * Uses the FRESH reader so warmup bypasses a stale/empty cached entry: a
+ * gateway-side binding write (onboarding, rebind) does not invalidate the daemon
+ * cache, so a non-fresh read could return an empty binding cached before the
+ * guardian existed and freeze `users/default.md` until the TTL expires. The
+ * fresh read repopulates the cache the sync `peek*` resolvers then read.
+ * Best-effort — the reader swallows failures.
  */
 export async function warmGuardianBindings(
-  fetchDelivery: GuardianDeliveryFetch = getGuardianDelivery,
+  fetchDelivery: GuardianDeliveryFetch = getGuardianDeliveryFresh,
 ): Promise<void> {
   await Promise.all([
     fetchDelivery({ channelTypes: ["vellum"] }),
