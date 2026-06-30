@@ -1619,6 +1619,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Replace the settings-UI-managed leaves of a single llm.profiles entry while preserving non-UI leaves.",
     tags: ["config"],
+    requestBody: ProfileEntry,
     handler: handleReplaceInferenceProfile,
   },
   {
