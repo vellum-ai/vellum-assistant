@@ -9,6 +9,7 @@
 
 import { captureError } from "@/lib/sentry/capture-error";
 import type {
+  BackgroundToolCompletion,
   ConversationContentBlock,
   ConversationMessage,
   ConversationMessageToolCall,
@@ -65,7 +66,7 @@ export interface RuntimeSubagentNotification extends ConversationSubagentNotific
  * `bg-…` id, so the seeded entry's id must equal the completion's id.
  */
 export function toBackgroundTaskEntryFromCompletion(
-  c: NonNullable<ConversationMessage["backgroundToolCompletion"]>,
+  c: BackgroundToolCompletion,
 ): BackgroundTaskEntry {
   return {
     id: c.id,
