@@ -90,31 +90,12 @@ import {
   deleteSectionsForArticle as realDeleteSectionsForArticle,
   ensureSectionCollection as realEnsureSectionCollection,
   listSectionArticles as realListSectionArticles,
+  MAINTAIN_EMBED_HIGH_WATER_KEY,
   upsertSections as realUpsertSections,
 } from "./section-dense-store.js";
 import { buildSectionIndex as realBuildSectionIndex } from "./sections.js";
 import { invalidateLanes as realInvalidateLanes } from "./shadow-plugin.js";
 import type { Slug } from "./types.js";
-
-/**
- * Durable checkpoint holding the epoch-ms high-water mark of the last successful
- * re-embed pass. Pages whose mtime is past this mark are re-chunked + re-embedded
- * into the section dense store; the mark is advanced only after a pass completes,
- * captured before the pass so a transient embed write does not re-trigger itself.
- *
- * This is a FRESH key, distinct from the tree-era `enriched_through_ms` that the
- * old classify-union maintainer advanced. On upgrade the new key is absent, so
- * `computeChangedPages` sees a high-water of 0 and re-embeds EVERY page on the
- * first run — seeding the otherwise-empty `memory_v3_sections` collection.
- * Reusing the old (already-advanced) key would skip all historical pages and
- * leave dense retrieval blind to existing memory until each page was next edited.
- *
- * Distinct too from `memory_v3_maintain_last_run` (the enqueue-cadence checkpoint
- * in `jobs-worker.ts`), which advances on every backstop enqueue rather than on
- * an actual maintenance run.
- */
-const MAINTAIN_EMBED_HIGH_WATER_KEY =
-  "memory_v3_maintain:sections_embedded_through_ms" as const;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
