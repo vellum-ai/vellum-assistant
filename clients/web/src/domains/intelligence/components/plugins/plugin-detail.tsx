@@ -165,7 +165,9 @@ function Header({
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-center">
-      <div className="flex min-w-0 flex-1 items-center gap-3">
+      {/* Top-align the icon: the description loads asynchronously and grows the
+          text block, so centering would nudge the icon down once it arrives. */}
+      <div className="flex min-w-0 flex-1 items-start gap-3">
         {resolvedExternal === undefined ? (
           <span aria-hidden className="h-8 w-8 shrink-0" />
         ) : (
