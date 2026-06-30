@@ -7,34 +7,43 @@ import type { WorkspaceMigration } from "./types.js";
 const log = getLogger("workspace-migration-117");
 
 /**
- * The lean (TTFT-oriented) memory-v3 tuning values that shipped as the schema
- * defaults for a brief window. Because the first-launch seed writes the
- * fully-defaulted config.json to disk, assistants first launched in that window
- * persisted these values as if they were explicit user choices — so once such
- * an assistant's corpus grew past the v3 full-profile threshold it would copy
- * the stale lean values back and never upgrade to the restored full retrieval
- * profile. Stripping the matching leaves lets the full schema defaults re-apply
- * at load.
+ * The memory-v3 tuning leaves whose schema defaults switched between the lean
+ * (TTFT-oriented) profile and the restored full profile, each paired with its
+ * retired lean default.
  *
- * Values that differ (a deliberate user override, or the pre-lean full default
- * persisted before the window) do not match and are preserved. Fields the lean
- * profile never changed (hotSet.halfLifeDays, edge.hubDegree, the learnedEdges
- * math fields, spotlight, prune) are not touched.
+ * The first-launch seed writes the fully-defaulted config.json to disk, so an
+ * assistant first launched during the lean-default window persisted ALL of
+ * these at lean — they then read back as explicit values and would pin the
+ * assistant to the lean profile forever once its corpus passed the v3
+ * full-profile threshold. The migration deletes the leaves so the restored full
+ * schema defaults re-apply.
+ *
+ * To avoid clobbering a deliberate lean-valued override on a config that was NOT
+ * lean-seeded, the migration acts only on the exact lean-seed signature: every
+ * leaf present and equal to its lean default. A partial or mixed config (e.g. a
+ * lone deliberate `denseK: 0`, or any non-lean tuning) does not match and is
+ * left untouched. Fields the lean profile never changed (hotSet.halfLifeDays,
+ * edge.hubDegree, the learnedEdges math fields, spotlight, prune) are not part
+ * of the signature and are never touched.
  *
  * Inlined per the migrations self-containment rule.
  */
-const LEAN_V3_TOP_LEVEL: Record<string, number | boolean> = {
-  needleK: 12,
-  denseK: 0,
-  replyQueryK: 0,
-  selectorEnabled: false,
-};
-const LEAN_V3_NESTED: Record<string, Record<string, number>> = {
-  hotSet: { k: 8 },
-  freshSet: { k: 8 },
-  edge: { seedCount: 6, perSeed: 1, cap: 6 },
-  learnedEdges: { cap: 0 },
-};
+const LEAN_LEAVES: ReadonlyArray<{
+  parent: string | null;
+  key: string;
+  lean: number | boolean;
+}> = [
+  { parent: null, key: "needleK", lean: 12 },
+  { parent: null, key: "denseK", lean: 0 },
+  { parent: null, key: "replyQueryK", lean: 0 },
+  { parent: null, key: "selectorEnabled", lean: false },
+  { parent: "hotSet", key: "k", lean: 8 },
+  { parent: "freshSet", key: "k", lean: 8 },
+  { parent: "learnedEdges", key: "cap", lean: 0 },
+  { parent: "edge", key: "seedCount", lean: 6 },
+  { parent: "edge", key: "perSeed", lean: 1 },
+  { parent: "edge", key: "cap", lean: 6 },
+];
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === "object" && !Array.isArray(value);
@@ -43,7 +52,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 export const normalizeStaleLeanMemoryV3DefaultsMigration: WorkspaceMigration = {
   id: "117-normalize-stale-lean-memory-v3-defaults",
   description:
-    "Strip persisted memory.v3 tuning values matching the retired lean defaults so the restored full schema defaults re-apply for assistants seeded during the lean-default window",
+    "Strip persisted memory.v3 tuning values matching the retired lean-default seed signature so the restored full schema defaults re-apply for assistants seeded during the lean-default window",
 
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
@@ -63,34 +72,31 @@ export const normalizeStaleLeanMemoryV3DefaultsMigration: WorkspaceMigration = {
     const v3 = memory.v3;
     if (!isPlainObject(v3)) return;
 
-    let changed = false;
+    // Resolve each switched leaf to its container object + presence/value.
+    const resolved = LEAN_LEAVES.map((leaf) => {
+      const container =
+        leaf.parent === null
+          ? v3
+          : isPlainObject(v3[leaf.parent])
+            ? (v3[leaf.parent] as Record<string, unknown>)
+            : undefined;
+      return { leaf, container };
+    });
 
-    // Top-level leaves: drop only when the persisted value equals the lean
-    // default (a changed value, or the pre-lean full default, differs and is
-    // preserved).
-    for (const [key, leanValue] of Object.entries(LEAN_V3_TOP_LEVEL)) {
-      if (key in v3 && v3[key] === leanValue) {
-        delete v3[key];
-        changed = true;
-      }
+    // Act only on the exact lean-seed signature: every switched leaf present and
+    // still equal to its lean default. Anything else (a deliberate lean
+    // override, a mixed/partial config, or a pre-lean full seed) is preserved.
+    const isLeanSeed = resolved.every(
+      ({ leaf, container }) =>
+        container !== undefined &&
+        leaf.key in container &&
+        container[leaf.key] === leaf.lean,
+    );
+    if (!isLeanSeed) return;
+
+    for (const { leaf, container } of resolved) {
+      delete container![leaf.key];
     }
-
-    // Nested sub-object leaves: drop the matching leaf and leave the parent in
-    // place — it may still carry untouched siblings (e.g. hotSet.halfLifeDays).
-    // An emptied sub-object (e.g. freshSet: {}) re-parses to the full schema
-    // default, so it is harmless to leave behind.
-    for (const [parentKey, leaves] of Object.entries(LEAN_V3_NESTED)) {
-      const parent = v3[parentKey];
-      if (!isPlainObject(parent)) continue;
-      for (const [leafKey, leanValue] of Object.entries(leaves)) {
-        if (leafKey in parent && parent[leafKey] === leanValue) {
-          delete parent[leafKey];
-          changed = true;
-        }
-      }
-    }
-
-    if (!changed) return;
 
     try {
       writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");

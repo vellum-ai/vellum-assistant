@@ -126,21 +126,31 @@ describe("117-normalize-stale-lean-memory-v3-defaults migration", () => {
     });
   });
 
-  test("preserves a deliberate (non-lean) value while stripping lean siblings", () => {
+  test("leaves a config with any non-lean tuning untouched (not the lean-seed signature)", () => {
+    // A lean-seed config the user later edited one field of no longer matches
+    // the all-lean signature, so the migration leaves it alone rather than
+    // partially rewriting an explicit config.
     const config = leanSeedConfig();
     (
       (config.memory as Record<string, unknown>).v3 as Record<string, unknown>
     ).needleK = 50;
-    writeFileSync(configPath, JSON.stringify(config), "utf-8");
+    const original = JSON.stringify(config);
+    writeFileSync(configPath, original, "utf-8");
 
     normalizeStaleLeanMemoryV3DefaultsMigration.run(workspaceDir);
 
-    const v3 = (readConfig().memory as Record<string, unknown>).v3 as Record<
-      string,
-      unknown
-    >;
-    expect(v3.needleK).toBe(50); // user value kept
-    expect("denseK" in v3).toBe(false); // lean sibling stripped
+    expect(readFileSync(configPath, "utf-8")).toBe(original);
+  });
+
+  test("preserves a deliberate lean-valued override (partial config, not a full seed)", () => {
+    // An established assistant that deliberately disables dense retrieval must
+    // keep that choice — a lone lean-valued leaf is not the seed signature.
+    const original = JSON.stringify({ memory: { v3: { denseK: 0 } } });
+    writeFileSync(configPath, original, "utf-8");
+
+    normalizeStaleLeanMemoryV3DefaultsMigration.run(workspaceDir);
+
+    expect(readFileSync(configPath, "utf-8")).toBe(original);
   });
 
   test("leaves a pre-lean full config untouched (no write)", () => {
