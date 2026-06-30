@@ -17,8 +17,8 @@
  */
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "../__tests__/helpers/mock-logger.js";
-import type { AssistantConfig } from "../config/schema.js";
+import { makeMockLogger } from "../../../../__tests__/helpers/mock-logger.js";
+import type { AssistantConfig } from "../../../../config/schema.js";
 
 const proxyState = { prereqs: true };
 const v3State = { live: true };
@@ -28,27 +28,27 @@ const enqueueJob = mock(
   (_type: string, _payload: Record<string, unknown>) => 1,
 );
 
-mock.module("../util/logger.js", () => ({
+mock.module("../../../../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
 }));
 
-mock.module("../providers/platform-proxy/context.js", () => ({
+mock.module("../../../../providers/platform-proxy/context.js", () => ({
   hasManagedProxyPrereqs: async () => proxyState.prereqs,
 }));
 
-mock.module("../config/memory-v3-gate.js", () => ({
+mock.module("../../../../config/memory-v3-gate.js", () => ({
   isMemoryV3Live: () => v3State.live,
 }));
 
-mock.module("../persistence/jobs-store.js", () => ({
+mock.module("../../../../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: enqueueJob,
 }));
 
-mock.module("../plugins/defaults/memory/v2/skill-store.js", () => ({
+mock.module("./skill-store.js", () => ({
   seedV2SkillEntries: seedSkill,
 }));
 
-mock.module("../plugins/defaults/memory/v2/cli-command-store.js", () => ({
+mock.module("./cli-command-store.js", () => ({
   seedV2CliCommandEntries: seedCli,
 }));
 

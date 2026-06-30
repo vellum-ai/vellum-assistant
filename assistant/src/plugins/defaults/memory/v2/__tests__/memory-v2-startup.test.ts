@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 
-import type { AssistantConfig } from "../../config/schema.js";
+import type { AssistantConfig } from "../../../../../config/schema.js";
 
 function fakeConfig(): AssistantConfig {
   return {
@@ -30,20 +30,20 @@ async function withMocks(opts: { reembedInFlight: boolean }) {
     hasConceptPages: mock(async () => true),
   };
 
-  mock.module("../../persistence/jobs-store.js", () => ({
+  mock.module("../../../../../persistence/jobs-store.js", () => ({
     enqueueMemoryJob: spies.enqueueMemoryJob,
     hasActiveJobOfType: spies.hasActiveJobOfType,
   }));
-  mock.module("../../plugins/defaults/memory/v2/qdrant.js", () => ({
+  mock.module("../qdrant.js", () => ({
     ensureConceptPageCollection: spies.ensureConceptPageCollection,
     countConceptPagePoints: spies.countConceptPagePoints,
     clearReembedSentinel: spies.clearReembedSentinel,
   }));
-  mock.module("../../plugins/defaults/memory/v2/page-store.js", () => ({
+  mock.module("../page-store.js", () => ({
     hasConceptPages: spies.hasConceptPages,
   }));
-  const realPlatform = await import("../../util/platform.js");
-  mock.module("../../util/platform.js", () => ({
+  const realPlatform = await import("../../../../../util/platform.js");
+  mock.module("../../../../../util/platform.js", () => ({
     ...realPlatform,
     getWorkspaceDir: () => "/tmp/workspace",
   }));

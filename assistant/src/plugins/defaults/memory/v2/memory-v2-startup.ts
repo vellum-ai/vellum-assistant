@@ -7,9 +7,9 @@
 // capability reseed, from the secrets route). Lives in its own file so the unit
 // test for the gate does not have to mount the entire lifecycle import graph.
 
-import type { AssistantConfig } from "../config/schema.js";
-import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir } from "../util/platform.js";
+import type { AssistantConfig } from "../../../../config/schema.js";
+import { getLogger } from "../../../../util/logger.js";
+import { getWorkspaceDir } from "../../../../util/platform.js";
 
 const log = getLogger("memory-v2-startup");
 
@@ -23,10 +23,10 @@ const log = getLogger("memory-v2-startup");
  */
 export function maybeSeedMemoryV2Skills(config: AssistantConfig): void {
   if (!config.memory.v2.enabled) return;
-  void import("../plugins/defaults/memory/v2/skill-store.js")
+  void import("./skill-store.js")
     .then(({ seedV2SkillEntries }) => seedV2SkillEntries())
     .catch((err) => log.warn({ err }, "Failed to seed v2 skill entries"));
-  void import("../plugins/defaults/memory/v2/qdrant.js")
+  void import("./qdrant.js")
     .then(({ dropLegacySkillsCollection }) => dropLegacySkillsCollection())
     .catch((err) =>
       log.warn(
@@ -44,7 +44,7 @@ export function maybeSeedMemoryV2Skills(config: AssistantConfig): void {
  */
 export function maybeSeedMemoryV2CliCommands(config: AssistantConfig): void {
   if (!config.memory.v2.enabled) return;
-  void import("../plugins/defaults/memory/v2/cli-command-store.js")
+  void import("./cli-command-store.js")
     .then(({ seedV2CliCommandEntries }) => seedV2CliCommandEntries())
     .catch((err) => log.warn({ err }, "Failed to seed v2 CLI-command entries"));
 }
@@ -134,7 +134,7 @@ export async function maybeReseedCapabilitiesAfterManagedCredential(
   if (!config.memory.v2.enabled) return;
 
   const { hasManagedProxyPrereqs } =
-    await import("../providers/platform-proxy/context.js");
+    await import("../../../../providers/platform-proxy/context.js");
   if (!(await hasManagedProxyPrereqs())) return;
 
   // The managed credential has just landed, so the embedding backend is now
@@ -150,7 +150,7 @@ export async function maybeReseedCapabilitiesAfterManagedCredential(
   // never rejects the detached caller.
   try {
     const { reconcileEmbeddingIdentity } =
-      await import("./embedding-reconcile.js");
+      await import("../../../../daemon/embedding-reconcile.js");
     await reconcileEmbeddingIdentity(config);
   } catch (err) {
     log.warn(
@@ -166,8 +166,7 @@ export async function maybeReseedCapabilitiesAfterManagedCredential(
     [
       "skill",
       async () => {
-        const { seedV2SkillEntries } =
-          await import("../plugins/defaults/memory/v2/skill-store.js");
+        const { seedV2SkillEntries } = await import("./skill-store.js");
         await seedV2SkillEntries({ throwOnError: true });
       },
     ],
@@ -175,7 +174,7 @@ export async function maybeReseedCapabilitiesAfterManagedCredential(
       "CLI-command",
       async () => {
         const { seedV2CliCommandEntries } =
-          await import("../plugins/defaults/memory/v2/cli-command-store.js");
+          await import("./cli-command-store.js");
         await seedV2CliCommandEntries({ throwOnError: true });
       },
     ],
@@ -203,12 +202,14 @@ export async function maybeReseedCapabilitiesAfterManagedCredential(
   // skill/CLI pages within seconds instead of waiting out the 6h backstop.
   // Resolve the gate + enqueuer once and reuse for the post-barrier enqueue and
   // the straggler re-enqueue below.
-  const { isMemoryV3Live } = await import("../config/memory-v3-gate.js");
+  const { isMemoryV3Live } =
+    await import("../../../../config/memory-v3-gate.js");
   const v3Live = isMemoryV3Live(config);
   const enqueueMaintain = async (): Promise<void> => {
     if (!v3Live) return;
     try {
-      const { enqueueMemoryJob } = await import("../persistence/jobs-store.js");
+      const { enqueueMemoryJob } =
+        await import("../../../../persistence/jobs-store.js");
       enqueueMemoryJob("memory_v3_maintain", {});
     } catch (err) {
       log.warn(
@@ -261,8 +262,7 @@ export async function rebuildBm25CorpusStatsAndReseedSkills(
   if (!config.memory.v2.enabled) return;
 
   try {
-    const { rebuildConceptPageCorpusStats } =
-      await import("../plugins/defaults/memory/v2/sparse-bm25.js");
+    const { rebuildConceptPageCorpusStats } = await import("./sparse-bm25.js");
     await rebuildConceptPageCorpusStats(getWorkspaceDir());
     log.info("Memory v2 BM25 corpus stats built");
   } catch (err) {
@@ -278,8 +278,7 @@ export async function rebuildBm25CorpusStatsAndReseedSkills(
   await Promise.all([
     (async () => {
       try {
-        const { seedV2SkillEntries } =
-          await import("../plugins/defaults/memory/v2/skill-store.js");
+        const { seedV2SkillEntries } = await import("./skill-store.js");
         await seedV2SkillEntries({ throwOnError: true });
         log.info(
           "Memory v2 skill embeddings re-seeded with BM25 vectors after corpus-stats build",
@@ -294,7 +293,7 @@ export async function rebuildBm25CorpusStatsAndReseedSkills(
     (async () => {
       try {
         const { seedV2CliCommandEntries } =
-          await import("../plugins/defaults/memory/v2/cli-command-store.js");
+          await import("./cli-command-store.js");
         await seedV2CliCommandEntries({ throwOnError: true });
         log.info(
           "Memory v2 CLI-command embeddings re-seeded with BM25 vectors after corpus-stats build",
@@ -333,11 +332,10 @@ export async function maybeRebuildMemoryV2Concepts(
       ensureConceptPageCollection,
       countConceptPagePoints,
       clearReembedSentinel,
-    } = await import("../plugins/defaults/memory/v2/qdrant.js");
-    const { hasConceptPages } =
-      await import("../plugins/defaults/memory/v2/page-store.js");
+    } = await import("./qdrant.js");
+    const { hasConceptPages } = await import("./page-store.js");
     const { enqueueMemoryJob, hasActiveJobOfType } =
-      await import("../persistence/jobs-store.js");
+      await import("../../../../persistence/jobs-store.js");
 
     const { migrated } = await ensureConceptPageCollection();
 
