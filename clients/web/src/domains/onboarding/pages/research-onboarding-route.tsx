@@ -17,7 +17,7 @@
  * then clicks "Continue" to drop into the full workspace on the same conversation.
  */
 
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
@@ -215,6 +215,12 @@ export function ResearchOnboardingRoute() {
   const research = useResearchRunner();
   // Stable across renders (useCallback in the runner); safe as effect deps.
   const { start: startResearch, hydrate: hydrateResearch } = research;
+  // In-flight removal correction (if any), fired from the results step. The
+  // chat handoff awaits it (alongside the plugin installs) so a removed claim is
+  // persisted into the research conversation BEFORE the first real chat is
+  // minted — otherwise the rejected facts could still be pulled into its context.
+  // Resolves immediately when nothing was corrected (never rejects).
+  const researchCorrectionRef = useRef<Promise<void>>(Promise.resolve());
   const researchLoading =
     research.status === "idle" || research.status === "running";
   // The research turn settled with nothing to show — skip the "this is what I
@@ -592,9 +598,10 @@ export function ResearchOnboardingRoute() {
             onContinue={(removed) => {
               // Pruned claims are wrong — tell the assistant to disregard them so
               // they don't leak into the real chat (the research turn taught its
-              // memory these facts). Best-effort; never blocks the handoff.
+              // memory these facts). The chat handoff awaits this promise, so the
+              // correction is persisted before the first conversation is minted.
               if (researchConversationId && hatchedAssistantId && removed.length > 0) {
-                void sendResearchCorrection({
+                researchCorrectionRef.current = sendResearchCorrection({
                   assistantId: hatchedAssistantId,
                   conversationId: researchConversationId,
                   removedClaims: removed,
@@ -607,7 +614,7 @@ export function ResearchOnboardingRoute() {
               // "This is not me" — the search matched someone else. Disown the
               // whole result so none of it carries into the assistant's context.
               if (researchConversationId && hatchedAssistantId) {
-                void sendResearchCorrection({
+                researchCorrectionRef.current = sendResearchCorrection({
                   assistantId: hatchedAssistantId,
                   conversationId: researchConversationId,
                   removedClaims: research.claims.map((c) => c.claim),
@@ -636,8 +643,12 @@ export function ResearchOnboardingRoute() {
               // Wait out any background capability installs so the new chat can
               // discover their skills (else it silently degrades to a generic
               // prompt). Usually instant — installs kicked off while the user
-              // reviewed the results.
-              await research.awaitPluginInstalls();
+              // reviewed the results. Also wait for any removal correction to
+              // persist so rejected claims can't leak into this first chat.
+              await Promise.all([
+                research.awaitPluginInstalls(),
+                researchCorrectionRef.current,
+              ]);
               enterAssistant(formValues, faceValues, suggestion.prompt);
             }}
             onSkip={async () => {
@@ -646,7 +657,10 @@ export function ResearchOnboardingRoute() {
                 RESEARCH_ONBOARDING_FUNNEL_STEPS.suggestions,
                 { userId, outcome: "skipped" },
               );
-              await research.awaitPluginInstalls();
+              await Promise.all([
+                research.awaitPluginInstalls(),
+                researchCorrectionRef.current,
+              ]);
               enterAssistant(formValues, faceValues, undefined, { skip: true });
             }}
             onBack={() => goBackTo(noClaims ? "looking" : "results")}
