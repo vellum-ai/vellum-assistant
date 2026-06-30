@@ -280,6 +280,7 @@ export function ActiveChatView() {
     assistantId,
     activeConversationId,
     diskPressureChatBlockReason,
+    uiContextRef,
     pendingOnboardingContextRef,
     onboardingDraftConversationIdRef,
     startReconciliationLoop,
