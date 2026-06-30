@@ -17893,6 +17893,15 @@ paths:
                   anyOf:
                     - type: string
                     - type: "null"
+                enabledPlugins:
+                  description:
+                    Plugin ids to scope this conversation to. Applied when minting a new conversation. null/omitted = default
+                    (all globally-enabled plugins).
+                  anyOf:
+                    - type: array
+                      items:
+                        type: string
+                    - type: "null"
                 riskThreshold:
                   type: string
                   enum:
