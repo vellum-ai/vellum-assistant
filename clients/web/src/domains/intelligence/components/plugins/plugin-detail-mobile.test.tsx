@@ -41,6 +41,9 @@ function makePlugin(
 
 const UPDATE_DRIFT = { status: "update-available" } as unknown as PluginDrift;
 
+const PACKAGE = "\u{1F4E6}"; // 📦 — external (catalog) glyph
+const PUZZLE = "\u{1F9E9}"; // 🧩 — local glyph
+
 // Mutable so individual tests can swap the plugin / drift before rendering.
 const hookState: {
   plugin: PluginsByNameGetResponse | null;
@@ -178,6 +181,50 @@ describe("PluginDetailMobile", () => {
     );
 
     expect(getActionButton("Remove")).toBeTruthy();
+  });
+
+  test("while loading with no externalHint, the header shows a glyph-less placeholder (no 🧩, no 📦)", () => {
+    // No resolved plugin and no seeded hint: the header must not flash either
+    // glyph (avoids the 🧩 → 📦 load flicker).
+    hookState.plugin = null;
+    hookState.isLoading = true;
+
+    render(
+      <PluginDetailMobile assistantId="asst-1" name="test-plugin" onBack={() => {}} />,
+    );
+
+    expect(document.body.textContent).not.toContain(PUZZLE);
+    expect(document.body.textContent).not.toContain(PACKAGE);
+  });
+
+  test("while loading with externalHint, the header shows the seeded 📦 (not 🧩)", () => {
+    hookState.plugin = null;
+    hookState.isLoading = true;
+
+    render(
+      <PluginDetailMobile
+        assistantId="asst-1"
+        name="test-plugin"
+        onBack={() => {}}
+        externalHint
+      />,
+    );
+
+    expect(document.body.textContent).toContain(PACKAGE);
+    expect(document.body.textContent).not.toContain(PUZZLE);
+  });
+
+  test("renders the external 📦 glyph once a github-sourced plugin has loaded", () => {
+    hookState.plugin = makePlugin({
+      source: { kind: "github", repo: "vellum-ai/level-up", ref: "main" },
+    });
+
+    render(
+      <PluginDetailMobile assistantId="asst-1" name="test-plugin" onBack={() => {}} />,
+    );
+
+    expect(document.body.textContent).toContain(PACKAGE);
+    expect(document.body.textContent).not.toContain(PUZZLE);
   });
 
   test("origin badge stays hidden until the plugin loads", () => {

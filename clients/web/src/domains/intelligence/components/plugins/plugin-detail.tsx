@@ -21,6 +21,12 @@ interface PluginDetailProps {
   name: string;
   /** Leave the detail view (return to the plugins list). */
   onBack: () => void;
+  /**
+   * Known external state from the selected list row, used to seed the header
+   * icon before the detail query resolves so click-through shows the right
+   * glyph immediately. `undefined` for deep-links with no matching row.
+   */
+  externalHint?: boolean;
 }
 
 /**
@@ -37,7 +43,12 @@ interface PluginDetailProps {
  * Plugins have no file-list endpoint, so there is no file tree —
  * README + metadata only.
  */
-export function PluginDetail({ assistantId, name, onBack }: PluginDetailProps) {
+export function PluginDetail({
+  assistantId,
+  name,
+  onBack,
+  externalHint,
+}: PluginDetailProps) {
   const {
     plugin,
     drift,
@@ -68,6 +79,7 @@ export function PluginDetail({ assistantId, name, onBack }: PluginDetailProps) {
         <Header
           name={name}
           plugin={plugin}
+          externalHint={externalHint}
           drift={drift}
           onInstall={install}
           onRemove={remove}
@@ -120,6 +132,7 @@ export function PluginDetail({ assistantId, name, onBack }: PluginDetailProps) {
 interface HeaderProps {
   name: string;
   plugin: PluginsByNameGetResponse | null;
+  externalHint?: boolean;
   drift: PluginDrift | undefined;
   onInstall: () => void;
   onRemove: () => void;
@@ -133,6 +146,7 @@ interface HeaderProps {
 function Header({
   name,
   plugin,
+  externalHint,
   drift,
   onInstall,
   onRemove,
@@ -143,12 +157,20 @@ function Header({
   hasLocalEdits,
 }: HeaderProps) {
   const isExternal = plugin?.source?.kind === "github";
+  // Gate the header icon on the loaded plugin, seeding the known external state
+  // from the selected list row, so we never flash a wrong glyph (🧩 → 📦) while
+  // the detail query is still loading. `undefined` until we know either.
+  const resolvedExternal = plugin ? isExternal : externalHint;
   const updateAvailable = drift?.status === "update-available";
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-center">
       <div className="flex min-w-0 flex-1 items-center gap-3">
-        <PluginIcon external={isExternal} size="md" />
+        {resolvedExternal === undefined ? (
+          <span aria-hidden className="h-8 w-8 shrink-0" />
+        ) : (
+          <PluginIcon external={resolvedExternal} size="md" />
+        )}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <h2
