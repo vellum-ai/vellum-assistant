@@ -47,11 +47,9 @@ export interface UsePluginsListResult {
    */
   catalogError: boolean;
   /**
-   * True once the UNFILTERED installed read returns `categoryCounts` — the
-   * daemon understands the Skills category taxonomy. Latched sticky so it never
-   * regresses while a category-filtered read is pending. Older daemons omit
-   * `categoryCounts`; the tab uses this to gate the category rail (version-skew
-   * safeguard).
+   * True once the installed read returns `categoryCounts` — the daemon
+   * understands the Skills category taxonomy. Older daemons omit it; the tab
+   * gates the category rail on this (version-skew safeguard).
    */
   categorySupported: boolean;
   /**
@@ -192,12 +190,10 @@ export function usePluginsList(
   const unfilteredInstalledData =
     category !== null ? installedCountsQuery.data : installedQuery.data;
 
-  // Category support is a daemon capability that holds for the session, so latch
-  // it sticky once the unfiltered read first carries `categoryCounts`. The live
-  // OR covers the current render; the latch keeps it true across a category
-  // switch even if the unfiltered source is momentarily uncached and pending, so
-  // the rail (and the mobile sheet's Categories section) never vanishes
-  // mid-filter.
+  // Latch support sticky once the unfiltered read first carries `categoryCounts`
+  // (it's a stable daemon capability): the live OR covers the current render, and
+  // the latch keeps it true across a category switch while the unfiltered source
+  // is momentarily pending, so the rail never vanishes mid-filter.
   const categoryCountsObserved =
     unfilteredInstalledData?.categoryCounts !== undefined;
   const [categorySupportedLatched, setCategorySupportedLatched] =

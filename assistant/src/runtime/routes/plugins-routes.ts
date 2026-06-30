@@ -662,10 +662,8 @@ function projectPlugin(entry: InstalledPluginInfo): PluginView {
 /**
  * Marketplace → Skills category slug aliases for known, unambiguous mismatches.
  * Keep this tiny: only add a mapping when it is obviously correct. Marketplace
- * slugs with no clean Skills equivalent (e.g. `memory`, `interface`,
- * `marketing`, `hobby`) are intentionally absent so they fall through to
- * `null` → the "system" bucket. Extensible: add an entry as new aliases prove
- * out against `plugins/marketplace.json`.
+ * slugs with no clean Skills equivalent are intentionally absent so they fall
+ * through to `null` → the "system" bucket.
  */
 const MARKETPLACE_CATEGORY_ALIASES: Record<string, string> = {
   developer: "development",
@@ -766,23 +764,17 @@ const UNCATEGORIZED = "system";
 const CATEGORY_LOOKUP_TIMEOUT_MS = 1500;
 
 /**
- * Resolve the marketplace category map within a bounded time budget.
- *
- * Categories live only in the catalog, but the installed list must stay a fast
- * local path: a marketplace outage (rejection) OR slowdown (a slow/hanging
- * fetch on a cold cache) must never block it. We race the catalog fetch against
- * a short timer; if the fetch rejects or does not resolve within
- * {@link CATEGORY_LOOKUP_TIMEOUT_MS}, we degrade to an empty map so every
- * `category` becomes `null` and the list returns immediately.
- *
- * `timeoutMs` is injectable so tests can exercise the bound without waiting the
- * full production budget.
+ * Resolve the marketplace category map, racing the catalog fetch against a
+ * timer so a slow/hanging GitHub fetch can't block the installed list: on a
+ * rejection or a timeout past {@link CATEGORY_LOOKUP_TIMEOUT_MS} it degrades to
+ * an empty map (every `category` resolves to `null`). `timeoutMs` is injectable
+ * so tests can exercise the bound without the full production budget.
  */
 export async function loadCategoryMapBounded(
   timeoutMs: number = CATEGORY_LOOKUP_TIMEOUT_MS,
 ): Promise<Map<string, string | null>> {
   // Clear the timer once the race settles so a catalog-wins path doesn't leave
-  // a ~1500ms timer pending per request (matters for shutdown / test handles).
+  // the timer pending per request (matters for shutdown / test handles).
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const catalog = await Promise.race([
@@ -817,7 +809,7 @@ async function handleListPlugins({
 
   // Nothing installed → `categoryCounts`/`totalCount` are deterministically
   // empty and there is nothing to categorize, so skip the network-bound catalog
-  // lookup entirely (no wasted GitHub request / up-to-1.5s stall wait).
+  // lookup entirely (no wasted GitHub request or bounded stall wait).
   if (projected.length === 0) {
     return { plugins: [], categoryCounts: {}, totalCount: 0 };
   }

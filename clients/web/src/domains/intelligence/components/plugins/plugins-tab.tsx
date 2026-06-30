@@ -42,7 +42,7 @@ import {
     matchesQuery,
     shortSha,
 } from "@/domains/intelligence/plugins/utils";
-// Plugin categories reuse the SHARED Skills taxonomy (same hook + icon map).
+// Shared with Skills: the category hook + icon map.
 import { useSkillCategories } from "@/domains/intelligence/skills/use-skill-categories";
 import {
     hasLocalEdits,
@@ -411,16 +411,12 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
 }
 
 /**
- * Rail counts merge the two independent sources: the installed `categoryCounts`
- * (server) — or a client bucketing of installed plugins when the server omits
- * them — plus a client bucketing of the catalog. Catalog matches already in the
- * unfiltered installed set are skipped so an installed marketplace plugin counts
- * once (under installed), never twice. `totalCount` is the installed total + the
- * deduped catalog total, matching the deduped union of visible rows. Category
- * inputs are unfiltered, so badges stay stable while a category is selected.
- * The status `filter` is respected on the status axis (Skills derives counts
- * from both axes): `installed` counts only installed plugins, `available` only
- * the deduped catalog, so a badge never counts rows the status filter hides.
+ * Merge rail counts from the installed `categoryCounts` (server, or a client
+ * bucketing when the server omits them) and a client bucketing of the catalog.
+ * Catalog matches already installed are skipped so an installed marketplace
+ * plugin counts once, not twice; `totalCount` is the deduped union total. Inputs
+ * are unfiltered (badges stay stable while a category is selected), but the
+ * status `filter` is honored so a badge never counts rows that filter hides.
  * Mirrors skills' `useDerivedCounts`.
  */
 function useMergedPluginCounts(

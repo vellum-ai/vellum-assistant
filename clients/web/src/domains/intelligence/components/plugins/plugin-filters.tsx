@@ -40,9 +40,7 @@ interface FilterBarProps {
   onCategoryChange: (category: string | null) => void;
   /** Per-category result counts keyed by slug. */
   counts: Record<string, number>;
-  /** Total result count across all categories (the "All" row badge). */
   totalCount: number;
-  /** When false, the per-category count badges are hidden. */
   showCounts: boolean;
 }
 
@@ -250,7 +248,6 @@ function FilterSheet({
   );
 }
 
-/** Section grouping inside the mobile filter sheet. */
 function SheetSection({
   label,
   children,
