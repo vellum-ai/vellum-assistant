@@ -3,7 +3,7 @@
  *
  * Lets an out-of-process skill install tools, HTTP routes, shutdown hooks
  * and session-tracking signals into the daemon's in-memory registries. When
- * a {@link MeetHostSupervisor} is attached (production lazy-external path),
+ * a `SessionSupervisor` is attached (production lazy-external path),
  * the register_* handlers short-circuit because the manifest loader has
  * already installed proxy entries that round-trip via `skill.dispatch_*`;
  * the handler simply pins the incoming connection on the supervisor so
@@ -19,7 +19,6 @@
 
 import { z } from "zod";
 
-import type { MeetHostSupervisor } from "../../daemon/meet-host-supervisor.js";
 import { registerShutdownHook } from "../../daemon/shutdown-registry.js";
 import { registerSkillRoute } from "../../runtime/skill-route-registry.js";
 import { registerSkillTools } from "../../tools/registry.js";
@@ -81,18 +80,17 @@ const activeSessions = new Set<string>();
  * race, tests), the fallback set above is mutated directly and the
  * register_* handlers fall back to in-memory proxy installation.
  */
-type SessionSupervisor = Pick<
-  MeetHostSupervisor,
-  | "reportSessionStarted"
-  | "reportSessionEnded"
-  | "activeSessionCount"
-  | "setActiveConnection"
->;
+interface SessionSupervisor {
+  reportSessionStarted(sessionId: string): void;
+  reportSessionEnded(sessionId: string): void;
+  readonly activeSessionCount: number;
+  setActiveConnection(connection: SkillIpcConnection): void;
+}
 
 let sessionSupervisor: SessionSupervisor | null = null;
 
 /**
- * Install a {@link MeetHostSupervisor} as the session-report sink and
+ * Install a `SessionSupervisor` as the session-report sink and
  * connection holder for daemon→skill dispatch. The IPC routes still
  * maintain their fallback {@link Set} for diagnostics, but the
  * supervisor's counter is the source of truth for the `activeCount`
