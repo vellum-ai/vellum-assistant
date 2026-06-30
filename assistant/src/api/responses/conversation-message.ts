@@ -297,6 +297,29 @@ export type ConversationAcpNotification = z.infer<
 >;
 
 // ---------------------------------------------------------------------------
+// Background-tool completion
+// ---------------------------------------------------------------------------
+
+/** Structured terminal record of a backgrounded bash/host_bash run, carrying
+ *  everything a web `BackgroundTaskEntry` needs to rebuild a completed inline
+ *  card from history. Mirrors the `background_tool_completed` SSE event plus
+ *  the registry fields (`toolName`, `command`, `startedAt`). */
+export const BackgroundToolCompletionSchema = z.object({
+  id: z.string(),
+  toolName: z.string(),
+  conversationId: z.string(),
+  command: z.string(),
+  startedAt: z.number(),
+  status: z.enum(["completed", "failed", "cancelled"]),
+  exitCode: z.number().nullable(),
+  output: z.string(),
+  completedAt: z.number(),
+});
+export type BackgroundToolCompletion = z.infer<
+  typeof BackgroundToolCompletionSchema
+>;
+
+// ---------------------------------------------------------------------------
 // Slack message envelope
 // ---------------------------------------------------------------------------
 
@@ -549,6 +572,12 @@ export const ConversationMessageSchema = z.object({
    *  notifications, the row stays in state (the LLM reads it) but is filtered
    *  from the rendered transcript — the inline card carries the status. */
   backgroundToolNotification: z.boolean().optional(),
+  /** Structured completion of a backgrounded bash/host_bash run, stamped on the
+   *  same persisted background-event wake row as `backgroundToolNotification`.
+   *  Lets the web reconstruct a terminal inline card after a daemon restart
+   *  (the in-memory completed ring does not survive restarts). `id` equals the
+   *  spawning tool call's `{backgrounded,id}` id. */
+  backgroundToolCompletion: BackgroundToolCompletionSchema.optional(),
   slackMessage: ConversationSlackMessageSchema.optional(),
   /**
    * Queue state for a user message that is still waiting in the daemon's
