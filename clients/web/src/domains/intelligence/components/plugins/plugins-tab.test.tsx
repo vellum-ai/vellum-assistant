@@ -421,6 +421,58 @@ describe("PluginsTab", () => {
     expect(queryByText("email-cat")).toBeTruthy();
   });
 
+  test("a plugin both installed and in the catalog is deduped from rows and counts", async () => {
+    // `mailer` is installed AND surfaces in the catalog (the two reads are
+    // independent). It must render once (installed) and count once, not twice.
+    installedPlugins = [
+      installed({ id: "mailer", name: "mailer", category: "email" }),
+    ];
+    installedCategoryCounts = { email: 1 };
+    catalogMatches = [
+      catalog({ name: "mailer", category: "email" }),
+      catalog({ name: "apollo-bot-brain", category: "email" }),
+    ];
+
+    const { findByRole, findByText, queryAllByText } = renderTab();
+    const nav = await findByRole("navigation", { name: "Plugin categories" });
+
+    // The fresh catalog plugin is Available; `mailer` renders once, never as a
+    // second "Available" row alongside its installed row.
+    await findByText("apollo-bot-brain");
+    expect(queryAllByText("mailer")).toHaveLength(1);
+
+    // Email: 1 installed + 1 deduped catalog (apollo) = 2 — NOT 3 (no double
+    // count of the installed `mailer`). "All" mirrors the deduped union total.
+    const allRow = within(nav).getByRole("button", { name: /All/ });
+    const emailRow = within(nav).getByRole("button", { name: /Email/ });
+    expect(allRow.textContent).toContain("2");
+    expect(emailRow.textContent).toContain("2");
+  });
+
+  test("an installed plugin is not Available even when its catalog category differs", async () => {
+    // Installed under "system" (e.g. the marketplace lookup degraded the
+    // category), but its catalog entry is "email". Selecting Email must NOT
+    // surface it as Available — dedup is against the UNFILTERED installed names.
+    installedPlugins = [
+      installed({ id: "mailer", name: "mailer", category: "system" }),
+    ];
+    installedCategoryCounts = { system: 1 };
+    catalogMatches = [
+      catalog({ name: "mailer", category: "email" }),
+      catalog({ name: "apollo-bot-brain", category: "email" }),
+    ];
+
+    const { findByRole, findByText, queryByText } = renderTab();
+    const nav = await findByRole("navigation", { name: "Plugin categories" });
+
+    fireEvent.click(within(nav).getByRole("button", { name: /Email/ }));
+
+    // `apollo` is the only Available row under Email; the installed `mailer`
+    // (bucketed under system) is suppressed despite its email catalog entry.
+    await findByText("apollo-bot-brain");
+    await waitFor(() => expect(queryByText("mailer")).toBeNull());
+  });
+
   test("falls back to a single column when the daemon omits categoryCounts", async () => {
     installedPlugins = [installed()];
     catalogMatches = [catalog()];

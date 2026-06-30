@@ -60,6 +60,14 @@ export interface UsePluginsListResult {
   installedTotal: number | undefined;
   /** Full, unfiltered catalog matches (carry `category`) for rail counts. */
   catalogMatches: PluginCatalogMatch[];
+  /**
+   * Names of ALL installed plugins, unfiltered by category. Catalog rows and
+   * rail counts dedup against this so an installed plugin is never surfaced as
+   * "Available" (nor double-counted) regardless of its category bucket — even
+   * when its catalog category sits in a different bucket or degraded to
+   * null/system.
+   */
+  unfilteredInstalledNames: Set<string>;
 }
 
 /** Installed read with the older-daemon 404 → empty degradation. */
@@ -135,17 +143,41 @@ export function usePluginsList(
     staleTime: CATALOG_STALE_TIME_MS,
   });
 
+  // Names of every installed plugin, unfiltered by category. While no category
+  // is selected the main read is itself unfiltered; once one is, the parallel
+  // counts read backs the set, falling back to the (filtered) main read until
+  // it resolves so we never crash — we only briefly under-suppress.
+  const unfilteredInstalledNames = useMemo(() => {
+    const source =
+      category !== null
+        ? (installedCountsQuery.data?.plugins ?? installedQuery.data?.plugins)
+        : installedQuery.data?.plugins;
+    return new Set((source ?? EMPTY_INSTALLED).map((p) => p.name));
+  }, [
+    category,
+    installedCountsQuery.data?.plugins,
+    installedQuery.data?.plugins,
+  ]);
+
   const items = useMemo(() => {
     const installed = installedQuery.data?.plugins ?? EMPTY_INSTALLED;
     const matches = catalogQuery.data?.matches ?? EMPTY_MATCHES;
     // Installed is filtered server-side; filter the catalog client-side so the
-    // "available" section honors the same category.
-    const filteredMatches =
+    // "available" section honors the same category. Then drop any match already
+    // installed under ANY category (unfiltered) so an installed plugin bucketed
+    // elsewhere — or with a null/system category — is never shown as Available.
+    const availableMatches = (
       category === null
         ? matches
-        : matches.filter((m) => (m.category ?? "system") === category);
-    return sortPlugins(mergePlugins(installed, filteredMatches));
-  }, [installedQuery.data?.plugins, catalogQuery.data?.matches, category]);
+        : matches.filter((m) => (m.category ?? "system") === category)
+    ).filter((m) => !unfilteredInstalledNames.has(m.name));
+    return sortPlugins(mergePlugins(installed, availableMatches));
+  }, [
+    installedQuery.data?.plugins,
+    catalogQuery.data?.matches,
+    category,
+    unfilteredInstalledNames,
+  ]);
 
   // Counts come from the unfiltered installed read: the main read while no
   // category is selected, the parallel read once one is.
@@ -166,5 +198,6 @@ export function usePluginsList(
     installedPlugins: countsSource?.plugins ?? EMPTY_INSTALLED,
     installedTotal: countsSource?.totalCount,
     catalogMatches: catalogQuery.data?.matches ?? EMPTY_MATCHES,
+    unfilteredInstalledNames,
   };
 }

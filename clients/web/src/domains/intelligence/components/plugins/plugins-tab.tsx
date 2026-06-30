@@ -105,6 +105,7 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
     installedPlugins,
     installedTotal,
     catalogMatches,
+    unfilteredInstalledNames,
   } = usePluginsList(assistantId, category);
 
   const { counts, totalCount } = useMergedPluginCounts(
@@ -112,6 +113,7 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
     installedPlugins,
     installedTotal,
     catalogMatches,
+    unfilteredInstalledNames,
   );
 
   // Two-pane rail only when the daemon understands the category taxonomy AND
@@ -379,15 +381,19 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
 /**
  * Rail counts merge the two independent sources: the installed `categoryCounts`
  * (server) — or a client bucketing of installed plugins when the server omits
- * them — plus a client bucketing of the full catalog. `totalCount` is the
- * installed total + the catalog total. All inputs are unfiltered, so badges
- * stay stable while a category is selected. Mirrors skills' `useDerivedCounts`.
+ * them — plus a client bucketing of the catalog. Catalog matches already in the
+ * unfiltered installed set are skipped so an installed marketplace plugin counts
+ * once (under installed), never twice. `totalCount` is the installed total + the
+ * deduped catalog total, matching the deduped union of visible rows. All inputs
+ * are unfiltered, so badges stay stable while a category is selected. Mirrors
+ * skills' `useDerivedCounts`.
  */
 function useMergedPluginCounts(
   installedCategoryCounts: Record<string, number> | undefined,
   installedPlugins: InstalledPlugin[],
   installedTotal: number | undefined,
   catalogMatches: PluginCatalogMatch[],
+  unfilteredInstalledNames: Set<string>,
 ): { counts: Record<string, number>; totalCount: number } {
   return useMemo(() => {
     const counts: Record<string, number> = {};
@@ -402,13 +408,25 @@ function useMergedPluginCounts(
         counts[cat] = (counts[cat] ?? 0) + 1;
       }
     }
+    let catalogTotal = 0;
     for (const match of catalogMatches) {
+      // An installed marketplace plugin also appears in the catalog; counting it
+      // here would double it against the installed counts, so dedup against the
+      // unfiltered installed names — it already counts under installed.
+      if (unfilteredInstalledNames.has(match.name)) continue;
       const cat = match.category ?? "system";
       counts[cat] = (counts[cat] ?? 0) + 1;
+      catalogTotal += 1;
     }
     const installedTotalResolved = installedTotal ?? installedPlugins.length;
-    return { counts, totalCount: installedTotalResolved + catalogMatches.length };
-  }, [installedCategoryCounts, installedPlugins, installedTotal, catalogMatches]);
+    return { counts, totalCount: installedTotalResolved + catalogTotal };
+  }, [
+    installedCategoryCounts,
+    installedPlugins,
+    installedTotal,
+    catalogMatches,
+    unfilteredInstalledNames,
+  ]);
 }
 
 interface InstalledPluginRowProps {
