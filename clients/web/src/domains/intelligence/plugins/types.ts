@@ -16,7 +16,12 @@ export interface PluginListItem {
   name: string;
   description?: string;
   status: PluginStatus;
-  external: boolean;
+  /**
+   * Whether the plugin comes from an external (GitHub) source. `undefined`
+   * when origin is unknown — the installed-list endpoint carries no `source`,
+   * so an installed plugin's origin isn't known until its detail loads.
+   */
+  external?: boolean;
   version?: string;
   path?: string;
   issues?: string[];

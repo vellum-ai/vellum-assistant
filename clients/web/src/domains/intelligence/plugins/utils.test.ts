@@ -53,9 +53,10 @@ describe("mergePlugins", () => {
       name: "alpha",
       description: "A",
       status: "installed",
-      external: false,
       version: "1.0.0",
     });
+    // Installed origin is unknown (the list endpoint has no `source`).
+    expect(result[0].external).toBeUndefined();
     expect(result[1]).toMatchObject({
       name: "beta",
       description: "B",

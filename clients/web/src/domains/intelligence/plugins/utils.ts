@@ -19,7 +19,11 @@ export function mergePlugins(
     name: p.name,
     description: p.description ?? undefined,
     status: "installed",
-    external: false,
+    // Origin is unknown for installed plugins: the list endpoint has no
+    // `source`. Leave `external` undefined so the detail header shows a
+    // neutral placeholder until `pluginsByNameGet` resolves the real origin,
+    // rather than asserting "local" and flipping to "external" on load.
+    external: undefined,
     version: p.version ?? undefined,
     path: p.path,
     issues: p.issues,
