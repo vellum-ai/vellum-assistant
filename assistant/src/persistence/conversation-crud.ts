@@ -29,7 +29,6 @@ import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
 import { MEMORY_RETROSPECTIVE_SOURCES } from "../plugins/defaults/memory/memory-retrospective-constants.js";
-import { cancelPendingJobsForConversation } from "../plugins/defaults/memory/task-memory-cleanup.js";
 import { MEMORY_V3_INJECTED_BLOCK_METADATA_KEY } from "../plugins/defaults/memory/v3/ever-injected-store.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
@@ -1575,8 +1574,9 @@ export function wipeConversation(id: string): WipeConversationResult {
   const deletedSummaryIds: string[] = [];
 
   // Step A — Cancel pending memory jobs (before deleting messages, since
-  // the cancellation queries join on `messages`).
-  const cancelledJobCount = cancelPendingJobsForConversation(id);
+  // the cancellation queries join on `messages`). Cleanup runs even while the
+  // memory plugin is disabled; returns 0 when memory is not present.
+  const cancelledJobCount = getMemoryPersistenceHooks().onConversationWiped(id);
 
   // Step C — Delete conversation-scoped memory summaries and their embeddings.
   const summaryRows = db

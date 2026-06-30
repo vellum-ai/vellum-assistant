@@ -6,7 +6,9 @@ import type {
 } from "../../../persistence/memory-lifecycle-hooks.js";
 import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
+import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
 import { forkRetrospectiveState } from "./memory-retrospective-state.js";
+import { cancelPendingJobsForConversation } from "./task-memory-cleanup.js";
 import {
   forkActivationState,
   seedForkActivationState,
@@ -105,5 +107,13 @@ export const memoryPersistenceHooks: MemoryPersistenceHooks = {
       forkedMessageIds,
       lastCopiedSourceMessageId: messagesToCopy.at(-1)?.id ?? null,
     });
+  },
+
+  onConversationWiped(conversationId: string): number {
+    return cancelPendingJobsForConversation(conversationId);
+  },
+
+  onWorkerStartup(): void {
+    sweepOrphanMemoryRetrospectiveConversations();
   },
 };

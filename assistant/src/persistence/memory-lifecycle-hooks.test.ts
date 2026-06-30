@@ -20,6 +20,10 @@ const event: MessagePersistedEvent = {
 const baseHooks: MemoryPersistenceHooks = {
   onMessagePersisted() {},
   onConversationForked() {},
+  onConversationWiped() {
+    return 0;
+  },
+  onWorkerStartup() {},
 };
 
 describe("memory persistence-lifecycle seam", () => {
