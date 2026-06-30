@@ -26,7 +26,7 @@ interface QueryCall {
 
 interface DeleteCall {
   name: string;
-  opts: { filter?: Record<string, unknown> };
+  opts: { filter?: Record<string, unknown>; points?: Array<string | number> };
 }
 
 let mockCollectionExists: boolean;
@@ -78,7 +78,7 @@ mock.module("@qdrant/js-client-rest", () => ({
       return { points: mockQueryPoints };
     }
 
-    async delete(name: string, opts: { filter?: Record<string, unknown> }) {
+    async delete(name: string, opts: DeleteCall["opts"]) {
       deleteCalls.push({ name, opts });
     }
 
@@ -262,17 +262,14 @@ describe("MessagesLexicalIndex", () => {
     ]);
   });
 
-  test("deleteByMessageId issues a message_id payload-filter delete", async () => {
+  test("deleteByMessageId deletes by the deterministic point id (not a payload filter)", async () => {
     const index = makeIndex();
     await index.deleteByMessageId("msg-del");
 
     expect(deleteCalls.length).toBe(1);
-    const filter = deleteCalls[0].opts.filter as {
-      must: Array<{ key: string; match: { value: string } }>;
-    };
-    expect(filter.must).toEqual([
-      { key: "message_id", match: { value: "msg-del" } },
-    ]);
+    // `message_id` is unindexed, so deletes target the deterministic point id.
+    expect(deleteCalls[0].opts.points).toEqual([messagePointId("msg-del")]);
+    expect(deleteCalls[0].opts.filter).toBeUndefined();
   });
 
   test("count returns the collection count", async () => {

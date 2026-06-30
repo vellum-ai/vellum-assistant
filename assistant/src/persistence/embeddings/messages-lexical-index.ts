@@ -249,12 +249,13 @@ export class MessagesLexicalIndex {
   async deleteByMessageId(messageId: string): Promise<void> {
     await this.ensureCollection();
 
+    // Delete by the deterministic point id rather than a `message_id` payload
+    // filter: `message_id` has no payload index, so a filter delete would scan
+    // the whole collection. The point id is recoverable from the message id.
     const doDelete = () =>
       this.client.delete(this.collection, {
         wait: true,
-        filter: {
-          must: [{ key: "message_id", match: { value: messageId } }],
-        },
+        points: [messagePointId(messageId)],
       });
 
     try {
