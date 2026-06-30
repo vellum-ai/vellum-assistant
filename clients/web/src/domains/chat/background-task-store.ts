@@ -28,6 +28,12 @@ import {
   mergeTerminalStatus,
   seedEntriesFromHistory,
 } from "@/domains/chat/store-helpers/merge-history-entry";
+import {
+  optimisticCancel,
+  optimisticRestore,
+  optimisticRetire,
+  type OptimisticLifecycleConfig,
+} from "@/domains/chat/store-helpers/optimistic-lifecycle";
 
 // ---------------------------------------------------------------------------
 // State
@@ -154,6 +160,29 @@ function mergeHistoryEntry(
   };
 }
 
+/**
+ * Optimistic cancel/restore/retire config for the background-task store. The
+ * optimistic cancel sets no `completedAt`, so a non-null `completedAt` marks a
+ * settled real terminal that restore must not revive — even one that preserved
+ * the "cancelled" status via a racing failed completion.
+ */
+const LIFECYCLE_CONFIG: OptimisticLifecycleConfig<
+  BackgroundTaskEntry,
+  BackgroundTaskStatus
+> = {
+  getStatus: (entry) => entry.status,
+  isActive: isActiveBackgroundTaskStatus,
+  cancelledStatus: "cancelled",
+  applyCancel: (entry) => ({ ...entry, status: "cancelled" }),
+  applyRestore: (entry, prev) => ({
+    ...entry,
+    status: prev,
+    completedAt: undefined,
+  }),
+  applyRetire: (entry) => ({ ...entry, status: "cancelled" }),
+  isSettled: (entry) => entry.completedAt != null,
+};
+
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
@@ -208,39 +237,18 @@ const useBackgroundTaskStoreBase = create<BackgroundTaskStore>()((set, get) => (
 
   cancelTask: (id) => {
     const { byId } = get();
-    const existing = byId[id];
-    if (!existing || !isActiveBackgroundTaskStatus(existing.status)) return;
+    const next = optimisticCancel(byId[id], LIFECYCLE_CONFIG);
+    if (!next) return;
 
-    set({
-      byId: {
-        ...byId,
-        [id]: { ...existing, status: "cancelled" },
-      },
-    });
+    set({ byId: { ...byId, [id]: next } });
   },
 
   restoreTaskStatus: (id, prev) => {
     const { byId } = get();
-    const existing = byId[id];
-    // Only revert our own optimistic cancel. The optimistic `cancelTask` never
-    // sets `completedAt`, so a non-null `completedAt` means a real terminal
-    // already landed — even one that preserved the "cancelled" status (a racing
-    // failed `completeTask`). Reviving it would flash a finished task back to
-    // active.
-    if (
-      !existing ||
-      existing.status !== "cancelled" ||
-      existing.completedAt != null
-    ) {
-      return;
-    }
+    const next = optimisticRestore(byId[id], prev, LIFECYCLE_CONFIG);
+    if (!next) return;
 
-    set({
-      byId: {
-        ...byId,
-        [id]: { ...existing, status: prev, completedAt: undefined },
-      },
-    });
+    set({ byId: { ...byId, [id]: next } });
   },
 
   retireMissing: (activeIds, knownIds) => {
@@ -252,15 +260,12 @@ const useBackgroundTaskStoreBase = create<BackgroundTaskStore>()((set, get) => (
     for (const entry of Object.values(byId)) {
       // Retire only tasks known before the snapshot and absent from it; a task
       // started while the fetch was in flight is in `byId` but not `known`, so
-      // it is left running.
-      if (
-        !isActiveBackgroundTaskStatus(entry.status) ||
-        !known.has(entry.id) ||
-        active.has(entry.id)
-      ) {
-        continue;
-      }
-      next[entry.id] = { ...entry, status: "cancelled" };
+      // it is left running. The status guard (already-terminal) lives in
+      // `optimisticRetire`.
+      if (!known.has(entry.id) || active.has(entry.id)) continue;
+      const retired = optimisticRetire(entry, LIFECYCLE_CONFIG);
+      if (!retired) continue;
+      next[entry.id] = retired;
       changed = true;
     }
     if (changed) set({ byId: next });
