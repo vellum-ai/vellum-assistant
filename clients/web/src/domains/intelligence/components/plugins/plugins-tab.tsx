@@ -9,7 +9,7 @@ import {
     TriangleAlert,
     X,
 } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 
 import { PluginDetail } from "@/domains/intelligence/components/plugins/plugin-detail";
@@ -94,6 +94,12 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
   const [tipDismissed, setTipDismissed] = useState(() =>
     getLocalBool(TIP_STORAGE_KEY, false),
   );
+
+  // Category selection is per-assistant; clear it when the active assistant
+  // changes so a stale slug isn't sent as `?category=` to the next assistant.
+  useEffect(() => {
+    setCategory(null);
+  }, [assistantId]);
 
   const { data: categories = [] } = useSkillCategories(assistantId);
 
@@ -350,7 +356,7 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
 
       {categoryRailEnabled ? (
         <div className="flex min-h-0 flex-1 gap-6">
-          <aside className="hidden w-56 shrink-0 overflow-y-auto sm:block">
+          <aside className="hidden w-56 shrink-0 overflow-y-auto md:block">
             <CategorySidebar
               ariaLabel="Plugin categories"
               selected={category}

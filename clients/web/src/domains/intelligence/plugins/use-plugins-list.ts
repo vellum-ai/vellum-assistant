@@ -202,6 +202,12 @@ export function usePluginsList(
     unfilteredInstalledData?.categoryCounts !== undefined;
   const [categorySupportedLatched, setCategorySupportedLatched] =
     useState(false);
+  // Support is a per-assistant daemon capability. Reset the latch when the
+  // active assistant changes so a `true` observed for a prior assistant can't
+  // keep the rail alive for a next assistant whose daemon omits `categoryCounts`.
+  useEffect(() => {
+    setCategorySupportedLatched(false);
+  }, [assistantId]);
   useEffect(() => {
     if (categoryCountsObserved) setCategorySupportedLatched(true);
   }, [categoryCountsObserved]);

@@ -293,4 +293,43 @@ describe("usePluginsList", () => {
     await waitFor(() => expect(result.current.isFetching).toBe(false));
     expect(result.current.categorySupported).toBe(true);
   });
+
+  test("category support resets when the active assistant changes", async () => {
+    // Assistant A's daemon is taxonomy-aware, so support latches true.
+    installedResult = {
+      data: {
+        plugins: [installed({ category: "email" })],
+        categoryCounts: { email: 1 },
+        totalCount: 1,
+      } as PluginsGetResponse,
+      response: { ok: true, status: 200 },
+    };
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    function wrapper({ children }: { children: ReactNode }) {
+      return createElement(QueryClientProvider, { client }, children);
+    }
+    const { result, rerender } = renderHook(
+      ({ assistantId }: { assistantId: string }) =>
+        usePluginsList(assistantId, null),
+      { wrapper, initialProps: { assistantId: "asst-a" } },
+    );
+
+    await waitFor(() => expect(result.current.categorySupported).toBe(true));
+
+    // Switching to an assistant whose daemon omits categoryCounts must drop the
+    // sticky latch — otherwise the rail would render (and `?category=` would be
+    // sent) for an assistant that does not support the category surface.
+    installedResult = {
+      data: { plugins: [installed()] } as PluginsGetResponse,
+      response: { ok: true, status: 200 },
+    };
+    rerender({ assistantId: "asst-b" });
+
+    await waitFor(() =>
+      expect(result.current.categorySupported).toBe(false),
+    );
+  });
 });
