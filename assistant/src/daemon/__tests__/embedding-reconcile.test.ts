@@ -9,11 +9,12 @@ import {
 
 function fakeConfig(
   provider = "auto",
-  opts: { enabled?: boolean } = {},
+  opts: { enabled?: boolean; v2Enabled?: boolean } = {},
 ): AssistantConfig {
   return {
     memory: {
       enabled: opts.enabled ?? true,
+      v2: { enabled: opts.v2Enabled ?? true },
       embeddings: { provider },
       qdrant: { vectorSize: 384 },
     },
@@ -94,6 +95,31 @@ describe("reconcileEmbeddingIdentity", () => {
     expect(deps.decideEmbeddingReconcile).toHaveBeenCalledTimes(0);
     expect(deps.persistVectorSize).toHaveBeenCalledTimes(0);
     expect(deps.setInMemoryVectorSize).toHaveBeenCalledTimes(0);
+    expect(deps.recreateCollectionsAtDim).toHaveBeenCalledTimes(0);
+    expect(deps.ensureCollections).toHaveBeenCalledTimes(0);
+    expect(deps.enqueueReembed).toHaveBeenCalledTimes(0);
+  });
+
+  test("memory v2 disabled short-circuits to noop with ZERO side effects (v1 path owns its dimension)", async () => {
+    const deps = makeDeps({
+      // The decision is irrelevant — the v2-disabled gate returns before it runs.
+      decision: { kind: "commit-fresh", dim: 3072 },
+      committedDim: null,
+      probeDim: 3072,
+    });
+
+    const outcome = await reconcileEmbeddingIdentity(
+      fakeConfig("gemini", { v2Enabled: false }),
+      deps,
+    );
+
+    expect(outcome).toEqual({ action: "noop", dim: null });
+    // No v2 reembed enqueue, no probe, no dim persist that could conflict with
+    // the v1 collection already initialized by the v1 startup path.
+    expect(deps.probeBackendDimension).toHaveBeenCalledTimes(0);
+    expect(deps.readConceptPageCollectionDim).toHaveBeenCalledTimes(0);
+    expect(deps.decideEmbeddingReconcile).toHaveBeenCalledTimes(0);
+    expect(deps.persistVectorSize).toHaveBeenCalledTimes(0);
     expect(deps.recreateCollectionsAtDim).toHaveBeenCalledTimes(0);
     expect(deps.ensureCollections).toHaveBeenCalledTimes(0);
     expect(deps.enqueueReembed).toHaveBeenCalledTimes(0);
