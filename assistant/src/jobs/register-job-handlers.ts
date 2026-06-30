@@ -7,7 +7,10 @@ import {
   pruneOldTraceEventsJob,
 } from "../persistence/job-handlers/cleanup.js";
 import { registerJobHandler } from "../persistence/jobs-worker.js";
-import { registerDefaultPluginJobHandlers } from "../plugins/defaults/index.js";
+import {
+  registerDefaultPluginJobHandlers,
+  registerDefaultPluginPersistenceHooks,
+} from "../plugins/defaults/index.js";
 import { getRegisteredJobHandlers } from "../plugins/job-handler-registry.js";
 import { conversationAnalyzeJob } from "../runtime/services/conversation-analyze-job.js";
 
@@ -31,6 +34,12 @@ export function registerMemoryJobHandlers(): void {
   // here. Idempotent — on the daemon path bootstrap has already registered them
   // (plus any user plugins, which this union also picks up).
   registerDefaultPluginJobHandlers();
+  // The standalone worker runs fork-based memory retrospectives, which carry
+  // per-conversation memory state through the persistence-lifecycle seam. The
+  // daemon wires that seam at bootstrap; the worker must self-register it here
+  // too, or `onConversationForked` is the no-op and the retrospective fork
+  // silently drops the carried activation/injection/graph/retrospective state.
+  registerDefaultPluginPersistenceHooks();
   for (const { type, handler } of getRegisteredJobHandlers()) {
     registerJobHandler(type, handler);
   }

@@ -1,4 +1,5 @@
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
+import type { DrizzleDb } from "./db-connection.js";
 
 /**
  * Seam for the memory feature to react to persistence-layer lifecycle events.
@@ -36,6 +37,25 @@ export interface MessagePersistedEvent {
   automated?: boolean;
 }
 
+/** A conversation was forked; the memory feature carries per-conversation state into the child. */
+export interface ConversationForkedEvent {
+  db: DrizzleDb;
+  sourceConversationId: string;
+  forkId: string;
+  /**
+   * Full-history fork (the child contains every source message). When false the
+   * fork is truncated and per-conversation memory state is re-derived from the
+   * child's visible window instead of copied wholesale.
+   */
+  isFullHistoryFork: boolean;
+  /** The copied messages, in order. Only `id` and `metadata` are read. */
+  messagesToCopy: ReadonlyArray<{ id: string; metadata: string | null }>;
+  /** Map of source message id → forked message id. */
+  forkedMessageIds: Map<string, string>;
+  /** Count of inherited messages behind the fork's compaction boundary. */
+  inheritedCompactedMessageCount: number;
+}
+
 /** Handlers the memory feature registers to observe persistence lifecycle events. */
 export interface MemoryPersistenceHooks {
   /**
@@ -45,10 +65,19 @@ export interface MemoryPersistenceHooks {
    * is tolerated.
    */
   onMessagePersisted(event: MessagePersistedEvent): Promise<void> | void;
+
+  /**
+   * A conversation was forked. The memory feature carries the parent's
+   * per-conversation memory state (activation/injection logs, graph state,
+   * retrospective state) into the child. Runs synchronously inside the fork's
+   * transaction with the live `db` handle.
+   */
+  onConversationForked(event: ConversationForkedEvent): void;
 }
 
 const NOOP: MemoryPersistenceHooks = {
   onMessagePersisted() {},
+  onConversationForked() {},
 };
 
 let current: MemoryPersistenceHooks = NOOP;

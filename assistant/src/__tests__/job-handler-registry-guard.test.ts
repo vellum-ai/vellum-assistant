@@ -2,6 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 
 import { registerMemoryJobHandlers } from "../jobs/register-job-handlers.js";
 import * as jobsWorker from "../persistence/jobs-worker.js";
+import {
+  getMemoryPersistenceHooks,
+  resetMemoryPersistenceHooksForTests,
+} from "../persistence/memory-lifecycle-hooks.js";
 import { registerDefaultPluginJobHandlers } from "../plugins/defaults/index.js";
 import {
   clearJobHandlerRegistry,
@@ -61,6 +65,7 @@ describe("job-handler registry — memory plugin contribution", () => {
   });
   afterEach(() => {
     clearJobHandlerRegistry();
+    resetMemoryPersistenceHooksForTests();
   });
 
   it("default-memory contributes exactly the memory job types", () => {
@@ -89,6 +94,22 @@ describe("job-handler registry — memory plugin contribution", () => {
     expect(captured.slice().sort()).toEqual(expected);
     // Each type registered exactly once — no plugin/non-plugin overlap, no drop.
     expect(new Set(captured).size).toBe(captured.length);
+  });
+
+  it("registerMemoryJobHandlers also wires the persistence-lifecycle seam (the standalone worker has no bootstrap)", () => {
+    resetMemoryPersistenceHooksForTests();
+    const before = getMemoryPersistenceHooks();
+    const spy = spyOn(jobsWorker, "registerJobHandler").mockImplementation(
+      () => {},
+    );
+    try {
+      registerMemoryJobHandlers();
+    } finally {
+      spy.mockRestore();
+    }
+    // The seam must move off the no-op default — otherwise the standalone
+    // worker's fork-based retrospectives silently drop carried memory state.
+    expect(getMemoryPersistenceHooks()).not.toBe(before);
   });
 
   it("rejects a duplicate job-handler type across plugins", () => {

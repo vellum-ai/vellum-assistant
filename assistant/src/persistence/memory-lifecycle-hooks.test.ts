@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import {
   getMemoryPersistenceHooks,
+  type MemoryPersistenceHooks,
   type MessagePersistedEvent,
   registerMemoryPersistenceHooks,
   resetMemoryPersistenceHooksForTests,
@@ -15,6 +16,12 @@ const event: MessagePersistedEvent = {
   createdAt: 0,
 };
 
+/** No-op base so each stub only overrides the method it exercises. */
+const baseHooks: MemoryPersistenceHooks = {
+  onMessagePersisted() {},
+  onConversationForked() {},
+};
+
 describe("memory persistence-lifecycle seam", () => {
   afterEach(() => resetMemoryPersistenceHooksForTests());
 
@@ -26,6 +33,7 @@ describe("memory persistence-lifecycle seam", () => {
   test("getMemoryPersistenceHooks returns the registered implementation", async () => {
     const seen: MessagePersistedEvent[] = [];
     registerMemoryPersistenceHooks({
+      ...baseHooks,
       onMessagePersisted(ev) {
         seen.push(ev);
       },
@@ -38,11 +46,13 @@ describe("memory persistence-lifecycle seam", () => {
     let aCalls = 0;
     let bCalls = 0;
     registerMemoryPersistenceHooks({
+      ...baseHooks,
       onMessagePersisted() {
         aCalls++;
       },
     });
     registerMemoryPersistenceHooks({
+      ...baseHooks,
       onMessagePersisted() {
         bCalls++;
       },
@@ -55,6 +65,7 @@ describe("memory persistence-lifecycle seam", () => {
   test("resetMemoryPersistenceHooksForTests restores the no-op", async () => {
     let calls = 0;
     registerMemoryPersistenceHooks({
+      ...baseHooks,
       onMessagePersisted() {
         calls++;
       },
