@@ -232,6 +232,29 @@ mock.module("../../../cli/lib/plugin-pin-history.js", () => ({
   resolvePinToMarketplaceCommit: resolvePinSpy,
 }));
 
+// Make the valid-slug source deterministic: the real `getLocalCategorySlugs`
+// reads the bundled YAML (absent in the test sandbox), so we pin it to the
+// authoritative Skills taxonomy. This decouples the route's category
+// normalization from the filesystem / network.
+const SKILLS_CATEGORY_SLUGS = new Set([
+  "email",
+  "calendar",
+  "messaging",
+  "browsing",
+  "productivity",
+  "development",
+  "voice",
+  "commerce",
+  "content",
+  "health",
+  "system",
+  "integrations",
+]);
+
+mock.module("../../../skills/categories-cache.js", () => ({
+  getLocalCategorySlugs: () => SKILLS_CATEGORY_SLUGS,
+}));
+
 import {
   BadRequestError,
   ConflictError,
@@ -241,6 +264,7 @@ import {
 } from "../errors.js";
 import {
   loadCategoryMapBounded,
+  normalizeMarketplaceCategory,
   ROUTES as PLUGINS_ROUTES,
 } from "../plugins-routes.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
@@ -623,6 +647,134 @@ describe("GET /v1/plugins", () => {
     const map = await loadCategoryMapBounded();
     expect(map.get("alpha")).toBe("productivity");
   });
+
+  test("normalizes a `developer` marketplace category to `development`", async () => {
+    // The marketplace ships `developer`, which is NOT a Skills slug; without
+    // normalization it would be counted in "All" but have no rail row.
+    getCatalogSpy.mockImplementation(async (ref) =>
+      catalog(ref, [
+        {
+          name: "dev-tools",
+          path: "github:acme/dev-tools@v1",
+          category: "developer",
+          source: { kind: "github", repo: "acme/dev-tools", ref: "v1" },
+        },
+      ]),
+    );
+    installedFixture = [pluginEntry({ name: "dev-tools" })];
+
+    const result = await invoke();
+    expect(result.plugins[0]?.category).toBe("development");
+    expect(result.categoryCounts).toEqual({ development: 1 });
+  });
+
+  test("folds an unknown marketplace category (`memory`) to null → system", async () => {
+    getCatalogSpy.mockImplementation(async (ref) =>
+      catalog(ref, [
+        {
+          name: "simple-memory",
+          path: "github:acme/simple-memory@v1",
+          category: "memory",
+          source: { kind: "github", repo: "acme/simple-memory", ref: "v1" },
+        },
+      ]),
+    );
+    installedFixture = [pluginEntry({ name: "simple-memory" })];
+
+    const result = await invoke();
+    expect(result.plugins[0]?.category).toBeNull();
+    expect(result.categoryCounts).toEqual({ system: 1 });
+  });
+
+  test("?category=development selects a `developer`-origin plugin (post-normalization)", async () => {
+    getCatalogSpy.mockImplementation(async (ref) =>
+      catalog(ref, [
+        {
+          name: "dev-tools",
+          path: "github:acme/dev-tools@v1",
+          category: "developer",
+          source: { kind: "github", repo: "acme/dev-tools", ref: "v1" },
+        },
+      ]),
+    );
+    installedFixture = [pluginEntry({ name: "dev-tools" })];
+
+    const result = await invoke({ queryParams: { category: "development" } });
+    expect(result.plugins.map((p) => p.id)).toEqual(["dev-tools"]);
+  });
+
+  test("?category=memory selects nothing — there is no such Skills slug", async () => {
+    getCatalogSpy.mockImplementation(async (ref) =>
+      catalog(ref, [
+        {
+          name: "simple-memory",
+          path: "github:acme/simple-memory@v1",
+          category: "memory",
+          source: { kind: "github", repo: "acme/simple-memory", ref: "v1" },
+        },
+      ]),
+    );
+    installedFixture = [pluginEntry({ name: "simple-memory" })];
+
+    const result = await invoke({ queryParams: { category: "memory" } });
+    expect(result.plugins).toEqual([]);
+    // The plugin is still counted (under "system"), just not reachable as
+    // "memory" — counts match visible rows.
+    expect(result.categoryCounts).toEqual({ system: 1 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// normalizeMarketplaceCategory (unit)
+// ---------------------------------------------------------------------------
+
+describe("normalizeMarketplaceCategory", () => {
+  test("passes a valid Skills slug through unchanged", () => {
+    expect(
+      normalizeMarketplaceCategory("productivity", SKILLS_CATEGORY_SLUGS),
+    ).toBe("productivity");
+  });
+
+  test("aliases `developer` → `development`", () => {
+    expect(
+      normalizeMarketplaceCategory("developer", SKILLS_CATEGORY_SLUGS),
+    ).toBe("development");
+  });
+
+  test("folds unknown marketplace slugs to null", () => {
+    for (const unknown of ["memory", "interface", "marketing", "hobby"]) {
+      expect(
+        normalizeMarketplaceCategory(unknown, SKILLS_CATEGORY_SLUGS),
+      ).toBeNull();
+    }
+  });
+
+  test("treats null / empty / whitespace as null", () => {
+    expect(
+      normalizeMarketplaceCategory(null, SKILLS_CATEGORY_SLUGS),
+    ).toBeNull();
+    expect(
+      normalizeMarketplaceCategory(undefined, SKILLS_CATEGORY_SLUGS),
+    ).toBeNull();
+    expect(normalizeMarketplaceCategory("", SKILLS_CATEGORY_SLUGS)).toBeNull();
+    expect(
+      normalizeMarketplaceCategory("   ", SKILLS_CATEGORY_SLUGS),
+    ).toBeNull();
+  });
+
+  test("normalizes case + surrounding whitespace before matching", () => {
+    expect(
+      normalizeMarketplaceCategory("  Developer  ", SKILLS_CATEGORY_SLUGS),
+    ).toBe("development");
+    expect(
+      normalizeMarketplaceCategory("PRODUCTIVITY", SKILLS_CATEGORY_SLUGS),
+    ).toBe("productivity");
+  });
+
+  test("an empty valid-slug set folds every category to null", () => {
+    expect(normalizeMarketplaceCategory("productivity", new Set())).toBeNull();
+    expect(normalizeMarketplaceCategory("developer", new Set())).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -698,6 +850,32 @@ describe("GET /v1/plugins/search", () => {
         },
       ],
     });
+  });
+
+  test("normalizes match categories to the Skills taxonomy (`developer` → `development`, `hobby` → null)", async () => {
+    getCatalogSpy.mockImplementation(async (ref) =>
+      catalog(ref, [
+        {
+          name: "dev-tools",
+          path: "github:acme/dev-tools@v1",
+          category: "developer",
+          source: { kind: "github", repo: "acme/dev-tools", ref: "v1" },
+        },
+        {
+          name: "snake-game",
+          path: "github:acme/snake-game@v1",
+          category: "hobby",
+          source: { kind: "github", repo: "acme/snake-game", ref: "v1" },
+        },
+      ]),
+    );
+
+    const result = await invokeSearch();
+    const byName = new Map(result.matches.map((m) => [m.name, m.category]));
+    // `developer` is aliased to the Skills slug; `hobby` has no equivalent and
+    // folds to null so "Available" filters against the same taxonomy.
+    expect(byName.get("dev-tools")).toBe("development");
+    expect(byName.get("snake-game")).toBeNull();
   });
 
   test("missing ?q= matches all (empty-string query) at the default ref", async () => {

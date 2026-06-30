@@ -73,6 +73,7 @@ import {
   type PluginUpgradeStrategy,
   upgradePlugin,
 } from "../../cli/lib/upgrade-plugin.js";
+import { getLocalCategorySlugs } from "../../skills/categories-cache.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   BadRequestError,
@@ -658,6 +659,52 @@ function projectPlugin(entry: InstalledPluginInfo): PluginView {
   return view;
 }
 
+/**
+ * Marketplace → Skills category slug aliases for known, unambiguous mismatches.
+ * Keep this tiny: only add a mapping when it is obviously correct. Marketplace
+ * slugs with no clean Skills equivalent (e.g. `memory`, `interface`,
+ * `marketing`, `hobby`) are intentionally absent so they fall through to
+ * `null` → the "system" bucket. Extensible: add an entry as new aliases prove
+ * out against `plugins/marketplace.json`.
+ */
+const MARKETPLACE_CATEGORY_ALIASES: Record<string, string> = {
+  developer: "development",
+};
+
+/**
+ * Normalize a raw marketplace category slug to the shared Skills taxonomy so
+ * the rail never carries an invisible bucket. Lowercases + trims, applies the
+ * alias map, then returns the slug only when it is a valid Skills slug —
+ * otherwise `null`, which buckets under "system" so the plugin stays both
+ * counted and reachable. `validSlugs` is resolved once per request by the
+ * caller (never per item).
+ */
+export function normalizeMarketplaceCategory(
+  raw: string | null | undefined,
+  validSlugs: Set<string>,
+): string | null {
+  if (!raw) return null;
+  const slug = raw.trim().toLowerCase();
+  if (!slug) return null;
+  const aliased = MARKETPLACE_CATEGORY_ALIASES[slug] ?? slug;
+  return validSlugs.has(aliased) ? aliased : null;
+}
+
+/**
+ * Valid Skills category slugs the marketplace categories normalize against.
+ * Sync + local (bundled YAML via the Skills categories-cache) so the plugins
+ * list never takes on remote latency; a read failure degrades to an empty set,
+ * normalizing every category to `null` → "system" rather than throwing —
+ * mirroring the bounded posture of the catalog lookup.
+ */
+function getValidCategorySlugs(): Set<string> {
+  try {
+    return getLocalCategorySlugs();
+  } catch {
+    return new Set();
+  }
+}
+
 /** Wire shape for a catalog match. Mirrors {@link pluginSearchMatchSchema}. */
 interface PluginMatchView {
   name: string;
@@ -672,11 +719,14 @@ interface PluginMatchView {
  * serializer's `Record<string, unknown>` contract holds. The wire shape is
  * identical to {@link PluginSearchMatch}.
  */
-function projectMatch(m: PluginSearchMatch): PluginMatchView {
+function projectMatch(
+  m: PluginSearchMatch,
+  validSlugs: Set<string>,
+): PluginMatchView {
   const view: PluginMatchView = {
     name: m.name,
     path: m.path,
-    category: m.category ?? null,
+    category: normalizeMarketplaceCategory(m.category, validSlugs),
     source: {
       kind: "github",
       repo: m.source.repo,
@@ -770,11 +820,18 @@ async function handleListPlugins({
   // empty map (every category becomes `null`) on a rejection or a stall.
   const categoryMap = await loadCategoryMapBounded();
 
+  // Normalize raw marketplace slugs to the shared Skills taxonomy once per
+  // request: a raw slug with no Skills row (e.g. `developer`, `memory`) would
+  // otherwise be counted in "All" yet unreachable by any rail row. Normalizing
+  // maps the unambiguous ones (`developer` → `development`) and folds the rest
+  // to `null` → "system", so counts always match visible rows.
+  const validSlugs = getValidCategorySlugs();
+
   // An installed plugin's `id` is its directory name, which is the catalog
   // match's `name` — so it's the lookup key.
   const withCategory = projected.map((p) => ({
     ...p,
-    category: categoryMap.get(p.id) ?? null,
+    category: normalizeMarketplaceCategory(categoryMap.get(p.id), validSlugs),
   }));
 
   let list = q ? withCategory.filter((p) => matchesQuery(p, q)) : withCategory;
@@ -825,13 +882,17 @@ async function handleSearchPlugins({
       fetch: globalThis.fetch.bind(globalThis),
     });
     const matches = filterPluginCatalog(catalog, query);
+    // Resolve the valid Skills slugs once per request, then normalize each
+    // match's marketplace category against them so "Available" filters
+    // consistently against the same taxonomy as the installed rail.
+    const validSlugs = getValidCategorySlugs();
     // Re-pack `readonly` lib types into mutable copies so the route
     // serializer's `Record<string, unknown>` contract holds. The wire
     // shape is identical.
     return {
       query,
       ref: catalog.ref,
-      matches: matches.map(projectMatch),
+      matches: matches.map((m) => projectMatch(m, validSlugs)),
     };
   } catch (err) {
     if (err instanceof InvalidSearchPatternError) {

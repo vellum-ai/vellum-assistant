@@ -37,7 +37,9 @@ async function fetchCategories(): Promise<SkillCategoryDef[]> {
     categories: SkillCategoryDef[];
   };
   if (!Array.isArray(data.categories)) {
-    throw new Error("Platform categories response has invalid categories array");
+    throw new Error(
+      "Platform categories response has invalid categories array",
+    );
   }
   return data.categories.filter(
     (c): c is SkillCategoryDef =>
@@ -75,10 +77,7 @@ export async function getCategories(): Promise<SkillCategoryDef[]> {
     const remote = await fetchCategories();
     if (local.length > 0) {
       const localSlugs = new Set(local.map((c) => c.slug));
-      categories = [
-        ...local,
-        ...remote.filter((c) => !localSlugs.has(c.slug)),
-      ];
+      categories = [...local, ...remote.filter((c) => !localSlugs.has(c.slug))];
     } else {
       categories = remote;
     }
@@ -110,6 +109,20 @@ export async function getCategories(): Promise<SkillCategoryDef[]> {
 
 export function getCachedCategoriesSync(): SkillCategoryDef[] {
   return cachedCategories ?? [];
+}
+
+/**
+ * Valid Skills category slugs, read synchronously from the bundled
+ * `skill-categories-catalog.yaml`. Local + sync so callers that must stay off
+ * the remote path (e.g. the plugins list) get the shared taxonomy without
+ * remote-fetch latency. Degrades to an empty set when the bundled catalog is
+ * unavailable (no repo skills dir, missing/malformed file) — callers treat an
+ * empty set as "everything is unknown" rather than failing.
+ */
+export function getLocalCategorySlugs(): Set<string> {
+  const repoSkillsDir = getRepoSkillsDir();
+  if (!repoSkillsDir) return new Set();
+  return new Set(readLocalCategories(repoSkillsDir).map((c) => c.slug));
 }
 
 export function invalidateCategoriesCache(): void {
