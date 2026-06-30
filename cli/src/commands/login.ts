@@ -7,6 +7,7 @@ import {
   loadAllAssistants,
   removeAssistantEntry,
   resolveAssistant,
+  saveAssistantEntry,
   setActiveAssistant,
 } from "../lib/assistant-config";
 import { computeDeviceId } from "../lib/guardian-token";
@@ -383,6 +384,7 @@ export async function login(): Promise<void> {
           fetchCurrentVersion(entry.runtimeUrl),
           fetchAssistantIngressUrl(entry.runtimeUrl, entry.bearerToken),
         ]);
+        const platformUrl = getPlatformUrl();
         const registration = await ensureSelfHostedLocalRegistration(
           token,
           orgId,
@@ -390,9 +392,15 @@ export async function login(): Promise<void> {
           entry.assistantId,
           "cli",
           assistantVersion,
-          getPlatformUrl(),
+          platformUrl,
           ingressUrl,
         );
+        saveAssistantEntry({
+          ...entry,
+          platformAssistantId: registration.assistant.id,
+          platformBaseUrl: platformUrl,
+          platformOrganizationId: orgId,
+        });
         console.log(
           `Registered assistant: ${registration.assistant.name} (${registration.assistant.id})`,
         );
@@ -433,7 +441,7 @@ export async function login(): Promise<void> {
           bearerToken: entry.bearerToken,
           assistantApiKey,
           platformAssistantId: registration.assistant.id,
-          platformBaseUrl: getPlatformUrl(),
+          platformBaseUrl: platformUrl,
           organizationId: orgId,
           userId: user.id,
           webhookSecret: registration.webhook_secret,

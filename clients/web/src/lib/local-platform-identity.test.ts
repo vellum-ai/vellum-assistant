@@ -40,6 +40,7 @@ const buildVellumMutatingHeadersMock = mock(
 );
 const primeLocalGatewayConnectionWithRepairMock = mock(async () => {});
 const fetchOrganizationsMock = mock(async () => {});
+const updateLockfileAssistantMock = mock(async (_assistant: unknown) => {});
 
 mock.module("@/lib/auth/request-headers", () => ({
   buildVellumMutatingHeaders: buildVellumMutatingHeadersMock,
@@ -50,12 +51,14 @@ mock.module("@/lib/local-mode", () => ({
   getLocalGatewayUrl: () => "/assistant/__gateway/20101",
   getPlatformRuntimeUrl: () => "http://localhost:8000",
   getSelectedAssistant: () => activeAssistant,
-  isLocalAssistant: (assistant: { cloud?: string }) => assistant?.cloud === "local",
+  isLocalAssistant: (assistant: { cloud?: string }) =>
+    assistant?.cloud === "local",
   isLocalMode: () => isLocalModeValue,
   isPlatformDisabled: () => isPlatformDisabledValue,
   isRemoteGatewayMode: () => isRemoteGatewayModeValue,
   primeLocalGatewayConnectionWithRepair:
     primeLocalGatewayConnectionWithRepairMock,
+  updateLockfileAssistant: updateLockfileAssistantMock,
 }));
 
 mock.module("@/lib/self-hosted/connection", () => ({
@@ -144,6 +147,7 @@ beforeEach(() => {
   buildVellumMutatingHeadersMock.mockClear();
   primeLocalGatewayConnectionWithRepairMock.mockClear();
   fetchOrganizationsMock.mockClear();
+  updateLockfileAssistantMock.mockClear();
   resetLocalPlatformIdentityCacheForTesting();
 
   globalThis.fetch = mock(
@@ -166,14 +170,12 @@ beforeEach(() => {
         return jsonResponse(statusBody);
       }
       if (
-        url.pathname ===
-        "/v1/assistants/self-hosted-local/ensure-registration/"
+        url.pathname === "/v1/assistants/self-hosted-local/ensure-registration/"
       ) {
         return jsonResponse(ensureRegistrationBody);
       }
       if (
-        url.pathname ===
-        "/v1/assistants/self-hosted-local/reprovision-api-key/"
+        url.pathname === "/v1/assistants/self-hosted-local/reprovision-api-key/"
       ) {
         return jsonResponse(reprovisionApiKeyBody);
       }
@@ -197,6 +199,12 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
 
     expect(platformAssistantId).toBe(PLATFORM_ASSISTANT_ID);
     expect(requestNames()).toEqual(["status"]);
+    expect(updateLockfileAssistantMock).toHaveBeenCalledWith({
+      ...activeAssistant,
+      platformAssistantId: PLATFORM_ASSISTANT_ID,
+      platformBaseUrl: "http://localhost:8000",
+      platformOrganizationId: ORGANIZATION_ID,
+    });
   });
 
   test("repairs a stored platform id when the local assistant is missing its API key", async () => {
@@ -256,15 +264,23 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
       name: "vellum:platform_assistant_id",
       value: PLATFORM_ASSISTANT_ID,
     });
+    expect(updateLockfileAssistantMock).toHaveBeenCalledWith({
+      ...activeAssistant,
+      platformAssistantId: PLATFORM_ASSISTANT_ID,
+      platformBaseUrl: "http://localhost:8000",
+      platformOrganizationId: ORGANIZATION_ID,
+    });
   });
 
   test("repairs gateway access by default for blocking platform identity resolution", async () => {
     selfHostedIngressUrl = null;
     selfHostedActorToken = null;
-    primeLocalGatewayConnectionWithRepairMock.mockImplementationOnce(async () => {
-      selfHostedIngressUrl = GATEWAY_URL;
-      selfHostedActorToken = "actor-token";
-    });
+    primeLocalGatewayConnectionWithRepairMock.mockImplementationOnce(
+      async () => {
+        selfHostedIngressUrl = GATEWAY_URL;
+        selfHostedActorToken = "actor-token";
+      },
+    );
 
     const platformAssistantId =
       await resolveLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
