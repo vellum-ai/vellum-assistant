@@ -20,6 +20,11 @@ import {
 } from "../daemon/conversation-registry.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { bootstrapConversation } from "../persistence/conversation-bootstrap.js";
+import {
+  deleteSubagentRecord,
+  loadAllSubagentRecords,
+  upsertSubagentRecord,
+} from "../persistence/subagent-store.js";
 import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
 import { resolveDefaultProvider } from "../providers/connection-resolution.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
@@ -189,6 +194,13 @@ export class SubagentManager {
   private parentToChildren = new Map<string, Set<string>>();
   /** `${parentConversationId}:${normalizedLabel}` → subagentId */
   private labelIndex = new Map<string, string>();
+
+  /**
+   * Set during `disposeAll()` (shutdown) so `dispose()` keeps the durable rows
+   * instead of deleting them — an in-flight subagent must survive as a row to
+   * be rehydrated as `interrupted` on the next boot.
+   */
+  private shuttingDown = false;
 
   /**
    * Cross-conversation rate-limit window. The conversation store reads this
@@ -485,6 +497,9 @@ export class SubagentManager {
     }
     this.parentToChildren.get(config.parentConversationId)!.add(subagentId);
 
+    // Persist the initial record so the subagent survives a daemon restart.
+    this.persistState(managed.state);
+
     // Notify client that a subagent was spawned.
     parentSendToClient({
       type: "subagent_spawned",
@@ -599,8 +614,11 @@ export class SubagentManager {
     // Read the current parent sender so reconnects are picked up.
     const getSender = () => managed.parentSendToClient;
 
-    this.setStatus(subagentId, "running", getSender());
+    // Stamp startedAt before the status transition so the persistence hook
+    // inside setStatus captures it on the running row (otherwise a crash mid-run
+    // rehydrates as interrupted with no start time).
     managed.state.startedAt = Date.now();
+    this.setStatus(subagentId, "running", getSender());
 
     try {
       // For forks, inject the parent's message history before the first message.
@@ -805,6 +823,7 @@ export class SubagentManager {
       }
     } else {
       managed.state.status = "aborted";
+      this.persistState(managed.state);
     }
 
     log.info({ subagentId }, "Subagent aborted");
@@ -915,8 +934,12 @@ export class SubagentManager {
   }
 
   /**
-   * Update the parent sender for all active children of a conversation.
-   * Called when the parent client reconnects to a new socket.
+   * Update the parent sender for all active children of a conversation and
+   * re-emit each child's current status to it. Called when the parent client
+   * reconnects to a new socket, so a reconnecting client resyncs any status it
+   * missed while disconnected (e.g. a subagent marked `interrupted` during
+   * rehydration after a daemon restart, whose card would otherwise stay stuck
+   * on a stale `running`).
    */
   updateParentSender(
     parentConversationId: string,
@@ -927,9 +950,19 @@ export class SubagentManager {
 
     for (const childId of children) {
       const managed = this.subagents.get(childId);
-      if (managed && !TERMINAL_STATUSES.has(managed.state.status)) {
+      if (!managed) continue;
+      if (!TERMINAL_STATUSES.has(managed.state.status)) {
         managed.parentSendToClient = newSendToClient;
       }
+      // Re-emit the current status so the reconnecting client corrects any card
+      // it left in a stale state while disconnected.
+      newSendToClient({
+        type: "subagent_status_changed",
+        subagentId: childId,
+        status: managed.state.status,
+        error: managed.state.error,
+        usage: managed.state.usage,
+      } as ServerMessage);
     }
   }
 
@@ -981,6 +1014,17 @@ export class SubagentManager {
     }
     this.subagents.delete(subagentId);
 
+    // Drop the durable record too — but only during normal operation. On
+    // shutdown we keep rows so a subagent that was in flight can rehydrate as
+    // `interrupted` on the next boot.
+    if (!this.shuttingDown) {
+      try {
+        deleteSubagentRecord(subagentId);
+      } catch (err) {
+        log.warn({ subagentId, err }, "Failed to delete subagent record");
+      }
+    }
+
     // Remove from label index only if it still maps to this subagent
     // (guards against stale delete when a newer subagent reused the label).
     const label = managed.state.config.label;
@@ -1003,10 +1047,120 @@ export class SubagentManager {
 
   /** Dispose all subagents. Called on daemon shutdown. */
   disposeAll(): void {
+    // Mark shutdown so dispose() keeps the durable rows: an in-flight subagent
+    // must survive as a row to be rehydrated as `interrupted` on the next boot.
+    this.shuttingDown = true;
     this.stopSweep();
     for (const id of [...this.subagents.keys()]) {
       this.dispose(id);
     }
+  }
+
+  // ── Persistence / rehydration ─────────────────────────────────────────
+
+  /**
+   * Write the subagent's current state to the durable `subagents` table.
+   * Best-effort: persistence failures are logged, never thrown — a background
+   * subagent must not fail because its bookkeeping row could not be written.
+   */
+  private persistState(state: SubagentState): void {
+    try {
+      upsertSubagentRecord({
+        id: state.config.id,
+        parentConversationId: state.config.parentConversationId,
+        conversationId: state.conversationId,
+        label: state.config.label,
+        objective: state.config.objective,
+        role: state.config.role ?? "general",
+        isFork: state.isFork,
+        sendResultToUser: state.config.sendResultToUser ?? null,
+        status: state.status,
+        error: state.error ?? null,
+        createdAt: state.createdAt,
+        startedAt: state.startedAt ?? null,
+        completedAt: state.completedAt ?? null,
+        inputTokens: state.usage.inputTokens,
+        outputTokens: state.usage.outputTokens,
+        estimatedCost: state.usage.estimatedCost,
+      });
+    } catch (err) {
+      log.warn(
+        { subagentId: state.config.id, err },
+        "Failed to persist subagent record",
+      );
+    }
+  }
+
+  /**
+   * Rebuild in-memory subagent metadata from the durable table after a restart.
+   * Terminal records load as-is so `subagent_read`/`getState` keep working
+   * (output is read from the child conversation's persisted messages). Records
+   * still in flight when the process died are marked `interrupted` — the run is
+   * not resumed; the parent decides whether to re-spawn. Rehydrated entries
+   * carry a no-op sender and no live conversation, and are swept on the normal
+   * TTL like any other terminal subagent.
+   *
+   * Best-effort and idempotent: a second restart re-reads `interrupted` rows
+   * and leaves them unchanged.
+   */
+  rehydrateFromDb(): { rehydrated: number; interrupted: number } {
+    const records = loadAllSubagentRecords();
+    let interrupted = 0;
+    const now = Date.now();
+    for (const rec of records) {
+      const wasInFlight = !TERMINAL_STATUSES.has(rec.status as SubagentStatus);
+      const status: SubagentStatus = wasInFlight
+        ? "interrupted"
+        : (rec.status as SubagentStatus);
+      if (wasInFlight) interrupted++;
+
+      const state: SubagentState = {
+        config: {
+          id: rec.id,
+          parentConversationId: rec.parentConversationId,
+          label: rec.label,
+          objective: rec.objective,
+          role: rec.role as SubagentRole,
+          fork: rec.isFork,
+          ...(rec.sendResultToUser != null
+            ? { sendResultToUser: rec.sendResultToUser }
+            : {}),
+        },
+        status,
+        conversationId: rec.conversationId,
+        isFork: rec.isFork,
+        ...(rec.error != null ? { error: rec.error } : {}),
+        createdAt: rec.createdAt,
+        ...(rec.startedAt != null ? { startedAt: rec.startedAt } : {}),
+        ...(rec.completedAt != null ? { completedAt: rec.completedAt } : {}),
+        usage: {
+          inputTokens: rec.inputTokens,
+          outputTokens: rec.outputTokens,
+          estimatedCost: rec.estimatedCost,
+        },
+      };
+
+      const managed: ManagedSubagent = {
+        conversation: null,
+        state,
+        parentSendToClient: () => {},
+        retainedUntil: now + TERMINAL_RETENTION_MS,
+      };
+      this.subagents.set(rec.id, managed);
+
+      const labelKey = `${rec.parentConversationId}:${rec.label.toLowerCase().trim()}`;
+      this.labelIndex.set(labelKey, rec.id);
+
+      if (!this.parentToChildren.has(rec.parentConversationId)) {
+        this.parentToChildren.set(rec.parentConversationId, new Set());
+      }
+      this.parentToChildren.get(rec.parentConversationId)!.add(rec.id);
+
+      // Persist the interrupted transition so a second restart is a no-op.
+      if (wasInFlight) this.persistState(state);
+    }
+    if (records.length > 0) this.ensureSweepRunning();
+    return { rehydrated: records.length, interrupted };
   }
 
   // ── TTL sweep for terminal metadata ──────────────────────────────────
@@ -1097,6 +1251,9 @@ export class SubagentManager {
       error,
       usage: managed.state.usage,
     } as ServerMessage);
+
+    // Mirror the transition to the durable record.
+    this.persistState(managed.state);
   }
 
   // ── Child → Parent notification ────────────────────────────────────

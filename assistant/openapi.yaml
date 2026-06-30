@@ -27052,6 +27052,7 @@ paths:
                       - completed
                       - failed
                       - aborted
+                      - interrupted
                   usage:
                     type: object
                     properties:

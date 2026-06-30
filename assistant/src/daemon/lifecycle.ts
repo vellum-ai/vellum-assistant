@@ -48,6 +48,7 @@ import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streamin
 import { publishConfigChanged } from "../runtime/sync/resource-sync-events.js";
 import { recoverStaleSchedules } from "../schedule/schedule-recovery.js";
 import { startScheduler } from "../schedule/scheduler.js";
+import { getSubagentManager } from "../subagent/index.js";
 import { startUsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { syncFlagGatedTools } from "../tools/registry.js";
 import { registerBuiltinTtsProviders } from "../tts/providers/register-builtins.js";
@@ -641,6 +642,23 @@ export async function runDaemon(): Promise<void> {
       { err },
       "Workflow run reconciliation failed — continuing startup",
     );
+  }
+
+  // Rehydrate subagent records persisted by a prior run: load terminal
+  // subagents so `subagent_read`/`getState` keep working post-restart, and mark
+  // any that were still in flight when the process died as `interrupted` (we do
+  // not auto-resume). Mirrors the workflow-run reconciliation above; never
+  // blocks startup, and runs before the scheduler so no new spawn races it.
+  try {
+    const { rehydrated, interrupted } = getSubagentManager().rehydrateFromDb();
+    if (rehydrated > 0) {
+      log.info(
+        { rehydrated, interrupted },
+        "Rehydrated subagent records from a prior run",
+      );
+    }
+  } catch (err) {
+    log.error({ err }, "Subagent rehydration failed — continuing startup");
   }
 
   startScheduler();
