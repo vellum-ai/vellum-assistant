@@ -52,7 +52,6 @@ RUN set -eu; for pkg in /app/skills/*/package.json; do \
       (cd "$dir" && (bun install --frozen-lockfile 2>/dev/null || bun install)); \
     done
 
-COPY assistant ./assistant
 
 # Final stage
 FROM debian:trixie-slim@sha256:4ffb3a1511099754cddc70eb1b12e50ffdb67619aa0ab6c13fcd800a78ef7c7a AS runner
@@ -122,6 +121,11 @@ RUN apt-get update && apt-get install -y \
 # Copy bun binary from builder instead of re-installing
 COPY --from=builder /root/.bun/bin/bun /usr/local/bin/bun
 RUN ln -sf /usr/local/bin/bun /usr/local/bin/bunx
+
+# Copy installed deps, shared packages, and bundled skills from the builder stage.
+COPY --from=builder /app /app
+
+COPY assistant /app/assistant
 
 # Install assistant CLI launcher backed by the bundled assistant package
 RUN printf '#!/usr/bin/env sh\nexec bun run /app/assistant/src/index.ts "$@"\n' > /usr/local/bin/assistant && \
@@ -227,10 +231,6 @@ EXPOSE 3001
 
 ENV RUNTIME_HTTP_PORT=3001
 ENV IS_CONTAINERIZED=true
-
-# Copy installed deps, shared packages, bundled skills, assistant source,
-# and the generated meet-join manifest from the builder stage.
-COPY --from=builder /app /app
 
 COPY packages/block-volume-bootstrap/scripts/*.sh /usr/local/bin/
 
