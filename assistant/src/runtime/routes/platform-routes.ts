@@ -27,6 +27,7 @@ import {
   deleteSecureKeyAsync,
   getSecureKeyAsync,
 } from "../../security/secure-keys.js";
+import { getExistingDeviceId } from "../../util/device-id.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
@@ -64,6 +65,7 @@ const PlatformStatusResponseSchema = z.object({
   assistantId: z.string(),
   hasAssistantApiKey: z.boolean(),
   hasWebhookSecret: z.boolean(),
+  clientInstallationId: z.string().nullable(),
   available: z.boolean(),
   organizationId: z.string().nullable(),
   userId: z.string().nullable(),
@@ -154,6 +156,7 @@ async function handlePlatformStatus(
     assistantId: context.assistantId,
     hasAssistantApiKey: context.hasAssistantApiKey,
     hasWebhookSecret,
+    clientInstallationId: getExistingDeviceId(),
     available: context.enabled,
     organizationId: organizationId || null,
     userId: userId || null,

@@ -158,7 +158,7 @@ function makeHookCtx(
     latestMessages: [],
     requestId: "req-test",
     isNonInteractive: false,
-    modelProfileKey: null,
+    modelProfileKey: "balanced",
     prompt: "",
     originalMessages: [],
     ...overrides,

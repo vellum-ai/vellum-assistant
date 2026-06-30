@@ -59,7 +59,6 @@ const postCompact: HookFunction<PostCompactContext> = async (ctx) => {
     requestId,
     conversationId,
     isNonInteractive,
-    modelProfileKey,
     injectionMode,
   } = ctx;
   const mode = injectionMode ?? "full";
@@ -76,11 +75,11 @@ const postCompact: HookFunction<PostCompactContext> = async (ctx) => {
     conversation?.trustContext ??
     FALLBACK_TURN_TRUST;
   const actorContext = conversation?.currentTurnInboundActorContext ?? null;
-  // Render the `model_profile:` label from the turn's resolved profile key,
-  // using the call site self-resolved from the live conversation — the same
+  // Render the `model_profile:` label from the turn-start notice key, using
+  // the call site self-resolved from the live conversation — the same
   // derivation the first-call user-prompt-submit assembly uses.
   const modelProfile = resolveTurnModelProfileLabel(
-    modelProfileKey,
+    conversation?.currentTurnModelProfileNoticeKey ?? null,
     conversation?.currentCallSite ?? "mainAgent",
     config.llm,
     conversationId,

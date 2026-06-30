@@ -10,6 +10,7 @@ import {
   parsePendingConfirmationData,
   parsePendingSecretState,
   resolvePostError,
+  shouldCleanupSupersededInteractions,
 } from "@/domains/chat/utils/send-message-utils";
 
 // ---------------------------------------------------------------------------
@@ -85,6 +86,34 @@ describe("dismissInteractiveSurfaces", () => {
     );
     expect(dismissedIds.has("s-1")).toBe(true);
     expect(updatedMessages[0]!.surfaces).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// shouldCleanupSupersededInteractions
+// ---------------------------------------------------------------------------
+
+describe("shouldCleanupSupersededInteractions", () => {
+  it("skips cleanup when the rendered UI has no supersedable interaction", () => {
+    expect(
+      shouldCleanupSupersededInteractions({
+        hasPendingConfirmation: false,
+        hasUncompletedVisibleSurface: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("runs cleanup when the rendered UI has an interactive surface", () => {
+    expect(
+      shouldCleanupSupersededInteractions({
+        hasPendingConfirmation: false,
+        hasUncompletedVisibleSurface: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("runs cleanup when there is no rendered UI context", () => {
+    expect(shouldCleanupSupersededInteractions(null)).toBe(true);
   });
 });
 

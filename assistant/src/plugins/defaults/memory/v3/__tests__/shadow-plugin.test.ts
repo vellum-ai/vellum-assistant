@@ -56,6 +56,7 @@ const realSectionDenseStore = {
   ...(await import("../section-dense-store.js")),
 };
 const realOrchestrate = { ...(await import("../orchestrate.js")) };
+const realLearnedEdges = { ...(await import("../learned-edges.js")) };
 const realPlatform = { ...(await import("../../../../../util/platform.js")) };
 const realPageStore = {
   ...(await import("../../../../../memory/v2/page-store.js")),
@@ -78,6 +79,7 @@ let shadowMockActive = false;
 
 let liveEnabled = false;
 let memoryEnabled = true;
+let learnedEdgesCap = 0;
 let messages: Array<{ role: string; content: string }> = [];
 
 // A synthetic skill capability slug the page index carries. Its rendered
@@ -127,6 +129,7 @@ const orchestrateSpy = mock(
 let sectionBuilds = 0;
 let needleBuilds = 0;
 let edgeBuilds = 0;
+let learnedGraphBuilds = 0;
 let ensureCollectionCalls = 0;
 let ensureCollectionThrows = false;
 
@@ -183,22 +186,22 @@ mock.module("../../../../../config/loader.js", () => ({
       enabled: memoryEnabled,
       v3: {
         live: liveEnabled,
-        hotSet: { k: 40, halfLifeDays: 14 },
-        freshSet: { k: 50 },
+        hotSet: { k: 8, halfLifeDays: 14 },
+        freshSet: { k: 8 },
         spotlight: { n: 6, windowTurns: 2 },
-        needleK: 100,
-        denseK: 100,
-        replyQueryK: 12,
-        selectorEnabled: true,
+        needleK: 12,
+        denseK: 0,
+        replyQueryK: 0,
+        selectorEnabled: false,
         learnedEdges: {
           halfLifeDays: 30,
           minCount: 3,
           npmiFloor: 0.2,
           maxPerPage: 6,
           perSeed: 3,
-          cap: 20,
+          cap: learnedEdgesCap,
         },
-        edge: { hubDegree: 30, seedCount: 18, perSeed: 6, cap: 45 },
+        edge: { hubDegree: 30, seedCount: 6, perSeed: 1, cap: 6 },
       },
       qdrant: { vectorSize: 8, onDisk: false },
     },
@@ -353,6 +356,18 @@ mock.module("../edge.js", () => ({
   },
 }));
 
+mock.module("../learned-edges.js", () => ({
+  ...realLearnedEdges,
+  computeLearnedEdgeGraph: (
+    ...args: Parameters<typeof realLearnedEdges.computeLearnedEdgeGraph>
+  ) => {
+    if (!shadowMockActive)
+      return realLearnedEdges.computeLearnedEdgeGraph(...args);
+    learnedGraphBuilds++;
+    return { adjacency: new Map(), hubs: new Set(), slugs: new Set() };
+  },
+}));
+
 mock.module("../section-dense-store.js", () => ({
   ...realSectionDenseStore,
   ensureSectionCollection: async (
@@ -401,6 +416,7 @@ beforeEach(() => {
   shadowMockActive = true;
   liveEnabled = false;
   memoryEnabled = true;
+  learnedEdgesCap = 0;
   messages = [
     {
       role: "user",
@@ -411,6 +427,7 @@ beforeEach(() => {
   sectionBuilds = 0;
   needleBuilds = 0;
   edgeBuilds = 0;
+  learnedGraphBuilds = 0;
   ensureCollectionCalls = 0;
   ensureCollectionThrows = false;
   capturedPageBody = null;
@@ -572,6 +589,36 @@ describe("memory-v3 engine", () => {
     expect(deps.hotSlugs).toEqual([]);
   });
 
+  test("learned-edge graph init is skipped when the configured cap is zero", async () => {
+    await observeTurn("conv-1", 0);
+
+    const deps = (
+      orchestrateSpy.mock.calls as unknown as unknown[][]
+    )[0]![1] as {
+      learnedGraph?: unknown;
+      learnedCap?: number;
+    };
+    expect(learnedGraphBuilds).toBe(0);
+    expect(deps.learnedGraph).toBeUndefined();
+    expect(deps.learnedCap).toBe(0);
+  });
+
+  test("learned-edge graph init runs when the configured cap is positive", async () => {
+    learnedEdgesCap = 6;
+
+    await observeTurn("conv-1", 0);
+
+    const deps = (
+      orchestrateSpy.mock.calls as unknown as unknown[][]
+    )[0]![1] as {
+      learnedGraph?: unknown;
+      learnedCap?: number;
+    };
+    expect(learnedGraphBuilds).toBe(1);
+    expect(deps.learnedGraph).toBeDefined();
+    expect(deps.learnedCap).toBe(6);
+  });
+
   test("initLanes filters core to existing pages and excludes core from the hot set", async () => {
     // The core file lists a live page and a dangling slug; the hot set returns
     // a live page and a deleted one (selection rows can outlive their pages).
@@ -591,7 +638,7 @@ describe("memory-v3 engine", () => {
     // The hot set was computed with the (filtered) core excluded and the
     // configured k / half-life (14 days, in ms).
     expect(hotSetOpts?.excludeSlugs).toEqual(new Set(["page-1"]));
-    expect(hotSetOpts?.k).toBe(40);
+    expect(hotSetOpts?.k).toBe(8);
     expect(hotSetOpts?.halfLifeMs).toBe(14 * 24 * 60 * 60 * 1000);
   });
 

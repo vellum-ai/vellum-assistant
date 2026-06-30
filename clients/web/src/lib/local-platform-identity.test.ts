@@ -5,6 +5,7 @@ const PLATFORM_ASSISTANT_ID = "019ed7d1-e995-71cc-9859-c54f422ace3c";
 const OTHER_PLATFORM_ASSISTANT_ID = "019ed7d1-e995-71cc-9859-c54f422ace3d";
 const ORGANIZATION_ID = "019ed7d1-e995-71cc-9859-c54f422ace3e";
 const GATEWAY_URL = "http://localhost:5173/assistant/__gateway/20101";
+const HOST_INSTALLATION_ID = "host-installation-1";
 
 type RecordedRequest = {
   pathname: string;
@@ -22,6 +23,7 @@ let isPlatformDisabledValue = false;
 let isRemoteGatewayModeValue = false;
 let selfHostedIngressUrl: string | null = GATEWAY_URL;
 let selfHostedActorToken: string | null = "actor-token";
+let browserDeviceId: string | null = null;
 let statusBody: unknown;
 let ensureRegistrationBody: unknown;
 let reprovisionApiKeyBody: unknown;
@@ -62,7 +64,7 @@ mock.module("@/lib/self-hosted/connection", () => ({
 }));
 
 mock.module("@/runtime/device-id", () => ({
-  getDeviceId: () => "device-1",
+  getDeviceId: () => browserDeviceId,
 }));
 
 mock.module("@/runtime/is-electron", () => ({
@@ -124,10 +126,12 @@ beforeEach(() => {
   isRemoteGatewayModeValue = false;
   selfHostedIngressUrl = GATEWAY_URL;
   selfHostedActorToken = "actor-token";
+  browserDeviceId = null;
   statusBody = {
     assistant_id: PLATFORM_ASSISTANT_ID,
     organization_id: ORGANIZATION_ID,
     has_assistant_api_key: true,
+    client_installation_id: HOST_INSTALLATION_ID,
   };
   ensureRegistrationBody = {
     assistant: { id: PLATFORM_ASSISTANT_ID },
@@ -200,6 +204,7 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
       assistant_id: PLATFORM_ASSISTANT_ID,
       organization_id: ORGANIZATION_ID,
       has_assistant_api_key: false,
+      client_installation_id: HOST_INSTALLATION_ID,
     };
     ensureRegistrationBody = {
       assistant: { id: OTHER_PLATFORM_ASSISTANT_ID },
@@ -219,6 +224,24 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
       "secrets",
       "secrets",
     ]);
+    expect(
+      requests.find((request) =>
+        request.pathname.endsWith("/ensure-registration/"),
+      )?.body,
+    ).toEqual({
+      client_installation_id: HOST_INSTALLATION_ID,
+      runtime_assistant_id: RUNTIME_ASSISTANT_ID,
+      client_platform: "web",
+    });
+    expect(
+      requests.find((request) =>
+        request.pathname.endsWith("/reprovision-api-key/"),
+      )?.body,
+    ).toEqual({
+      client_installation_id: HOST_INSTALLATION_ID,
+      runtime_assistant_id: RUNTIME_ASSISTANT_ID,
+      client_platform: "web",
+    });
 
     const injectedSecrets = requests
       .filter((request) => request.pathname.endsWith("/v1/secrets"))

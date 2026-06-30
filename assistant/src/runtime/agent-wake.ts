@@ -64,6 +64,10 @@ import type {
 } from "../agent/loop.js";
 import type { InterfaceId } from "../channels/types.js";
 import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.js";
+import {
+  resolveDefaultProfileKey,
+  resolveProfilelessModelKey,
+} from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { conversationSupportsDynamicUi } from "../daemon/channel-ui-capability.js";
@@ -687,6 +691,18 @@ export async function wakeAgentForOpportunity(
       overrideProfile,
       forceOverrideProfile,
     });
+    const modelProfileKey =
+      (forceOverrideProfile || callSite === "mainAgent"
+        ? overrideProfile
+        : undefined) ??
+      resolveDefaultProfileKey(callSite, config.llm) ??
+      overrideProfile ??
+      resolveDefaultProfileKey("mainAgent", config.llm) ??
+      resolveProfilelessModelKey(callSite, config.llm, {
+        ...(overrideProfile != null ? { overrideProfile } : {}),
+        ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
+        selectionSeed: conversationId,
+      });
 
     // Apply the caller's persona override for the duration of the run. The
     // prompt is built once before `agentLoop.run()` (via
@@ -1283,6 +1299,7 @@ export async function wakeAgentForOpportunity(
             maxInputTokens: effectiveContextWindow.maxInputTokens,
             overflowRecovery: { enabled: false, safetyMarginRatio: 0 },
           }),
+          modelProfileKey,
           ...(conversation.modelOverride
             ? { model: conversation.modelOverride }
             : {}),
