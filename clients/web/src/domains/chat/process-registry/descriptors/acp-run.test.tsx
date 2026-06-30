@@ -10,10 +10,12 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
 import { ACP_RUN_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/acp-run";
+import { useViewerStore } from "@/stores/viewer-store";
 
 afterEach(() => {
   cleanup();
   useAcpRunStore.getState().reset();
+  useViewerStore.getState().reset();
 });
 
 /** Spawn an active ("running") run, then optionally settle it terminal. */
@@ -50,6 +52,18 @@ describe("ACP_RUN_DESCRIPTOR — static metadata", () => {
 
   test("exposes a stop action", () => {
     expect(typeof ACP_RUN_DESCRIPTOR.onStop).toBe("function");
+  });
+});
+
+describe("ACP_RUN_DESCRIPTOR — onOpenDetail", () => {
+  test("opens the acp-run detail panel through the openProcessDetail facade", () => {
+    // The descriptor routes through `openProcessDetail({ kind, id })`, which
+    // delegates to `openAcpRunDetail` — assert the resulting viewer state.
+    ACP_RUN_DESCRIPTOR.onOpenDetail("run-1");
+
+    const state = useViewerStore.getState();
+    expect(state.mainView).toBe("acp-run-detail");
+    expect(state.activeAcpRunId).toBe("run-1");
   });
 });
 

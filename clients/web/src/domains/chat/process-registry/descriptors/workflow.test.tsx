@@ -13,10 +13,12 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 
 import { WORKFLOW_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/workflow";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
+import { useViewerStore } from "@/stores/viewer-store";
 
 afterEach(() => {
   cleanup();
   useWorkflowStore.getState().reset();
+  useViewerStore.getState().reset();
 });
 
 describe("WORKFLOW_DESCRIPTOR — useCardSummary projection", () => {
@@ -91,5 +93,17 @@ describe("WORKFLOW_DESCRIPTOR — static metadata", () => {
 
   test("exposes a stop action", () => {
     expect(WORKFLOW_DESCRIPTOR.onStop).toBeDefined();
+  });
+});
+
+describe("WORKFLOW_DESCRIPTOR — onOpenDetail", () => {
+  test("opens the workflow detail panel through the openProcessDetail facade", () => {
+    // The descriptor routes through `openProcessDetail({ kind, id })`, which
+    // delegates to `openWorkflowDetail` — assert the resulting viewer state.
+    WORKFLOW_DESCRIPTOR.onOpenDetail("wf-1");
+
+    const state = useViewerStore.getState();
+    expect(state.mainView).toBe("workflow-detail");
+    expect(state.activeWorkflowRunId).toBe("wf-1");
   });
 });

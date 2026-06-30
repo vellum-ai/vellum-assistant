@@ -16,6 +16,7 @@ import {
   useSubagentStore,
   type SubagentTimelineEvent,
 } from "@/domains/chat/subagent-store";
+import { useViewerStore } from "@/stores/viewer-store";
 import type { SubagentStatus } from "@vellumai/assistant-api";
 
 const NOW = 1700000000000;
@@ -23,6 +24,7 @@ const NOW = 1700000000000;
 afterEach(() => {
   cleanup();
   useSubagentStore.getState().reset();
+  useViewerStore.getState().reset();
 });
 
 /** Spawn a subagent, seed its timeline events, and move it to `status`. */
@@ -55,6 +57,18 @@ describe("SUBAGENT_DESCRIPTOR — static config", () => {
   test("exposes the subagent aria labels", () => {
     expect(SUBAGENT_DESCRIPTOR.openCardAriaLabel).toBe("Open subagent");
     expect(SUBAGENT_DESCRIPTOR.pillAriaLabel(3)).toBe("Active subagents");
+  });
+});
+
+describe("SUBAGENT_DESCRIPTOR — onOpenDetail", () => {
+  test("opens the subagent detail panel through the openProcessDetail facade", () => {
+    // The descriptor routes through `openProcessDetail({ kind, id })`, which
+    // delegates to `openSubagentDetail` — assert the resulting viewer state.
+    SUBAGENT_DESCRIPTOR.onOpenDetail("sa-1");
+
+    const state = useViewerStore.getState();
+    expect(state.mainView).toBe("subagent-detail");
+    expect(state.activeSubagentId).toBe("sa-1");
   });
 });
 

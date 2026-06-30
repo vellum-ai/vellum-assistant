@@ -22,6 +22,7 @@ mock.module("@/domains/chat/utils/background-task-actions", () => ({
 
 import { BACKGROUND_TASK_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/background-task";
 import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
+import { useViewerStore } from "@/stores/viewer-store";
 
 const NOW = 1700000000000;
 
@@ -42,6 +43,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  useViewerStore.getState().reset();
 });
 
 describe("BACKGROUND_TASK_DESCRIPTOR — useCardSummary", () => {
@@ -93,5 +95,17 @@ describe("BACKGROUND_TASK_DESCRIPTOR — metadata", () => {
 
   test("supports stopping a task", () => {
     expect(typeof BACKGROUND_TASK_DESCRIPTOR.onStop).toBe("function");
+  });
+});
+
+describe("BACKGROUND_TASK_DESCRIPTOR — onOpenDetail", () => {
+  test("opens the background-task detail panel through the openProcessDetail facade", () => {
+    // The descriptor routes through `openProcessDetail({ kind, id })`, which
+    // delegates to `openBackgroundTaskDetail` — assert the resulting state.
+    BACKGROUND_TASK_DESCRIPTOR.onOpenDetail("bg-1");
+
+    const state = useViewerStore.getState();
+    expect(state.mainView).toBe("background-task-detail");
+    expect(state.activeBackgroundTaskId).toBe("bg-1");
   });
 });
