@@ -8,6 +8,12 @@
 import { statSync } from "node:fs";
 import { join } from "node:path";
 
+import {
+  getApp,
+  getAppDirPath,
+  listAppFiles,
+  resolveAppDir,
+} from "../apps/app-store.js";
 import { type ChannelId, parseInterfaceId } from "../channels/types.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
@@ -20,18 +26,6 @@ import {
   stripUserTextBlocksByPrefix,
 } from "../context/strip-injections.js";
 import { getDocumentsForConversation } from "../documents/document-store.js";
-import {
-  getApp,
-  getAppDirPath,
-  listAppFiles,
-  resolveAppDir,
-} from "../memory/app-store.js";
-import {
-  countMemoryPrefixBlocks,
-  extractMemoryPrefixBlocks,
-  getLiveGraphMemory,
-} from "../memory/graph/conversation-graph-memory.js";
-import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory/memory-marker.js";
 import {
   readSlackMetadata,
   readSlackMetadataFromMessageMetadata,
@@ -50,6 +44,15 @@ import {
 } from "../persistence/conversation-crud.js";
 import { isBackgroundConversationType } from "../persistence/conversation-types.js";
 import { createContextSummaryMessage } from "../plugins/defaults/compaction/window-manager.js";
+import {
+  countMemoryPrefixBlocks,
+  extractMemoryPrefixBlocks,
+  getLiveGraphMemory,
+} from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
+import {
+  unwrapMemoryBlock,
+  wrapMemoryBlock,
+} from "../plugins/defaults/memory/memory-marker.js";
 import {
   MEMORY_V3_BLOCK_ID,
   MEMORY_V3_COMMIT_META_KEY,
@@ -188,8 +191,8 @@ export function resolveTurnInboundActorContext(
 }
 
 /**
- * Render the `model_profile:` turn-context label for a turn from its resolved
- * inference profile key, for the unified `<turn_context>` block.
+ * Render the `model_profile:` turn-context label from the turn's profile
+ * notice key, for the unified `<turn_context>` block.
  *
  * Returns `null` when there is no key to announce (the caller gates this to the
  * turns where the active profile changed since the one last delivered to the
@@ -207,21 +210,23 @@ export function resolveTurnInboundActorContext(
  * random arm that can disagree with the model actually serving the turn.
  */
 export function resolveTurnModelProfileLabel(
-  modelProfileKey: string | null,
+  modelProfileNoticeKey: string | null,
   callSite: LLMCallSite,
   llm: LLMConfig,
   selectionSeed?: string,
 ): string | null {
-  if (modelProfileKey == null) {
+  if (modelProfileNoticeKey == null) {
     return null;
   }
-  const profileEntry = llm.profiles?.[modelProfileKey];
+  const profileEntry = llm.profiles?.[modelProfileNoticeKey];
   const resolved = resolveCallSiteConfig(callSite, llm, {
-    overrideProfile: modelProfileKey,
+    overrideProfile: modelProfileNoticeKey,
     selectionSeed,
   });
-  const label = profileEntry?.label ?? modelProfileKey;
-  return resolved.model ? `${label} (${resolved.model})` : label;
+  const label = profileEntry?.label ?? modelProfileNoticeKey;
+  return resolved.model && resolved.model !== label
+    ? `${label} (${resolved.model})`
+    : label;
 }
 
 /** Derive channel capabilities from source channel + interface identifiers. */

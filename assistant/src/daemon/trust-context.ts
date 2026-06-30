@@ -6,7 +6,7 @@
  */
 import type { ChannelId } from "../channels/types.js";
 import { isHttpAuthDisabled } from "../config/env.js";
-import { shouldExposePersonalMemory } from "../memory/v2/static-context.js";
+import { shouldExposePersonalMemory } from "../plugins/defaults/memory/v2/static-context.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 
 export interface TrustContext {

@@ -30,9 +30,7 @@ import {
   computeFingerprint,
   PRESERVED_ENTRIES,
 } from "../cli/lib/plugin-fingerprint.js";
-import {
-  resetHookCacheForTests,
-} from "../hooks/hook-loader.js";
+import { resetHookCacheForTests } from "../hooks/hook-loader.js";
 import {
   populateCacheAtBoot,
   resetPluginCacheForTests,
@@ -131,11 +129,11 @@ describe("plugin config/data in plugin directory", () => {
       dir,
       [
         'import { writeFileSync } from "node:fs";',
-        'import type { InitContext } from "../../src/plugin-api/types.js";',
+        'import type { InitContext } from "../plugin-api/types.js";',
         "export default async (ctx: InitContext) => {",
-        '  writeFileSync(' +
+        "  writeFileSync(" +
           JSON.stringify(sentinel) +
-          ', JSON.stringify(ctx.config));',
+          ", JSON.stringify(ctx.config));",
         "};",
       ].join("\n"),
     );
@@ -156,9 +154,11 @@ describe("plugin config/data in plugin directory", () => {
       dir,
       [
         'import { writeFileSync } from "node:fs";',
-        'import type { InitContext } from "../../src/plugin-api/types.js";',
+        'import type { InitContext } from "../plugin-api/types.js";',
         "export default async (ctx: InitContext) => {",
-        '  writeFileSync(' + JSON.stringify(sentinel) + ', ctx.pluginStorageDir);',
+        "  writeFileSync(" +
+          JSON.stringify(sentinel) +
+          ", ctx.pluginStorageDir);",
         "};",
       ].join("\n"),
     );
@@ -192,11 +192,11 @@ describe("config migration from global config block", () => {
       dir,
       [
         'import { writeFileSync } from "node:fs";',
-        'import type { InitContext } from "../../src/plugin-api/types.js";',
+        'import type { InitContext } from "../plugin-api/types.js";',
         "export default async (ctx: InitContext) => {",
-        '  writeFileSync(' +
+        "  writeFileSync(" +
           JSON.stringify(join(ROOT, "migrate-cfg-sentinel.json")) +
-          ', JSON.stringify(ctx.config));',
+          ", JSON.stringify(ctx.config));",
         "};",
       ].join("\n"),
     );
@@ -232,11 +232,11 @@ describe("data migration from plugins-data/", () => {
       dir,
       [
         'import { writeFileSync } from "node:fs";',
-        'import type { InitContext } from "../../src/plugin-api/types.js";',
+        'import type { InitContext } from "../plugin-api/types.js";',
         "export default async (ctx: InitContext) => {",
-        '  writeFileSync(' +
+        "  writeFileSync(" +
           JSON.stringify(join(ROOT, "migrate-data-sentinel.txt")) +
-          ', ctx.pluginStorageDir);',
+          ", ctx.pluginStorageDir);",
         "};",
       ].join("\n"),
     );

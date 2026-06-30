@@ -26,8 +26,8 @@ import { z } from "zod";
 import type { HostProxyCapability } from "../../channels/types.js";
 import { parseInterfaceId, supportsHostProxy } from "../../channels/types.js";
 import { notifyContactsChanged } from "../../contacts/notify-contacts-changed.js";
-import { getOrCreateConversation } from "../../memory/conversation-key-store.js";
 import { getConversation } from "../../persistence/conversation-crud.js";
+import { getOrCreateConversation } from "../../persistence/conversation-key-store.js";
 import { getLogger } from "../../util/logger.js";
 import { formatSseFrame, formatSseHeartbeat } from "../assistant-event.js";
 import type {

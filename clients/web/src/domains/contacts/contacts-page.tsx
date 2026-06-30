@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router";
 
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -21,13 +22,15 @@ import {
     upsertContact,
     verifyContactChannel,
 } from "@/domains/contacts/contacts-gateway";
-import type {
-    AssistantChannelState,
-    ChannelInfo,
-    ChannelReadinessSnapshot,
-    ContactChannelPayload,
-    ContactPayload,
-    ContactSelection,
+import {
+    SETUP_CHANNEL_IDS,
+    isSetupChannelId,
+    type AssistantChannelState,
+    type ChannelInfo,
+    type ChannelReadinessSnapshot,
+    type ContactChannelPayload,
+    type ContactPayload,
+    type ContactSelection,
 } from "@/domains/contacts/types";
 import {
     channelsAvailableGetOptions,
@@ -45,12 +48,12 @@ import {
 import {
     channelsAvailableGet,
     integrationsSlackChannelConfigDelete,
-    integrationsSlackChannelConfigPost,
     integrationsTelegramConfigDelete,
     integrationsTelegramConfigPost,
     integrationsTwilioCredentialsDelete,
     integrationsTwilioCredentialsPost,
 } from "@/generated/daemon/sdk.gen";
+import { useSaveSlackConfig } from "@/hooks/use-save-slack-config";
 import type {
     ChannelsAvailableGetResponse,
     IntegrationsSlackChannelConfigGetResponse,
@@ -129,6 +132,16 @@ export function ContactsPage({
   const a2aChannel = useAssistantFeatureFlagStore.use.a2aChannel();
   const identityName = useAssistantIdentityStore.use.name();
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const rawSetup = searchParams.get("setup");
+  const setupChannel = rawSetup && isSetupChannelId(rawSetup) ? rawSetup : null;
+
+  // Consume the `?setup=` param once on mount so it doesn't persist across navigations.
+  useEffect(() => {
+    if (!setupChannel) return;
+    setSearchParams((prev) => { prev.delete("setup"); return prev; }, { replace: true });
+  }, [setupChannel, setSearchParams]);
+
   const [selection, setSelection] = useState<ContactSelection>({
     kind: "assistant",
   });
@@ -214,7 +227,7 @@ export function ContactsPage({
   }, [contactsData, selectedContact]);
   const canMerge = mergeCandidates.length > 0;
 
-  const guardianAutoSelectedRef = useRef(false);
+  const guardianAutoSelectedRef = useRef(!!setupChannel);
   useEffect(() => {
     if (guardianAutoSelectedRef.current) return;
     if (!guardian) return;
@@ -242,7 +255,7 @@ export function ContactsPage({
     select: (data: IntegrationsSlackChannelConfigGetResponse) => data.threadMode,
   });
 
-  const slackThreadMode = slackConfigQuery.data as SlackThreadMode | undefined;
+  const slackThreadMode = slackConfigQuery.data;
 
   // Per-channel trust floors (admission policy), shown inline on each connected
   // channel when the `channelTrustFloors` flag is on.
@@ -414,15 +427,7 @@ export function ContactsPage({
     onSettled: () => invalidateReadiness(),
   });
 
-  const saveSlackMutation = useMutation({
-    mutationFn: ({ botToken, appToken }: { botToken: string; appToken: string }) =>
-      integrationsSlackChannelConfigPost({
-        path: { assistant_id: assistantId },
-        body: { botToken, appToken },
-        throwOnError: true,
-      }),
-    onSettled: () => invalidateReadiness(),
-  });
+  const saveSlackMutation = useSaveSlackConfig({ assistantId });
 
   const slackThreadModeMutation = useMutation({
     ...integrationsSlackChannelConfigPatchMutation(),
@@ -650,6 +655,7 @@ export function ContactsPage({
             onSlackThreadModeChange={handleSlackThreadModeChange}
             onSaveTwilioCredentials={handleSaveTwilioCredentials}
             onGenerateInviteLink={a2aChannel ? handleOpenInviteLink : undefined}
+            initialExpandedChannel={setupChannel}
           />
         ) : optimisticContact ? (
           optimisticContact.role === "guardian" ? (
@@ -755,13 +761,12 @@ function ContactsEmptyState() {
 function deriveChannelStates(
   snapshots: ChannelReadinessSnapshot[],
 ): AssistantChannelState[] {
-  const byChannel = new Map<string, ChannelReadinessSnapshot>();
+  const byChannel = new Map<ChannelReadinessSnapshot["channel"], ChannelReadinessSnapshot>();
   for (const snap of snapshots) {
     byChannel.set(snap.channel, snap);
   }
 
-  const order: AssistantChannelState["key"][] = ["slack", "telegram", "phone"];
-  return order.map((key) => {
+  return SETUP_CHANNEL_IDS.map((key) => {
     const snap = byChannel.get(key);
     const status = toChannelStatus(snap);
     return {

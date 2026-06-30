@@ -405,6 +405,32 @@ When the embedding backend or Qdrant is unavailable:
 - If embeddings are optional (default), the pipeline returns empty results (no fallback search path exists without Qdrant).
 - Degradation status is reported to clients via `memory_status` events.
 
+### Embedding Dimension Reconciliation
+
+The embedding dimension is a **committed property of the Qdrant collection**, derived from the dimension of whichever embedding backend built it. It is not a free-standing config value the user picks: `memory.qdrant.vectorSize` records the dimension the collections were created at, and reconciliation keeps that record consistent with the reachable backend.
+
+`reconcileEmbeddingIdentity` (`assistant/src/daemon/embedding-reconcile.ts`) runs once at daemon startup. It reads the committed collection dimension and probes the configured backend in parallel, then routes both observations through the pure `decideEmbeddingReconcile` (`assistant/src/persistence/embeddings/reconcile-decision.ts`) and executes the resulting action. A transient backend outage **degrades** (recall returns empty results, surfaced via `memory_worker_status`'s `embedding.degraded` flag) — it never destroys the collection.
+
+#### Decision table
+
+| Probe                       | Committed dim | Provider                                  | Action           | Effect                                                                                                                                                                                                                 |
+| --------------------------- | ------------- | ----------------------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| down (no reachable backend) | —             | —                                         | `defer-degraded` | No write, no destructive call. Warn and leave the collection untouched.                                                                                                                                                |
+| up                          | none          | —                                         | `commit-fresh`   | Adopt the probed dimension: commit it, ensure the collections exist at it (create-if-absent), enqueue a reembed.                                                                                                       |
+| up                          | matches probe | —                                         | `noop`           | No writes.                                                                                                                                                                                                             |
+| up                          | mismatch      | explicit (`openai` / `gemini` / `ollama`) | `migrate`        | Deliberate intent, confirmed by a successful probe: commit the new dim, destroy + recreate the collections, enqueue a reembed. The only destructive path.                                                              |
+| up                          | mismatch      | `auto`                                    | `noop`           | No thrash. Under `auto` the reachable backend can flip between a small local model (384) and a large managed model (3072) on transient availability, so a per-boot mismatch is not allowed to recreate the collection. |
+
+Confirm-before-destroy: a destructive recreate runs only on a `migrate` action, and only after a non-null backend probe. This makes the dimension change depend on the backend being reachable rather than on a config flag written before the backend is known to answer.
+
+#### Platform intent is a fill-only deployment default
+
+Platform deployments express an embedding-provider preference through `getDeploymentContextDefaults` in `assistant/src/config/loader.ts`: when `IS_PLATFORM` is set, the loader **fills** `memory.embeddings.provider: "gemini"` as an in-memory default. This default is layered at config-load time and is **not persisted** to `config.json`, and it does **not** set `memory.qdrant.vectorSize` or `geminiModel`. The dimension stays derived from the live probe; the explicit provider only lifts a genuine upgrade from `noop` (auto) to `migrate` (explicit) in the decision table above. There is no config migration that writes a provider or dimension to disk.
+
+#### Lazy ensure vs. startup reconcile
+
+The lazy `ensureCollection` paths (`ensureConceptPageCollection` in `assistant/src/memory/v2/qdrant.ts`, `ensureSectionCollection` for v3) **create-if-absent only** for the committed dimension. They never perform a dimension migration — destructive dimension change is owned solely by the startup reconcile's `migrate` action. The lazy paths still recreate on **schema drift**: a collection missing a required named vector (e.g. an unnamed-vector layout, or one lacking `summary_dense` / `summary_sparse`) is rebuilt and signalled via `{ migrated: true }` so callers enqueue a backfill.
+
 ---
 
 ## Workspace Context Injection — Directory Awareness

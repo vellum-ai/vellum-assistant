@@ -128,8 +128,8 @@ mock.module("../permissions/checker.js", () => ({
 }));
 
 // Mock every export so downstream test files that dynamically import modules
-// with a static `from "../memory/tool-usage-store.js"` still see all symbols.
-mock.module("../memory/tool-usage-store.js", () => ({
+// with a static `from "../telemetry/tool-usage-store.js"` still see all symbols.
+mock.module("../telemetry/tool-usage-store.js", () => ({
   recordToolInvocation: () => {},
   getRecentInvocations: () => [],
   rotateToolInvocations: async () => 0,
@@ -447,6 +447,16 @@ describe("ToolExecutor policy context plumbing", () => {
       conversationId: "conversation-1",
       executionContext: "conversation",
       executionTarget: "sandbox",
+      // Origin-scoping signal: buildPolicyContext now copies the turn's trust
+      // class onto the PolicyContext so the checker can scope narrow
+      // non-interactive auto-grants. requestOrigin/sourceChannel are unset for
+      // this interactive turn (omitted — toEqual ignores undefined-valued keys).
+      trustClass: "guardian",
+      // buildPolicyContext also precomputes the proc-to-skills gate (flag on AND
+      // v3 live) so the leaf permission checker can read it without touching
+      // config. This test does not mock memory-v3-gate.js, so the real gate runs
+      // against the default config and resolves inactive → false.
+      procToSkillsActive: false,
     });
   });
 
@@ -466,6 +476,10 @@ describe("ToolExecutor policy context plumbing", () => {
     expect(lastCheckArgs!.policyContext).toEqual({
       conversationId: "conversation-1",
       executionContext: "conversation",
+      // Trust class is now threaded onto the PolicyContext (see above).
+      trustClass: "guardian",
+      // Real (unmocked) proc-to-skills gate resolves inactive (see above).
+      procToSkillsActive: false,
     });
   });
 
@@ -495,6 +509,10 @@ describe("ToolExecutor policy context plumbing", () => {
     expect(lastCheckArgs!.policyContext).toEqual({
       conversationId: "conversation-1",
       executionContext: "conversation",
+      // Trust class is now threaded onto the PolicyContext (see above).
+      trustClass: "guardian",
+      // Real (unmocked) proc-to-skills gate resolves inactive (see above).
+      procToSkillsActive: false,
     });
   });
 
@@ -526,6 +544,10 @@ describe("ToolExecutor policy context plumbing", () => {
       conversationId: "conversation-1",
       executionContext: "conversation",
       executionTarget: "host",
+      // Trust class is now threaded onto the PolicyContext (see above).
+      trustClass: "guardian",
+      // Real (unmocked) proc-to-skills gate resolves inactive (see above).
+      procToSkillsActive: false,
     });
   });
 });

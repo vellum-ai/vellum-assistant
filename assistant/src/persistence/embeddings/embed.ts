@@ -13,8 +13,8 @@ import { type EmbeddingInput, embedWithBackend } from "./embedding-backend.js";
 
 const log = getLogger("memory-embed");
 
-const EMBED_MAX_RETRIES = 3;
-const EMBED_BASE_DELAY_MS = 500;
+export const EMBED_MAX_RETRIES = 3;
+export const EMBED_BASE_DELAY_MS = 500;
 
 /**
  * Wrap embedWithBackend with retry + exponential backoff for transient failures
@@ -32,8 +32,7 @@ export async function embedWithRetry(
     } catch (err) {
       lastError = err;
       if (opts?.signal?.aborted || isAbortError(err)) throw err;
-      const isTransient =
-        isRetryableNetworkError(err) || isHttpStatusError(err);
+      const isTransient = isTransientEmbeddingError(err);
       if (!isTransient || attempt === EMBED_MAX_RETRIES) throw err;
       const delay = computeRetryDelay(attempt, EMBED_BASE_DELAY_MS);
       log.warn(
@@ -47,9 +46,24 @@ export async function embedWithRetry(
   throw lastError;
 }
 
-function isAbortError(err: unknown): boolean {
+/**
+ * A caller-initiated abort, never a transient failure — must propagate
+ * immediately rather than being retried.
+ */
+export function isAbortError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   return err.name === "AbortError" || err.name === "APIUserAbortError";
+}
+
+/**
+ * Whether an embedding failure is transient and worth retrying: a retryable
+ * network error (ECONNRESET, timeout, …) or a 429 / 5xx from the provider.
+ * Shared so other embedding paths (e.g. the v3 candidate matcher, which embeds
+ * via `simBatch`) can apply the same bounded-retry policy as
+ * {@link embedWithRetry} instead of degrading on the first blip.
+ */
+export function isTransientEmbeddingError(err: unknown): boolean {
+  return isRetryableNetworkError(err) || isHttpStatusError(err);
 }
 
 function getErrorStatusCode(err: Error): unknown {

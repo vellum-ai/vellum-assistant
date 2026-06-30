@@ -391,7 +391,7 @@ mock.module("../agent/loop.js", () => ({
     }
   },
 }));
-mock.module("../memory/canonical-guardian-store.js", () => ({
+mock.module("../contacts/canonical-guardian-store.js", () => ({
   listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
   listCanonicalGuardianRequests: () => [],
   listPendingRequestsByConversationScope: () => [],
@@ -1265,8 +1265,11 @@ describe("Batched drain", () => {
     await conversation.loadFromDb();
 
     const budget = 4000;
-    (conversation as unknown as { queue: MessageQueue }).queue =
-      new MessageQueue(budget);
+    (
+      conversation as unknown as {
+        queue: MessageQueue;
+      }
+    ).queue = new MessageQueue(budget);
 
     // Start in-flight so subsequent enqueues are queued (not processed).
     const p1 = conversation.processMessage({
@@ -2997,6 +3000,49 @@ describe("subagent notification user_message_echo suppression", () => {
     await waitForPendingRun(2);
 
     expect(eventsNormal.some((e) => e.type === "user_message_echo")).toBe(true);
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("drained acp-notification message persists and wakes the agent but emits no user_message_echo", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: ServerMessage[] = [];
+    const eventsNotif: ServerMessage[] = [];
+
+    // Occupy the conversation so the injected notification queues.
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    // A daemon-injected ACP completion notification carries `acpNotification`.
+    conversation.enqueueMessage({
+      content: '[ACP agent "claude" completed]',
+      onEvent: (e) => eventsNotif.push(e),
+      requestId: "req-acp-notif",
+      metadata: {
+        acpNotification: { acpSessionId: "acp-1", agent: "claude" },
+      },
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // Still persisted (so the orchestrator LLM sees it) and still wakes the
+    // agent...
+    expect(
+      capturedAddMessages.some((m) => m.content.includes("ACP agent")),
+    ).toBe(true);
+    expect(pendingRuns.length).toBe(2);
+    // ...but no user_message_echo, so the client never renders a live bubble.
+    expect(eventsNotif.some((e) => e.type === "user_message_echo")).toBe(false);
 
     await resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));

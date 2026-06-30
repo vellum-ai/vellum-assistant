@@ -251,7 +251,7 @@ export async function executeScheduleUpdate(
   }
 
   try {
-    const job = updateSchedule(
+    const job = await updateSchedule(
       jobId,
       updates as {
         name?: string;

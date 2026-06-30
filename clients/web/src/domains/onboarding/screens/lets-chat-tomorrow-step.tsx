@@ -97,7 +97,7 @@ export function LetsChatTomorrowStep({
             type="button"
             onClick={handleConnectClick}
             disabled={connectDisabled}
-            className="flex h-11 w-full items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition-transform duration-150 enabled:active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex cursor-pointer h-11 w-full items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition-transform duration-150 enabled:active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60"
             style={{
               backgroundColor: tone.isLight ? "#1A1A1A" : "#FFFFFF",
               color: tone.isLight ? "#FFFFFF" : "#1A1A1A",
@@ -124,7 +124,7 @@ export function LetsChatTomorrowStep({
             type="button"
             onClick={onSkip}
             disabled={oauthInProgress}
-            className="text-body-small-default transition-opacity hover:opacity-100 disabled:opacity-60"
+            className="cursor-pointer text-body-small-default transition-opacity hover:opacity-100 disabled:opacity-60"
             style={{ color: tone.fgMuted }}
           >
             Skip for now

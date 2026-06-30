@@ -28,10 +28,12 @@ const conversationCrudRealSnapshot = {
 };
 const conversationDiskViewRealSnapshot = {
   ...(createRequire(import.meta.url)(
-    "../memory/conversation-disk-view.js",
+    "../persistence/conversation-disk-view.js",
   ) as Record<string, unknown>),
 };
 let mockUiConfig: { userTimezone?: string; detectedTimezone?: string } = {};
+let mockLlmProfiles: Record<string, unknown> = {};
+let mockLlmActiveProfile: string | undefined;
 
 // ── Module mocks (must precede imports of the module under test) ─────
 
@@ -80,8 +82,9 @@ mock.module("../config/loader.js", () => ({
           },
         },
       },
-      profiles: {},
+      profiles: mockLlmProfiles,
       callSites: {},
+      activeProfile: mockLlmActiveProfile,
       pricingOverrides: [],
     },
     rateLimit: { maxRequestsPerMinute: 0 },
@@ -318,7 +321,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
 
 // The B3 indexing-restoration path imports `indexMessageNow` from
 // `../memory/indexer.js` and `projectAssistantMessage` from
-// `../memory/conversation-attention-store.js`; without these stubs the
+// `../persistence/conversation-attention-store.js`; without these stubs the
 // real modules would try to open a SQLite DB and read a real config.
 const indexMessageNowMock = mock(async () => ({
   indexedSegments: 0,
@@ -326,10 +329,10 @@ const indexMessageNowMock = mock(async () => ({
 }));
 const projectAssistantMessageMock = mock(() => false);
 const publishSyncInvalidationMock = mock(async () => {});
-mock.module("../memory/indexer.js", () => ({
+mock.module("../plugins/defaults/memory/indexer.js", () => ({
   indexMessageNow: indexMessageNowMock,
 }));
-mock.module("../memory/conversation-attention-store.js", () => ({
+mock.module("../persistence/conversation-attention-store.js", () => ({
   projectAssistantMessage: projectAssistantMessageMock,
 }));
 mock.module("../runtime/sync/sync-publisher.js", () => ({
@@ -342,14 +345,14 @@ afterAll(() => {
     () => conversationCrudRealSnapshot,
   );
   mock.module(
-    "../memory/conversation-disk-view.js",
+    "../persistence/conversation-disk-view.js",
     () => conversationDiskViewRealSnapshot,
   );
 });
 
 const syncMessageToDiskMock = mock(() => {});
 const rebuildConversationDiskViewFromDbStateMock = mock(() => {});
-mock.module("../memory/conversation-disk-view.js", () => ({
+mock.module("../persistence/conversation-disk-view.js", () => ({
   syncMessageToDisk: syncMessageToDiskMock,
   rebuildConversationDiskViewFromDbState:
     rebuildConversationDiskViewFromDbStateMock,
@@ -368,13 +371,13 @@ mock.module("../memory/retriever.js", () => ({
   injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
 }));
 
-mock.module("../memory/app-store.js", () => ({
+mock.module("../apps/app-store.js", () => ({
   getApp: () => null,
   listAppFiles: () => [],
   getAppsDir: () => "/tmp/apps",
 }));
 
-mock.module("../memory/app-git-service.js", () => ({
+mock.module("../apps/app-git-service.js", () => ({
   commitAppTurnChanges: () => Promise.resolve(),
 }));
 
@@ -835,6 +838,8 @@ function makeCompactionResult(
 
 beforeEach(() => {
   mockUiConfig = {};
+  mockLlmProfiles = {};
+  mockLlmActiveProfile = undefined;
   mockEstimateTokens = 1000;
   mockReducerStepFn = null;
   mockOverflowAction = "fail_gracefully";
@@ -903,6 +908,39 @@ beforeEach(() => {
 
 describe("session-agent-loop", () => {
   describe("user-prompt-submit hook failures", () => {
+    test("passes the effective profile to hooks even when it was already announced", async () => {
+      mockLlmProfiles = {
+        balanced: {
+          label: "Balanced",
+          model: "accounts/fireworks/models/glm-5p2",
+        },
+        quality: { label: "Quality", model: "claude-opus-4-8" },
+      };
+      mockLlmActiveProfile = "quality";
+      const observedProfileKeys: string[] = [];
+      registerPlugin({
+        manifest: {
+          name: "test-observe-model-profile",
+          version: "1.0.0",
+        },
+        hooks: {
+          "user-prompt-submit": async (ctx: UserPromptSubmitContext) => {
+            observedProfileKeys.push(ctx.modelProfileKey);
+          },
+        },
+      });
+
+      const ctx = makeCtx({
+        inferenceProfile: "balanced",
+        lastNotifiedInferenceProfile: "balanced",
+        providerResponses: [textResponse("ok")],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(observedProfileKeys).toEqual(["balanced"]);
+    });
+
     test("logs and continues with prior hook mutations", async () => {
       registerPlugin({
         manifest: {

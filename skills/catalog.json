@@ -116,7 +116,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T10:31:14.000Z"
+      "updatedAt": "2026-06-29T12:41:07.000Z"
     },
     {
       "id": "deploy-fullstack-vercel",
@@ -658,7 +658,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-27T16:12:58.000Z"
+      "updatedAt": "2026-06-29T23:55:43.000Z"
     },
     {
       "id": "public-ingress",

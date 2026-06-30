@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   getPkbAutoInjectList,
   readAutoinjectList,
-} from "../memory/pkb/autoinject.js";
+} from "../plugins/defaults/memory/pkb/autoinject.js";
 
 const PKB_DEFAULT_FILES = [
   "INDEX.md",

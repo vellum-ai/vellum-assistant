@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const checkpointStore = new Map<string, string>();
 
-mock.module("../memory/checkpoints.js", () => ({
+mock.module("../persistence/checkpoints.js", () => ({
   getMemoryCheckpoint: (key: string) => checkpointStore.get(key) ?? null,
   setMemoryCheckpoint: (key: string, value: string) => {
     checkpointStore.set(key, value);

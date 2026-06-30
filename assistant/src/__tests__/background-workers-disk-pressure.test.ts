@@ -165,7 +165,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
   extractImageSourcePaths: () => undefined,
 }));
 
-mock.module("../memory/conversation-title-service.js", () => ({
+mock.module("../persistence/conversation-title-service.js", () => ({
   GENERATING_TITLE: "Generating title...",
   AUTO_TITLE_DETERMINISTIC: 2,
   deriveDeterministicTitle: (context: { systemHint?: string }) =>
@@ -207,13 +207,14 @@ mock.module("../persistence/db-maintenance.js", () => ({
   maybeRunDbMaintenance: mockMaybeRunDbMaintenance,
 }));
 
-mock.module("../memory/cleanup-schedule-state.js", () => ({
+mock.module("../persistence/cleanup-schedule-state.js", () => ({
   getLastScheduledCleanupEnqueueMs: () => 0,
   markScheduledCleanupEnqueued: mock(() => {}),
 }));
 
 const { runMemoryJobsOnce } = await import("../persistence/jobs-worker.js");
-const { FilingService } = await import("../filing/filing-service.js");
+const { FilingService } =
+  await import("../plugins/defaults/memory/filing-service.js");
 const { WorkspaceHeartbeatService } =
   await import("../workspace/heartbeat-service.js");
 

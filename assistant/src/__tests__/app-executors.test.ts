@@ -27,7 +27,7 @@ beforeEach(() => {
   };
 });
 
-import type { AppDefinition } from "../memory/app-store.js";
+import type { AppDefinition } from "../apps/app-store.js";
 import type { AppStore } from "../tools/apps/executors.js";
 import {
   executeAppCreate,

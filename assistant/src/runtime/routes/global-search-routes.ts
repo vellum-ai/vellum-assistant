@@ -12,13 +12,13 @@ import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
 import { searchContacts } from "../../contacts/contact-store.js";
-import { rawAll } from "../../memory/raw-query.js";
-import { semanticSearch } from "../../memory/search/semantic.js";
 import { searchConversations } from "../../persistence/conversation-queries.js";
 import {
   embedWithBackend,
   getMemoryBackendStatus,
 } from "../../persistence/embeddings/embedding-backend.js";
+import { rawAll } from "../../persistence/raw-query.js";
+import { semanticSearch } from "../../plugins/defaults/memory/search/semantic.js";
 import { listSchedules } from "../../schedule/schedule-store.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";

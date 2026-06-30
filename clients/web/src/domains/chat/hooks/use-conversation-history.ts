@@ -193,7 +193,6 @@ export function useConversationHistory({
       hasMore: pagination.hasMore,
       oldestTimestamp: pagination.oldestLoadedTimestamp,
       isLoadingOlder: pagination.isFetchingOlderPages,
-      isPinnedToLatest: true,
     });
 
     recordDiagnostic("history_tq_data_apply", {

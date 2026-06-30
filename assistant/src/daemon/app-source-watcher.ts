@@ -11,14 +11,14 @@
 
 import { existsSync, type FSWatcher, watch } from "node:fs";
 
-import { compileApp } from "../bundler/app-compiler.js";
 import {
   getApp,
   getAppDirPath,
   getAppsDir,
   isMultifileApp,
   resolveAppIdByDirName,
-} from "../memory/app-store.js";
+} from "../apps/app-store.js";
+import { compileApp } from "../bundler/app-compiler.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { publishAppsChanged } from "../runtime/sync/resource-sync-events.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";

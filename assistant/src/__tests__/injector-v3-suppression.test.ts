@@ -32,9 +32,9 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
-import { wrapMemorySpotlightBlock } from "../memory/memory-marker.js";
-import { INJECTION_HEADER } from "../memory/v2/injection.js";
+import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
+import { wrapMemorySpotlightBlock } from "../plugins/defaults/memory/memory-marker.js";
+import { INJECTION_HEADER } from "../plugins/defaults/memory/v2/injection.js";
 import { V3_CARDS_INJECTION_HEADER } from "../plugins/defaults/memory/v3/render-injection.js";
 import { MEMORY_V3_COMMIT_META_KEY } from "../plugins/defaults/memory/v3/types.js";
 import type {
@@ -55,10 +55,14 @@ mock.module("../plugins/injector-registry.js", () => ({
 }));
 
 // `applyRuntimeInjections` reads the v3-live gate (`config.memory.v3.live`)
-// via `isMemoryV3Live`; drive it directly through this slot per-test.
+// via `isMemoryV3Live`; drive it directly through this slot per-test. The
+// import graph also pulls `isProcToSkillsActive` (the permission policy-context
+// precomputes the proc-to-skills gate), so the wholesale mock must expose it —
+// keyed off the same v3-live slot.
 let memoryV3LiveSlot = false;
 mock.module("../config/memory-v3-gate.js", () => ({
   isMemoryV3Live: () => memoryV3LiveSlot,
+  isProcToSkillsActive: () => false,
 }));
 
 const { applyRuntimeInjections } =

@@ -14,7 +14,6 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
 }));
 
-import { queryUnreportedTurnEvents } from "../memory/turn-events-store.js";
 import {
   addMessage,
   createConversation,
@@ -22,6 +21,7 @@ import {
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { messages } from "../persistence/schema/index.js";
+import { queryUnreportedTurnEvents } from "../telemetry/turn-events-store.js";
 
 await initializeDb();
 

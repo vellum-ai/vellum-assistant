@@ -10,7 +10,8 @@ import { Typography } from "@vellumai/design-library/components/typography";
 import { DetailCard } from "@/components/detail-card";
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
 import { ShareConnectionLinkButton } from "@/domains/contacts/components/share-connection-link-button";
-import { SlackSetupWizard, type SlackThreadMode } from "@/domains/contacts/components/slack-setup-wizard";
+import { SlackChannelCard } from "@/domains/contacts/components/slack-channel-card";
+import { SlackSetupWizard, type SlackThreadMode } from "@/components/slack-setup-wizard";
 import type { AssistantChannelState } from "@/domains/contacts/types";
 import {
   ADMISSION_POLICY_DEFAULT,
@@ -20,7 +21,7 @@ import {
   type AdmissionPolicy,
 } from "@/lib/channel-admission-policy/types";
 
-export type { SlackThreadMode } from "@/domains/contacts/components/slack-setup-wizard";
+export type { SlackThreadMode } from "@/components/slack-setup-wizard";
 
 type ChannelKey = AssistantChannelState["key"];
 
@@ -87,6 +88,8 @@ interface AssistantChannelsDetailProps {
   onSlackThreadModeChange?: (mode: SlackThreadMode) => void;
   onSaveTwilioCredentials?: (accountSid: string, authToken: string) => Promise<void>;
   onGenerateInviteLink?: () => void;
+  /** Pre-expand a channel on mount (e.g. from a `?setup=slack` deep-link). */
+  initialExpandedChannel?: ChannelKey | null;
 }
 
 const CHANNEL_META: Record<
@@ -131,10 +134,13 @@ export function AssistantChannelsDetail({
   onSlackThreadModeChange,
   onSaveTwilioCredentials,
   onGenerateInviteLink,
+  initialExpandedChannel = null,
 }: AssistantChannelsDetailProps) {
   const displayName = assistantName.trim() || "your assistant";
   const [pendingDisconnect, setPendingDisconnect] = useState<ChannelKey | null>(null);
-  const [expandedChannels, setExpandedChannels] = useState<Set<ChannelKey>>(new Set());
+  const [expandedChannels, setExpandedChannels] = useState<Set<ChannelKey>>(
+    () => initialExpandedChannel ? new Set([initialExpandedChannel]) : new Set(),
+  );
   // Floor confirmation: non-null while a floor in POLICY_CONFIRMATIONS awaits
   // the user's go-ahead before persisting.
   const [pendingPolicy, setPendingPolicy] = useState<{
@@ -380,21 +386,9 @@ function ChannelRow({
         </div>
       </div>
 
-      {!connected && channel.key === "telegram" && expanded ? (
-        <TelegramCredentialEntry onSave={onSaveTelegramToken} />
-      ) : null}
-
-      {!connected && channel.key === "slack" && expanded ? (
-        <SlackSetupWizard assistantName={assistantName} onSave={onSaveSlackConfig} />
-      ) : null}
-
-      {!connected && channel.key === "phone" && expanded ? (
-        <TwilioCredentialEntry onSave={onSaveTwilioCredentials} />
-      ) : null}
-
-      {connected && expanded ? (
-        <div className="flex flex-col gap-4">
-          {onPolicyChange ? (
+      {expanded ? (
+        <div className={connected ? "flex flex-col gap-4" : undefined}>
+          {connected && onPolicyChange ? (
             <ChannelTrustFloorSection
               policy={policy}
               saving={policySaving}
@@ -409,13 +403,16 @@ function ChannelRow({
           ) : null}
 
           {channel.key === "slack" ? (
-            <SlackSetupWizard
-              assistantName={assistantName}
-              connected
-              threadMode={slackThreadMode}
-              threadModePending={slackThreadModePending}
-              onThreadModeChange={onSlackThreadModeChange}
-            />
+            <SlackChannelCard assistantName={assistantName} connected={connected}>
+              <SlackSetupWizard
+                assistantName={assistantName}
+                connected={connected}
+                onSave={onSaveSlackConfig}
+                threadMode={slackThreadMode}
+                threadModePending={slackThreadModePending}
+                onThreadModeChange={onSlackThreadModeChange}
+              />
+            </SlackChannelCard>
           ) : null}
 
           {channel.key === "phone" ? (

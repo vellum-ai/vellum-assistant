@@ -102,13 +102,13 @@ mock.module("../../../acp/prepare-agent-env.js", () => ({
 // registered confirmation the same way `POST /v1/confirm` would (resolve +
 // directResolve). `approvalBehavior` flips allow/deny; `confirmationRequests`
 // captures the prompts. Other event types are ignored.
-import * as pendingInteractions from "../../../runtime/pending-interactions.js";
+import * as pendingInteractions from "../../pending-interactions.js";
 
 let approvalBehavior: "allow" | "deny" = "allow";
 const confirmationRequests: Array<Record<string, unknown>> = [];
 const broadcasts: Array<Record<string, unknown>> = [];
 
-mock.module("../../../runtime/assistant-event-hub.js", () => ({
+mock.module("../../assistant-event-hub.js", () => ({
   broadcastMessage: (msg: { type?: string; requestId?: string }) => {
     broadcasts.push(msg as Record<string, unknown>);
     if (msg?.type !== "confirmation_request") return;

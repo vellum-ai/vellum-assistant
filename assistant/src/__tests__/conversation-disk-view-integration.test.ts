@@ -45,10 +45,6 @@ mock.module("../config/loader.js", () => ({
 // ---------------------------------------------------------------------------
 
 import {
-  getConversationDirPath,
-  syncMessageToDisk,
-} from "../memory/conversation-disk-view.js";
-import {
   linkAttachmentToMessage,
   uploadAttachment,
 } from "../persistence/attachments-store.js";
@@ -59,6 +55,10 @@ import {
   deleteConversation,
   updateConversationTitle,
 } from "../persistence/conversation-crud.js";
+import {
+  getConversationDirPath,
+  syncMessageToDisk,
+} from "../persistence/conversation-disk-view.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 await initializeDb();

@@ -13,7 +13,7 @@ import type { ChannelId } from "../../../channels/types.js";
 import {
   listCanonicalGuardianRequests,
   listPendingCanonicalGuardianRequestsByDestinationChat,
-} from "../../../memory/canonical-guardian-store.js";
+} from "../../../contacts/canonical-guardian-store.js";
 import { getLogger } from "../../../util/logger.js";
 import { deliverChannelReply } from "../../gateway-client.js";
 import {

@@ -71,7 +71,9 @@ import {
   parsePendingConfirmationData,
   parsePendingSecretState,
   resolvePostError,
+  shouldCleanupSupersededInteractions,
 } from "@/domains/chat/utils/send-message-utils";
+import type { UIContext } from "@/domains/chat/turn-selectors";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { getSoundManager } from "@/lib/sounds/sound-manager";
 import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue";
@@ -129,6 +131,7 @@ interface UseSendMessageParams {
   assistantId: string | null;
   activeConversationId: string | null;
   diskPressureChatBlockReason: DiskPressureChatBlockReason | null;
+  uiContextRef: MutableRefObject<UIContext | null>;
 
   // Onboarding refs (ChatPage-local, not per-conversation)
   pendingOnboardingContextRef: MutableRefObject<PreChatOnboardingContext | null>;
@@ -149,6 +152,7 @@ export function useSendMessage({
   assistantId,
   activeConversationId,
   diskPressureChatBlockReason,
+  uiContextRef,
   pendingOnboardingContextRef,
   onboardingDraftConversationIdRef,
   startReconciliationLoop,
@@ -680,26 +684,28 @@ export function useSendMessage({
       // no-op for rows it doesn't match) to both the snapshot and the history
       // cache, and the dismissed-id list that drives the hide set is computed
       // over the same view.
-      const transcriptForScan =
-        useChatSessionStore.getState().snapshot?.messages ?? [];
+      if (shouldCleanupSupersededInteractions(uiContextRef.current)) {
+        const transcriptForScan =
+          useChatSessionStore.getState().snapshot?.messages ?? [];
 
-      patchTranscriptMessages((prev) => {
-        const cleared = clearPendingConfirmationsFromMessages(prev);
-        const { updatedMessages, dismissedIds } = dismissInteractiveSurfaces(
-          cleared,
+        patchTranscriptMessages((prev) => {
+          const cleared = clearPendingConfirmationsFromMessages(prev);
+          const { updatedMessages, dismissedIds } = dismissInteractiveSurfaces(
+            cleared,
+            transcriptForScan,
+          );
+          return dismissedIds.size > 0 ? updatedMessages : cleared;
+        });
+
+        // Persist dismissed surfaces outside the updater (side effect).
+        const { dismissedIds } = dismissInteractiveSurfaces(
+          transcriptForScan,
           transcriptForScan,
         );
-        return dismissedIds.size > 0 ? updatedMessages : cleared;
-      });
-
-      // Persist dismissed surfaces outside the updater (side effect).
-      const { dismissedIds } = dismissInteractiveSurfaces(
-        transcriptForScan,
-        transcriptForScan,
-      );
-      if (dismissedIds.size > 0) {
-        persistDismissedSurfaces(dismissedIds);
-        useTurnStore.getState().dismissSurface();
+        if (dismissedIds.size > 0) {
+          persistDismissedSurfaces(dismissedIds);
+          useTurnStore.getState().dismissSurface();
+        }
       }
 
       const willQueue = isSending(useTurnStore.getState().phase);
@@ -901,6 +907,7 @@ export function useSendMessage({
       activeConversationId,
       assistantId,
       diskPressureChatBlockReason,
+      uiContextRef,
       runLocalMetaCommand,
       sendMessageViaStream,
       refreshConversations,

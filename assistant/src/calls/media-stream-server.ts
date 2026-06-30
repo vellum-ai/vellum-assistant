@@ -33,7 +33,7 @@
 
 import type { ServerWebSocket } from "bun";
 
-import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
+import { revokeScopedApprovalGrantsForContext } from "../approvals/scoped-approval-grants.js";
 import { toTrustContext } from "../runtime/actor-trust-resolver.js";
 import { getLogger } from "../util/logger.js";
 import { CallController } from "./call-controller.js";

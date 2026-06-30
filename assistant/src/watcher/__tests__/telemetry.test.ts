@@ -15,7 +15,7 @@ let recordImpl: (name: string) => void = (name) => {
   recordedEvents.push(name);
 };
 
-mock.module("../../memory/checkpoints.js", () => ({
+mock.module("../../persistence/checkpoints.js", () => ({
   getMemoryCheckpoint: (key: string) => checkpoints.get(key) ?? null,
   setMemoryCheckpoint: (key: string, value: string) => {
     checkpoints.set(key, value);

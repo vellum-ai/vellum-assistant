@@ -145,6 +145,9 @@ export interface DisplayMessage {
   /** True for daemon-injected subagent lifecycle notifications that should
    *  not render as user bubbles. Matches macOS `isSubagentNotification`. */
   isSubagentNotification?: boolean;
+  /** True for daemon-injected ACP-run lifecycle notifications; suppressed from
+   *  the transcript like {@link isSubagentNotification}. */
+  isAcpNotification?: boolean;
 }
 
 /**

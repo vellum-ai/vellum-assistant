@@ -18,7 +18,7 @@ const mockSetMemoryCheckpoint = mock<(key: string, value: string) => void>(
   () => {},
 );
 
-mock.module("../memory/checkpoints.js", () => ({
+mock.module("../persistence/checkpoints.js", () => ({
   getMemoryCheckpoint: mockGetMemoryCheckpoint,
   setMemoryCheckpoint: mockSetMemoryCheckpoint,
 }));
@@ -48,7 +48,7 @@ const mockQueryUnreportedTurnEvents = mock(
     }[],
 );
 
-mock.module("../memory/turn-events-store.js", () => ({
+mock.module("./turn-events-store.js", () => ({
   queryUnreportedTurnEvents: mockQueryUnreportedTurnEvents,
 }));
 
@@ -166,7 +166,7 @@ const mockIsTurnSettled = mock(
   }): boolean => true,
 );
 
-mock.module("../memory/turn-trace-store.js", () => ({
+mock.module("./turn-trace-store.js", () => ({
   assembleBoundedTurnTrace: mockAssembleBoundedTurnTrace,
   isTurnSettled: mockIsTurnSettled,
 }));
@@ -205,7 +205,7 @@ const mockQueryUnreportedOnboardingEvents = mock(
     }[],
 );
 
-mock.module("../memory/onboarding-events-store.js", () => ({
+mock.module("../onboarding/onboarding-events-store.js", () => ({
   queryUnreportedOnboardingEvents: mockQueryUnreportedOnboardingEvents,
 }));
 
@@ -224,8 +224,6 @@ import {
   TOOL_INVOCATION_PII_SENTINEL as TOOL_PII_SENTINEL,
   type ToolInvocationSeedSpec,
 } from "../__tests__/test-support/tool-invocation-seed.js";
-import { recordAuthFallbackCounts } from "../memory/auth-fallback-events-store.js";
-import { recordSkillLoadedEvent } from "../memory/skill-loaded-events-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {
@@ -234,11 +232,13 @@ import {
   skillLoadedEvents,
   toolInvocations,
 } from "../persistence/schema/index.js";
+import { recordAuthFallbackCounts } from "../security/auth-fallback-events-store.js";
 import type { UsageEvent } from "../usage/types.js";
 import {
   ACTIVATION_FUNNEL_VERSION,
   buildActivationDaemonEventId,
 } from "./activation-funnel.js";
+import { recordSkillLoadedEvent } from "./skill-loaded-events-store.js";
 import { UsageTelemetryReporter } from "./usage-telemetry-reporter.js";
 
 await initializeDb();

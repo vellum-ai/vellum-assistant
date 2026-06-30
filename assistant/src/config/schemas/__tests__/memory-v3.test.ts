@@ -25,6 +25,7 @@ describe("MemoryV3ConfigSchema", () => {
       selectorEnabled: true,
       selectorPromptPath: null,
       edge: { hubDegree: 30, seedCount: 18, perSeed: 6, cap: 45 },
+      entity: { enabled: true, idfFloor: 4, cap: 8 },
     });
   });
 

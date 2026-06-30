@@ -82,7 +82,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
     persistedSeqByConversation.get(id) ?? null,
 }));
 
-mock.module("../memory/conversation-disk-view.js", () => ({
+mock.module("../persistence/conversation-disk-view.js", () => ({
   syncMessageToDisk: () => {},
 }));
 
@@ -91,13 +91,16 @@ mock.module("../persistence/llm-request-log-store.js", () => ({
   backfillMessageIdOnLogs: () => {},
 }));
 
-mock.module("../memory/memory-recall-log-store.js", () => ({
+mock.module("../plugins/defaults/memory/memory-recall-log-store.js", () => ({
   backfillMemoryRecallLogMessageId: () => {},
 }));
 
-mock.module("../memory/memory-v2-activation-log-store.js", () => ({
-  backfillMemoryV2ActivationMessageId: () => {},
-}));
+mock.module(
+  "../plugins/defaults/memory/memory-v2-activation-log-store.js",
+  () => ({
+    backfillMemoryV2ActivationMessageId: () => {},
+  }),
+);
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
 import type { AgentEvent } from "../agent/loop.js";

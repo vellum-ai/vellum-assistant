@@ -50,6 +50,8 @@ import type { AssistantConfig } from "../../../../config/schema.js";
 import { denseLane } from "./dense.js";
 import type { EdgeGraph } from "./edge.js";
 import { edgeExpand } from "./edge.js";
+import type { EntityIndex } from "./entity-lane.js";
+import { entityLane } from "./entity-lane.js";
 import type { PoolCandidate, StableCandidate } from "./pool-select.js";
 import { selectAllPoolCandidates, selectPool } from "./pool-select.js";
 import type { SectionNeedle } from "./section-needle.js";
@@ -63,13 +65,19 @@ import type {
 } from "./types.js";
 
 /** Default number of BM25 needle articles to fold into the pool. */
-export const DEFAULT_NEEDLE_K = 100;
+export const DEFAULT_NEEDLE_K = 12;
 /** Default number of dense-lane articles to fold into the pool. */
-export const DEFAULT_DENSE_K = 100;
+export const DEFAULT_DENSE_K = 0;
+/** Default hard cap on entity-lane articles folded into the pool per turn. */
+export const DEFAULT_ENTITY_CAP = 8;
 
 export interface OrchestrateDeps {
   sectionIndex: SectionIndex;
   needle: SectionNeedle;
+  /** Heading-anchored entity catalog (distinctive `## ` heading tokens → their
+   *  sections), built at lane init when the entity lane is enabled. Omitted
+   *  disables the lane. */
+  entityIndex?: EntityIndex;
   /** Config the dense lane needs to embed the query + search the section
    *  collection. */
   denseConfig: AssistantConfig;
@@ -97,6 +105,9 @@ export interface OrchestrateDeps {
   needleK?: number;
   /** Number of dense-lane articles. Defaults to {@link DEFAULT_DENSE_K}. */
   denseK?: number;
+  /** Hard cap on entity-lane articles. Defaults to {@link DEFAULT_ENTITY_CAP}.
+   *  Ignored when `entityIndex` is omitted (the lane is off). */
+  entityCap?: number;
   /** Per-lane article budget for the reply-query pass (needle + dense re-run
    *  over `turn.previousAssistantMessage` as separate queries). `0` or
    *  omitted disables the pass (canonical value: `memory.v3.replyQueryK`). */
@@ -292,6 +303,38 @@ export async function orchestrate(
       undefined,
       "reply",
     );
+  }
+
+  // Step 1b'': entity lane — sections whose `## ` heading NAMES a distinctive
+  // entity the message mentions. Additive BM25 buries a single named entity
+  // under a long, multi-topic message's bulk theme; this keys on the heading
+  // vocabulary so the page the user named surfaces regardless of the bulk
+  // theme. Runs before edge expansion so an entity hit joins `finderSeen` (edge
+  // won't re-surface it section-less); it is NOT added to the edge seeds, so it
+  // only contributes its own page.
+  //
+  // The heading section IS the identity this lane exists to surface, so it
+  // takes precedence over any bulk-theme section a prior lane (needle / dense /
+  // reply) already recorded for the SAME page: `addFinder` keeps the first
+  // matched section and skips duplicate slugs, so override the matched section
+  // and the existing finder descriptor here before delegating, ensuring
+  // injection, the spotlight, and the selector snippet all render the heading
+  // rather than the earlier non-entity match.
+  if (deps.entityIndex) {
+    for (const hit of entityLane(
+      deps.entityIndex,
+      deps.sectionIndex,
+      turn.currentMessage,
+      deps.entityCap ?? DEFAULT_ENTITY_CAP,
+    )) {
+      const section = sections[hit.section];
+      if (section) {
+        matchedSections.set(hit.article, section);
+        const existing = finder.find((c) => c.slug === hit.article);
+        if (existing) existing.descriptor = section.text;
+      }
+      addFinder(hit.article, section, undefined, "entity");
+    }
   }
 
   // Step 1c: edge expansion over the top needle+dense article seeds. `alive`

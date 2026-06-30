@@ -22,13 +22,13 @@
  * Every surface is attempted independently; one failure never blocks the rest.
  */
 
-import { completeSurfaceAndNotify } from "../daemon/conversation-surfaces.js";
 import {
   type CanonicalGuardianDelivery,
   type CanonicalGuardianRequest,
   type CanonicalRequestStatus,
   listCanonicalGuardianDeliveries,
-} from "../memory/canonical-guardian-store.js";
+} from "../contacts/canonical-guardian-store.js";
+import { completeSurfaceAndNotify } from "../daemon/conversation-surfaces.js";
 import { withdrawSlackApprovalCard } from "../messaging/providers/slack/withdraw.js";
 import { approvalCardSurfaceId } from "../notifications/approval-card-data.js";
 import { getLogger } from "../util/logger.js";

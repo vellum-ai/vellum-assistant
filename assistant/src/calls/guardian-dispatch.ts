@@ -8,14 +8,14 @@
  */
 
 import {
-  getGuardianDelivery,
-  guardianForChannel,
-} from "../contacts/guardian-delivery-reader.js";
-import {
   createCanonicalGuardianRequest,
   listCanonicalGuardianDeliveries,
   listCanonicalGuardianRequests,
-} from "../memory/canonical-guardian-store.js";
+} from "../contacts/canonical-guardian-store.js";
+import {
+  getGuardianDelivery,
+  guardianForChannel,
+} from "../contacts/guardian-delivery-reader.js";
 import {
   recordApprovalCardDelivery,
   recordGuardianRequestDeliveries,

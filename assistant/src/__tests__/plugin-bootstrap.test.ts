@@ -504,9 +504,12 @@ describe("plugin bootstrap", () => {
     const names = getRegisteredPlugins().map((p) => p.manifest.name);
     expect(names).toContain("sentinel-off");
     // But its hooks are filtered out at read time by `isPluginDisabled`.
+    // Enabled default plugins (e.g. default-memory) contribute their own init
+    // hook, so assert specifically that the disabled plugin's hook is absent
+    // rather than that the list is empty.
     const { getHooksFor } = await import("../hooks/registry.js");
     const hooks = await getHooksFor("init");
-    expect(hooks).toHaveLength(0);
+    expect(hooks).not.toContain(plugin.hooks?.init);
 
     await rm(sentinelDir, { recursive: true, force: true });
   });

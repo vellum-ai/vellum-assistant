@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentEvent } from "../agent/loop.js";
-import { getConversationDirName } from "../memory/conversation-disk-view.js";
+import { getConversationDirName } from "../persistence/conversation-disk-view.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
@@ -135,7 +135,7 @@ mock.module("../memory/query-builder.js", () => ({
   buildMemoryQuery: () => "",
 }));
 
-mock.module("../memory/retrieval-budget.js", () => ({
+mock.module("../plugins/defaults/memory/retrieval-budget.js", () => ({
   computeRecallBudget: () => 0,
 }));
 
@@ -168,7 +168,7 @@ mock.module("../persistence/llm-usage-store.js", () => ({
   recordUsageEvent: () => ({ id: "usage-1", createdAt: Date.now() }),
 }));
 
-mock.module("../memory/app-store.js", () => ({
+mock.module("../apps/app-store.js", () => ({
   getApp: () => null,
   updateApp: () => {},
 }));

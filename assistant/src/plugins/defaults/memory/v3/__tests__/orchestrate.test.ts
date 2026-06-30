@@ -17,12 +17,9 @@
 
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { PageIndexEntry } from "../../../../../memory/v2/page-index.js";
-import type {
-  Message,
-  Provider,
-  ProviderResponse,
-} from "../../../../../providers/types.js";
+import type { Message, Provider, ProviderResponse } from "@vellumai/plugin-api";
+
+import type { PageIndexEntry } from "../../v2/page-index.js";
 import { renderCard } from "../card.js";
 import type { EdgeGraph } from "../edge.js";
 import { buildEdgeGraph } from "../edge.js";
@@ -279,7 +276,7 @@ describe("orchestrate — candidate pool composition", () => {
     denseHits = [{ article: "topic-b", section: 0 }];
     providerStub = selectProvider([]); // selection is irrelevant to pool union
 
-    await orchestrate(makeTurn(1, "apple"), depsOf(lanes));
+    await orchestrate(makeTurn(1, "apple"), depsOf(lanes, { denseK: 100 }));
 
     expect(selectCalls).toBe(1);
     expect(new Set(lastPool)).toEqual(
@@ -358,12 +355,14 @@ describe("orchestrate — candidate pool composition", () => {
         return [];
       },
       bestSection: () => -1,
+      idf: () => 0,
     };
     providerStub = selectProvider([]);
     await orchestrate(makeTurn(1, "x"), depsOf(lanes, { needle }));
     expect(needleK).toBe(DEFAULT_NEEDLE_K);
-    expect(denseCalls[0]?.k).toBe(DEFAULT_DENSE_K);
-    expect(DEFAULT_DENSE_K).toBe(100);
+    expect(DEFAULT_NEEDLE_K).toBe(12);
+    expect(denseCalls).toEqual([]);
+    expect(DEFAULT_DENSE_K).toBe(0);
   });
 
   test("denseK override controls the embedding-backed candidate budget", async () => {
@@ -396,7 +395,7 @@ describe("orchestrate — candidate pool composition", () => {
 
     const result = await orchestrate(
       makeTurn(1, "apple"),
-      depsOf(lanes, { selectorEnabled: false }),
+      depsOf(lanes, { denseK: 100, selectorEnabled: false }),
     );
 
     expect(selectCalls).toBe(0);
@@ -451,7 +450,11 @@ describe("orchestrate — cache-ordered pool (core + hot + finders)", () => {
 
     const result = await orchestrate(
       makeTurn(1, "apple"),
-      depsOf(lanes, { coreSlugs: ["topic-c"], hotSlugs: ["topic-d"] }),
+      depsOf(lanes, {
+        coreSlugs: ["topic-c"],
+        hotSlugs: ["topic-d"],
+        denseK: 100,
+      }),
     );
 
     expect(lastPool).toEqual(["topic-c", "topic-d", "topic-a", "topic-b"]);
@@ -811,7 +814,10 @@ describe("orchestrate — dense liveness filter", () => {
       { article: "gone-page", section: 0 },
     ];
     providerStub = selectProvider([]); // selection irrelevant to pool membership
-    const result = await orchestrate(makeTurn(1, "apple"), depsOf(lanes));
+    const result = await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, { denseK: 100 }),
+    );
 
     // The live dense hit is pooled; the deleted page is dropped entirely.
     expect(lastPool).toContain("topic-b");
@@ -825,7 +831,7 @@ describe("orchestrate — dense liveness filter", () => {
     // text — its finder line falls back to the page's lead-section text.
     denseHits = [{ article: "topic-b", section: 99 }];
     providerStub = selectProvider([]);
-    await orchestrate(makeTurn(1, "zzzz"), depsOf(lanes));
+    await orchestrate(makeTurn(1, "zzzz"), depsOf(lanes, { denseK: 100 }));
 
     const line = lastPoolLines.find((l) => / topic-b — /.test(l));
     expect(line).toContain("lead for topic b");
@@ -845,7 +851,10 @@ describe("orchestrate — finder lane provenance", () => {
     // topic-d (edge). So each lane contributes exactly one distinct slug.
     denseHits = [{ article: "topic-b", section: 0 }];
     providerStub = selectProvider([]); // selection irrelevant to pool provenance
-    const result = await orchestrate(makeTurn(1, "apple"), depsOf(lanes));
+    const result = await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, { denseK: 100 }),
+    );
 
     const laneOf = new Map(result.lanes.finder.map((c) => [c.slug, c.lane]));
     expect(laneOf.get("topic-a")).toBe("needle");
@@ -877,7 +886,9 @@ describe("orchestrate — degradation", () => {
     providerStub = selectProvider([]);
     const result = await orchestrate(
       makeTurn(1, "zzzzz no-match"),
-      depsOf(lanes, { needle: { query: () => [], bestSection: () => -1 } }),
+      depsOf(lanes, {
+        needle: { query: () => [], bestSection: () => -1, idf: () => 0 },
+      }),
     );
     expect(result.selections).toEqual([]);
     expect(result.lanes.finder).toEqual([]);
@@ -892,10 +903,75 @@ describe("orchestrate — degradation", () => {
     };
     const result = await orchestrate(
       makeTurn(1, "apple"),
-      depsOf(lanes, { coreSlugs: ["topic-c"] }),
+      depsOf(lanes, { coreSlugs: ["topic-c"], denseK: 100 }),
     );
     expect(new Set(result.selections.map((s) => s.slug))).toEqual(
       new Set(["topic-c", "topic-a", "topic-b", "topic-d"]),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Entity lane: the heading section is the identity the lane exists to surface,
+// so it overrides a bulk-theme section a prior lane already recorded for the
+// same page, and surfaces a heading-named page no other lane found.
+// ---------------------------------------------------------------------------
+
+describe("orchestrate — entity lane", () => {
+  test("overrides the matched section + descriptor to the heading when another lane already surfaced the page", async () => {
+    const lanes = await buildLanes();
+    const { sectionIndex } = lanes;
+    // topic-a sections: [leadDoc] = lead (bulk), [headingDoc] = "## Details".
+    const [leadDoc, headingDoc] = sectionIndex.byArticle.get("topic-a")!;
+    const lead = sectionIndex.sections[leadDoc!]!;
+    const heading = sectionIndex.sections[headingDoc!]!;
+
+    // needle surfaces topic-a for its BULK lead section; the entity catalog
+    // maps a message token to topic-a's HEADING section.
+    const needle = {
+      query: () => [{ article: "topic-a", section: leadDoc! }],
+      bestSection: () => leadDoc!,
+      idf: () => 0,
+    };
+    const entityIndex = new Map<string, number[]>([["widget", [headingDoc!]]]);
+
+    const result = await orchestrate(
+      makeTurn(1, "tell me about the widget"),
+      depsOf(lanes, { needle, entityIndex, selectorEnabled: false }),
+    );
+
+    // The page is surfaced once and keeps the needle's first-lane attribution…
+    const hits = result.lanes.finder.filter((c) => c.slug === "topic-a");
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.lane).toBe("needle");
+    // …but its matched section and pool descriptor are the HEADING, not the
+    // bulk lead the needle recorded.
+    expect(result.matchedSections.get("topic-a")).toBe(heading);
+    expect(result.matchedSections.get("topic-a")).not.toBe(lead);
+    expect(hits[0]!.descriptor).toBe(heading.text);
+  });
+
+  test("surfaces a heading-named page no other lane found, tagged `entity`", async () => {
+    const lanes = await buildLanes();
+    const { sectionIndex } = lanes;
+    const [, headingDoc] = sectionIndex.byArticle.get("topic-c")!;
+    const heading = sectionIndex.sections[headingDoc!]!;
+    const needle = {
+      query: () => [] as { article: Slug; section: number }[],
+      bestSection: () => -1,
+      idf: () => 0,
+    };
+    const entityIndex = new Map<string, number[]>([["gadget", [headingDoc!]]]);
+
+    const result = await orchestrate(
+      makeTurn(1, "what about the gadget"),
+      depsOf(lanes, { needle, entityIndex, selectorEnabled: false }),
+    );
+
+    const hits = result.lanes.finder.filter((c) => c.slug === "topic-c");
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.lane).toBe("entity");
+    expect(result.matchedSections.get("topic-c")).toBe(heading);
+    expect(result.selections.map((s) => s.slug)).toContain("topic-c");
   });
 });

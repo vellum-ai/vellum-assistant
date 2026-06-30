@@ -3,8 +3,11 @@ import { describe, expect, test } from "bun:test";
 import {
   assembleContextBlock,
   assembleInjectionBlock,
-} from "../memory/graph/injection.js";
-import type { MemoryNode, ScoredNode } from "../memory/graph/types.js";
+} from "../plugins/defaults/memory/graph/injection.js";
+import type {
+  MemoryNode,
+  ScoredNode,
+} from "../plugins/defaults/memory/graph/types.js";
 
 function makeScoredNode(
   overrides: Partial<MemoryNode> & { content: string },

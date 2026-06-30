@@ -10,6 +10,10 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 
+import { getLogger } from "../util/logger.js";
+
+const log = getLogger("install-meta");
+
 // ─── SkillInstallMeta type ──────────────────────────────────────────────────
 
 export interface SkillInstallMeta {
@@ -21,6 +25,14 @@ export interface SkillInstallMeta {
   slug?: string; // registry slug
   sourceRepo?: string; // GitHub repo (e.g. "vercel-labs/agent-skills")
   contentHash?: string; // SHA-256 content hash (v2:hex format)
+  // Authorship provenance. Drives prune protection: only "assistant"-authored
+  // skills are eligible for the usage-based prune; "user" and untagged skills
+  // are protected. Set by install/scaffold callers, never defaulted here.
+  author?: "assistant" | "user";
+  // Day-granularity stamp of the last time the skill was loaded (ISO 8601).
+  // Stamped by `touchSkillLastUsed` on the managed-skill activation path; the
+  // usage-based prune reads its date portion as the last-used signal.
+  lastUsedAt?: string;
 }
 
 // ─── Atomic write helper ────────────────────────────────────────────────────
@@ -134,6 +146,38 @@ function inferFromLegacyVersionJson(
         ? raw.installedAt
         : new Date().toISOString(),
   };
+}
+
+// ─── Last-used stamp (day-debounced) ────────────────────────────────────────
+
+/**
+ * Stamp `lastUsedAt` on the skill's `install-meta.json` for `today` (a
+ * `YYYY-MM-DD` string), debounced to at most one write per calendar day.
+ *
+ * Returns `true` when a write happened, `false` otherwise (no install metadata,
+ * already stamped for `today`, or an IO failure). `today` is injected rather
+ * than read from a clock so the debounce window is testable.
+ *
+ * Best-effort: any IO failure is logged and swallowed — callers stamp on the
+ * hot tool-projection path and must never have it throw.
+ */
+export function touchSkillLastUsed(skillDir: string, today: string): boolean {
+  try {
+    const meta = readInstallMeta(skillDir);
+    if (!meta) return false;
+
+    // Compare only the date portion so multiple loads within a day are a no-op.
+    if (meta.lastUsedAt?.slice(0, 10) === today) return false;
+
+    writeInstallMeta(skillDir, {
+      ...meta,
+      lastUsedAt: new Date(`${today}T00:00:00.000Z`).toISOString(),
+    });
+    return true;
+  } catch (err) {
+    log.debug({ err, skillDir }, "Failed to stamp lastUsedAt (non-fatal)");
+    return false;
+  }
 }
 
 // ─── Content hash computation ───────────────────────────────────────────────

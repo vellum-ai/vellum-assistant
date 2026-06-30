@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { getIsContainerized } from "../config/env-registry.js";
 import type { ChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import { markActivationSession } from "../memory/activation-session-store.js";
+import { markActivationSession } from "../plugins/defaults/memory/activation-session-store.js";
 import { ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE } from "../telemetry/activation-funnel.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";

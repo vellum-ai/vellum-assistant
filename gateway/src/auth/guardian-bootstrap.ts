@@ -21,6 +21,7 @@ import {
 import { readCredential } from "../credential-reader.js";
 import { credentialKey } from "../credential-key.js";
 import { arePlatformFeaturesEnabled } from "../feature-flag-resolver.js";
+import { ipcCallAssistant } from "../ipc/assistant-client.js";
 import { getLogger } from "../logger.js";
 
 import { CURRENT_POLICY_EPOCH } from "./policy.js";
@@ -414,6 +415,12 @@ export async function createGuardianBinding(
     },
     "Created guardian binding",
   );
+
+  // Invalidate the daemon guardian-id/role caches after a gateway-owned
+  // guardian rebind.
+  void ipcCallAssistant("emit_event", {
+    body: { kind: "contacts_changed" },
+  } as unknown as Record<string, unknown>).catch(() => {});
 
   return {
     contactId,

@@ -33,6 +33,7 @@ import {
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite, Speed } from "../config/schemas/llm.js";
+import { resolveCanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
 import { EventBus } from "../events/bus.js";
 import type { AssistantDomainEvents } from "../events/domain-events.js";
 import { createToolAuditListener } from "../events/tool-audit-listener.js";
@@ -44,10 +45,6 @@ import {
   ToolProfiler,
 } from "../events/tool-profiling-listener.js";
 import { registerToolTraceListener } from "../events/tool-trace-listener.js";
-import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
-import { getResolvedConversationDirPath } from "../memory/conversation-directories.js";
-import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
-import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory/memory-marker.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
@@ -58,6 +55,7 @@ import {
   setConversationHistoryStrippedAt,
   setConversationProcessingStartedAt,
 } from "../persistence/conversation-crud.js";
+import { getResolvedConversationDirPath } from "../persistence/conversation-directories.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import {
   createContextWindowManager,
@@ -69,6 +67,11 @@ import {
   createContextSummaryMessage,
 } from "../plugins/defaults/compaction/window-manager.js";
 import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
+import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
+import {
+  unwrapMemoryBlock,
+  wrapMemoryBlock,
+} from "../plugins/defaults/memory/memory-marker.js";
 import {
   getPrunedSlugs,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
@@ -389,6 +392,8 @@ export class Conversation {
   wakePersonaOverride?: SystemPromptPersonaOverride;
   /** @internal */ currentTurnOverrideProfile?: string;
   /** @internal */ currentTurnIsNonInteractive?: boolean;
+  /** @internal */ currentTurnModelProfileNoticeKey?: string;
+  /** @internal */ currentTurnRequestOrigin?: string;
   /** @internal */ authContext?: AuthContext;
   /** @internal */ currentTurnAuthContext?: AuthContext;
   /** @internal */ currentTurnSourceActorPrincipalId?: string;

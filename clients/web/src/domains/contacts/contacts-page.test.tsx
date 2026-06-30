@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
+import { MemoryRouter } from "react-router";
 
 import { ApiError } from "@/utils/api-errors";
 import type { ContactPayload } from "@/domains/contacts/types";
@@ -114,7 +115,11 @@ function Wrapper({ children }: { children: ReactNode }) {
       mutations: { retry: false },
     },
   });
-  return createElement(QueryClientProvider, { client }, children);
+  return createElement(
+    MemoryRouter,
+    null,
+    createElement(QueryClientProvider, { client }, children),
+  );
 }
 
 function getInputByPlaceholder(placeholder: string): HTMLInputElement {
@@ -156,6 +161,44 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+describe("ContactsPage guardian auto-selection", () => {
+  test("?setup= deep link suppresses guardian auto-select", async () => {
+    render(
+      createElement(
+        MemoryRouter,
+        { initialEntries: ["/contacts?setup=slack"] },
+        createElement(
+          QueryClientProvider,
+          {
+            client: new QueryClient({
+              defaultOptions: { queries: { retry: false } },
+            }),
+          },
+          createElement(ContactsPage, { assistantId: "asst-1" }),
+        ),
+      ),
+    );
+
+    // Wait for the guardian data to load (contactsGetOptions resolves).
+    await waitFor(() => {
+      // The "Channels" heading is part of AssistantChannelsDetail which renders
+      // only when selection.kind === "assistant". If guardian auto-selected,
+      // this would not be in the document.
+      expect(
+        document.querySelector('[data-testid="channels-detail"]') ??
+          document.body.textContent?.includes("Channels"),
+      ).toBeTruthy();
+    });
+
+    // The name input (from guardian detail) should NOT be rendered because
+    // guardian auto-selection was suppressed.
+    const nameInput = document.querySelector<HTMLInputElement>(
+      'input[placeholder="Your name"]',
+    );
+    expect(nameInput).toBeNull();
+  });
+});
 
 describe("ContactsPage mutation error handling", () => {
   test("a failed contact save surfaces a toast and does not reject", async () => {

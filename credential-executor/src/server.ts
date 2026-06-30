@@ -54,20 +54,33 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
- * Mutable reference to the current session ID. Allows handlers that are
- * registered before the RPC handshake to read the actual handshake session
- * ID at call time (after the handshake completes and sets `.current`).
+ * Per-connection session context.
+ *
+ * Each accepted connection owns one `SessionContext`, created when the server
+ * is constructed and populated with the negotiated session ID at handshake.
+ * Handlers receive it as their second argument and read the session ID at call
+ * time — so a handler registry shared across connections attributes each call
+ * (e.g. audit records) to the originating connection.
+ *
+ * Identity that does not vary across a daemon's connections — the assistant
+ * API key and assistant ID — deliberately lives outside this context
+ * (process-global, see `managed-lazy-getters.ts`); only the per-connection
+ * session ID belongs here.
  */
-export interface SessionIdRef {
-  current: string;
+export interface SessionContext {
+  /** The RPC session ID negotiated at handshake. */
+  sessionId: string;
 }
 
 /**
- * Handler function for a single RPC method. Receives the validated
- * request payload and returns the response payload (or throws).
+ * Handler function for a single RPC method. Receives the validated request
+ * payload and the originating connection's `SessionContext`, and returns the
+ * response payload (or throws). Handlers that don't need the context may omit
+ * the second parameter.
  */
 export type RpcMethodHandler<TReq = unknown, TRes = unknown> = (
   request: TReq,
+  ctx: SessionContext,
 ) => Promise<TRes> | TRes;
 
 /**
@@ -112,7 +125,12 @@ export class CesRpcServer {
   private readonly onHandshakeComplete?: (sessionId: string, assistantApiKey?: string, assistantId?: string) => void;
 
   private handshakeComplete = false;
-  private sessionId: string | null = null;
+  /**
+   * This connection's session context. The object identity is stable for the
+   * life of the server and passed by reference to every handler; `sessionId` is
+   * populated when the handshake completes.
+   */
+  private readonly sessionContext: SessionContext = { sessionId: "" };
   private buffer = "";
   private closed = false;
 
@@ -187,7 +205,7 @@ export class CesRpcServer {
 
   /** The session ID established during handshake (null before handshake). */
   get currentSessionId(): string | null {
-    return this.sessionId;
+    return this.sessionContext.sessionId || null;
   }
 
   /** Shut down the server gracefully, destroying transport streams. */
@@ -270,7 +288,7 @@ export class CesRpcServer {
 
     if (accepted) {
       this.handshakeComplete = true;
-      this.sessionId = req.sessionId;
+      this.sessionContext.sessionId = req.sessionId;
       this.logger.log(`[ces-server] Handshake accepted for session ${req.sessionId}`);
       this.onHandshakeComplete?.(req.sessionId, req.assistantApiKey, req.assistantId);
     } else {
@@ -320,7 +338,7 @@ export class CesRpcServer {
     }
 
     try {
-      const result = await handler(validatedPayload);
+      const result = await handler(validatedPayload, this.sessionContext);
       this.sendRpcResponse(envelope, result);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -373,17 +391,19 @@ export class CesRpcServer {
 /**
  * Create a handler function for the `make_authenticated_request` RPC method.
  *
- * Binds the executor to the provided dependencies so it can be registered
- * in the RPC handler registry.
+ * Binds the executor to the provided dependencies so it can be registered in
+ * the RPC handler registry. The per-connection session ID is merged in from
+ * the SessionContext at call time (for audit attribution); all other deps —
+ * including the managed subject/materializer options — are taken as supplied.
  */
 export function createMakeAuthenticatedRequestHandler(
   deps: HttpExecutorDeps,
 ): RpcMethodHandler {
-  return async (request: unknown) => {
-    return executeAuthenticatedHttpRequest(
-      request as MakeAuthenticatedRequest,
-      deps,
-    );
+  return async (request: unknown, ctx: SessionContext) => {
+    return executeAuthenticatedHttpRequest(request as MakeAuthenticatedRequest, {
+      ...deps,
+      sessionId: ctx.sessionId,
+    });
   };
 }
 
@@ -452,7 +472,7 @@ export interface RunAuthenticatedCommandHandlerOptions {
 export function createRunAuthenticatedCommandHandler(
   options: RunAuthenticatedCommandHandlerOptions,
 ): RpcMethodHandler<RunAuthenticatedCommand, RunAuthenticatedCommandResponse> {
-  return async (request) => {
+  return async (request, ctx) => {
     // Parse the command string into bundle-digest/profile and argv
     const parseResult = parseCommandString(request.command);
     if (!parseResult.ok) {
@@ -504,10 +524,12 @@ export function createRunAuthenticatedCommandHandler(
       conversationId: request.conversationId,
     };
 
-    const result = await executeAuthenticatedCommand(
-      execRequest,
-      options.executorDeps,
-    );
+    // Bind the per-connection session ID (for audit attribution) into the
+    // executor deps for this call.
+    const result = await executeAuthenticatedCommand(execRequest, {
+      ...options.executorDeps,
+      sessionId: ctx.sessionId,
+    });
 
     // If the failure was due to a missing grant, return a structured
     // APPROVAL_REQUIRED response with the proposal so the approval
@@ -656,7 +678,19 @@ export interface ManageSecureCommandToolHandlerDeps {
 export function createManageSecureCommandToolHandler(
   deps: ManageSecureCommandToolHandlerDeps,
 ): RpcMethodHandler<ManageSecureCommandTool, ManageSecureCommandToolResponse> {
-  return async (request) => {
+  // Serialize all manage_secure_command_tool operations. The register path
+  // awaits a bundle download mid-handler; during that await a concurrent
+  // unregister would run its "still in use?" check + bundle delete against a
+  // registry that doesn't yet reflect the in-flight registration — transiently
+  // deleting a bundle another caller is publishing or executing. Running these
+  // operations one-at-a-time closes that window. The registry and toolstore are
+  // process-global, so this single chain serializes tool management across
+  // every connection.
+  let tail: Promise<unknown> = Promise.resolve();
+
+  const handle = async (
+    request: ManageSecureCommandTool,
+  ): Promise<ManageSecureCommandToolResponse> => {
     if (request.action === "unregister") {
       const removed = deps.unregisterTool(request.toolName);
       if (!removed) {
@@ -761,6 +795,18 @@ export function createManageSecureCommandToolHandler(
     });
 
     return { success: true };
+  };
+
+  return (request) => {
+    // Chain each operation onto the previous one so they never interleave.
+    const result = tail.then(() => handle(request));
+    // Keep the chain alive regardless of this op's outcome — a rejection must
+    // not break serialization for subsequent operations.
+    tail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   };
 }
 

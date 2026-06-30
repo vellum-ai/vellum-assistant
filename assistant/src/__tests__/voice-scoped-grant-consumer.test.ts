@@ -73,20 +73,33 @@ mock.module("../daemon/conversation-runtime-assembly.js", () => ({
   }),
 }));
 
+// ── Conversation store mock (voice bridge resolves conversations here) ──
+
+let scopedGrantConversationFactory: (() => unknown) | null = null;
+
+mock.module("../daemon/conversation-store.js", () => ({
+  getOrCreateConversation: async () => {
+    if (!scopedGrantConversationFactory) {
+      throw new Error("scopedGrantConversationFactory not set for test");
+    }
+    return scopedGrantConversationFactory();
+  },
+}));
+
 // ── Import source modules after all mocks are registered ────────────
 
 import { and, eq } from "drizzle-orm";
 
 import {
+  _internal,
+  type CreateScopedApprovalGrantParams,
+  revokeScopedApprovalGrantsForContext,
+} from "../approvals/scoped-approval-grants.js";
+import {
   setVoiceBridgeDeps,
   startVoiceTurn,
 } from "../calls/voice-session-bridge.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import {
-  _internal,
-  type CreateScopedApprovalGrantParams,
-  revokeScopedApprovalGrantsForContext,
-} from "../memory/scoped-approval-grants.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { scopedApprovalGrants } from "../persistence/schema/index.js";
@@ -190,13 +203,8 @@ function createMockSession(opts?: {
 function setupBridgeDeps(
   sessionFactory: () => ReturnType<typeof createMockSession>["session"],
 ) {
-  let currentSession: ReturnType<typeof createMockSession>["session"] | null =
-    null;
+  scopedGrantConversationFactory = () => sessionFactory();
   setVoiceBridgeDeps({
-    getOrCreateConversation: async () => {
-      currentSession = sessionFactory();
-      return currentSession as any;
-    },
     resolveAttachments: () => [],
   });
 }

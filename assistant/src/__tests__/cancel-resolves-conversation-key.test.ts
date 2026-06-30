@@ -54,7 +54,7 @@ mock.module("../daemon/handlers/conversations.js", () => ({
   regenerateResponse: async () => null,
 }));
 
-import { getOrCreateConversation } from "../memory/conversation-key-store.js";
+import { getOrCreateConversation } from "../persistence/conversation-key-store.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { ROUTES } from "../runtime/routes/conversation-management-routes.js";
 import { routeDefinitionsToHTTPRoutes } from "../runtime/routes/http-adapter.js";

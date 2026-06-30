@@ -75,7 +75,7 @@ let pkbSearchResults: Array<{
   hybridScore?: number;
 }> = [];
 let pkbSearchThrows: Error | null = null;
-mock.module("../memory/pkb/pkb-search.js", () => ({
+mock.module("../plugins/defaults/memory/pkb/pkb-search.js", () => ({
   searchPkbFiles: async () => {
     if (pkbSearchThrows) throw pkbSearchThrows;
     return pkbSearchResults;
@@ -132,8 +132,6 @@ import {
 import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
 import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
-import { getPkbRoot } from "../memory/pkb/types.js";
 import {
   type SlackMessageMetadata,
   writeSlackMetadata,
@@ -144,7 +142,9 @@ import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { conversations, messages } from "../persistence/schema/index.js";
 import { registerDefaultPluginInjectors } from "../plugins/defaults/index.js";
+import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
 import postCompact from "../plugins/defaults/memory/hooks/post-compact.js";
+import { getPkbRoot } from "../plugins/defaults/memory/pkb/types.js";
 import {
   buildUnifiedTurnContextBlock,
   type UnifiedTurnContextOptions,
@@ -1104,7 +1104,7 @@ describe("applyRuntimeInjections — injection mode", () => {
       requestId: "reinject-req",
       conversationId: "injection-mode-conv",
       isNonInteractive: false,
-      modelProfileKey: null,
+      modelProfileKey: "balanced",
     };
     await postCompact(postCompactCtx);
     const result = postCompactCtx.history;
@@ -1628,16 +1628,16 @@ describe("resolveTurnInboundActorContext", () => {
 
 describe("resolveTurnModelProfileLabel", () => {
   /**
-   * A null key means the active profile is unchanged since the last notified
-   * one, so there is no `model_profile` line to render this turn.
+   * A null notice key means there is no `model_profile` line to render this
+   * turn.
    */
-  test("returns null when the profile key is null", () => {
-    // GIVEN a turn whose profile is unchanged since the last notification
+  test("returns null when the profile notice key is null", () => {
+    // GIVEN a turn without a profile notice to render
     const llm = LLMSchema.parse({
       default: { provider: "anthropic", model: "claude-sonnet-4-7" },
     });
 
-    // WHEN the label is resolved for a null key
+    // WHEN the label is resolved for a null notice key
     const label = resolveTurnModelProfileLabel(null, "mainAgent", llm);
 
     // THEN there is no profile line to inject

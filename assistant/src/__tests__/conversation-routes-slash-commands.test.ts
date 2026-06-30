@@ -93,7 +93,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-mock.module("../memory/conversation-key-store.js", () => ({
+mock.module("../persistence/conversation-key-store.js", () => ({
   getOrCreateConversation: () => ({ conversationId: "conv-slash-test" }),
   getConversationByKey: () => null,
 }));
@@ -110,7 +110,7 @@ mock.module("../runtime/guardian-reply-router.js", () => ({
   }),
 }));
 
-mock.module("../memory/canonical-guardian-store.js", () => ({
+mock.module("../contacts/canonical-guardian-store.js", () => ({
   createCanonicalGuardianRequest: () => ({
     id: "canonical-id",
     requestCode: "ABC123",
@@ -147,7 +147,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../memory/conversation-disk-view.js", () => ({
+mock.module("../persistence/conversation-disk-view.js", () => ({
   syncMessageToDisk: () => {},
   updateMetaFile: () => {},
 }));
@@ -422,7 +422,9 @@ describe("handleSendMessage slash command interception", () => {
     const { conversation } = makeConversation();
     const drainQueue = mock(async () => {});
     (
-      conversation as unknown as { drainQueue: () => Promise<void> }
+      conversation as unknown as {
+        drainQueue: () => Promise<void>;
+      }
     ).drainQueue = drainQueue;
 
     // Force the user-message persist (the first addMessage in the /compact

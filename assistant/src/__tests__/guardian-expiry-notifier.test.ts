@@ -55,11 +55,11 @@ mock.module("../approvals/guardian-card-withdrawal.js", () => ({
 }));
 
 import { notifyExpiredGuardianRequest } from "../approvals/guardian-expiry-notifier.js";
-import type { CanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
+import type { CanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
 import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
-} from "../memory/canonical-guardian-store.js";
+} from "../contacts/canonical-guardian-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";

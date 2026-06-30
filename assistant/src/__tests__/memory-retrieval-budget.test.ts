@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { computeRecallBudget } from "../memory/retrieval-budget.js";
+import { computeRecallBudget } from "../plugins/defaults/memory/retrieval-budget.js";
 
 describe("memory retrieval budget", () => {
   test("clamps to maxInjectTokens when headroom is large", () => {

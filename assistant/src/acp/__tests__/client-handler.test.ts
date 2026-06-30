@@ -408,6 +408,175 @@ describe("VellumAcpClientHandler seq + enriched fields", () => {
     });
   });
 
+  test("tool_call forwards rawInput/rawOutput structurally when present", async () => {
+    const { handler, sent } = makeHandler();
+
+    const rawInput = { command: "ls", args: ["-la"] };
+    const rawOutput = { stdout: "file.txt", exitCode: 0 };
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tc-raw",
+        title: "Run ls",
+        kind: "execute",
+        status: "completed",
+        rawInput,
+        rawOutput,
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      updateType: "tool_call",
+      toolCallId: "tc-raw",
+      // Forwarded as-is, NOT stringified (unlike content).
+      rawInput: { command: "ls", args: ["-la"] },
+      rawOutput: { stdout: "file.txt", exitCode: 0 },
+    });
+  });
+
+  test("tool_call leaves rawInput/rawOutput undefined when source omits them", async () => {
+    const { handler, sent } = makeHandler();
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tc-no-raw",
+        title: "Edit main.ts",
+        kind: "edit",
+        status: "pending",
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    const msg = sent[0] as { rawInput?: unknown; rawOutput?: unknown };
+    expect(msg.rawInput).toBeUndefined();
+    expect(msg.rawOutput).toBeUndefined();
+  });
+
+  test("tool_call_update forwards rawInput/rawOutput structurally when present", async () => {
+    const { handler, sent } = makeHandler();
+
+    const rawInput = { path: "/repo/main.ts", oldText: "a", newText: "b" };
+    const rawOutput = { applied: true };
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tc-raw-update",
+        status: "completed",
+        rawInput,
+        rawOutput,
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      updateType: "tool_call_update",
+      toolCallId: "tc-raw-update",
+      rawInput: { path: "/repo/main.ts", oldText: "a", newText: "b" },
+      rawOutput: { applied: true },
+    });
+  });
+
+  test("tool_call forwards a small rawOutput unchanged (under the cap)", async () => {
+    const { handler, sent } = makeHandler();
+
+    const rawOutput = { ok: true };
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tc-small-raw",
+        title: "Run check",
+        kind: "execute",
+        status: "completed",
+        rawOutput,
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    const msg = sent[0] as { rawOutput?: unknown };
+    // Under the 16 KiB cap — forwarded structurally, unchanged.
+    expect(msg.rawOutput).toEqual({ ok: true });
+  });
+
+  test("tool_call caps an oversize rawOutput to a marker string", async () => {
+    const { handler, sent } = makeHandler();
+
+    const huge = "x".repeat(20000);
+    const rawOutput = { stdout: huge };
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tc-oversize-raw",
+        title: "Run noisy command",
+        kind: "execute",
+        status: "completed",
+        rawOutput,
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    const msg = sent[0] as { rawOutput?: unknown };
+    // Oversize payloads are replaced with a short marker so a single large
+    // rawOutput can't evict real transcript events from the session buffer.
+    expect(typeof msg.rawOutput).toBe("string");
+    expect(msg.rawOutput as string).toStartWith("[raw payload omitted:");
+    // The original large value must not survive into the forwarded event.
+    expect(JSON.stringify(sent[0])).not.toContain(huge);
+  });
+
+  test("tool_call caps an oversize rawInput to a marker string", async () => {
+    const { handler, sent } = makeHandler();
+
+    const huge = "y".repeat(20000);
+    const rawInput = { prompt: huge };
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tc-oversize-input",
+        title: "Run big prompt",
+        kind: "execute",
+        status: "pending",
+        rawInput,
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    const msg = sent[0] as { rawInput?: unknown };
+    expect(typeof msg.rawInput).toBe("string");
+    expect(msg.rawInput as string).toStartWith("[raw payload omitted:");
+    expect(JSON.stringify(sent[0])).not.toContain(huge);
+  });
+
+  test("tool_call_update leaves rawInput/rawOutput undefined when source omits them", async () => {
+    const { handler, sent } = makeHandler();
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tc-no-raw-update",
+        status: "in_progress",
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    const msg = sent[0] as { rawInput?: unknown; rawOutput?: unknown };
+    expect(msg.rawInput).toBeUndefined();
+    expect(msg.rawOutput).toBeUndefined();
+  });
+
   test("tool_call_update forwards locations: [] when null (explicit clear)", async () => {
     const { handler, sent } = makeHandler();
 
@@ -447,5 +616,169 @@ describe("VellumAcpClientHandler seq + enriched fields", () => {
     const msg = sent[0] as { locations?: unknown };
     expect(msg.locations).toBeUndefined();
     expect("locations" in msg && msg.locations !== undefined).toBe(false);
+  });
+
+  test("tool_call redacts secrets in rawInput/rawOutput before forwarding", async () => {
+    const { handler, sent } = makeHandler();
+
+    // AWS access key id — a high-confidence prefix-based secret pattern.
+    const secret = "AKIAIOSFODNN7REALKEY";
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tc-secret",
+        title: "Configure AWS",
+        kind: "execute",
+        status: "completed",
+        rawInput: { env: { AWS_ACCESS_KEY_ID: secret } },
+        rawOutput: { echoed: `key is ${secret}` },
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    // The raw secret must not survive into the forwarded event, which flows
+    // into the session buffer and the persisted event_log_json.
+    expect(JSON.stringify(sent[0])).not.toContain(secret);
+    const msg = sent[0] as { rawInput?: unknown; rawOutput?: unknown };
+    expect(JSON.stringify(msg.rawInput)).toContain("<redacted");
+    expect(JSON.stringify(msg.rawOutput)).toContain("<redacted");
+  });
+
+  test("tool_call_update redacts secrets in rawInput/rawOutput before forwarding", async () => {
+    const { handler, sent } = makeHandler();
+
+    const secret = "AKIAIOSFODNN7REALKEY";
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tc-secret-update",
+        status: "completed",
+        rawInput: { token: secret },
+        rawOutput: { stdout: secret },
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    expect(JSON.stringify(sent[0])).not.toContain(secret);
+    const msg = sent[0] as { rawInput?: unknown; rawOutput?: unknown };
+    expect(JSON.stringify(msg.rawInput)).toContain("<redacted");
+    expect(JSON.stringify(msg.rawOutput)).toContain("<redacted");
+  });
+
+  test("tool_call redacts credential-named fields whose values aren't secret-shaped", async () => {
+    const { handler, sent } = makeHandler();
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tc-cred",
+        title: "Configure",
+        kind: "execute",
+        status: "completed",
+        // Plain words — caught by field NAME, not by value shape.
+        rawInput: {
+          password: "correcthorsebattery",
+          nested: { api_key: "plainword" },
+        },
+        rawOutput: { token: "notasecretbutlong" },
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    const serialized = JSON.stringify(sent[0]);
+    expect(serialized).not.toContain("correcthorsebattery");
+    expect(serialized).not.toContain("plainword");
+    expect(serialized).not.toContain("notasecretbutlong");
+    expect(serialized).toContain("<redacted");
+  });
+
+  test("tool_call redacts credential-named fields nested inside arrays of arrays", async () => {
+    const { handler, sent } = makeHandler();
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tc-nested-array",
+        title: "Batch",
+        kind: "execute",
+        status: "completed",
+        // Credential-named field buried under array-in-array nesting; the
+        // value isn't secret-shaped, so only field-name redaction catches it.
+        rawInput: { calls: [[{ token: "plainword" }]] },
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    const serialized = JSON.stringify(sent[0]);
+    expect(serialized).not.toContain("plainword");
+    expect(serialized).toContain("<redacted");
+  });
+
+  test("tool_call_update redacts credential-named fields whose values aren't secret-shaped", async () => {
+    const { handler, sent } = makeHandler();
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tc-cred-update",
+        status: "completed",
+        rawInput: { authorization: "plainwordvalue" },
+        rawOutput: { secret: "justwords" },
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    const serialized = JSON.stringify(sent[0]);
+    expect(serialized).not.toContain("plainwordvalue");
+    expect(serialized).not.toContain("justwords");
+    expect(serialized).toContain("<redacted");
+  });
+
+  test("tool_call redacts a shaped secret embedded in the title", async () => {
+    const { handler, sent } = makeHandler();
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tc-title",
+        // Claude's shell tools put the command in the title; a literal
+        // credential inline must not reach the wire or persisted event log.
+        title: "echo AKIAQ7XK4PNZ3RJD2WTV",
+        kind: "execute",
+        status: "completed",
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    const msg = sent[0] as { toolTitle?: string };
+    expect(msg.toolTitle).not.toContain("AKIAQ7XK4PNZ3RJD2WTV");
+    expect(msg.toolTitle).toContain("<redacted");
+  });
+
+  test("tool_call_update redacts a shaped secret embedded in the title", async () => {
+    const { handler, sent } = makeHandler();
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tc-title-update",
+        title: "echo AKIAFA01L49X7HW9DM2Y",
+        status: "completed",
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    const msg = sent[0] as { toolTitle?: string };
+    expect(msg.toolTitle).not.toContain("AKIAFA01L49X7HW9DM2Y");
+    expect(msg.toolTitle).toContain("<redacted");
   });
 });

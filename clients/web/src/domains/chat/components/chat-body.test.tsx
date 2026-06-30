@@ -335,7 +335,7 @@ describe("ChatBody — active subagents overlay slot", () => {
     expect(html).toContain("ACTIVE_SUBAGENTS");
   });
 
-  test("does NOT render the slot when pinned (showScrollToLatest false)", () => {
+  test("renders the slot even when pinned (showScrollToLatest false) — always-on while running", () => {
     const html = renderToStaticMarkup(
       <ChatBody
         {...baseProps({
@@ -344,7 +344,7 @@ describe("ChatBody — active subagents overlay slot", () => {
         })}
       />,
     );
-    expect(html).not.toContain("ACTIVE_SUBAGENTS");
+    expect(html).toContain("ACTIVE_SUBAGENTS");
   });
 
   test("does NOT render the slot on the empty state", () => {
@@ -393,7 +393,7 @@ describe("ChatBody — active workflows overlay slot", () => {
     expect(html).toContain("ACTIVE_WORKFLOWS");
   });
 
-  test("does NOT render the slot when pinned (showScrollToLatest false)", () => {
+  test("renders the slot even when pinned (showScrollToLatest false) — always-on while running", () => {
     const html = renderToStaticMarkup(
       <ChatBody
         {...baseProps({
@@ -402,7 +402,7 @@ describe("ChatBody — active workflows overlay slot", () => {
         })}
       />,
     );
-    expect(html).not.toContain("ACTIVE_WORKFLOWS");
+    expect(html).toContain("ACTIVE_WORKFLOWS");
   });
 
   test("does NOT render the slot on the empty state", () => {

@@ -52,7 +52,7 @@ const metadataStore = new Map<
   { allowedTools: string[]; usageDescription?: string }
 >();
 
-mock.module("../../tools/credentials/metadata-store.js", () => ({
+mock.module("../credentials/metadata-store.js", () => ({
   getCredentialMetadata: (service: string, field: string) => {
     const key = `${service}/${field}`;
     const entry = metadataStore.get(key);
@@ -91,7 +91,7 @@ mock.module("../../tools/credentials/metadata-store.js", () => ({
   },
 }));
 
-mock.module("../../tools/credentials/broker.js", () => ({
+mock.module("../credentials/broker.js", () => ({
   credentialBroker: {
     serverUse: async <T>(request: {
       service: string;

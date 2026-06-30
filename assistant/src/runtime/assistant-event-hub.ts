@@ -710,7 +710,7 @@ async function createCanonicalRequestForConfirmation(
       { bridgeConfirmationRequestToGuardian },
     ] = await Promise.all([
       import("../daemon/conversation-registry.js"),
-      import("../memory/canonical-guardian-store.js"),
+      import("../contacts/canonical-guardian-store.js"),
       import("../security/secret-scanner.js"),
       import("../tools/tool-input-summary.js"),
       import("./assistant-scope.js"),

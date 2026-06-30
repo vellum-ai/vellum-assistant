@@ -12,6 +12,7 @@ import {
 } from "@/domains/chat/inspector/inspector-formatters";
 import { LlmCallErrorCard } from "@/domains/chat/inspector/components/llm-call-error-card";
 import type {
+  LatencyBreakdown,
   LLMCallSummary,
   LLMRequestLogEntry,
 } from "@vellumai/assistant-api";
@@ -40,6 +41,15 @@ export function OverviewTab({
   const summary = entry.summary;
   const error = entry.error ?? null;
   const hasError = error != null;
+  const latency = entry.latency ?? null;
+  const latencyCard =
+    latency && latency.phases.length > 0 ? (
+      <MetadataCard
+        title="First-token latency"
+        subtitle="Where this turn's time-to-first-token went, measured by the assistant."
+        rows={buildLatencyRows(latency)}
+      />
+    ) : null;
   // A failed call gets a dedicated banner; only show the generic
   // "summary unavailable" fallback when the call didn't fail.
   const showFallback =
@@ -89,8 +99,39 @@ export function OverviewTab({
           />
         </>
       )}
+      {latencyCard}
     </div>
   );
+}
+
+function formatMs(ms: number): string {
+  return `${formatCount(Math.round(ms))} ms`;
+}
+
+/**
+ * Build the first-token latency waterfall rows: the total-to-first-token
+ * headline (first call of a turn only), then one row per phase
+ * (queue → memory/context → setup → request prep → time-to-first-token →
+ * generation), and the streamed first-token kind when known.
+ */
+function buildLatencyRows(latency: LatencyBreakdown): MetadataRow[] {
+  const rows: MetadataRow[] = [];
+  if (
+    latency.totalToFirstTokenMs != null &&
+    Number.isFinite(latency.totalToFirstTokenMs)
+  ) {
+    rows.push({
+      label: "Total to first token",
+      value: formatMs(latency.totalToFirstTokenMs),
+    });
+  }
+  for (const phase of latency.phases) {
+    rows.push({ label: phase.label, value: formatMs(phase.ms) });
+  }
+  if (latency.firstTokenKind) {
+    rows.push({ label: "First token kind", value: latency.firstTokenKind });
+  }
+  return rows;
 }
 
 function renderConversationTotalsCard(

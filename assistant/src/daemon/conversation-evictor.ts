@@ -1,4 +1,6 @@
+import { getSubagentManager } from "../subagent/index.js";
 import { getLogger } from "../util/logger.js";
+import { getConversationMap } from "./conversation-registry.js";
 
 const log = getLogger("conversation-evictor");
 
@@ -47,12 +49,6 @@ export class ConversationEvictor {
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
   private conversations: Map<string, EvictableConversation>;
 
-  /** Optional hook called for each evicted conversation (for cleanup in DaemonServer). */
-  onEvict?: (conversationId: string) => void;
-
-  /** Optional guard: if this returns true, the conversation is protected from eviction. */
-  shouldProtect?: (conversationId: string) => boolean;
-
   constructor(
     conversations: Map<string, EvictableConversation>,
     options?: EvictorOptions,
@@ -65,6 +61,18 @@ export class ConversationEvictor {
       options?.memoryThresholdBytes ?? DEFAULT_MEMORY_THRESHOLD_BYTES;
     this.sweepIntervalMs =
       options?.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS;
+  }
+
+  /** Abort any subagents belonging to a conversation as it's evicted. */
+  onEvict(conversationId: string): void {
+    getSubagentManager().abortAllForParent(conversationId);
+  }
+
+  /** Protect conversations with running or pending subagents from eviction. */
+  shouldProtect(conversationId: string): boolean {
+    return getSubagentManager()
+      .getChildrenOf(conversationId)
+      .some((c) => c.status === "running" || c.status === "pending");
   }
 
   /** Record an access for the given conversation (resets its idle clock). */
@@ -120,7 +128,7 @@ export class ConversationEvictor {
     for (const [id, conversation] of this.conversations) {
       const lastAccessTime = this.lastAccess.get(id) ?? 0;
       if (now - lastAccessTime < this.ttlMs) continue;
-      if (conversation.isProcessing() || this.shouldProtect?.(id)) {
+      if (conversation.isProcessing() || this.shouldProtect(id)) {
         result.skipped++;
         continue;
       }
@@ -183,7 +191,7 @@ export class ConversationEvictor {
     conversation.dispose();
     this.conversations.delete(id);
     this.lastAccess.delete(id);
-    this.onEvict?.(id);
+    this.onEvict(id);
     log.debug({ conversationId: id }, "Evicted idle conversation");
   }
 
@@ -195,10 +203,35 @@ export class ConversationEvictor {
     const idle: Array<[string, EvictableConversation, number]> = [];
     for (const [id, conversation] of this.conversations) {
       if (conversation.isProcessing()) continue;
-      if (this.shouldProtect?.(id)) continue;
+      if (this.shouldProtect(id)) continue;
       idle.push([id, conversation, this.lastAccess.get(id) ?? 0]);
     }
     idle.sort((a, b) => a[2] - b[2]);
     return idle.map(([id, conversation]) => [id, conversation]);
   }
+}
+
+// ── Process-level singleton ───────────────────────────────────────────────
+
+/** Daemon-wide evictor over the in-memory conversation pool. */
+const evictor = new ConversationEvictor(getConversationMap());
+
+/** Record an access so the conversation's idle clock resets. */
+export function touchConversation(conversationId: string): void {
+  evictor.touch(conversationId);
+}
+
+/** Drop a conversation's eviction tracking (it was removed elsewhere). */
+export function removeFromEvictor(conversationId: string): void {
+  evictor.remove(conversationId);
+}
+
+/** Start the periodic eviction sweep at daemon startup. */
+export function startConversationEvictor(): void {
+  evictor.start();
+}
+
+/** Stop the eviction sweep during daemon shutdown. */
+export function stopConversationEvictor(): void {
+  evictor.stop();
 }

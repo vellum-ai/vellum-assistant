@@ -30,7 +30,6 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-import { rawRun } from "../memory/raw-query.js";
 import {
   batchSetDisplayOrders,
   createConversation,
@@ -38,6 +37,7 @@ import {
 } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { rawRun } from "../persistence/raw-query.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 

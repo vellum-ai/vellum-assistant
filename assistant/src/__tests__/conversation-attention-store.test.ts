@@ -16,7 +16,7 @@ import {
   markConversationUnread,
   projectAssistantMessage,
   recordConversationSeenSignal,
-} from "../memory/conversation-attention-store.js";
+} from "../persistence/conversation-attention-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {

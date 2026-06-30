@@ -16,12 +16,12 @@ import { formatResolveFailure } from "../../acp/resolve-agent.js";
 import { AcpResumeError } from "../../acp/session-manager.js";
 import type { AcpSessionState } from "../../acp/types.js";
 import { getConfig } from "../../config/loader.js";
-import { rawChanges } from "../../memory/raw-query.js";
 import type { UserDecision } from "../../permissions/types.js";
 import { getDb } from "../../persistence/db-connection.js";
+import { rawChanges } from "../../persistence/raw-query.js";
 import { acpSessionHistory } from "../../persistence/schema/index.js";
-import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { getLogger } from "../../util/logger.js";
+import { broadcastMessage } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import {

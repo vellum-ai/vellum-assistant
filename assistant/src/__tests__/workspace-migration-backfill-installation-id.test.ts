@@ -31,7 +31,7 @@ mock.module("node:os", () => ({
   homedir: homedirFn,
 }));
 
-mock.module("../memory/checkpoints.js", () => ({
+mock.module("../persistence/checkpoints.js", () => ({
   getMemoryCheckpoint: getMemoryCheckpointFn,
   deleteMemoryCheckpoint: deleteMemoryCheckpointFn,
 }));

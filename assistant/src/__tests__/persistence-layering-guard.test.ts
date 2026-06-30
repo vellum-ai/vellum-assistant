@@ -11,8 +11,9 @@ import { Glob } from "bun";
  * direction is one-way: memory → persistence. `persistence/` provides the DB
  * core, conversation/message storage, job-queue mechanics, delivery/media
  * stores, LLM request-log/usage stores, and embeddings/Qdrant infra. The
- * memory *feature* (graph, v2, v3, retrospective, pkb) lives in `memory/` and
- * depends on persistence, never the reverse.
+ * memory *feature* (graph, v2, v3, retrospective, pkb) lives in the
+ * `default-memory` plugin (`plugins/defaults/memory/`) and depends on
+ * persistence, never the reverse.
  *
  * Two invariants are enforced:
  *  (a) Nothing under `assistant/src/**` imports a persistence module via a
@@ -30,7 +31,7 @@ function getRepoRoot(): string {
 
 const ASSISTANT_SRC = "assistant/src";
 const PERSISTENCE_DIR = join(ASSISTANT_SRC, "persistence");
-const MEMORY_DIR = join(ASSISTANT_SRC, "memory");
+const MEMORY_DIR = join(ASSISTANT_SRC, "plugins", "defaults", "memory");
 
 /**
  * TECH DEBT — residual `persistence/` → `memory/` feature back-imports.
@@ -38,8 +39,8 @@ const MEMORY_DIR = join(ASSISTANT_SRC, "memory");
  * These are genuine couplings to the memory *feature* (conversation
  * title/disk-view services, conversation/group migrations, retrospective +
  * v2 state, the graph bootstrap, the conversation-key store, raw-query helpers,
- * usage bucketers, the sparse tokenizer, the job checkpoint/cleanup/worker
- * controls) that the persistence layer still depends on. They violate the
+ * the job checkpoint/cleanup/worker controls) that the
+ * persistence layer still depends on. They violate the
  * one-way memory → persistence direction and are scheduled for decoupling in a
  * follow-up (move the depended-on feature logic behind a persistence-owned
  * seam, or invert the dependency so memory injects it). Until then they are
@@ -51,63 +52,11 @@ const MEMORY_DIR = join(ASSISTANT_SRC, "memory");
  * guard is to ratchet this set down to empty, never up.
  */
 const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
-  "assistant/src/persistence/attachments-store.ts": new Set([
-    "conversation-directories",
-    "raw-query",
-  ]),
-  "assistant/src/persistence/bookmark-crud.ts": new Set(["message-content"]),
-  "assistant/src/persistence/conversation-bootstrap.ts": new Set([
-    "conversation-title-service",
-  ]),
   "assistant/src/persistence/conversation-crud.ts": new Set([
-    "auto-analysis-constants",
-    "conversation-attention-store",
-    "conversation-disk-view",
-    "conversation-display-order-migration",
-    "conversation-group-migration",
-    "graph/graph-memory-state-store",
-    "indexer",
     "memory-retrospective-constants",
-    "memory-retrospective-state",
-    "raw-query",
-    "task-memory-cleanup",
-    "v2/activation-store",
-    "v2/injected-block-slugs",
   ]),
-  "assistant/src/persistence/conversation-queries.ts": new Set([
-    "conversation-display-order-migration",
-    "conversation-group-migration",
-    "raw-query",
-  ]),
-  "assistant/src/persistence/db-maintenance.ts": new Set(["checkpoints"]),
-  "assistant/src/persistence/delivery-crud.ts": new Set([
-    "conversation-key-store",
-  ]),
-  "assistant/src/persistence/embeddings/embedding-backend.ts": new Set([
-    "sparse-tokenize",
-  ]),
-  "assistant/src/persistence/group-crud.ts": new Set([
-    "conversation-group-migration",
-    "raw-query",
-  ]),
-  "assistant/src/persistence/jobs-store.ts": new Set(["raw-query"]),
-  "assistant/src/persistence/jobs-worker.ts": new Set([
-    "checkpoints",
-    "cleanup-schedule-state",
-    "memory-retrospective-startup-cleanup",
-    "v2/consolidation-job",
-    "worker-control",
-  ]),
-  "assistant/src/persistence/llm-usage-store.ts": new Set([
-    "raw-query",
-    "schedule-attribution-sql",
-    "usage-buckets",
-    "usage-grouped-buckets",
-  ]),
-  "assistant/src/persistence/steps.ts": new Set([
-    "app-store",
-    "graph/bootstrap",
-  ]),
+  "assistant/src/persistence/jobs-worker.ts": new Set(["v2/consolidation-job"]),
+  "assistant/src/persistence/steps.ts": new Set(["graph/bootstrap"]),
 };
 
 /** Match `from "x"`, `import "x"`, `import("x")`, and `mock.module("x", …)`. */

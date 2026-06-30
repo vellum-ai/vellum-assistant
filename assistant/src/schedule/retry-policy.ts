@@ -38,21 +38,21 @@ export function decideRetry(
  * Calls the provided store operations so this module stays decoupled
  * from direct DB imports.
  */
-export function applyRetryDecision(params: {
+export async function applyRetryDecision(params: {
   job: RetryPolicyJob;
   isOneShot: boolean;
   errorMsg: string;
   decision: RetryDecision;
-  scheduleRetry: (id: string, nextRetryAt: number) => void;
-  failOneShotPermanently: (id: string) => void;
-  resetRetryCount: (id: string) => void;
+  scheduleRetry: (id: string, nextRetryAt: number) => void | Promise<void>;
+  failOneShotPermanently: (id: string) => void | Promise<void>;
+  resetRetryCount: (id: string) => void | Promise<void>;
   emitAlert: (title: string, summary: string, dedupKey: string) => void;
   log: Logger;
-}): void {
+}): Promise<void> {
   const { job, isOneShot, errorMsg, decision } = params;
 
   if (decision.action === "retry") {
-    params.scheduleRetry(job.id, decision.nextRetryAt);
+    await params.scheduleRetry(job.id, decision.nextRetryAt);
     params.log.info(
       {
         jobId: job.id,
@@ -65,9 +65,9 @@ export function applyRetryDecision(params: {
     );
   } else {
     if (isOneShot) {
-      params.failOneShotPermanently(job.id);
+      await params.failOneShotPermanently(job.id);
     } else {
-      params.resetRetryCount(job.id);
+      await params.resetRetryCount(job.id);
     }
     params.emitAlert(
       `${job.name}: Retries exhausted`,

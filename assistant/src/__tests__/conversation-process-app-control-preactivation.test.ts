@@ -58,11 +58,11 @@ mock.module("../persistence/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../memory/canonical-guardian-store.js", () => ({
+mock.module("../contacts/canonical-guardian-store.js", () => ({
   listPendingRequestsByConversationScope: () => [],
 }));
 
-mock.module("../memory/trace-event-store.js", () => ({
+mock.module("../telemetry/trace-event-store.js", () => ({
   persistTraceEvent: () => {},
   getMaxSequence: () => 0,
 }));

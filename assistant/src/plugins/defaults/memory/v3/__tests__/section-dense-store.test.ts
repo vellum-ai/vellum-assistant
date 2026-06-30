@@ -211,12 +211,25 @@ mock.module("@qdrant/js-client-rest", () => ({
   QdrantClient: MockQdrantClient,
 }));
 
+// Records the checkpoint clears `ensureSectionCollection` performs when it
+// (re)creates an empty collection, so tests can assert the embed high-water is
+// reset (which sends the next maintain pass down its full-corpus re-embed path).
+const checkpointState = { deletes: [] as string[] };
+mock.module("../../../../../persistence/checkpoints.js", () => ({
+  getMemoryCheckpoint: () => null,
+  setMemoryCheckpoint: () => undefined,
+  deleteMemoryCheckpoint: (key: string) => {
+    checkpointState.deletes.push(key);
+  },
+}));
+
 const {
   ensureSectionCollection,
   upsertSections,
   deleteSectionsForArticle,
   listSectionArticles,
   SECTION_COLLECTION,
+  MAINTAIN_EMBED_HIGH_WATER_KEY,
   _resetSectionDenseStoreForTests,
 } = await import("../section-dense-store.js");
 
@@ -258,6 +271,7 @@ function resetState(): void {
   embedState.geminiDimensions = undefined;
   cacheState.store.clear();
   cacheState.reads.length = 0;
+  checkpointState.deletes.length = 0;
   _resetSectionDenseStoreForTests();
 }
 
@@ -320,12 +334,13 @@ describe("memory v3 section-dense-store — collection lifecycle", () => {
     ]);
   });
 
-  test("recreates the collection when its dense vector dimension drifts", async () => {
+  test("recreates the collection on dimension drift (page-derived, repopulated by maintain)", async () => {
     state.collectionExists = true;
     // Existing collection sized to a different embedding dimension than the
-    // configured 4 (e.g. a 384-dim collection from a prior model). Every upsert
-    // would fail with HTTP 400 until it is recreated; the next backfill
-    // re-embeds the sections.
+    // configured 4 (e.g. a 384-dim collection from a prior model). The section
+    // collection is page-derived and repopulated by the probe-gated
+    // maintain/backfill, and the startup reconcile only repairs the v2
+    // collection's dimension, so a v3-only drift is repaired here.
     state.getCollectionInfo = {
       config: { params: { vectors: { size: 384, distance: "Cosine" } } },
     };
@@ -335,11 +350,6 @@ describe("memory v3 section-dense-store — collection lifecycle", () => {
     expect(state.getCollectionCalls).toBe(1);
     expect(state.deleteCollectionCalls).toEqual([SECTION_COLLECTION]);
     expect(state.createCollectionCalls).toBe(1);
-    // The recreated collection is sized to the configured dimension.
-    const params = state.createCollectionParams as {
-      vectors: { size: number };
-    };
-    expect(params.vectors.size).toBe(4);
   });
 
   test("leaves a dimension-matched existing collection untouched", async () => {
@@ -361,6 +371,39 @@ describe("memory v3 section-dense-store — collection lifecycle", () => {
 
     expect(state.deleteCollectionCalls).toEqual([]);
     expect(state.createCollectionCalls).toBe(0);
+  });
+
+  test("clears the embed high-water when recreating on dimension drift", async () => {
+    state.collectionExists = true;
+    state.getCollectionInfo = {
+      config: { params: { vectors: { size: 384, distance: "Cosine" } } },
+    };
+
+    await ensureSectionCollection(CONFIG);
+
+    // The recreate empties the collection, so the maintain checkpoint is reset:
+    // the next pass re-embeds every page instead of only pages edited since.
+    expect(state.deleteCollectionCalls).toEqual([SECTION_COLLECTION]);
+    expect(checkpointState.deletes).toEqual([MAINTAIN_EMBED_HIGH_WATER_KEY]);
+  });
+
+  test("clears the embed high-water when creating a fresh collection", async () => {
+    state.collectionExists = false;
+
+    await ensureSectionCollection(CONFIG);
+
+    expect(state.createCollectionCalls).toBe(1);
+    expect(checkpointState.deletes).toEqual([MAINTAIN_EMBED_HIGH_WATER_KEY]);
+  });
+
+  test("leaves the embed high-water untouched when the collection is compatible", async () => {
+    state.collectionExists = true;
+    // MATCHING_SECTION_SCHEMA is size 4 === CONFIG, so no recreate happens.
+
+    await ensureSectionCollection(CONFIG);
+
+    expect(state.createCollectionCalls).toBe(0);
+    expect(checkpointState.deletes).toEqual([]);
   });
 
   test("re-running ensure latches readiness (single existence probe)", async () => {

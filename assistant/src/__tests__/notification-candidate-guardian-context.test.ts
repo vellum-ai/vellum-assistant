@@ -23,7 +23,7 @@ import {
   createCanonicalGuardianDelivery,
   createCanonicalGuardianRequest,
   resolveCanonicalGuardianRequest,
-} from "../memory/canonical-guardian-store.js";
+} from "../contacts/canonical-guardian-store.js";
 import { recordGuardianRequestDeliveries } from "../notifications/canonical-delivery-recorder.js";
 import { buildConversationCandidates } from "../notifications/conversation-candidates.js";
 import { createDecision } from "../notifications/decisions-store.js";

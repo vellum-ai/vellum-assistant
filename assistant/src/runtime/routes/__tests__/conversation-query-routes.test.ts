@@ -10,7 +10,7 @@ mock.module("../../../util/logger.js", () => ({
 import {
   sampleConcepts as sharedSampleConcepts,
   sampleConfig,
-} from "../../../memory/__tests__/fixtures/memory-v2-activation-fixtures.js";
+} from "../../../plugins/defaults/memory/__tests__/fixtures/memory-v2-activation-fixtures.js";
 
 let rawConfigFixture: Record<string, unknown> = {};
 let savedRawConfig: Record<string, unknown> | null = null;
@@ -56,12 +56,6 @@ mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
   },
 }));
 
-import {
-  backfillMemoryV2ActivationMessageId,
-  type MemoryV2ConceptRowRecord,
-  type MemoryV2ConfigSnapshot,
-  recordMemoryV2ActivationLog,
-} from "../../../memory/memory-v2-activation-log-store.js";
 import type { ConversationCreateType } from "../../../persistence/conversation-crud.js";
 import { getDb, getLogsDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
@@ -72,6 +66,12 @@ import {
   memoryV2ActivationLogs,
   messages,
 } from "../../../persistence/schema/index.js";
+import {
+  backfillMemoryV2ActivationMessageId,
+  type MemoryV2ConceptRowRecord,
+  type MemoryV2ConfigSnapshot,
+  recordMemoryV2ActivationLog,
+} from "../../../plugins/defaults/memory/memory-v2-activation-log-store.js";
 import {
   createConnection,
   getConnection,

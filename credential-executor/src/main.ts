@@ -59,7 +59,6 @@ import {
   registerCommandExecutionHandler,
   registerManageSecureCommandToolHandler,
   type RpcHandlerRegistry,
-  type SessionIdRef,
 } from "./server.js";
 import {
   deleteBundleFromToolstore,
@@ -124,7 +123,6 @@ function getSecurityDir(): string {
 // ---------------------------------------------------------------------------
 
 function buildHandlers(
-  sessionIdRef: SessionIdRef,
   secureKeyBackend: SecureKeyBackend,
 ): RpcHandlerRegistry {
   // -- Grant stores ----------------------------------------------------------
@@ -174,7 +172,6 @@ function buildHandlers(
       oauthConnections,
     },
     auditStore,
-    sessionId: sessionIdRef,
   });
 
   // Register run_authenticated_command handler
@@ -216,7 +213,6 @@ function buildHandlers(
         };
       },
       auditStore,
-      sessionId: sessionIdRef,
       cesMode: "local",
       egressHooks: buildCesEgressHooks(),
     },
@@ -389,10 +385,9 @@ async function main(): Promise<void> {
   log.info("CES local startup: migrations complete");
 
   // Build the handler registry with all available RPC implementations.
-  // Use a mutable ref so audit records capture the handshake session ID
-  // once it's negotiated (the handshake completes before any RPC call).
-  const sessionIdRef: SessionIdRef = { current: `ces-local-${Date.now()}` };
-  const handlers = buildHandlers(sessionIdRef, secureKeyBackend);
+  // The handshake session ID is captured per connection in the server's
+  // SessionContext; handlers read it at call time for audit records.
+  const handlers = buildHandlers(secureKeyBackend);
 
   const rpcLog = getLogger("rpc");
   const server = new CesRpcServer({
@@ -405,10 +400,8 @@ async function main(): Promise<void> {
       error: (msg: string, ...args: unknown[]) => rpcLog.error({ args }, msg),
     },
     signal: controller.signal,
-    onHandshakeComplete: (hsSessionId) => {
-      sessionIdRef.current = hsSessionId;
-    },
-    // Local mode reads API keys from env/store directly — no-op handler.
+    // Local mode reads API keys from env/store directly — no-op handler so
+    // update_managed_credential is still registered and returns success.
     onApiKeyUpdate: () => {},
   });
 

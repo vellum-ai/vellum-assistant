@@ -7,13 +7,6 @@
  * Extracted from inbound-message-handler.ts to keep the top-level handler
  * focused on orchestration.
  */
-import type { ChannelId, InterfaceId } from "../../../channels/types.js";
-import {
-  getGuardianDelivery,
-  guardianForChannel,
-} from "../../../contacts/guardian-delivery-reader.js";
-import type { ServerMessage } from "../../../daemon/message-protocol.js";
-import type { TrustContext } from "../../../daemon/trust-context.js";
 import {
   clearThreadTs,
   extractChannelFromCallbackUrl,
@@ -21,7 +14,14 @@ import {
   extractThreadTsFromCallbackUrl,
   peekThreadMapping,
   setThreadTs,
-} from "../../../memory/slack-thread-store.js";
+} from "../../../channels/slack-thread-store.js";
+import type { ChannelId, InterfaceId } from "../../../channels/types.js";
+import {
+  getGuardianDelivery,
+  guardianForChannel,
+} from "../../../contacts/guardian-delivery-reader.js";
+import type { ServerMessage } from "../../../daemon/message-protocol.js";
+import type { TrustContext } from "../../../daemon/trust-context.js";
 import {
   addSlackDmLiveDeliveredTextResponseIndex,
   getSlackDmLiveDeliveredTextResponseIndexes,

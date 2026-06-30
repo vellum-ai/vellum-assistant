@@ -15,6 +15,7 @@ import type {
   CheckpointDecision,
 } from "../agent/loop.js";
 import { createAssistantMessage } from "../agent/message-types.js";
+import { commitAppTurnChanges } from "../apps/app-git-service.js";
 import type {
   ChannelId,
   InterfaceId,
@@ -29,6 +30,7 @@ import {
 import {
   resolveCallSiteConfig,
   resolveDefaultProfileKey,
+  resolveProfilelessModelKey,
 } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
@@ -41,13 +43,6 @@ import {
   clearSentryConversationContext,
   setSentryConversationContext,
 } from "../instrument.js";
-import { commitAppTurnChanges } from "../memory/app-git-service.js";
-import { enqueueAutoAnalysisOnCompaction } from "../memory/auto-analysis-enqueue.js";
-import { getResolvedConversationDirPath } from "../memory/conversation-directories.js";
-import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
-import { isReplaceableTitle } from "../memory/conversation-title-service.js";
-import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
-import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
 import {
   addMessage,
   deleteMessageById,
@@ -61,17 +56,23 @@ import {
   updateConversationContextWindow,
   updateConversationSlackContextWatermark,
 } from "../persistence/conversation-crud.js";
+import { getResolvedConversationDirPath } from "../persistence/conversation-directories.js";
+import { syncMessageToDisk } from "../persistence/conversation-disk-view.js";
+import { isReplaceableTitle } from "../persistence/conversation-title-service.js";
 import {
   backfillMessageIdOnLogs,
   recordSyntheticAgentErrorMessageLog,
 } from "../persistence/llm-request-log-store.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
+import type { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
+import { enqueueMemoryRetrospectiveOnCompaction } from "../plugins/defaults/memory/memory-retrospective-enqueue.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
+import { enqueueAutoAnalysisOnCompaction } from "../runtime/services/auto-analysis-enqueue.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import type { ActivationMomentParam } from "../telemetry/activation-funnel.js";
 import type { UsageActor } from "../usage/actors.js";
@@ -81,6 +82,7 @@ import { truncate } from "../util/truncate.js";
 import { getWorkspaceGitService } from "../workspace/git-service.js";
 import { commitTurnChanges } from "../workspace/turn-commit.js";
 import { cleanAssistantContent } from "./assistant-attachments.js";
+import { conversationSupportsDynamicUi } from "./channel-ui-capability.js";
 import type { Conversation } from "./conversation.js";
 import {
   createEventHandlerState,
@@ -122,6 +124,8 @@ import type {
   UsageStats,
 } from "./message-protocol.js";
 import type { TrustContext } from "./trust-context.js";
+import { resolveTurnCallSite } from "./turn-call-site.js";
+import { TurnLatencyTracker } from "./turn-latency-tracker.js";
 
 const log = getLogger("conversation-agent-loop");
 
@@ -286,6 +290,14 @@ export async function runAgentLoopImpl(
      */
     forceOverrideProfile?: boolean;
     /**
+     * Origin tag of this turn (the conversation's `TitleOrigin`, e.g.
+     * "memory_consolidation"), threaded from `runBackgroundJob`. Exposed on
+     * the conversation so tool execution can scope narrow non-interactive
+     * permission auto-grants to a specific internal background origin. Unset
+     * for normal user-initiated turns.
+     */
+    requestOrigin?: string;
+    /**
      * Firing's `cron_runs.id` stamped onto this turn's usage rows so a
      * scheduled execute turn attributes its LLM spend to that firing.
      */
@@ -307,6 +319,11 @@ export async function runAgentLoopImpl(
 
   const abortController = ctx.abortController;
   const reqId = ctx.currentRequestId ?? uuid();
+  // First-token latency instrumentation for this turn. Stamped here at the
+  // earliest point of turn processing, then through the prompt-submit hook
+  // (memory/context retrieval) and the agent loop's per-call marks.
+  const latencyTracker = new TurnLatencyTracker();
+  latencyTracker.mark("turn_start");
   const rlog = log.child({
     conversationId: ctx.conversationId,
     requestId: reqId,
@@ -334,15 +351,22 @@ export async function runAgentLoopImpl(
     | ((reason: AgentLoopExitReason) => Promise<void>)
     | null = null;
 
-  // Default user-initiated turns to the `mainAgent` call site. Other
-  // invocation contexts (heartbeat, filing, analyze, etc.) pass their own
-  // `callSite`. The provider layer resolves provider/model/maxTokens via
-  // `resolveCallSiteConfig`, picking up any user overrides under
-  // `llm.callSites.mainAgent` (falling back to `llm.default` when absent).
-  const turnCallSite: LLMCallSite = options?.callSite ?? "mainAgent";
+  // Default user-initiated turns to the `mainAgent` call site; other invocation
+  // contexts (heartbeat, filing, analyze, etc.) pass their own `callSite`. The
+  // provider layer resolves provider/model/maxTokens via `resolveCallSiteConfig`,
+  // picking up any user overrides under `llm.callSites.<id>` (falling back to
+  // `llm.default` when absent). `resolveTurnCallSite` keeps subagent
+  // conversations on `subagentSpawn` when no call site is supplied.
+  const turnCallSite = resolveTurnCallSite(options?.callSite, ctx);
   // Expose the turn's call site on the live conversation so the runtime
   // injection assembly self-resolves it for the turn's plugin contexts.
   ctx.currentCallSite = turnCallSite;
+
+  // Expose the turn's request origin (e.g. "memory_consolidation") on the live
+  // conversation so the tool context — and through it `buildPolicyContext` —
+  // can scope narrow non-interactive permission auto-grants to a specific
+  // internal background origin. Unset for normal user turns.
+  ctx.currentTurnRequestOrigin = options?.requestOrigin;
 
   // Firing's run id for this turn's usage attribution. Kept local (not on the
   // conversation) so a reused conversation attributes each turn to its own
@@ -823,28 +847,34 @@ export async function runAgentLoopImpl(
     };
 
     // Resolve the effective profile key for this turn and detect changes.
-    // Only inject model_profile into the turn context when the profile
-    // changed since the last turn (or on the first turn of a conversation)
-    // to avoid per-turn token cost.
+    // `modelProfileKey` is the actual profile used for this turn. The
+    // notice key is narrower: it only marks turns where runtime context should
+    // remind the model that the profile changed.
     const effectiveProfileKey =
       turnOverrideProfile ??
       config.llm.activeProfile ??
-      resolveDefaultProfileKey("mainAgent", config.llm);
+      resolveDefaultProfileKey("mainAgent", config.llm) ??
+      resolveProfilelessModelKey(turnCallSite, config.llm, {
+        ...(turnOverrideProfile != null
+          ? { overrideProfile: turnOverrideProfile }
+          : {}),
+        ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
+        selectionSeed: ctx.conversationId,
+      });
     const lastNotified = ctx.lastNotifiedInferenceProfile;
-    const modelProfileKey =
-      effectiveProfileKey != null && effectiveProfileKey !== lastNotified
-        ? effectiveProfileKey
-        : null;
-    // The key is threaded as plain turn data to the user-prompt-submit and
-    // post-compaction hooks, which render the `Label (model)` line from it
-    // themselves.
-    if (modelProfileKey != null) {
+    const modelProfileKey = effectiveProfileKey;
+    const modelProfileNoticeKey =
+      modelProfileKey !== lastNotified ? modelProfileKey : null;
+    ctx.currentTurnModelProfileNoticeKey = modelProfileNoticeKey ?? undefined;
+    // Persist the notice only after delivery; hooks still receive
+    // `modelProfileKey` as the effective profile for this turn.
+    if (modelProfileNoticeKey != null) {
       // Record the notification for persistence on delivery rather than here:
       // the model only "learns" the profile once it receives this turn
       // context, signalled by the first `message_complete`. Persisting inline
       // would mark the profile notified even if the turn is cancelled or fails
       // before the model ever sees the notice.
-      state.pendingNotifiedInferenceProfile = modelProfileKey;
+      state.pendingNotifiedInferenceProfile = modelProfileNoticeKey;
     }
 
     // user-prompt-submit hook chain. Fires once per user turn at the primary
@@ -871,10 +901,12 @@ export async function runAgentLoopImpl(
       modelProfileKey,
       isNonInteractive,
     };
+    latencyTracker.mark("prompt_hook_start");
     const finalUserPromptCtx = await runHook(
       HOOKS.USER_PROMPT_SUBMIT,
       userPromptCtx,
     );
+    latencyTracker.mark("prompt_hook_end");
     const runMessages = finalUserPromptCtx.latestMessages;
 
     // Reset the manager's turn-scoped overflow-recovery ladder at the turn
@@ -895,6 +927,7 @@ export async function runAgentLoopImpl(
       turnChannelContext: capturedTurnChannelContext,
       turnInterfaceContext: capturedTurnInterfaceContext,
       applyCompaction: applySuccessfulCompaction,
+      latencyTracker,
     };
     const eventHandler = (event: AgentEvent): Promise<void> => {
       if (
@@ -966,6 +999,7 @@ export async function runAgentLoopImpl(
           requestId: reqId,
           onCheckpoint,
           callSite: turnCallSite,
+          supportsDynamicUi: conversationSupportsDynamicUi(ctx),
           trust: loopTrust,
           overrideProfile: turnOverrideProfile,
           ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
@@ -974,6 +1008,7 @@ export async function runAgentLoopImpl(
           compactInPlace,
           isNonInteractive,
           modelProfileKey,
+          latencyTracker,
           ...(ctx.modelOverride ? { model: ctx.modelOverride } : {}),
         }),
         abortController.signal,
@@ -1558,10 +1593,14 @@ export async function runAgentLoopImpl(
     ctx.diskPressureCleanupModeActive = false;
     ctx.preactivatedSkillIds = undefined;
     ctx.currentTurnOverrideProfile = undefined;
+    ctx.currentTurnModelProfileNoticeKey = undefined;
     // Turn-scoped interactivity. Clear it so paths that bypass this loop (e.g.
     // opportunity wakes calling `agentLoop.run` directly) don't inherit a stale
     // value and instead fall back to live client state in the tool context.
     ctx.currentTurnIsNonInteractive = undefined;
+    // Turn-scoped request origin. Clear so a later turn on a reused
+    // conversation cannot inherit a stale origin-scoped permission grant.
+    ctx.currentTurnRequestOrigin = undefined;
     // Channel command intents (e.g. Telegram /start) are single-turn metadata.
     // Clear at turn end so they never leak into subsequent unrelated messages.
     ctx.commandIntent = undefined;

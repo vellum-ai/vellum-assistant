@@ -10,6 +10,7 @@ import type pino from "pino";
 import { v4 as uuid } from "uuid";
 
 import type { AgentEvent } from "../agent/loop.js";
+import { getThreadTs } from "../channels/slack-thread-store.js";
 import type {
   TurnChannelContext,
   TurnInterfaceContext,
@@ -18,12 +19,6 @@ import { getConfig } from "../config/loader.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import { getCalibrationProviderKey } from "../context/token-estimator.js";
-import { projectAssistantMessage } from "../memory/conversation-attention-store.js";
-import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
-import { indexMessageNow } from "../memory/indexer.js";
-import { backfillMemoryRecallLogMessageId } from "../memory/memory-recall-log-store.js";
-import { backfillMemoryV2ActivationMessageId } from "../memory/memory-v2-activation-log-store.js";
-import { getThreadTs } from "../memory/slack-thread-store.js";
 import {
   formatSlackTimezoneLabel,
   type SlackMessageMetadata,
@@ -33,6 +28,7 @@ import {
   recordCompactionEndBestEffort,
   recordCompactionStartBestEffort,
 } from "../persistence/compaction-log-store-clickhouse.js";
+import { projectAssistantMessage } from "../persistence/conversation-attention-store.js";
 import {
   deleteMessageById,
   getConversation,
@@ -45,6 +41,7 @@ import {
   setLastNotifiedInferenceProfile,
   updateMessageContent,
 } from "../persistence/conversation-crud.js";
+import { syncMessageToDisk } from "../persistence/conversation-disk-view.js";
 import {
   backfillMessageIdOnLogs,
   buildProviderErrorResponsePayload,
@@ -52,6 +49,9 @@ import {
   setAgentLoopExitReasonOnLatestLog,
 } from "../persistence/llm-request-log-store.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
+import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
+import { backfillMemoryRecallLogMessageId } from "../plugins/defaults/memory/memory-recall-log-store.js";
+import { backfillMemoryV2ActivationMessageId } from "../plugins/defaults/memory/memory-v2-activation-log-store.js";
 import { backfillMemoryV3SelectionMessageId } from "../plugins/defaults/memory/v3/shadow-plugin.js";
 import type {
   ContentBlock,
@@ -99,6 +99,7 @@ import type {
   WebSearchMetadata,
   WebSearchResultItem,
 } from "./message-types/web-activity.js";
+import type { TurnLatencyTracker } from "./turn-latency-tracker.js";
 
 const log = getLogger("agent-loop-handlers");
 
@@ -310,6 +311,12 @@ export interface EventHandlerState {
    * consumed (deleted) when the end event dispatches.
    */
   readonly compactionStartMessages: Map<string, Message[]>;
+  /**
+   * Cursor into the turn's latency-mark list marking how far prior calls have
+   * already been serialized, so each `usage` event emits only its own call's
+   * latency segment. Advances on every `handleUsage`.
+   */
+  latencyCursor: number;
 }
 
 /** Immutable context shared across event handlers within a single agent loop run. */
@@ -335,6 +342,15 @@ export interface EventHandlerDeps {
     result: ContextWindowResult,
     messages: Message[],
   ) => Promise<void>;
+  /**
+   * Per-turn first-token latency instrumentation. The orchestrator stamps the
+   * turn-level marks; the agent loop stamps the per-call marks. `handleUsage`
+   * serializes the breakdown for each call and persists it on the request log.
+   * Optional: a pure observability hook that the production orchestrator always
+   * supplies, but test fixtures and any future caller may omit — `handleUsage`
+   * degrades gracefully when it's absent.
+   */
+  readonly latencyTracker?: TurnLatencyTracker;
 }
 
 // ── Factory ──────────────────────────────────────────────────────────
@@ -388,6 +404,7 @@ export function createEventHandlerState(): EventHandlerState {
     currentThinkingTimestamps: [],
     lastPersistedContentSeq: undefined,
     compactionStartMessages: new Map(),
+    latencyCursor: 0,
   };
 }
 
@@ -1773,15 +1790,22 @@ export async function handleMessageComplete(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "message_complete" }>,
 ): Promise<void> {
-  // The model has now received the turn context, so persist any pending
-  // inference-profile-change notification. Guarded by the pending slot so it
-  // fires once per turn; a turn that fails before reaching delivery leaves the
-  // slot unconsumed and re-sends the notice next turn.
+  // A completed message means the model received the turn context, so record
+  // any pending inference-profile-change notification. Guarded by the pending
+  // slot so it fires once per turn; a turn that fails before reaching delivery
+  // leaves the slot unconsumed and re-sends the notice next turn.
   if (state.pendingNotifiedInferenceProfile != null) {
-    setLastNotifiedInferenceProfile(
-      deps.ctx.conversationId,
-      state.pendingNotifiedInferenceProfile,
-    );
+    try {
+      setLastNotifiedInferenceProfile(
+        deps.ctx.conversationId,
+        state.pendingNotifiedInferenceProfile,
+      );
+    } catch (err) {
+      deps.rlog.warn(
+        { conversationId: deps.ctx.conversationId, err },
+        "Failed to persist last notified inference profile (non-fatal)",
+      );
+    }
     deps.ctx.lastNotifiedInferenceProfile =
       state.pendingNotifiedInferenceProfile;
     state.pendingNotifiedInferenceProfile = null;
@@ -2119,6 +2143,27 @@ function handleUsage(
     state.exchangeRawResponses.push(event.rawResponse);
   }
 
+  // Serialize this call's first-token latency segment and advance the cursor
+  // so the next call in the turn serializes only its own marks. Non-fatal: a
+  // tracking hiccup must never escalate into a turn-level throw.
+  let latencyBreakdownJson: string | undefined;
+  let ttftMs: number | undefined;
+  try {
+    const segment = deps.latencyTracker?.serializeSince(state.latencyCursor);
+    if (segment) {
+      state.latencyCursor = segment.cursor;
+      if (segment.breakdown) {
+        latencyBreakdownJson = JSON.stringify(segment.breakdown);
+        ttftMs = segment.breakdown.ttftMs ?? undefined;
+      }
+    }
+  } catch (err) {
+    deps.rlog.warn(
+      { err },
+      "Failed to serialize latency breakdown (non-fatal)",
+    );
+  }
+
   if (event.rawRequest && event.rawResponse) {
     try {
       recordRequestLog(
@@ -2128,6 +2173,7 @@ function handleUsage(
         undefined,
         providerName,
         "mainAgent",
+        latencyBreakdownJson,
       );
     } catch (err) {
       deps.rlog.warn({ err }, "Failed to persist LLM request log (non-fatal)");
@@ -2150,6 +2196,10 @@ function handleUsage(
         inputTokens: event.inputTokens,
         outputTokens: event.outputTokens,
         latencyMs: event.providerDurationMs,
+        // Time-to-first-token for this call (network + provider queue + first
+        // token), so the Logs-tab trace timeline reflects TTFT alongside the
+        // whole-call latency. Omitted when no token streamed (pure tool call).
+        ...(ttftMs != null ? { ttftMs } : {}),
       },
     },
   );

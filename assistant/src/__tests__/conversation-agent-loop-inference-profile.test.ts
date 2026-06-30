@@ -39,7 +39,7 @@ const conversationCrudRealSnapshot = {
 };
 const conversationDiskViewRealSnapshot = {
   ...(createRequire(import.meta.url)(
-    "../memory/conversation-disk-view.js",
+    "../persistence/conversation-disk-view.js",
   ) as Record<string, unknown>),
 };
 
@@ -192,7 +192,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../memory/conversation-disk-view.js", () => ({
+mock.module("../persistence/conversation-disk-view.js", () => ({
   syncMessageToDisk: () => {},
   rebuildConversationDiskViewFromDbState: () => {},
 }));
@@ -209,13 +209,13 @@ mock.module("../memory/retriever.js", () => ({
   injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
 }));
 
-mock.module("../memory/app-store.js", () => ({
+mock.module("../apps/app-store.js", () => ({
   getApp: () => null,
   listAppFiles: () => [],
   getAppsDir: () => "/tmp/apps",
 }));
 
-mock.module("../memory/app-git-service.js", () => ({
+mock.module("../apps/app-git-service.js", () => ({
   commitAppTurnChanges: () => Promise.resolve(),
 }));
 
@@ -560,7 +560,7 @@ afterAll(() => {
     () => conversationCrudRealSnapshot,
   );
   mock.module(
-    "../memory/conversation-disk-view.js",
+    "../persistence/conversation-disk-view.js",
     () => conversationDiskViewRealSnapshot,
   );
 });
@@ -667,5 +667,33 @@ describe("runAgentLoopImpl — per-conversation inferenceProfile", () => {
     expect(captured[0].resolvedOverrideProfile).toBe("quality-optimized");
     expect(captured[0].resolvedMaxInputTokens).toBe(50000);
     expect(ctx.currentTurnOverrideProfile).toBeUndefined();
+  });
+});
+
+describe("runAgentLoopImpl — subagent call site default", () => {
+  test("a subagent conversation defaults to the subagentSpawn call site", async () => {
+    const captured: CapturedAgentLoopRun[] = [];
+    const ctx = makeCtx(captured, { isSubagent: true });
+
+    // No explicit callSite (mirrors the generic queue-drain path) — a subagent
+    // turn must still resolve as subagentSpawn, not mainAgent.
+    await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+    expect(captured.length).toBeGreaterThan(0);
+    for (const call of captured) {
+      expect(call.callSite).toBe("subagentSpawn");
+    }
+  });
+
+  test("a non-subagent conversation defaults to the mainAgent call site", async () => {
+    const captured: CapturedAgentLoopRun[] = [];
+    const ctx = makeCtx(captured, { isSubagent: false });
+
+    await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+    expect(captured.length).toBeGreaterThan(0);
+    for (const call of captured) {
+      expect(call.callSite).toBe("mainAgent");
+    }
   });
 });

@@ -4152,6 +4152,15 @@ paths:
                       properties:
                         channel:
                           type: string
+                          enum:
+                            - telegram
+                            - phone
+                            - vellum
+                            - whatsapp
+                            - slack
+                            - email
+                            - platform
+                            - a2a
                         ready:
                           type: boolean
                         setupStatus:
@@ -4230,14 +4239,20 @@ paths:
               type: object
               properties:
                 channel:
-                  type: string
                   description: Optional channel ID to refresh
+                  type: string
+                  enum:
+                    - telegram
+                    - phone
+                    - vellum
+                    - whatsapp
+                    - slack
+                    - email
+                    - platform
+                    - a2a
                 includeRemote:
-                  type: boolean
                   description: Include remote checks (default true)
-              required:
-                - channel
-                - includeRemote
+                  type: boolean
       responses:
         "200":
           description: Successful response
@@ -4255,6 +4270,15 @@ paths:
                       properties:
                         channel:
                           type: string
+                          enum:
+                            - telegram
+                            - phone
+                            - vellum
+                            - whatsapp
+                            - slack
+                            - email
+                            - platform
+                            - a2a
                         ready:
                           type: boolean
                         setupStatus:
@@ -8503,6 +8527,49 @@ paths:
                                     - type: "null"
                               additionalProperties: false
                             - type: "null"
+                        latency:
+                          anyOf:
+                            - type: object
+                              properties:
+                                phases:
+                                  type: array
+                                  items:
+                                    type: object
+                                    properties:
+                                      key:
+                                        type: string
+                                      label:
+                                        type: string
+                                      ms:
+                                        type: number
+                                    required:
+                                      - key
+                                      - label
+                                      - ms
+                                    additionalProperties: false
+                                ttftMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                totalToFirstTokenMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                providerDurationMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                firstTokenKind:
+                                  anyOf:
+                                    - type: string
+                                      enum:
+                                        - thinking
+                                        - text
+                                    - type: "null"
+                              required:
+                                - phases
+                              additionalProperties: false
+                            - type: "null"
                       required:
                         - id
                         - createdAt
@@ -9073,6 +9140,10 @@ paths:
                 cronRunId:
                   type: string
                   minLength: 1
+                persist:
+                  type: boolean
+                externalContent:
+                  type: string
               required:
                 - conversationId
                 - hint
@@ -15497,6 +15568,49 @@ paths:
                               - type: "null"
                         additionalProperties: false
                       - type: "null"
+                  latency:
+                    anyOf:
+                      - type: object
+                        properties:
+                          phases:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                key:
+                                  type: string
+                                label:
+                                  type: string
+                                ms:
+                                  type: number
+                              required:
+                                - key
+                                - label
+                                - ms
+                              additionalProperties: false
+                          ttftMs:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          totalToFirstTokenMs:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          providerDurationMs:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          firstTokenKind:
+                            anyOf:
+                              - type: string
+                                enum:
+                                  - thinking
+                                  - text
+                              - type: "null"
+                        required:
+                          - phases
+                        additionalProperties: false
+                      - type: "null"
                 required:
                   - id
                   - createdAt
@@ -16539,7 +16653,9 @@ paths:
     get:
       operationId: memory_worker_status_get
       summary: Memory worker status
-      description: Reports the memory worker process state, memory.worker.enabled, and the synchronous in-process runner.
+      description:
+        Reports the memory worker process state, memory.worker.enabled, the synchronous in-process runner, and the
+        embedding-backend status (including a degraded flag and reason when no backend resolves).
       tags:
         - system
       responses:
@@ -16572,10 +16688,42 @@ paths:
                     required:
                       - status
                     additionalProperties: false
+                  embedding:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      degraded:
+                        type: boolean
+                      provider:
+                        anyOf:
+                          - type: string
+                            enum:
+                              - local
+                              - openai
+                              - gemini
+                              - ollama
+                          - type: "null"
+                      model:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      reason:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                    required:
+                      - enabled
+                      - degraded
+                      - provider
+                      - model
+                      - reason
+                    additionalProperties: false
                 required:
                   - status
                   - workerEnabled
                   - syncRunner
+                  - embedding
                 additionalProperties: false
   /v1/memory/worker/stop:
     post:
@@ -17575,6 +17723,16 @@ paths:
                             - label
                             - status
                           additionalProperties: false
+                        acpNotification:
+                          type: object
+                          properties:
+                            acpSessionId:
+                              type: string
+                            agent:
+                              type: string
+                          required:
+                            - acpSessionId
+                          additionalProperties: false
                         slackMessage:
                           type: object
                           properties:
@@ -18109,6 +18267,49 @@ paths:
                                   anyOf:
                                     - type: string
                                     - type: "null"
+                              additionalProperties: false
+                            - type: "null"
+                        latency:
+                          anyOf:
+                            - type: object
+                              properties:
+                                phases:
+                                  type: array
+                                  items:
+                                    type: object
+                                    properties:
+                                      key:
+                                        type: string
+                                      label:
+                                        type: string
+                                      ms:
+                                        type: number
+                                    required:
+                                      - key
+                                      - label
+                                      - ms
+                                    additionalProperties: false
+                                ttftMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                totalToFirstTokenMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                providerDurationMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                firstTokenKind:
+                                  anyOf:
+                                    - type: string
+                                      enum:
+                                        - thinking
+                                        - text
+                                    - type: "null"
+                              required:
+                                - phases
                               additionalProperties: false
                             - type: "null"
                       required:
@@ -20281,6 +20482,10 @@ paths:
                     type: boolean
                   hasWebhookSecret:
                     type: boolean
+                  clientInstallationId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   available:
                     type: boolean
                   organizationId:
@@ -20312,6 +20517,7 @@ paths:
                   - assistantId
                   - hasAssistantApiKey
                   - hasWebhookSecret
+                  - clientInstallationId
                   - available
                   - organizationId
                   - userId
@@ -24289,7 +24495,7 @@ paths:
           required: false
           schema:
             type: string
-          description: Filter by skill origin (e.g. 'vellum', 'clawhub', 'skillssh', 'custom').
+          description: Filter by skill origin (e.g. 'vellum', 'clawhub', 'skillssh', 'custom', 'assistant-memory').
         - name: kind
           in: query
           required: false
@@ -24582,6 +24788,60 @@ paths:
                             origin:
                               type: string
                               const: custom
+                          required:
+                            - id
+                            - name
+                            - description
+                            - kind
+                            - status
+                            - category
+                            - origin
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                            name:
+                              type: string
+                            description:
+                              type: string
+                            icon:
+                              type: string
+                            emoji:
+                              type: string
+                            kind:
+                              type: string
+                              enum:
+                                - bundled
+                                - installed
+                                - catalog
+                            status:
+                              type: string
+                              enum:
+                                - enabled
+                                - disabled
+                                - available
+                            category:
+                              type: string
+                            owner:
+                              type: object
+                              properties:
+                                kind:
+                                  type: string
+                                  enum:
+                                    - skill
+                                    - mcp
+                                    - plugin
+                                    - workspace
+                                id:
+                                  type: string
+                              required:
+                                - kind
+                                - id
+                              additionalProperties: false
+                            origin:
+                              type: string
+                              const: assistant-memory
                           required:
                             - id
                             - name
@@ -24967,6 +25227,60 @@ paths:
                           origin:
                             type: string
                             const: custom
+                        required:
+                          - id
+                          - name
+                          - description
+                          - kind
+                          - status
+                          - category
+                          - origin
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          id:
+                            type: string
+                          name:
+                            type: string
+                          description:
+                            type: string
+                          icon:
+                            type: string
+                          emoji:
+                            type: string
+                          kind:
+                            type: string
+                            enum:
+                              - bundled
+                              - installed
+                              - catalog
+                          status:
+                            type: string
+                            enum:
+                              - enabled
+                              - disabled
+                              - available
+                          category:
+                            type: string
+                          owner:
+                            type: object
+                            properties:
+                              kind:
+                                type: string
+                                enum:
+                                  - skill
+                                  - mcp
+                                  - plugin
+                                  - workspace
+                              id:
+                                type: string
+                            required:
+                              - kind
+                              - id
+                            additionalProperties: false
+                          origin:
+                            type: string
+                            const: assistant-memory
                         required:
                           - id
                           - name
@@ -25367,6 +25681,60 @@ paths:
                           origin:
                             type: string
                             const: custom
+                        required:
+                          - id
+                          - name
+                          - description
+                          - kind
+                          - status
+                          - category
+                          - origin
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          id:
+                            type: string
+                          name:
+                            type: string
+                          description:
+                            type: string
+                          icon:
+                            type: string
+                          emoji:
+                            type: string
+                          kind:
+                            type: string
+                            enum:
+                              - bundled
+                              - installed
+                              - catalog
+                          status:
+                            type: string
+                            enum:
+                              - enabled
+                              - disabled
+                              - available
+                          category:
+                            type: string
+                          owner:
+                            type: object
+                            properties:
+                              kind:
+                                type: string
+                                enum:
+                                  - skill
+                                  - mcp
+                                  - plugin
+                                  - workspace
+                              id:
+                                type: string
+                            required:
+                              - kind
+                              - id
+                            additionalProperties: false
+                          origin:
+                            type: string
+                            const: assistant-memory
                         required:
                           - id
                           - name
@@ -25954,6 +26322,60 @@ paths:
                             origin:
                               type: string
                               const: custom
+                          required:
+                            - id
+                            - name
+                            - description
+                            - kind
+                            - status
+                            - category
+                            - origin
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                            name:
+                              type: string
+                            description:
+                              type: string
+                            icon:
+                              type: string
+                            emoji:
+                              type: string
+                            kind:
+                              type: string
+                              enum:
+                                - bundled
+                                - installed
+                                - catalog
+                            status:
+                              type: string
+                              enum:
+                                - enabled
+                                - disabled
+                                - available
+                            category:
+                              type: string
+                            owner:
+                              type: object
+                              properties:
+                                kind:
+                                  type: string
+                                  enum:
+                                    - skill
+                                    - mcp
+                                    - plugin
+                                    - workspace
+                                id:
+                                  type: string
+                              required:
+                                - kind
+                                - id
+                              additionalProperties: false
+                            origin:
+                              type: string
+                              const: assistant-memory
                           required:
                             - id
                             - name

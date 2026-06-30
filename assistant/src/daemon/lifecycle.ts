@@ -13,19 +13,16 @@ import { setIngressPublicBaseUrl, validateEnv } from "../config/env.js";
 import { loadConfig, mergeDefaultWorkspaceConfig } from "../config/loader.js";
 import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
 import { reconcileFlagGatedProfiles } from "../config/sync-gated-profiles.js";
+import { expireAllPendingCanonicalRequests } from "../contacts/canonical-guardian-store.js";
 import { startCes } from "../credential-execution/ces-runtime.js";
 import { refreshManagedConnectionCache } from "../credential-execution/managed-catalog.js";
-import { startFilingService } from "../filing/filing-service.js";
 import { startHeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { startCliIpcServer } from "../ipc/assistant-server.js";
 import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
 import { startSkillIpcServer } from "../ipc/skill-server.js";
-import { expireAllPendingCanonicalRequests } from "../memory/canonical-guardian-store.js";
-import { registerMemoryJobHandlers } from "../memory/register-job-handlers.js";
-import { rotateToolInvocations } from "../memory/tool-usage-store.js";
-import { sweepConceptPageFrontmatter } from "../memory/v2/frontmatter-sweep.js";
+import { registerMemoryJobHandlers } from "../jobs/register-job-handlers.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
@@ -55,8 +52,11 @@ import {
   startConsentRefresh,
   stopConsentRefresh,
 } from "../platform/consent-cache.js";
+import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";
+import { sweepConceptPageFrontmatter } from "../plugins/defaults/memory/v2/frontmatter-sweep.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
+import { initializeProviders } from "../providers/registry.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import {
   initAuthSigningKey,
@@ -71,6 +71,7 @@ import {
 } from "../runtime/sync/resource-sync-events.js";
 import { recoverStaleSchedules } from "../schedule/schedule-recovery.js";
 import { startScheduler } from "../schedule/scheduler.js";
+import { rotateToolInvocations } from "../telemetry/tool-usage-store.js";
 import { startUsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { syncFlagGatedTools } from "../tools/registry.js";
 import { registerBuiltinTtsProviders } from "../tts/providers/register-builtins.js";
@@ -93,7 +94,8 @@ import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import { runWorkspaceMigrations } from "../workspace/migrations/runner.js";
 import { startAppSourceWatcher } from "./app-source-watcher.js";
 import { startConfigWatcher } from "./config-watcher.js";
-import { startConversationEvictor } from "./conversation-store.js";
+import { startConversationEvictor } from "./conversation-evictor.js";
+import { getOrCreateConversation } from "./conversation-store.js";
 import { writePid } from "./daemon-control.js";
 import { setDbReady, setStartupComplete } from "./daemon-readiness.js";
 import {
@@ -101,6 +103,7 @@ import {
   startDiskPressureGuard,
   stopDiskPressureGuard,
 } from "./disk-pressure-guard.js";
+import { reconcileEmbeddingIdentity } from "./embedding-reconcile.js";
 import { startEventLoopWatchdog } from "./event-loop-watchdog.js";
 import { initializePlugins } from "./external-plugins-bootstrap.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
@@ -118,10 +121,10 @@ import {
   registerMessagingProviders,
   registerWatcherProviders,
 } from "./providers-setup.js";
-import { DaemonServer } from "./server.js";
 import { installShutdownHandlers } from "./shutdown-handlers.js";
 import { registerShutdownHook } from "./shutdown-registry.js";
 import { refreshSkillCapabilityMemories } from "./skill-memory-refresh.js";
+import { broadcastDaemonStatus } from "./status.js";
 
 const log = getLogger("lifecycle");
 let diskPressureStartupSampleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -606,12 +609,11 @@ export async function runDaemon(): Promise<void> {
   // they can't block daemon startup.
   await initializePlugins();
 
-  // Start the DaemonServer (conversation manager) before Qdrant so HTTP
-  // routes can begin accepting requests while Qdrant initializes.
-  log.info("Daemon startup: starting DaemonServer");
-  const server = new DaemonServer();
-  await server.start();
-  log.info("Daemon startup: DaemonServer started");
+  // Initialize providers before Qdrant so HTTP routes can begin accepting
+  // requests while Qdrant initializes, then best-effort sync the workspace
+  // identity name to the platform record.
+  await initializeProviders(config);
+  syncWorkspaceIdentityToPlatform();
 
   // Start the idle/LRU/memory-pressure sweep over the in-memory conversation
   // pool.
@@ -730,6 +732,20 @@ export async function runDaemon(): Promise<void> {
         }
       }
 
+      // Reconcile the committed embedding-collection dimension against a live
+      // backend probe (confirm-before-destroy) before the v2 rebuild and the
+      // worker drain, so `memory.qdrant.vectorSize` is settled first. Its own
+      // try/catch keeps an unreachable backend or reconcile failure from
+      // blocking startup.
+      try {
+        await reconcileEmbeddingIdentity(config);
+      } catch (err) {
+        log.warn(
+          { err },
+          "Embedding-identity reconcile threw — continuing startup",
+        );
+      }
+
       // Detect schema drift on the v2 concept-page collection (e.g.
       // pre-#29823 collections lacking summary_dense / summary_sparse) and
       // recreate + enqueue a reembed when needed. Awaited inline so the
@@ -754,9 +770,9 @@ export async function runDaemon(): Promise<void> {
         void (async () => {
           try {
             const { reconcilePkbIndex } =
-              await import("../memory/pkb/pkb-reconcile.js");
+              await import("../plugins/defaults/memory/pkb/pkb-reconcile.js");
             const { PKB_WORKSPACE_SCOPE } =
-              await import("../memory/pkb/types.js");
+              await import("../plugins/defaults/memory/pkb/types.js");
             const pkbRoot = join(getWorkspaceDir(), "pkb");
             await reconcilePkbIndex(pkbRoot, PKB_WORKSPACE_SCOPE);
           } catch (err) {
@@ -792,7 +808,7 @@ export async function runDaemon(): Promise<void> {
     // Seed capability graph nodes (new memory graph system)
     try {
       const { seedCliGraphNodes } =
-        await import("../memory/graph/capability-seed.js");
+        await import("../plugins/defaults/memory/graph/capability-seed.js");
       refreshSkillCapabilityMemories(config);
       await seedCliGraphNodes();
     } catch (err) {
@@ -804,7 +820,7 @@ export async function runDaemon(): Promise<void> {
     // graph from conversation history and journal files.
     try {
       const { maybeEnqueueGraphBootstrap, cleanupStaleItemVectors } =
-        await import("../memory/graph/bootstrap.js");
+        await import("../plugins/defaults/memory/graph/bootstrap.js");
       maybeEnqueueGraphBootstrap();
       // Fire-and-forget: clean up orphaned Qdrant vectors from dropped memory_items table
       void cleanupStaleItemVectors().catch((err) =>
@@ -819,7 +835,7 @@ export async function runDaemon(): Promise<void> {
   registerMessagingProviders();
 
   try {
-    recoverStaleSchedules();
+    await recoverStaleSchedules();
   } catch (err) {
     log.error({ err }, "Schedule recovery failed — continuing startup");
   }
@@ -934,12 +950,10 @@ export async function runDaemon(): Promise<void> {
     log.warn({ err }, "Background Qdrant init failed"),
   );
 
-  // Inject voice bridge deps so route handlers + the relay pipeline can
-  // resolve a conversation by ID once a call lands. Module-level state,
-  // so available even when the HTTP server failed to bind.
+  // Inject voice bridge deps so the relay pipeline can resolve attachments
+  // once a call lands. Module-level state, so available even when the HTTP
+  // server failed to bind.
   setVoiceBridgeDeps({
-    getOrCreateConversation: (conversationId, _transport) =>
-      server.getConversationForMessages(conversationId),
     resolveAttachments: (attachmentIds) => {
       const resolved = getAttachmentsByIds(attachmentIds, {
         hydrateFileData: true,
@@ -958,8 +972,7 @@ export async function runDaemon(): Promise<void> {
     setRelayBroadcast((msg) => broadcastMessage(msg));
     setPointerMessageProcessor(
       async (conversationId, instruction, requiredFacts) => {
-        const conversation =
-          await server.getConversationForMessages(conversationId);
+        const conversation = await getOrCreateConversation(conversationId);
 
         // Pointer turns are guardian-gated owner self-maintenance: elevate to
         // the internal guardian context and rehydrate history so a cold
@@ -1099,7 +1112,7 @@ export async function runDaemon(): Promise<void> {
         }
       },
     );
-    server.broadcastStatus();
+    broadcastDaemonStatus();
   } catch (err) {
     log.warn(
       { err },
@@ -1121,8 +1134,8 @@ export async function runDaemon(): Promise<void> {
   // Initialize providers and tools after the HTTP server is listening so
   // health-check and pairing requests can be served immediately.  Wrapped in
   // its own try/catch so a failure here doesn't tear down the running HTTP
-  // server (DaemonServer.start() already calls initializeProviders internally
-  // and tools are resolved lazily at conversation creation time).
+  // server (providers were already initialized earlier in startup and tools
+  // are resolved lazily at conversation creation time).
   try {
     log.info("Daemon startup: initializing providers and tools");
     await initializeProvidersAndTools(config);
@@ -1179,13 +1192,7 @@ export async function runDaemon(): Promise<void> {
   startHeartbeatService();
   refreshBackgroundWakeIntent("daemon-startup");
 
-  // Filing yields to the memory v2 consolidation job when v2 is enabled — both
-  // serve the same role (periodic background memory processing) and running both
-  // is redundant. The consolidation job runs through the memory jobs worker
-  // (see `maybeEnqueueGraphMaintenanceJobs`).
-  startFilingService();
-
-  installShutdownHandlers({ server });
+  installShutdownHandlers();
 
   // The critical startup await-chain has completed and the daemon can serve
   // requests, so latch readiness before logging "Daemon started". Any fatal

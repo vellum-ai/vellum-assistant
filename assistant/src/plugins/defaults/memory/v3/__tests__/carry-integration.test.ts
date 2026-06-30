@@ -48,24 +48,21 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 
-import { drizzle } from "drizzle-orm/bun-sqlite";
-
-import { stripSpotlightInjections } from "../../../../../context/strip-injections.js";
-import {
-  unwrapMemoryBlock,
-  wrapMemoryBlock,
-} from "../../../../../memory/memory-marker.js";
-import type { PageIndexEntry } from "../../../../../memory/v2/page-index.js";
-import { migrateAddMemoryV3Selections } from "../../../../../persistence/migrations/268-add-memory-v3-selections.js";
-import { migrateAddMemoryV3EverInjected } from "../../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
-import { migrateMemoryV3SelectionsMessageIdAndSections } from "../../../../../persistence/migrations/283-memory-v3-selections-message-id-and-sections.js";
-import * as schema from "../../../../../persistence/schema/index.js";
 import type {
   ContentBlock,
   Message,
   Provider,
   ProviderResponse,
-} from "../../../../../providers/types.js";
+} from "@vellumai/plugin-api";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+
+import { stripSpotlightInjections } from "../../../../../context/strip-injections.js";
+import { migrateAddMemoryV3Selections } from "../../../../../persistence/migrations/268-add-memory-v3-selections.js";
+import { migrateAddMemoryV3EverInjected } from "../../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
+import { migrateMemoryV3SelectionsMessageIdAndSections } from "../../../../../persistence/migrations/283-memory-v3-selections-message-id-and-sections.js";
+import * as schema from "../../../../../persistence/schema/index.js";
+import { unwrapMemoryBlock, wrapMemoryBlock } from "../../memory-marker.js";
+import type { PageIndexEntry } from "../../v2/page-index.js";
 import { cardBytes, renderCard } from "../card.js";
 import { loadCoreSet } from "../core-set.js";
 import type { EdgeGraph } from "../edge.js";

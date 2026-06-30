@@ -10,7 +10,7 @@ import { applyCanonicalGuardianDecision } from "../approvals/guardian-decision-p
 import {
   getCanonicalGuardianRequest,
   isRequestInConversationScope,
-} from "../memory/canonical-guardian-store.js";
+} from "../contacts/canonical-guardian-store.js";
 import type { ApprovalAction } from "./channel-approval-types.js";
 
 // ---------------------------------------------------------------------------
@@ -33,7 +33,6 @@ const LEGACY_ACTION_MAP: Record<string, string> = {
   approve_conversation: "approve_once",
   approve_always: "approve_once",
 };
-
 
 // ---------------------------------------------------------------------------
 // Types

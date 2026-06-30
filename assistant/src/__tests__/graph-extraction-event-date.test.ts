@@ -5,7 +5,7 @@ import {
   EVENT_DATE_PROMPT_RULES,
   parseEpochMs,
   parseExtractionResponse,
-} from "../memory/graph/extraction.js";
+} from "../plugins/defaults/memory/graph/extraction.js";
 
 // ---------------------------------------------------------------------------
 // parseEpochMs unit tests

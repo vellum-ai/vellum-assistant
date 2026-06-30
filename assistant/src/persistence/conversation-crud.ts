@@ -23,47 +23,12 @@ import { z } from "zod";
 import type { ChannelId, InterfaceId } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { CHANNEL_IDS, isChannelId } from "../channels/types.js";
-import { getConfig } from "../config/loader.js";
 import { findDisplayTurnEndIndex } from "../conversations/message-consolidation.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
-import { AUTO_ANALYSIS_SOURCE } from "../memory/auto-analysis-constants.js";
-import {
-  projectAssistantMessage,
-  seedForkedConversationAttention,
-} from "../memory/conversation-attention-store.js";
-import {
-  initConversationDir,
-  removeConversationDir,
-  syncMessageToDisk,
-  updateMetaFile,
-} from "../memory/conversation-disk-view.js";
-import { ensureDisplayOrderMigration } from "../memory/conversation-display-order-migration.js";
-import { ensureGroupMigration } from "../memory/conversation-group-migration.js";
-import { forkGraphMemoryState } from "../memory/graph/graph-memory-state-store.js";
-import { indexMessageNow } from "../memory/indexer.js";
-import { MEMORY_RETROSPECTIVE_SOURCES } from "../memory/memory-retrospective-constants.js";
-import { forkRetrospectiveState } from "../memory/memory-retrospective-state.js";
-import {
-  rawExec,
-  rawGet,
-  rawLogsRun,
-  rawMemoryRun,
-  rawRun,
-} from "../memory/raw-query.js";
-import { cancelPendingJobsForConversation } from "../memory/task-memory-cleanup.js";
-import {
-  forkActivationState,
-  seedForkActivationState,
-} from "../memory/v2/activation-store.js";
-import { extractInjectedConceptSlugs } from "../memory/v2/injected-block-slugs.js";
-import {
-  forkEverInjected,
-  MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
-  seedEverInjectedFromSlugs,
-} from "../plugins/defaults/memory/v3/ever-injected-store.js";
+import { MEMORY_RETROSPECTIVE_SOURCES } from "../plugins/defaults/memory/memory-retrospective-constants.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { UserError } from "../util/errors.js";
@@ -72,16 +37,29 @@ import { getLogger } from "../util/logger.js";
 import { getLogsDbPath } from "../util/logs-db-path.js";
 import { getConversationsDir } from "../util/platform.js";
 import { createRowMapper } from "../util/row-mapper.js";
-import { withSqliteRetry, withSqliteRetrySync } from "../util/sqlite-retry.js";
+import { withSqliteRetry } from "../util/sqlite-retry.js";
 import {
   deleteOrphanAttachments,
   linkAttachmentToMessage,
 } from "./attachments-store.js";
+import { AUTO_ANALYSIS_SOURCE } from "./auto-analysis-constants.js";
 import {
   appendCompactionEvent,
   forkCompactionLedger,
   getLatestCompactionEventAtOrBefore,
 } from "./compaction-ledger-store.js";
+import {
+  projectAssistantMessage,
+  seedForkedConversationAttention,
+} from "./conversation-attention-store.js";
+import {
+  initConversationDir,
+  removeConversationDir,
+  syncMessageToDisk,
+  updateMetaFile,
+} from "./conversation-disk-view.js";
+import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
+import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { deleteConversationRowsInBatches } from "./conversation-row-batch-delete.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import {
@@ -94,6 +72,14 @@ import {
   copyForkMessagesViaSubprocess,
   type ForkIdPair,
 } from "./fork-message-copy.js";
+import { getMemoryPersistenceHooks } from "./memory-lifecycle-hooks.js";
+import {
+  rawExec,
+  rawGet,
+  rawLogsRun,
+  rawMemoryRun,
+  rawRun,
+} from "./raw-query.js";
 import {
   channelInboundEvents,
   conversations,
@@ -143,6 +129,11 @@ const subagentNotificationSchema = z.object({
   objective: z.string().optional(),
 });
 
+const acpNotificationSchema = z.object({
+  acpSessionId: z.string(),
+  agent: z.string().optional(),
+});
+
 export const messageMetadataSchema = z
   .object({
     userMessageChannel: channelIdSchema.optional(),
@@ -160,6 +151,7 @@ export const messageMetadataSchema = z
      */
     client: z.record(z.string(), z.unknown()).optional(),
     subagentNotification: subagentNotificationSchema.optional(),
+    acpNotification: acpNotificationSchema.optional(),
     /**
      * Trust class of the actor at the time this message was persisted.
      * This is a durable snapshot -- it does NOT change if the actor's
@@ -178,8 +170,11 @@ export const messageMetadataSchema = z
     imageSourcePaths: z.record(z.string(), z.string()).optional(),
     memoryInjectedBlock: z.string().optional(),
     /** Memory-v3 frozen net-new card block (unwrapped) — the v3 counterpart
-     *  of `memoryInjectedBlock`. A row carries at most one of the two. */
-    [MEMORY_V3_INJECTED_BLOCK_METADATA_KEY]: z.string().optional(),
+     *  of `memoryInjectedBlock`. A row carries at most one of the two. The key
+     *  matches the memory plugin's `MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`, kept
+     *  as a literal here (like `memoryInjectedBlock`) so the storage schema does
+     *  not import the memory feature. */
+    memoryV3InjectedBlock: z.string().optional(),
     turnContextBlock: z.string().optional(),
     pkbSystemReminderBlock: z.string().optional(),
     workspaceBlock: z.string().optional(),
@@ -222,30 +217,6 @@ function cloneForkMessageMetadata(
   }
 
   return JSON.stringify({ forkSourceMessageId: sourceMessageId });
-}
-
-/**
- * Read a persisted memory-injection block off a message's metadata JSON, or
- * `null` when absent/malformed. `key` selects the injection layer: v2's
- * `memoryInjectedBlock` or memory-v3's card block
- * (`MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`). The block is what the request
- * builder re-attaches as the message's `<memory>` content each turn.
- */
-function readInjectedBlock(
-  metadata: string | null,
-  key: string,
-): string | null {
-  if (!metadata) return null;
-  try {
-    const parsed: unknown = JSON.parse(metadata);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      const block = (parsed as Record<string, unknown>)[key];
-      if (typeof block === "string") return block;
-    }
-  } catch {
-    // Malformed metadata — treat as no block.
-  }
-  return null;
 }
 
 /**
@@ -630,34 +601,31 @@ export function createConversation(
     seq: initialSeq > 0 ? initialSeq : null,
   };
 
-  // Retry on SQLITE_BUSY and SQLITE_IOERR — transient disk I/O errors or WAL
-  // contention can cause the first attempt to fail even under normal load.
-  // INSERT and group_id UPDATE are retried independently so a transient failure
-  // on the UPDATE doesn't re-execute the already-succeeded INSERT (which would
-  // hit a unique constraint violation).
-  // No explicit BEGIN/COMMIT here — callers that need atomicity (e.g.
-  // forkConversation) wrap in their own transaction, and nesting raw BEGIN
-  // inside Drizzle's db.transaction() would crash SQLite.
-  withSqliteRetrySync(
-    () => db.insert(conversations).values(conversation).run(),
-    { op: "createConversation.insert", context: { conversationId: id } },
-  );
-
-  // group_id is NOT in the Drizzle schema (raw-query-only pattern).
-  // Set via raw SQL after the INSERT succeeds.
-  // Always set group_id — default to "system:all" when none provided.
-  {
-    const effectiveGroupId = groupId ?? "system:all";
-    withSqliteRetrySync(
-      () =>
-        rawRun(
-          "UPDATE conversations SET group_id = ?, is_pinned = ? WHERE id = ?",
-          effectiveGroupId,
-          effectiveGroupId === "system:pinned" ? 1 : 0,
-          id,
-        ),
-      { op: "createConversation.groupId", context: { conversationId: id } },
+  // Insert the row and set its group_id (raw-SQL-only, not in the Drizzle
+  // schema, so it's a second statement) atomically. A SAVEPOINT — not
+  // `db.transaction()` — because createConversation also runs INSIDE the fork
+  // paths' transactions, where a nested `BEGIN` would error; a savepoint nests
+  // cleanly and is still atomic at the top level. createConversation is a
+  // synchronous primitive and does not retry on contention: callers on
+  // write-contended paths wrap the call in `withSqliteRetry`, and because the
+  // insert+update are atomic here, such a retry re-runs the whole thing cleanly
+  // (a failed attempt rolls back, so no half-written row is ever left behind).
+  const effectiveGroupId = groupId ?? "system:all";
+  const raw = getSqliteFrom(db);
+  raw.exec("SAVEPOINT create_conv");
+  try {
+    db.insert(conversations).values(conversation).run();
+    rawRun(
+      "UPDATE conversations SET group_id = ?, is_pinned = ? WHERE id = ?",
+      effectiveGroupId,
+      effectiveGroupId === "system:pinned" ? 1 : 0,
+      id,
     );
+    raw.exec("RELEASE create_conv");
+  } catch (err) {
+    raw.exec("ROLLBACK TO create_conv");
+    raw.exec("RELEASE create_conv");
+    throw err;
   }
 
   initConversationDir({ ...conversation, originChannel: null });
@@ -1171,64 +1139,17 @@ function populateForkContentsInProcess(args: PopulateForkContentsArgs): void {
     latestAssistantMessageAt: latestForkedAssistant?.messageAt ?? null,
   });
 
-  // Carry the parent's per-conversation memory state into the child so the
-  // forked thread resumes with the same activation/injection log and
-  // in-context tracker the parent had at fork time. Only valid for
-  // full-history forks: a truncated fork would inherit activation/tracker
-  // entries for turns the child does not actually contain.
-  if (isFullHistoryFork) {
-    forkActivationState(db, sourceConversationId, fork.id);
-    forkEverInjected(db, sourceConversationId, fork.id);
-    forkGraphMemoryState(sourceConversationId, fork.id);
-  } else {
-    // Truncated fork: the wholesale copy above would over-claim, but
-    // seeding nothing makes the child re-select and re-attach every page
-    // whose `<memory>` attachment it already inherited (observed in
-    // production: 89 duplicate page injections on one fork). Derive
-    // `everInjected` from the inherited attachments themselves — scoped to
-    // the child's visible window, since attachments behind an inherited
-    // compaction boundary are not rendered and must stay re-injectable.
-    // The v2 and v3 layers persist under separate metadata keys with the
-    // same `# memory/concepts/<slug>.md` header convention, so each seeds
-    // its own dedup record from its own blocks.
-    const visibleStartIndex = Math.min(
-      inheritedCompactedMessageCount,
-      messagesToCopy.length,
-    );
-    const inheritedSlugs = new Set<string>();
-    const inheritedV3Slugs = new Set<string>();
-    for (const message of messagesToCopy.slice(visibleStartIndex)) {
-      const block = readInjectedBlock(message.metadata, "memoryInjectedBlock");
-      if (block) {
-        for (const slug of extractInjectedConceptSlugs(block)) {
-          inheritedSlugs.add(slug);
-        }
-      }
-      const v3Block = readInjectedBlock(
-        message.metadata,
-        MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
-      );
-      if (v3Block) {
-        for (const slug of extractInjectedConceptSlugs(v3Block)) {
-          inheritedV3Slugs.add(slug);
-        }
-      }
-    }
-    seedForkActivationState(db, fork.id, [...inheritedSlugs]);
-    seedEverInjectedFromSlugs(
-      db,
-      sourceConversationId,
-      fork.id,
-      [...inheritedV3Slugs],
-      Date.now(),
-    );
-  }
-  forkRetrospectiveState({
-    database: db,
+  // Carry the parent's per-conversation memory state into the child (activation
+  // and injection logs, graph state, retrospective state). Runs synchronously
+  // inside the fork transaction; a no-op when memory is absent or disabled.
+  getMemoryPersistenceHooks().onConversationForked({
+    db,
     sourceConversationId,
-    forkedConversationId: fork.id,
+    forkId: fork.id,
+    isFullHistoryFork,
+    messagesToCopy,
     forkedMessageIds,
-    lastCopiedSourceMessageId: messagesToCopy.at(-1)?.id ?? null,
+    inheritedCompactedMessageCount,
   });
 
   // Carry the source's compaction events that predate the fork boundary so the
@@ -1366,37 +1287,43 @@ export async function forkConversationForRetrospective(params: {
   );
 
   // Phase 1 (in-process, tiny): create the fork conversation row + lineage so
-  // the subprocess connection sees it before inserting messages.
-  const fork = db.transaction(() => {
-    const fc = createConversation({
-      title: forkTitle,
-      conversationType: params.conversationType ?? "standard",
-      groupId: params.groupId ?? parentGroupId ?? "system:all",
-      ...(params.source != null ? { source: params.source } : {}),
-    });
-    db.update(conversations)
-      .set({
-        forkParentConversationId: sourceConversation.id,
-        forkParentMessageId,
-        contextSummary: inheritedCompaction?.summary ?? null,
-        contextCompactedMessageCount:
-          inheritedCompaction?.compactedMessageCount ?? 0,
-        contextCompactedAt: inheritedCompaction?.compactedAt ?? null,
-        slackContextCompactionWatermarkTs: inheritsLatestCompaction
-          ? sourceConversation.slackContextCompactionWatermarkTs
-          : null,
-        slackContextCompactionWatermarkAt: inheritsLatestCompaction
-          ? sourceConversation.slackContextCompactionWatermarkAt
-          : null,
-        historyStrippedAt: inheritsHistoryStrippedAt
-          ? sourceHistoryStrippedAt
-          : null,
-        inferenceProfile: sourceConversation.inferenceProfile,
-      })
-      .where(eq(conversations.id, fc.id))
-      .run();
-    return fc;
-  });
+  // the subprocess connection sees it before inserting messages. The whole
+  // transaction is the retry unit — it rolls back atomically on contention, so
+  // re-running it (with a fresh conversation id) is safe.
+  const fork = await withSqliteRetry(
+    () =>
+      db.transaction(() => {
+        const fc = createConversation({
+          title: forkTitle,
+          conversationType: params.conversationType ?? "standard",
+          groupId: params.groupId ?? parentGroupId ?? "system:all",
+          ...(params.source != null ? { source: params.source } : {}),
+        });
+        db.update(conversations)
+          .set({
+            forkParentConversationId: sourceConversation.id,
+            forkParentMessageId,
+            contextSummary: inheritedCompaction?.summary ?? null,
+            contextCompactedMessageCount:
+              inheritedCompaction?.compactedMessageCount ?? 0,
+            contextCompactedAt: inheritedCompaction?.compactedAt ?? null,
+            slackContextCompactionWatermarkTs: inheritsLatestCompaction
+              ? sourceConversation.slackContextCompactionWatermarkTs
+              : null,
+            slackContextCompactionWatermarkAt: inheritsLatestCompaction
+              ? sourceConversation.slackContextCompactionWatermarkAt
+              : null,
+            historyStrippedAt: inheritsHistoryStrippedAt
+              ? sourceHistoryStrippedAt
+              : null,
+            inferenceProfile: sourceConversation.inferenceProfile,
+          })
+          .where(eq(conversations.id, fc.id))
+          .run();
+        return fc;
+      }),
+    { op: "forkConversationForRetrospective.create" },
+  );
 
   try {
     // Phase 2 (off the event loop): copy the message rows in a sqlite3
@@ -1649,8 +1576,9 @@ export function wipeConversation(id: string): WipeConversationResult {
   const deletedSummaryIds: string[] = [];
 
   // Step A — Cancel pending memory jobs (before deleting messages, since
-  // the cancellation queries join on `messages`).
-  const cancelledJobCount = cancelPendingJobsForConversation(id);
+  // the cancellation queries join on `messages`). Cleanup runs even while the
+  // memory plugin is disabled; returns 0 when memory is not present.
+  const cancelledJobCount = getMemoryPersistenceHooks().onConversationWiped(id);
 
   // Step C — Delete conversation-scoped memory summaries and their embeddings.
   const summaryRows = db
@@ -1734,7 +1662,6 @@ export async function addMessage(
 
   if (!skipIndexing) {
     try {
-      const config = getConfig();
       const parsed = metadata
         ? messageMetadataSchema.safeParse(metadata)
         : null;
@@ -1742,19 +1669,15 @@ export async function addMessage(
         ? parsed.data.provenanceTrustClass
         : undefined;
       const automated = parsed?.success ? parsed.data.automated : undefined;
-      await indexMessageNow(
-        {
-          messageId: message.id,
-          conversationId: message.conversationId,
-          role: message.role,
-          content: message.content,
-          createdAt: message.createdAt,
-          scopeId: "default",
-          provenanceTrustClass,
-          automated,
-        },
-        config.memory,
-      );
+      await getMemoryPersistenceHooks().onMessagePersisted({
+        messageId: message.id,
+        conversationId: message.conversationId,
+        role: message.role,
+        content: message.content,
+        createdAt: message.createdAt,
+        provenanceTrustClass,
+        automated,
+      });
     } catch (err) {
       log.warn(
         { err, conversationId, messageId: message.id },

@@ -18,7 +18,7 @@ import {
   type TurnInterfaceContext,
 } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import { listPendingRequestsByConversationScope } from "../memory/canonical-guardian-store.js";
+import { listPendingRequestsByConversationScope } from "../contacts/canonical-guardian-store.js";
 import { extractPreferences } from "../notifications/preference-extractor.js";
 import { createPreference } from "../notifications/preferences-store.js";
 import {
@@ -61,18 +61,20 @@ import { resolveVerificationSessionIntent } from "./verification-session-intent.
 const log = getLogger("conversation-process");
 
 /**
- * Daemon-injected subagent lifecycle notifications carry `subagentNotification`
- * metadata. They are persisted into the parent conversation so the orchestrator
- * wakes and reads the subagent's result, but they are internal scaffolding — the
- * user sees subagent activity through the inline progress card, not a chat turn.
- * Skip the `user_message_echo` broadcast for these so they never render as a live
- * user bubble; the persisted row is filtered from the rendered transcript on the
- * client.
+ * Daemon-injected run lifecycle notifications — subagent (`subagentNotification`)
+ * and ACP run (`acpNotification`) — are persisted into the parent conversation so
+ * the orchestrator wakes and reads the run's result, but they are internal
+ * scaffolding: the user sees the run through its inline progress card, not a chat
+ * turn. Skip the `user_message_echo` broadcast for these so they never render as a
+ * live user bubble; the persisted row is filtered from the rendered transcript on
+ * the client.
  */
-function isSubagentNotificationMessage(
+function isHiddenRunNotificationMessage(
   metadata: Record<string, unknown> | undefined,
 ): boolean {
-  return metadata?.subagentNotification != null;
+  return (
+    metadata?.subagentNotification != null || metadata?.acpNotification != null
+  );
 }
 
 /** Format the result of a forced compaction into a user-facing message. */
@@ -868,7 +870,7 @@ async function drainSingleMessage(
 
   // Broadcast the user message to all hub subscribers so passive devices
   // see the user turn before the assistant reply starts streaming.
-  if (!isSubagentNotificationMessage(next.metadata)) {
+  if (!isHiddenRunNotificationMessage(next.metadata)) {
     next.onEvent({
       type: "user_message_echo",
       text: resolvedContent,
@@ -1221,7 +1223,7 @@ async function drainBatch(
 
     // Broadcast the user message to all hub subscribers so passive devices
     // see each batched user turn before the assistant reply starts streaming.
-    if (!isSubagentNotificationMessage(qm.metadata)) {
+    if (!isHiddenRunNotificationMessage(qm.metadata)) {
       qm.onEvent({
         type: "user_message_echo",
         text: qmContent,

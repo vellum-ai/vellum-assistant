@@ -1,12 +1,12 @@
 import { v4 as uuid } from "uuid";
 
 import { peekAcpSessionManager } from "../../acp/index.js";
-import { resolveCanonicalGuardianRequest } from "../../memory/canonical-guardian-store.js";
-import { resolveConversationId } from "../../memory/conversation-key-store.js";
+import { resolveCanonicalGuardianRequest } from "../../contacts/canonical-guardian-store.js";
 import {
   clearAll,
   getConversation,
 } from "../../persistence/conversation-crud.js";
+import { resolveConversationId } from "../../persistence/conversation-key-store.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { resolveCapabilities } from "../../runtime/capabilities.js";
 import * as pendingInteractions from "../../runtime/pending-interactions.js";
@@ -14,6 +14,7 @@ import { getSubagentManager } from "../../subagent/index.js";
 import { createAbortReason } from "../../util/abort-reasons.js";
 import { UserError } from "../../util/errors.js";
 import { truncate } from "../../util/truncate.js";
+import { touchConversation } from "../conversation-evictor.js";
 import { regenerate } from "../conversation-history.js";
 import {
   buildSlashContext,
@@ -27,7 +28,6 @@ import { resolveSlash } from "../conversation-slash.js";
 import {
   clearAllActiveConversations,
   getOrCreateConversation,
-  touchConversation,
 } from "../conversation-store.js";
 import type { ConfirmationResponse } from "../message-protocol.js";
 import { normalizeConversationType } from "../message-protocol.js";

@@ -39,22 +39,15 @@ import { captionImage } from "./vision-caption.js";
  * Whether the profile a turn runs needs image→text fallback (i.e. it can't
  * process images itself).
  *
- * Used by `user-prompt-submit`, whose context carries the profile key rather
- * than the resolved model id: prefer the turn's `modelProfileKey` — which
- * carries a text-only override even when the workspace's active profile is
- * vision-capable — and fall back to the active profile only when the key is
- * `null` (profile unchanged since the last notified turn). Returns `false` when
- * no profile resolves or the resolved model already supports vision, in which
- * case the image reaches the model untouched.
+ * Used by `user-prompt-submit`, whose context carries the effective profile
+ * identity. Profileless configs use the resolved model id, which
+ * `doesSupportVision` can check directly.
  */
-export function needsImageFallback(modelProfileKey: string | null): boolean {
+export function needsImageFallback(modelProfileKey: string): boolean {
   const profiles = getModelProfiles();
-  const activeProfile =
-    modelProfileKey != null
-      ? profiles.find((p) => p.key === modelProfileKey)
-      : profiles.find((p) => p.isActive);
-  if (activeProfile == null) return false;
-  return !doesSupportVision(activeProfile);
+  const profile = profiles.find((p) => p.key === modelProfileKey);
+  if (profile == null) return !doesSupportVision(modelProfileKey);
+  return !doesSupportVision(profile);
 }
 
 /**

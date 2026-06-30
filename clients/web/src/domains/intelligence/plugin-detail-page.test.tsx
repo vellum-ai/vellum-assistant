@@ -1,38 +1,21 @@
 /**
- * Tests for the plugin detail page: it renders the README, the tracked
- * metadata (source/homepage/license), and the install/remove action that
- * reflects whether the plugin is already installed.
+ * Tests for the standalone plugin-detail route, a thin redirect shim: detail
+ * renders in-tab via the `?plugin=<name>` deep-link, so the
+ * `/assistant/plugins/:name` URL forwards there to preserve the
+ * bookmark/deep-link contract.
  *
- * Strategy mirrors the Plugins tab tests — pre-populate the React Query
- * cache so the detail `useQuery` resolves on mount. The active assistant
- * id is stubbed via `mock.module`, matching the approach in
- * `intelligence-layout.test.tsx`, and the identity store is seeded with a
- * plugin-capable version so the backwards-compat gate lets the page render
- * instead of redirecting.
- *
- * Uses `@testing-library/react` (happy-dom) rather than
- * `renderToStaticMarkup`: the gate reads the assistant version off the
- * identity store, and zustand serves its *initial* snapshot during static
- * markup rendering (so a runtime-seeded version would read back null). A
- * client render reflects the seeded value.
+ * Mounted via `@testing-library/react` (happy-dom — see `test-setup.ts`)
+ * with sentinel routes at the redirect targets so the test can prove where
+ * the shim lands. The active assistant id is stubbed and the identity store
+ * is seeded per-test so the backwards-compat gate's branch is deterministic
+ * (a plugin-capable version forwards in-tab; a too-old version redirects to
+ * Identity).
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router";
+import { cleanup, render, screen } from "@testing-library/react";
+import { MemoryRouter, Route, Routes, useSearchParams } from "react-router";
 
-import {
-  pluginsByNameGetQueryKey,
-  pluginsByNameInspectGetQueryKey,
-} from "@/generated/daemon/@tanstack/react-query.gen";
-import type { Options } from "@/generated/daemon/sdk.gen";
-import type {
-  PluginsByNameGetData,
-  PluginsByNameGetResponse,
-  PluginsByNameInspectGetData,
-  PluginsByNameInspectGetResponse,
-} from "@/generated/daemon/types.gen";
 import { MIN_VERSION } from "@/lib/backwards-compat/plugins-surface";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
@@ -42,177 +25,70 @@ mock.module("@/assistant/use-active-assistant-id", () => ({
   useActiveAssistantId: () => ASSISTANT_ID,
 }));
 
-const { PluginDetailPage } = await import(
-  "@/domains/intelligence/plugin-detail-page"
-);
+const { PluginDetailPage } =
+  await import("@/domains/intelligence/plugin-detail-page");
 
-// Seed a plugin-capable version before each test. The identity store is a
-// shared singleton across web test files, so set it per-test rather than
-// once at module load (a sibling file's teardown can otherwise clear it).
-beforeEach(() => {
-  useAssistantIdentityStore.getState().setIdentity("Test Assistant", MIN_VERSION);
-});
+// A sentinel for the Plugins tab landing that echoes the `?plugin=` param so
+// the test can assert the redirect carried the name through as a deep-link.
+function PluginsLanding() {
+  const [searchParams] = useSearchParams();
+  return <div>Plugins tab: {searchParams.get("plugin")}</div>;
+}
+
+function renderAt(name: string): void {
+  render(
+    <MemoryRouter initialEntries={[`/assistant/plugins/${name}`]}>
+      <Routes>
+        <Route path="/assistant/plugins/:name" element={<PluginDetailPage />} />
+        <Route path="/assistant/plugins" element={<PluginsLanding />} />
+        <Route
+          path="/assistant/identity"
+          element={<div>Identity landing</div>}
+        />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
 
 afterEach(() => {
   cleanup();
 });
 
-function renderDetail(name: string, detail: PluginsByNameGetResponse): string {
-  const client = new QueryClient({
-    // Infinite stale time keeps the seeded queries from refetching on mount
-    // (a client render runs query effects), so neither the detail read nor
-    // the installed-copy drift inspect touches the network.
-    defaultOptions: {
-      queries: { retry: false, staleTime: Number.POSITIVE_INFINITY },
-    },
-  });
-  client.setQueryData(
-    pluginsByNameGetQueryKey({
-      path: { assistant_id: ASSISTANT_ID, name },
-    } as Options<PluginsByNameGetData>),
-    detail,
-  );
-  // The detail header inspects an installed copy for update drift; seed a
-  // benign "up to date" result so that query also resolves from cache.
-  client.setQueryData(
-    pluginsByNameInspectGetQueryKey({
-      path: { assistant_id: ASSISTANT_ID, name },
-    } as Options<PluginsByNameInspectGetData>),
-    {
-      name,
-      installed: detail.installed,
-      status: "up-to-date",
-      local: null,
-      remote: null,
-      remoteError: null,
-      surfaces: null,
-    } as PluginsByNameInspectGetResponse,
-  );
-  const { container } = render(
-    <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={[`/assistant/plugins/${name}`]}>
-        <Routes>
-          <Route path="/assistant/plugins/:name" element={<PluginDetailPage />} />
-        </Routes>
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
-  return container.innerHTML;
-}
-
-describe("PluginDetailPage", () => {
-  test("renders README, metadata, and an Install button for an available plugin", () => {
-    const html = renderDetail("caveman", {
-      name: "caveman",
-      installed: false,
-      description: "Talk like a caveman.",
-      homepage: "https://example.com/caveman",
-      license: "MIT",
-      version: "1.8.2",
-      source: { kind: "github", repo: "example-org/caveman", ref: "v1.8.2" },
-      readme: "# Caveman\n\nMakes the agent speak in grunts.",
-      ref: "v1.8.2",
-      artifact: null,
-    });
-
-    // README markdown is rendered.
-    expect(html).toContain("Makes the agent speak in grunts.");
-    // Tracked metadata is surfaced.
-    expect(html).toContain("example-org/caveman");
-    expect(html).toContain("https://example.com/caveman");
-    expect(html).toContain("MIT");
-    expect(html).toContain("external");
-    // An available plugin offers Install, not Remove.
-    expect(html).toContain("Install");
-    expect(html).not.toContain("Remove");
+describe("PluginDetailPage redirect", () => {
+  beforeEach(() => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("Test Assistant", MIN_VERSION);
   });
 
-  test("renders a Remove action when the plugin is already installed", () => {
-    const html = renderDetail("simple-memory", {
-      name: "simple-memory",
-      installed: true,
-      description: null,
-      homepage: null,
-      license: null,
-      version: "0.1.0",
-      source: null,
-      readme: null,
-      ref: "main",
-      artifact: null,
-    });
+  test("forwards /assistant/plugins/:name to the in-tab ?plugin= deep-link", () => {
+    renderAt("caveman");
 
-    expect(html).toContain("Remove");
-    // A plugin with no marketplace origin isn't badged external.
-    expect(html).not.toContain("external");
-    // No README falls back to an explanatory line.
-    expect(html).toContain("ship a README");
-    // With no artifact descriptor, no download affordance is offered.
-    expect(html).not.toContain("Download");
+    expect(screen.getByText("Plugins tab: caveman")).toBeDefined();
+    expect(screen.queryByText("Identity landing")).toBeNull();
   });
 
-  test("offers a generic download linked to the artifact when an installed plugin ships one", () => {
-    const url =
-      "https://github.com/example-org/dynamic-notch/releases/download/v1.0.0/DynamicNotch.dmg";
-    const html = renderDetail("dynamic-notch", {
-      name: "dynamic-notch",
-      installed: true,
-      description: "A dynamic notch companion.",
-      homepage: null,
-      license: "MIT",
-      version: "1.0.0",
-      source: { kind: "github", repo: "example-org/dynamic-notch", ref: "v1.0.0" },
-      readme: "# Dynamic Notch",
-      ref: "v1.0.0",
-      artifact: { url, sha256: "a".repeat(64) },
-    });
+  test("encodes the plugin name in the forwarded deep-link", () => {
+    renderAt("scope%2Fname");
 
-    // With no label on the artifact, the button falls back to a generic name.
-    expect(html).toContain("Download");
-    expect(html).toContain(`href="${url}"`);
-    // The plugin is installed, so Remove is still available alongside it.
-    expect(html).toContain("Remove");
+    // The decoded `:name` param round-trips back through encodeURIComponent
+    // so the in-tab tab receives the literal plugin name.
+    expect(screen.getByText("Plugins tab: scope/name")).toBeDefined();
+  });
+});
+
+describe("PluginDetailPage flag-off guard", () => {
+  beforeEach(() => {
+    // A version below the plugin-surface floor stands in for the old
+    // flag-off / unsupported assistant: the route must still redirect to
+    // Identity rather than forwarding into a dead surface.
+    useAssistantIdentityStore.getState().setIdentity("Old Assistant", "0.9.0");
   });
 
-  test("uses the artifact's label for the download button when one is provided", () => {
-    const url =
-      "https://github.com/example-org/dynamic-notch/releases/download/v1.0.0/DynamicNotch.dmg";
-    const html = renderDetail("dynamic-notch", {
-      name: "dynamic-notch",
-      installed: true,
-      description: "A dynamic notch companion.",
-      homepage: null,
-      license: "MIT",
-      version: "1.0.0",
-      source: { kind: "github", repo: "example-org/dynamic-notch", ref: "v1.0.0" },
-      readme: "# Dynamic Notch",
-      ref: "v1.0.0",
-      artifact: { url, sha256: "a".repeat(64), label: "Download for macOS" },
-    });
+  test("redirects to Identity when the assistant predates the plugin routes", () => {
+    renderAt("caveman");
 
-    // The plugin-provided label names the download.
-    expect(html).toContain("Download for macOS");
-    expect(html).toContain(`href="${url}"`);
-  });
-
-  test("does not offer a download before an artifact-bearing plugin is installed", () => {
-    const html = renderDetail("dynamic-notch", {
-      name: "dynamic-notch",
-      installed: false,
-      description: "A dynamic notch companion.",
-      homepage: null,
-      license: "MIT",
-      version: "1.0.0",
-      source: { kind: "github", repo: "example-org/dynamic-notch", ref: "v1.0.0" },
-      readme: "# Dynamic Notch",
-      ref: "v1.0.0",
-      artifact: {
-        url: "https://github.com/example-org/dynamic-notch/releases/download/v1.0.0/DynamicNotch.dmg",
-        sha256: "a".repeat(64),
-      },
-    });
-
-    // The install gate hides the download until the plugin is installed.
-    expect(html).toContain("Install");
-    expect(html).not.toContain("Download");
+    expect(screen.getByText("Identity landing")).toBeDefined();
+    expect(screen.queryByText(/Plugins tab:/)).toBeNull();
   });
 });

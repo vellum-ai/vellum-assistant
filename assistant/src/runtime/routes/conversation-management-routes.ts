@@ -33,11 +33,6 @@ import {
 import { normalizeConversationType } from "../../daemon/message-types/shared.js";
 import { stripConversationIds } from "../../home/feed-writer.js";
 import {
-  getOrCreateConversation,
-  resolveConversationId,
-  setConversationKeyIfAbsent,
-} from "../../memory/conversation-key-store.js";
-import {
   archiveConversation,
   batchSetDisplayOrders,
   countConversationsByScheduleJobId,
@@ -49,6 +44,11 @@ import {
   updateConversationTitle,
   wipeConversation,
 } from "../../persistence/conversation-crud.js";
+import {
+  getOrCreateConversation,
+  resolveConversationId,
+  setConversationKeyIfAbsent,
+} from "../../persistence/conversation-key-store.js";
 import { enqueueMemoryJob } from "../../persistence/jobs-store.js";
 import { deleteSchedule } from "../../schedule/schedule-store.js";
 import { UserError } from "../../util/errors.js";
@@ -77,13 +77,13 @@ function resolveOrThrow(rawId: string): string {
   return id;
 }
 
-function cancelScheduleIfLast(conversationId: string): void {
+async function cancelScheduleIfLast(conversationId: string): Promise<void> {
   const conv = getConversation(conversationId);
   if (
     conv?.scheduleJobId &&
     countConversationsByScheduleJobId(conv.scheduleJobId) <= 1
   ) {
-    deleteSchedule(conv.scheduleJobId);
+    await deleteSchedule(conv.scheduleJobId);
   }
 }
 
@@ -264,13 +264,13 @@ async function handleClearAllConversations({ headers = {} }: RouteHandlerArgs) {
   return undefined;
 }
 
-function handleWipeConversation({
+async function handleWipeConversation({
   pathParams = {},
   headers,
 }: RouteHandlerArgs) {
   const resolvedId = resolveOrThrow(pathParams.id!);
 
-  cancelScheduleIfLast(resolvedId);
+  await cancelScheduleIfLast(resolvedId);
 
   destroyActiveConversation(resolvedId);
   const result = wipeConversation(resolvedId);
@@ -310,13 +310,13 @@ function handleWipeConversation({
   };
 }
 
-function handleDeleteConversation({
+async function handleDeleteConversation({
   pathParams = {},
   headers,
 }: RouteHandlerArgs) {
   const resolvedId = resolveOrThrow(pathParams.id!);
 
-  cancelScheduleIfLast(resolvedId);
+  await cancelScheduleIfLast(resolvedId);
 
   destroyActiveConversation(resolvedId);
   const deleted = deleteConversation(resolvedId);

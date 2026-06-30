@@ -57,6 +57,19 @@ function loadBundledComponents(): Promise<CharacterComponents> {
 }
 
 /**
+ * Eagerly kick off the bundled-avatar import without mounting a consumer, so
+ * the (~48 kB) chunk is already in flight — or resolved — by the time the
+ * avatars first render. Safe to call repeatedly: it no-ops once cached / in
+ * flight. Call it as early as a screen full of avatars is known to be coming
+ * (e.g. at the onboarding route's module scope) to cut the blank-then-pop gap.
+ */
+export function preloadBundledAvatarComponents(): void {
+  void loadBundledComponents().catch(() => {
+    // Best-effort warm-up; the hook's own retry path handles real failures.
+  });
+}
+
+/**
  * Lazily loads the bundled avatar character-components data (~48 kB of
  * inline SVG paths) on first mount of any consumer. Returns `null` until
  * the chunk resolves; the caller renders a placeholder of the same size so
