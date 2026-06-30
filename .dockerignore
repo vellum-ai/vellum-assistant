@@ -9,6 +9,11 @@
 !packages/
 !packages/**
 !skills/
+# Shared category taxonomy: the daemon reads this synchronously to normalize
+# plugin marketplace categories without a remote fetch (see
+# assistant/src/skills/categories-cache.ts getLocalCategorySlugs). Without it the
+# Docker image degrades every plugin category to "system" until the remote cache warms.
+!skills/skill-categories-catalog.yaml
 !skills/meet-join/
 !skills/meet-join/package.json
 !skills/meet-join/bun.lock
