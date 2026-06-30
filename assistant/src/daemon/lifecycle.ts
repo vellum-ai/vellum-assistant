@@ -48,6 +48,10 @@ import { startMemoryJobsWorker } from "../persistence/jobs-worker.js";
 import { startConsentRefresh } from "../platform/consent-cache.js";
 import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";
 import { sweepConceptPageFrontmatter } from "../plugins/defaults/memory/v2/frontmatter-sweep.js";
+import {
+  maybeRebuildMemoryV2Concepts,
+  rebuildBm25CorpusStatsAndReseedSkills,
+} from "../plugins/defaults/memory/v2/memory-v2-startup.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
 import { initializeProviders } from "../providers/registry.js";
@@ -98,10 +102,6 @@ import { startEventLoopWatchdog } from "./event-loop-watchdog.js";
 import { initializePlugins } from "./external-plugins-bootstrap.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
 import { installAssistantSymlink } from "./install-symlink.js";
-import {
-  maybeRebuildMemoryV2Concepts,
-  rebuildBm25CorpusStatsAndReseedSkills,
-} from "./memory-v2-startup.js";
 import { startOrphanReaper } from "./orphan-reaper.js";
 import { elevatePointerConversationToGuardian } from "./pointer-conversation-trust.js";
 import { runProfilerSweep } from "./profiler-run-store.js";

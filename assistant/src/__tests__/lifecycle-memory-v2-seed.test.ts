@@ -1,7 +1,7 @@
 /**
  * Tests for the memory-v2 skill seed gate and the v2 concept-page schema
  * rebuild gate, both invoked from the daemon startup path
- * (`assistant/src/daemon/memory-v2-startup.ts`).
+ * (`assistant/src/plugins/defaults/memory/v2/memory-v2-startup.ts`).
  *
  * The gates are exercised in isolation rather than mounting the full
  * lifecycle import graph. Coverage matrix:
@@ -142,7 +142,7 @@ const {
   maybeSeedMemoryV2Skills,
   maybeRebuildMemoryV2Concepts,
   rebuildBm25CorpusStatsAndReseedSkills,
-} = await import("../daemon/memory-v2-startup.js");
+} = await import("../plugins/defaults/memory/v2/memory-v2-startup.js");
 
 // ---------------------------------------------------------------------------
 // Test fixtures
