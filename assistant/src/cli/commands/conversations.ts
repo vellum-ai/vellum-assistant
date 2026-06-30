@@ -36,31 +36,30 @@ function outputSlackDetachError(message: string, json?: boolean): void {
   process.exitCode = 1;
 }
 
-function readSeedMessages(
-  contentFile?: string,
-): ConversationSeedMessage[] | undefined {
-  if (!contentFile) return undefined;
+// Returns the parsed seed messages (or `undefined` when no file is given), or a
+// validation error for the caller to surface — human or `--json`. The caller
+// owns output/exit so the error shape matches the rest of the command.
+type SeedResult =
+  | { messages: ConversationSeedMessage[] | undefined }
+  | { error: string };
+
+function readSeedMessages(contentFile?: string): SeedResult {
+  if (!contentFile) return { messages: undefined };
   if (!existsSync(contentFile)) {
-    log.error(`Error: content file not found: ${contentFile}`);
-    process.exitCode = 1;
-    return undefined;
+    return { error: `content file not found: ${contentFile}` };
   }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(contentFile, "utf-8"));
   } catch (err) {
-    log.error(
-      `Error: failed to read content file: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    process.exitCode = 1;
-    return undefined;
+    return {
+      error: `failed to read content file: ${err instanceof Error ? err.message : String(err)}`,
+    };
   }
 
   if (!Array.isArray(parsed)) {
-    log.error("Error: content file must contain an array of messages");
-    process.exitCode = 1;
-    return undefined;
+    return { error: "content file must contain an array of messages" };
   }
 
   const messages: ConversationSeedMessage[] = [];
@@ -71,9 +70,7 @@ function readSeedMessages(
       !("role" in value) ||
       !("content" in value)
     ) {
-      log.error(`Error: message ${index} must include role and content`);
-      process.exitCode = 1;
-      return undefined;
+      return { error: `message ${index} must include role and content` };
     }
     const role = (value as { role?: unknown }).role;
     const content = (value as { content?: unknown }).content;
@@ -81,24 +78,32 @@ function readSeedMessages(
       (role !== "user" && role !== "assistant") ||
       typeof content !== "string"
     ) {
-      log.error(
-        `Error: message ${index} must have role user|assistant and string content`,
-      );
-      process.exitCode = 1;
-      return undefined;
+      return {
+        error: `message ${index} must have role user|assistant and string content`,
+      };
     }
     messages.push({ role, content });
   }
 
-  return messages;
+  return { messages };
 }
 
 async function createConversationCli(
   title: string | undefined,
   opts?: { contentFile?: string; json?: boolean },
 ): Promise<void> {
-  const messages = readSeedMessages(opts?.contentFile);
-  if (process.exitCode) return;
+  // Seed-file errors happen before any IPC — surface them in JSON mode too.
+  const seed = readSeedMessages(opts?.contentFile);
+  if ("error" in seed) {
+    if (opts?.json) {
+      log.info(JSON.stringify({ ok: false, error: seed.error }));
+    } else {
+      log.error(`Error: ${seed.error}`);
+    }
+    process.exitCode = 1;
+    return;
+  }
+  const messages = seed.messages;
 
   // A script-mode schedule injects __SCHEDULE_RUN_ID into its env (see
   // schedule/run-script.ts). When set, create the conversation as `scheduled`

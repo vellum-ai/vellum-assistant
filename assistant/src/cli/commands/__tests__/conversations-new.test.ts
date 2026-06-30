@@ -59,8 +59,8 @@ mock.module("../../../util/logger.js", () => ({
   getCurrentLogFilePath: () => "/tmp/test-assistant.log",
 }));
 
-// Full passthrough mock — spreading the real module avoids a hang in the heavy
-// conversations.js import graph that a partial node:fs mock triggered.
+// node:fs must stay fully functional for conversations.js's heavy import graph
+// — a partial mock deadlocks it — so spread the real module.
 const realFs = { ...nodeFs };
 mock.module("node:fs", () => ({ ...realFs }));
 
@@ -147,6 +147,19 @@ describe("conversations new --json", () => {
     const code = await runNew(["new", "X", "--json"]);
     expect(code).toBe(1);
     expect(jsonOutput()).toEqual({ ok: false, error: "daemon not running" });
+  });
+
+  test("--json reports a seed-file error as { ok: false } before any IPC", async () => {
+    const code = await runNew([
+      "new",
+      "X",
+      "--content-file",
+      "/no/such/seed-file.json",
+      "--json",
+    ]);
+    expect(code).toBe(1);
+    expect(lastIpcCall).toBeNull(); // validation fails before any IPC call
+    expect(jsonOutput()).toMatchObject({ ok: false });
   });
 
   test("under a script-mode schedule, creates the conversation as scheduled", async () => {
