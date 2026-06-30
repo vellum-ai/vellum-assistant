@@ -8,16 +8,6 @@
  */
 
 import { getConfig } from "../../../config/loader.js";
-import { runAgenticRecall } from "../../../memory/context-search/agent-runner.js";
-import type { RecallInput } from "../../../memory/context-search/types.js";
-import {
-  handleRemember,
-  type RememberInput,
-} from "../../../memory/graph/tool-handlers.js";
-import {
-  graphRecallDefinition,
-  graphRememberDefinition,
-} from "../../../memory/graph/tools.js";
 import { RiskLevel } from "../../../permissions/types.js";
 import { resolveCapabilities } from "../../../runtime/capabilities.js";
 import type {
@@ -25,6 +15,13 @@ import type {
   ToolDefinition,
   ToolExecutionResult,
 } from "../../../tools/types.js";
+import { runAgenticRecall } from "./context-search/agent-runner.js";
+import type { RecallInput } from "./context-search/types.js";
+import { handleRemember, type RememberInput } from "./graph/tool-handlers.js";
+import {
+  graphRecallDefinition,
+  graphRememberDefinition,
+} from "./graph/tools.js";
 
 // ── remember ────────────────────────────────────────────────────────
 

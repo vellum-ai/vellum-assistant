@@ -17,7 +17,7 @@ import { getConfig } from "../../../config/loader.js";
 import {
   type MemoryRetrospectiveOutcome,
   runForkBasedRetrospective,
-} from "../../../memory/memory-retrospective-job.js";
+} from "../../../plugins/defaults/memory/memory-retrospective-job.js";
 import { registerCommand } from "../../lib/register-command.js";
 import { log } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
@@ -57,33 +57,39 @@ CLI process — no IPC round-trip to the daemon.
 Examples:
   $ assistant memory retrospective run abc123`,
         )
-        .action(async (conversationId: string, opts: { json?: boolean }, cmd: Command) => {
-          const config = getConfig();
-          let outcome: MemoryRetrospectiveOutcome;
-          try {
-            outcome = await runForkBasedRetrospective(conversationId, config);
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            log.error(
-              { err, conversationId },
-              "memory-retrospective: run threw",
-            );
-            if (opts.json === true) {
-              writeOutput(cmd, { kind: "error", error: msg });
-            } else {
-              log.error(msg);
+        .action(
+          async (
+            conversationId: string,
+            opts: { json?: boolean },
+            cmd: Command,
+          ) => {
+            const config = getConfig();
+            let outcome: MemoryRetrospectiveOutcome;
+            try {
+              outcome = await runForkBasedRetrospective(conversationId, config);
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              log.error(
+                { err, conversationId },
+                "memory-retrospective: run threw",
+              );
+              if (opts.json === true) {
+                writeOutput(cmd, { kind: "error", error: msg });
+              } else {
+                log.error(msg);
+              }
+              process.exitCode = 1;
+              return;
             }
-            process.exitCode = 1;
-            return;
-          }
 
-          if (shouldOutputJson(cmd)) {
-            writeOutput(cmd, outcome);
-            return;
-          }
+            if (shouldOutputJson(cmd)) {
+              writeOutput(cmd, outcome);
+              return;
+            }
 
-          renderOutcome(outcome);
-        });
+            renderOutcome(outcome);
+          },
+        );
     },
   });
 }
@@ -108,9 +114,7 @@ function renderOutcome(outcome: MemoryRetrospectiveOutcome): void {
     case "wake_failed":
       log.error(
         `Wake failed${outcome.reason ? `: ${outcome.reason}` : ""}` +
-          (outcome.conversationId
-            ? ` (fork: ${outcome.conversationId})`
-            : ""),
+          (outcome.conversationId ? ` (fork: ${outcome.conversationId})` : ""),
       );
       process.exitCode = 1;
       break;

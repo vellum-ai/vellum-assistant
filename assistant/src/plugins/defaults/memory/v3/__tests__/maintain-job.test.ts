@@ -2,11 +2,11 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import type { SkillSummary } from "../../../../../config/skills.js";
 import type { AssistantConfig } from "../../../../../config/types.js";
-import { skillSlugFor } from "../../../../../memory/v2/skill-store.js";
 import { EmbeddingBackendUnavailableError } from "../../../../../persistence/embeddings/embedding-backend.js";
 import { EmbeddingBillingBlockError } from "../../../../../persistence/embeddings/embedding-billing-breaker.js";
 import type { MemoryJob } from "../../../../../persistence/jobs-store.js";
 import type { SkillInstallMeta } from "../../../../../skills/install-meta.js";
+import { skillSlugFor } from "../../v2/skill-store.js";
 import { renderCapabilityContent } from "../capabilities.js";
 import {
   backfillAllSections,

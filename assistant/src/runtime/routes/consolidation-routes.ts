@@ -16,7 +16,6 @@
 import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
-import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
 import { getMemoryCheckpoint } from "../../persistence/checkpoints.js";
 import {
   getMessageRoleStatsByConversation,
@@ -29,6 +28,7 @@ import {
 } from "../../persistence/jobs-store.js";
 import { GRAPH_MAINTENANCE_CHECKPOINTS } from "../../persistence/jobs-worker.js";
 import { getUsageCostForConversationWindow } from "../../persistence/llm-usage-store.js";
+import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../plugins/defaults/memory/v2/constants.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import {

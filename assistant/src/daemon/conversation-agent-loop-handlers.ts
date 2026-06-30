@@ -19,9 +19,6 @@ import { getConfig } from "../config/loader.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import { getCalibrationProviderKey } from "../context/token-estimator.js";
-import { indexMessageNow } from "../memory/indexer.js";
-import { backfillMemoryRecallLogMessageId } from "../memory/memory-recall-log-store.js";
-import { backfillMemoryV2ActivationMessageId } from "../memory/memory-v2-activation-log-store.js";
 import {
   formatSlackTimezoneLabel,
   type SlackMessageMetadata,
@@ -52,6 +49,9 @@ import {
   setAgentLoopExitReasonOnLatestLog,
 } from "../persistence/llm-request-log-store.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
+import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
+import { backfillMemoryRecallLogMessageId } from "../plugins/defaults/memory/memory-recall-log-store.js";
+import { backfillMemoryV2ActivationMessageId } from "../plugins/defaults/memory/memory-v2-activation-log-store.js";
 import { backfillMemoryV3SelectionMessageId } from "../plugins/defaults/memory/v3/shadow-plugin.js";
 import type {
   ContentBlock,

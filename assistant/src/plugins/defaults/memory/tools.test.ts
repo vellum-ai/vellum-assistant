@@ -11,8 +11,8 @@ import {
   test,
 } from "bun:test";
 
-import { PKB_WORKSPACE_SCOPE } from "../../../memory/pkb/types.js";
 import type { ToolContext } from "../../../tools/types.js";
+import { PKB_WORKSPACE_SCOPE } from "./pkb/types.js";
 
 // This test exercises v1 PKB re-index enqueue. `config.memory.v2.enabled`
 // (default `true`) makes the enqueue path skipped — force it off so the
@@ -41,7 +41,7 @@ const recallCalls: Array<{
 }> = [];
 let recallContent = "agentic recall answer";
 
-mock.module("../../../memory/jobs/embed-pkb-file.js", () => ({
+mock.module("./jobs/embed-pkb-file.js", () => ({
   enqueuePkbIndexJob: (input: {
     pkbRoot: string;
     absPath: string;
@@ -55,7 +55,7 @@ mock.module("../../../memory/jobs/embed-pkb-file.js", () => ({
   },
 }));
 
-mock.module("../../../memory/context-search/agent-runner.js", () => ({
+mock.module("./context-search/agent-runner.js", () => ({
   runAgenticRecall: async (
     input: Record<string, unknown>,
     context: Record<string, unknown>,

@@ -32,9 +32,9 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
-import { wrapMemorySpotlightBlock } from "../memory/memory-marker.js";
-import { INJECTION_HEADER } from "../memory/v2/injection.js";
+import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
+import { wrapMemorySpotlightBlock } from "../plugins/defaults/memory/memory-marker.js";
+import { INJECTION_HEADER } from "../plugins/defaults/memory/v2/injection.js";
 import { V3_CARDS_INJECTION_HEADER } from "../plugins/defaults/memory/v3/render-injection.js";
 import { MEMORY_V3_COMMIT_META_KEY } from "../plugins/defaults/memory/v3/types.js";
 import type {

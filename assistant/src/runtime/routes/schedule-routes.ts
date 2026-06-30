@@ -1057,8 +1057,7 @@ async function handleRunScheduleNow(id: string) {
     if (!schedule.wakeConversationId) {
       throw new BadRequestError("Wake schedule has no target conversation");
     }
-    const { wakeAgentForOpportunity } =
-      await import("../../runtime/agent-wake.js");
+    const { wakeAgentForOpportunity } = await import("../agent-wake.js");
     try {
       await wakeAgentForOpportunity({
         conversationId: schedule.wakeConversationId,

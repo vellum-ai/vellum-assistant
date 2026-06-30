@@ -8,14 +8,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import {
-  mockGatewayIpc,
-  resetMockGatewayIpc,
-} from "../__tests__/mock-gateway-ipc.js";
-import {
   clearFeatureFlagOverridesCache,
   initFeatureFlagOverrides,
   isAssistantFeatureFlagEnabled,
 } from "../config/assistant-feature-flags.js";
+import { mockGatewayIpc, resetMockGatewayIpc } from "./mock-gateway-ipc.js";
 
 beforeEach(() => {
   clearFeatureFlagOverridesCache();

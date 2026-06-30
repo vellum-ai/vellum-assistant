@@ -50,7 +50,7 @@ import {
   FALLBACK_TURN_TRUST,
   resolveTrustClass,
 } from "../../../../daemon/trust-context.js";
-import { getLiveGraphMemory } from "../../../../memory/graph/conversation-graph-memory.js";
+import { getLiveGraphMemory } from "../graph/conversation-graph-memory.js";
 import { stripTailInjectionsForReinjection } from "../tail-reinjection-strip.js";
 
 const postCompact: HookFunction<PostCompactContext> = async (ctx) => {

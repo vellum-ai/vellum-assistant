@@ -35,7 +35,8 @@ import type {
   ProviderResponse,
   SendMessageOptions,
   ToolUseContent,
-} from "../../../../../providers/types.js";
+} from "@vellumai/plugin-api";
+
 import { ProviderError } from "../../../../../util/errors.js";
 import type { MemoryRoutingTurn } from "../types.js";
 

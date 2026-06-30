@@ -11,9 +11,9 @@ import { isAbsolute, resolve, sep } from "node:path";
 
 import { addAppConversationId } from "../apps/app-store.js";
 import { generateAppIcon } from "../media/app-icon-generator.js";
-import { invalidateEdgeIndex } from "../memory/v2/edge-index.js";
-import { invalidatePageIndex } from "../memory/v2/page-index.js";
-import { getConceptsDir } from "../memory/v2/page-store.js";
+import { invalidateEdgeIndex } from "../plugins/defaults/memory/v2/edge-index.js";
+import { invalidatePageIndex } from "../plugins/defaults/memory/v2/page-index.js";
+import { getConceptsDir } from "../plugins/defaults/memory/v2/page-store.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { findActiveSession } from "../runtime/channel-verification-service.js";
 import { publishAppsChanged } from "../runtime/sync/resource-sync-events.js";

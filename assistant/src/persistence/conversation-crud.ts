@@ -29,36 +29,16 @@ import { findConversation } from "../daemon/conversation-registry.js";
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
-import { forkGraphMemoryState } from "../memory/graph/graph-memory-state-store.js";
-import { indexMessageNow } from "../memory/indexer.js";
-import { MEMORY_RETROSPECTIVE_SOURCES } from "../memory/memory-retrospective-constants.js";
-import { forkRetrospectiveState } from "../memory/memory-retrospective-state.js";
-import { cancelPendingJobsForConversation } from "../memory/task-memory-cleanup.js";
+import { forkGraphMemoryState } from "../plugins/defaults/memory/graph/graph-memory-state-store.js";
+import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
+import { MEMORY_RETROSPECTIVE_SOURCES } from "../plugins/defaults/memory/memory-retrospective-constants.js";
+import { forkRetrospectiveState } from "../plugins/defaults/memory/memory-retrospective-state.js";
+import { cancelPendingJobsForConversation } from "../plugins/defaults/memory/task-memory-cleanup.js";
 import {
   forkActivationState,
   seedForkActivationState,
-} from "../memory/v2/activation-store.js";
-import { extractInjectedConceptSlugs } from "../memory/v2/injected-block-slugs.js";
-import { AUTO_ANALYSIS_SOURCE } from "../persistence/auto-analysis-constants.js";
-import {
-  projectAssistantMessage,
-  seedForkedConversationAttention,
-} from "../persistence/conversation-attention-store.js";
-import {
-  initConversationDir,
-  removeConversationDir,
-  syncMessageToDisk,
-  updateMetaFile,
-} from "../persistence/conversation-disk-view.js";
-import { ensureDisplayOrderMigration } from "../persistence/conversation-display-order-migration.js";
-import { ensureGroupMigration } from "../persistence/conversation-group-migration.js";
-import {
-  rawExec,
-  rawGet,
-  rawLogsRun,
-  rawMemoryRun,
-  rawRun,
-} from "../persistence/raw-query.js";
+} from "../plugins/defaults/memory/v2/activation-store.js";
+import { extractInjectedConceptSlugs } from "../plugins/defaults/memory/v2/injected-block-slugs.js";
 import {
   forkEverInjected,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
@@ -77,11 +57,24 @@ import {
   deleteOrphanAttachments,
   linkAttachmentToMessage,
 } from "./attachments-store.js";
+import { AUTO_ANALYSIS_SOURCE } from "./auto-analysis-constants.js";
 import {
   appendCompactionEvent,
   forkCompactionLedger,
   getLatestCompactionEventAtOrBefore,
 } from "./compaction-ledger-store.js";
+import {
+  projectAssistantMessage,
+  seedForkedConversationAttention,
+} from "./conversation-attention-store.js";
+import {
+  initConversationDir,
+  removeConversationDir,
+  syncMessageToDisk,
+  updateMetaFile,
+} from "./conversation-disk-view.js";
+import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
+import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { deleteConversationRowsInBatches } from "./conversation-row-batch-delete.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import {
@@ -94,6 +87,13 @@ import {
   copyForkMessagesViaSubprocess,
   type ForkIdPair,
 } from "./fork-message-copy.js";
+import {
+  rawExec,
+  rawGet,
+  rawLogsRun,
+  rawMemoryRun,
+  rawRun,
+} from "./raw-query.js";
 import {
   channelInboundEvents,
   conversations,

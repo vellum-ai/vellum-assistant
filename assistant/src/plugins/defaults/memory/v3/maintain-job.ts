@@ -64,9 +64,6 @@ import {
   type SkillSummary,
 } from "../../../../config/skills.js";
 import type { AssistantConfig } from "../../../../config/types.js";
-import { getPageIndex } from "../../../../memory/v2/page-index.js";
-import { readPage } from "../../../../memory/v2/page-store.js";
-import { skillSlugFor } from "../../../../memory/v2/skill-store.js";
 import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
@@ -84,6 +81,9 @@ import {
 import { executeDeleteManagedSkill } from "../../../../tools/skills/delete-managed.js";
 import { getLogger } from "../../../../util/logger.js";
 import { getWorkspaceDir } from "../../../../util/platform.js";
+import { getPageIndex } from "../v2/page-index.js";
+import { readPage } from "../v2/page-store.js";
+import { skillSlugFor } from "../v2/skill-store.js";
 import { capabilityOrDiskBody, isCapabilitySlug } from "./capabilities.js";
 import { loadCoreSet as realLoadCoreSet } from "./core-set.js";
 import {

@@ -5,8 +5,8 @@ import type {
   RecallEvidence,
   RecallSearchContext,
   RecallSearchResult,
-} from "../memory/context-search/types.js";
-import type { MemoryNode } from "../memory/graph/types.js";
+} from "../plugins/defaults/memory/context-search/types.js";
+import type { MemoryNode } from "../plugins/defaults/memory/graph/types.js";
 
 const loggerModule = import.meta.resolve("../util/logger.js");
 const embedModule = import.meta.resolve("../persistence/embeddings/embed.js");
@@ -118,7 +118,7 @@ mock.module(memoryV2SourceModule, () => ({
 }));
 
 const { searchMemorySource } =
-  await import("../memory/context-search/sources/memory.js");
+  await import("../plugins/defaults/memory/context-search/sources/memory.js");
 
 describe("searchMemorySource", () => {
   beforeEach(() => {

@@ -1,4 +1,3 @@
-import { getConfig } from "../../../../config/loader.js";
 import { resolveImageGenCredentials } from "../../../../media/image-credentials.js";
 import {
   describeImageModels,
@@ -16,6 +15,7 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
+import { getConfig } from "../../../loader.js";
 
 export async function run(
   input: Record<string, unknown>,

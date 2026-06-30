@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { ComparisonReport } from "../../../../memory/v2/harness/runner.js";
+import type { ComparisonReport } from "../../../../plugins/defaults/memory/v2/harness/runner.js";
 import {
   renderComparisonReport,
   renderTurnTrace,

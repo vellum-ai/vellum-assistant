@@ -51,21 +51,23 @@ mock.module("../../contacts/contact-store.js", () => ({
 
 // The local trust resolver returns guardian for the actor; the gate threads
 // sourceChannel via the real withSourceChannel wrapper.
-mock.module("../../runtime/trust-context-resolver.js", () => ({
+mock.module("../trust-context-resolver.js", () => ({
   resolveTrustContext: (input: { actorExternalId?: string }) => ({
     trustClass: "guardian",
     sourceChannel: "vellum",
     resolvedActor: input.actorExternalId,
   }),
-  withSourceChannel: (sourceChannel: unknown, ctx: Record<string, unknown>) => ({
+  withSourceChannel: (
+    sourceChannel: unknown,
+    ctx: Record<string, unknown>,
+  ) => ({
     ...ctx,
     sourceChannel,
   }),
 }));
 
-const { reResolveTrustOnResetDrift } = await import(
-  "../guardian-vellum-migration.js"
-);
+const { reResolveTrustOnResetDrift } =
+  await import("../guardian-vellum-migration.js");
 
 function gatewayGuardian(principalId: string): Record<string, unknown> {
   return {

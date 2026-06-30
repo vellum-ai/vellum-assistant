@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { searchConversationSource } from "../memory/context-search/sources/conversations.js";
-import type { RecallSearchContext } from "../memory/context-search/types.js";
 import { writeSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { rawRun } from "../persistence/raw-query.js";
+import { searchConversationSource } from "../plugins/defaults/memory/context-search/sources/conversations.js";
+import type { RecallSearchContext } from "../plugins/defaults/memory/context-search/types.js";
 await initializeDb();
 
 let seedId = 0;

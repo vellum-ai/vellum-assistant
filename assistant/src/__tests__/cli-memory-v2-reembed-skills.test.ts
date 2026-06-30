@@ -41,7 +41,7 @@ mock.module("../ipc/cli-client.js", () => ({
 }));
 
 let seedCallCount = 0;
-mock.module("../memory/v2/skill-store.js", () => ({
+mock.module("../plugins/defaults/memory/v2/skill-store.js", () => ({
   seedV2SkillEntries: async () => {
     seedCallCount += 1;
   },

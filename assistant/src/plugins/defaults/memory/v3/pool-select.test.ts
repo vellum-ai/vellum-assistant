@@ -21,7 +21,8 @@ import type {
   ContentBlock,
   Provider,
   ProviderResponse,
-} from "../../../../providers/types.js";
+} from "@vellumai/plugin-api";
+
 import type { MemoryRoutingTurn, Slug } from "./types.js";
 
 const realProviderSend = {

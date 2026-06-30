@@ -45,8 +45,6 @@ import {
   ToolProfiler,
 } from "../events/tool-profiling-listener.js";
 import { registerToolTraceListener } from "../events/tool-trace-listener.js";
-import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
-import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory/memory-marker.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
@@ -69,6 +67,11 @@ import {
   createContextSummaryMessage,
 } from "../plugins/defaults/compaction/window-manager.js";
 import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
+import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
+import {
+  unwrapMemoryBlock,
+  wrapMemoryBlock,
+} from "../plugins/defaults/memory/memory-marker.js";
 import {
   getPrunedSlugs,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,

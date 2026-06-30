@@ -47,10 +47,13 @@ mock.module("../auto-analysis-guard.js", () => ({
   isAutoAnalysisConversation: (_conversationId: string) => isAuto,
 }));
 
-mock.module("../../../memory/memory-retrospective-enqueue.js", () => ({
-  isMemoryRetrospectiveConversation: (_conversationId: string) =>
-    isRetrospective,
-}));
+mock.module(
+  "../../../plugins/defaults/memory/memory-retrospective-enqueue.js",
+  () => ({
+    isMemoryRetrospectiveConversation: (_conversationId: string) =>
+      isRetrospective,
+  }),
+);
 
 mock.module("../../../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: (

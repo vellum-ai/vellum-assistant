@@ -43,8 +43,6 @@ import {
   clearSentryConversationContext,
   setSentryConversationContext,
 } from "../instrument.js";
-import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
-import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
 import {
   addMessage,
   deleteMessageById,
@@ -67,6 +65,8 @@ import {
 } from "../persistence/llm-request-log-store.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
+import type { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
+import { enqueueMemoryRetrospectiveOnCompaction } from "../plugins/defaults/memory/memory-retrospective-enqueue.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";

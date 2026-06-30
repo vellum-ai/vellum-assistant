@@ -18,12 +18,12 @@ import {
   resolveEffectiveAppHtml,
   updateApp,
 } from "../apps/app-store.js";
-import { isActivationSession } from "../memory/activation-session-store.js";
 import { recordActivationEvent } from "../onboarding/onboarding-events-store.js";
 import {
   getMessages,
   updateMessageContent,
 } from "../persistence/conversation-crud.js";
+import { isActivationSession } from "../plugins/defaults/memory/activation-session-store.js";
 import {
   assistantEventHub,
   broadcastMessage,

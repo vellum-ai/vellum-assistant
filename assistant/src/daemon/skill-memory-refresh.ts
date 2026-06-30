@@ -3,7 +3,7 @@ import type { AssistantConfig } from "../config/schema.js";
 import {
   seedSkillGraphNodes,
   seedUninstalledCatalogSkillMemories,
-} from "../memory/graph/capability-seed.js";
+} from "../plugins/defaults/memory/graph/capability-seed.js";
 import { getLogger } from "../util/logger.js";
 import {
   maybeSeedMemoryV2CliCommands,

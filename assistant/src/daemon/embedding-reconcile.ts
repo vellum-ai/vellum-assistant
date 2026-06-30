@@ -22,10 +22,6 @@ import {
 import { isMemoryV3Live } from "../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../config/types.js";
 import {
-  ensureConceptPageCollection,
-  recreateConceptPageCollection,
-} from "../memory/v2/qdrant.js";
-import {
   probeBackendDimension,
   readConceptPageCollectionDim,
 } from "../persistence/embeddings/embedding-identity.js";
@@ -34,6 +30,10 @@ import {
   enqueueMemoryJob,
   hasActiveJobOfType,
 } from "../persistence/jobs-store.js";
+import {
+  ensureConceptPageCollection,
+  recreateConceptPageCollection,
+} from "../plugins/defaults/memory/v2/qdrant.js";
 import {
   ensureSectionCollection,
   recreateSectionCollection,

@@ -18,15 +18,15 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { memoryRecallLogs } from "../persistence/schema/index.js";
 import {
   backfillMemoryRecallLogMessageId,
   getMemoryRecallLogByMessageIds,
   normalizeTopCandidates,
   recordMemoryRecallLog,
-} from "../memory/memory-recall-log-store.js";
-import { getDb } from "../persistence/db-connection.js";
-import { initializeDb } from "../persistence/db-init.js";
-import { memoryRecallLogs } from "../persistence/schema/index.js";
+} from "../plugins/defaults/memory/memory-recall-log-store.js";
 
 await initializeDb();
 

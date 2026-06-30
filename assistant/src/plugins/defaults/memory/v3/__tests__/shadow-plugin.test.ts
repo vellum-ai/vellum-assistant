@@ -59,16 +59,16 @@ const realOrchestrate = { ...(await import("../orchestrate.js")) };
 const realLearnedEdges = { ...(await import("../learned-edges.js")) };
 const realPlatform = { ...(await import("../../../../../util/platform.js")) };
 const realPageStore = {
-  ...(await import("../../../../../memory/v2/page-store.js")),
+  ...(await import("../../v2/page-store.js")),
 };
 const realConversationCrud = {
   ...(await import("../../../../../persistence/conversation-crud.js")),
 };
 const realSkillStore = {
-  ...(await import("../../../../../memory/v2/skill-store.js")),
+  ...(await import("../../v2/skill-store.js")),
 };
 const realCliCommandStore = {
-  ...(await import("../../../../../memory/v2/cli-command-store.js")),
+  ...(await import("../../v2/cli-command-store.js")),
 };
 const realCoreSet = { ...(await import("../core-set.js")) };
 const realHotSet = { ...(await import("../hot-set.js")) };
@@ -241,7 +241,7 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
   getSqliteFrom: () => testSqlite,
 }));
 
-mock.module("../../../../../memory/v2/page-index.js", () => ({
+mock.module("../../v2/page-index.js", () => ({
   getPageIndex: async () => ({
     entries: [
       {
@@ -277,7 +277,7 @@ mock.module("../../../../../memory/v2/page-index.js", () => ({
 }));
 
 // `pageContent` (live mode) reads the full page via `readPage`/`renderPageContent`.
-mock.module("../../../../../memory/v2/page-store.js", () => ({
+mock.module("../../v2/page-store.js", () => ({
   ...realPageStore,
   readPage: async (workspaceDir: string, slug: string) =>
     shadowMockActive
@@ -303,7 +303,7 @@ mock.module("../../../../../util/platform.js", () => ({
 // and from the live injector) resolves synthetic slugs through these. Spread the
 // real module so the prefix predicates (`isSkillSlug`/`isCliCommandSlug`) stay
 // intact; override only the content lookup so the capability slug resolves.
-mock.module("../../../../../memory/v2/skill-store.js", () => ({
+mock.module("../../v2/skill-store.js", () => ({
   ...realSkillStore,
   getSkillCapability: (idOrSlug: string) =>
     shadowMockActive
@@ -313,7 +313,7 @@ mock.module("../../../../../memory/v2/skill-store.js", () => ({
       : realSkillStore.getSkillCapability(idOrSlug),
 }));
 
-mock.module("../../../../../memory/v2/cli-command-store.js", () => ({
+mock.module("../../v2/cli-command-store.js", () => ({
   ...realCliCommandStore,
   getCliCommandCapability: (idOrSlug: string) =>
     shadowMockActive

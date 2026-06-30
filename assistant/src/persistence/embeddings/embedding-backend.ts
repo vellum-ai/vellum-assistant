@@ -7,7 +7,7 @@ import {
   SPARSE_VOCAB_SIZE,
   tokenHash,
   tokenize,
-} from "../../memory/sparse-tokenize.js";
+} from "../../plugins/defaults/memory/sparse-tokenize.js";
 import { PLATFORM_PROVIDER_META } from "../../providers/platform-proxy/constants.js";
 import { resolveManagedProxyContext } from "../../providers/platform-proxy/context.js";
 import { getProviderKeyAsync } from "../../security/secure-keys.js";

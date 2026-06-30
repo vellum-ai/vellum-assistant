@@ -296,7 +296,7 @@ async function withDefaultDepsMocks(opts: {
   mock.module("../../config/memory-v3-gate.js", () => ({
     isMemoryV3Live: () => opts.v3Live,
   }));
-  mock.module("../../memory/v2/qdrant.js", () => ({
+  mock.module("../../plugins/defaults/memory/v2/qdrant.js", () => ({
     ensureConceptPageCollection: spies.ensureConceptPageCollection,
     recreateConceptPageCollection: spies.recreateConceptPageCollection,
   }));

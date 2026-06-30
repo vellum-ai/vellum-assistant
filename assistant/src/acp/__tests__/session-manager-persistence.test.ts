@@ -17,13 +17,13 @@ mock.module("../../util/logger.js", () => ({
     }),
 }));
 
-import { VellumAcpClientHandler } from "../../acp/client-handler.js";
-import { AcpSessionManager } from "../../acp/session-manager.js";
-import type { AcpUsageSnapshot } from "../../acp/types.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import type { AcpSessionUpdate } from "../../daemon/message-types/acp.js";
 import { getSqlite } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
+import { VellumAcpClientHandler } from "../client-handler.js";
+import { AcpSessionManager } from "../session-manager.js";
+import type { AcpUsageSnapshot } from "../types.js";
 import {
   clearHistory,
   insertHistoryRow,

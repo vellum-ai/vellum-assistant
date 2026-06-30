@@ -2,7 +2,6 @@ import { and, asc, eq, inArray, lte, notInArray, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../config/loader.js";
-import { rawMemoryAll, rawMemoryChanges } from "../persistence/raw-query.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
 import { type DrizzleDb, getMemoryDb } from "./db-connection.js";
@@ -14,6 +13,7 @@ import {
   isQdrantBreakerOpen,
   shouldAllowQdrantProbe,
 } from "./embeddings/qdrant-circuit-breaker.js";
+import { rawMemoryAll, rawMemoryChanges } from "./raw-query.js";
 import { memoryJobs } from "./schema/index.js";
 
 const log = getLogger("memory-jobs-store");

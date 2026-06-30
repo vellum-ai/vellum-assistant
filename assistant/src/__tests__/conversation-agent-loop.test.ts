@@ -329,7 +329,7 @@ const indexMessageNowMock = mock(async () => ({
 }));
 const projectAssistantMessageMock = mock(() => false);
 const publishSyncInvalidationMock = mock(async () => {});
-mock.module("../memory/indexer.js", () => ({
+mock.module("../plugins/defaults/memory/indexer.js", () => ({
   indexMessageNow: indexMessageNowMock,
 }));
 mock.module("../persistence/conversation-attention-store.js", () => ({

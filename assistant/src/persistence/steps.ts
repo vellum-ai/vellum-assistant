@@ -9,7 +9,7 @@
 
 import { backfillAppConversationIds } from "../apps/app-store.js";
 // Forward migration + down function imports
-import { migrateToolCreatedItems } from "../memory/graph/bootstrap.js";
+import { migrateToolCreatedItems } from "../plugins/defaults/memory/graph/bootstrap.js";
 import { migrateCoreTables } from "./migrations/000-core-tables.js";
 import {
   downJobDeferrals,

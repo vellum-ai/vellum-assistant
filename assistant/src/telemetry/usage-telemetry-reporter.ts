@@ -28,12 +28,6 @@ import {
 } from "../platform/consent-cache.js";
 import { arePlatformFeaturesEnabled } from "../platform/feature-gate.js";
 import { queryUnreportedAuthFallbackEvents } from "../security/auth-fallback-events-store.js";
-import { queryUnreportedTurnEvents } from "../telemetry/turn-events-store.js";
-import {
-  assembleBoundedTurnTrace,
-  isTurnSettled,
-} from "../telemetry/turn-trace-store.js";
-import { queryUnreportedWatchdogEvents } from "../telemetry/watchdog-events-store.js";
 import type { UsageAttributionProfileSource } from "../usage/types.js";
 import { getDeviceId } from "../util/device-id.js";
 import { getLogger } from "../util/logger.js";
@@ -45,7 +39,10 @@ import {
 import { queryUnreportedSkillLoadedEvents } from "./skill-loaded-events-store.js";
 import { queryUnreportedToolExecutedEvents } from "./tool-executed-events-store.js";
 import { isDiagnosticsConsentVersionEligible } from "./trace-collection-policy.js";
+import { queryUnreportedTurnEvents } from "./turn-events-store.js";
+import { assembleBoundedTurnTrace, isTurnSettled } from "./turn-trace-store.js";
 import type { TelemetryEvent, TurnTelemetryClientInfo } from "./types.js";
+import { queryUnreportedWatchdogEvents } from "./watchdog-events-store.js";
 
 const log = getLogger("usage-telemetry");
 
