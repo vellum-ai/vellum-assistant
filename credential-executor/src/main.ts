@@ -2,21 +2,22 @@
 /**
  * Local CES entrypoint.
  *
- * In local mode the assistant spawns CES as a child process and communicates
- * over stdin/stdout using newline-delimited JSON. This entrypoint:
+ * Local CES is converging on the same shape the managed sidecar already uses:
+ * an independent, socket-serving process. This entrypoint:
  *
  * 1. Ensures the CES-private data directories exist.
- * 2. Starts the RPC server on process.stdin / process.stdout (the spawning
- *    parent's transport, and the process lifecycle anchor).
- * 3. Additionally listens on a Unix socket under the CES-private data dir so
- *    the daemon's sibling processes can reach CES (see `local-socket.ts`).
- * 4. Shuts down cleanly when stdin closes (parent exit) or SIGTERM arrives,
- *    tearing down the socket listener with it.
+ * 2. Listens on a Unix socket under the CES-private data dir — the transport
+ *    for sibling/standalone use (see `local-socket.ts`).
+ * 3. Also serves the spawning parent over stdin/stdout (transitional: today the
+ *    assistant still spawns CES and talks over stdio).
+ * 4. Runs until SIGTERM/SIGINT — NOT until stdin closes — so it can run as a
+ *    standalone sibling launched without a stdio parent. On shutdown the socket
+ *    listener and any live connections are torn down with it.
  *
- * Local mode never opens a TCP listener. The stdio transport is never inherited
- * by shell subprocesses spawned by CES (e.g. for `run_authenticated_command`):
- * Bun's `Bun.spawn` defaults to "pipe" for stdio, and the Unix socket's
- * listening fd is likewise not passed to those subprocesses.
+ * Local mode never opens a TCP listener. Neither the stdio transport nor the
+ * Unix socket's listening fd is inherited by shell subprocesses spawned by CES
+ * (e.g. for `run_authenticated_command`): Bun's `Bun.spawn` defaults to "pipe"
+ * for stdio, and the listening socket is not passed to those subprocesses.
  */
 
 import { mkdirSync } from "node:fs";
@@ -398,23 +399,10 @@ async function main(): Promise<void> {
     error: (msg: string, ...args: unknown[]) => rpcLog.error({ args }, msg),
   };
 
-  // Serve the spawning parent over stdio. This is the lifecycle anchor: when
-  // the parent exits, stdin closes and serve() resolves, and we tear down.
-  const stdioServer = new CesRpcServer({
-    input: process.stdin,
-    output: process.stdout,
-    handlers,
-    logger: rpcLogger,
-    signal: controller.signal,
-    // Local mode reads API keys from env/store directly — no-op handler so
-    // update_managed_credential is still registered and returns success.
-    onApiKeyUpdate: () => {},
-  });
-
-  // Additionally listen on a Unix socket so the daemon's sibling processes can
-  // reach CES (the spawning parent keeps using stdio). Possession of the socket
-  // is the authorization boundary — it lives under the CES-private data dir —
-  // and each accepted connection is served by its own server over the shared,
+  // Listen on a Unix socket — the transport for sibling/standalone use, and
+  // the direction local CES is converging on. Possession of the socket is the
+  // authorization boundary (it lives under the CES-private data dir); each
+  // accepted connection is served by its own server over the shared,
   // connection-safe handler registry.
   const socketPath = getLocalSocketPath();
   startLocalSocketServer({
@@ -427,10 +415,38 @@ async function main(): Promise<void> {
       rpcLog.warn({ err }, "Local CES socket server error"),
   });
 
-  await stdioServer.serve();
-  // The parent disconnected (or a shutdown signal fired). Abort so the socket
-  // listener and any live socket connections are torn down too.
-  controller.abort();
+  // Also serve the spawning parent over stdio (transitional: today the
+  // assistant still spawns CES and talks to it over stdio). This is no longer
+  // the lifecycle anchor — see below — so stdin EOF alone does not shut CES
+  // down. It is run in the background and its end is not awaited.
+  const stdioServer = new CesRpcServer({
+    input: process.stdin,
+    output: process.stdout,
+    handlers,
+    logger: rpcLogger,
+    signal: controller.signal,
+    // Local mode reads API keys from env/store directly — no-op handler so
+    // update_managed_credential is still registered and returns success.
+    onApiKeyUpdate: () => {},
+  });
+  void stdioServer.serve().catch((err) => {
+    rpcLog.warn({ err }, "CES stdio server ended with a transport error");
+  });
+
+  // Run until a shutdown signal (SIGTERM/SIGINT) aborts the controller — NOT
+  // until stdin closes. This lets CES run as a standalone sibling launched
+  // without a stdio parent (its stdin is empty and would EOF immediately),
+  // while an assistant that still spawns CES tears it down with an explicit
+  // SIGTERM on shutdown.
+  await new Promise<void>((resolve) => {
+    if (controller.signal.aborted) {
+      resolve();
+      return;
+    }
+    controller.signal.addEventListener("abort", () => resolve(), {
+      once: true,
+    });
+  });
   log.info("Server stopped.");
 }
 
