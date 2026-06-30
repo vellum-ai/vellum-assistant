@@ -12,11 +12,12 @@ import {
 import { useCallback, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 
-import { PluginCategorySidebar } from "@/domains/intelligence/components/plugins/plugin-category-sidebar";
 import { PluginDetail } from "@/domains/intelligence/components/plugins/plugin-detail";
 import { PluginDetailMobile } from "@/domains/intelligence/components/plugins/plugin-detail-mobile";
 import { FilterBar } from "@/domains/intelligence/components/plugins/plugin-filters";
 import { PluginListRow } from "@/domains/intelligence/components/plugins/plugin-list-row";
+// The category rail is the same component as Skills (shared taxonomy).
+import { CategorySidebar } from "@/domains/intelligence/components/skills/category-sidebar";
 import {
     PLUGIN_INSTALL_ERROR,
     PLUGIN_REMOVE_ERROR,
@@ -32,7 +33,10 @@ import type {
     PluginFilter,
     PluginListItem,
 } from "@/domains/intelligence/plugins/types";
-import { usePluginsList } from "@/domains/intelligence/plugins/use-plugins-list";
+import {
+    SYSTEM_CATEGORY,
+    usePluginsList,
+} from "@/domains/intelligence/plugins/use-plugins-list";
 import {
     filterByStatus,
     matchesQuery,
@@ -330,7 +334,7 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
         onCategoryChange={setCategory}
         counts={counts}
         totalCount={totalCount}
-        showCounts
+        showCounts={!isSearching}
       />
 
       {catalogError && !isLoading && !isError ? (
@@ -340,12 +344,13 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
       {categoryRailEnabled ? (
         <div className="flex min-h-0 flex-1 gap-6">
           <aside className="hidden w-56 shrink-0 overflow-y-auto sm:block">
-            <PluginCategorySidebar
+            <CategorySidebar
+              ariaLabel="Plugin categories"
               selected={category}
               onSelect={setCategory}
               counts={counts}
               totalCount={totalCount}
-              showCounts
+              showCounts={!isSearching}
               categories={categories}
             />
           </aside>
@@ -410,7 +415,7 @@ function useMergedPluginCounts(
       Object.assign(counts, installedCategoryCounts);
     } else {
       for (const plugin of installedPlugins) {
-        const cat = plugin.category ?? "system";
+        const cat = plugin.category ?? SYSTEM_CATEGORY;
         counts[cat] = (counts[cat] ?? 0) + 1;
       }
     }
@@ -420,7 +425,7 @@ function useMergedPluginCounts(
       // here would double it against the installed counts, so dedup against the
       // unfiltered installed names — it already counts under installed.
       if (unfilteredInstalledNames.has(match.name)) continue;
-      const cat = match.category ?? "system";
+      const cat = match.category ?? SYSTEM_CATEGORY;
       counts[cat] = (counts[cat] ?? 0) + 1;
       catalogTotal += 1;
     }
