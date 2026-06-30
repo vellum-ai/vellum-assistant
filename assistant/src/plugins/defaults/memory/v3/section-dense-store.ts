@@ -25,6 +25,7 @@ import { QdrantClient as QdrantRestClient } from "@qdrant/js-client-rest";
 import { v5 as uuidv5 } from "uuid";
 
 import type { AssistantConfig } from "../../../../config/types.js";
+import { deleteMemoryCheckpoint } from "../../../../persistence/checkpoints.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import {
   embedWithBackend,
@@ -44,6 +45,20 @@ const log = getLogger("memory-v3-section-dense-store");
 
 /** Name of the dedicated Qdrant collection holding section-grain embeddings. */
 export const SECTION_COLLECTION = "memory_v3_sections";
+
+/**
+ * Durable checkpoint key holding the epoch-ms high-water of the last successful
+ * section re-embed pass; read and advanced by the maintain job, which re-embeds
+ * only pages whose mtime is past the mark. When the key is absent the maintainer
+ * re-embeds EVERY page (seeding the otherwise-empty collection on first run), so
+ * {@link ensureSectionCollection} clears it whenever it (re)creates an empty
+ * collection to force a full rebuild. Defined here, beside the collection it
+ * guards, so the store can clear it without importing the maintainer (which
+ * depends on this module). Distinct from the tree-era `enriched_through_ms` and
+ * from `memory_v3_maintain_last_run` (the enqueue-cadence checkpoint).
+ */
+export const MAINTAIN_EMBED_HIGH_WATER_KEY =
+  "memory_v3_maintain:sections_embedded_through_ms";
 
 /**
  * Stable UUIDv5 namespace used to derive a deterministic Qdrant point ID from a
@@ -166,6 +181,14 @@ export async function ensureSectionCollection(
           : undefined;
       if (status !== 409) throw err;
     }
+
+    // A freshly (re)created collection is empty, so the section dense store
+    // must be rebuilt from the whole page corpus, not just pages edited since
+    // the last pass. Clearing the embed high-water sends the next maintain pass
+    // down its absent-key path (re-embed every page); leaving it set would strand
+    // every page older than the checkpoint, invisible to the dense lane until it
+    // is next edited.
+    deleteMemoryCheckpoint(MAINTAIN_EMBED_HIGH_WATER_KEY);
   }
 
   // Always ensure the `article` payload index — on EVERY path (fresh create,

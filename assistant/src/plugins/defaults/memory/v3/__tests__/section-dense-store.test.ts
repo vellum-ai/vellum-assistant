@@ -211,12 +211,25 @@ mock.module("@qdrant/js-client-rest", () => ({
   QdrantClient: MockQdrantClient,
 }));
 
+// Records the checkpoint clears `ensureSectionCollection` performs when it
+// (re)creates an empty collection, so tests can assert the embed high-water is
+// reset (which sends the next maintain pass down its full-corpus re-embed path).
+const checkpointState = { deletes: [] as string[] };
+mock.module("../../../../../persistence/checkpoints.js", () => ({
+  getMemoryCheckpoint: () => null,
+  setMemoryCheckpoint: () => undefined,
+  deleteMemoryCheckpoint: (key: string) => {
+    checkpointState.deletes.push(key);
+  },
+}));
+
 const {
   ensureSectionCollection,
   upsertSections,
   deleteSectionsForArticle,
   listSectionArticles,
   SECTION_COLLECTION,
+  MAINTAIN_EMBED_HIGH_WATER_KEY,
   _resetSectionDenseStoreForTests,
 } = await import("../section-dense-store.js");
 
@@ -258,6 +271,7 @@ function resetState(): void {
   embedState.geminiDimensions = undefined;
   cacheState.store.clear();
   cacheState.reads.length = 0;
+  checkpointState.deletes.length = 0;
   _resetSectionDenseStoreForTests();
 }
 
@@ -357,6 +371,39 @@ describe("memory v3 section-dense-store — collection lifecycle", () => {
 
     expect(state.deleteCollectionCalls).toEqual([]);
     expect(state.createCollectionCalls).toBe(0);
+  });
+
+  test("clears the embed high-water when recreating on dimension drift", async () => {
+    state.collectionExists = true;
+    state.getCollectionInfo = {
+      config: { params: { vectors: { size: 384, distance: "Cosine" } } },
+    };
+
+    await ensureSectionCollection(CONFIG);
+
+    // The recreate empties the collection, so the maintain checkpoint is reset:
+    // the next pass re-embeds every page instead of only pages edited since.
+    expect(state.deleteCollectionCalls).toEqual([SECTION_COLLECTION]);
+    expect(checkpointState.deletes).toEqual([MAINTAIN_EMBED_HIGH_WATER_KEY]);
+  });
+
+  test("clears the embed high-water when creating a fresh collection", async () => {
+    state.collectionExists = false;
+
+    await ensureSectionCollection(CONFIG);
+
+    expect(state.createCollectionCalls).toBe(1);
+    expect(checkpointState.deletes).toEqual([MAINTAIN_EMBED_HIGH_WATER_KEY]);
+  });
+
+  test("leaves the embed high-water untouched when the collection is compatible", async () => {
+    state.collectionExists = true;
+    // MATCHING_SECTION_SCHEMA is size 4 === CONFIG, so no recreate happens.
+
+    await ensureSectionCollection(CONFIG);
+
+    expect(state.createCollectionCalls).toBe(0);
+    expect(checkpointState.deletes).toEqual([]);
   });
 
   test("re-running ensure latches readiness (single existence probe)", async () => {
