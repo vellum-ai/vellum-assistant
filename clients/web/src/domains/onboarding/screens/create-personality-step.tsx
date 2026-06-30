@@ -120,8 +120,12 @@ const DEFAULT_VALUE = 50;
 const TRACK_COLOR = "rgba(36, 41, 46, 0.2)"; // #24292E @ 20%
 const THUMB_COLOR = "#FDFDFC";
 
-/** Largest fraction of a peeking avatar that pokes past its screen edge. */
-const MAX_PEEK = 0.62;
+/**
+ * Inset (as a fraction of avatar width) from the screen edge at a fully-dragged
+ * slider — at the far end the avatar is entirely on-screen with this much gap
+ * between it and the edge, then it slides back off-screen toward center.
+ */
+const EDGE_GAP = 0.16;
 
 /**
  * Keep an avatar's color off the background. The toned backdrop is painted in
@@ -177,9 +181,10 @@ function EdgePeekAvatar({
   progress: number;
 }) {
   const p = Math.max(0, Math.min(1, progress));
-  // Hidden just past the edge at p=0; up to MAX_PEEK of the body shown at p=1.
-  const shown = MAX_PEEK * p;
-  const tx = side === "left" ? -100 + shown * 100 : 100 - shown * 100;
+  // p=0: fully off-screen just past the edge (-100% of its width). p=1: fully
+  // on-screen, inset EDGE_GAP from the edge. Travel spans (100% + the gap).
+  const travel = 100 + EDGE_GAP * 100;
+  const tx = side === "left" ? -100 + travel * p : 100 - travel * p;
   return (
     <div
       aria-hidden="true"
