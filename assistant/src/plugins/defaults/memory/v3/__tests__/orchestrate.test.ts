@@ -23,6 +23,7 @@ import type { PageIndexEntry } from "../../v2/page-index.js";
 import { renderCard } from "../card.js";
 import type { EdgeGraph } from "../edge.js";
 import { buildEdgeGraph } from "../edge.js";
+import type { V3GateConfig } from "../gate.js";
 import type { OrchestrateDeps } from "../orchestrate.js";
 import { buildSectionNeedle } from "../section-needle.js";
 import { buildSectionIndex } from "../sections.js";
@@ -56,7 +57,7 @@ mock.module("../../../../../util/logger.js", () => ({
 // every other export (`OVERSAMPLE`) stays present.
 const realDense = { ...(await import("../dense.js")) };
 let denseMockActive = false;
-let denseHits: Array<{ article: Slug; section: number }> = [];
+let denseHits: Array<{ article: Slug; section: number; score?: number }> = [];
 let denseCalls: Array<{ query: string; k: number }> = [];
 mock.module("../dense.js", () => ({
   ...realDense,
@@ -64,6 +65,19 @@ mock.module("../dense.js", () => ({
     if (!denseMockActive) return realDense.denseLane(...args);
     denseCalls.push({ query: args[1], k: args[2] });
     return args[2] <= 0 ? [] : denseHits;
+  },
+  // Orchestrate now calls the SCORED variant; the mock must intercept it too
+  // (else the `...realDense` spread resolves the real lane and hits Qdrant).
+  // Same active-flag guard and `denseHits` fixture, defaulting an unset score
+  // to 1 so existing `denseK: 100` tests keep working without a score field.
+  denseLaneScored: async (
+    ...args: Parameters<typeof realDense.denseLaneScored>
+  ) => {
+    if (!denseMockActive) return realDense.denseLaneScored(...args);
+    denseCalls.push({ query: args[1], k: args[2] });
+    return args[2] <= 0
+      ? []
+      : denseHits.map((h) => ({ ...h, score: h.score ?? 1 }));
   },
 }));
 
@@ -349,12 +363,14 @@ describe("orchestrate — candidate pool composition", () => {
   test("needleK and denseK default to their constants", async () => {
     const lanes = await buildLanes();
     let needleK = -1;
+    // Orchestrate drives the finder via the SCORED query, so capture the budget
+    // there (the unscored `query` is no longer the orchestrate entry point).
     const needle = {
-      query: (_t: string, k: number) => {
+      query: () => [],
+      queryScored: (_t: string, k: number) => {
         needleK = k;
         return [];
       },
-      queryScored: () => [],
       bestSection: () => -1,
       idf: () => 0,
     };
@@ -981,5 +997,121 @@ describe("orchestrate — entity lane", () => {
     expect(hits[0]!.lane).toBe("entity");
     expect(result.matchedSections.get("topic-c")).toBe(heading);
     expect(result.selections.map((s) => s.slug)).toContain("topic-c");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Injection gate: an OPT-IN, pass-open score check between the finder lanes and
+// edge expansion. A passing gate proceeds to selectPool as before; a closing
+// gate skips the selector entirely (empty selections) — or, with
+// `bypassForCore`, selects over the stable prefix only. Disabled/omitted is a
+// no-op. `selectCalls` (incremented by the provider stub) detects whether the
+// selector ran.
+// ---------------------------------------------------------------------------
+
+/** A `V3GateConfig` literal from the schema (`memory.v3.gate`) defaults plus the
+ *  effective `enabled` flag, overridable per test. */
+function gateConfigOf(overrides: Partial<V3GateConfig> = {}): V3GateConfig {
+  return {
+    enabled: true,
+    denseThreshold: 0.52,
+    sparseThreshold: 0.35,
+    sparseOnlyThreshold: 0.45,
+    denseClusterThreshold: 0.47,
+    denseClusterMaxDelta: 0.04,
+    topK: 5,
+    bm25NormK: null,
+    bypassForCore: false,
+    ...overrides,
+  };
+}
+
+describe("orchestrate — injection gate", () => {
+  test("gate pass → selects normally (provider runs once, selections produced)", async () => {
+    const lanes = await buildLanes();
+    // Dense top-1 (0.9) clears the default denseThreshold (0.52) → dense_pass.
+    denseHits = [{ article: "topic-b", section: 0, score: 0.9 }];
+    providerStub = selectProvider(["topic-a"]); // "apple" needles topic-a
+
+    const result = await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, { denseK: 100, gateConfig: gateConfigOf() }),
+    );
+
+    expect(selectCalls).toBe(1);
+    expect(result.selections.map((s) => s.slug)).toContain("topic-a");
+  });
+
+  test("gate fail → empty selections, selector never called", async () => {
+    const lanes = await buildLanes();
+    // No needle-term overlap (zero sparse signal) and a dense top-1 (0.1) well
+    // below every dense threshold → the gate closes.
+    denseHits = [{ article: "topic-b", section: 0, score: 0.1 }];
+    providerStub = selectProvider([]); // would increment selectCalls if reached
+
+    const result = await orchestrate(
+      makeTurn(1, "zzzz nomatch"),
+      depsOf(lanes, { denseK: 100, gateConfig: gateConfigOf() }),
+    );
+
+    expect(selectCalls).toBe(0);
+    expect(result.selections).toEqual([]);
+    expect(result.lanes.finder).toEqual([]);
+  });
+
+  test("bypassForCore: true on a closed gate selects the stable prefix only (no finder lines)", async () => {
+    const lanes = await buildLanes();
+    // Low-signal query → the gate closes; bypassForCore runs selectPool over the
+    // stable prefix (core+hot) with an empty finder tail.
+    providerStub = selectProvider([]);
+
+    const result = await orchestrate(
+      makeTurn(1, "zzzz nomatch"),
+      depsOf(lanes, {
+        coreSlugs: ["topic-c"],
+        hotSlugs: ["topic-d"],
+        gateConfig: gateConfigOf({ bypassForCore: true }),
+      }),
+    );
+
+    expect(selectCalls).toBe(1);
+    // The selector input is exactly the stable prefix — two card lines, no
+    // finder candidate lines.
+    expect(lastPool).toEqual(["topic-c", "topic-d"]);
+    expect(lastPoolLines).toHaveLength(2);
+    expect(lastPoolLines.every((l) => l.includes("# memory/concepts/"))).toBe(
+      true,
+    );
+    expect(result.lanes.finder).toEqual([]);
+    expect(result.matchedSections.size).toBe(0);
+  });
+
+  test("gate disabled (omitted) → unchanged behavior (selector runs, selections produced)", async () => {
+    const lanes = await buildLanes();
+    providerStub = selectProvider(["topic-a"]);
+
+    const result = await orchestrate(makeTurn(1, "apple"), depsOf(lanes));
+
+    expect(selectCalls).toBe(1);
+    expect(result.selections.map((s) => s.slug)).toContain("topic-a");
+  });
+
+  test("gate enabled:false is a no-op even with gate-closing fixtures", async () => {
+    const lanes = await buildLanes();
+    // These fixtures would CLOSE the gate if it ran (weak needle, sub-threshold
+    // dense). With enabled:false the gate never runs, so selection proceeds.
+    denseHits = [{ article: "topic-b", section: 0, score: 0.1 }];
+    providerStub = selectProvider(["topic-a"]);
+
+    const result = await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, {
+        denseK: 100,
+        gateConfig: gateConfigOf({ enabled: false }),
+      }),
+    );
+
+    expect(selectCalls).toBe(1);
+    expect(result.selections.map((s) => s.slug)).toContain("topic-a");
   });
 });

@@ -122,6 +122,12 @@ mock.module("../dense.js", () => ({
   ...realDense,
   denseLane: async (...args: Parameters<typeof realDense.denseLane>) =>
     carryMockActive ? [] : realDense.denseLane(...args),
+  // Defensive: this fixture never sets denseK > 0, so orchestrate does not call
+  // the scored lane today — but mirror the delegation so a future denseK > 0
+  // test can't silently reach real Qdrant after the orchestrate swap.
+  denseLaneScored: async (
+    ...args: Parameters<typeof realDense.denseLaneScored>
+  ) => (carryMockActive ? [] : realDense.denseLaneScored(...args)),
 }));
 
 let testSqlite: Database;

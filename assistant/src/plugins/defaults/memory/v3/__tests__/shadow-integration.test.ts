@@ -89,6 +89,15 @@ mock.module("../dense.js", () => ({
   ...realDense,
   denseLane: async (...args: Parameters<typeof realDense.denseLane>) =>
     mockActive ? denseHits : realDense.denseLane(...args),
+  // Orchestrate calls the SCORED variant; intercept it under the same
+  // `mockActive` guard (the gate is disabled in these tests, so the score is
+  // arbitrary — a constant 1) so the swap can't leak through to real Qdrant.
+  denseLaneScored: async (
+    ...args: Parameters<typeof realDense.denseLaneScored>
+  ) =>
+    mockActive
+      ? denseHits.map((h) => ({ ...h, score: 1 }))
+      : realDense.denseLaneScored(...args),
 }));
 
 // In-memory selections DB. `summarizeSelections` reads via getDb/getSqliteFrom;
