@@ -4,8 +4,9 @@
  *
  * SPIKE — research-onboarding flow.
  *
- * Frontend-only for now: the slider values are held in local state and aren't
- * sent anywhere yet (a later PR will wire them to the assistant's persona). The
+ * The slider values and the free-text persona ("who do you want me to be?") are
+ * held by the route and, on continue, sent to the hatched assistant as a
+ * system-message that rewrites its identity files (see `applyPersonality`). The
  * step is part of the research-onboarding flow (no separate flag). Foreground
  * content only — the shared toned backdrop (avatar color + bottom eyes) sits
  * behind.
@@ -45,6 +46,10 @@ interface CreatePersonalityStepProps {
   values: Record<string, number>;
   /** Report a single slider's new value. */
   onValueChange: (axisId: string, value: number) => void;
+  /** Free-text character the assistant should embody, owned by the route. */
+  persona: string;
+  /** Report the persona text as the user edits it. */
+  onPersonaChange: (next: string) => void;
   /**
    * Once the user has continued, the personality prompt has already been sent
    * to the assistant — lock the sliders so a step-back can't silently diverge
@@ -56,6 +61,20 @@ interface CreatePersonalityStepProps {
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
 }
+
+/**
+ * Example characters cycled through the persona field's placeholder — spicy to
+ * deadpan — to convey the range of valid answers without prescribing one.
+ */
+const PERSONA_EXAMPLES = [
+  "a sassy goth girl who calls me out",
+  "a deadpan butler who's quietly judging me",
+  "a brutally honest best friend",
+  "a noir detective on the case",
+];
+
+/** Cadence for the persona placeholder rotation. */
+const PERSONA_PLACEHOLDER_INTERVAL_MS = 3000;
 
 /**
  * The five trait axes, each a 0–100 slider flanked by its end labels. Each end
@@ -349,12 +368,26 @@ function EdgeAvatarLayer({
 export function CreatePersonalityStep({
   values,
   onValueChange,
+  persona,
+  onPersonaChange,
   locked,
   onContinue,
   onBack,
   onForward,
 }: CreatePersonalityStepProps) {
   const tone = useOnboardingTone();
+  // Rotate the persona placeholder while the field is empty and editable, so a
+  // typed answer (or a locked step) isn't disrupted by a shifting example.
+  const [placeholderIndex, setPlaceholderIndex] = useState(0);
+  useEffect(() => {
+    if (locked || persona.trim()) return;
+    const interval = setInterval(() => {
+      setPlaceholderIndex((i) => (i + 1) % PERSONA_EXAMPLES.length);
+    }, PERSONA_PLACEHOLDER_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [locked, persona]);
+  const personaPlaceholder =
+    PERSONA_EXAMPLES[placeholderIndex] ?? PERSONA_EXAMPLES[0];
   const components = useBundledAvatarComponents();
   const viewportWidth = useViewportWidth();
   const isDesktop = viewportWidth >= DESKTOP_MIN_WIDTH;
@@ -432,6 +465,26 @@ export function CreatePersonalityStep({
               disabled={locked}
             />
           ))}
+
+          <div className="flex w-full flex-col items-center gap-2">
+            <label
+              htmlFor="persona-input"
+              className="text-center text-base sm:text-[17px]"
+              style={{ color: tone.fg }}
+            >
+              Who do you want me to be?
+            </label>
+            <input
+              id="persona-input"
+              type="text"
+              value={persona}
+              onChange={(e) => onPersonaChange(e.target.value)}
+              disabled={locked}
+              placeholder={personaPlaceholder}
+              className="w-full max-w-md rounded-2xl border bg-transparent px-4 py-2.5 text-center text-base outline-none transition-colors duration-150 placeholder:text-current placeholder:opacity-50 disabled:cursor-not-allowed"
+              style={{ color: tone.fg, borderColor: tone.fgMuted }}
+            />
+          </div>
         </div>
 
         <button
