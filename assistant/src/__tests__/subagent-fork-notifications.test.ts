@@ -177,15 +177,27 @@ describe("Fork completion notifications", () => {
       deduplicated: false,
     });
     managed.conversation!.runAgentLoop = async () => {};
+    // Leave a trailing assistant message so the completion notification inlines
+    // the fork's synthesis (the new behavior) rather than the empty-text path.
+    managed.conversation!.messages = [
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Internal analysis: revenue up 20%." }],
+      },
+    ];
 
     await asInternals(manager).runSubagent(subagentId, "Analyze data");
 
     expect(capturedNotifications).toHaveLength(1);
+    // The synthesis is inlined, and a silent fork is flagged for internal use.
     expect(capturedNotifications[0].message).toContain(
-      "do NOT share raw fork output with the user",
+      "Internal analysis: revenue up 20%.",
     );
     expect(capturedNotifications[0].message).toContain(
-      '[Fork "Analysis fork" completed]',
+      "do not relay the raw fork output to the user",
+    );
+    expect(capturedNotifications[0].message).toContain(
+      '[Fork "Analysis fork" completed — result below]',
     );
 
     asInternals(manager).stopSweep();
