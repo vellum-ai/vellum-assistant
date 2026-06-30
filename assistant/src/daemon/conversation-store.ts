@@ -14,7 +14,6 @@
 
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
-import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
 import { resolveDefaultProvider } from "../providers/connection-resolution.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
@@ -27,6 +26,7 @@ import {
   removeFromEvictor,
   touchConversation,
 } from "./conversation-evictor.js";
+import { resolveInitialSystemPrompt } from "./conversation-initial-prompt.js";
 import {
   allConversations,
   clearConversations,
@@ -145,8 +145,7 @@ export async function getOrCreateConversation(
       }
       const workingDir = getSandboxWorkingDir();
 
-      const systemPrompt =
-        storedOptions?.systemPromptOverride ?? buildSystemPrompt();
+      const systemPrompt = await resolveInitialSystemPrompt(storedOptions);
       const maxTokens = storedOptions?.maxResponseTokens;
 
       const newConversation = new Conversation(
@@ -159,12 +158,6 @@ export async function getOrCreateConversation(
           maxTokens,
           speedOverride: storedOptions?.speed,
           modelOverride: storedOptions?.modelOverride,
-          // `systemPrompt` above is the default base build unless a real
-          // override was supplied. Signal which explicitly so a normal chat
-          // rebuilds the prompt per turn (picking up live trust/persona) rather
-          // than freezing onto a non-deterministic construction-time build.
-          hasSystemPromptOverride:
-            storedOptions?.systemPromptOverride !== undefined,
         },
       );
       newConversation.updateClient(sendToClient, true);
