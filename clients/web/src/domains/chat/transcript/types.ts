@@ -8,6 +8,7 @@ import type {
   Surface,
 } from "@/domains/chat/types/types";
 import type { RuntimeSubagentNotification } from "@/domains/chat/api/messages";
+import type { BackgroundTaskEntry } from "@/domains/chat/background-task-store";
 
 export type TranscriptItemKind =
   | "message"
@@ -102,6 +103,12 @@ export interface PaginatedHistoryResult {
   oldestMessageId: string | null;
   /** Subagent notifications extracted from history messages for state reconstruction. */
   subagentNotifications?: RuntimeSubagentNotification[];
+  /** Background-task completion records extracted from history messages, used to
+   *  re-seed completed inline cards across daemon restarts. The paginated
+   *  fetchers always populate it (an empty array when no row carried a
+   *  completion); it is optional so other constructors (snapshot spreads, tests)
+   *  need not restate it. */
+  backgroundToolCompletions?: BackgroundTaskEntry[];
   /** Global SSE `seq` this snapshot is durably persisted through for the
    *  conversation, or `null` when the daemon reports no honest position
    *  (cold conversation, post-restart, aged-out map, or an older daemon
