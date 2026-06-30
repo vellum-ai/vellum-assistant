@@ -906,18 +906,8 @@ export function forkConversation(params: {
       messageAt: number;
     } | null = null;
 
-    for (const message of messagesToCopy) {
+    const forkedMessageValues = messagesToCopy.map((message) => {
       const forkedMessageId = uuid();
-      db.insert(messages)
-        .values({
-          id: forkedMessageId,
-          conversationId: fc.id,
-          role: message.role,
-          content: message.content,
-          createdAt: message.createdAt,
-          metadata: cloneForkMessageMetadata(message.metadata, message.id),
-        })
-        .run();
       forkedMessageIds.set(message.id, forkedMessageId);
 
       if (message.role === "assistant") {
@@ -926,6 +916,27 @@ export function forkConversation(params: {
           messageAt: message.createdAt,
         };
       }
+
+      return {
+        id: forkedMessageId,
+        conversationId: fc.id,
+        role: message.role,
+        content: message.content,
+        createdAt: message.createdAt,
+        metadata: cloneForkMessageMetadata(message.metadata, message.id),
+      };
+    });
+
+    // Insert in chunks of one multi-row statement each so a large fork takes
+    // the SQLite write lock O(messages / chunk) times instead of once per row.
+    const FORK_INSERT_CHUNK_SIZE = 200;
+    for (
+      let i = 0;
+      i < forkedMessageValues.length;
+      i += FORK_INSERT_CHUNK_SIZE
+    ) {
+      const chunk = forkedMessageValues.slice(i, i + FORK_INSERT_CHUNK_SIZE);
+      db.insert(messages).values(chunk).run();
     }
 
     populateForkContentsInProcess({
