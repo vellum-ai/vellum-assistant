@@ -31,6 +31,7 @@ import {
   getBundledBunPath,
   getCliBinPath,
 } from "./cli-installer";
+import { getSessionToken } from "./session-token-store";
 
 /**
  * Local-mode host bridge: provisions and retires local assistants and reads
@@ -130,7 +131,9 @@ async function retire(assistantId: string): Promise<RetireResult> {
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }
-  const result = await runRetire(invocation, assistantId);
+  const result = await runRetire(invocation, assistantId, {
+    platformToken: getSessionToken() ?? undefined,
+  });
   return result.ok ? { ok: true } : { ok: false, error: result.error };
 }
 
@@ -294,7 +297,11 @@ export const installLocalMode = (): void => {
     "vellum:localMode:replacePlatformAssistants",
     z.tuple([z.array(assistantRecord), z.string().optional()]),
     ([list, organizationId]): LockfileWriteResult => {
-      const result = replacePlatformAssistants(lockfilePaths, list, organizationId);
+      const result = replacePlatformAssistants(
+        lockfilePaths,
+        list,
+        organizationId,
+      );
       return result.ok
         ? { ok: true, lockfile: result.lockfile }
         : { ok: false, error: result.error };

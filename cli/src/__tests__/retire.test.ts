@@ -20,18 +20,23 @@ import { join } from "node:path";
 
 import type { AssistantEntry } from "../lib/assistant-config.js";
 import { loadAllAssistants } from "../lib/assistant-config.js";
+import * as loopbackFetchModule from "../lib/loopback-fetch.js";
+import * as platformClientModule from "../lib/platform-client.js";
 import * as retireLocalModule from "../lib/retire-local.js";
 
 const testDir = mkdtempSync(join(tmpdir(), "cli-retire-test-"));
 const originalArgv = [...process.argv];
 const originalExit = process.exit;
 const originalLockfileDir = process.env.VELLUM_LOCKFILE_DIR;
+const originalPlatformToken = process.env.VELLUM_PLATFORM_TOKEN;
 const originalStdinIsTTY = process.stdin.isTTY;
 const originalStdoutIsTTY = process.stdout.isTTY;
 const originalStdinIsRaw = process.stdin.isRaw;
 const originalSetRawMode = process.stdin.setRawMode;
 const originalStdoutWrite = process.stdout.write;
 const realRetireLocalModule = { ...retireLocalModule };
+const realPlatformClientModule = { ...platformClientModule };
+const realLoopbackFetchModule = { ...loopbackFetchModule };
 
 const retireLocalMock = mock(async () => {});
 const readPlatformTokenMock = mock((): string | null => null);
@@ -39,13 +44,6 @@ const authHeadersMock = mock(async () => ({
   "Content-Type": "application/json",
   "X-Session-Token": "session-token",
 }));
-const authHeadersForOrganizationMock = mock(
-  (token: string, organizationId: string) => ({
-    "Content-Type": "application/json",
-    "X-Session-Token": token,
-    "Vellum-Organization-Id": organizationId,
-  }),
-);
 const getPlatformUrlMock = mock(() => "https://platform.example.com");
 const readGatewayCredentialMock = mock(
   async (
@@ -68,7 +66,6 @@ mock.module("../lib/retire-local.js", () => ({
 
 mock.module("../lib/platform-client.js", () => ({
   authHeaders: authHeadersMock,
-  authHeadersForOrganization: authHeadersForOrganizationMock,
   getPlatformUrl: getPlatformUrlMock,
   readGatewayCredential: readGatewayCredentialMock,
   readPlatformToken: readPlatformTokenMock,
@@ -161,6 +158,7 @@ function restoreTerminal(): void {
 describe("vellum retire", () => {
   beforeEach(() => {
     process.env.VELLUM_LOCKFILE_DIR = testDir;
+    delete process.env.VELLUM_PLATFORM_TOKEN;
     rmSync(join(testDir, ".vellum.lock.json"), { force: true });
     process.argv = ["bun", "vellum", "retire"];
     process.exit = ((code?: number) => {
@@ -175,14 +173,6 @@ describe("vellum retire", () => {
       "Content-Type": "application/json",
       "X-Session-Token": "session-token",
     });
-    authHeadersForOrganizationMock.mockReset();
-    authHeadersForOrganizationMock.mockImplementation(
-      (token: string, organizationId: string) => ({
-        "Content-Type": "application/json",
-        "X-Session-Token": token,
-        "Vellum-Organization-Id": organizationId,
-      }),
-    );
     getPlatformUrlMock.mockReset();
     getPlatformUrlMock.mockReturnValue("https://platform.example.com");
     readGatewayCredentialMock.mockReset();
@@ -209,10 +199,17 @@ describe("vellum retire", () => {
 
   afterAll(() => {
     mock.module("../lib/retire-local.js", () => realRetireLocalModule);
+    mock.module("../lib/platform-client.js", () => realPlatformClientModule);
+    mock.module("../lib/loopback-fetch.js", () => realLoopbackFetchModule);
     if (originalLockfileDir === undefined) {
       delete process.env.VELLUM_LOCKFILE_DIR;
     } else {
       process.env.VELLUM_LOCKFILE_DIR = originalLockfileDir;
+    }
+    if (originalPlatformToken === undefined) {
+      delete process.env.VELLUM_PLATFORM_TOKEN;
+    } else {
+      process.env.VELLUM_PLATFORM_TOKEN = originalPlatformToken;
     }
     rmSync(testDir, { recursive: true, force: true });
   });
@@ -259,10 +256,7 @@ describe("vellum retire", () => {
       "vellum:platform_assistant_id",
       entry.bearerToken,
     );
-    expect(authHeadersForOrganizationMock).toHaveBeenCalledWith(
-      "session-token",
-      "org-123",
-    );
+    expect(authHeadersMock).not.toHaveBeenCalled();
     expect(loopbackSafeFetchMock).toHaveBeenCalledWith(
       "https://platform.example.test/v1/assistants/platform-assistant-1/retire/",
       {
@@ -276,6 +270,41 @@ describe("vellum retire", () => {
     );
     expect(retireLocalMock).toHaveBeenCalledWith("assistant-1", entry);
     expect(loadAllAssistants()).toEqual([]);
+  });
+
+  test("local retire uses injected platform token from the app host", async () => {
+    const entry = makeEntry("assistant-1", { name: "Example Assistant" });
+    writeLockfile([entry]);
+    process.env.VELLUM_PLATFORM_TOKEN = "host-session-token";
+    readPlatformTokenMock.mockReturnValue(null);
+    readGatewayCredentialMock.mockImplementation(async (_gatewayUrl, name) => {
+      if (name === "vellum:platform_assistant_id") {
+        return { value: "platform-assistant-1", unreachable: false };
+      }
+      if (name === "vellum:platform_base_url") {
+        return { value: "https://platform.example.test", unreachable: false };
+      }
+      if (name === "vellum:platform_organization_id") {
+        return { value: "org-123", unreachable: false };
+      }
+      return { value: null, unreachable: false };
+    });
+    process.argv = ["bun", "vellum", "retire", "assistant-1", "--yes"];
+
+    await retire();
+
+    expect(loopbackSafeFetchMock).toHaveBeenCalledWith(
+      "https://platform.example.test/v1/assistants/platform-assistant-1/retire/",
+      {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Session-Token": "host-session-token",
+          "Vellum-Organization-Id": "org-123",
+        },
+      },
+    );
+    expect(retireLocalMock).toHaveBeenCalledWith("assistant-1", entry);
   });
 
   test("local retire aborts when self-hosted platform unregister fails", async () => {

@@ -85,9 +85,8 @@ const VAK_PREFIX = "vak_";
 /**
  * Sync helper – returns only the token-based auth header.
  *
- * Used internally by {@link fetchOrganizationId} (which cannot call the
- * async {@link authHeaders} without creating a cycle) and by functions
- * that already have an org ID in hand.
+ * Used internally by {@link fetchOrganizationId}, which cannot call the
+ * async {@link authHeaders} without creating a cycle.
  */
 function tokenAuthHeader(token: string): Record<string, string> {
   if (token.startsWith(VAK_PREFIX)) {
@@ -171,22 +170,6 @@ export async function authHeaders(
     }
     throw new Error(`Failed to fetch organization: ${msg}`);
   }
-}
-
-export function authHeadersForOrganization(
-  token: string,
-  organizationId: string,
-): Record<string, string> {
-  const base: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...tokenAuthHeader(token),
-  };
-
-  if (token.startsWith(VAK_PREFIX)) {
-    return base;
-  }
-
-  return { ...base, "Vellum-Organization-Id": organizationId };
 }
 
 export interface HatchedAssistant {

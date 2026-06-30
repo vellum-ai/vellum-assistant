@@ -626,7 +626,9 @@ async function handleLocalEndpoints(
       );
     }
 
-    const result = await runRetire(invocation, assistantId);
+    const result = await runRetire(invocation, assistantId, {
+      platformToken: currentPlatformToken() ?? undefined,
+    });
     if (result.ok) {
       return Response.json({ ok: true });
     }

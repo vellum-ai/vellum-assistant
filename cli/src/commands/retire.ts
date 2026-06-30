@@ -20,7 +20,6 @@ import { getConfigDir } from "../lib/environments/paths.js";
 import { getCurrentEnvironment } from "../lib/environments/resolve.js";
 import {
   authHeaders,
-  authHeadersForOrganization,
   getPlatformUrl,
   readGatewayCredential,
   readPlatformToken,
@@ -47,6 +46,33 @@ interface RetireArgs {
   yes: boolean;
 }
 
+const VAK_PREFIX = "vak_";
+const PLATFORM_TOKEN_ENV = "VELLUM_PLATFORM_TOKEN";
+
+function readPlatformRetireToken(): string | null {
+  const envToken = process.env[PLATFORM_TOKEN_ENV]?.trim();
+  if (envToken) return envToken;
+  return readPlatformToken();
+}
+
+function authHeadersWithKnownOrganization(
+  token: string,
+  organizationId: string,
+): Record<string, string> {
+  if (token.startsWith(VAK_PREFIX)) {
+    return {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    };
+  }
+
+  return {
+    "Content-Type": "application/json",
+    "X-Session-Token": token,
+    "Vellum-Organization-Id": organizationId,
+  };
+}
+
 async function deletePlatformAssistant(
   assistantId: string,
   options: {
@@ -61,7 +87,7 @@ async function deletePlatformAssistant(
   const platformUrl = options.platformUrl || getPlatformUrl();
   const url = `${platformUrl}/v1/assistants/${encodeURIComponent(assistantId)}/retire/`;
   const headers = options.organizationId
-    ? authHeadersForOrganization(options.token, options.organizationId)
+    ? authHeadersWithKnownOrganization(options.token, options.organizationId)
     : await authHeaders(options.token, platformUrl);
 
   const response = await loopbackSafeFetch(url, {
@@ -84,7 +110,7 @@ async function deletePlatformAssistant(
 async function unregisterSelfHostedLocalPlatformRecord(
   entry: AssistantEntry,
 ): Promise<void> {
-  const token = readPlatformToken();
+  const token = readPlatformRetireToken();
   if (!token) return;
 
   const platformAssistant = await readGatewayCredential(
@@ -165,7 +191,7 @@ async function retireVellum(
 ): Promise<void> {
   console.log("\u{1F5D1}\ufe0f  Retiring platform-hosted instance...\n");
 
-  const token = readPlatformToken();
+  const token = readPlatformRetireToken();
   if (!token) {
     console.error(
       "Error: Not logged in. Run `vellum login --token <token>` first.",
