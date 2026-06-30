@@ -65,6 +65,23 @@ describe("buildSubagentTerminalMessage", () => {
     expect(msg).toContain("Keep the result internal.");
   });
 
+  test("keeps the read pointer instead of inlining when a follow-up turn is queued", () => {
+    const msg = buildSubagentTerminalMessage({
+      label: "interactive",
+      subagentId: "sa-6",
+      isFork: false,
+      outcome: "completed",
+      silent: false,
+      finalText: "Snapshot answer (stale).",
+      deferred: true,
+    });
+
+    // The snapshot must NOT be inlined — newer queued output is still coming.
+    expect(msg).not.toContain("Snapshot answer");
+    expect(msg).toContain("Queued follow-up guidance is still being processed");
+    expect(msg).toContain('subagent_read with subagent_id "sa-6"');
+  });
+
   test("failure message surfaces the error and discourages auto-retry", () => {
     const msg = buildSubagentTerminalMessage({
       label: "broken",

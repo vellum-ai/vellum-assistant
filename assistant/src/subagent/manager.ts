@@ -141,8 +141,19 @@ export function buildSubagentTerminalMessage(opts: {
   silent: boolean;
   finalText?: string;
   error?: string;
+  /** A follow-up turn is still queued, so the current synthesis is a snapshot. */
+  deferred?: boolean;
 }): string {
-  const { label, subagentId, isFork, outcome, silent, finalText, error } = opts;
+  const {
+    label,
+    subagentId,
+    isFork,
+    outcome,
+    silent,
+    finalText,
+    error,
+    deferred,
+  } = opts;
   const prefix = isFork ? "Fork" : "Subagent";
 
   if (outcome === "failed") {
@@ -154,7 +165,7 @@ export function buildSubagentTerminalMessage(opts: {
   }
 
   const trimmed = finalText?.trim() ?? "";
-  if (trimmed) {
+  if (trimmed && !deferred) {
     return (
       `[${prefix} "${label}" completed — result below]\n\n` +
       `${trimmed}\n\n` +
@@ -164,13 +175,16 @@ export function buildSubagentTerminalMessage(opts: {
     );
   }
 
-  // Fallback: the run ended without trailing assistant text, so there is
-  // nothing to inline — point the parent at the persisted output instead.
+  // Read-pointer path: either the run left no trailing assistant text to inline,
+  // or a queued follow-up turn is still draining — so the current synthesis is a
+  // stale snapshot and the parent should read the latest output instead.
   const lastN = isFork ? " and last_n: 1" : "";
+  const reason = deferred
+    ? `Queued follow-up guidance is still being processed`
+    : `The ${prefix.toLowerCase()} produced no final text`;
   return (
     `[${prefix} "${label}" completed]\n\n` +
-    `The ${prefix.toLowerCase()} produced no final text. ` +
-    `Use subagent_read with subagent_id "${subagentId}"${lastN} to inspect its output.` +
+    `${reason}. Use subagent_read with subagent_id "${subagentId}"${lastN} for the latest output.` +
     (silent ? ` Keep the result internal.` : ``)
   );
 }
@@ -1401,6 +1415,9 @@ export class SubagentManager {
       silent,
       finalText,
       error: managed.state.error,
+      // A queued follow-up turn means the snapshot we hold is stale; defer to a
+      // read pointer so the parent picks up the queued turn's output instead.
+      deferred: managed.hadEnqueuedMessages === true,
     });
 
     const notification: SubagentNotificationInfo = {
