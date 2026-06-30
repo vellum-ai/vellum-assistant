@@ -213,8 +213,10 @@ describe("rehydration", () => {
 
   test("settles a known task reported in the completed ring instead of cancelling it", () => {
     // bg-1 was running in the store; it finished while the chat was unmounted,
-    // so the daemon reports it under `completed`, not `tools`. It must settle to
-    // its real terminal status, NOT be retired as cancelled (the codex P2).
+    // so the daemon reports it under `completed`, not `tools`. A completed-ring
+    // entry must settle the task to its real terminal status before retirement
+    // runs, so an absent-from-active task that actually finished is not retired
+    // as a false `cancelled`.
     getState().seedFromHistory([runningEntry("bg-1")]);
     applyBackgroundTaskSnapshot(
       { active: [], completed: [completedEntry("bg-1", "completed")] },
