@@ -903,6 +903,7 @@ async function handleRunScheduleNow(id: string) {
       const result = await runScript(schedule.script, {
         timeoutMs: schedule.timeoutMs ?? undefined,
         scheduleRunId: runId,
+        scheduleId: schedule.id,
       });
       await completeScheduleRun(runId, {
         status: result.exitCode === 0 ? "ok" : "error",
