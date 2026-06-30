@@ -310,10 +310,12 @@ describe("handleSendMessage enabledPlugins", () => {
       ["a", "b"],
     );
 
-    // Applied to the live conversation instance.
-    expect(getEffectiveEnabledPluginSet(conversation)).toEqual(
-      new Set(["a", "b"]),
-    );
+    // Applied to the live conversation instance: the user's selection, unioned
+    // with the always-on first-party defaults (which the pills never list).
+    const effective = getEffectiveEnabledPluginSet(conversation);
+    expect(effective?.has("a")).toBe(true);
+    expect(effective?.has("b")).toBe(true);
+    expect(effective?.has("default-memory")).toBe(true);
   });
 
   test("empty array scopes the chat to no plugins", async () => {
@@ -330,7 +332,12 @@ describe("handleSendMessage enabledPlugins", () => {
       "conv-plugins-test",
       [],
     );
-    expect(getEffectiveEnabledPluginSet(conversation)).toEqual(new Set());
+    // No user plugins are in scope, but the always-on first-party defaults are
+    // never filtered out — core runtime infra must keep running.
+    const effective = getEffectiveEnabledPluginSet(conversation);
+    expect(effective).not.toBeNull();
+    expect(effective?.has("default-memory")).toBe(true);
+    expect(effective?.has("a")).toBe(false);
   });
 
   test("explicit null clears to the default (no per-chat restriction)", async () => {
