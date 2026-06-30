@@ -294,10 +294,10 @@ export function CreatePersonalityStep({
   const characters = useOnboardingAvatarPoolStore.use.characters();
   const selectedIndex = useOnboardingAvatarPoolStore.use.selectedIndex();
   const selectedColor = characters[selectedIndex]?.color;
-  // The peeking avatars are desktop-only and a touch bigger than the slider
-  // chrome — scale them with the viewport, with a generous floor and ceiling.
+  // The peeking avatars are desktop-only and big and bold — scale them with the
+  // viewport, with a generous floor and ceiling.
   const avatarSize = Math.round(
-    Math.min(168, Math.max(112, viewportWidth * 0.1)),
+    Math.min(300, Math.max(160, viewportWidth * 0.16)),
   );
   // Resolve each axis' two avatars once, swapping any color that matches the
   // background. Stable unless the components or the selected color change.
