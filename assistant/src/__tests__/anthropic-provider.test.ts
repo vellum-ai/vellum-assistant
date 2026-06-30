@@ -3245,11 +3245,14 @@ describe("AnthropicProvider — deprecated sampling params (temperature / top_p 
     lastStreamParams = null;
   });
 
-  // opus-4-7 / opus-4-8 (and, conservatively, fable) reject `temperature`,
-  // `top_p`, and `top_k` with a 400; the provider must strip all three.
+  // opus-4-7 / opus-4-8 / sonnet-5 (and, conservatively, fable) reject
+  // `temperature`, `top_p`, and `top_k` with a 400; the provider must strip
+  // all three. The OpenRouter `anthropic/...` form delegates here too.
   for (const model of [
     "claude-opus-4-8",
     "claude-opus-4-7",
+    "claude-sonnet-5",
+    "anthropic/claude-sonnet-5",
     "claude-fable-5",
   ]) {
     test(`strips temperature, top_p, and top_k for ${model}`, async () => {
