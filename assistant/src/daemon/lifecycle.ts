@@ -45,10 +45,7 @@ import {
   isMemoryEnabled,
 } from "../persistence/jobs-store.js";
 import { startMemoryJobsWorker } from "../persistence/jobs-worker.js";
-import {
-  startConsentRefresh,
-  stopConsentRefresh,
-} from "../platform/consent-cache.js";
+import { startConsentRefresh } from "../platform/consent-cache.js";
 import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";
 import { sweepConceptPageFrontmatter } from "../plugins/defaults/memory/v2/frontmatter-sweep.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
@@ -114,7 +111,6 @@ import {
   registerWatcherProviders,
 } from "./providers-setup.js";
 import { installShutdownHandlers } from "./shutdown-handlers.js";
-import { registerShutdownHook } from "./shutdown-registry.js";
 import { refreshSkillCapabilityMemories } from "./skill-memory-refresh.js";
 import { broadcastDaemonStatus } from "./status.js";
 
@@ -585,7 +581,6 @@ export async function runDaemon(): Promise<void> {
   // platform. Fire-and-forget: startConsentRefresh() runs an immediate
   // non-blocking refresh, so the startup hot path is never blocked.
   startConsentRefresh();
-  registerShutdownHook("consent-cache", () => stopConsentRefresh());
 
   // Bring up the daemon's CES connection (process + handshake + reconnect
   // wiring). Blocks up to a 20s timeout so credential reads route through CES

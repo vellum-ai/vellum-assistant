@@ -10,6 +10,7 @@ import { getSqlite, resetDb } from "../persistence/db-connection.js";
 import { stopQdrantManager } from "../persistence/embeddings/qdrant-manager.js";
 import { stopMemoryJobsWorker } from "../persistence/jobs-worker.js";
 import { stopMemoryWorkerProcess } from "../persistence/worker-control.js";
+import { stopConsentRefresh } from "../platform/consent-cache.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import { runHook } from "../plugins/pipeline.js";
 import { stopRuntimeHttpServer } from "../runtime/http-server.js";
@@ -81,9 +82,12 @@ async function shutdown(): Promise<void> {
   await stopWorkspaceHeartbeatService();
   await stopHeartbeatService();
 
-  // Run registered shutdown-registry hooks (skill teardown like meet-join, plus
-  // daemon singletons such as the consent-cache refresh) before stopping the
-  // server so any HTTP round-trips and SSE emissions still have live transports.
+  // Stop the periodic consent-cache refresh (a daemon-owned interval).
+  await stopConsentRefresh();
+
+  // Run registered shutdown-registry hooks (skill teardown like meet-join)
+  // before stopping the server so any HTTP round-trips and SSE emissions still
+  // have live transports.
   try {
     await runShutdownHooks("daemon-shutdown");
   } catch (err) {
