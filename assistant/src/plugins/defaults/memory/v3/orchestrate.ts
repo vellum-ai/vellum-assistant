@@ -286,6 +286,15 @@ export async function orchestrate(
       : Promise.resolve([]),
   ]);
 
+  // Dense hits restricted to pages still in the live section index. A deleted
+  // page's points can linger in Qdrant; the candidate pool already drops those
+  // (see the dense finder loop), so the gate must score the same live set —
+  // stale low-scored hits for deleted pages must neither fake dense availability
+  // nor drag the gate closed while the live lanes have candidates.
+  const liveDensed = densed.filter((hit) =>
+    deps.sectionIndex.byArticle.has(hit.article),
+  );
+
   // `matchedSections` records the matched `Section` (when one is known) for
   // every finder hit — INCLUDING hits on stable-prefix slugs — for downstream
   // injection/spotlight. `finder` accumulates one entry per distinct
@@ -396,20 +405,21 @@ export async function orchestrate(
   // (empty selections) or, when `bypassForCore` is set, runs selectPool over the
   // stable prefix only — never the finder tail.
   //
-  // The gate is dense-gated: it only runs when the dense lane produced hits
-  // (`densed.length > 0`). In healthy operation dense returns top-k hits for any
-  // query, so zero dense hits means dense is unavailable — denseK=0 (the
-  // new-user/small-corpus profile), a degraded embedding backend, or a Qdrant
-  // error (`denseLaneScored` swallows these to `[]`) — NOT low relevance.
-  // checkV3Gate reads only finder scores and cannot tell those apart, so without
-  // dense signal we pass open rather than suppress all memory (not even the
-  // core/hot/fresh prefix) on every lexically-weak turn.
+  // The gate is dense-gated: it only runs when the live dense lane produced hits
+  // (`liveDensed.length > 0`). In healthy operation dense returns top-k hits for
+  // any query, so zero live dense hits means dense is unavailable — denseK=0 (the
+  // new-user/small-corpus profile), a degraded embedding backend, a Qdrant error
+  // (`denseLaneScored` swallows these to `[]`), or only stale deleted-page points
+  // returned — NOT low relevance. checkV3Gate reads only finder scores and cannot
+  // tell those apart, so without live dense signal we pass open rather than
+  // suppress all memory (not even the core/hot/fresh prefix) on every
+  // lexically-weak turn.
   if (deps.gateConfig?.enabled) {
-    if (densed.length === 0) {
-      // Dense lane did not run (denseK=0 / degraded backend / Qdrant error
-      // swallowed to []). Zero dense hits means dense is unavailable, not low
-      // relevance, so pass open — but record it so rollout telemetry sees these
-      // turns instead of silently skipping the gate.
+    if (liveDensed.length === 0) {
+      // No live dense hits (denseK=0 / degraded backend / Qdrant error swallowed
+      // to [] / only stale deleted-page points returned). That means dense is
+      // unavailable, not low relevance, so pass open — but record it so rollout
+      // telemetry sees these turns instead of silently skipping the gate.
       log.info(
         {
           conversationId: turn.conversationId,
@@ -424,7 +434,7 @@ export async function orchestrate(
       try {
         gate = checkV3Gate({
           needleHits: needled,
-          denseHits: densed,
+          denseHits: liveDensed,
           config: deps.gateConfig,
         });
       } catch (err) {

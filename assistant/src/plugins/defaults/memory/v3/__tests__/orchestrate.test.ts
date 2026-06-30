@@ -1083,6 +1083,34 @@ describe("orchestrate — injection gate", () => {
     expect(result.selections.map((s) => s.slug)).toContain("topic-a");
   });
 
+  test("stale dense hits for deleted pages don't fake availability or close the gate", async () => {
+    const lanes = await buildLanes();
+    // Dense returns ONLY a deleted page (gone-page) whose points linger in
+    // Qdrant but which is absent from the live section index, at a LOW score
+    // that would close the gate if scored. The live needle lane has a low-score
+    // hit on a real page. With the raw `densed` the gate would see a hit and
+    // close on the low scores; with `liveDensed` (empty) it takes the
+    // dense-unavailable pass-open branch, so selection still runs.
+    denseHits = [{ article: "gone-page", section: 0, score: 0.1 }];
+    const needle = {
+      query: () => [],
+      queryScored: () => [{ article: "topic-a", section: 0, score: 0.1 }],
+      bestSection: () => -1,
+      idf: () => 0,
+    };
+    providerStub = selectProvider(["topic-a"]);
+
+    const result = await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, { needle, denseK: 100, gateConfig: gateConfigOf() }),
+    );
+
+    expect(selectCalls).toBe(1);
+    expect(result.selections.map((s) => s.slug)).toContain("topic-a");
+    // The stale deleted page never reaches the pool either.
+    expect(lastPool).not.toContain("gone-page");
+  });
+
   test("bypassForCore: true on a closed gate selects the stable prefix only (no finder lines)", async () => {
     const lanes = await buildLanes();
     // Non-empty low-score dense (0.1, below every dense threshold) makes the
