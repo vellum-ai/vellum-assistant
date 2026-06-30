@@ -38,18 +38,38 @@ describe("getMessagesSearchBackend", () => {
     setOverridesForTesting({});
   });
 
+  // Each case seeds the override cache so the value flows through the real
+  // `getAssistantFeatureFlagValue` plumbing — the path that can deliver this
+  // flag as a string. Only boolean `true` or the exact string `"qdrant"`
+  // selects qdrant; everything else must fall back to the safe fts5 default.
+
   test("defaults to fts5 when the flag is unset", () => {
     setOverridesForTesting({});
     expect(getMessagesSearchBackend(CONFIG)).toBe("fts5");
   });
 
-  test("returns fts5 when the flag is disabled", () => {
+  test("returns qdrant when the flag is boolean true", () => {
+    setOverridesForTesting({ "messages-search-backend": true });
+    expect(getMessagesSearchBackend(CONFIG)).toBe("qdrant");
+  });
+
+  test('returns qdrant when the flag is the string "qdrant"', () => {
+    setOverridesForTesting({ "messages-search-backend": "qdrant" });
+    expect(getMessagesSearchBackend(CONFIG)).toBe("qdrant");
+  });
+
+  test("returns fts5 when the flag is boolean false", () => {
     setOverridesForTesting({ "messages-search-backend": false });
     expect(getMessagesSearchBackend(CONFIG)).toBe("fts5");
   });
 
-  test("returns qdrant when the flag is enabled", () => {
-    setOverridesForTesting({ "messages-search-backend": true });
-    expect(getMessagesSearchBackend(CONFIG)).toBe("qdrant");
+  test('returns fts5 when the flag is the string "fts5"', () => {
+    setOverridesForTesting({ "messages-search-backend": "fts5" });
+    expect(getMessagesSearchBackend(CONFIG)).toBe("fts5");
+  });
+
+  test("returns fts5 for an unexpected non-empty string", () => {
+    setOverridesForTesting({ "messages-search-backend": "bogus" });
+    expect(getMessagesSearchBackend(CONFIG)).toBe("fts5");
   });
 });
