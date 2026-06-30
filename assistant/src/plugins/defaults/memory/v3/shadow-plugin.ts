@@ -105,8 +105,8 @@ export interface ShadowLanes {
    *  in SKILL.md), existence-filtered and core/hot/fresh-excluded. */
   alwaysCandidateSlugs: string[];
   /** Learned-edge graph: co-selection NPMI associations over the selection
-   *  log, rebuilt with the lanes (the consolidation cadence). */
-  learnedGraph: EdgeGraph;
+   *  log, rebuilt with the lanes when the learned lane is enabled. */
+  learnedGraph?: EdgeGraph;
   /** Pre-rendered FULL cards for the stable-prefix (core+hot+fresh) slugs,
    *  keyed by slug. Frozen at lane build so the selector's stable prefix is
    *  byte-identical across turns until the next invalidation. */
@@ -279,18 +279,21 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   // index membership is the existence filter (capability slugs included —
   // they are first-class pages there).
   const learned = config.memory.v3.learnedEdges;
-  const learnedGraph = computeLearnedEdgeGraph(
-    { db: getDb() },
-    {
-      halfLifeMs: learned.halfLifeDays * DAY_MS,
-      minCount: learned.minCount,
-      npmiFloor: learned.npmiFloor,
-      maxPerPage: learned.maxPerPage,
-      now: Date.now(),
-      windowMs: LEARNED_EDGES_WINDOW_DAYS * DAY_MS,
-      knownSlugs: new Set(sectionIndex.byArticle.keys()),
-    },
-  );
+  const learnedGraph =
+    learned.cap > 0 && learned.maxPerPage > 0
+      ? computeLearnedEdgeGraph(
+          { db: getDb() },
+          {
+            halfLifeMs: learned.halfLifeDays * DAY_MS,
+            minCount: learned.minCount,
+            npmiFloor: learned.npmiFloor,
+            maxPerPage: learned.maxPerPage,
+            now: Date.now(),
+            windowMs: LEARNED_EDGES_WINDOW_DAYS * DAY_MS,
+            knownSlugs: new Set(sectionIndex.byArticle.keys()),
+          },
+        )
+      : undefined;
   // Ensuring the dense collection is best-effort: the needle + edge lanes and
   // the core/hot prefix are in-memory and independent of Qdrant, so a Qdrant outage
   // must NOT reject lane init (which would return `null` from observeTurn and
