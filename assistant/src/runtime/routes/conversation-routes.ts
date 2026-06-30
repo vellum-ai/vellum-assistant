@@ -2860,6 +2860,13 @@ export const ROUTES: RouteDefinition[] = [
         )
         .optional(),
       inferenceProfile: z.string().nullable().optional(),
+      enabledPlugins: z
+        .array(z.string())
+        .nullable()
+        .optional()
+        .describe(
+          "Plugin ids to scope this conversation to. Applied when minting a new conversation. null/omitted = default (all globally-enabled plugins).",
+        ),
       riskThreshold: z.enum(VALID_RISK_THRESHOLDS).optional(),
       onboarding: z
         .object({
