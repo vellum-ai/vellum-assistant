@@ -7,7 +7,6 @@ import { __resetForTesting, publish } from "@/lib/event-bus";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useConversationStore } from "@/stores/conversation-store";
-import type { DisplayMessage } from "@/domains/chat/types/types";
 
 // ---------------------------------------------------------------------------
 // Module mock — `@/domains/chat/transcript/use-history-pagination`.

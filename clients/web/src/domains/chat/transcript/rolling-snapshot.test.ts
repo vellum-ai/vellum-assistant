@@ -4,7 +4,7 @@ import {
   applyEvent,
   applyEventsToHistory,
   resolveSnapshot,
-} from "@/domains/chat/transcript/rolling-base";
+} from "@/domains/chat/transcript/rolling-snapshot";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
 import type { AssistantEvent } from "@/types/event-types";
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
@@ -104,7 +104,7 @@ function withReplays(
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("rolling-base reducer", () => {
+describe("rolling-snapshot reducer", () => {
   test("rebuild is deterministic — no clock/uuid leak in the fold", () => {
     const events = cleanTurn();
     expect(applyEventsToHistory(SEED, events)).toEqual(

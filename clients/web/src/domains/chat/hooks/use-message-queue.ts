@@ -79,7 +79,7 @@ export function useMessageQueue({
         useTurnStore.getState().deleteQueuedMessage();
       }
     },
-    [assistantId, activeConversationId],
+    [assistantId, activeConversationId, setOptimisticSends],
   );
 
   const handleCancelAllQueued = useCallback(() => {
@@ -117,7 +117,7 @@ export function useMessageQueue({
         );
       }
     },
-    [assistantId, activeConversationId],
+    [assistantId, activeConversationId, setOptimisticSends],
   );
 
   const handleEditQueueTail = useCallback(() => {

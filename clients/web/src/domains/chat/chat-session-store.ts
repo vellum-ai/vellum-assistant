@@ -43,7 +43,7 @@ import type {
   PaginatedHistoryResult,
   TranscriptPaginationState,
 } from "@/domains/chat/transcript/types";
-import { applyEvent, resolveSnapshot } from "@/domains/chat/transcript/rolling-base";
+import { applyEvent, resolveSnapshot } from "@/domains/chat/transcript/rolling-snapshot";
 import { messageMatchKeys } from "@/domains/chat/utils/message-identity";
 import { getSseEnvelopesSince } from "@/lib/streaming/stream-debug";
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";

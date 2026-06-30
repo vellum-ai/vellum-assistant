@@ -82,7 +82,7 @@ describe("handleConfirmationRequest", () => {
 
   it("wires the interaction store to the matched tool call (reducer folds the marker)", () => {
     // The reducer attaches the inline marker onto the snapshot (covered in
-    // rolling-base.test.ts); the handler only derives the matched tool-call id
+    // rolling-snapshot.test.ts); the handler only derives the matched tool-call id
     // read-only to wire the interaction store.
     seedSnapshot([
       {
@@ -117,7 +117,7 @@ describe("handleConfirmationRequest", () => {
 describe("handleInteractionResolved", () => {
   it("retires the active confirmation's interaction-store state when it resolves", () => {
     // The reducer clears the inline marker on the snapshot (covered in
-    // rolling-base.test.ts); the handler releases the interaction-store
+    // rolling-snapshot.test.ts); the handler releases the interaction-store
     // bookkeeping.
     useInteractionStore.getState().showConfirmation({
       requestId: "cr-1",
