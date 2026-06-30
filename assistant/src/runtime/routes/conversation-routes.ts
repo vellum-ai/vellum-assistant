@@ -839,10 +839,19 @@ export function handleListMessages({
         }
       | undefined;
     let acpNotification: { acpSessionId: string; agent?: string } | undefined;
+    let backgroundToolNotification: boolean | undefined;
     if (msg.metadata) {
       try {
         const meta = JSON.parse(msg.metadata);
         if (typeof meta.sentAt === "number") sentAt = meta.sentAt;
+        // The backgrounded bash/host_bash completion wake persists a
+        // `<background_event source="background-tool">` row (see
+        // `persistWakeTriggerMessage`). Flag it so clients hide it from the
+        // transcript like a subagent/ACP notification — the inline card carries
+        // the status.
+        if (meta.backgroundEventSource === "background-tool") {
+          backgroundToolNotification = true;
+        }
         if (meta.subagentNotification) {
           const n = meta.subagentNotification;
           if (typeof n.subagentId === "string" && typeof n.label === "string") {
@@ -895,6 +904,7 @@ export function handleListMessages({
       sentAt,
       subagentNotification,
       acpNotification,
+      backgroundToolNotification,
       slackMessage,
       clientMessageId: msg.clientMessageId ?? undefined,
     };
@@ -1079,6 +1089,9 @@ export function handleListMessages({
         ? { subagentNotification: m.subagentNotification }
         : {}),
       ...(m.acpNotification ? { acpNotification: m.acpNotification } : {}),
+      ...(m.backgroundToolNotification
+        ? { backgroundToolNotification: true }
+        : {}),
       ...(m.slackMessage ? { slackMessage: m.slackMessage } : {}),
     };
   });

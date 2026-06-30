@@ -22,10 +22,37 @@ export interface BackgroundTool {
   cancel: (reason?: string) => void;
 }
 
+/**
+ * A finished background tool, retained briefly so a client that missed the live
+ * `background_tool_completed` event (chat route unmounted, or opened on another
+ * conversation) can recover the authoritative terminal status on rehydration
+ * instead of wrongly retiring the entry as cancelled. Mirrors the ACP-run
+ * snapshot route, which likewise reports recently-completed runs.
+ */
+export interface CompletedBackgroundTool {
+  id: string;
+  toolName: string;
+  conversationId: string;
+  command: string;
+  startedAt: number;
+  status: "completed" | "failed" | "cancelled";
+  exitCode: number | null;
+  output: string;
+  completedAt: number;
+}
+
 /** Maximum number of concurrent background tools allowed. */
 export const MAX_BACKGROUND_TOOLS = 20;
 
+/** How many recently-completed tools to retain for rehydration recovery. */
+export const MAX_COMPLETED_BACKGROUND_TOOLS = 50;
+
 const registry = new Map<string, BackgroundTool>();
+
+// FIFO ring of recently-completed tools, oldest first. Bounded by
+// MAX_COMPLETED_BACKGROUND_TOOLS so a long-lived daemon can't accumulate
+// unbounded captured output.
+const completedRing: CompletedBackgroundTool[] = [];
 
 /**
  * Registers a background tool in the in-memory store.
@@ -43,6 +70,39 @@ export function registerBackgroundTool(tool: BackgroundTool): void {
 /** Removes a background tool entry by ID. */
 export function removeBackgroundTool(id: string): void {
   registry.delete(id);
+}
+
+/**
+ * Records a finished background tool in the recently-completed ring so the
+ * client can recover its terminal status on rehydration. Idempotent per id —
+ * a re-record (e.g. a racing close/error pair) replaces the existing entry
+ * rather than duplicating it. Does not touch the active registry; callers still
+ * {@link removeBackgroundTool} as before.
+ */
+export function recordCompletedBackgroundTool(
+  completion: CompletedBackgroundTool,
+): void {
+  const existingIdx = completedRing.findIndex((c) => c.id === completion.id);
+  if (existingIdx !== -1) {
+    completedRing[existingIdx] = completion;
+    return;
+  }
+  completedRing.push(completion);
+  if (completedRing.length > MAX_COMPLETED_BACKGROUND_TOOLS) {
+    completedRing.shift();
+  }
+}
+
+/**
+ * Returns the recently-completed tools, optionally filtered by
+ * `conversationId`, oldest first.
+ */
+export function listCompletedBackgroundTools(
+  conversationId?: string,
+): CompletedBackgroundTool[] {
+  const all = completedRing.slice();
+  if (conversationId === undefined) return all;
+  return all.filter((t) => t.conversationId === conversationId);
 }
 
 /**
@@ -109,4 +169,5 @@ export function isBackgroundToolLimitReached(): boolean {
  */
 export function _clearRegistryForTesting(): void {
   registry.clear();
+  completedRing.length = 0;
 }

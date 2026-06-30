@@ -61,19 +61,22 @@ import { resolveVerificationSessionIntent } from "./verification-session-intent.
 const log = getLogger("conversation-process");
 
 /**
- * Daemon-injected run lifecycle notifications — subagent (`subagentNotification`)
- * and ACP run (`acpNotification`) — are persisted into the parent conversation so
- * the orchestrator wakes and reads the run's result, but they are internal
- * scaffolding: the user sees the run through its inline progress card, not a chat
- * turn. Skip the `user_message_echo` broadcast for these so they never render as a
- * live user bubble; the persisted row is filtered from the rendered transcript on
- * the client.
+ * Daemon-injected run lifecycle notifications — subagent (`subagentNotification`),
+ * ACP run (`acpNotification`), and backgrounded bash/host_bash completion (the
+ * `<background_event source="background-tool">` wake) — are persisted into the
+ * parent conversation so the orchestrator wakes and reads the run's result, but
+ * they are internal scaffolding: the user sees the run through its inline
+ * progress card, not a chat turn. Skip the `user_message_echo` broadcast for
+ * these so they never render as a live user bubble; the persisted row is
+ * filtered from the rendered transcript on the client.
  */
 function isHiddenRunNotificationMessage(
   metadata: Record<string, unknown> | undefined,
 ): boolean {
   return (
-    metadata?.subagentNotification != null || metadata?.acpNotification != null
+    metadata?.subagentNotification != null ||
+    metadata?.acpNotification != null ||
+    metadata?.backgroundEventSource === "background-tool"
   );
 }
 

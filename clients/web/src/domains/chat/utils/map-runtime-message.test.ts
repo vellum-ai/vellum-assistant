@@ -130,6 +130,22 @@ describe("mapRuntimeToDisplayMessage", () => {
     expect(mapRuntimeToDisplayMessage(m).isAcpNotification).toBe(true);
   });
 
+  test("flags a backgroundToolNotification message as isBackgroundToolNotification", () => {
+    const plain = makeMessage({ id: "m-plain", role: "user" });
+    expect(
+      mapRuntimeToDisplayMessage(plain).isBackgroundToolNotification,
+    ).toBeUndefined();
+
+    const m = makeMessage({
+      id: "m-bg",
+      role: "user",
+      backgroundToolNotification: true,
+    });
+    expect(mapRuntimeToDisplayMessage(m).isBackgroundToolNotification).toBe(
+      true,
+    );
+  });
+
   test("carries server thinkingSegments and contentOrder onto the display message", () => {
     // GIVEN a persisted assistant message whose reasoning is reconstructed
     // from history as `thinkingSegments` + a `thinking` content-order entry

@@ -173,7 +173,9 @@ function canFoldAdjacentAssistant(
     survivor.isSubagentNotification ||
     donor.isSubagentNotification ||
     survivor.isAcpNotification ||
-    donor.isAcpNotification
+    donor.isAcpNotification ||
+    survivor.isBackgroundToolNotification ||
+    donor.isBackgroundToolNotification
   ) {
     return false;
   }

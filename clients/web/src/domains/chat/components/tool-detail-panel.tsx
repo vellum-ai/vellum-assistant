@@ -23,6 +23,7 @@ import {
   Pen,
   Plug,
   Sparkles,
+  SquareTerminal,
   UserPlus,
   type LucideIcon,
 } from "lucide-react";
@@ -50,6 +51,7 @@ import type { ToolDetailPayload } from "@/stores/viewer-store";
  */
 const ICON_MAP: Record<IconName, LucideIcon> = {
   code: Code,
+  terminal: SquareTerminal,
   file: FileText,
   globe: Globe,
   pen: Pen,
@@ -110,7 +112,7 @@ export function CodeBlock({ text }: { text: string }) {
 }
 
 /** Uppercase section label in `--content-tertiary`. */
-function SectionLabel({ children }: { children: string }) {
+export function SectionLabel({ children }: { children: string }) {
   return (
     <Typography
       variant="label-small-default"

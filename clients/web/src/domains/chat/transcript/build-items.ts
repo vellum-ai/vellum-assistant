@@ -93,12 +93,17 @@ export function buildTranscriptItems(
   const items: TranscriptItem[] = [];
 
   for (const message of messages) {
-    // Daemon-injected run lifecycle notifications (subagent + ACP, user-role
-    // messages carrying subagentNotification / acpNotification metadata) stay
-    // in `messages` state so the LLM transcript and store rehydration still see
-    // them, but they are internal scaffolding and are never rendered in the
-    // transcript — the run surfaces through its inline progress card.
-    if (message.isSubagentNotification || message.isAcpNotification) {
+    // Daemon-injected run lifecycle notifications (subagent + ACP + backgrounded
+    // bash/host_bash completion, user-role messages carrying subagentNotification
+    // / acpNotification / backgroundToolNotification metadata) stay in `messages`
+    // state so the LLM transcript and store rehydration still see them, but they
+    // are internal scaffolding and are never rendered in the transcript — the run
+    // surfaces through its inline progress card.
+    if (
+      message.isSubagentNotification ||
+      message.isAcpNotification ||
+      message.isBackgroundToolNotification
+    ) {
       continue;
     }
 

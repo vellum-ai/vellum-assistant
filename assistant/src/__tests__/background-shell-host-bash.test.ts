@@ -23,6 +23,7 @@ const mockIsBackgroundToolLimitReached = mock(() => false);
 mock.module("../tools/background-tool-registry.js", () => ({
   registerBackgroundTool: mockRegisterBackgroundTool,
   removeBackgroundTool: mockRemoveBackgroundTool,
+  recordCompletedBackgroundTool: () => {},
   generateBackgroundToolId: mockGenerateBackgroundToolId,
   isBackgroundToolLimitReached: mockIsBackgroundToolLimitReached,
   MAX_BACKGROUND_TOOLS: 20,

@@ -16,6 +16,7 @@
  * - `activeToolDetail` — tool-call detail drawer payload
  * - `activeWorkflowRunId` — workflow detail panel
  * - `activeAcpRunId` — ACP run detail panel
+ * - `activeBackgroundTaskId` — background-task detail panel
  *
  * App share/deploy lifecycle lives in `domains/chat/deploy-store.ts`.
  *
@@ -39,6 +40,7 @@ type OverlayView =
   | "tool-detail"
   | "workflow-detail"
   | "acp-run-detail"
+  | "background-task-detail"
   | "channel-setup";
 
 /**
@@ -101,6 +103,7 @@ function resolveViewBefore(
     | "viewBeforeToolDetail"
     | "viewBeforeWorkflowDetail"
     | "viewBeforeAcpRunDetail"
+    | "viewBeforeBackgroundTaskDetail"
     | "viewBeforeChannelSetup",
 ): Exclude<MainView, OverlayView> {
   const mv = state.mainView;
@@ -110,6 +113,7 @@ function resolveViewBefore(
     mv === "tool-detail" ||
     mv === "workflow-detail" ||
     mv === "acp-run-detail" ||
+    mv === "background-task-detail" ||
     mv === "channel-setup"
   ) {
     return state[field];
@@ -130,6 +134,7 @@ export type MainView =
   | "tool-detail"
   | "workflow-detail"
   | "acp-run-detail"
+  | "background-task-detail"
   | "channel-setup";
 
 export type IntelligenceTab = "identity" | "skills" | "workspace" | "contacts";
@@ -262,6 +267,8 @@ export interface ViewerState {
   viewBeforeWorkflowDetail: Exclude<MainView, OverlayView>;
   activeAcpRunId: string | null;
   viewBeforeAcpRunDetail: Exclude<MainView, OverlayView>;
+  activeBackgroundTaskId: string | null;
+  viewBeforeBackgroundTaskDetail: Exclude<MainView, OverlayView>;
   activeChannelSetup: ChannelSetupPayload | null;
   viewBeforeChannelSetup: Exclude<MainView, OverlayView>;
   /**
@@ -300,6 +307,10 @@ export interface ViewerActions {
   // --- ACP run detail ---
   openAcpRunDetail: (acpSessionId: string) => void;
   closeAcpRunDetail: () => void;
+
+  // --- Background task detail ---
+  openBackgroundTaskDetail: (id: string) => void;
+  closeBackgroundTaskDetail: () => void;
 
   // --- Tool detail ---
   openToolDetail: (payload: ToolDetailPayload) => void;
@@ -356,6 +367,8 @@ const INITIAL_STATE: ViewerState = {
   viewBeforeWorkflowDetail: "chat",
   activeAcpRunId: null,
   viewBeforeAcpRunDetail: "chat",
+  activeBackgroundTaskId: null,
+  viewBeforeBackgroundTaskDetail: "chat",
   activeChannelSetup: null,
   viewBeforeChannelSetup: "chat",
   ruleEditorRequestSeq: 0,
@@ -514,6 +527,23 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     set({
       mainView: get().viewBeforeAcpRunDetail,
       activeAcpRunId: null,
+    });
+  },
+
+  // --- Background task detail ---
+
+  openBackgroundTaskDetail: (id) => {
+    set({
+      mainView: "background-task-detail",
+      activeBackgroundTaskId: id,
+      viewBeforeBackgroundTaskDetail: resolveViewBefore(get(), "viewBeforeBackgroundTaskDetail"),
+    });
+  },
+
+  closeBackgroundTaskDetail: () => {
+    set({
+      mainView: get().viewBeforeBackgroundTaskDetail,
+      activeBackgroundTaskId: null,
     });
   },
 

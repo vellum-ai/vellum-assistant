@@ -387,6 +387,17 @@ describe("mergeAdjacentAssistantMessages · skip predicates", () => {
     expect(result).toHaveLength(2);
   });
 
+  test("does NOT fold when either side is a background-tool notification", () => {
+    const real = makeAssistant({ id: "a-1", ...textBody("backgrounded build") });
+    const notification = makeAssistant({
+      id: "a-2",
+      ...textBody(""),
+      isBackgroundToolNotification: true,
+    });
+    const result = mergeAdjacentAssistantMessages([real, notification]);
+    expect(result).toHaveLength(2);
+  });
+
   test("only folds assistant role — adjacent user/assistant stays split", () => {
     const messages = [
       makeUser({ id: "u-1", ...textBody("ping"), timestamp: 1000 }),
