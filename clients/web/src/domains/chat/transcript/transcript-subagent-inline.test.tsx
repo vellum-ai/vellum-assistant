@@ -88,7 +88,7 @@ const noop = () => {};
 
 /**
  * Expand every collapsed `SubagentSpawnGroup` in the tree so its per-subagent
- * `SubagentInlineProgressCard` rows mount. The resting state shows the avatar
+ * `InlineProcessCardRow` rows mount. The resting state shows the avatar
  * summary; clicking each "Details" toggle reveals the rows. A group already
  * expanded (e.g. across a rerender that preserves state) has no toggle and is
  * left untouched, so the helper is safe to re-run.

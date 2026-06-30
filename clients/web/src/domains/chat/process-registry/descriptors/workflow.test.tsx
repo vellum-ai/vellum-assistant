@@ -129,6 +129,38 @@ describe("WORKFLOW_DESCRIPTOR — static metadata", () => {
       getByTestId("workflow-inline-card-step-count").textContent,
     ).toBe("3 agents");
   });
+
+  test("hides the renderCount chip for a 0-agent workflow", () => {
+    // A run with no spawned agents projects "0 agents"; the chip self-hides so
+    // a count-of-zero workflow doesn't render the avatar-stack pill.
+    act(() => {
+      const store = useWorkflowStore.getState();
+      store.startRun({ runId: "wf-zero", label: "Zero", timestamp: 1 });
+      store.applyProgress({ runId: "wf-zero", agentsSpawned: 0 });
+    });
+
+    const { queryByTestId } = render(
+      <>{WORKFLOW_DESCRIPTOR.renderCount!("wf-zero")}</>,
+    );
+
+    expect(queryByTestId("workflow-inline-card-agents-chip")).toBeNull();
+  });
+
+  test("hides the renderCount chip for a 1-agent workflow", () => {
+    // A single-agent run projects "1 agent"; the chip self-hides so a solo
+    // workflow doesn't render the (pointless) avatar-stack pill.
+    act(() => {
+      const store = useWorkflowStore.getState();
+      store.startRun({ runId: "wf-one", label: "One", timestamp: 1 });
+      store.applyProgress({ runId: "wf-one", agentsSpawned: 1 });
+    });
+
+    const { queryByTestId } = render(
+      <>{WORKFLOW_DESCRIPTOR.renderCount!("wf-one")}</>,
+    );
+
+    expect(queryByTestId("workflow-inline-card-agents-chip")).toBeNull();
+  });
 });
 
 describe("WORKFLOW_DESCRIPTOR — onOpenDetail", () => {

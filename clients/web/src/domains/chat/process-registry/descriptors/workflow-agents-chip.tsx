@@ -7,7 +7,9 @@
  * Self-contained: reads the avatar seeds (`useWorkflowAgentAvatarSeeds`) and the
  * formatted count label (`useWorkflowCardData(runId).stepCount`) off the
  * workflow store for `runId`, so the descriptor can wire it with just an id.
- * Renders nothing when the run has no card-worthy state yet.
+ * Renders nothing when the run has no card-worthy state yet, or when the count
+ * is "0 …"/"1 …" — a workflow with fewer than two agents doesn't warrant the
+ * avatar-stack chip (mirrors the legacy card's `showStepCount` gate).
  */
 
 import { Typography } from "@vellumai/design-library";
@@ -26,6 +28,11 @@ export function WorkflowAgentsChip({ runId }: { runId: string }) {
   // → render nothing, matching the inline card's short-circuit.
   if (!data) return null;
   const countLabel = data.stepCount;
+
+  // Hide the chip for 0- or 1-agent workflows: a single-agent (or empty) run
+  // doesn't warrant the avatar-stack chip, matching the legacy card's
+  // `showStepCount = !!stepCount && !"0 " && !"1 "` gate.
+  if (countLabel.startsWith("0 ") || countLabel.startsWith("1 ")) return null;
 
   return (
     <div
