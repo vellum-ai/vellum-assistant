@@ -18,6 +18,7 @@ import { basename } from "node:path";
 import { describe, expect, mock, test } from "bun:test";
 
 import type { SkillSource } from "../../config/skills.js";
+import type { OwnerInfo } from "../types.js";
 
 mock.module("../../util/logger.js", () => ({
   getLogger: () =>
@@ -40,11 +41,12 @@ mock.module("../../skills/install-meta.js", () => ({
 import type { ToolContext } from "../types.js";
 import { executeFindSimilarSkills } from "./find-similar-skills.js";
 
-function makeContext(): ToolContext {
+function makeContext(enabledPluginSet?: Set<string> | null): ToolContext {
   return {
     workingDir: "/tmp",
     conversationId: "test-conversation",
     trustClass: "guardian",
+    enabledPluginSet,
   };
 }
 
@@ -54,6 +56,7 @@ const catalog = (
     name: string;
     description: string;
     source: SkillSource;
+    owner?: OwnerInfo;
   }[]
 ) => skills;
 
@@ -217,6 +220,79 @@ describe("find_similar_skills — enrichment", () => {
 
     expect(result.isError).toBe(false);
     expect(JSON.parse(result.content)).toEqual({ skills: [] });
+  });
+});
+
+describe("find_similar_skills — per-chat plugin scope", () => {
+  const SHORTLIST = [
+    { skillId: "core-skill", score: 0.9 },
+    { skillId: "plug-skill", score: 0.8 },
+  ];
+  const CATALOG = () =>
+    catalog(
+      {
+        id: "core-skill",
+        name: "Core Skill",
+        description: "A bundled skill",
+        source: "bundled",
+      },
+      {
+        id: "plug-skill",
+        name: "Plugin Skill",
+        description: "Owned by plugin p",
+        source: "plugin",
+        owner: { kind: "plugin", id: "p" },
+      },
+    );
+
+  test("drops a plugin skill whose owner is outside the effective set", async () => {
+    const result = await executeFindSimilarSkills(
+      { goal: "do the thing" },
+      makeContext(new Set(["other"])),
+      {
+        nearestExistingSkills: async () => SHORTLIST,
+        loadCatalog: CATALOG,
+      },
+    );
+
+    const ids = (
+      JSON.parse(result.content).skills as { skill_id: string }[]
+    ).map((s) => s.skill_id);
+    expect(ids).toContain("core-skill");
+    expect(ids).not.toContain("plug-skill");
+  });
+
+  test("keeps a plugin skill whose owner is in the effective set", async () => {
+    const result = await executeFindSimilarSkills(
+      { goal: "do the thing" },
+      makeContext(new Set(["p"])),
+      {
+        nearestExistingSkills: async () => SHORTLIST,
+        loadCatalog: CATALOG,
+      },
+    );
+
+    const ids = (
+      JSON.parse(result.content).skills as { skill_id: string }[]
+    ).map((s) => s.skill_id);
+    expect(ids).toContain("core-skill");
+    expect(ids).toContain("plug-skill");
+  });
+
+  test("null set (no restriction) keeps every skill", async () => {
+    const result = await executeFindSimilarSkills(
+      { goal: "do the thing" },
+      makeContext(null),
+      {
+        nearestExistingSkills: async () => SHORTLIST,
+        loadCatalog: CATALOG,
+      },
+    );
+
+    const ids = (
+      JSON.parse(result.content).skills as { skill_id: string }[]
+    ).map((s) => s.skill_id);
+    expect(ids).toEqual(["core-skill", "plug-skill"]);
   });
 });
 
