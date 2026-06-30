@@ -17,6 +17,7 @@ import type {
 import { parseAttachmentSummariesFromContent } from "@/domains/chat/utils/parse-attachment-summaries";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import type { BackgroundTaskEntry } from "@/domains/chat/background-task-store";
 import {
   attachmentsPost,
   messagesGet,
@@ -55,6 +56,28 @@ export interface RuntimeSubagentNotification extends ConversationSubagentNotific
   parentMessageStableId?: string;
   /** Daemon UUID of the parent assistant message. Stable across reloads. */
   parentMessageId?: string;
+}
+
+/**
+ * Project a history message's `backgroundToolCompletion` wire record onto the
+ * `BackgroundTaskEntry` the viewer store seeds from. The `id` is preserved
+ * exactly: web background-card detection keys off the spawning tool result's
+ * `bg-…` id, so the seeded entry's id must equal the completion's id.
+ */
+export function toBackgroundTaskEntryFromCompletion(
+  c: NonNullable<ConversationMessage["backgroundToolCompletion"]>,
+): BackgroundTaskEntry {
+  return {
+    id: c.id,
+    toolName: c.toolName,
+    conversationId: c.conversationId,
+    command: c.command,
+    startedAt: c.startedAt,
+    status: c.status,
+    exitCode: c.exitCode,
+    output: c.output,
+    completedAt: c.completedAt,
+  };
 }
 
 export async function pollForResponse(

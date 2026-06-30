@@ -356,6 +356,78 @@ describe("subagent notification extraction", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Background-tool completion extraction
+// ---------------------------------------------------------------------------
+
+describe("background-tool completion extraction", () => {
+  test("projects a backgroundToolCompletion row onto backgroundToolCompletions, preserving the id exactly", async () => {
+    /**
+     * A history row that carries a `backgroundToolCompletion` record yields a
+     * `BackgroundTaskEntry` with the wire fields mapped 1:1. The `id` must be
+     * preserved verbatim: web background-card detection keys off the spawning
+     * tool result's `bg-…` id, so the seeded entry's id has to equal it.
+     */
+    nextResponse = makeJsonResponse({
+      messages: [
+        { id: "m1", role: "user", ...textBody("run it") },
+        {
+          id: "m2",
+          role: "assistant",
+          ...textBody("[Background task completed]"),
+          backgroundToolCompletion: {
+            id: "bg-abcd1234",
+            toolName: "bash",
+            conversationId: "conv-xyz",
+            command: "sleep 5 && echo done",
+            startedAt: 1000,
+            status: "completed",
+            exitCode: 0,
+            output: "done\n",
+            completedAt: 6000,
+          },
+        },
+      ],
+      hasMore: false,
+      oldestTimestamp: 0,
+      oldestMessageId: "m1",
+    });
+
+    const result = await fetchLatestHistoryPage("asst-1", "K");
+
+    expect(result.backgroundToolCompletions).toEqual([
+      {
+        id: "bg-abcd1234",
+        toolName: "bash",
+        conversationId: "conv-xyz",
+        command: "sleep 5 && echo done",
+        startedAt: 1000,
+        status: "completed",
+        exitCode: 0,
+        output: "done\n",
+        completedAt: 6000,
+      },
+    ]);
+    expect(result.backgroundToolCompletions![0]!.id).toBe("bg-abcd1234");
+  });
+
+  test("yields an empty array when no row carries a completion", async () => {
+    nextResponse = makeJsonResponse({
+      messages: [
+        { id: "m1", role: "user", ...textBody("hello") },
+        { id: "m2", role: "assistant", ...textBody("hi") },
+      ],
+      hasMore: false,
+      oldestTimestamp: 0,
+      oldestMessageId: "m1",
+    });
+
+    const result = await fetchLatestHistoryPage("asst-1", "K");
+
+    expect(result.backgroundToolCompletions).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Error handling
 // ---------------------------------------------------------------------------
 
