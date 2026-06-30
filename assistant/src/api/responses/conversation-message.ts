@@ -544,6 +544,11 @@ export const ConversationMessageSchema = z.object({
   contentBlocks: z.array(ConversationContentBlockSchema).optional(),
   subagentNotification: ConversationSubagentNotificationSchema.optional(),
   acpNotification: ConversationAcpNotificationSchema.optional(),
+  /** Set on the persisted `<background_event source="background-tool">` wake a
+   *  backgrounded bash/host_bash run posts on completion. Like the subagent/ACP
+   *  notifications, the row stays in state (the LLM reads it) but is filtered
+   *  from the rendered transcript — the inline card carries the status. */
+  backgroundToolNotification: z.boolean().optional(),
   slackMessage: ConversationSlackMessageSchema.optional(),
   /**
    * Queue state for a user message that is still waiting in the daemon's

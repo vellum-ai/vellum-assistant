@@ -122,6 +122,33 @@ describe("buildTranscriptItems", () => {
     expect(messages[1]).toBe(notification);
   });
 
+  test("excludes background-tool notification messages from the projection but leaves input intact", () => {
+    const user = makeMessage({ id: "m1", role: "user", ...textBody("Hello") });
+    const notification = makeMessage({
+      id: "m2",
+      role: "user",
+      ...textBody(
+        '<background_event source="background-tool">Background command completed (id=bg-1, exit=0):</background_event>',
+      ),
+      isBackgroundToolNotification: true,
+    });
+    const assistant = makeMessage({
+      id: "m3",
+      role: "assistant",
+      ...textBody("Build finished."),
+    });
+    const messages = [user, notification, assistant];
+
+    const items = buildTranscriptItems({ ...emptyInput(), messages });
+
+    expect(items).toEqual([
+      { kind: "message", key: "m1", message: user },
+      { kind: "message", key: "m3", message: assistant },
+    ]);
+    expect(messages).toHaveLength(3);
+    expect(messages[1]).toBe(notification);
+  });
+
   test("emits empty list when there is no state", () => {
     const items = buildTranscriptItems(emptyInput());
     expect(items).toEqual([]);
