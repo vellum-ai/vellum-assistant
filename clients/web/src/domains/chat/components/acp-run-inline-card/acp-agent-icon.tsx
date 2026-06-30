@@ -14,8 +14,6 @@ function brandSrc(agent: string): string | undefined {
   if (a.includes("claude")) return "/images/prior-assistants/claude.svg";
   if (a.includes("codex") || a.includes("openai") || a.includes("gpt"))
     return "/images/prior-assistants/chatgpt.svg";
-  if (a.includes("gemini") || a.includes("google"))
-    return "/images/prior-assistants/gemini.svg";
   if (a.includes("copilot")) return "/images/prior-assistants/copilot.svg";
   return undefined;
 }

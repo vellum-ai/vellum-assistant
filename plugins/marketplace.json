@@ -136,6 +136,18 @@
       "category": "hobby",
       "homepage": "https://github.com/vellum-ai/red-pen",
       "license": "MIT"
+    },
+    {
+      "name": "fitness-companion",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/fitness-companion",
+        "ref": "e1aae9dd527f30cb897dd4a04c14f35950d263d2"
+      },
+      "description": "Fitness and nutrition companion. Logs meals, workouts, and weight; looks up nutrition data from OpenFoodFacts; calculates macro targets; and injects daily fitness context into every conversation.",
+      "category": "health",
+      "homepage": "https://github.com/vellum-ai/fitness-companion",
+      "license": "MIT"
     }
   ]
 }

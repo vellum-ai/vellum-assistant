@@ -38,6 +38,7 @@ import {
 import { useBackgroundHatch } from "@/domains/onboarding/use-background-hatch";
 import { useResearchRunner } from "@/domains/onboarding/research-runner";
 import { sendResearchCorrection } from "@/domains/onboarding/send-research-correction";
+import { applyPersonality } from "@/domains/onboarding/apply-personality";
 import {
   clearResearchSnapshot,
   readResearchSnapshot,
@@ -65,6 +66,7 @@ import {
 import { IntroductionScreen } from "@/domains/onboarding/screens/introduction-screen";
 import { PitchStep } from "@/domains/onboarding/screens/intro-pitch-steps";
 import { IntegrationStep } from "@/domains/onboarding/screens/integration-step";
+import { CreatePersonalityStep } from "@/domains/onboarding/screens/create-personality-step";
 import { LetsChatTomorrowStep } from "@/domains/onboarding/screens/lets-chat-tomorrow-step";
 import {
   MeetingCreatedStep,
@@ -111,6 +113,10 @@ export function ResearchOnboardingRoute() {
   // Belt-and-suspenders gate: the spike lives at a dedicated path AND behind
   // this flag (off by default; enable locally via the feature-flags panel).
   const enabled = useClientFeatureFlagStore.use.researchOnboarding();
+  // Sub-gate for the "Create my personality" step; when off it's skipped
+  // entirely (pitch → integration, with the back nav mirrored).
+  const personalityEnabled =
+    useClientFeatureFlagStore.use.personalityOnboarding();
   const flagsHydrated = useClientFeatureFlagStore.use.hydrated();
 
   // Sub-steps share this route: details form → avatar/name picker →
@@ -171,6 +177,13 @@ export function ResearchOnboardingRoute() {
     null,
   );
   const [faceValues, setFaceValues] = useState<GiveMeAFaceValues | null>(null);
+  // Personality sliders live here (not in the step) so they survive a step-back
+  // and stay shown once locked. `personalityLocked` flips true on the first
+  // continue — the prompt has been sent, so the sliders can't be edited again.
+  const [personalityValues, setPersonalityValues] = useState<
+    Record<string, number>
+  >({});
+  const [personalityLocked, setPersonalityLocked] = useState(false);
   // Id of the behind-the-scenes "research me" conversation. Captured the moment
   // it's minted (and restored from the snapshot on refresh) so a mid-search
   // reload re-attaches to that same thread instead of starting a second search.
@@ -511,6 +524,7 @@ export function ResearchOnboardingRoute() {
   // content swaps. Extra edge characters pop in per step to build excitement.
   const tonedSteps = [
     "different",
+    "personality",
     "integration",
     "letschat",
     "meeting",
@@ -545,8 +559,39 @@ export function ResearchOnboardingRoute() {
         />
         {step === "different" && (
           <PitchStep
-            onContinue={() => goForwardTo("integration")}
+            onContinue={() =>
+              goForwardTo(personalityEnabled ? "personality" : "integration")
+            }
             onBack={() => goBackTo("intro")}
+            onForward={onForward}
+          />
+        )}
+        {step === "personality" && (
+          <CreatePersonalityStep
+            values={personalityValues}
+            onValueChange={(axisId, value) =>
+              setPersonalityValues((prev) => ({ ...prev, [axisId]: value }))
+            }
+            locked={personalityLocked}
+            onContinue={() => {
+              // First continue applies the sliders to the assistant's persona on
+              // a throwaway side thread (awaits hatch readiness internally, then
+              // archives) and locks them — the prompt has been sent, so a later
+              // step-back can't silently diverge. Fire-and-forget: the rewrite
+              // turn finishes during the later steps, well before the chat
+              // handoff. Best-effort; never blocks the flow. A continue while
+              // already locked just advances.
+              if (!personalityLocked) {
+                void applyPersonality({
+                  awaitAssistantId: awaitHatchReady,
+                  values: personalityValues,
+                  userName: formValues?.firstName?.trim() || undefined,
+                });
+                setPersonalityLocked(true);
+              }
+              goForwardTo("integration");
+            }}
+            onBack={() => goBackTo("different")}
             onForward={onForward}
           />
         )}
@@ -554,7 +599,9 @@ export function ResearchOnboardingRoute() {
           <IntegrationStep
             onClaim={() => goForwardTo("letschat")}
             onBumpEyes={() => setEyesBump((n) => n + 1)}
-            onBack={() => goBackTo("different")}
+            onBack={() =>
+              goBackTo(personalityEnabled ? "personality" : "different")
+            }
             onForward={onForward}
           />
         )}

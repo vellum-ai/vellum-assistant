@@ -145,11 +145,6 @@ async function injectOptionalCredential(
  * `binary_not_found` preflight in `resolveAcpAgent` and strictly better
  * than a `warn` + zombie subprocess 10 seconds later.
  *
- * For `gemini` the env var is `GEMINI_API_KEY`, provisioned the same two
- * ways (config.json override wins, vault field `gemini_api_key` second),
- * but it is OPTIONAL: the Gemini CLI supports its own OAuth login, so a
- * vault miss proceeds without the key instead of failing the spawn.
- *
  * For `codex-acp` the env vars are `OPENAI_API_KEY` (vault field
  * `acp/openai_api_key`) and `CODEX_API_KEY` (vault field
  * `acp/codex_api_key`), provisioned the same two ways (config.json
@@ -182,13 +177,6 @@ export async function prepareAgentEnv(
           "(or set it under acp.agents.<id>.env in config.json).",
       );
     }
-  } else if (adapterCommand === "gemini") {
-    await injectOptionalCredential(
-      env,
-      "gemini_api_key",
-      "GEMINI_API_KEY",
-      "Gemini API key for ACP agent authentication",
-    );
   } else if (adapterCommand === "codex-acp") {
     // The two reads target independent vault fields and write disjoint env
     // keys, so running them concurrently is safe.

@@ -11,7 +11,9 @@ import {
   createUserMessage,
 } from "../../agent/message-types.js";
 import {
+  BackgroundToolCompletionSchema,
   type ConversationContentBlock,
+  type ConversationMessage,
   ConversationMessageSchema,
 } from "../../api/responses/conversation-message.js";
 import {
@@ -840,6 +842,7 @@ export function handleListMessages({
       | undefined;
     let acpNotification: { acpSessionId: string; agent?: string } | undefined;
     let backgroundToolNotification: boolean | undefined;
+    let backgroundToolCompletion: ConversationMessage["backgroundToolCompletion"];
     if (msg.metadata) {
       try {
         const meta = JSON.parse(msg.metadata);
@@ -851,6 +854,15 @@ export function handleListMessages({
         // the status.
         if (meta.backgroundEventSource === "background-tool") {
           backgroundToolNotification = true;
+        }
+        // `persistWakeTriggerMessage` stamps the structured completion onto the
+        // same wake row, letting the web rebuild a terminal inline card from
+        // history after a restart (the in-memory completed ring does not survive).
+        const completionParse = BackgroundToolCompletionSchema.safeParse(
+          meta.backgroundToolCompletion,
+        );
+        if (completionParse.success) {
+          backgroundToolCompletion = completionParse.data;
         }
         if (meta.subagentNotification) {
           const n = meta.subagentNotification;
@@ -905,6 +917,7 @@ export function handleListMessages({
       subagentNotification,
       acpNotification,
       backgroundToolNotification,
+      backgroundToolCompletion,
       slackMessage,
       clientMessageId: msg.clientMessageId ?? undefined,
     };
@@ -1091,6 +1104,9 @@ export function handleListMessages({
       ...(m.acpNotification ? { acpNotification: m.acpNotification } : {}),
       ...(m.backgroundToolNotification
         ? { backgroundToolNotification: true }
+        : {}),
+      ...(m.backgroundToolCompletion
+        ? { backgroundToolCompletion: m.backgroundToolCompletion }
         : {}),
       ...(m.slackMessage ? { slackMessage: m.slackMessage } : {}),
     };

@@ -504,6 +504,41 @@ describe("ensureCliInstalled", () => {
     await p2;
   });
 
+  test("wipes a stale node_modules without a bin before reinstalling", async () => {
+    // Upgrade left a partial install: node_modules exists but the bin is gone.
+    // `bun add` would no-op against the satisfied lockfile, so the installer
+    // must clear the tree first to force a clean re-link.
+    existsSyncDefault = false;
+    const nodeModulesDir = `${latestInstallDir}/node_modules`;
+    existsSyncByPath[nodeModulesDir] = true;
+
+    const promise = ensureCliInstalled();
+
+    // The wipe happens before the spawn; the reinstall then links the bin.
+    existsSyncByPath[cliBinPath] = true;
+    lastChild.emit("close", 0);
+    await promise;
+
+    const removedPaths = rmSyncCalls.map(([p]) => p);
+    expect(removedPaths).toContain(nodeModulesDir);
+    expect(removedPaths).toContain(`${latestInstallDir}/bun.lock`);
+    expect(spawnCalls).toHaveLength(1);
+    expect(spawnCalls[0][1]).toEqual(["add", "vellum@latest", "--ignore-scripts"]);
+  });
+
+  test("does not wipe when node_modules is absent (fresh install)", async () => {
+    existsSyncDefault = false;
+
+    const promise = ensureCliInstalled();
+    existsSyncByPath[cliBinPath] = true;
+    lastChild.emit("close", 0);
+    await promise;
+
+    // No stale tree to clear — only cleanupOldVersions may rm sibling dirs,
+    // and there are none here.
+    expect(rmSyncCalls).toHaveLength(0);
+  });
+
   test("throws when the install completes but links no bin", async () => {
     existsSyncDefault = false;
 

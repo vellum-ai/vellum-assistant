@@ -190,7 +190,7 @@ export const MemoryV2ConfigSchema = z
       .positive(
         "memory.v2.consolidation_interval_hours must be a positive integer",
       )
-      .default(4)
+      .default(8)
       .describe(
         "Hours between scheduled consolidation runs that synthesize buffered memories into concept pages",
       ),

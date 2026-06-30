@@ -4632,6 +4632,162 @@ paths:
           required: true
           schema:
             type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider:
+                  $ref: "#/components/schemas/LLMProvider"
+                model:
+                  type: string
+                  minLength: 1
+                maxTokens:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                effort:
+                  type: string
+                  enum:
+                    - none
+                    - low
+                    - medium
+                    - high
+                    - xhigh
+                    - max
+                speed:
+                  type: string
+                  enum:
+                    - standard
+                    - fast
+                verbosity:
+                  type: string
+                  enum:
+                    - low
+                    - medium
+                    - high
+                temperature:
+                  anyOf:
+                    - type: number
+                      minimum: 0
+                      maximum: 2
+                    - type: "null"
+                topP:
+                  anyOf:
+                    - type: number
+                      minimum: 0
+                      maximum: 1
+                    - type: "null"
+                thinking:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                    streamThinking:
+                      type: boolean
+                    level:
+                      type: string
+                      enum:
+                        - minimal
+                        - low
+                        - medium
+                        - high
+                contextWindow:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                    maxInputTokens:
+                      type: integer
+                      exclusiveMinimum: 0
+                      maximum: 9007199254740991
+                    targetBudgetRatio:
+                      type: number
+                      exclusiveMinimum: 0
+                      maximum: 1
+                    compactThreshold:
+                      type: number
+                      exclusiveMinimum: 0
+                      maximum: 1
+                    summaryBudgetRatio:
+                      type: number
+                      exclusiveMinimum: 0
+                      maximum: 1
+                    overflowRecovery:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                        safetyMarginRatio:
+                          type: number
+                          exclusiveMinimum: 0
+                          exclusiveMaximum: 1
+                        maxAttempts:
+                          type: integer
+                          exclusiveMinimum: 0
+                          maximum: 9007199254740991
+                        interactiveLatestTurnCompression:
+                          type: string
+                          enum:
+                            - truncate
+                            - summarize
+                            - drop
+                        nonInteractiveLatestTurnCompression:
+                          type: string
+                          enum:
+                            - truncate
+                            - summarize
+                            - drop
+                openrouter:
+                  type: object
+                  properties:
+                    only:
+                      type: array
+                      items:
+                        type: string
+                        minLength: 1
+                logitBias:
+                  type: string
+                  enum:
+                    - suppress-cjk
+                disableCache:
+                  type: boolean
+                source:
+                  type: string
+                  enum:
+                    - managed
+                    - user
+                label:
+                  anyOf:
+                    - type: string
+                      minLength: 1
+                    - type: "null"
+                description:
+                  type: string
+                provider_connection:
+                  type: string
+                  minLength: 1
+                status:
+                  anyOf:
+                    - $ref: "#/components/schemas/ProfileStatus"
+                    - type: "null"
+                mix:
+                  minItems: 2
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      profile:
+                        type: string
+                        minLength: 1
+                      weight:
+                        type: number
+                        exclusiveMinimum: 0
+                    required:
+                      - profile
+                      - weight
       responses:
         "200":
           description: Successful response
@@ -17760,6 +17916,44 @@ paths:
                           additionalProperties: false
                         backgroundToolNotification:
                           type: boolean
+                        backgroundToolCompletion:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            toolName:
+                              type: string
+                            conversationId:
+                              type: string
+                            command:
+                              type: string
+                            startedAt:
+                              type: number
+                            status:
+                              type: string
+                              enum:
+                                - completed
+                                - failed
+                                - cancelled
+                            exitCode:
+                              anyOf:
+                                - type: number
+                                - type: "null"
+                            output:
+                              type: string
+                            completedAt:
+                              type: number
+                          required:
+                            - id
+                            - toolName
+                            - conversationId
+                            - command
+                            - startedAt
+                            - status
+                            - exitCode
+                            - output
+                            - completedAt
+                          additionalProperties: false
                         slackMessage:
                           type: object
                           properties:

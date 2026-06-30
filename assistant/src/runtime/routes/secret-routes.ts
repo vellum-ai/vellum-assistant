@@ -24,10 +24,10 @@ import {
 import { getCesClient } from "../../credential-execution/ces-runtime.js";
 import type { CesClient } from "../../credential-execution/client.js";
 import { evictConversationsForReload } from "../../daemon/conversation-store.js";
-import { maybeReseedCapabilitiesAfterManagedCredential } from "../../daemon/memory-v2-startup.js";
 import { setSentryOrganizationId, setSentryUserId } from "../../instrument.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import { clearEmbeddingBackendCache } from "../../persistence/embeddings/embedding-backend.js";
+import { maybeReseedCapabilitiesAfterManagedCredential } from "../../plugins/defaults/memory/v2/memory-v2-startup.js";
 import { validateAnthropicApiKey } from "../../providers/anthropic/client.js";
 import { validateAtlasCloudApiKey } from "../../providers/atlascloud/client.js";
 import { validateGeminiApiKey } from "../../providers/gemini/client.js";
