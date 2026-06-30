@@ -1,5 +1,6 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
 import {
@@ -10,6 +11,22 @@ import {
 } from "@/domains/chat/utils/stream-handlers/surface-handlers";
 
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
+
+function seedSnapshot(messages: DisplayMessage[]): void {
+  useChatSessionStore.setState({
+    snapshot: {
+      messages,
+      seq: null,
+      hasMore: false,
+      oldestTimestamp: null,
+      oldestMessageId: null,
+    },
+  });
+}
+
+afterEach(() => {
+  useChatSessionStore.setState({ snapshot: null });
+});
 describe("handleUISurfaceShow", () => {
   it("increments assets refresh key for dynamic_page", () => {
     const ctx = makeCtx();
@@ -19,7 +36,6 @@ describe("handleUISurfaceShow", () => {
     );
     expect(ctx.setAssetsRefreshKey).toHaveBeenCalled();
     expect(ctx.turnActions.showSurface).toHaveBeenCalled();
-    expect(ctx.setMessages).toHaveBeenCalled();
   });
 
   it("increments assets refresh key for document_preview", () => {
@@ -42,19 +58,18 @@ describe("handleUISurfaceShow", () => {
 });
 
 describe("handleUISurfaceUpdate", () => {
-  it("dispatches UI_SURFACE_UPDATE and updates messages", () => {
+  it("dispatches UI_SURFACE_UPDATE", () => {
     const ctx = makeCtx();
     handleUISurfaceUpdate(
       { type: "ui_surface_update", conversationId: "c-1", surfaceId: "s-1", data: { key: "value" } },
       ctx,
     );
     expect(ctx.turnActions.updateSurface).toHaveBeenCalled();
-    expect(ctx.setMessages).toHaveBeenCalled();
   });
 });
 
 describe("handleUISurfaceDismiss", () => {
-  it("adds surfaceId to dismissed set and updates messages", () => {
+  it("adds surfaceId to dismissed set", () => {
     const ctx = makeCtx();
     handleUISurfaceDismiss(
       { type: "ui_surface_dismiss", conversationId: "c-1", surfaceId: "s-1" },
@@ -62,7 +77,6 @@ describe("handleUISurfaceDismiss", () => {
     );
     expect(ctx.turnActions.dismissSurface).toHaveBeenCalled();
     expect(ctx.addDismissedSurfaceId).toHaveBeenCalledWith("s-1");
-    expect(ctx.setMessages).toHaveBeenCalled();
   });
 });
 
@@ -77,7 +91,8 @@ describe("handleUISurfaceComplete", () => {
         { surfaceId: "s-1", surfaceType: "dynamic_page", data: {} },
       ],
     };
-    const ctx = makeCtx({ messages: [msg] });
+    seedSnapshot([msg]);
+    const ctx = makeCtx();
     handleUISurfaceComplete(
       { type: "ui_surface_complete", conversationId: "c-1", surfaceId: "s-1", summary: "Done" },
       ctx,
@@ -96,7 +111,8 @@ describe("handleUISurfaceComplete", () => {
         { surfaceId: "s-1", surfaceType: "form", data: {} },
       ],
     };
-    const ctx = makeCtx({ messages: [msg] });
+    seedSnapshot([msg]);
+    const ctx = makeCtx();
     handleUISurfaceComplete(
       { type: "ui_surface_complete", conversationId: "c-1", surfaceId: "s-1", summary: "Done" },
       ctx,

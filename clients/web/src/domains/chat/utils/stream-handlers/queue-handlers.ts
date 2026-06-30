@@ -35,7 +35,7 @@ export function handleMessageQueued(
       );
     }
   } else {
-    ctx.setMessages((prev) => setQueuePosition(prev, messageId, position + 1));
+    ctx.setOptimisticSends((prev) => setQueuePosition(prev, messageId, position + 1));
   }
 }
 
@@ -46,7 +46,7 @@ export function handleMessageDequeued(
   ctx.turnActions.dequeueMessage();
   const dequeuedMessageId = ctx.popRequestIdMapping(event.requestId);
   if (dequeuedMessageId) {
-    ctx.setMessages((prev) => clearQueueStatus(prev, dequeuedMessageId));
+    ctx.setOptimisticSends((prev) => clearQueueStatus(prev, dequeuedMessageId));
   }
 }
 
@@ -57,7 +57,7 @@ export function handleMessageQueuedDeleted(
   ctx.turnActions.deleteQueuedMessage();
   const deletedMessageId = ctx.popRequestIdMapping(event.requestId);
   if (deletedMessageId) {
-    ctx.setMessages((prev) => removeQueuedMessage(prev, deletedMessageId));
+    ctx.setOptimisticSends((prev) => removeQueuedMessage(prev, deletedMessageId));
   }
 }
 

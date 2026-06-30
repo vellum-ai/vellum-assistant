@@ -1,9 +1,9 @@
 /**
  * Tests for `useLiveThinkingText` — the selector that re-derives a thinking
- * drawer's reasoning text from the rendered transcript (server history ⊕ the
- * in-flight turn) so an open drawer streams while the assistant thinks and
- * stays whole after the turn commits, instead of freezing its open-time
- * snapshot.
+ * drawer's reasoning text from the rendered transcript (the materialized
+ * snapshot ⊕ optimistic sends) so an open drawer streams while the assistant
+ * thinks and stays whole after the turn commits, instead of freezing its
+ * open-time snapshot.
  *
  * The chat-session store transitively pulls in the generated daemon SDK. Stub
  * every endpoint it exports so the module loads; nothing here invokes them.
@@ -12,11 +12,7 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
-import {
-  QueryClient,
-  QueryClientProvider,
-  type InfiniteData,
-} from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
 const sdkStub = async () => ({ data: undefined });
@@ -37,11 +33,7 @@ const { useLiveThinkingText } = await import(
 const { useChatSessionStore } = await import(
   "@/domains/chat/chat-session-store"
 );
-const { conversationHistoryQueryKey } = await import(
-  "@/domains/chat/transcript/use-history-pagination"
-);
 import type { DisplayMessage } from "@/domains/chat/types/types";
-import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
 
 let queryClient: QueryClient;
 
@@ -53,31 +45,28 @@ function wrapper({ children }: { children: ReactNode }) {
 
 const render = <T,>(hook: () => T) => renderHook(hook, { wrapper });
 
-/** Seed the in-flight turn (the live overlay). */
+/** Seed the materialized snapshot — the single source the transcript renders. */
 function seed(messages: DisplayMessage[]) {
   act(() => {
-    useChatSessionStore.setState({ liveTurn: messages });
-  });
-}
-
-/**
- * Seed persisted server history into the query cache under the active
- * conversation key. With no assistant/conversation selected the transcript
- * reads the `("","")` key, so reading and writing line up.
- */
-function seedHistory(messages: DisplayMessage[]) {
-  const data: InfiniteData<PaginatedHistoryResult> = {
-    pages: [
-      {
+    useChatSessionStore.setState({
+      snapshot: {
         messages,
+        seq: null,
         hasMore: false,
         oldestTimestamp: null,
         oldestMessageId: null,
       },
-    ],
-    pageParams: [null],
-  };
-  queryClient.setQueryData(conversationHistoryQueryKey(null, null), data);
+    });
+  });
+}
+
+/**
+ * Seed committed history. History now folds into the materialized snapshot
+ * (the transcript's single render source), so this writes the same snapshot
+ * as `seed`; when both are used, the later write wins.
+ */
+function seedHistory(messages: DisplayMessage[]) {
+  seed(messages);
 }
 
 function msg(overrides: Partial<DisplayMessage>): DisplayMessage {
@@ -93,7 +82,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   act(() => {
-    useChatSessionStore.setState({ liveTurn: [] });
+    useChatSessionStore.setState({ snapshot: null, optimisticSends: [] });
   });
   queryClient.clear();
 });
@@ -194,11 +183,10 @@ describe("useLiveThinkingText", () => {
     expect(result.current).toBe("aliased");
   });
 
-  test("resolves a committed message from history after the live→history handoff", () => {
-    // Regression: when a turn finishes, the live-turn→history handoff drops the
-    // committed row from the live turn. A live-turn-only lookup would miss it
-    // and the drawer would fall back to the stale open-time snapshot. The full
-    // reasoning lives on the history row, so the union must still resolve it.
+  test("resolves a committed message from the materialized snapshot", () => {
+    // Regression: when a turn finishes, its row lives in the materialized
+    // snapshot. The drawer must resolve the full reasoning from there rather
+    // than freezing on its stale open-time snapshot.
     seed([]);
     seedHistory([
       msg({
@@ -211,9 +199,9 @@ describe("useLiveThinkingText", () => {
     expect(result.current).toBe("the whole reasoning chain");
   });
 
-  test("the live turn overlays a history twin while streaming", () => {
-    // Mid-stream the same message id exists in both history (a stale reconcile
-    // snapshot) and the live turn (the growing text). The live copy wins.
+  test("reflects the latest folded content for a streaming row", () => {
+    // Mid-stream the reducer keeps folding deltas onto the row in the snapshot,
+    // so the drawer reads the freshest reasoning, not an earlier copy.
     seedHistory([
       msg({ contentBlocks: [{ type: "thinking", thinking: "stale snapshot" }] }),
     ]);

@@ -38,7 +38,6 @@ describe("handleConversationErrorEvent", () => {
       reason: "error",
     });
     expect(ctx.setError).toHaveBeenCalled();
-    expect(ctx.setMessages).toHaveBeenCalled();
   });
 
   it("prefers event.conversationId over streamContext when both differ", () => {

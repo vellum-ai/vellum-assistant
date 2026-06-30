@@ -3,8 +3,6 @@ import { useMemo } from "react";
 import { groupContentBlocks } from "@/domains/chat/transcript/message-content";
 import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
 import { messageMatchKeys } from "@/domains/chat/utils/message-identity";
-import { useConversationStore } from "@/stores/conversation-store";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 /**
  * Reasoning text for a thinking detail drawer, re-derived from the rendered
@@ -36,9 +34,7 @@ export function useLiveThinkingText(
   groupIndex: number | undefined,
   thinkingItemIndex?: number,
 ): string | null {
-  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  const conversationId = useConversationStore.use.activeConversationId();
-  const messages = useTranscriptMessages(assistantId, conversationId);
+  const messages = useTranscriptMessages();
   return useMemo(() => {
     if (!messageId || groupIndex == null) return null;
     const message = messages.find((m) =>

@@ -2,7 +2,7 @@ import { useCallback, useLayoutEffect, useRef } from "react";
 
 import * as Sentry from "@sentry/react";
 
-import { type InfiniteData, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
@@ -12,7 +12,6 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 import { recordLocalSeq } from "@/lib/streaming/local-seq";
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { selectTranscriptMessages } from "@/domains/chat/transcript/select-transcript-messages";
-import { mergeAdjacentAssistantMessages } from "@/domains/chat/utils/message-merge";
 import { conversationHistoryQueryKey } from "@/domains/chat/transcript/use-history-pagination";
 import {
   serverHasAssistantProgress,
@@ -24,15 +23,12 @@ import {
   RECONCILE_LATEST_PAGE_LIMIT,
 } from "@/domains/chat/api/messages";
 import type { ConversationMessage } from "@vellumai/assistant-api";
-import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
 import { useConversationStore } from "@/stores/conversation-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
 
 const RECONCILE_DELAY_MS = 5000;
 const RECONCILE_MAX_MS = 60_000;
 const RECONCILE_STABLE_COUNT = 2;
-
-type HistoryCache = InfiniteData<PaginatedHistoryResult>;
 
 interface UseMessageReconciliationArgs {
   latestPageOldestTimestamp: number | null;
@@ -86,31 +82,13 @@ export function useMessageReconciliation({
     }
   }, []);
 
-  // The transcript the user currently sees: cached history ⊕ the in-flight turn.
-  const currentLocalView = useCallback(
-    (conversationId: string): DisplayMessage[] => {
-      const assistantId =
-        useStreamStore.getState().streamContext?.assistantId ?? null;
-      const cached = assistantId
-        ? queryClient.getQueryData<HistoryCache>(
-            conversationHistoryQueryKey(assistantId, conversationId),
-          )
-        : undefined;
-      // pages[0] is the latest page; flatten oldest-first AND fold adjacent
-      // page-boundary assistant rows exactly as the transcript does, so a
-      // straddling answer isn't seen as "new server content" on every poll.
-      const history = cached
-        ? mergeAdjacentAssistantMessages(
-            [...cached.pages].reverse().flatMap((page) => page.messages),
-          )
-        : [];
-      return selectTranscriptMessages(
-        history,
-        useChatSessionStore.getState().liveTurn,
-      );
-    },
-    [queryClient],
-  );
+  // The transcript the user currently sees: the materialized snapshot overlaid
+  // with the client's optimistic sends — the same union `useTranscriptMessages`
+  // renders. Compared against the server snapshot to detect missed content.
+  const currentLocalView = useCallback((): DisplayMessage[] => {
+    const { snapshot, optimisticSends } = useChatSessionStore.getState();
+    return selectTranscriptMessages(snapshot?.messages ?? [], optimisticSends);
+  }, []);
 
   const reconcileFromServerDetailed = useCallback(
     (
@@ -131,7 +109,7 @@ export function useMessageReconciliation({
       // Advance the local seq frontier — we've observed this server snapshot.
       recordLocalSeq(conversationId, serverSeq);
 
-      const localView = currentLocalView(conversationId);
+      const localView = currentLocalView();
       const serverView = serverMessages.map(mapRuntimeToDisplayMessage);
       const assistantProgress = serverHasAssistantProgress(
         localView,
