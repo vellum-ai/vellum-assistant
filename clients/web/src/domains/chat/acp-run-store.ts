@@ -15,6 +15,8 @@ import { create } from "zustand";
 import { createSelectors } from "@/utils/create-selectors";
 import { isActiveAcpStatus, type AcpRunStatus } from "@/utils/acp-run-status";
 
+import { setToolUseAnchor } from "./store-helpers/by-tool-use-id-index";
+
 // ---------------------------------------------------------------------------
 // Optimistic-steer marker contract
 // ---------------------------------------------------------------------------
@@ -349,10 +351,13 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
         parentToolUseId: existing.parentToolUseId ?? params.parentToolUseId,
       };
 
-      const nextByToolUseId =
-        params.parentToolUseId && !existing.parentToolUseId
-          ? new Map(byToolUseId).set(params.parentToolUseId, params.acpSessionId)
-          : byToolUseId;
+      const nextByToolUseId = existing.parentToolUseId
+        ? byToolUseId
+        : setToolUseAnchor(
+            byToolUseId,
+            params.parentToolUseId,
+            params.acpSessionId,
+          );
 
       set({
         byId: { ...byId, [params.acpSessionId]: resumed },
@@ -378,9 +383,11 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
 
     // Only clone the tool-use index when this spawn carries a
     // `parentToolUseId`; otherwise keep the reference stable.
-    const nextByToolUseId = params.parentToolUseId
-      ? new Map(byToolUseId).set(params.parentToolUseId, params.acpSessionId)
-      : byToolUseId;
+    const nextByToolUseId = setToolUseAnchor(
+      byToolUseId,
+      params.parentToolUseId,
+      params.acpSessionId,
+    );
 
     set({
       byId: { ...byId, [params.acpSessionId]: entry },
@@ -578,12 +585,11 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
         nextOrderedIds.push(entry.acpSessionId);
       }
 
-      if (entry.parentToolUseId) {
-        nextByToolUseId = new Map(nextByToolUseId).set(
-          entry.parentToolUseId,
-          entry.acpSessionId,
-        );
-      }
+      nextByToolUseId = setToolUseAnchor(
+        nextByToolUseId,
+        entry.parentToolUseId,
+        entry.acpSessionId,
+      );
 
       for (const event of merged.events) {
         if (typeof event.seq !== "number") continue;
