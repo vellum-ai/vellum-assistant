@@ -1,5 +1,3 @@
-import { join } from "node:path";
-
 import { config as dotenvConfig } from "dotenv";
 
 import { setPointerMessageProcessor } from "../calls/call-pointer-messages.js";
@@ -20,7 +18,6 @@ import { backfillRelationshipStateIfMissing } from "../home/relationship-state-w
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { startCliIpcServer } from "../ipc/assistant-server.js";
 import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
-import { registerMemoryJobHandlers } from "../jobs/register-job-handlers.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import {
@@ -34,24 +31,9 @@ import {
 } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { selectEmbeddingBackend } from "../persistence/embeddings/embedding-backend.js";
-import {
-  initQdrantClient,
-  resolveQdrantUrl,
-} from "../persistence/embeddings/qdrant-client.js";
-import { createQdrantManager } from "../persistence/embeddings/qdrant-manager.js";
-import {
-  enqueueMemoryJob,
-  isMemoryEnabled,
-} from "../persistence/jobs-store.js";
-import { startMemoryJobsWorker } from "../persistence/jobs-worker.js";
 import { startConsentRefresh } from "../platform/consent-cache.js";
 import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";
-import { sweepConceptPageFrontmatter } from "../plugins/defaults/memory/v2/frontmatter-sweep.js";
-import {
-  maybeRebuildMemoryV2Concepts,
-  rebuildBm25CorpusStatsAndReseedSkills,
-} from "../plugins/defaults/memory/v2/memory-v2-startup.js";
+import { runMemoryStartup } from "../plugins/defaults/memory/startup.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
 import { initializeProviders } from "../providers/registry.js";
@@ -97,7 +79,6 @@ import {
   startDiskPressureGuard,
   stopDiskPressureGuard,
 } from "./disk-pressure-guard.js";
-import { reconcileEmbeddingIdentity } from "./embedding-reconcile.js";
 import { startEventLoopWatchdog } from "./event-loop-watchdog.js";
 import { initializePlugins } from "./external-plugins-bootstrap.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
@@ -111,7 +92,6 @@ import {
   registerWatcherProviders,
 } from "./providers-setup.js";
 import { installShutdownHandlers } from "./shutdown-handlers.js";
-import { refreshSkillCapabilityMemories } from "./skill-memory-refresh.js";
 import { broadcastDaemonStatus } from "./status.js";
 
 const log = getLogger("lifecycle");
@@ -634,185 +614,6 @@ export async function runDaemon(): Promise<void> {
   startOrphanReaper();
   startEventLoopWatchdog();
 
-  // Initialize Qdrant vector store and memory worker in the background so the
-  // RuntimeHttpServer can start accepting requests without waiting for Qdrant.
-  async function initializeQdrantAndMemory(): Promise<void> {
-    const qdrantUrl = resolveQdrantUrl(config);
-    log.info({ qdrantUrl }, "Daemon startup: initializing Qdrant");
-    const manager = createQdrantManager({ url: qdrantUrl });
-    const QDRANT_START_MAX_ATTEMPTS = 3;
-    let qdrantStarted = false;
-    for (let attempt = 1; attempt <= QDRANT_START_MAX_ATTEMPTS; attempt++) {
-      try {
-        await manager.start();
-        qdrantStarted = true;
-        break;
-      } catch (err) {
-        if (attempt < QDRANT_START_MAX_ATTEMPTS) {
-          const backoffMs = attempt * 5_000; // 5s, 10s
-          log.warn(
-            {
-              err,
-              attempt,
-              maxAttempts: QDRANT_START_MAX_ATTEMPTS,
-              backoffMs,
-            },
-            "Qdrant startup failed, retrying",
-          );
-          await Bun.sleep(backoffMs);
-        } else {
-          log.warn(
-            { err },
-            "Qdrant failed to start after all attempts — memory features will be unavailable",
-          );
-        }
-      }
-    }
-
-    if (qdrantStarted) {
-      // Skip the v1 Qdrant collection lifecycle when memory v2 is active —
-      // the v1 collection has no writers (handleRemember returns early) or
-      // readers (graph search is bypassed) under v2, so ensuring/migrating
-      // it just maintains a dead-on-arrival collection. Existing on-disk
-      // collections are left intact so flipping v2 off restores v1 cleanly.
-      if (!config.memory.v2.enabled) {
-        try {
-          const embeddingSelection = await selectEmbeddingBackend(config);
-          // Sentinel only encodes the dense provider+model identity; sparse
-          // encoder changes never require collection recreation, so they
-          // intentionally do not contribute to the v1 collection identity.
-          const embeddingModel = embeddingSelection.backend
-            ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}`
-            : undefined;
-          const qdrantClient = initQdrantClient({
-            url: qdrantUrl,
-            collection: config.memory.qdrant.collection,
-            vectorSize: config.memory.qdrant.vectorSize,
-            onDisk: config.memory.qdrant.onDisk,
-            quantization: config.memory.qdrant.quantization,
-            embeddingModel,
-          });
-
-          // Eagerly ensure the collection exists so we detect migrations
-          // (unnamed→named vectors, dimension/model changes) at startup.
-          // If a destructive migration occurred, enqueue a rebuild_index job
-          // to re-embed all memory items from the SQLite cache.
-          const { migrated } = await qdrantClient.ensureCollection();
-          if (migrated && isMemoryEnabled()) {
-            enqueueMemoryJob("rebuild_index", {});
-            log.info(
-              "Qdrant collection was migrated — enqueued rebuild_index job",
-            );
-          }
-
-          log.info("Qdrant vector store initialized");
-        } catch (err) {
-          log.warn(
-            { err },
-            "Qdrant client initialization failed — memory features will be degraded",
-          );
-        }
-      }
-
-      // Reconcile the committed embedding-collection dimension against a live
-      // backend probe (confirm-before-destroy) before the v2 rebuild and the
-      // worker drain, so `memory.qdrant.vectorSize` is settled first. Its own
-      // try/catch keeps an unreachable backend or reconcile failure from
-      // blocking startup.
-      try {
-        await reconcileEmbeddingIdentity(config);
-      } catch (err) {
-        log.warn(
-          { err },
-          "Embedding-identity reconcile threw — continuing startup",
-        );
-      }
-
-      // Detect schema drift on the v2 concept-page collection (e.g.
-      // pre-#29823 collections lacking summary_dense / summary_sparse) and
-      // recreate + enqueue a reembed when needed. Awaited inline so the
-      // reembed enqueue happens before the memory worker drains its first
-      // batch; the call's own try/catch keeps any v2-side failure from
-      // blocking the v1 PKB reconcile or BM25 build below.
-      try {
-        await maybeRebuildMemoryV2Concepts(config);
-      } catch (err) {
-        log.warn(
-          { err },
-          "Memory v2 collection schema check threw — continuing startup",
-        );
-      }
-
-      // Reconcile the PKB Qdrant index against the on-disk tree. Gated on
-      // !v2 because PKB is the v1 storage layer; under v2 the v1 collection
-      // is not initialized, so calling `getQdrantClient()` here would throw.
-      // Fire-and-forget so enqueued re-index jobs drain in the background
-      // and first-turn latency stays unaffected.
-      if (!config.memory.v2.enabled) {
-        void (async () => {
-          try {
-            const { reconcilePkbIndex } =
-              await import("../plugins/defaults/memory/pkb/pkb-reconcile.js");
-            const { PKB_WORKSPACE_SCOPE } =
-              await import("../plugins/defaults/memory/pkb/types.js");
-            const pkbRoot = join(getWorkspaceDir(), "pkb");
-            await reconcilePkbIndex(pkbRoot, PKB_WORKSPACE_SCOPE);
-          } catch (err) {
-            log.warn(
-              { err },
-              "PKB index reconciliation failed — continuing startup",
-            );
-          }
-        })();
-      }
-
-      void rebuildBm25CorpusStatsAndReseedSkills(config);
-
-      try {
-        await sweepConceptPageFrontmatter(config, getWorkspaceDir());
-      } catch (err) {
-        log.warn(
-          { err },
-          "Concept page frontmatter sweep threw — continuing startup",
-        );
-      }
-    }
-
-    // `startMemoryJobsWorker` starts the in-process supervisor (which owns
-    // the synchronous runner and stands down when an out-of-process worker is
-    // live) and spawns the out-of-process worker at boot when
-    // `memory.worker.enabled` is set. Shutdown stops whichever worker is
-    // actually running — see shutdown-handlers.ts.
-    log.info("Daemon startup: starting memory worker");
-    registerMemoryJobHandlers();
-    startMemoryJobsWorker();
-
-    // Seed capability graph nodes (new memory graph system)
-    try {
-      const { seedCliGraphNodes } =
-        await import("../plugins/defaults/memory/graph/capability-seed.js");
-      refreshSkillCapabilityMemories(config);
-      await seedCliGraphNodes();
-    } catch (err) {
-      log.warn({ err }, "Graph capability seeding failed — continuing");
-    }
-
-    // Auto-bootstrap: if the graph has no non-procedural nodes but historical
-    // segments exist, enqueue a one-time graph_bootstrap job to populate the
-    // graph from conversation history and journal files.
-    try {
-      const { maybeEnqueueGraphBootstrap, cleanupStaleItemVectors } =
-        await import("../plugins/defaults/memory/graph/bootstrap.js");
-      maybeEnqueueGraphBootstrap();
-      // Fire-and-forget: clean up orphaned Qdrant vectors from dropped memory_items table
-      void cleanupStaleItemVectors().catch((err) =>
-        log.warn({ err }, "Stale item vector cleanup failed — continuing"),
-      );
-    } catch (err) {
-      log.warn({ err }, "Graph bootstrap check failed — continuing");
-    }
-  }
-
   registerWatcherProviders();
   registerMessagingProviders();
 
@@ -850,7 +651,7 @@ export async function runDaemon(): Promise<void> {
   // available before the memory worker can claim leftover
   // `conversation_analyze` jobs from a prior run. See the daemon-startup
   // ordering test in `assistant/src/daemon/__tests__/`.
-  void initializeQdrantAndMemory().catch((err) =>
+  void runMemoryStartup(config).catch((err) =>
     log.warn({ err }, "Background Qdrant init failed"),
   );
 
