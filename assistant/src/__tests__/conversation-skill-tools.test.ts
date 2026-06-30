@@ -47,6 +47,19 @@ let recordedLastUsedTouches: Array<{ skillDir: string; today: string }> = [];
 
 mock.module("../config/skills.js", () => ({
   loadSkillCatalog: () => mockCatalog,
+  // Faithful reimplementation of the real plugin-scope filter — the
+  // per-chat plugin scope suite below depends on its drop behavior.
+  filterSkillsByEnabledPlugins: (
+    skills: SkillSummary[],
+    effectiveEnabledPluginSet: Set<string> | null,
+  ) =>
+    effectiveEnabledPluginSet === null
+      ? skills
+      : skills.filter((skill) => {
+          const owner = skill.owner;
+          if (owner?.kind !== "plugin") return true;
+          return effectiveEnabledPluginSet.has(owner.id);
+        }),
 }));
 
 mock.module("../skills/active-skill-tools.js", () => {

@@ -212,6 +212,23 @@ export const skillLoadTool = {
 
     const skill = loaded.skill;
 
+    // Per-chat plugin scope gate: a plugin-owned skill whose owning plugin is
+    // outside the conversation's effective set must not have its instructions
+    // loaded. Mirrors the projection/tools filter's owner-id lookup
+    // (`filterSkillsByEnabledPlugins`). `null` = no restriction; first-party
+    // defaults are always in the set, so bundled/workspace skills pass.
+    const enabledPluginSet = context.enabledPluginSet ?? null;
+    if (
+      enabledPluginSet !== null &&
+      skill.owner?.kind === "plugin" &&
+      !enabledPluginSet.has(skill.owner.id)
+    ) {
+      return {
+        content: `Error: skill "${skill.id}" is not available in this conversation — its plugin is not enabled here.`,
+        isError: true,
+      };
+    }
+
     // Assistant feature flag gate: reject loading if the skill's flag is OFF
     const config = getConfig();
     const flagKey = skillFlagKey(skill);

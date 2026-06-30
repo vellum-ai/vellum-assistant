@@ -3,7 +3,7 @@ import { loadSkillCatalog } from "../../config/skills.js";
 import { nearestExistingSkills } from "../../plugins/defaults/memory/v3/candidate-match.js";
 import { readInstallMeta } from "../../skills/install-meta.js";
 import { getManagedSkillDir } from "../../skills/managed-store.js";
-import type { ToolContext, ToolExecutionResult } from "../types.js";
+import type { OwnerInfo, ToolContext, ToolExecutionResult } from "../types.js";
 
 /**
  * A shortlisted skill enriched with its catalog name, description, and source.
@@ -36,7 +36,7 @@ interface EnrichedHit {
  */
 export async function executeFindSimilarSkills(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
   deps: {
     nearestExistingSkills?: typeof nearestExistingSkills;
     loadCatalog?: () => {
@@ -44,6 +44,7 @@ export async function executeFindSimilarSkills(
       name: string;
       description: string;
       source: SkillSource;
+      owner?: OwnerInfo;
     }[];
   } = {},
 ): Promise<ToolExecutionResult> {
@@ -78,10 +79,23 @@ export async function executeFindSimilarSkills(
   const catalog = loadCatalog();
   const byId = new Map(catalog.map((s) => [s.id, s]));
 
+  // Per-chat plugin scope: a plugin-owned skill whose owning plugin is outside
+  // the conversation's effective set must not be surfaced as a discovery
+  // result. `null` = no restriction; non-plugin skills are always retained
+  // (mirrors `filterSkillsByEnabledPlugins`).
+  const enabledPluginSet = context.enabledPluginSet ?? null;
+
   const enriched: EnrichedHit[] = [];
   for (const hit of hits) {
     const skill = byId.get(hit.skillId);
     if (!skill) continue;
+    if (
+      enabledPluginSet !== null &&
+      skill.owner?.kind === "plugin" &&
+      !enabledPluginSet.has(skill.owner.id)
+    ) {
+      continue;
+    }
     enriched.push({
       skill_id: hit.skillId,
       name: skill.name,
