@@ -21,7 +21,8 @@
  *      CURRENT-message finder lanes have run, `checkV3Gate` scores the needle +
  *      dense hits against the tuned thresholds. A closed gate skips the
  *      selectPool LLM call for the turn — returning empty selections (or, when
- *      `bypassForCore` is set, running selectPool over the stable prefix only) —
+ *      `bypassForCore` is set, selecting over the stable prefix only via the
+ *      same selector dispatch as the normal path, honoring `selectorEnabled`) —
  *      so a low-signal turn pays no selector cost. The gate is pass-open: any
  *      throw inside it logs a warning and falls through to normal selection.
  *   2. Build the candidate pool in CACHE ORDER: the stable prefix —
@@ -403,52 +404,71 @@ export async function orchestrate(
   // checkV3Gate reads only finder scores and cannot tell those apart, so without
   // dense signal we pass open rather than suppress all memory (not even the
   // core/hot/fresh prefix) on every lexically-weak turn.
-  if (deps.gateConfig?.enabled && densed.length > 0) {
-    let gate: V3GateResult | null = null;
-    try {
-      gate = checkV3Gate({
-        needleHits: needled,
-        denseHits: densed,
-        config: deps.gateConfig,
-      });
-    } catch (err) {
-      log.warn(
-        {
-          err: err instanceof Error ? err.message : String(err),
-          conversationId: turn.conversationId,
-        },
-        "memory-v3 injection gate threw; passing open (proceeding with selection)",
-      );
-    }
-    if (gate) {
+  if (deps.gateConfig?.enabled) {
+    if (densed.length === 0) {
+      // Dense lane did not run (denseK=0 / degraded backend / Qdrant error
+      // swallowed to []). Zero dense hits means dense is unavailable, not low
+      // relevance, so pass open — but record it so rollout telemetry sees these
+      // turns instead of silently skipping the gate.
       log.info(
         {
           conversationId: turn.conversationId,
           turnNumber: turn.turnNumber,
-          gate,
+          reason: "dense_unavailable",
+          pass: true,
         },
-        "memory-v3 injection gate decision",
+        "memory-v3 injection gate: dense lane unavailable, passing open",
       );
-      if (!gate.pass) {
-        // A closed gate produces no finder lane and no matched sections; only
-        // the `selections` differ between bypass (stable prefix) and hard-skip.
-        const closed = (selections: SelectedPage[]): OrchestrateResult => ({
-          selections,
-          matchedSections: new Map(),
-          lanes: { core, hot, fresh, finder: [] },
+    } else {
+      let gate: V3GateResult | null = null;
+      try {
+        gate = checkV3Gate({
+          needleHits: needled,
+          denseHits: densed,
+          config: deps.gateConfig,
         });
-        if (deps.gateConfig.bypassForCore) {
-          // Select over the stable prefix only. `runSelection` mirrors the
-          // normal path: with the selector off (the new-user profile) it passes
-          // the stable candidates straight through rather than forcing the
-          // selectPool LLM call — which that profile disables and which throws
-          // MemoryV3RetrievalUnavailableError with no provider, escaping the
-          // gate on a benign low-signal turn.
-          return closed(
-            await runSelection({ stable: buildStable(), finder: [] }),
-          );
+      } catch (err) {
+        log.warn(
+          {
+            err: err instanceof Error ? err.message : String(err),
+            conversationId: turn.conversationId,
+          },
+          "memory-v3 injection gate threw; passing open (proceeding with selection)",
+        );
+      }
+      if (gate) {
+        log.info(
+          {
+            conversationId: turn.conversationId,
+            turnNumber: turn.turnNumber,
+            gate,
+          },
+          "memory-v3 injection gate decision",
+        );
+        if (!gate.pass) {
+          // A closed gate produces no finder lane and no matched sections; only
+          // the `selections` differ between bypass (stable prefix) and hard-skip.
+          const closed = (selections: SelectedPage[]): OrchestrateResult => ({
+            selections,
+            matchedSections: new Map(),
+            lanes: { core, hot, fresh, finder: [] },
+          });
+          if (deps.gateConfig.bypassForCore) {
+            // Select over the stable prefix only. `runSelection` mirrors the
+            // normal path: with the selector off it passes the stable candidates
+            // straight through rather than forcing the selectPool LLM call —
+            // which a selector-disabled assistant has no provider for, so it
+            // throws MemoryV3RetrievalUnavailableError and escapes the gate on a
+            // benign low-signal turn. Reaching here means the assistant is
+            // explicitly configured with `selectorEnabled: false` AND
+            // `denseK > 0` (the dense-gated gate only runs with dense hits; the
+            // new-user profile sets `denseK: 0`, so the gate never runs for it).
+            return closed(
+              await runSelection({ stable: buildStable(), finder: [] }),
+            );
+          }
+          return closed([]);
         }
-        return closed([]);
       }
     }
   }
