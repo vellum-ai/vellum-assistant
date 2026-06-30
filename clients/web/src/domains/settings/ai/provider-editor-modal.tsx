@@ -7,25 +7,36 @@ import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Typography } from "@vellumai/design-library/components/typography";
 
-import { credentialPresenceQueryKey, useStoredCredentialPresence } from "@/domains/settings/ai/use-stored-credential-presence";
+import {
+  credentialPresenceQueryKey,
+  useStoredCredentialPresence,
+} from "@/domains/settings/ai/use-stored-credential-presence";
 import { secretsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
-    inferenceProviderconnectionsByNamePatch,
-    secretsPost,
+  inferenceProviderconnectionsByNamePatch,
+  secretsPost,
 } from "@/generated/daemon/sdk.gen";
 
-import { providerSupportsPlatformAuth, PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
+import {
+  providerSupportsPlatformAuth,
+  PROVIDER_DISPLAY_NAMES,
+} from "@/assistant/llm-model-catalog";
 import { ChatgptOAuthSection } from "@/domains/settings/ai/chatgpt-oauth-section";
-import type { Auth, ConnectionProvider, InferenceProviderconnectionsByNamePatchData, ProviderConnection } from "@/generated/daemon/types.gen";
+import type {
+  Auth,
+  ConnectionProvider,
+  InferenceProviderconnectionsByNamePatchData,
+  ProviderConnection,
+} from "@/generated/daemon/types.gen";
 import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
 import { ProviderEditorApiKeySection } from "@/domains/settings/ai/provider-editor-api-key-section";
 import {
-    AUTH_TYPE_DISPLAY_NAMES,
-    type AuthType,
-    CONNECTION_PROVIDERS,
-    connectionSaveErrorMessage,
-    parseCredentialRef,
+  AUTH_TYPE_DISPLAY_NAMES,
+  type AuthType,
+  connectionSaveErrorMessage,
+  parseCredentialRef,
 } from "@/domains/settings/ai/provider-editor-constants";
+import { useSelectableConnectionProviders } from "@/domains/settings/ai/provider-availability";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
 import { useProviderCredentialsList } from "@/domains/settings/ai/use-provider-credentials-list";
@@ -116,42 +127,47 @@ export function ProviderEditorContent({
   const [error, setError] = useState<string | null>(null);
 
   const isOpenAICompatible = provider === "openai-compatible";
+  const selectableConnectionProviders = useSelectableConnectionProviders();
   const connectionProviderOptions = useMemo(() => {
-    if (provider && !CONNECTION_PROVIDERS.includes(provider)) {
-      return [...CONNECTION_PROVIDERS, provider];
+    if (provider && !selectableConnectionProviders.includes(provider)) {
+      return [...selectableConnectionProviders, provider];
     }
-    return CONNECTION_PROVIDERS;
-  }, [provider]);
+    return selectableConnectionProviders;
+  }, [provider, selectableConnectionProviders]);
 
-  const { handleLabelChange, resetDirty } =
-    useLabelKeySync(effectiveMode, setLabel, setName);
+  const { handleLabelChange, resetDirty } = useLabelKeySync(
+    effectiveMode,
+    setLabel,
+    setName,
+  );
 
   const [apiKeyValue, setApiKeyValue] = useState("");
   const [isSavingKey, setIsSavingKey] = useState(false);
   const queryClient = useQueryClient();
 
   // --- Credential presence (shared hook) ---
-  const parsedCredRef = useMemo(() => parseCredentialRef(credential), [credential]);
+  const parsedCredRef = useMemo(
+    () => parseCredentialRef(credential),
+    [credential],
+  );
   const needsCredentialCheck = authType === "api_key" && parsedCredRef !== null;
 
-  const {
-    hasStoredCredential,
-    isLoading: isLoadingCredential,
-  } = useStoredCredentialPresence({
-    assistantId,
-    credentialKind: "credential",
-    credentialName: parsedCredRef ? `${parsedCredRef.service}:${parsedCredRef.field}` : "",
-    enabled: needsCredentialCheck,
-  });
+  const { hasStoredCredential, isLoading: isLoadingCredential } =
+    useStoredCredentialPresence({
+      assistantId,
+      credentialKind: "credential",
+      credentialName: parsedCredRef
+        ? `${parsedCredRef.service}:${parsedCredRef.field}`
+        : "",
+      enabled: needsCredentialCheck,
+    });
 
   // --- Available credentials list ---
   // Create mode is fully owned by ProviderCreateForm (early return below), so
   // the only reachable path here is edit / managed-edit — gate purely on auth.
   const needsCredentialsList = authType === "api_key";
 
-  const {
-    credentials: availableCredentials,
-  } = useProviderCredentialsList({
+  const { credentials: availableCredentials } = useProviderCredentialsList({
     assistantId,
     enabled: needsCredentialsList,
   });
@@ -252,7 +268,9 @@ export function ProviderEditorContent({
             );
             queryClient.setQueryData(presenceKey, true);
             void queryClient.invalidateQueries({
-              queryKey: secretsGetQueryKey({ path: { assistant_id: assistantId } }),
+              queryKey: secretsGetQueryKey({
+                path: { assistant_id: assistantId },
+              }),
             });
           } catch {
             setError("Failed to save API key. Please try again.");
@@ -271,14 +289,18 @@ export function ProviderEditorContent({
         } else {
           // OAuth subscription connections are created by the OAuth flow
           // (handleChatgptUrlSubmit), not through Save.
-          setError("Use the \"Sign in with ChatGPT\" button to connect your subscription.");
+          setError(
+            'Use the "Sign in with ChatGPT" button to connect your subscription.',
+          );
           return;
         }
       } else if (authType === "service_account") {
         if (connection?.auth.type === "service_account") {
           auth = connection.auth;
         } else {
-          setError("Service account connections cannot be created through this form.");
+          setError(
+            "Service account connections cannot be created through this form.",
+          );
           return;
         }
       } else if (authType === "none") {
@@ -305,10 +327,14 @@ export function ProviderEditorContent({
             : null,
         }),
       };
-      const { data: updated, response: updateRes } = await inferenceProviderconnectionsByNamePatch({
-        path: { assistant_id: assistantId, name: connection?.name ?? name.trim() },
-        body: input,
-      });
+      const { data: updated, response: updateRes } =
+        await inferenceProviderconnectionsByNamePatch({
+          path: {
+            assistant_id: assistantId,
+            name: connection?.name ?? name.trim(),
+          },
+          body: input,
+        });
       if (!updateRes?.ok) {
         setError(connectionSaveErrorMessage(updateRes?.status, name.trim()));
         return;
@@ -341,8 +367,7 @@ export function ProviderEditorContent({
   const isEditingApiKeyConnection =
     effectiveMode !== "create" && connection?.auth.type === "api_key";
   const shouldShowAdvancedSection =
-    providerCredentials.length > 0 ||
-    isEditingApiKeyConnection;
+    providerCredentials.length > 0 || isEditingApiKeyConnection;
   const apiKeyPlaceholder = secretPlaceholder(
     "Enter your API key",
     hasStoredCredential,
@@ -519,10 +544,7 @@ export function ProviderEditorContent({
 
         {/* ChatGPT Subscription OAuth — shown when auth type is oauth_subscription */}
         {authType === "oauth_subscription" && (
-          <ChatgptOAuthSection
-            assistantId={assistantId}
-            onConnected={onSave}
-          />
+          <ChatgptOAuthSection assistantId={assistantId} onConnected={onSave} />
         )}
 
         {error && (

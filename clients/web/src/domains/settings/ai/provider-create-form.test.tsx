@@ -24,6 +24,7 @@ import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { createElement, type ReactNode } from "react";
 
+import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import type { ProviderConnection } from "@/generated/daemon/types.gen";
 import * as sdkGen from "@/generated/daemon/sdk.gen";
 
@@ -46,6 +47,7 @@ let createdConnection: ProviderConnection;
 let createResponseOk = true;
 let createResponseStatus = 200;
 let toastSuccessCalls: string[] = [];
+const initialLifecycleState = useAssistantLifecycleStore.getState();
 
 mock.module("@vellumai/design-library/components/toast", () => ({
   toast: {
@@ -195,6 +197,7 @@ beforeEach(() => {
   createResponseOk = true;
   createResponseStatus = 200;
   toastSuccessCalls = [];
+  useAssistantLifecycleStore.setState(initialLifecycleState, true);
 });
 
 afterEach(() => {
@@ -365,6 +368,9 @@ describe("ProviderCreateForm submit sequence", () => {
   });
 
   test("Ollama creates a keyless connection without saving a secret", async () => {
+    useAssistantLifecycleStore.setState({
+      assistantState: { kind: "self_hosted" },
+    });
     render(
       <ModalWrapper>
         <ProviderCreateForm
@@ -393,6 +399,34 @@ describe("ProviderCreateForm submit sequence", () => {
       name: "ollama",
       provider: "ollama",
       auth: { type: "none" },
+    });
+  });
+
+  test("platform-hosted assistants ignore an Ollama default provider seed", async () => {
+    useAssistantLifecycleStore.setState({
+      assistantState: { kind: "active", isLocal: false },
+    });
+    render(
+      <ModalWrapper>
+        <ProviderCreateForm
+          assistantId={ASSISTANT_ID}
+          existingNames={[]}
+          defaultProviderType="ollama"
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />
+      </ModalWrapper>,
+    );
+
+    fireEvent.click(getButton("Create"));
+
+    await waitFor(() => {
+      expect(createConnectionCalls.length).toBe(1);
+    });
+    expect(createConnectionCalls[0].body).toMatchObject({
+      name: "anthropic",
+      provider: "anthropic",
+      auth: { type: "platform" },
     });
   });
 

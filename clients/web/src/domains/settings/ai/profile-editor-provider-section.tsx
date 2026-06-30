@@ -4,15 +4,17 @@ import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import {
-    getModelsForProvider,
-    PROVIDER_DISPLAY_NAMES,
-    MODELS_BY_PROVIDER,
+  getModelsForProvider,
+  PROVIDER_DISPLAY_NAMES,
 } from "@/assistant/llm-model-catalog";
 
 import { OPENAI_COMPATIBLE_PROVIDER } from "@/domains/settings/ai/constants";
-import type { ConnectionModel, ConnectionProvider, ProviderConnection } from "@/generated/daemon/types.gen";
-
-const ALL_PROVIDERS = Object.keys(MODELS_BY_PROVIDER) as (keyof typeof MODELS_BY_PROVIDER)[];
+import { useSelectableCatalogProviders } from "@/domains/settings/ai/provider-availability";
+import type {
+  ConnectionModel,
+  ConnectionProvider,
+  ProviderConnection,
+} from "@/generated/daemon/types.gen";
 
 const CODEX_SUBSCRIPTION_MODEL_IDS = new Set([
   "gpt-5.5",
@@ -21,7 +23,9 @@ const CODEX_SUBSCRIPTION_MODEL_IDS = new Set([
   "gpt-5.3-codex",
 ]);
 
-function connectionModelsToCatalog(models: ConnectionModel[] | null | undefined) {
+function connectionModelsToCatalog(
+  models: ConnectionModel[] | null | undefined,
+) {
   return (models ?? []).map((m) => ({
     id: m.id,
     displayName: m.displayName ?? m.id,
@@ -103,7 +107,7 @@ export function ProfileEditorProviderSection({
   const providerMissing = provider.length === 0;
   const providerWithoutModel = provider.length > 0 && model.length === 0;
 
-  const allProvidersForPicker = ALL_PROVIDERS;
+  const allProvidersForPicker = useSelectableCatalogProviders();
 
   // Filter to providers with at least one connection — picking a provider
   // with zero connections binds a profile to a route the daemon can't
@@ -118,11 +122,7 @@ export function ProfileEditorProviderSection({
       providerSet.add(provider);
     }
     return allProvidersForPicker.filter((p) => providerSet.has(p));
-  }, [
-    allProvidersForPicker,
-    connections,
-    provider,
-  ]);
+  }, [allProvidersForPicker, connections, provider]);
 
   // Pre-load fallback: when `connections` is `undefined` the parent hasn't
   // resolved its `listConnections` fetch yet. Fall back to the full catalog
@@ -138,72 +138,81 @@ export function ProfileEditorProviderSection({
   // Provider must be selected; without it we can't filter or label.
   const showConnectionField =
     provider !== "" &&
-    (availableConnectionsForProvider.length > 0 ||
-      providerConnection !== "");
+    (availableConnectionsForProvider.length > 0 || providerConnection !== "");
 
   // For openai-compatible providers the static catalog is empty — use models
   // from the selected connection instead. When no specific connection is
   // selected, merge models from all available openai-compatible connections.
-  const availableModels: readonly { id: string; displayName: string }[] = useMemo(() => {
-    if (!provider) return [];
-    const catalogModels = getModelsForProvider(provider);
-    if (catalogModels.length > 0) {
-      const selectedConn = providerConnection
-        ? availableConnectionsForProvider.find((c) => c.name === providerConnection)
-        : undefined;
-      if (selectedConn?.auth.type === "oauth_subscription") {
-        return catalogModels.filter((m) => CODEX_SUBSCRIPTION_MODEL_IDS.has(m.id));
+  const availableModels: readonly { id: string; displayName: string }[] =
+    useMemo(() => {
+      if (!provider) return [];
+      const catalogModels = getModelsForProvider(provider);
+      if (catalogModels.length > 0) {
+        const selectedConn = providerConnection
+          ? availableConnectionsForProvider.find(
+              (c) => c.name === providerConnection,
+            )
+          : undefined;
+        if (selectedConn?.auth.type === "oauth_subscription") {
+          return catalogModels.filter((m) =>
+            CODEX_SUBSCRIPTION_MODEL_IDS.has(m.id),
+          );
+        }
+        if (
+          !providerConnection &&
+          availableConnectionsForProvider.length > 0 &&
+          availableConnectionsForProvider.every(
+            (c) => c.auth.type === "oauth_subscription",
+          )
+        ) {
+          return catalogModels.filter((m) =>
+            CODEX_SUBSCRIPTION_MODEL_IDS.has(m.id),
+          );
+        }
+        return catalogModels;
       }
-      if (
-        !providerConnection &&
-        availableConnectionsForProvider.length > 0 &&
-        availableConnectionsForProvider.every((c) => c.auth.type === "oauth_subscription")
-      ) {
-        return catalogModels.filter((m) => CODEX_SUBSCRIPTION_MODEL_IDS.has(m.id));
+      // Static catalog is empty (openai-compatible) — derive from connections.
+      if (providerConnection) {
+        const conn = availableConnectionsForProvider.find(
+          (c) => c.name === providerConnection,
+        );
+        return conn ? connectionModelsToCatalog(conn.models) : [];
       }
-      return catalogModels;
-    }
-    // Static catalog is empty (openai-compatible) — derive from connections.
-    if (providerConnection) {
-      const conn = availableConnectionsForProvider.find((c) => c.name === providerConnection);
-      return conn ? connectionModelsToCatalog(conn.models) : [];
-    }
-    // No specific connection: merge models from all available connections,
-    // deduplicating by id.
-    const seen = new Set<string>();
-    const merged: { id: string; displayName: string }[] = [];
-    for (const conn of availableConnectionsForProvider) {
-      for (const m of conn.models ?? []) {
-        if (!seen.has(m.id)) {
-          seen.add(m.id);
-          merged.push({ id: m.id, displayName: m.displayName ?? m.id });
+      // No specific connection: merge models from all available connections,
+      // deduplicating by id.
+      const seen = new Set<string>();
+      const merged: { id: string; displayName: string }[] = [];
+      for (const conn of availableConnectionsForProvider) {
+        for (const m of conn.models ?? []) {
+          if (!seen.has(m.id)) {
+            seen.add(m.id);
+            merged.push({ id: m.id, displayName: m.displayName ?? m.id });
+          }
         }
       }
-    }
-    return merged;
-  }, [
-    provider,
-    providerConnection,
-    availableConnectionsForProvider,
-  ]);
+      return merged;
+    }, [provider, providerConnection, availableConnectionsForProvider]);
 
   // The Model dropdown always offers the profile's currently-bound model, even
   // when it's absent from the static catalog — a profile can be bound (via Chat)
   // to a model this build doesn't list: a new or cloaked provider model, or one
   // carried only on the connection. Label it from the catalog, then connection
   // models, then the raw id.
-  const modelOptions: readonly { id: string; displayName: string }[] = useMemo(() => {
-    if (!model || availableModels.some((m) => m.id === model)) {
-      return availableModels;
-    }
-    const fromCatalog = getModelsForProvider(provider).find((m) => m.id === model);
-    const fromConnection = availableConnectionsForProvider
-      .flatMap((c) => c.models ?? [])
-      .find((m) => m.id === model);
-    const displayName =
-      fromCatalog?.displayName ?? fromConnection?.displayName ?? model;
-    return [...availableModels, { id: model, displayName }];
-  }, [model, availableModels, provider, availableConnectionsForProvider]);
+  const modelOptions: readonly { id: string; displayName: string }[] =
+    useMemo(() => {
+      if (!model || availableModels.some((m) => m.id === model)) {
+        return availableModels;
+      }
+      const fromCatalog = getModelsForProvider(provider).find(
+        (m) => m.id === model,
+      );
+      const fromConnection = availableConnectionsForProvider
+        .flatMap((c) => c.models ?? [])
+        .find((m) => m.id === model);
+      const displayName =
+        fromCatalog?.displayName ?? fromConnection?.displayName ?? model;
+      return [...availableModels, { id: model, displayName }];
+    }, [model, availableModels, provider, availableConnectionsForProvider]);
 
   // Single discriminator for the Model field's empty states — the dropdown
   // placeholder and the hint below both derive from it so the two can't
@@ -232,7 +241,10 @@ export function ProfileEditorProviderSection({
   useEffect(() => {
     if (!provider) return;
     const catalogModels = getModelsForProvider(provider);
-    if (catalogModels.length > 0 && !catalogModels.some((m) => m.id === model)) {
+    if (
+      catalogModels.length > 0 &&
+      !catalogModels.some((m) => m.id === model)
+    ) {
       return;
     }
     if (
@@ -312,8 +324,7 @@ export function ProfileEditorProviderSection({
                 : []),
               ...availableConnectionsForProvider.map((c) => ({
                 value: c.name,
-                label:
-                  c.label && c.label.trim() !== "" ? c.label : c.name,
+                label: c.label && c.label.trim() !== "" ? c.label : c.name,
               })),
               // Include the stale binding as an explicit option so the trigger
               // renders its name. The warning below explains the state; on save,
@@ -334,8 +345,8 @@ export function ProfileEditorProviderSection({
               as="p"
               className="text-(--system-negative-strong)"
             >
-              Connection &ldquo;{providerConnection}&rdquo; not found.
-              Will be cleared on save unless you pick another.
+              Connection &ldquo;{providerConnection}&rdquo; not found. Will be
+              cleared on save unless you pick another.
             </Typography>
           ) : null}
         </div>

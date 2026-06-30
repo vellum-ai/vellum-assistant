@@ -37,12 +37,14 @@ import {
   resolveProfileParamVisibility,
 } from "@/domains/settings/ai/profile-param-visibility";
 import { deriveProfileDefaults } from "@/domains/settings/ai/profile-prefill";
+import { isProviderSelectableForAssistant } from "@/domains/settings/ai/provider-availability";
 import type {
   ConnectionProvider,
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
 import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
 import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
+import { useActiveAssistantIsSelfHosted } from "@/hooks/use-platform-gate";
 
 // Sentinel value for the "+ Create new provider" option in the create-mode
 // Provider dropdown. Picking it mounts the inline ProviderCreateForm instead
@@ -167,6 +169,7 @@ function ProfileEditorModalInner({
     "create" | "edit" | "view"
   >(mode);
   const isReadOnly = effectiveMode === "view";
+  const activeAssistantIsSelfHosted = useActiveAssistantIsSelfHosted();
 
   // Managed profiles open the editor in view mode (mode === "view") so they
   // can't be reshaped (provider, model, advanced params) — those are
@@ -766,6 +769,14 @@ function ProfileEditorModalInner({
       label: string;
     }[] = [];
     for (const c of effectiveConnections) {
+      if (
+        !isProviderSelectableForAssistant(
+          c.provider,
+          activeAssistantIsSelfHosted,
+        )
+      ) {
+        continue;
+      }
       if (!seen.has(c.provider)) {
         seen.add(c.provider);
         opts.push({
@@ -779,7 +790,7 @@ function ProfileEditorModalInner({
       label: "+ Create new provider",
     });
     return opts;
-  }, [effectiveConnections]);
+  }, [activeAssistantIsSelfHosted, effectiveConnections]);
 
   const createProviderSection = (
     <div className="space-y-4">
