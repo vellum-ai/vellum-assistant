@@ -135,9 +135,9 @@ mock.module("../../runtime/skill-route-registry.js", () => ({
   registerSkillRoute: registerSkillRouteSpy,
 }));
 
-const registerShutdownHookSpy = mock(() => {});
-mock.module("../shutdown-registry.js", () => ({
-  registerShutdownHook: registerShutdownHookSpy,
+const registerPluginHooksSpy = mock(() => {});
+mock.module("../../hooks/registry.js", () => ({
+  registerPluginHooks: registerPluginHooksSpy,
 }));
 
 class StubSpeakerTracker {}
@@ -261,10 +261,16 @@ describe("createDaemonSkillHost", () => {
     expect(registerSkillRouteSpy).toHaveBeenCalled();
     const hook = async () => {};
     host.registries.registerShutdownHook("test-hook", hook);
-    expect(registerShutdownHookSpy).toHaveBeenCalledWith(
-      "meet-join:test-hook",
-      hook,
-    );
+    // The skill's shutdown hook is registered into the unified hook registry
+    // under the skillId-namespaced owner, as a `shutdown` hook that fires via
+    // `runHook(HOOKS.SHUTDOWN)` at daemon shutdown.
+    expect(registerPluginHooksSpy).toHaveBeenCalledTimes(1);
+    const [owner, hooks] = registerPluginHooksSpy.mock.calls[0]! as unknown as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(owner).toBe("meet-join:test-hook");
+    expect(typeof hooks.shutdown).toBe("function");
   });
 
   test("speakers.createTracker yields a concrete tracker instance", () => {
