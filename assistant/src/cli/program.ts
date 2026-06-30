@@ -79,7 +79,7 @@ export function buildCliProgramTree(): Command {
 
   program
     .name("assistant")
-    .description("Local AI assistant")
+    .description("Utilities for navigating and managing your own workspace")
     .version(APP_VERSION)
     .allowExcessArguments(true);
 
