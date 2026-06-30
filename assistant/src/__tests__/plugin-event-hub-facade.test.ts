@@ -153,6 +153,35 @@ describe("plugin-facing assistantEventHub facade", () => {
     }
   });
 
+  test("rejects host events disguised as boxed strings (Codex P1)", async () => {
+    const received: AssistantEvent[] = [];
+    const sub = subscribeHostClient("facade-boxed-client", received);
+    try {
+      // `new String(...)` is typeof "object" (slipping a naive string guard) but
+      // JSON-serializes to the primitive the client acts on. The canonical wire
+      // snapshot coerces it so the guard still blocks it.
+
+      const boxedType = new String("host_bash_request");
+      const boxed = {
+        message: { type: boxedType },
+      } as unknown as AssistantEvent;
+      let rejected: unknown;
+      try {
+        await pluginHub.publish(boxed, {
+          targetClientId: "facade-boxed-client",
+          targetCapability: "host_bash",
+        });
+      } catch (err) {
+        rejected = err;
+      }
+      expect(rejected).toBeInstanceOf(Error);
+      expect((rejected as Error).message).toMatch(/host-proxy control events/);
+      expect(received).toHaveLength(0);
+    } finally {
+      sub.dispose();
+    }
+  });
+
   test("delegates non-host publish to the shared singleton", async () => {
     const received: AssistantEvent[] = [];
     // Subscribe on the RAW hub, publish through the FACADE: delivery proves the

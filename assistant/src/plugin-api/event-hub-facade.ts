@@ -24,12 +24,14 @@
  *   handing one to a plugin would let it deliver a forged host event without
  *   going through the guarded `publish` at all.
  *
- * `publish` deep-clones the caller's event (and options) into an inert,
- * deep-frozen snapshot before checking the type and forwards that same
- * snapshot. Cloning defeats a mutating getter / Proxy that would show the guard
- * a benign type and the client a host type (time-of-check vs. time-of-use);
- * freezing defeats a subscriber that mutates the in-flight event mid-fanout
- * (the hub delivers one object to every subscriber in turn).
+ * `publish` canonicalizes the caller's event (and options) to their JSON wire
+ * form — the exact representation the client receives — then deep-freezes that
+ * snapshot before checking the type and forwards it. JSON canonicalization
+ * collapses getters / Proxies to inert values and coerces boxed values (e.g.
+ * `new String("host_bash_request")`) to primitives, so the guard cannot be
+ * shown a benign type while the client acts on a host one (time-of-check vs.
+ * time-of-use). Freezing stops a subscriber from mutating the in-flight event
+ * mid-fanout (the hub delivers one object to every subscriber in turn).
  */
 
 import type { AssistantEvent } from "../runtime/assistant-event.js";
@@ -56,11 +58,18 @@ export type PluginEventHub = Pick<
 const HOST_CONTROL_EVENT_TYPE_PREFIX = "host_";
 
 /**
- * The structured-clone primitive, pinned at module-load time — before any user
- * plugin loads and could swap the global — so the publish snapshot always
- * produces inert data.
+ * JSON primitives pinned at module-load time — before any user plugin loads and
+ * could swap the globals. A JSON round-trip canonicalizes a published event to
+ * exactly the wire form the client receives, so the guard checks the same
+ * representation the client will act on.
  */
-const cloneValue: typeof structuredClone = structuredClone;
+const jsonStringify: typeof JSON.stringify = JSON.stringify;
+const jsonParse: typeof JSON.parse = JSON.parse;
+
+/** Canonicalize a value to its JSON wire form. Throws if it is not serializable. */
+function wireSnapshot<T>(value: T): T {
+  return jsonParse(jsonStringify(value)) as T;
+}
 
 /**
  * Recursively freeze a value (cycle-safe). The hub fans the same event object
@@ -96,8 +105,8 @@ export const pluginAssistantEventHub: PluginEventHub = Object.freeze({
     let snapshot: AssistantEvent;
     let snapshotOptions: Parameters<AssistantEventHub["publish"]>[1];
     try {
-      snapshot = deepFreeze(cloneValue(event));
-      snapshotOptions = options ? cloneValue(options) : undefined;
+      snapshot = deepFreeze(wireSnapshot(event));
+      snapshotOptions = options ? wireSnapshot(options) : undefined;
     } catch {
       throw new Error("Plugins may not publish a non-serializable event.");
     }
