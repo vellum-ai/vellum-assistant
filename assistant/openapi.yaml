@@ -17916,6 +17916,44 @@ paths:
                           additionalProperties: false
                         backgroundToolNotification:
                           type: boolean
+                        backgroundToolCompletion:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            toolName:
+                              type: string
+                            conversationId:
+                              type: string
+                            command:
+                              type: string
+                            startedAt:
+                              type: number
+                            status:
+                              type: string
+                              enum:
+                                - completed
+                                - failed
+                                - cancelled
+                            exitCode:
+                              anyOf:
+                                - type: number
+                                - type: "null"
+                            output:
+                              type: string
+                            completedAt:
+                              type: number
+                          required:
+                            - id
+                            - toolName
+                            - conversationId
+                            - command
+                            - startedAt
+                            - status
+                            - exitCode
+                            - output
+                            - completedAt
+                          additionalProperties: false
                         slackMessage:
                           type: object
                           properties:

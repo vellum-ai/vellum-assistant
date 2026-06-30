@@ -135,6 +135,10 @@ function mergeHistoryEntry(
   existing: BackgroundTaskEntry,
   incoming: BackgroundTaskEntry,
 ): BackgroundTaskEntry {
+  // When both are terminal, the history-seeded status overwrites the existing
+  // one (unlike completeTask, which keeps an optimistic "cancelled" over a
+  // daemon "failed"); safe because the daemon persists "cancelled" for
+  // user-aborted runs, so history agrees.
   const status =
     isActiveBackgroundTaskStatus(existing.status) ||
     !isActiveBackgroundTaskStatus(incoming.status)

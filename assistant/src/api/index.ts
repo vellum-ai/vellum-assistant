@@ -404,6 +404,7 @@ export {
   DictationRequestSchema,
 } from "./requests/dictation.js";
 export {
+  type BackgroundToolCompletion,
   type ConversationAttachmentBlock,
   ConversationAttachmentBlockSchema,
   type ConversationContentBlock,
