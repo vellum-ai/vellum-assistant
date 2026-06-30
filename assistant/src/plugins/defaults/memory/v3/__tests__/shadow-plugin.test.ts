@@ -31,6 +31,7 @@ import { migrateMemoryV3SelectionsMessageIdAndSections } from "../../../../../pe
 import * as schema from "../../../../../persistence/schema/index.js";
 import type { HotSetEntry, HotSetOptions } from "../hot-set.js";
 import type { OrchestrateResult } from "../orchestrate.js";
+import { MEMORY_V3_FULL_PROFILE_MIN_PAGES } from "../tuning-profile.js";
 import {
   MEMORY_V3_COMMIT_META_KEY,
   type MemoryRoutingTurn,
@@ -80,6 +81,13 @@ let shadowMockActive = false;
 let liveEnabled = false;
 let memoryEnabled = true;
 let learnedEdgesCap = 0;
+// Synthetic real concept pages (modifiedAt > 0) appended to the mocked page
+// index so a test can cross the v3 full-profile page threshold; 0 → sparse
+// corpus, lean profile.
+let extraRealConceptPages = 0;
+// Mutable mocked config knob (orchestrate-only) for asserting per-turn tuning
+// re-resolution from a live config edit.
+let selectorEnabledCfg = false;
 let messages: Array<{ role: string; content: string }> = [];
 
 // A synthetic skill capability slug the page index carries. Its rendered
@@ -192,7 +200,7 @@ mock.module("../../../../../config/loader.js", () => ({
         needleK: 12,
         denseK: 0,
         replyQueryK: 0,
-        selectorEnabled: false,
+        selectorEnabled: selectorEnabledCfg,
         learnedEdges: {
           halfLifeDays: 30,
           minCount: 3,
@@ -271,6 +279,16 @@ mock.module("../../../../../memory/v2/page-index.js", () => ({
         leaves: [],
         modifiedAt: 0,
       },
+      // Extra real concept rows (modifiedAt > 0) a test can request to cross the
+      // v3 full-profile page threshold; default 0 keeps the corpus sparse (lean).
+      ...Array.from({ length: extraRealConceptPages }, (_, i) => ({
+        slug: `concepts/seed-${i}`,
+        id: 100 + i,
+        summary: "",
+        edges: [],
+        leaves: [],
+        modifiedAt: 1,
+      })),
     ],
     bySlug: new Map(),
   }),
@@ -418,6 +436,8 @@ beforeEach(() => {
   liveEnabled = false;
   memoryEnabled = true;
   learnedEdgesCap = 0;
+  extraRealConceptPages = 0;
+  selectorEnabledCfg = false;
   messages = [
     {
       role: "user",
@@ -606,6 +626,9 @@ describe("memory-v3 engine", () => {
 
   test("learned-edge graph init runs when the configured cap is positive", async () => {
     learnedEdgesCap = 6;
+    // The learned lane lives in the full profile, which a sparse corpus never
+    // reaches — seed enough real concept pages to cross the page threshold.
+    extraRealConceptPages = MEMORY_V3_FULL_PROFILE_MIN_PAGES;
 
     await observeTurn("conv-1", 0);
 
@@ -618,6 +641,25 @@ describe("memory-v3 engine", () => {
     expect(learnedGraphBuilds).toBe(1);
     expect(deps.learnedGraph).toBeDefined();
     expect(deps.learnedCap).toBe(6);
+  });
+
+  test("re-resolves per-turn tuning from current config without a lane rebuild", async () => {
+    // Established corpus so the configured knobs (not the lean profile) apply.
+    extraRealConceptPages = MEMORY_V3_FULL_PROFILE_MIN_PAGES;
+    selectorEnabledCfg = false;
+    await observeTurn("conv-1", 0);
+    const firstDeps = (
+      orchestrateSpy.mock.calls as unknown as unknown[][]
+    )[0]![1] as { selectorEnabled?: boolean };
+    expect(firstDeps.selectorEnabled).toBe(false);
+
+    // Edit config mid-conversation; the lanes are NOT invalidated.
+    selectorEnabledCfg = true;
+    await observeTurn("conv-1", 1);
+    const secondDeps = (
+      orchestrateSpy.mock.calls as unknown as unknown[][]
+    )[1]![1] as { selectorEnabled?: boolean };
+    expect(secondDeps.selectorEnabled).toBe(true);
   });
 
   test("initLanes filters core to existing pages and excludes core from the hot set", async () => {

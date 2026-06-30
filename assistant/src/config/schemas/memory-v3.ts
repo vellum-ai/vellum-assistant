@@ -18,7 +18,7 @@ export const MemoryV3EdgeSchema = z
       .number({ error: "memory.v3.edge.seedCount must be a number" })
       .int("memory.v3.edge.seedCount must be an integer")
       .positive("memory.v3.edge.seedCount must be a positive integer")
-      .default(6)
+      .default(18)
       .describe(
         "Number of top needle+dense seeds (in rank order) expanded by the edge lane.",
       ),
@@ -26,13 +26,13 @@ export const MemoryV3EdgeSchema = z
       .number({ error: "memory.v3.edge.perSeed must be a number" })
       .int("memory.v3.edge.perSeed must be an integer")
       .positive("memory.v3.edge.perSeed must be a positive integer")
-      .default(1)
+      .default(6)
       .describe("Maximum neighbours surfaced per expanded seed."),
     cap: z
       .number({ error: "memory.v3.edge.cap must be a number" })
       .int("memory.v3.edge.cap must be an integer")
       .positive("memory.v3.edge.cap must be a positive integer")
-      .default(6)
+      .default(45)
       .describe(
         "Hard cap on the total number of distinct articles surfaced by the edge lane.",
       ),
@@ -49,7 +49,7 @@ export const MemoryV3HotSetSchema = z
       .number({ error: "memory.v3.hotSet.k must be a number" })
       .int("memory.v3.hotSet.k must be an integer")
       .nonnegative("memory.v3.hotSet.k must be a non-negative integer")
-      .default(8)
+      .default(40)
       .describe(
         "Number of top frecency-scored pages included in the hot-set lane. 0 disables the lane.",
       ),
@@ -76,7 +76,7 @@ export const MemoryV3FreshSetSchema = z
       .number({ error: "memory.v3.freshSet.k must be a number" })
       .int("memory.v3.freshSet.k must be an integer")
       .nonnegative("memory.v3.freshSet.k must be a non-negative integer")
-      .default(8)
+      .default(100)
       .describe(
         "Number of most-recently-modified pages included in the fresh-set lane (0 disables the lane). Sized to cover roughly the last day or two of page writes — the recency window conversations reference most.",
       ),
@@ -134,7 +134,7 @@ export const MemoryV3LearnedEdgesSchema = z
       .number({ error: "memory.v3.learnedEdges.cap must be a number" })
       .int("memory.v3.learnedEdges.cap must be an integer")
       .nonnegative("memory.v3.learnedEdges.cap must be a non-negative integer")
-      .default(0)
+      .default(20)
       .describe(
         "Hard cap on total learned-lane surfaced articles per turn (0 disables the pass).",
       ),
@@ -253,6 +253,14 @@ export const MemoryV3EntitySchema = z
 // per-turn carry set) used to live here. Existing user config files may still
 // contain the key; zod default unknown-key stripping accepts and ignores it,
 // so legacy configs keep parsing. Do not make this object `.strict()`.
+//
+// The retrieval tuning defaults across these sub-schemas (hotSet.k, freshSet.k,
+// learnedEdges.cap, edge.{seedCount,perSeed,cap}) and the top-level needleK /
+// denseK / replyQueryK / selectorEnabled are the FULL (established-corpus)
+// profile. Sparse-corpus assistants run the lean new-user profile
+// (`resolveV3Tuning` / `MEMORY_V3_NEW_USER_TUNING` in the v3 plugin's
+// `tuning-profile.ts`) until they cross `MEMORY_V3_FULL_PROFILE_MIN_PAGES` real
+// concept pages, at which point these configured values take effect.
 export const MemoryV3ConfigSchema = z
   .object({
     live: z
@@ -274,7 +282,7 @@ export const MemoryV3ConfigSchema = z
       .number({ error: "memory.v3.needleK must be a number" })
       .int("memory.v3.needleK must be an integer")
       .nonnegative("memory.v3.needleK must be a non-negative integer")
-      .default(12)
+      .default(100)
       .describe(
         "Number of section-grain BM25 needle articles folded into the candidate pool each turn. 0 disables the needle lane.",
       ),
@@ -282,7 +290,7 @@ export const MemoryV3ConfigSchema = z
       .number({ error: "memory.v3.denseK must be a number" })
       .int("memory.v3.denseK must be an integer")
       .nonnegative("memory.v3.denseK must be a non-negative integer")
-      .default(0)
+      .default(100)
       .describe(
         "Number of dense-lane articles folded into the candidate pool each turn after embedding the turn query. 0 disables dense retrieval for both current-message and reply-query passes.",
       ),
@@ -290,13 +298,13 @@ export const MemoryV3ConfigSchema = z
       .number({ error: "memory.v3.replyQueryK must be a number" })
       .int("memory.v3.replyQueryK must be an integer")
       .nonnegative("memory.v3.replyQueryK must be a non-negative integer")
-      .default(0)
+      .default(12)
       .describe(
         "Per-lane article budget for the reply-query finder pass: needle and dense each re-run over the assistant's previous message as separate queries (never concatenated with the user's message). 0 disables the pass. Deliberately small next to needleK/denseK — the pass adds the assistant-side retrieval signal, not a second full sweep.",
       ),
     selectorEnabled: z
       .boolean({ error: "memory.v3.selectorEnabled must be a boolean" })
-      .default(false)
+      .default(true)
       .describe(
         "Whether to run the memory-v3 selector LLM callsite over the candidate pool. When false, every pooled candidate is passed through to injection directly; an empty pool produces no memory block.",
       ),

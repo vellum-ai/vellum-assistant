@@ -59,6 +59,7 @@ import { ensureSectionCollection } from "./section-dense-store.js";
 import type { SectionNeedle } from "./section-needle.js";
 import { buildSectionNeedle } from "./section-needle.js";
 import { buildSectionIndex } from "./sections.js";
+import { resolveV3Tuning } from "./tuning-profile.js";
 import {
   type MemoryRoutingTurn,
   type SectionIndex,
@@ -116,6 +117,12 @@ export interface ShadowLanes {
    *  keyed by slug. Frozen at lane build so the selector's stable prefix is
    *  byte-identical across turns until the next invalidation. */
   prefixCards: Map<Slug, string>;
+  /** Real concept-page count at lane build (page-index entries with a real
+   *  mtime): the corpus-size signal for {@link resolveV3Tuning}. The lane-build
+   *  tuning (hot/fresh K, learned-edge graph) is derived from it here, and the
+   *  per-turn orchestrate knobs are re-resolved from it each turn so a live
+   *  config edit takes effect without waiting for a lane rebuild. */
+  realConceptPageCount: number;
 }
 
 /** Milliseconds per day — converts `hotSet.halfLifeDays` config to ms. */
@@ -148,6 +155,15 @@ export function resetShadowLanesForTests(): void {
 async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   const pageIndex = await getPageIndex(getWorkspaceDir());
   const slugs = pageIndex.entries.map((entry) => entry.slug);
+
+  // Synthetic capability slugs (skills / CLI commands) carry `modifiedAt: 0`;
+  // real on-disk concept pages carry a file mtime. The real-page count drives
+  // the corpus-size-adaptive tuning: a sparse corpus runs the lean new-user
+  // profile until it crosses the page threshold, then the configured/full one.
+  const realConceptPageCount = pageIndex.entries.filter(
+    (entry) => entry.modifiedAt > 0,
+  ).length;
+  const tuning = resolveV3Tuning(config, realConceptPageCount);
 
   // Read each page ONCE and feed BOTH forms downstream: the frontmatter-stripped
   // body to the section index (lexical/dense matching), and the raw page
@@ -212,7 +228,7 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   const hotSlugs = computeHotSet(
     { db: getDb() },
     {
-      k: config.memory.v3.hotSet.k,
+      k: tuning.hotSetK,
       halfLifeMs: config.memory.v3.hotSet.halfLifeDays * DAY_MS,
       now: Date.now(),
       excludeSlugs: new Set(coreSlugs),
@@ -226,7 +242,7 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   // move at consolidation — the same event that invalidates the lanes — so the
   // set is recomputed exactly when it can have changed.
   const freshSlugs = computeFreshSet(pageIndex.entries, {
-    k: config.memory.v3.freshSet.k,
+    k: tuning.freshSetK,
     excludeSlugs: new Set([...coreSlugs, ...hotSlugs]),
   }).filter((slug) => sectionIndex.byArticle.has(slug));
 
@@ -297,7 +313,7 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   // they are first-class pages there).
   const learned = config.memory.v3.learnedEdges;
   const learnedGraph =
-    learned.cap > 0 && learned.maxPerPage > 0
+    tuning.learnedEdgesCap > 0 && learned.maxPerPage > 0
       ? computeLearnedEdgeGraph(
           { db: getDb() },
           {
@@ -339,6 +355,7 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
     freshSlugs,
     alwaysCandidateSlugs,
     prefixCards,
+    realConceptPageCount,
   };
 }
 
@@ -572,6 +589,13 @@ export async function observeTurn(
     if (cfg.memory.enabled === false) return null;
     const lanes = await getLanes(cfg);
     const v3 = cfg.memory.v3;
+    // Re-resolve the corpus-adaptive tuning each turn from the CURRENT config
+    // (with the lane-build corpus-size signal) so a live config.json edit to a
+    // per-turn knob (selectorEnabled, denseK, replyQueryK, edge.*) takes effect
+    // on the next turn instead of waiting for the next lane rebuild. The
+    // lane-build params (hot/fresh K, learned-edge graph) stay frozen on the
+    // lanes for stable-prefix cache reuse.
+    const tuning = resolveV3Tuning(cfg, lanes.realConceptPageCount);
     const result = await orchestrate(turn, {
       sectionIndex: lanes.sectionIndex,
       needle: lanes.needle,
@@ -583,17 +607,17 @@ export async function observeTurn(
       freshSlugs: lanes.freshSlugs,
       alwaysCandidateSlugs: lanes.alwaysCandidateSlugs,
       prefixCards: lanes.prefixCards,
-      needleK: v3.needleK,
-      denseK: v3.denseK,
+      needleK: tuning.needleK,
+      denseK: tuning.denseK,
       entityCap: v3.entity.cap,
-      replyQueryK: v3.replyQueryK,
-      edgeSeeds: v3.edge.seedCount,
-      edgePerSeed: v3.edge.perSeed,
-      edgeCap: v3.edge.cap,
+      replyQueryK: tuning.replyQueryK,
+      edgeSeeds: tuning.edgeSeedCount,
+      edgePerSeed: tuning.edgePerSeed,
+      edgeCap: tuning.edgeCap,
       learnedGraph: lanes.learnedGraph,
       learnedPerSeed: v3.learnedEdges.perSeed,
-      learnedCap: v3.learnedEdges.cap,
-      selectorEnabled: v3.selectorEnabled,
+      learnedCap: tuning.learnedEdgesCap,
+      selectorEnabled: tuning.selectorEnabled,
       selectorPrompt: resolveSelectorPrompt(
         v3.selectorPromptPath,
         getWorkspaceDir(),
