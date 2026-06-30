@@ -10,18 +10,20 @@
  * content only — the shared toned backdrop (avatar color + bottom eyes) sits
  * behind.
  *
- * Each slider has a personality avatar peeking in from each screen edge — one
- * per end label (ten in all). Dead-center, both hide; the further the user
- * drags toward an end, the further that end's avatar pokes in from its edge.
- * It makes the abstract trait axes feel like characters reacting to the choice.
+ * On desktop, each slider has a personality avatar peeking in from each screen
+ * edge — one per end label (ten in all). Dead-center, both hide; the further
+ * the user drags toward an end, the further that end's avatar pokes in. It makes
+ * the abstract trait axes feel like characters reacting to the choice. (Hidden
+ * on mobile, where the narrow track leaves no room for them.)
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowRight } from "lucide-react";
 import * as SliderPrimitive from "@radix-ui/react-slider";
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top-bar";
+import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
 import { useOnboardingTone } from "@/domains/onboarding/onboarding-tone";
 import {
   preloadBundledAvatarComponents,
@@ -32,6 +34,9 @@ import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 // Warm the (~48 kB) bundled-avatar chunk the moment this lazy step's module
 // loads, so the peeking characters are ready by the time it paints.
 preloadBundledAvatarComponents();
+
+/** Below this viewport width the peeking avatars are hidden (Tailwind `sm`). */
+const DESKTOP_MIN_WIDTH = 640;
 
 interface CreatePersonalityStepProps {
   onContinue: () => void;
@@ -109,6 +114,23 @@ const THUMB_COLOR = "#FDFDFC";
 /** Largest fraction of a peeking avatar that pokes past its screen edge. */
 const MAX_PEEK = 0.62;
 
+/**
+ * Keep an avatar's color off the background. The toned backdrop is painted in
+ * the selected avatar's color, so a side avatar sharing it would melt into the
+ * page. When that happens, swap to another palette color (stable per slot via
+ * `seed`); otherwise keep the hand-picked color.
+ */
+function avoidBackgroundColor(
+  preferred: string,
+  selectedColor: string | undefined,
+  palette: string[],
+  seed: number,
+): string {
+  if (!selectedColor || preferred !== selectedColor) return preferred;
+  const options = palette.filter((c) => c !== selectedColor);
+  return options.length > 0 ? (options[seed % options.length] ?? preferred) : preferred;
+}
+
 /** Track a live viewport width so the peeking avatars scale with the screen. */
 function useViewportWidth(): number {
   const [width, setWidth] = useState(() =>
@@ -174,20 +196,25 @@ function EdgePeekAvatar({
   );
 }
 
-/** One trait row: edge avatars, left label, the tinted track, right label. */
+/** One trait row: edge avatars (desktop only), left label, track, right label. */
 function PersonalitySlider({
   axis,
   value,
   onValueChange,
   fg,
   components,
+  leftAvatar,
+  rightAvatar,
   avatarSize,
 }: {
   axis: PersonalityAxis;
   value: number;
   onValueChange: (next: number) => void;
   fg: string;
+  /** Null while loading or on mobile — gates the peeking avatars off. */
   components: CharacterComponents | null;
+  leftAvatar: CharacterTraits;
+  rightAvatar: CharacterTraits;
   avatarSize: number;
 }) {
   // Distance from center toward each end, 0 (centered) → 1 (hard against the
@@ -205,14 +232,14 @@ function PersonalitySlider({
         <>
           <EdgePeekAvatar
             components={components}
-            traits={axis.leftAvatar}
+            traits={leftAvatar}
             side="left"
             size={avatarSize}
             progress={leftProgress}
           />
           <EdgePeekAvatar
             components={components}
-            traits={axis.rightAvatar}
+            traits={rightAvatar}
             side="right"
             size={avatarSize}
             progress={rightProgress}
@@ -220,19 +247,19 @@ function PersonalitySlider({
         </>
       )}
       <span
-        className="relative z-[1] order-1 flex-1 text-left text-base sm:w-32 sm:flex-none sm:text-right sm:text-lg"
+        className="relative z-[1] order-1 flex-1 text-left text-base sm:w-32 sm:flex-none sm:text-right sm:text-[17px]"
         style={{ color: fg }}
       >
         {axis.left}
       </span>
       <span
-        className="relative z-[1] order-2 flex-1 text-right text-base sm:order-3 sm:w-32 sm:flex-none sm:text-left sm:text-lg"
+        className="relative z-[1] order-2 flex-1 text-right text-base sm:order-3 sm:w-32 sm:flex-none sm:text-left sm:text-[17px]"
         style={{ color: fg }}
       >
         {axis.right}
       </span>
       <SliderPrimitive.Root
-        className="relative z-[1] order-3 flex h-7 w-full touch-none items-center select-none sm:order-2 sm:w-auto sm:flex-1"
+        className="relative z-[1] order-3 flex h-6 w-full touch-none items-center select-none sm:order-2 sm:w-auto sm:flex-1"
         value={[value]}
         onValueChange={(next) => onValueChange(next[0] ?? DEFAULT_VALUE)}
         min={0}
@@ -241,11 +268,11 @@ function PersonalitySlider({
         aria-label={`${axis.left} to ${axis.right}`}
       >
         <SliderPrimitive.Track
-          className="relative h-3 w-full grow rounded-full sm:h-4"
+          className="relative h-3 w-full grow rounded-full"
           style={{ backgroundColor: TRACK_COLOR }}
         />
         <SliderPrimitive.Thumb
-          className="block h-6 w-6 cursor-grab rounded-full shadow-sm transition-transform active:scale-95 active:cursor-grabbing keyboard-focus:outline-none keyboard-focus:ring-2 keyboard-focus:ring-white/70 sm:h-7 sm:w-7"
+          className="block h-6 w-6 cursor-grab rounded-full shadow-sm transition-transform active:scale-95 active:cursor-grabbing keyboard-focus:outline-none keyboard-focus:ring-2 keyboard-focus:ring-white/70"
           style={{ backgroundColor: THUMB_COLOR }}
         />
       </SliderPrimitive.Root>
@@ -261,11 +288,32 @@ export function CreatePersonalityStep({
   const tone = useOnboardingTone();
   const components = useBundledAvatarComponents();
   const viewportWidth = useViewportWidth();
-  // Scale the peeking avatars with the viewport: big and bold on desktop,
-  // restrained on phones so they don't swamp the narrow track.
+  const isDesktop = viewportWidth >= DESKTOP_MIN_WIDTH;
+  // The page is painted in the selected avatar's color, so steer the side
+  // avatars clear of it (see `avoidBackgroundColor`).
+  const characters = useOnboardingAvatarPoolStore.use.characters();
+  const selectedIndex = useOnboardingAvatarPoolStore.use.selectedIndex();
+  const selectedColor = characters[selectedIndex]?.color;
+  // The peeking avatars are desktop-only and a touch bigger than the slider
+  // chrome — scale them with the viewport, with a generous floor and ceiling.
   const avatarSize = Math.round(
-    Math.min(120, Math.max(64, viewportWidth * 0.085)),
+    Math.min(168, Math.max(112, viewportWidth * 0.1)),
   );
+  // Resolve each axis' two avatars once, swapping any color that matches the
+  // background. Stable unless the components or the selected color change.
+  const sideAvatars = useMemo(() => {
+    const palette = components?.colors.map((c) => c.id) ?? [];
+    return PERSONALITY_AXES.map((axis, i) => ({
+      left: {
+        ...axis.leftAvatar,
+        color: avoidBackgroundColor(axis.leftAvatar.color, selectedColor, palette, i * 2),
+      },
+      right: {
+        ...axis.rightAvatar,
+        color: avoidBackgroundColor(axis.rightAvatar.color, selectedColor, palette, i * 2 + 1),
+      },
+    }));
+  }, [components, selectedColor]);
   // Frontend-only: keep each axis' value locally; nothing is persisted yet.
   const [values, setValues] = useState<Record<string, number>>(() =>
     Object.fromEntries(PERSONALITY_AXES.map((axis) => [axis.id, DEFAULT_VALUE])),
@@ -275,7 +323,7 @@ export function CreatePersonalityStep({
     <div className="absolute inset-0 z-10 overflow-hidden" style={{ color: tone.fg }}>
       <OnboardingTopBar onBack={onBack} onNext={onForward} />
 
-      <div className="absolute left-1/2 top-[14%] flex w-full max-w-3xl -translate-x-1/2 flex-col items-center gap-12 px-6">
+      <div className="absolute left-1/2 top-[14%] flex w-full max-w-2xl -translate-x-1/2 flex-col items-center gap-10 px-6">
         <h1
           className="text-center text-[2.6rem] leading-none"
           style={{ fontFamily: "var(--font-serif)" }}
@@ -283,8 +331,8 @@ export function CreatePersonalityStep({
           Create my personality
         </h1>
 
-        <div className="flex w-full flex-col gap-11 sm:gap-14">
-          {PERSONALITY_AXES.map((axis) => (
+        <div className="flex w-full flex-col gap-8 sm:gap-11">
+          {PERSONALITY_AXES.map((axis, i) => (
             <PersonalitySlider
               key={axis.id}
               axis={axis}
@@ -293,7 +341,9 @@ export function CreatePersonalityStep({
                 setValues((prev) => ({ ...prev, [axis.id]: next }))
               }
               fg={tone.fg}
-              components={components}
+              components={isDesktop ? components : null}
+              leftAvatar={sideAvatars[i]?.left ?? axis.leftAvatar}
+              rightAvatar={sideAvatars[i]?.right ?? axis.rightAvatar}
               avatarSize={avatarSize}
             />
           ))}
