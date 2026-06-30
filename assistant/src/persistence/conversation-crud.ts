@@ -134,6 +134,18 @@ const acpNotificationSchema = z.object({
   agent: z.string().optional(),
 });
 
+const backgroundToolCompletionMetadataSchema = z.object({
+  id: z.string(),
+  toolName: z.string(),
+  conversationId: z.string(),
+  command: z.string(),
+  startedAt: z.number(),
+  status: z.enum(["completed", "failed", "cancelled"]),
+  exitCode: z.number().nullable(),
+  output: z.string(),
+  completedAt: z.number(),
+});
+
 export const messageMetadataSchema = z
   .object({
     userMessageChannel: channelIdSchema.optional(),
@@ -170,19 +182,7 @@ export const messageMetadataSchema = z
      * source="background-tool">` wake so the web can rebuild the inline
      * bash/host_bash card from history after a daemon restart.
      */
-    backgroundToolCompletion: z
-      .object({
-        id: z.string(),
-        toolName: z.string(),
-        conversationId: z.string(),
-        command: z.string(),
-        startedAt: z.number(),
-        status: z.enum(["completed", "failed", "cancelled"]),
-        exitCode: z.number().nullable(),
-        output: z.string(),
-        completedAt: z.number(),
-      })
-      .optional(),
+    backgroundToolCompletion: backgroundToolCompletionMetadataSchema.optional(),
     forkSourceMessageId: z.string().optional(),
     /** Image source paths from desktop attachments, keyed by filename. */
     imageSourcePaths: z.record(z.string(), z.string()).optional(),
