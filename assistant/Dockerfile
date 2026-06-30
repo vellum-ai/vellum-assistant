@@ -52,17 +52,7 @@ RUN set -eu; for pkg in /app/skills/*/package.json; do \
       (cd "$dir" && (bun install --frozen-lockfile 2>/dev/null || bun install)); \
     done
 
-# Copy assistant source so emit-manifest can resolve the skill's remaining
-# `../../assistant/src/...` imports while walking the register() module
-# graph. Those imports disappear when skill-isolation Phase 1 completes
-# (plan PR 18); the collector host short-circuits before any runtime path
-# touches them, so the emitted manifest is correct in the meantime.
 COPY assistant ./assistant
-
-# Emit the meet-join manifest consumed by the daemon-side loader to
-# register proxy tools/routes without importing the skill in-process.
-RUN bun run /app/skills/meet-join/scripts/emit-manifest.ts \
-      --output /app/skills/meet-join/manifest.json
 
 # Final stage
 FROM debian:trixie-slim@sha256:4ffb3a1511099754cddc70eb1b12e50ffdb67619aa0ab6c13fcd800a78ef7c7a AS runner
