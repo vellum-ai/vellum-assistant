@@ -21,7 +21,7 @@ inputs:
     description: >
       Whitespace-separated list of directories, relative to the repo root,
       to install (e.g. "packages/local-mode" or
-      "packages/ces-client skills/meet-join gateway"). Bun must already be set
+      "packages/ces-client gateway"). Bun must already be set
       up by the calling job.
     required: true
 

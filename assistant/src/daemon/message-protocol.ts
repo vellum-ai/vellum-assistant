@@ -32,7 +32,6 @@ export * from "./message-types/host-file.js";
 export * from "./message-types/host-transfer.js";
 export * from "./message-types/inbox.js";
 export * from "./message-types/integrations.js";
-export * from "./message-types/meet.js";
 export * from "./message-types/memory.js";
 export * from "./message-types/messages.js";
 export * from "./message-types/notifications.js";
@@ -100,7 +99,6 @@ import type {
   _IntegrationsClientMessages,
   _IntegrationsServerMessages,
 } from "./message-types/integrations.js";
-import type { _MeetServerMessages } from "./message-types/meet.js";
 import type { _MemoryServerMessages } from "./message-types/memory.js";
 import type {
   _MessagesClientMessages,
@@ -199,7 +197,6 @@ export type ServerMessage =
   | _HostCuServerMessages
   | _HostFileServerMessages
   | _HostTransferServerMessages
-  | _MeetServerMessages
   | _MemoryServerMessages
   | _WorkspaceServerMessages
   | _SchedulesServerMessages

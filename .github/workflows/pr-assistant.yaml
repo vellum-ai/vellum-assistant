@@ -8,7 +8,6 @@ on:
       - 'credential-executor/**'
       - 'gateway/**'
       - 'packages/**'
-      - 'skills/meet-join/contracts/**'
       - 'scripts/skills/**'
       - 'meta/feature-flags/**'
       # The daemon LLM catalog parity test reads these files, so hand edits to
@@ -53,7 +52,7 @@ jobs:
       - name: Install shared packages
         uses: ./.github/actions/install-shared-packages
         with:
-          packages: packages/service-contracts packages/ces-client packages/gateway-client skills/meet-join gateway
+          packages: packages/service-contracts packages/ces-client packages/gateway-client gateway
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
@@ -94,7 +93,7 @@ jobs:
       - name: Install shared packages
         uses: ./.github/actions/install-shared-packages
         with:
-          packages: packages/service-contracts packages/ces-client packages/gateway-client skills/meet-join gateway
+          packages: packages/service-contracts packages/ces-client packages/gateway-client gateway
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
@@ -132,7 +131,7 @@ jobs:
       - name: Install shared packages
         uses: ./.github/actions/install-shared-packages
         with:
-          packages: packages/service-contracts packages/ces-client packages/gateway-client skills/meet-join gateway
+          packages: packages/service-contracts packages/ces-client packages/gateway-client gateway
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
@@ -142,14 +141,6 @@ jobs:
         env:
           EXCLUDE_EXPERIMENTAL: 'true'
           TEST_WORKERS: '8'
-
-      # Smoke-run the meet-join manifest emitter so an assistant-side
-      # change that breaks the `SkillHost` contract or `register(host)`
-      # fails here instead of only at Docker-build or macOS-packaging
-      # time. Skill-only changes are covered by pr-skills.yaml via
-      # __tests__/emit-manifest.test.ts.
-      - name: Smoke test meet-join manifest emit
-        run: cd .. && bun run skills/meet-join/scripts/emit-manifest.ts --output /tmp/meet-join-manifest.json
 
   artifact:
     name: Upload Artifact
@@ -230,7 +221,7 @@ jobs:
       - name: Install shared packages
         uses: ./.github/actions/install-shared-packages
         with:
-          packages: packages/service-contracts packages/ces-client packages/gateway-client skills/meet-join gateway
+          packages: packages/service-contracts packages/ces-client packages/gateway-client gateway
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts

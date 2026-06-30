@@ -76,8 +76,6 @@ export const LLMCallSiteEnum = z.enum([
   "styleAnalyzer",
   "inviteInstructionGenerator",
   "skillCategoryInference",
-  "meetConsentMonitor",
-  "meetChatOpportunity",
   "inference",
   "vision",
   "trustRuleSuggestion",
