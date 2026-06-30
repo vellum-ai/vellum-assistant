@@ -260,15 +260,19 @@ function invoke(args: RouteHandlerArgs = {}): {
   return listHandler(args) as { plugins: Array<Record<string, unknown>> };
 }
 
+// The route response strips `category` (added to the lib match shape but not
+// yet to the wire schema), so the wire matches are `PluginSearchMatch` minus it.
+type PluginMatchWire = Omit<PluginSearchMatch, "category">;
+
 async function invokeSearch(args: RouteHandlerArgs = {}): Promise<{
   query: string;
   ref: string;
-  matches: PluginSearchMatch[];
+  matches: PluginMatchWire[];
 }> {
   return (await searchHandler(args)) as {
     query: string;
     ref: string;
-    matches: PluginSearchMatch[];
+    matches: PluginMatchWire[];
   };
 }
 
@@ -469,6 +473,7 @@ describe("GET /v1/plugins/search", () => {
         {
           name: "simple-memory",
           path: "github:vellum-ai/simple-memory@ed09a4c01bf18e4ac8859faee94cb65c7cbd1ca3",
+          category: null,
           source: {
             kind: "github",
             repo: "vellum-ai/simple-memory",
@@ -479,6 +484,7 @@ describe("GET /v1/plugins/search", () => {
           name: "caveman",
           path: "github:JuliusBrussee/caveman@v1.8.2",
           description: "Ultra-compressed communication mode.",
+          category: null,
           source: {
             kind: "github",
             repo: "JuliusBrussee/caveman",
@@ -522,6 +528,7 @@ describe("GET /v1/plugins/search", () => {
         {
           name: "caveman",
           path: "github:JuliusBrussee/caveman@v1.8.2",
+          category: null,
           source: {
             kind: "github",
             repo: "JuliusBrussee/caveman",
@@ -597,6 +604,7 @@ describe("GET /v1/plugins/search", () => {
       Object.freeze({
         name: "a",
         path: "github:acme/a@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        category: null,
         source: {
           kind: "github",
           repo: "acme/a",
