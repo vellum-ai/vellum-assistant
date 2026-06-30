@@ -148,6 +148,12 @@ const pluginSearchMatchSchema = z.object({
     .string()
     .optional()
     .describe("Short description, when known (external entries only today)."),
+  category: z
+    .string()
+    .nullable()
+    .describe(
+      "Marketplace category slug (Skills taxonomy); null when the entry declares none.",
+    ),
   source: pluginMatchSourceSchema,
 });
 
@@ -639,6 +645,7 @@ interface PluginMatchView {
   name: string;
   path: string;
   description?: string;
+  category: string | null;
   source: { kind: "github"; repo: string; path?: string; ref: string };
 }
 
@@ -651,6 +658,7 @@ function projectMatch(m: PluginSearchMatch): PluginMatchView {
   const view: PluginMatchView = {
     name: m.name,
     path: m.path,
+    category: m.category ?? null,
     source: {
       kind: "github",
       repo: m.source.repo,

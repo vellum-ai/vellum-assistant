@@ -21494,6 +21494,11 @@ paths:
                         description:
                           description: Short description, when known (external entries only today).
                           type: string
+                        category:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description: Marketplace category slug (Skills taxonomy); null when the entry declares none.
                         source:
                           type: object
                           properties:
@@ -21518,6 +21523,7 @@ paths:
                       required:
                         - name
                         - path
+                        - category
                         - source
                       additionalProperties: false
                     description: Directory matches, sorted alphabetically by name.
