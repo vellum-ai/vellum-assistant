@@ -419,6 +419,54 @@ describe("PluginsTab", () => {
     expect(systemRow.textContent).toContain("1");
   });
 
+  test("hides the rail counts while a search term is active, restoring them when cleared", async () => {
+    // Search is client-side (the term never reaches the data hook), so the
+    // count gating must key off the term — not react-query's fetch state.
+    installedPlugins = [
+      installed({ id: "mailer", name: "mailer", category: "email" }),
+    ];
+    installedCategoryCounts = { email: 1 };
+    catalogMatches = [catalog({ name: "sys-cat", category: "system" })];
+
+    const { findByRole, getByLabelText } = renderTab();
+    const nav = await findByRole("navigation", { name: "Plugin categories" });
+
+    // With no active search the per-category badges show (email: 1, system: 1).
+    expect(
+      within(nav).getByRole("button", { name: /Email/ }).textContent,
+    ).toContain("1");
+    expect(
+      within(nav).getByRole("button", { name: /System/ }).textContent,
+    ).toContain("1");
+
+    // Typing a term hides every badge — the unfiltered counts would mislead
+    // while the visible rows are filtered client-side.
+    fireEvent.change(getByLabelText("Search plugins"), {
+      target: { value: "mailer" },
+    });
+    await waitFor(() =>
+      expect(
+        within(nav).getByRole("button", { name: /Email/ }).textContent,
+      ).not.toContain("1"),
+    );
+    expect(
+      within(nav).getByRole("button", { name: /System/ }).textContent,
+    ).not.toContain("1");
+
+    // Clearing the term restores the badges.
+    fireEvent.change(getByLabelText("Search plugins"), {
+      target: { value: "" },
+    });
+    await waitFor(() =>
+      expect(
+        within(nav).getByRole("button", { name: /Email/ }).textContent,
+      ).toContain("1"),
+    );
+    expect(
+      within(nav).getByRole("button", { name: /System/ }).textContent,
+    ).toContain("1");
+  });
+
   test("selecting a category filters both installed and available", async () => {
     installedPlugins = [
       installed({ id: "mailer", name: "mailer", category: "email" }),
