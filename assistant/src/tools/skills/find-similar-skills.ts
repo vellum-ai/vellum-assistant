@@ -74,8 +74,6 @@ export async function executeFindSimilarSkills(
   const findNearest = deps.nearestExistingSkills ?? nearestExistingSkills;
   const loadCatalog = deps.loadCatalog ?? (() => loadSkillCatalog());
 
-  const hits = await findNearest(goal, { limit });
-
   const catalog = loadCatalog();
   const byId = new Map(catalog.map((s) => [s.id, s]));
 
@@ -84,18 +82,32 @@ export async function executeFindSimilarSkills(
   // result. `null` = no restriction; non-plugin skills are always retained
   // (mirrors `filterSkillsByEnabledPlugins`).
   const enabledPluginSet = context.enabledPluginSet ?? null;
+  const outOfScope = (skill: { owner?: OwnerInfo }): boolean =>
+    enabledPluginSet !== null &&
+    skill.owner?.kind === "plugin" &&
+    !enabledPluginSet.has(skill.owner.id);
+
+  // Apply the scope filter BEFORE the shortlist's top-K limit: restrict the
+  // candidate catalog to in-scope skills so the nearest-skill search ranks and
+  // slices only those. Filtering after the limit would let out-of-scope
+  // high-rank matches consume slots and starve usable in-scope skills out of
+  // the result. `null` set = pass the catalog through unchanged.
+  const scopedCatalog =
+    enabledPluginSet === null ? catalog : catalog.filter((s) => !outOfScope(s));
+
+  const hits = await findNearest(goal, {
+    limit,
+    loadCatalog: () => scopedCatalog,
+  });
 
   const enriched: EnrichedHit[] = [];
   for (const hit of hits) {
     const skill = byId.get(hit.skillId);
     if (!skill) continue;
-    if (
-      enabledPluginSet !== null &&
-      skill.owner?.kind === "plugin" &&
-      !enabledPluginSet.has(skill.owner.id)
-    ) {
-      continue;
-    }
+    // Defense in depth: the scoped catalog already excludes out-of-scope plugin
+    // skills, but re-check so a shortlist source that ignores the catalog seam
+    // still cannot leak one.
+    if (outOfScope(skill)) continue;
     enriched.push({
       skill_id: hit.skillId,
       name: skill.name,
