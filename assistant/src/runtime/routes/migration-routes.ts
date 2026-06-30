@@ -1020,29 +1020,19 @@ function wasFetchBodyTornDown(stream: PassThrough): boolean {
 }
 
 /**
- * Options passed to `validateGcsSignedUrl` for the import URL handlers.
+ * Test seam shared by the import AND export URL handlers. Defaults to
+ * `undefined`, which keeps the validator strict (GCS host, HTTPS only, no
+ * explicit port) — the only production configuration on a normal managed
+ * deployment. Tests override it via `_setUrlImportValidatorOptionsForTests`
+ * (e.g. to point the validator at a local HTTP server fixture).
  *
- * Defaults to `undefined`, which keeps the validator strict (GCS host,
- * HTTPS only, no explicit port) — the only production configuration on a
- * normal managed deployment.
- *
- * It is initialized from `VELLUM_MIGRATION_IMPORT_ALLOWED_HOSTS` (see
- * `parseMigrationImportAllowedHostsEnv`). The platform injects that env var
- * only in environments where the bundle is served over plain http from a
- * non-GCS host — e.g. local/minikube, where the signed bundle URL points at
- * `http://host.docker.internal/...`. Supplying a non-default allowlist
- * intentionally relaxes the validator's scheme check to also accept `http:`
- * (and skips the explicit-port check) for those explicitly-allowlisted hosts
- * only; every other host still requires https. When the env var is unset,
- * this stays `undefined` and production behavior is unchanged.
- *
- * Tests override it via `_setUrlImportValidatorOptionsForTests` (e.g. to
- * point the validator at a local HTTP server fixture).
+ * NOTE: this is intentionally NOT initialized from the environment. The
+ * `VELLUM_MIGRATION_IMPORT_ALLOWED_HOSTS` env var is import-scoped and is
+ * applied only by `resolveImportValidatorOptions` — never on the export
+ * upload path, which must stay strict so a relaxed import allowlist can't
+ * widen where the assistant is willing to PUT a bundle (SSRF).
  */
-let urlValidatorOptions: ValidateGcsSignedUrlOptions | undefined =
-  parseMigrationImportAllowedHostsEnv(
-    process.env.VELLUM_MIGRATION_IMPORT_ALLOWED_HOSTS,
-  );
+let urlValidatorOptions: ValidateGcsSignedUrlOptions | undefined;
 
 /**
  * Parse the comma-separated `VELLUM_MIGRATION_IMPORT_ALLOWED_HOSTS` env value
@@ -1063,6 +1053,40 @@ export function parseMigrationImportAllowedHostsEnv(
     .map((host) => host.trim())
     .filter((host) => host.length > 0);
   return allowedHosts.length > 0 ? { allowedHosts } : undefined;
+}
+
+/**
+ * Resolve the validator options for the IMPORT URL handlers only.
+ *
+ * Precedence: an explicit test override (when set) wins; otherwise the
+ * env-derived import allowlist from `VELLUM_MIGRATION_IMPORT_ALLOWED_HOSTS`.
+ * The platform injects that env var only where the bundle is served over
+ * plain http from a non-GCS host — e.g. local/minikube, where the signed
+ * bundle URL points at `http://host.docker.internal/...`. Supplying a
+ * non-default allowlist intentionally relaxes the validator's scheme check
+ * to also accept `http:` (and skips the explicit-port check) for those
+ * explicitly-allowlisted hosts only; every other host still requires https.
+ *
+ * The export path deliberately does NOT call this — see `urlValidatorOptions`.
+ *
+ * Exported for unit testing.
+ */
+export function resolveImportValidatorOptions(
+  testOverride: ValidateGcsSignedUrlOptions | undefined,
+  rawEnv: string | undefined,
+): ValidateGcsSignedUrlOptions | undefined {
+  return testOverride ?? parseMigrationImportAllowedHostsEnv(rawEnv);
+}
+
+/**
+ * Effective validator options for the IMPORT URL handlers, combining the
+ * test seam with the import-only env allowlist.
+ */
+function importValidatorOptions(): ValidateGcsSignedUrlOptions | undefined {
+  return resolveImportValidatorOptions(
+    urlValidatorOptions,
+    process.env.VELLUM_MIGRATION_IMPORT_ALLOWED_HOSTS,
+  );
 }
 
 /**
@@ -1176,7 +1200,7 @@ async function runGcsImport(
   _correlationId?: string,
 ): Promise<ImportSummary> {
   // ── 1. Validate the URL (defense-in-depth; never log the raw URL).
-  const validated = validateGcsSignedUrl(url, urlValidatorOptions);
+  const validated = validateGcsSignedUrl(url, importValidatorOptions());
   if (!validated.ok) {
     log.warn({ reason: validated.reason }, "Rejected migration import URL");
     throw new GcsImportError({
@@ -1606,7 +1630,7 @@ export async function handleMigrationImportFromGcs({ body }: RouteHandlerArgs) {
 
   // Synchronously validate the GCS URL before consuming the single
   // in-flight import slot.
-  const validated = validateGcsSignedUrl(bundle_url, urlValidatorOptions);
+  const validated = validateGcsSignedUrl(bundle_url, importValidatorOptions());
   if (!validated.ok) {
     log.warn(
       { reason: validated.reason },
@@ -1674,7 +1698,7 @@ export async function handleMigrationPreflightFromGcs({
   }
 
   const { bundle_url } = parsed.data;
-  const validated = validateGcsSignedUrl(bundle_url, urlValidatorOptions);
+  const validated = validateGcsSignedUrl(bundle_url, importValidatorOptions());
   if (!validated.ok) {
     log.warn(
       { reason: validated.reason },

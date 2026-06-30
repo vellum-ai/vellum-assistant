@@ -1,18 +1,23 @@
 /**
- * Tests for `parseMigrationImportAllowedHostsEnv`, which derives the import
- * URL validator's allowlist from the platform-injected
- * `VELLUM_MIGRATION_IMPORT_ALLOWED_HOSTS` env var.
+ * Tests for the import-only host-allowlist plumbing derived from the
+ * platform-injected `VELLUM_MIGRATION_IMPORT_ALLOWED_HOSTS` env var.
  *
  * Covers:
- * - Unset / empty / whitespace-only values yield `undefined` so the
- *   validator keeps its strict production default (https + GCS only).
- * - A single host and a comma-separated list are parsed and trimmed.
- * - Empty entries between commas are dropped.
+ * - `parseMigrationImportAllowedHostsEnv`: unset / empty / whitespace-only
+ *   values yield `undefined` (strict default); single + comma-separated
+ *   lists are parsed, trimmed, and empties dropped.
+ * - `resolveImportValidatorOptions`: an explicit test override wins over the
+ *   env allowlist; otherwise the env value is used. This resolver is applied
+ *   ONLY by the import handlers — the export upload path stays strict — so it
+ *   is the seam that keeps the env allowlist from widening export SSRF.
  */
 
 import { describe, expect, test } from "bun:test";
 
-import { parseMigrationImportAllowedHostsEnv } from "../migration-routes.js";
+import {
+  parseMigrationImportAllowedHostsEnv,
+  resolveImportValidatorOptions,
+} from "../migration-routes.js";
 
 describe("parseMigrationImportAllowedHostsEnv", () => {
   test("returns undefined when unset", () => {
@@ -40,5 +45,26 @@ describe("parseMigrationImportAllowedHostsEnv", () => {
         " host.docker.internal , ,localhost ",
       ),
     ).toEqual({ allowedHosts: ["host.docker.internal", "localhost"] });
+  });
+});
+
+describe("resolveImportValidatorOptions", () => {
+  test("uses the env allowlist when no test override is set", () => {
+    expect(
+      resolveImportValidatorOptions(undefined, "host.docker.internal"),
+    ).toEqual({ allowedHosts: ["host.docker.internal"] });
+  });
+
+  test("returns undefined (strict) when neither override nor env is set", () => {
+    expect(resolveImportValidatorOptions(undefined, undefined)).toBeUndefined();
+  });
+
+  test("test override takes precedence over the env allowlist", () => {
+    expect(
+      resolveImportValidatorOptions(
+        { allowedHosts: ["override.example"] },
+        "host.docker.internal",
+      ),
+    ).toEqual({ allowedHosts: ["override.example"] });
   });
 });
