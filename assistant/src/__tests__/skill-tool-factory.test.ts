@@ -33,6 +33,12 @@ function makeEntry(overrides: Partial<SkillToolEntry> = {}): SkillToolEntry {
   };
 }
 
+// These factory tests exercise the host executor-routing path (the default
+// makeEntry uses execution_target: "host"). Host execution is a first-party
+// capability, so the runner only runs it for bundled skills — pass this as the
+// `bundled` argument so createSkillTool actually reaches the executor.
+const BUNDLED = true;
+
 function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
     workingDir: "/tmp",
@@ -131,6 +137,7 @@ describe("createSkillTool", () => {
       makeEntry({ executor: "echo.ts" }),
       tempDir,
       hash,
+      BUNDLED,
     );
     const ctx = makeContext({ workingDir: "/my/project" });
     const input = { query: "hello" };
@@ -149,6 +156,7 @@ describe("createSkillTool", () => {
       makeEntry({ executor: "nonexistent.ts" }),
       tempDir,
       hash,
+      BUNDLED,
     );
 
     // Provide valid input so we reach the executor (the default schema
@@ -209,6 +217,7 @@ describe("createSkillTool — unknown parameter validation", () => {
       makeEntry({ executor: "echo.ts" }),
       tempDir,
       hash,
+      BUNDLED,
     );
 
     const result = await tool.execute(
@@ -229,6 +238,7 @@ describe("createSkillTool — unknown parameter validation", () => {
       makeEntry({ executor: "echo.ts" }),
       tempDir,
       hash,
+      BUNDLED,
     );
 
     const result = await tool.execute(
@@ -248,6 +258,7 @@ describe("createSkillTool — unknown parameter validation", () => {
       makeEntry({ executor: "echo.ts" }),
       tempDir,
       hash,
+      BUNDLED,
     );
 
     const result = await tool.execute({ query: "hello" }, makeContext());
@@ -267,6 +278,7 @@ describe("createSkillTool — unknown parameter validation", () => {
       }),
       tempDir,
       hash,
+      BUNDLED,
     );
 
     const result = await tool.execute({}, makeContext());
@@ -283,6 +295,7 @@ describe("createSkillTool — unknown parameter validation", () => {
       }),
       tempDir,
       hash,
+      BUNDLED,
     );
 
     const result = await tool.execute({ anything: "goes" }, makeContext());
@@ -302,6 +315,7 @@ describe("createSkillTool — required/type/enum validation", () => {
       makeEntry({ executor: "echo.ts" }),
       tempDir,
       hash,
+      BUNDLED,
     );
 
     const result = await tool.execute({}, makeContext());
@@ -317,6 +331,7 @@ describe("createSkillTool — required/type/enum validation", () => {
       makeEntry({ executor: "echo.ts" }),
       tempDir,
       hash,
+      BUNDLED,
     );
 
     const result = await tool.execute({ query: 123 }, makeContext());
@@ -338,6 +353,7 @@ describe("createSkillTool — required/type/enum validation", () => {
       }),
       tempDir,
       hash,
+      BUNDLED,
     );
 
     const result = await tool.execute({ mode: "c" }, makeContext());
@@ -362,6 +378,7 @@ describe("createSkillTool — required/type/enum validation", () => {
       }),
       tempDir,
       hash,
+      BUNDLED,
     );
 
     const result = await tool.execute(
@@ -386,6 +403,7 @@ describe("createSkillTool — required/type/enum validation", () => {
       }),
       tempDir,
       hash,
+      BUNDLED,
     );
 
     const result = await tool.execute({ auto_open: "yes" }, makeContext());
@@ -409,6 +427,7 @@ describe("createSkillTool — required/type/enum validation", () => {
       }),
       tempDir,
       hash,
+      BUNDLED,
     );
 
     const result = await tool.execute({ mode: "a" }, makeContext());
@@ -431,6 +450,7 @@ describe("createSkillTool — version hash plumbing to runner", () => {
       makeEntry({ executor: "echo.ts" }),
       tempDir,
       hash,
+      BUNDLED,
     );
     const ctx = makeContext({ workingDir: "/my/project" });
     const input = { query: "test" };
