@@ -54,6 +54,9 @@ let installedCategoryCounts: Record<string, number> | undefined;
 let catalogMatches: CatalogMatch[];
 let categoryDefs: CategoryInfo[];
 let inspectByName: Record<string, PluginsByNameInspectGetResponse>;
+// When set, the installed read awaits this gate before resolving — lets a test
+// hold a category-filtered installed read pending after the initial load.
+let installedGate: Promise<unknown> | null = null;
 
 const installSpy = mock(async (_options: unknown) => ({
   data: { ok: true },
@@ -77,6 +80,7 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   // Mirrors the daemon: filter installed plugins by the requested category
   // slug, and (when taxonomy-aware) echo the UNFILTERED categoryCounts/total.
   pluginsGet: mock(async (options: { query?: { category?: string } }) => {
+    if (installedGate) await installedGate;
     const selected = options.query?.category;
     const plugins = selected
       ? installedPlugins.filter((p) => (p.category ?? "system") === selected)
@@ -245,6 +249,7 @@ beforeEach(() => {
   catalogMatches = [];
   categoryDefs = CATEGORY_DEFS;
   inspectByName = {};
+  installedGate = null;
   installSpy.mockClear();
   deleteSpy.mockClear();
   upgradeSpy.mockClear();
@@ -563,5 +568,38 @@ describe("PluginsTab", () => {
     expect(
       queryByRole("navigation", { name: "Plugin categories" }),
     ).toBeNull();
+  });
+
+  test("keeps the category rail mounted while a category-filtered read is pending", async () => {
+    installedPlugins = [
+      installed({ id: "mailer", name: "mailer", category: "email" }),
+      installed({ id: "sysd", name: "sysd", category: "system" }),
+    ];
+    installedCategoryCounts = { email: 1, system: 1 };
+
+    const { findByRole, queryByRole } = renderTab();
+    const nav = await findByRole("navigation", { name: "Plugin categories" });
+
+    // Hold every subsequent installed read pending, then select a category. The
+    // filtered read stays in flight, but the rail must remain mounted so the
+    // user can still switch or clear the category — support derives from the
+    // cached unfiltered read (latched), not the in-flight filtered one.
+    let releaseInstalled: () => void = () => {};
+    installedGate = new Promise<void>((resolve) => {
+      releaseInstalled = resolve;
+    });
+    fireEvent.click(within(nav).getByRole("button", { name: /Email/ }));
+
+    expect(
+      queryByRole("navigation", { name: "Plugin categories" }),
+    ).not.toBeNull();
+
+    // Let the pending read resolve; the rail is still there afterward.
+    releaseInstalled();
+    await waitFor(() =>
+      expect(
+        queryByRole("navigation", { name: "Plugin categories" }),
+      ).not.toBeNull(),
+    );
   });
 });
