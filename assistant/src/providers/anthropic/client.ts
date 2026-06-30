@@ -7,6 +7,7 @@ import { getLogger } from "../../util/logger.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { stripOrphanedSurrogatesDeep } from "../../util/unicode.js";
 import {
+  couldBePlaceholderSentinelPrefix,
   isPlaceholderSentinelText,
   PLACEHOLDER_BLOCKS_OMITTED,
   PLACEHOLDER_EMPTY_TURN,
@@ -1214,25 +1215,17 @@ export class AnthropicProvider implements Provider {
         // Buffer streaming text until it's clear the accumulated text isn't
         // going to form a placeholder sentinel. Sentinels are injected into
         // outbound requests for role alternation and are sometimes echoed by
-        // the model; holding back partial prefixes prevents them from
-        // flashing on the live UI before cleanAssistantContent strips them
-        // at persist time. Buffer is bounded by the longest sentinel (~45
-        // chars) and resets on every content_block_start.
-        const SENTINEL_TEXTS: readonly string[] = [
-          PLACEHOLDER_EMPTY_TURN,
-          PLACEHOLDER_EMPTY_TURN.slice(1),
-          PLACEHOLDER_BLOCKS_OMITTED,
-          PLACEHOLDER_BLOCKS_OMITTED.slice(1),
-        ];
-        const couldBeSentinelPrefix = (s: string): boolean =>
-          SENTINEL_TEXTS.some((sentinel) => sentinel.startsWith(s));
-        const isCompleteSentinel = (s: string): boolean =>
-          SENTINEL_TEXTS.includes(s);
+        // the model — including an echo whose `\x00` guard arrived as a leading
+        // space — so the prefix and completion checks normalize edge whitespace
+        // and control bytes (the same normalization cleanAssistantContent and
+        // the display serializer use). Holding back partial prefixes keeps them
+        // off the live UI before they are stripped at completion. The buffer
+        // resets on every content_block_start.
         let textBuffer = "";
 
         stream.on("text", (text) => {
           textBuffer += text;
-          if (couldBeSentinelPrefix(textBuffer)) return;
+          if (couldBePlaceholderSentinelPrefix(textBuffer)) return;
           onEvent?.({ type: "text_delta", text: textBuffer });
           textBuffer = "";
         });
@@ -1365,8 +1358,11 @@ export class AnthropicProvider implements Provider {
             }
             currentServerToolUseId = undefined;
             accumulatedServerToolInputJson = "";
-            // Flush residual text buffer unless it's exactly a sentinel.
-            if (textBuffer.length > 0 && !isCompleteSentinel(textBuffer)) {
+            // Flush residual text buffer unless it is a sentinel.
+            if (
+              textBuffer.length > 0 &&
+              !isPlaceholderSentinelText(textBuffer)
+            ) {
               onEvent?.({ type: "text_delta", text: textBuffer });
             }
             textBuffer = "";
