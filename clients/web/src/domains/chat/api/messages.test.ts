@@ -139,6 +139,69 @@ describe("postChatMessage — clientMessageId wire format", () => {
   });
 });
 
+describe("postChatMessage — enabledPlugins wire format", () => {
+  test("includes an explicit plugin selection verbatim", async () => {
+    await postChatMessage(
+      "assistant-1",
+      "conv-key",
+      "Hello",
+      [],
+      undefined,
+      undefined,
+      undefined,
+      ["alpha", "zeta"],
+    );
+
+    expect(
+      (capturedBody as Record<string, unknown>).enabledPlugins,
+    ).toEqual(["alpha", "zeta"]);
+  });
+
+  test("includes an explicit empty selection (user disabled every plugin)", async () => {
+    await postChatMessage(
+      "assistant-1",
+      "conv-key",
+      "Hello",
+      [],
+      undefined,
+      undefined,
+      undefined,
+      [],
+    );
+
+    // An empty array is a genuine "no plugins for this chat" selection, not a
+    // missing one — it must reach the daemon, unlike the omitted-default case.
+    expect((capturedBody as Record<string, unknown>).enabledPlugins).toEqual(
+      [],
+    );
+  });
+
+  test("omits enabledPlugins when undefined (untouched default)", async () => {
+    await postChatMessage("assistant-1", "conv-key", "Hello");
+
+    expect(
+      (capturedBody as Record<string, unknown>).enabledPlugins,
+    ).toBeUndefined();
+  });
+
+  test("omits enabledPlugins when null", async () => {
+    await postChatMessage(
+      "assistant-1",
+      "conv-key",
+      "Hello",
+      [],
+      undefined,
+      undefined,
+      undefined,
+      null,
+    );
+
+    expect(
+      (capturedBody as Record<string, unknown>).enabledPlugins,
+    ).toBeUndefined();
+  });
+});
+
 describe("normalizeContentOrder", () => {
   test("converts string-format entries to objects", () => {
     const result = normalizeContentOrder(["text:0", "tool:1", "surface:2"]);
