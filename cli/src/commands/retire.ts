@@ -20,7 +20,9 @@ import { getConfigDir } from "../lib/environments/paths.js";
 import { getCurrentEnvironment } from "../lib/environments/resolve.js";
 import {
   authHeaders,
+  authHeadersForKnownOrganization,
   getPlatformUrl,
+  readGatewayCredential,
   readPlatformToken,
 } from "../lib/platform-client.js";
 import { retireInstance as retireAwsInstance } from "../lib/aws.js";
@@ -43,6 +45,128 @@ interface RetireArgs {
   name?: string;
   source?: string;
   yes: boolean;
+}
+
+const PLATFORM_TOKEN_ENV = "VELLUM_PLATFORM_TOKEN";
+
+function readPlatformRetireToken(): string | null {
+  const envToken = process.env[PLATFORM_TOKEN_ENV]?.trim();
+  if (envToken) return envToken;
+  return readPlatformToken();
+}
+
+function platformOrigin(platformUrl: string): string | null {
+  try {
+    return new URL(platformUrl).origin;
+  } catch {
+    return null;
+  }
+}
+
+function resolveTrustedSelfHostedPlatformUrl(
+  storedPlatformUrl: string | null,
+): string | null {
+  const configuredPlatformUrl = getPlatformUrl();
+  if (!storedPlatformUrl) return configuredPlatformUrl;
+
+  const storedOrigin = platformOrigin(storedPlatformUrl);
+  const configuredOrigin = platformOrigin(configuredPlatformUrl);
+  if (storedOrigin && configuredOrigin && storedOrigin === configuredOrigin) {
+    return configuredPlatformUrl;
+  }
+
+  console.warn(
+    "⚠️  Stored platform URL does not match the configured platform URL; skipping platform unregister.",
+  );
+  return null;
+}
+
+async function deletePlatformAssistant(
+  assistantId: string,
+  options: {
+    token: string;
+    platformUrl?: string;
+    organizationId?: string;
+    label: string;
+    successMessage: string;
+    alreadyGoneMessage: string;
+  },
+): Promise<void> {
+  const platformUrl = options.platformUrl || getPlatformUrl();
+  const url = `${platformUrl}/v1/assistants/${encodeURIComponent(assistantId)}/retire/`;
+  const headers = options.organizationId
+    ? authHeadersForKnownOrganization(options.token, options.organizationId)
+    : await authHeaders(options.token, platformUrl);
+
+  const response = await loopbackSafeFetch(url, {
+    method: "DELETE",
+    headers,
+  });
+
+  if (!response.ok && response.status !== 404) {
+    const body = await response.text();
+    throw new Error(`${options.label} failed (${response.status}): ${body}`);
+  }
+
+  if (response.status === 404) {
+    console.log(options.alreadyGoneMessage);
+  } else {
+    console.log(options.successMessage);
+  }
+}
+
+async function unregisterSelfHostedLocalPlatformRecord(
+  entry: AssistantEntry,
+): Promise<void> {
+  const token = readPlatformRetireToken();
+  if (!token) return;
+
+  const gatewayUrl = entry.localUrl ?? entry.runtimeUrl;
+  const platformAssistant = await readGatewayCredential(
+    gatewayUrl,
+    "vellum:platform_assistant_id",
+    entry.bearerToken,
+  );
+  if (platformAssistant.unreachable) {
+    console.warn(
+      "\u26a0\ufe0f  Could not read platform registration from the local assistant; skipping platform unregister.",
+    );
+    return;
+  }
+  if (!platformAssistant.value) return;
+
+  const [platformBaseUrl, organizationId] = await Promise.all([
+    readGatewayCredential(
+      gatewayUrl,
+      "vellum:platform_base_url",
+      entry.bearerToken,
+    ),
+    readGatewayCredential(
+      gatewayUrl,
+      "vellum:platform_organization_id",
+      entry.bearerToken,
+    ),
+  ]);
+  const platformUrl = resolveTrustedSelfHostedPlatformUrl(
+    platformBaseUrl.value,
+  );
+  if (!platformUrl) return;
+  if (!organizationId.value) {
+    console.warn(
+      "⚠️  Could not read platform organization ID from the local assistant; skipping platform unregister.",
+    );
+    return;
+  }
+
+  await deletePlatformAssistant(platformAssistant.value, {
+    token,
+    platformUrl,
+    organizationId: organizationId.value,
+    label: "Platform self-hosted unregister",
+    successMessage: "\u2705 Platform self-hosted registration unregistered.",
+    alreadyGoneMessage:
+      "\u2705 Platform self-hosted registration already unregistered (404).",
+  });
 }
 
 async function retireCustom(entry: AssistantEntry): Promise<void> {
@@ -86,7 +210,7 @@ async function retireVellum(
 ): Promise<void> {
   console.log("\u{1F5D1}\ufe0f  Retiring platform-hosted instance...\n");
 
-  const token = readPlatformToken();
+  const token = readPlatformRetireToken();
   if (!token) {
     console.error(
       "Error: Not logged in. Run `vellum login --token <token>` first.",
@@ -94,32 +218,20 @@ async function retireVellum(
     process.exit(1);
   }
 
-  const platformUrl = runtimeUrl || getPlatformUrl();
-  const url = `${platformUrl}/v1/assistants/${encodeURIComponent(assistantId)}/retire/`;
-  const response = await loopbackSafeFetch(url, {
-    method: "DELETE",
-    headers: await authHeaders(token, runtimeUrl),
-  });
-
-  // Treat 404 as success: the assistant is already gone from the platform
-  // (previously retired, deleted from the web UI, or retired from another
-  // device) so the caller's job is done. Falling through to the lockfile
-  // cleanup avoids leaving a stale entry that would otherwise wedge the
-  // macOS app in a permanent health-check loop.
-  if (!response.ok && response.status !== 404) {
-    const body = await response.text();
+  try {
+    await deletePlatformAssistant(assistantId, {
+      token,
+      platformUrl: runtimeUrl,
+      label: "Platform retire",
+      successMessage: "\u2705 Platform-hosted instance retired.",
+      alreadyGoneMessage:
+        "\u2705 Platform-hosted instance already retired (404) \u2014 cleaning up local state.",
+    });
+  } catch (error) {
     console.error(
-      `Error: Platform retire failed (${response.status}): ${body}`,
+      `Error: ${error instanceof Error ? error.message : String(error)}`,
     );
     process.exit(1);
-  }
-
-  if (response.status === 404) {
-    console.log(
-      "\u2705 Platform-hosted instance already retired (404) — cleaning up local state.",
-    );
-  } else {
-    console.log("\u2705 Platform-hosted instance retired.");
   }
 }
 
@@ -303,6 +415,15 @@ async function retireInner(): Promise<void> {
   } else if (cloud === "docker") {
     await retireDocker(assistantId);
   } else if (cloud === "local") {
+    try {
+      await unregisterSelfHostedLocalPlatformRecord(entry);
+    } catch (error) {
+      console.warn(
+        `⚠️  Platform self-hosted unregister failed; continuing local retire: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
     await retireLocal(assistantId, entry);
   } else if (cloud === "custom") {
     await retireCustom(entry);
