@@ -8,7 +8,6 @@ import {
   diskPressureBackgroundSkipLogFields,
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
-import { sweepOrphanMemoryRetrospectiveConversations } from "../plugins/defaults/memory/memory-retrospective-startup-cleanup.js";
 import { countBufferLines } from "../plugins/defaults/memory/v2/consolidation-job.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
@@ -48,6 +47,7 @@ import {
   resetRunningJobsToPending,
   SLOW_LLM_JOB_TYPES,
 } from "./jobs-store.js";
+import { getMemoryPersistenceHooks } from "./memory-lifecycle-hooks.js";
 import { spawnMemoryWorkerProcess } from "./worker-control.js";
 
 const log = getLogger("memory-jobs-worker");
@@ -237,7 +237,7 @@ export function startInProcessMemoryJobsWorker(
   // left behind by daemon crashes mid-job. Best-effort — never block worker
   // startup on cleanup failures.
   try {
-    sweepOrphanMemoryRetrospectiveConversations();
+    getMemoryPersistenceHooks().onWorkerStartup();
   } catch (err) {
     log.warn(
       { err },

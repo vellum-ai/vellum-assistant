@@ -506,11 +506,13 @@ export function registerDefaultPluginJobHandlers(): void {
 }
 
 /**
- * Wrap a plugin's persistence hooks so each call no-ops while that plugin is
- * disabled (`assistant plugins disable <name>`), mirroring the read-time
- * disabled-state filtering the injector/hook/job-handler/tool surfaces apply.
- * The sentinel is checked per call, so enable/disable takes effect on the next
- * write without a daemon restart.
+ * Wrap a plugin's persistence hooks so its ACTIVE side-effect hooks no-op while
+ * that plugin is disabled (`assistant plugins disable <name>`), mirroring the
+ * read-time disabled-state filtering the injector/hook/job-handler/tool surfaces
+ * apply. The sentinel is checked per call, so enable/disable takes effect on the
+ * next write without a daemon restart. CLEANUP hooks (`onConversationWiped`,
+ * `onWorkerStartup`) are intentionally NOT gated — they must run even when the
+ * plugin is disabled so state created while it was enabled is not orphaned.
  */
 export function guardPersistenceHooksByDisabledState(
   pluginName: string,
@@ -524,6 +526,15 @@ export function guardPersistenceHooksByDisabledState(
     onConversationForked(event) {
       if (isPluginDisabled(pluginName)) return;
       return hooks.onConversationForked(event);
+    },
+    // Cleanup hooks are NOT gated on disabled-state: they must run even while
+    // the plugin is disabled, or jobs/conversations created while it was
+    // enabled would be orphaned.
+    onConversationWiped(conversationId) {
+      return hooks.onConversationWiped(conversationId);
+    },
+    onWorkerStartup() {
+      return hooks.onWorkerStartup();
     },
   };
 }

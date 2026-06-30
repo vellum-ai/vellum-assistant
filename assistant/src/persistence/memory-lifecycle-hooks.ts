@@ -73,11 +73,31 @@ export interface MemoryPersistenceHooks {
    * transaction with the live `db` handle.
    */
   onConversationForked(event: ConversationForkedEvent): void;
+
+  /**
+   * A conversation is being wiped. The memory feature cancels its pending jobs
+   * for that conversation; returns the number cancelled (0 when memory is not
+   * present). Runs before the conversation's message rows are deleted, since
+   * the cancellation queries join on `messages`. Cleanup — runs even while the
+   * plugin is disabled, so jobs created while it was enabled are not orphaned.
+   */
+  onConversationWiped(conversationId: string): number;
+
+  /**
+   * The background-job worker is starting. The memory feature sweeps orphan
+   * retrospective conversations left by a crash mid-job. Best-effort; the caller
+   * wraps it in try/catch. Cleanup — runs even while the plugin is disabled.
+   */
+  onWorkerStartup(): void;
 }
 
 const NOOP: MemoryPersistenceHooks = {
   onMessagePersisted() {},
   onConversationForked() {},
+  onConversationWiped() {
+    return 0;
+  },
+  onWorkerStartup() {},
 };
 
 let current: MemoryPersistenceHooks = NOOP;
