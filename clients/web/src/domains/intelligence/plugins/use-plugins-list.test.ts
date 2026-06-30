@@ -68,6 +68,7 @@ function match(overrides: Partial<CatalogMatch> = {}): CatalogMatch {
   return {
     name: "beta",
     path: "github:acme/beta@main",
+    category: null,
     source: { kind: "github", repo: "acme/beta", ref: "main" },
     ...overrides,
   };
