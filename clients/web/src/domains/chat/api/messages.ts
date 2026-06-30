@@ -454,6 +454,7 @@ export async function postChatMessage(
   onboarding?: PreChatOnboardingContext,
   clientMessageId?: string,
   inferenceProfile?: string | null,
+  enabledPlugins?: string[] | null,
 ): Promise<PostMessageResult> {
   // Wire-field selection picks exactly one of `conversationId` (0.8.6+
   // strict internal-id lookup) or `conversationKey` (legacy
@@ -511,6 +512,15 @@ export async function postChatMessage(
   // otherwise so the conversation inherits the global default profile.
   if (inferenceProfile) {
     body.inferenceProfile = inferenceProfile;
+  }
+  // Per-chat plugin selection for the conversation this message mints — the
+  // user picked an explicit plugin set in the composer before sending. The
+  // daemon persists it as the conversation's enabled-plugin set. Omitted when
+  // `null`/`undefined` so the conversation inherits the default set. The caller
+  // gates attachment on daemon support + an explicit selection (see
+  // `use-send-message.ts`); an empty array is a valid "no plugins" selection.
+  if (enabledPlugins != null) {
+    body.enabledPlugins = enabledPlugins;
   }
   const normalizedOnboarding = onboarding
     ? normalizePreChatOnboardingContext(onboarding)
