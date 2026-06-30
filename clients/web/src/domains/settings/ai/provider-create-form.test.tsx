@@ -76,8 +76,11 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 // Stub the credential hooks so render doesn't issue real daemon queries.
 // `hasStoredCredential: false` matches the empty create-mode state.
 mock.module("@/domains/settings/ai/use-stored-credential-presence", () => ({
-  credentialPresenceQueryKey: (assistantId: string, kind: string, name: string) =>
-    ["credentialPresence", assistantId, kind, name] as const,
+  credentialPresenceQueryKey: (
+    assistantId: string,
+    kind: string,
+    name: string,
+  ) => ["credentialPresence", assistantId, kind, name] as const,
   useStoredCredentialPresence: () => ({
     hasStoredCredential: false,
     isLoading: false,
@@ -91,9 +94,8 @@ mock.module("@/domains/settings/ai/use-provider-credentials-list", () => ({
   }),
 }));
 
-const { ProviderCreateForm } = await import(
-  "@/domains/settings/ai/provider-create-form"
-);
+const { ProviderCreateForm } =
+  await import("@/domains/settings/ai/provider-create-form");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -360,6 +362,38 @@ describe("ProviderCreateForm submit sequence", () => {
     );
 
     expect(getInputByPlaceholder("Enter your API key")).toBeDefined();
+  });
+
+  test("Ollama creates a keyless connection without saving a secret", async () => {
+    render(
+      <ModalWrapper>
+        <ProviderCreateForm
+          assistantId={ASSISTANT_ID}
+          existingNames={[]}
+          defaultProviderType="ollama"
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />
+      </ModalWrapper>,
+    );
+
+    expect(
+      Array.from(document.querySelectorAll<HTMLInputElement>("input")).some(
+        (input) => input.placeholder === "Enter your API key",
+      ),
+    ).toBe(false);
+
+    fireEvent.click(getButton("Create"));
+
+    await waitFor(() => {
+      expect(createConnectionCalls.length).toBe(1);
+    });
+    expect(secretsPostCalls).toEqual([]);
+    expect(createConnectionCalls[0].body).toMatchObject({
+      name: "ollama",
+      provider: "ollama",
+      auth: { type: "none" },
+    });
   });
 
   test("fires a 'Provider connected' success toast on a successful create", async () => {
