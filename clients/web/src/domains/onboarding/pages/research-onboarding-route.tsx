@@ -37,6 +37,7 @@ import {
 } from "@/domains/onboarding/research-prompt";
 import { useBackgroundHatch } from "@/domains/onboarding/use-background-hatch";
 import { useResearchRunner } from "@/domains/onboarding/research-runner";
+import { sendResearchCorrection } from "@/domains/onboarding/send-research-correction";
 import {
   clearResearchSnapshot,
   readResearchSnapshot,
@@ -588,7 +589,33 @@ export function ResearchOnboardingRoute() {
           <ResearchResultsStep
             claims={research.claims}
             loading={researchLoading}
-            onContinue={() => goForwardTo("suggestions")}
+            onContinue={(removed) => {
+              // Pruned claims are wrong — tell the assistant to disregard them so
+              // they don't leak into the real chat (the research turn taught its
+              // memory these facts). Best-effort; never blocks the handoff.
+              if (researchConversationId && hatchedAssistantId && removed.length > 0) {
+                void sendResearchCorrection({
+                  assistantId: hatchedAssistantId,
+                  conversationId: researchConversationId,
+                  removedClaims: removed,
+                  rejectedAll: false,
+                });
+              }
+              goForwardTo("suggestions");
+            }}
+            onRejectAll={() => {
+              // "This is not me" — the search matched someone else. Disown the
+              // whole result so none of it carries into the assistant's context.
+              if (researchConversationId && hatchedAssistantId) {
+                void sendResearchCorrection({
+                  assistantId: hatchedAssistantId,
+                  conversationId: researchConversationId,
+                  removedClaims: research.claims.map((c) => c.claim),
+                  rejectedAll: true,
+                });
+              }
+              goForwardTo("suggestions", "skipped");
+            }}
             onBack={() => goBackTo("looking")}
             onForward={onForward}
           />

@@ -301,6 +301,7 @@ export function ResearchResultsStep({
   claims,
   loading,
   onContinue,
+  onRejectAll,
   onBack,
   onForward,
 }: {
@@ -308,7 +309,18 @@ export function ResearchResultsStep({
   claims: ResearchFact[];
   /** True while the research turn is still streaming. */
   loading: boolean;
-  onContinue: () => void;
+  /**
+   * Continue into the suggestions, reporting the claims the user X'd out (their
+   * exact `claim` text) so the assistant can be told to disregard them — pruning
+   * an option here must actually take it out of the assistant's context, not
+   * just hide the row.
+   */
+  onContinue: (removedClaims: string[]) => void;
+  /**
+   * "This is not me" — the whole search matched someone else (a similar-name
+   * mismatch). Discard ALL of the web-research context and continue.
+   */
+  onRejectAll: () => void;
   onBack: () => void;
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
@@ -376,9 +388,24 @@ export function ResearchResultsStep({
           </AnimatePresence>
         </div>
 
+        {/* The whole search can land on the wrong person (similar names). Let the
+            user disown it in one click — continue with no web-research context at
+            all, telling the assistant to forget everything it found. Only once
+            there's something to reject and the turn has settled. */}
+        {hasClaims && canContinue && (
+          <button
+            type="button"
+            onClick={onRejectAll}
+            className="mt-5 self-start cursor-pointer text-[14px] underline underline-offset-2 transition-opacity hover:opacity-80"
+            style={{ color: tone.fgMuted }}
+          >
+            This is not me
+          </button>
+        )}
+
         <button
           type="button"
-          onClick={onContinue}
+          onClick={() => onContinue([...removed])}
           disabled={!canContinue}
           className="mt-8 flex cursor-pointer h-11 w-[200px] items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition duration-150 enabled:active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60"
           style={{
