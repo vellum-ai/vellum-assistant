@@ -43,6 +43,27 @@ mock.module("../runtime/background-job-runner.js", () => ({
   },
 }));
 
+// The scheduler's conversation-reuse path dispatches through `processMessage`;
+// route it to the same per-test delegate the runner mock uses.
+let processMessageImpl: (
+  conversationId: string,
+  message: string,
+) => Promise<unknown> = async () => {};
+mock.module("../daemon/process-message.js", () => ({
+  processMessage: (conversationId: string, message: string) =>
+    processMessageImpl(conversationId, message),
+}));
+
+// Notify-mode firings dispatch through `emitNotificationSignal`; a per-test
+// delegate lets a scenario make the notification throw to drive failure paths.
+let emitNotificationSignalImpl: (
+  payload: unknown,
+) => Promise<unknown> = async () => {};
+mock.module("../notifications/emit-signal.js", () => ({
+  emitNotificationSignal: (payload: unknown) =>
+    emitNotificationSignalImpl(payload),
+}));
+
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { applyRetryDecision, decideRetry } from "../schedule/retry-policy.js";
@@ -62,24 +83,23 @@ import { startScheduler as startSchedulerReal } from "../schedule/scheduler.js";
 import type { ScheduleMessageProcessor } from "../schedule/scheduler-types.js";
 
 /**
- * Wrap `startScheduler` so the same `processMessage` the scheduler holds for
- * its conversation-reuse path is also handed to the mocked
- * `runBackgroundJob` for the fresh-bootstrap path. The two paths in scheduler
- * production code dispatch through different mechanisms; tests exercise both
- * deterministically through this single callback.
+ * Wrap `startScheduler` so a single per-test `processMessage` callback drives
+ * both scheduler dispatch paths: the conversation-reuse path (which calls the
+ * mocked `daemon/process-message`) and the fresh-bootstrap path (which calls
+ * the mocked `runBackgroundJob`). Tests exercise both deterministically through
+ * this one callback.
  */
 function startScheduler(
   processMessage: ScheduleMessageProcessor,
-  notifyScheduleOneShot: Parameters<typeof startSchedulerReal>[1],
-  options?: Parameters<typeof startSchedulerReal>[2],
+  _notifyScheduleOneShot?: unknown,
+  _options?: unknown,
 ): SchedulerHandle {
-  injectedProcessMessageForRunner = async (
-    conversationId: string,
-    message: string,
-  ) => {
+  const dispatch = async (conversationId: string, message: string) => {
     await processMessage(conversationId, message, { trustClass: "guardian" });
   };
-  return startSchedulerReal(processMessage, notifyScheduleOneShot, options);
+  processMessageImpl = dispatch;
+  injectedProcessMessageForRunner = dispatch;
+  return startSchedulerReal();
 }
 
 await initializeDb();
@@ -102,6 +122,7 @@ function forceScheduleDue(scheduleId: string): void {
 
 describe("schedule retry store", () => {
   beforeEach(() => {
+    emitNotificationSignalImpl = async () => {};
     const db = getDb();
     db.run("DELETE FROM cron_runs");
     db.run("DELETE FROM cron_jobs");
@@ -203,6 +224,7 @@ describe("scheduler retry integration", () => {
   let scheduler: SchedulerHandle;
 
   beforeEach(() => {
+    emitNotificationSignalImpl = async () => {};
     const db = getDb();
     db.run("DELETE FROM cron_runs");
     db.run("DELETE FROM cron_jobs");
@@ -389,11 +411,11 @@ describe("scheduler retry integration", () => {
       maxRetries: 2,
     });
 
-    const notifyScheduleOneShot = async () => {
+    emitNotificationSignalImpl = async () => {
       throw new Error("notify failed");
     };
 
-    scheduler = startScheduler(async () => {}, notifyScheduleOneShot);
+    scheduler = startScheduler(async () => {});
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 
@@ -439,6 +461,7 @@ describe("scheduler retry integration", () => {
 
 describe("crash recovery", () => {
   beforeEach(() => {
+    emitNotificationSignalImpl = async () => {};
     const db = getDb();
     db.run("DELETE FROM cron_runs");
     db.run("DELETE FROM cron_jobs");
@@ -574,6 +597,7 @@ describe("scheduler-recovery equivalence", () => {
   let scheduler: SchedulerHandle;
 
   beforeEach(() => {
+    emitNotificationSignalImpl = async () => {};
     const db = getDb();
     db.run("DELETE FROM cron_runs");
     db.run("DELETE FROM cron_jobs");

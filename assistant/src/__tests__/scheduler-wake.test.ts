@@ -27,6 +27,11 @@ mock.module("../runtime/agent-wake.js", () => ({
   wakeAgentForOpportunity: mockWakeAgentForOpportunity,
 }));
 
+const mockProcessMessage = mock((..._args: unknown[]) => Promise.resolve());
+mock.module("../daemon/process-message.js", () => ({
+  processMessage: mockProcessMessage,
+}));
+
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { createSchedule } from "../schedule/schedule-store.js";
@@ -77,6 +82,7 @@ describe("scheduler wake mode", () => {
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");
     mockWakeAgentForOpportunity.mockClear();
+    mockProcessMessage.mockClear();
   });
 
   test("wake schedule calls wakeAgentForOpportunity with correct args", async () => {
@@ -90,10 +96,8 @@ describe("scheduler wake mode", () => {
     });
     forceScheduleDue(schedule.id);
 
-    const processMessage = mock(() => Promise.resolve());
-
     // WHEN the scheduler fires
-    const scheduler = startScheduler(processMessage, () => {});
+    const scheduler = startScheduler();
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 
@@ -107,7 +111,7 @@ describe("scheduler wake mode", () => {
     });
 
     // AND processMessage is never called (wake mode doesn't use it)
-    expect(processMessage).not.toHaveBeenCalled();
+    expect(mockProcessMessage).not.toHaveBeenCalled();
   });
 
   test("missing wakeConversationId logs warning and completes (not fails)", async () => {
@@ -127,10 +131,8 @@ describe("scheduler wake mode", () => {
     );
     forceScheduleDue(schedule.id);
 
-    const processMessage = mock(() => Promise.resolve());
-
     // WHEN the scheduler fires
-    const scheduler = startScheduler(processMessage, () => {});
+    const scheduler = startScheduler();
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 
@@ -161,10 +163,7 @@ describe("scheduler wake mode", () => {
     forceScheduleDue(schedule.id);
 
     // WHEN the scheduler fires
-    const scheduler = startScheduler(
-      mock(() => Promise.resolve()),
-      () => {},
-    );
+    const scheduler = startScheduler();
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 
@@ -189,10 +188,7 @@ describe("scheduler wake mode", () => {
     forceScheduleDue(schedule.id);
 
     // WHEN the scheduler fires
-    const scheduler = startScheduler(
-      mock(() => Promise.resolve()),
-      () => {},
-    );
+    const scheduler = startScheduler();
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 
@@ -225,10 +221,7 @@ describe("scheduler wake mode", () => {
     });
     forceScheduleDue(schedule.id);
 
-    const scheduler = startScheduler(
-      mock(() => Promise.resolve()),
-      () => {},
-    );
+    const scheduler = startScheduler();
 
     // WHEN the first tick runs (fires immediately from startScheduler)
     await new Promise((resolve) => origSetTimeout(resolve, 600));
@@ -277,10 +270,7 @@ describe("scheduler wake mode", () => {
     ]);
 
     // WHEN the scheduler fires (first tick runs immediately from startScheduler)
-    const scheduler = startScheduler(
-      mock(() => Promise.resolve()),
-      () => {},
-    );
+    const scheduler = startScheduler();
     await new Promise((resolve) => origSetTimeout(resolve, 600));
     scheduler.stop();
 
