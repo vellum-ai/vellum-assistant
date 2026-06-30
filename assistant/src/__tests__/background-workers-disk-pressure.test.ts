@@ -99,12 +99,6 @@ mock.module("../daemon/process-message.js", () => ({
 }));
 
 const createdConversations: Array<{ conversationType: string }> = [];
-mock.module(
-  "../plugins/defaults/memory/find-most-recent-retrospective-for.js",
-  () => ({
-    findMostRecentRetrospectiveFor: mock(() => null),
-  }),
-);
 mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
