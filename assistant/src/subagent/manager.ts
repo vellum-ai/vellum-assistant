@@ -122,6 +122,73 @@ function buildSubagentSystemPrompt(
   return sections.join("\n");
 }
 
+/**
+ * Build the message injected into the parent conversation when a subagent
+ * reaches a terminal state.
+ *
+ * For a completed subagent the final synthesis is inlined directly, so the
+ * parent acts on the result without a `subagent_read` round-trip and has
+ * nothing left to re-spawn. The `subagent_read` pointer survives only as a
+ * fallback for the rare run that ends with no trailing assistant text.
+ *
+ * Exported for unit testing.
+ */
+export function buildSubagentTerminalMessage(opts: {
+  label: string;
+  subagentId: string;
+  isFork: boolean;
+  outcome: "completed" | "failed";
+  silent: boolean;
+  finalText?: string;
+  error?: string;
+  /** A follow-up turn is still queued, so the current synthesis is a snapshot. */
+  deferred?: boolean;
+}): string {
+  const {
+    label,
+    subagentId,
+    isFork,
+    outcome,
+    silent,
+    finalText,
+    error,
+    deferred,
+  } = opts;
+  const prefix = isFork ? "Fork" : "Subagent";
+
+  if (outcome === "failed") {
+    return (
+      `[${prefix} "${label}" failed]\n\n` +
+      `Error: ${error ?? "Unknown error"}\n` +
+      `Do NOT re-spawn or retry this ${prefix.toLowerCase()} unless the user explicitly asks.`
+    );
+  }
+
+  const trimmed = finalText?.trim() ?? "";
+  if (trimmed && !deferred) {
+    return (
+      `[${prefix} "${label}" completed — result below]\n\n` +
+      `${trimmed}\n\n` +
+      (silent
+        ? `(Use these findings internally; do not relay the raw ${prefix.toLowerCase()} output to the user.)`
+        : `(Incorporate this into your reply to the user as appropriate.)`)
+    );
+  }
+
+  // Read-pointer path: either the run left no trailing assistant text to inline,
+  // or a queued follow-up turn is still draining — so the current synthesis is a
+  // stale snapshot and the parent should read the latest output instead.
+  const lastN = isFork ? " and last_n: 1" : "";
+  const reason = deferred
+    ? `Queued follow-up guidance is still being processed`
+    : `The ${prefix.toLowerCase()} produced no final text`;
+  return (
+    `[${prefix} "${label}" completed]\n\n` +
+    `${reason}. Use subagent_read with subagent_id "${subagentId}"${lastN} for the latest output.` +
+    (silent ? ` Keep the result internal.` : ``)
+  );
+}
+
 // ── Manager ─────────────────────────────────────────────────────────────
 
 interface ManagedSubagent {
@@ -687,12 +754,12 @@ export class SubagentManager {
 
         log.info({ subagentId }, "Subagent completed");
 
-        // Notify the parent conversation so the LLM can call subagent_read.
-        // Skipped on the synchronous path — the awaiting caller receives the
-        // final text directly, so re-injecting a "read the result" prompt
-        // would be redundant noise in the parent.
+        // Notify the parent conversation, inlining the subagent's final
+        // synthesis so the LLM acts on the result without a subagent_read
+        // round-trip. Skipped on the synchronous path — the awaiting caller
+        // receives the final text directly.
         if (!managed.synchronous) {
-          this.notifyParentTerminal(managed, "completed");
+          this.notifyParentTerminal(managed, "completed", finalText);
         }
       }
     } catch (err) {
@@ -1322,43 +1389,36 @@ export class SubagentManager {
   }
 
   /**
-   * Inject a completion/failure notification into the parent conversation
-   * so the LLM automatically informs the user.
+   * Inject a completion/failure notification into the parent conversation so
+   * the LLM automatically informs the user. On completion the subagent's final
+   * synthesis is inlined (via `buildSubagentTerminalMessage`) so the parent acts
+   * on the result directly rather than issuing a `subagent_read` call.
    */
   private notifyParentTerminal(
     managed: ManagedSubagent,
     outcome: "completed" | "failed",
+    finalText?: string,
   ): void {
     const { config } = managed.state;
     const isFork = managed.state.isFork;
-    let message: string;
+    // Forks default to internal/silent unless explicitly shared; regular
+    // subagents share with the user unless explicitly silenced.
+    const silent = isFork
+      ? config.sendResultToUser !== true
+      : config.sendResultToUser === false;
 
-    if (outcome === "completed") {
-      if (isFork) {
-        const silent = config.sendResultToUser !== true;
-        message =
-          `[Fork "${config.label}" completed]\n\n` +
-          `Use subagent_read with subagent_id "${config.id}" and last_n: 1 to retrieve the final synthesis.\n` +
-          (silent
-            ? `This fork was spawned for internal processing. Process the findings internally — do NOT share raw fork output with the user.`
-            : `Do NOT re-spawn this fork — just read and share the results.`);
-      } else {
-        const silent = config.sendResultToUser === false;
-        message =
-          `[Subagent "${config.label}" completed]\n\n` +
-          `Use subagent_read with subagent_id "${config.id}" to retrieve the full output.\n` +
-          (silent
-            ? `This subagent was spawned for internal processing. Read the result for your own use but do NOT share it with the user.\nDo NOT re-spawn this subagent.`
-            : `Do NOT re-spawn this subagent — just read and share the results.`);
-      }
-    } else {
-      const error = managed.state.error ?? "Unknown error";
-      const prefix = isFork ? "Fork" : "Subagent";
-      message =
-        `[${prefix} "${config.label}" failed]\n\n` +
-        `Error: ${error}\n` +
-        `Do NOT re-spawn or retry this ${prefix.toLowerCase()} unless the user explicitly asks.`;
-    }
+    const message = buildSubagentTerminalMessage({
+      label: config.label,
+      subagentId: config.id,
+      isFork,
+      outcome,
+      silent,
+      finalText,
+      error: managed.state.error,
+      // A queued follow-up turn means the snapshot we hold is stale; defer to a
+      // read pointer so the parent picks up the queued turn's output instead.
+      deferred: managed.hadEnqueuedMessages === true,
+    });
 
     const notification: SubagentNotificationInfo = {
       subagentId: config.id,
