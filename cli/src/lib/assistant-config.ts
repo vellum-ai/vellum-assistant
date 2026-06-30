@@ -608,6 +608,19 @@ export function saveAssistantEntry(entry: AssistantEntry): void {
   writeAssistants(entries);
 }
 
+export function saveAssistantPlatformRegistration(
+  assistantId: string,
+  metadata: {
+    platformAssistantId: string;
+    platformBaseUrl: string;
+    platformOrganizationId: string;
+  },
+): void {
+  const entry = findAssistantByName(assistantId);
+  if (!entry) return;
+  saveAssistantEntry({ ...entry, ...metadata });
+}
+
 /**
  * Scan upward from `basePort` to find an available port. A port is considered
  * available when `probePort()` returns false (nothing listening). Scans up to

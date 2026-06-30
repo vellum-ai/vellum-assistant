@@ -18,9 +18,20 @@ const loadLockfileHost = mock(async () => {
   throw new Error("host down");
 });
 
+const saveLockfileAssistantHost = mock(
+  async (
+    _entry: Record<string, unknown>,
+    _activeAssistant: string | undefined,
+  ) => ({
+    ok: true as const,
+    lockfile: { assistants: [localA], activeAssistant: "local-a" },
+  }),
+);
+
 mock.module("@/runtime/local-mode-host", () => ({
   ...localModeHost,
   replacePlatformAssistantsHost,
+  saveLockfileAssistantHost,
   loadLockfileHost,
 }));
 
@@ -39,6 +50,7 @@ import {
   primeLocalGatewayConnection,
   reconcileSelectedAssistant,
   syncPlatformAssistantsToLockfile,
+  updateLockfileAssistant,
   UnresolvedLocalGatewayError,
 } from "@/lib/local-mode";
 import { SELECTED_ASSISTANT_STORAGE_KEY } from "@/assistant/selected-assistant-storage";
@@ -85,6 +97,7 @@ afterEach(() => {
   localStorage.removeItem(LOCKFILE_STORAGE_KEY);
   localStorage.removeItem(SELECTED_ASSISTANT_STORAGE_KEY);
   replacePlatformAssistantsHost.mockClear();
+  saveLockfileAssistantHost.mockClear();
 });
 
 describe("remote gateway mode", () => {
@@ -160,6 +173,41 @@ describe("syncPlatformAssistantsToLockfile", () => {
     expect(replacePlatformAssistantsHost).toHaveBeenCalledTimes(1);
     expect(useLockfileStore.getState().lockfile).toBeNull();
     expect(localStorage.getItem(LOCKFILE_STORAGE_KEY)).toBeNull();
+  });
+});
+
+describe("updateLockfileAssistant", () => {
+  test("patches an existing entry without changing the active assistant", async () => {
+    setLockfile({ assistants: [localA], activeAssistant: "local-a" });
+    saveLockfileAssistantHost.mockImplementationOnce(async (entry) => ({
+      ok: true as const,
+      lockfile: {
+        assistants: [entry as LockfileAssistant],
+        activeAssistant: "local-a",
+      },
+    }));
+
+    await updateLockfileAssistant("local-a", {
+      platformAssistantId: "platform-asst-1",
+      platformBaseUrl: "https://platform.example.com",
+      platformOrganizationId: "org_1",
+    });
+
+    expect(saveLockfileAssistantHost).toHaveBeenCalledWith(
+      {
+        ...localA,
+        platformAssistantId: "platform-asst-1",
+        platformBaseUrl: "https://platform.example.com",
+        platformOrganizationId: "org_1",
+      },
+      undefined,
+    );
+    expect(getLockfile().activeAssistant).toBe("local-a");
+    expect(getLockfile().assistants[0]).toEqual(
+      expect.objectContaining({
+        platformAssistantId: "platform-asst-1",
+      }),
+    );
   });
 });
 

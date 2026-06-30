@@ -205,10 +205,36 @@ export async function saveLockfileAssistant(assistant: {
   runtimeUrl: string;
   hatchedAt: string;
   organizationId?: string;
+  platformAssistantId?: string;
+  platformBaseUrl?: string;
+  platformOrganizationId?: string;
 }): Promise<void> {
   const result = await saveLockfileAssistantHost(
     assistant,
     assistant.assistantId,
+  );
+  if (result.ok) {
+    commitLockfile(result.lockfile);
+  }
+}
+
+/**
+ * Update an existing lockfile entry without changing the active assistant.
+ */
+export async function updateLockfileAssistant(
+  assistantId: string,
+  patch: Partial<LockfileAssistant>,
+): Promise<void> {
+  if (isRemoteGatewayMode()) return;
+
+  const entry = getLockfile().assistants.find(
+    (assistant) => assistant.assistantId === assistantId,
+  );
+  if (!entry) return;
+
+  const result = await saveLockfileAssistantHost(
+    { ...entry, ...patch, assistantId },
+    undefined,
   );
   if (result.ok) {
     commitLockfile(result.lockfile);

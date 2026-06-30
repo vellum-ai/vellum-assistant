@@ -54,6 +54,9 @@ const findAssistantByNameMock = mock<
 const saveAssistantEntryMock = mock<typeof assistantConfig.saveAssistantEntry>(
   () => {},
 );
+const saveAssistantPlatformRegistrationMock = mock<
+  typeof assistantConfig.saveAssistantPlatformRegistration
+>(() => {});
 const loadAllAssistantsMock = mock<typeof assistantConfig.loadAllAssistants>(
   () => [],
 );
@@ -65,6 +68,7 @@ mock.module("../lib/assistant-config.js", () => ({
   ...realAssistantConfig,
   findAssistantByName: findAssistantByNameMock,
   saveAssistantEntry: saveAssistantEntryMock,
+  saveAssistantPlatformRegistration: saveAssistantPlatformRegistrationMock,
   loadAllAssistants: loadAllAssistantsMock,
   removeAssistantEntry: removeAssistantEntryMock,
 }));
@@ -396,6 +400,8 @@ beforeEach(() => {
   findAssistantByNameMock.mockReturnValue(null);
   saveAssistantEntryMock.mockReset();
   saveAssistantEntryMock.mockImplementation(() => {});
+  saveAssistantPlatformRegistrationMock.mockReset();
+  saveAssistantPlatformRegistrationMock.mockImplementation(() => {});
   loadAllAssistantsMock.mockReset();
   loadAllAssistantsMock.mockReturnValue([]);
   removeAssistantEntryMock.mockReset();
@@ -2255,6 +2261,14 @@ describe("platform credential injection", () => {
         undefined, // assistantVersion (gateway unreachable in test)
         expect.any(String), // platformUrl from getPlatformUrl()
         undefined, // ingressUrl (gateway unreachable in test)
+      );
+      expect(saveAssistantPlatformRegistrationMock).toHaveBeenCalledWith(
+        "my-local",
+        {
+          platformAssistantId: "platform-assistant-1",
+          platformBaseUrl: "https://platform.vellum.ai",
+          platformOrganizationId: "org-1",
+        },
       );
       expect(injectCredentialsIntoAssistantMock).toHaveBeenCalledWith({
         gatewayUrl: "http://localhost:7821",

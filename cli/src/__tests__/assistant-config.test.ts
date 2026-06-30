@@ -17,6 +17,7 @@ import {
   removeAssistantEntry,
   loadAllAssistants,
   saveAssistantEntry,
+  saveAssistantPlatformRegistration,
   getActiveAssistant,
   migrateLegacyEntry,
   type AssistantEntry,
@@ -80,6 +81,25 @@ describe("assistant-config", () => {
     const all = loadAllAssistants();
     expect(all).toHaveLength(1);
     expect(all[0].assistantId).toBe("test-1");
+  });
+
+  test("saveAssistantPlatformRegistration stores durable platform metadata", () => {
+    saveAssistantEntry(makeEntry("test-1"));
+
+    saveAssistantPlatformRegistration("test-1", {
+      platformAssistantId: "platform-asst-1",
+      platformBaseUrl: "https://platform.example.com",
+      platformOrganizationId: "org_1",
+    });
+
+    expect(loadAllAssistants()[0]).toEqual(
+      expect.objectContaining({
+        assistantId: "test-1",
+        platformAssistantId: "platform-asst-1",
+        platformBaseUrl: "https://platform.example.com",
+        platformOrganizationId: "org_1",
+      }),
+    );
   });
 
   test("findAssistantByName returns matching entry", () => {

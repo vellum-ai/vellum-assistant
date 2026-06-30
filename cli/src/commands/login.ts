@@ -7,6 +7,7 @@ import {
   loadAllAssistants,
   removeAssistantEntry,
   resolveAssistant,
+  saveAssistantPlatformRegistration,
   setActiveAssistant,
 } from "../lib/assistant-config";
 import { computeDeviceId } from "../lib/guardian-token";
@@ -396,6 +397,11 @@ export async function login(): Promise<void> {
         console.log(
           `Registered assistant: ${registration.assistant.name} (${registration.assistant.id})`,
         );
+        saveAssistantPlatformRegistration(entry.assistantId, {
+          platformAssistantId: registration.assistant.id,
+          platformBaseUrl: getPlatformUrl(),
+          platformOrganizationId: orgId,
+        });
 
         // Resolve the API key to inject, mirroring the macOS app's
         // LocalAssistantBootstrapService 3-step flow:

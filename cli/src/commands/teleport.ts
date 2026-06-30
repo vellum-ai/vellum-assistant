@@ -4,6 +4,7 @@ import {
   getDaemonPidPath,
   removeAssistantEntry,
   saveAssistantEntry,
+  saveAssistantPlatformRegistration,
   setActiveAssistant,
   type AssistantEntry,
 } from "../lib/assistant-config.js";
@@ -1133,6 +1134,11 @@ async function tryInjectPlatformCredentials(
       getPlatformUrl(),
       ingressUrl,
     );
+    saveAssistantPlatformRegistration(entry.assistantId, {
+      platformAssistantId: registration.assistant.id,
+      platformBaseUrl: getPlatformUrl(),
+      platformOrganizationId: orgId,
+    });
 
     // Resolve the API key: 1) fresh from registration, 2) existing from
     // daemon credential store, 3) reprovision as last resort (revokes old key).

@@ -9,6 +9,7 @@ import {
   isPlatformDisabled,
   isRemoteGatewayMode,
   primeLocalGatewayConnectionWithRepair,
+  updateLockfileAssistant,
   type LockfileAssistant,
 } from "@/lib/local-mode";
 import {
@@ -148,20 +149,33 @@ async function ensureLocalAssistantPlatformIdentity(
 ): Promise<string> {
   const gateway = await ensureGatewayAccess(assistant, options);
   const status = await fetchPlatformStatus(gateway, assistant.assistantId);
+  const statusOrganizationId = status?.organizationId ?? null;
   const statusPlatformAssistantId =
     status?.assistantId && isUuid(status.assistantId)
       ? status.assistantId
       : null;
   if (statusPlatformAssistantId && status?.hasAssistantApiKey !== false) {
+    const platformOrganizationId =
+      statusOrganizationId ??
+      getActiveOrganizationIdForRequests() ??
+      assistant.organizationId ??
+      null;
+    await persistPlatformRegistrationMetadata(assistant, {
+      platformAssistantId: statusPlatformAssistantId,
+      platformBaseUrl: getPlatformRuntimeUrl(),
+      ...(platformOrganizationId ? { platformOrganizationId } : {}),
+    });
     return statusPlatformAssistantId;
   }
 
   const organizationId = await resolveOrganizationId(
-    status?.organizationId ?? null,
+    statusOrganizationId,
     assistant,
   );
   if (!organizationId) {
-    throw new Error("Sign in to Vellum and select an organization to register this local assistant.");
+    throw new Error(
+      "Sign in to Vellum and select an organization to register this local assistant.",
+    );
   }
 
   const registration = await ensureRegistration(assistant, organizationId);
@@ -183,15 +197,35 @@ async function ensureLocalAssistantPlatformIdentity(
     assistantApiKey = await reprovisionApiKey(assistant, organizationId);
   }
 
+  const platformBaseUrl = getPlatformRuntimeUrl();
+  await persistPlatformRegistrationMetadata(assistant, {
+    platformAssistantId,
+    platformBaseUrl,
+    platformOrganizationId: organizationId,
+  });
+
   await injectPlatformCredentials(gateway, {
     assistantApiKey,
     platformAssistantId,
-    platformBaseUrl: getPlatformRuntimeUrl(),
+    platformBaseUrl,
     organizationId,
     webhookSecret: stringValue(registration.webhook_secret),
   });
 
   return platformAssistantId;
+}
+
+async function persistPlatformRegistrationMetadata(
+  assistant: LockfileAssistant,
+  metadata: {
+    platformAssistantId: string;
+    platformBaseUrl: string;
+    platformOrganizationId?: string;
+  },
+): Promise<void> {
+  await updateLockfileAssistant(assistant.assistantId, metadata).catch(
+    () => {},
+  );
 }
 
 async function ensureGatewayAccess(
@@ -215,7 +249,9 @@ async function ensureGatewayAccess(
   }
 
   if (!gatewayUrl || !actorToken) {
-    throw new Error("Unable to reach the local assistant for platform identity setup.");
+    throw new Error(
+      "Unable to reach the local assistant for platform identity setup.",
+    );
   }
 
   return { gatewayUrl, actorToken };
@@ -225,7 +261,10 @@ async function fetchPlatformStatus(
   gateway: { gatewayUrl: string; actorToken: string },
   runtimeAssistantId: string,
 ): Promise<LocalPlatformStatus | null> {
-  const url = gatewayUrl(gateway.gatewayUrl, `/v1/assistants/${encodeURIComponent(runtimeAssistantId)}/platform/status`);
+  const url = gatewayUrl(
+    gateway.gatewayUrl,
+    `/v1/assistants/${encodeURIComponent(runtimeAssistantId)}/platform/status`,
+  );
   const response = await fetch(url, {
     headers: {
       Accept: "application/json",
@@ -235,9 +274,9 @@ async function fetchPlatformStatus(
   }).catch(() => null);
   if (!response?.ok) return null;
 
-  const body = (await response.json().catch(() => null)) as
-    | PlatformStatusBody
-    | null;
+  const body = (await response
+    .json()
+    .catch(() => null)) as PlatformStatusBody | null;
   return {
     assistantId: firstString(body?.assistantId, body?.assistant_id),
     organizationId: firstString(body?.organizationId, body?.organization_id),
@@ -259,7 +298,10 @@ async function resolveOrganizationId(
     null;
   if (existing) return existing;
 
-  await useOrganizationStore.getState().fetchOrganizations().catch(() => {});
+  await useOrganizationStore
+    .getState()
+    .fetchOrganizations()
+    .catch(() => {});
   return (
     getActiveOrganizationIdForRequests() ?? assistant.organizationId ?? null
   );
@@ -296,7 +338,9 @@ async function platformPost<T>(
 ): Promise<T> {
   const deviceId = getDeviceId();
   if (!deviceId) {
-    throw new Error("Unable to identify this device for local assistant platform registration.");
+    throw new Error(
+      "Unable to identify this device for local assistant platform registration.",
+    );
   }
 
   const headers = new Headers({
@@ -323,16 +367,19 @@ async function platformPost<T>(
     );
   }
 
-  const response = await fetch(new URL(path, window.location.origin).toString(), {
-    method: "POST",
-    headers,
-    credentials: isElectron() ? "omit" : "same-origin",
-    body: JSON.stringify({
-      client_installation_id: deviceId,
-      runtime_assistant_id: assistant.assistantId,
-      client_platform: "macos",
-    }),
-  }).catch((error: unknown) => {
+  const response = await fetch(
+    new URL(path, window.location.origin).toString(),
+    {
+      method: "POST",
+      headers,
+      credentials: isElectron() ? "omit" : "same-origin",
+      body: JSON.stringify({
+        client_installation_id: deviceId,
+        runtime_assistant_id: assistant.assistantId,
+        client_platform: "macos",
+      }),
+    },
+  ).catch((error: unknown) => {
     throw new Error(
       `Unable to reach the platform registration endpoint: ${errorMessage(error)}`,
     );

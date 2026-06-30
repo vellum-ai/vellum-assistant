@@ -109,6 +109,10 @@ export const LockfileAssistantSchema = z.object({
   hatchedAt: z.string().optional(),
   /** Owning org for platform assistants; absent for local ones. */
   organizationId: z.string().optional(),
+  /** Platform self-hosted registration metadata for local assistants. */
+  platformAssistantId: z.string().optional(),
+  platformBaseUrl: z.string().optional(),
+  platformOrganizationId: z.string().optional(),
   resources: LocalAssistantResourcesSchema.optional(),
 });
 
@@ -134,8 +138,7 @@ export interface Lockfile {
  * surfaces failures by message alone.
  */
 export type LockfileWriteResult =
-  | { ok: true; lockfile: Lockfile }
-  | { ok: false; error: string };
+  { ok: true; lockfile: Lockfile } | { ok: false; error: string };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

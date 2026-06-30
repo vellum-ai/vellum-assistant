@@ -49,6 +49,10 @@ interface RetireArgs {
 const VAK_PREFIX = "vak_";
 const PLATFORM_TOKEN_ENV = "VELLUM_PLATFORM_TOKEN";
 
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
 function readPlatformRetireToken(): string | null {
   const envToken = process.env[PLATFORM_TOKEN_ENV]?.trim();
   if (envToken) return envToken;
@@ -113,18 +117,37 @@ async function unregisterSelfHostedLocalPlatformRecord(
   const token = readPlatformRetireToken();
   if (!token) return;
 
+  const storedPlatformAssistantId = nonEmptyString(entry.platformAssistantId);
+  const storedPlatformBaseUrl = nonEmptyString(entry.platformBaseUrl);
+  const storedPlatformOrganizationId = nonEmptyString(
+    entry.platformOrganizationId,
+  );
   const platformAssistant = await readGatewayCredential(
     entry.runtimeUrl,
     "vellum:platform_assistant_id",
     entry.bearerToken,
   );
   if (platformAssistant.unreachable) {
-    console.warn(
-      "\u26a0\ufe0f  Could not read platform registration from the local assistant; skipping platform unregister.",
-    );
+    if (!storedPlatformAssistantId) {
+      console.warn(
+        "\u26a0\ufe0f  Could not read platform registration from the local assistant; skipping platform unregister.",
+      );
+      return;
+    }
+    await deletePlatformAssistant(storedPlatformAssistantId, {
+      token,
+      platformUrl: storedPlatformBaseUrl ?? undefined,
+      organizationId: storedPlatformOrganizationId ?? undefined,
+      label: "Platform self-hosted unregister",
+      successMessage: "\u2705 Platform self-hosted registration unregistered.",
+      alreadyGoneMessage:
+        "\u2705 Platform self-hosted registration already unregistered (404).",
+    });
     return;
   }
-  if (!platformAssistant.value) return;
+  const platformAssistantId =
+    platformAssistant.value ?? storedPlatformAssistantId;
+  if (!platformAssistantId) return;
 
   const [platformBaseUrl, organizationId] = await Promise.all([
     readGatewayCredential(
@@ -139,10 +162,11 @@ async function unregisterSelfHostedLocalPlatformRecord(
     ),
   ]);
 
-  await deletePlatformAssistant(platformAssistant.value, {
+  await deletePlatformAssistant(platformAssistantId, {
     token,
-    platformUrl: platformBaseUrl.value ?? undefined,
-    organizationId: organizationId.value ?? undefined,
+    platformUrl: platformBaseUrl.value ?? storedPlatformBaseUrl ?? undefined,
+    organizationId:
+      organizationId.value ?? storedPlatformOrganizationId ?? undefined,
     label: "Platform self-hosted unregister",
     successMessage: "\u2705 Platform self-hosted registration unregistered.",
     alreadyGoneMessage:
