@@ -492,21 +492,6 @@
       "updatedAt": "2026-06-12T18:05:36.000Z"
     },
     {
-      "id": "meet-join",
-      "name": "meet-join",
-      "description": "Join a Google Meet call to take notes; only when the user explicitly asks.",
-      "metadata": {
-        "icon": "assets/icon.svg",
-        "emoji": "📹",
-        "vellum": {
-          "category": "voice",
-          "display-name": "Meet Join",
-          "feature-flag": "meet"
-        }
-      },
-      "updatedAt": "2026-06-12T18:05:36.000Z"
-    },
-    {
       "id": "meme-generator",
       "name": "meme-generator",
       "description": "Generate memes from 170+ classic templates using the free Memegen.link API. Search templates, generate captioned images, and download them for posting. No API key required.",
@@ -658,7 +643,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-29T23:55:43.000Z"
+      "updatedAt": "2026-06-30T00:15:51.000Z"
     },
     {
       "id": "public-ingress",

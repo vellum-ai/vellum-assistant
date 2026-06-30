@@ -2616,7 +2616,7 @@ jobs:
       - name: Install shared packages
         uses: ./.github/actions/install-shared-packages
         with:
-          packages: packages/service-contracts packages/ces-client packages/gateway-client skills/meet-join gateway
+          packages: packages/service-contracts packages/ces-client packages/gateway-client gateway
 
       - name: Lint
         run: bun run lint
