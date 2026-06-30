@@ -1020,11 +1020,50 @@ function wasFetchBodyTornDown(stream: PassThrough): boolean {
 }
 
 /**
- * Test seam: the integration test needs to point the validator at a local
- * HTTP server fixture. Production callers never pass this — the default
- * keeps the validator strict (GCS host, HTTPS only, no explicit port).
+ * Options passed to `validateGcsSignedUrl` for the import URL handlers.
+ *
+ * Defaults to `undefined`, which keeps the validator strict (GCS host,
+ * HTTPS only, no explicit port) — the only production configuration on a
+ * normal managed deployment.
+ *
+ * It is initialized from `VELLUM_MIGRATION_IMPORT_ALLOWED_HOSTS` (see
+ * `parseMigrationImportAllowedHostsEnv`). The platform injects that env var
+ * only in environments where the bundle is served over plain http from a
+ * non-GCS host — e.g. local/minikube, where the signed bundle URL points at
+ * `http://host.docker.internal/...`. Supplying a non-default allowlist
+ * intentionally relaxes the validator's scheme check to also accept `http:`
+ * (and skips the explicit-port check) for those explicitly-allowlisted hosts
+ * only; every other host still requires https. When the env var is unset,
+ * this stays `undefined` and production behavior is unchanged.
+ *
+ * Tests override it via `_setUrlImportValidatorOptionsForTests` (e.g. to
+ * point the validator at a local HTTP server fixture).
  */
-let urlValidatorOptions: ValidateGcsSignedUrlOptions | undefined;
+let urlValidatorOptions: ValidateGcsSignedUrlOptions | undefined =
+  parseMigrationImportAllowedHostsEnv(
+    process.env.VELLUM_MIGRATION_IMPORT_ALLOWED_HOSTS,
+  );
+
+/**
+ * Parse the comma-separated `VELLUM_MIGRATION_IMPORT_ALLOWED_HOSTS` env value
+ * into `ValidateGcsSignedUrlOptions`. Returns `undefined` when the value is
+ * absent or contains no non-empty host entries, so the validator falls back
+ * to its strict production default.
+ *
+ * Exported for unit testing of the env-parsing behavior.
+ */
+export function parseMigrationImportAllowedHostsEnv(
+  raw: string | undefined,
+): ValidateGcsSignedUrlOptions | undefined {
+  if (!raw) {
+    return undefined;
+  }
+  const allowedHosts = raw
+    .split(",")
+    .map((host) => host.trim())
+    .filter((host) => host.length > 0);
+  return allowedHosts.length > 0 ? { allowedHosts } : undefined;
+}
 
 /**
  * Test-only: override the allowed-host list used by the URL-body import
