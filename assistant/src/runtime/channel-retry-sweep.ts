@@ -34,7 +34,6 @@ import {
 import { finalizeEventDelivery } from "./finalize-event-delivery.js";
 import { deliverChannelReply } from "./gateway-client.js";
 import type { MessageProcessor } from "./http-types.js";
-import { createSlackReplySession } from "./slack-reply-session.js";
 import { resolveRoutingStateFromRuntime } from "./trust-context-resolver.js";
 
 const log = getLogger("runtime-http");
@@ -289,15 +288,13 @@ export async function sweepFailedEvents(
       typeof payload.externalChatId === "string"
         ? payload.externalChatId
         : undefined;
-    const slackReplySession = externalChatId
-      ? createSlackReplySession({
-          sourceChannel,
-          chatType: metadataChatType,
-          replyCallbackUrl,
-          chatId: externalChatId,
-          assistantId,
-        })
-      : undefined;
+    // A retry never opens a new stream: a prior attempt may already have
+    // streamed a message, so re-streaming would duplicate the reply. The
+    // durable delivery below edits that message in place when one exists.
+    const priorStreamMessageTs =
+      typeof payload.slackStreamMessageTs === "string"
+        ? payload.slackStreamMessageTs
+        : undefined;
     let replyMessageId: string | undefined;
     const observeAgentEvent = (msg: ServerMessage): void => {
       if (
@@ -307,7 +304,6 @@ export async function sweepFailedEvents(
       ) {
         replyMessageId = msg.messageId;
       }
-      slackReplySession?.observeEvent(msg);
     };
 
     let userMessageId: string | undefined;
@@ -341,9 +337,6 @@ export async function sweepFailedEvents(
       );
     } catch (err) {
       log.error({ err, eventId: event.id }, "Retry failed for channel event");
-      if (slackReplySession) {
-        await slackReplySession.finish();
-      }
       recordProcessingFailure(event.id, err);
       continue;
     }
@@ -358,7 +351,8 @@ export async function sweepFailedEvents(
           assistantId,
           replyMessageId,
           userMessageId,
-          slackReplySession,
+          slackReplySession: undefined,
+          priorStreamMessageTs,
         });
       } catch (err) {
         log.error(

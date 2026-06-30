@@ -26,6 +26,7 @@ import type { TrustContext } from "../../../daemon/trust-context.js";
 import {
   linkMessage,
   storeReplyMessageId,
+  storeStreamedReplyTs,
 } from "../../../persistence/delivery-crud.js";
 import {
   markProcessed,
@@ -309,7 +310,10 @@ export function processChannelMessageInBackground(
           "Background channel message processing failed",
         );
         if (slackReplySession) {
-          await slackReplySession.finish();
+          const reconciliation = await slackReplySession.finish();
+          if (reconciliation.mode === "streamed") {
+            storeStreamedReplyTs(eventId, reconciliation.messageTs);
+          }
         }
         recordProcessingFailure(eventId, err);
         return;

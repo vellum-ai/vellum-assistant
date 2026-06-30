@@ -96,28 +96,43 @@ export type SlackStreamTask = z.infer<typeof SlackStreamTaskSchema>;
  * @see https://docs.slack.dev/reference/methods/chat.appendStream/
  * @see https://docs.slack.dev/reference/methods/chat.stopStream/
  */
-export const SlackStreamOpSchema = z.discriminatedUnion("action", [
-  z.object({
-    action: z.literal("start"),
-    threadTs: z.string(),
-    markdownText: z.string().optional(),
-    taskDisplayMode: z.literal("plan").optional(),
-    tasks: z.array(SlackStreamTaskSchema).optional(),
-  }),
-  z.object({
-    action: z.literal("append"),
-    streamTs: z.string(),
-    markdownText: z.string(),
-    tasks: z.array(SlackStreamTaskSchema).optional(),
-  }),
-  z.object({
-    action: z.literal("stop"),
-    streamTs: z.string(),
-    markdownText: z.string().optional(),
-    blocks: z.array(z.custom<KnownBlock>()).optional(),
-    tasks: z.array(SlackStreamTaskSchema).optional(),
-  }),
-]);
+export const SlackStreamOpSchema = z
+  .discriminatedUnion("action", [
+    z.object({
+      action: z.literal("start"),
+      threadTs: z.string(),
+      markdownText: z.string().optional(),
+      taskDisplayMode: z.literal("plan").optional(),
+      tasks: z.array(SlackStreamTaskSchema).optional(),
+    }),
+    z.object({
+      action: z.literal("append"),
+      streamTs: z.string(),
+      markdownText: z.string().optional(),
+      tasks: z.array(SlackStreamTaskSchema).optional(),
+    }),
+    z.object({
+      action: z.literal("stop"),
+      streamTs: z.string(),
+      markdownText: z.string().optional(),
+      blocks: z.array(z.custom<KnownBlock>()).optional(),
+      tasks: z.array(SlackStreamTaskSchema).optional(),
+    }),
+  ])
+  .superRefine((op, ctx) => {
+    // Slack requires either `markdown_text` or `chunks` on `start`/`append`; a
+    // task-only operation advances the plan block without new body text.
+    if (
+      (op.action === "start" || op.action === "append") &&
+      op.markdownText === undefined &&
+      op.tasks === undefined
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `${op.action} requires markdownText or tasks`,
+      });
+    }
+  });
 
 export type SlackStreamOp = z.infer<typeof SlackStreamOpSchema>;
 

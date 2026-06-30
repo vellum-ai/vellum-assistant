@@ -27,6 +27,12 @@ export async function finalizeEventDelivery(params: {
   replyMessageId: string | undefined;
   userMessageId: string | undefined;
   slackReplySession: SlackReplySession | undefined;
+  /**
+   * `ts` of a Slack message streamed on a previous, failed attempt. A retry
+   * has no live stream of its own, so it edits this message in place rather
+   * than posting a duplicate reply.
+   */
+  priorStreamMessageTs?: string;
 }): Promise<void> {
   const {
     eventId,
@@ -37,20 +43,24 @@ export async function finalizeEventDelivery(params: {
     replyMessageId,
     userMessageId,
     slackReplySession,
+    priorStreamMessageTs,
   } = params;
 
   const reconciliation = await slackReplySession?.finish();
 
   // A streamed reply already delivered its text live into a single message;
   // durable delivery skips that text, reconciles `slackMeta.channelTs` to the
-  // stream `ts`, and posts only attachments. A non-streamed turn delivers the
-  // full reply from the first segment.
+  // stream `ts`, and posts only attachments. A retry reuses the prior attempt's
+  // streamed message, re-delivering the full reply with its first segment
+  // editing that message. A plain turn delivers the full reply from segment 0.
   const startFromSegment =
     reconciliation?.mode === "streamed"
       ? reconciliation.deliveredSegmentCount
       : 0;
   const streamMessageTs =
-    reconciliation?.mode === "streamed" ? reconciliation.messageTs : undefined;
+    reconciliation?.mode === "streamed"
+      ? reconciliation.messageTs
+      : priorStreamMessageTs;
 
   try {
     updateDeliveredSegmentCount(eventId, startFromSegment);

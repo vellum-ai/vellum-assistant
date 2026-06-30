@@ -285,6 +285,66 @@ describe("createSlackReplySession", () => {
     expect(reconciliation).toEqual({ mode: "fallback" });
   });
 
+  test("falls back when stopStream throws after streaming text", async () => {
+    deliverImpl = async (_url, payload) => {
+      const op = payload.slackStream as { action: string };
+      if (op.action === "stop") throw new Error("stop failed");
+      return { ok: true, ts: "stream-ts-1" };
+    };
+    const session = createSlackReplySession({
+      sourceChannel: "slack",
+      chatType: "im",
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+    })!;
+
+    session.observeEvent(textDelta("Streamed body."));
+    session.observeEvent(messageComplete("assistant-msg-1"));
+    const reconciliation = await session.finish();
+
+    expect(slackStreamOps().map((op) => op.action)).toEqual(["start", "stop"]);
+    // The final stop never landed, so the durable path must re-post the reply.
+    expect(reconciliation).toEqual({ mode: "fallback" });
+  });
+
+  test("appends task progress that advances without new body text", async () => {
+    const session = createSlackReplySession({
+      sourceChannel: "slack",
+      chatType: "im",
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+      coalesceMs: 5,
+    })!;
+
+    session.observeEvent(
+      taskProgressShow("surface-1", [
+        { label: "Search docs", status: "in_progress" },
+        { label: "Summarize", status: "pending" },
+      ]),
+    );
+    session.observeEvent(textDelta("Working on it."));
+    await tick(15);
+    session.observeEvent(
+      taskProgressUpdate("surface-1", [
+        { label: "Search docs", status: "completed" },
+        { label: "Summarize", status: "in_progress" },
+      ]),
+    );
+    await tick(15);
+
+    const append = slackStreamOps().find((op) => op.action === "append");
+    expect(append).toEqual({
+      action: "append",
+      streamTs: "stream-ts-1",
+      tasks: [
+        { id: "task-0", title: "Search docs", status: "complete" },
+        { id: "task-1", title: "Summarize", status: "in_progress" },
+      ],
+    });
+
+    await session.finish();
+  });
+
   test("never opens a stream for a no_response-only turn", async () => {
     const session = createSlackReplySession({
       sourceChannel: "slack",

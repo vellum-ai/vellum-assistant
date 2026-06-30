@@ -324,22 +324,23 @@ export async function startSlackStream(params: {
 }
 
 /**
- * Append markdown (and optional task chunks) to an open stream. Slack requires
- * `markdown_text` on every append.
+ * Append markdown and/or task chunks to an open stream. Slack accepts an append
+ * carrying either `markdown_text` or `chunks`, so a task-only append advances
+ * the plan block without new body text.
  *
  * @see https://docs.slack.dev/reference/methods/chat.appendStream/
  */
 export async function appendSlackStream(params: {
   channel: string;
   streamTs: string;
-  markdownText: string;
+  markdownText?: string;
   tasks?: readonly SlackStreamTask[];
 }): Promise<void> {
   const body: Record<string, unknown> = {
     channel: params.channel,
     ts: params.streamTs,
-    markdown_text: params.markdownText,
   };
+  if (params.markdownText) body.markdown_text = params.markdownText;
   const chunks = toTaskUpdateChunks(params.tasks);
   if (chunks) body.chunks = chunks;
 

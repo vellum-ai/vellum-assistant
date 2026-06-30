@@ -120,6 +120,8 @@ export function createSlackReplySession(params: {
   let segmentBuffer = "";
   let deliveredSegmentCount = 0;
 
+  let confirmedTasksKey: string | undefined;
+
   const taskProgressBySurfaceId = new Map<string, TaskProgressData>();
   let activeProgress: TaskProgressData | undefined;
 
@@ -169,6 +171,7 @@ export function createSlackReplySession(params: {
         if (result.ok && result.ts) {
           streamTs = result.ts;
           confirmedLength = firstChunk.length;
+          confirmedTasksKey = tasks ? JSON.stringify(tasks) : undefined;
           state = "streaming";
         } else {
           state = "fallback";
@@ -186,8 +189,10 @@ export function createSlackReplySession(params: {
       if (state !== "streaming" || !streamTs) return;
       const clean = cleanedText();
       const tasks = planTasks();
+      const tasksKey = tasks ? JSON.stringify(tasks) : undefined;
       // `chat.appendStream` caps `markdown_text` per call, so a delta wider
-      // than the limit drains across successive append calls.
+      // than the limit drains across successive append calls. Each append
+      // carries the current task state, advancing the plan alongside text.
       while (confirmedLength < clean.length) {
         const chunk = clean.slice(
           confirmedLength,
@@ -205,12 +210,30 @@ export function createSlackReplySession(params: {
             },
           });
           confirmedLength += chunk.length;
+          confirmedTasksKey = tasksKey;
         } catch (err) {
           log.warn(
             { err, chatId },
             "Slack appendStream failed; deferring delta",
           );
           return;
+        }
+      }
+      // Task progress can advance during long tool work without new text; a
+      // task-only append keeps the native plan block live.
+      if (tasks && tasksKey !== confirmedTasksKey) {
+        try {
+          await deliverChannelReply(replyCallbackUrl, {
+            chatId,
+            assistantId,
+            slackStream: { action: "append", streamTs, tasks },
+          });
+          confirmedTasksKey = tasksKey;
+        } catch (err) {
+          log.warn(
+            { err, chatId },
+            "Slack appendStream (plan) failed; deferring update",
+          );
         }
       }
     });
@@ -262,6 +285,7 @@ export function createSlackReplySession(params: {
       return;
     }
     activeProgress = taskProgressBySurfaceId.get(msg.surfaceId);
+    scheduleFlush();
   };
 
   return {
@@ -318,7 +342,11 @@ export function createSlackReplySession(params: {
           });
           confirmedLength = clean.length;
         } catch (err) {
-          log.warn({ err, chatId }, "Slack stopStream failed");
+          log.warn(
+            { err, chatId },
+            "Slack stopStream failed; falling back to durable delivery",
+          );
+          state = "fallback";
         }
       });
 
