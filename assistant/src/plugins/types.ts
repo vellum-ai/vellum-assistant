@@ -144,6 +144,13 @@ export interface TurnContext {
   readonly timestamp?: string;
   /** Human-readable interface label (e.g. "vellum", "telegram"). */
   readonly interfaceName?: string;
+  /**
+   * Client OS surface ("web" | "ios" | "macos"), reported independently of
+   * the transport interface. Rendered as the `client_os:` line so the model
+   * knows the platform even though the web/iOS/macOS apps share one `"web"`
+   * transport interface.
+   */
+  readonly clientOs?: string;
   /** Channel label gating response-discretion guidance in `<turn_context>`. */
   readonly channelName?: string;
   /**

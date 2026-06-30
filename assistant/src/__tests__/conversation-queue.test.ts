@@ -681,6 +681,49 @@ describe("Conversation message queue", () => {
     expect(events3.some((e) => e.type === "message_complete")).toBe(true);
   });
 
+  test("[experimental] queued passthrough siblings from different client OS do NOT batch", async () => {
+    // Post-decouple, web/iOS/macOS all report interfaceId "web", so the
+    // interface-based batch split no longer separates them. A batched turn
+    // applies only the head's clientOs, so messages from different OS surfaces
+    // must split into separate runs rather than coalesce under one OS.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    // Two siblings on the same transport interface ("web") but different OS.
+    conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: () => {},
+      requestId: "req-2",
+      transport: { channelId: "vellum", interfaceId: "web", clientOs: "macos" },
+    });
+    conversation.enqueueMessage({
+      content: "msg-3",
+      onEvent: () => {},
+      requestId: "req-3",
+      transport: { channelId: "vellum", interfaceId: "web", clientOs: "ios" },
+    });
+    expect(conversation.getQueueDepth()).toBe(2);
+
+    // Drain: msg-2 (macos) is the batch head; msg-3 (ios) has a different
+    // clientOs, so it must NOT join the batch.
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+    await resolveRun(1);
+    await waitForPendingRun(3);
+
+    // Three runs total (msg-1, msg-2, msg-3) — msg-3 was not batched with msg-2.
+    expect(pendingRuns.length).toBe(3);
+  });
+
   test("message_queued and message_dequeued events are emitted", async () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();

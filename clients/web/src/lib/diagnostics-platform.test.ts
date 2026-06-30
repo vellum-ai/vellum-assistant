@@ -1,11 +1,9 @@
 import { describe, expect, mock, test } from "bun:test";
 
-let mockedPlatform = "web";
+let mockedOs = "web";
 
-mock.module("@capacitor/core", () => ({
-  Capacitor: {
-    getPlatform: () => mockedPlatform,
-  },
+mock.module("@/runtime/platform-detection", () => ({
+  detectClientOs: () => mockedOs,
 }));
 
 import { getDiagnosticsEvents, recordDiagnostic } from "@/lib/diagnostics";
@@ -19,15 +17,17 @@ import { getDiagnosticsEvents, recordDiagnostic } from "@/lib/diagnostics";
 // `platform` once at the SDK boundary (per the OpenTelemetry
 // resource-attribute convention —
 // https://opentelemetry.io/docs/specs/otel/resource/sdk/) so every
-// caller gets it for free without per-call-site plumbing. These tests
-// pin that contract and exercise the happy path under the mocked
-// Capacitor module rather than the diagnostics module's defensive
-// fallback.
+// caller gets it for free without per-call-site plumbing.
+//
+// The tag is sourced from the SAME `detectClientOs()` the product `client_os`
+// uses, so analytics and the assistant context agree and mobile-web (iOS /
+// Android phone browsers) and the macOS app are distinguished — values the
+// previous `Capacitor.getPlatform()` tag collapsed into `web`.
 // ---------------------------------------------------------------------------
 
 describe("recordDiagnostic platform tag", () => {
-  test("injects platform from Capacitor.getPlatform on every recorded event", () => {
-    mockedPlatform = "ios";
+  test("injects platform from detectClientOs on every recorded event", () => {
+    mockedOs = "ios";
     const eventCountBefore = getDiagnosticsEvents().length;
 
     recordDiagnostic("test_kind_a", { foo: "bar" });
@@ -42,7 +42,7 @@ describe("recordDiagnostic platform tag", () => {
     expect(newEvents[1]!.details.platform).toBe("ios");
     expect(newEvents[1]!.details.baz).toBe(1);
 
-    mockedPlatform = "web";
+    mockedOs = "web";
   });
 
   test("call-site keys win over the injected platform tag", () => {
@@ -57,17 +57,20 @@ describe("recordDiagnostic platform tag", () => {
     expect(newEvents[0]!.details.platform).toBe("explicit-override");
   });
 
-  test("injects different platform values when Capacitor reports different surfaces", () => {
+  test("tags each OS surface detectClientOs reports (incl. android & macos)", () => {
     const eventCountBefore = getDiagnosticsEvents().length;
 
-    mockedPlatform = "android";
+    mockedOs = "android";
     recordDiagnostic("test_kind_android");
-    mockedPlatform = "web";
+    mockedOs = "macos";
+    recordDiagnostic("test_kind_macos");
+    mockedOs = "web";
     recordDiagnostic("test_kind_web");
 
     const newEvents = getDiagnosticsEvents().slice(eventCountBefore);
-    expect(newEvents).toHaveLength(2);
+    expect(newEvents).toHaveLength(3);
     expect(newEvents[0]!.details.platform).toBe("android");
-    expect(newEvents[1]!.details.platform).toBe("web");
+    expect(newEvents[1]!.details.platform).toBe("macos");
+    expect(newEvents[2]!.details.platform).toBe("web");
   });
 });

@@ -4,20 +4,20 @@ Every app must work across phone (~360px) to desktop (~1400px+).
 
 ## Mode selection
 
-The conversation context's `<turn_context>` block carries an `interface:` field.
+The conversation context's `<turn_context>` block carries a `client_os:` field — the OS the user is on. (Key layout off this, not the sibling `interface:` field: `interface:` is the transport surface and is always `web` for the web/iOS/macOS apps.)
 
-**If `interface: ios`** (or any future mobile-web / android identifier):
-  → Mobile-first build. Design the narrow viewport first, enhance upward.
+**If `client_os: ios` or `android`** (any mobile-web surface):
+→ Mobile-first build. Design the narrow viewport first, enhance upward.
 
-**If `interface: macos` or `web`**:
-  → Desktop-first build. Design larger composition first; narrow fallback still meets the universal baseline below.
+**If `client_os: macos` or `web`**:
+→ Desktop-first build. Design larger composition first; narrow fallback still meets the universal baseline below.
 
 **If field is absent or ambiguous**:
-  → Default to desktop-first unless the request implies phone use ("for my iPhone", "a tap-tracker I'll use on the go").
+→ Default to desktop-first unless the request implies phone use ("for my iPhone", "a tap-tracker I'll use on the go").
 
 ---
 
-## Universal baseline (every build, regardless of interface)
+## Universal baseline (every build, regardless of client_os)
 
 ### Viewport & safe areas
 
@@ -44,7 +44,7 @@ The conversation context's `<turn_context>` block carries an `interface:` field.
 
 ---
 
-## Mobile-first priorities (`interface: ios`)
+## Mobile-first priorities (`client_os: ios` / `android`)
 
 - Default body text to `--v-font-size-lg` (17px), not `--v-font-size-base` (14px).
 - Bump default vertical rhythm one step (e.g. `--v-spacing-md` → `--v-spacing-lg`).
@@ -52,6 +52,6 @@ The conversation context's `<turn_context>` block carries an `interface:` field.
 - Bottom-anchor the primary action: `position: sticky; bottom: env(safe-area-inset-bottom)`.
 - Replace side modals and popovers with bottom sheets.
 
-## Desktop-first priorities (`interface: macos` / `web`)
+## Desktop-first priorities (`client_os: macos` / `web`)
 
 Multi-column composition, hover-rich affordances, denser information, side modals, inline primary actions. The universal baseline above is still the floor — narrow view must still work.

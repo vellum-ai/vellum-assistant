@@ -431,4 +431,41 @@ describe("processMessage callSite threading", () => {
 
     expect(conversation.clientTimezone).toBe("Europe/London");
   });
+
+  test("applies clientOs in the create and reuse transport metadata path", async () => {
+    mockConversation = {
+      id: "conv-store-client-os",
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+    };
+    mockDbMessages = [];
+    clearCaptured();
+    clearAllActiveConversations();
+
+    // `interface` is always the transport surface (here "web"); the OS is
+    // carried separately as `clientOs` and must be applied on both the create
+    // and reuse paths so each turn reflects its own surface.
+    const conversation = await getOrCreateConversation("conv-store-client-os", {
+      transport: {
+        channelId: "vellum",
+        interfaceId: "web",
+        clientOs: "macos",
+      },
+    });
+
+    expect(conversation.clientOs).toBe("macos");
+
+    await getOrCreateConversation("conv-store-client-os", {
+      transport: {
+        channelId: "vellum",
+        interfaceId: "web",
+        clientOs: "ios",
+      },
+    });
+
+    expect(conversation.clientOs).toBe("ios");
+  });
 });

@@ -1,3 +1,4 @@
+import { Capacitor } from "@capacitor/core";
 import { useSyncExternalStore } from "react";
 
 import { isElectron } from "@/runtime/is-electron";
@@ -49,7 +50,9 @@ export function isIOSBrowser(): boolean {
 export function isSafariBrowser(): boolean {
   if (typeof navigator === "undefined") return false;
   const ua = navigator.userAgent;
-  return /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS|Chrome|Chromium/.test(ua);
+  return (
+    /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS|Chrome|Chromium/.test(ua)
+  );
 }
 
 /**
@@ -75,6 +78,74 @@ export function isMacOSBrowser(): boolean {
     return uaData.platform.toLowerCase().includes("mac");
   }
   return navigator.platform.toLowerCase().includes("mac");
+}
+
+/**
+ * Returns true when the current browser is running on Android.
+ *
+ * Android user agents always carry the literal "Android" token (Chrome,
+ * Samsung Internet, Firefox, WebView, etc.), so a substring check is the
+ * reliable signal. Used so Android phone-web gets the same mobile-first
+ * treatment as iOS phone-web.
+ *
+ * Always returns `false` during SSR (no `navigator`).
+ */
+export function isAndroidBrowser(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /Android/i.test(navigator.userAgent);
+}
+
+/**
+ * The OS surfaces this web bundle can report as `clientOs`.
+ *
+ * The same `clients/web` bundle runs in a plain browser, the Capacitor iOS
+ * shell, and the Electron macOS app, so the OS is decided at runtime, not by
+ * which build is shipped. This is NOT the backend interface vocabulary —
+ * `clientOs` describes the device OS (`android` has no transport), so it is a
+ * deliberately separate set from `InterfaceId` (mirrors the daemon's
+ * `ClientOs` in `assistant/src/channels/types.ts`).
+ */
+export type ClientOs = "macos" | "ios" | "android" | "web";
+
+/**
+ * Detect the client's OS surface ("web" | "ios" | "macos" | "android") at
+ * runtime.
+ *
+ * This feeds the message body's `clientOs` field ONLY
+ * (`domains/chat/api/messages.ts`), which the assistant renders as the
+ * per-turn `client_os` context line
+ * (`assistant/src/daemon/conversation-runtime-assembly.ts`).
+ *
+ * It must NOT drive the message body's `interface` field or the
+ * `X-Vellum-Interface-Id` registration header — those are the *transport*
+ * surface and are intentionally hardcoded to `"web"` (the web/iOS/macOS apps
+ * all run this one renderer = one transport). The daemon keys host-proxy and
+ * transport capabilities off that transport interface, so reporting the OS
+ * there would mis-tag a renderer turn as a host-proxy transport. Keep OS
+ * detection on `clientOs` only; do not re-couple it to interface/header
+ * identity.
+ *
+ * Order matters: the Electron macOS shell also satisfies the desktop-browser
+ * heuristics, so `isElectron()` is checked first or macOS would be misreported
+ * as `web`. A native Capacitor shell (`isNativePlatform()`, true for iOS AND
+ * Android) is resolved via `Capacitor.getPlatform()` so the wrapper reports
+ * its real OS. The remaining browser surfaces fall to the UA-based
+ * `isIOSBrowser()` / `isAndroidBrowser()` (so mobile-Safari → `ios`, Android
+ * Chrome → `android`); everything else is `web`.
+ *
+ * Safe to call before hydration: each underlying helper falls through to
+ * `false` when `window`/`navigator` are undefined, so SSR resolves to `web`.
+ */
+export function detectClientOs(): ClientOs {
+  if (isElectron()) return "macos";
+  if (isNativePlatform()) {
+    // `isNativePlatform()` is true for the iOS AND Android Capacitor shells,
+    // so distinguish them explicitly rather than assuming iOS.
+    return Capacitor.getPlatform() === "android" ? "android" : "ios";
+  }
+  if (isIOSBrowser()) return "ios";
+  if (isAndroidBrowser()) return "android";
+  return "web";
 }
 
 // ---------------------------------------------------------------------------

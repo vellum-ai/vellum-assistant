@@ -38,6 +38,7 @@ import type {
   PluginsSearchGetResponses,
 } from "@/generated/daemon/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
+import { detectClientOs } from "@/runtime/platform-detection";
 import {
   buildResearchPrompt,
   type AvailableCapability,
@@ -414,7 +415,12 @@ export function useResearchRunner(): UseResearchRunner {
               conversationId: cid,
               content: buildResearchPrompt(subject, capabilities),
               sourceChannel: "vellum",
-              interface: "vellum",
+              // `interface` is the transport ("web"); the real OS travels in
+              // `clientOs` so the assistant's `client_os` context is correct
+              // for this onboarding side conversation too, without affecting
+              // transport/host-proxy gating (mirrors `chat/api/messages.ts`).
+              interface: "web",
+              clientOs: detectClientOs(),
               clientMessageId: crypto.randomUUID(),
             };
             // Carry the browser timezone so any time-relative reasoning resolves

@@ -187,6 +187,29 @@ export function parseInterfaceId(value: unknown): InterfaceId | null {
 }
 
 /**
+ * Client OS surfaces — the value set for the message-body `clientOs` field.
+ *
+ * This is deliberately SEPARATE from {@link INTERFACE_IDS}: `clientOs`
+ * describes which OS the user's device runs, not which transport the turn
+ * arrived on. `"android"` (and `"ios"` for a mobile browser) are real OS
+ * surfaces but not transports — they must never answer transport questions
+ * (`supportsHostProxy`, `isInteractiveInterface`), so they live here rather
+ * than polluting the interface vocabulary. Drives only the per-turn
+ * `client_os` context line (e.g. app-builder mobile-first for `ios`/`android`).
+ */
+export const CLIENT_OS_VALUES = ["web", "ios", "macos", "android"] as const;
+
+export type ClientOs = (typeof CLIENT_OS_VALUES)[number];
+
+/** Parse/validate a reported `clientOs`. Returns `null` for unknown values. */
+export function parseClientOs(value: unknown): ClientOs | null {
+  if (typeof value !== "string") return null;
+  return (CLIENT_OS_VALUES as readonly string[]).includes(value)
+    ? (value as ClientOs)
+    : null;
+}
+
+/**
  * Interfaces that have an SSE client capable of displaying interactive
  * permission prompts. Channel interfaces (telegram, slack, etc.) route
  * approvals through the guardian system and have no interactive prompter UI.

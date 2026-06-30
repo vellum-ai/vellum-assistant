@@ -242,6 +242,11 @@ async function buildPassthroughBatch(
     // otherwise diverge.
     if (candIf?.userMessageInterface !== headInterface?.userMessageInterface)
       break;
+    // The batched turn applies only the head's `clientOs`, so messages from a
+    // different OS surface must not coalesce. The web, iOS, and macOS apps all
+    // report `interfaceId: "web"`, so the interface check above no longer
+    // separates them — split on the reported OS explicitly.
+    if (candidate.transport?.clientOs !== head.transport?.clientOs) break;
     if (candidate.sourceActorPrincipalId !== head.sourceActorPrincipalId) break;
     if (classifySlash(candidate.content) !== "passthrough") break;
     if (
@@ -441,6 +446,7 @@ async function drainSingleMessage(
     // and queue-drain stay in sync without duplicating the gate logic.
     conversation.applyHostEnvFromTransport(next.transport);
     conversation.applyClientTimezoneFromTransport(next.transport);
+    conversation.applyClientOsFromTransport(next.transport);
   }
 
   conversation.currentTurnAuthContext = next.authContext;
@@ -1002,6 +1008,7 @@ async function drainBatch(
     conversation.setTransportHints(buildTransportHints(head.transport));
     conversation.applyHostEnvFromTransport(head.transport);
     conversation.applyClientTimezoneFromTransport(head.transport);
+    conversation.applyClientOsFromTransport(head.transport);
   }
 
   conversation.currentTurnAuthContext = head.authContext;

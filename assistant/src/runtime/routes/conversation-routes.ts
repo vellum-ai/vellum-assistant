@@ -19,6 +19,7 @@ import {
   INTERFACE_IDS,
   isInteractiveInterface,
   parseChannelId,
+  parseClientOs,
   parseInterfaceId,
   supportsHostProxy,
 } from "../../channels/types.js";
@@ -1249,6 +1250,7 @@ export async function handleSendMessage(
     hostHomeDir?: string;
     hostUsername?: string;
     clientTimezone?: unknown;
+    clientOs?: unknown;
     clientId?: string;
     clientMessageId?: string;
     inferenceProfile?: string | null;
@@ -1346,6 +1348,15 @@ export async function handleSendMessage(
   const clientTimezone =
     typeof body.clientTimezone === "string"
       ? (canonicalizeTimeZone(body.clientTimezone) ?? undefined)
+      : undefined;
+  // Client OS surface ("web" | "ios" | "macos" | "android"), reported
+  // separately from the transport `interface`. Validated against the dedicated
+  // `ClientOs` value set (NOT the interface vocabulary) and only kept when it
+  // resolves — it drives the per-turn `client_os:` context line, never
+  // transport/host-proxy gating.
+  const clientOs =
+    typeof body.clientOs === "string"
+      ? (parseClientOs(body.clientOs) ?? undefined)
       : undefined;
 
   // Reject non-string content values (numbers, objects, etc.)
@@ -1506,11 +1517,13 @@ export async function handleSendMessage(
         hostHomeDir: body.hostHomeDir,
         hostUsername: body.hostUsername,
         ...(clientTimezone ? { clientTimezone } : {}),
+        ...(clientOs ? { clientOs } : {}),
       } satisfies HostProxyTransportMetadata)
     : ({
         channelId: sourceChannel,
         interfaceId: sourceInterface,
         ...(clientTimezone ? { clientTimezone } : {}),
+        ...(clientOs ? { clientOs } : {}),
       } satisfies NonHostProxyTransportMetadata);
 
   const conversation = await smDeps.getOrCreateConversation(
@@ -2833,6 +2846,12 @@ export const ROUTES: RouteDefinition[] = [
       conversationType: z.string().optional(),
       slashCommand: z.string().optional(),
       clientTimezone: z.string().optional(),
+      clientOs: z
+        .string()
+        .optional()
+        .describe(
+          'Client OS surface ("web" | "ios" | "macos" | "android"), reported separately from `interface`. Drives the per-turn `client_os` context only; does not affect transport/host-proxy capabilities.',
+        ),
       clientMessageId: z
         .string()
         .describe(

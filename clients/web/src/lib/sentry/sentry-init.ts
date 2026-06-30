@@ -9,6 +9,7 @@ import { syncDiagnosticsToMain } from "@/runtime/diagnostics";
 import { sanitizeUrl } from "@/lib/sentry/url-sanitize";
 import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
+import { detectClientOs } from "@/runtime/platform-detection";
 
 /**
  * Resolve the Sentry DSN for the current host. The shared bundle reports to a
@@ -125,8 +126,16 @@ const options: BrowserOptions = {
  * process (no-op on web/iOS) so the main-process Sentry client matches.
  */
 export function initSentry(): void {
-  // Resolve the DSN at init time (post host-detection), not at module load.
-  const resolved: BrowserOptions = { ...options, dsn: resolveDsn() };
+  // Resolve host-detected values at init time (post host-detection), not at
+  // module load. `client_os` tags every event with the OS surface — the web
+  // DSN otherwise can't distinguish mobile-web (iOS/Android phone browsers)
+  // from desktop. Shares the product `detectClientOs()` so Sentry, analytics,
+  // and the assistant's `client_os` context all agree.
+  const resolved: BrowserOptions = {
+    ...options,
+    dsn: resolveDsn(),
+    initialScope: { tags: { client_os: detectClientOs() } },
+  };
   syncSentryClient(resolved);
   installSentryControlListeners(resolved);
   syncDiagnosticsToMain(diagnosticsConsentGranted());
