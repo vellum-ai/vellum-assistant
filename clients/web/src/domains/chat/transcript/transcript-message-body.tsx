@@ -34,6 +34,9 @@ import {
   isSuppressedUiTool,
 } from "@/domains/chat/transcript/message-content";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
+import { stopAcpRun } from "@/domains/chat/utils/acp-run-actions";
+import { stopBackgroundTask } from "@/domains/chat/utils/background-task-actions";
+import { captureError } from "@/lib/sentry/capture-error";
 import { getSlackLinkUrl } from "@/domains/chat/types/types";
 import { wireSurfaceToDisplay } from "@/domains/chat/utils/map-runtime-message";
 import { isPointerCoarse } from "@/utils/pointer";
@@ -382,6 +385,12 @@ export function TranscriptMessageBody({
             descriptor={ACP_RUN_DESCRIPTOR}
             id={acpSessionId}
             onOpen={() => handleAcpRunClick(acpSessionId)}
+            onStop={() =>
+              void stopAcpRun(acpSessionId).catch((err) => {
+                captureError(err, { context: "TranscriptMessageBody.stopAcpRun" });
+              })
+            }
+            stopAriaLabel="Stop run"
             testId="inline-process-card"
           />
         ))}
@@ -402,6 +411,14 @@ export function TranscriptMessageBody({
             descriptor={BACKGROUND_TASK_DESCRIPTOR}
             id={id}
             onOpen={() => handleBackgroundTaskClick(id)}
+            onStop={() =>
+              void stopBackgroundTask(id).catch((err) => {
+                captureError(err, {
+                  context: "TranscriptMessageBody.stopBackgroundTask",
+                });
+              })
+            }
+            stopAriaLabel="Stop command"
             testId="inline-process-card"
           />
         ))}

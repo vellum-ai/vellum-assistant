@@ -1,15 +1,17 @@
 // Connects a {@link BackgroundProcessDescriptor} to the generic
 // {@link InlineProcessCard}: subscribes to the descriptor's per-id
 // `useCardSummary` hook and projects the result into the shared card, supplying
-// the descriptor's leading icon + open-affordance label. Returns `null` in the
-// spawn race (no card-worthy state yet), matching the bespoke cards it replaces.
+// the descriptor's leading icon, open-affordance label, and custom count slot
+// (`descriptor.renderCount`). Returns `null` in the spawn race (no card-worthy
+// state yet), matching the bespoke cards it replaces.
 //
 // The descriptor hook MUST run inside a component (not a bare `.map` callback),
 // so each row is its own component subscribing to its own id.
 //
-// `onOpen` / `onStop` are threaded from the caller — the transcript keeps its
-// existing per-kind handler wiring rather than the descriptor's `onOpenDetail` /
-// `onStop`, so behavior stays byte-identical.
+// `onOpen` / `onStop` are threaded from the caller: the transcript wires its own
+// per-kind open/stop handlers, while the active-process overlay wires the
+// descriptor's `onOpenDetail` / `onStop`. Both call sites render through this
+// one row component.
 
 import type { BackgroundProcessDescriptor } from "@/domains/chat/process-registry/types";
 import { InlineProcessCard } from "@/domains/chat/process-registry/inline-process-card";
@@ -47,6 +49,7 @@ export function InlineProcessCardRow({
       onOpen={onOpen}
       onStop={onStop}
       stopAriaLabel={stopAriaLabel}
+      countSlot={descriptor.renderCount?.(id)}
       testId={testId}
     />
   );

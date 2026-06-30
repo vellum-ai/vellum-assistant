@@ -8,8 +8,18 @@
  * would. The remaining assertions pin the static descriptor metadata that the
  * shared overlay/pill chrome depends on.
  */
-import { afterEach, describe, expect, test } from "bun:test";
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import { act, cleanup, render, renderHook } from "@testing-library/react";
+
+// `WorkflowAgentsChip` (the descriptor's `renderCount` slot) renders
+// `SubagentAvatarChip`, which lazily loads a ~48 kB bundled-avatar payload.
+// Stub it to a testid so the `renderCount` test stays focused on the chip's
+// count text + avatar-per-seed structure.
+mock.module("@/components/avatar/subagent-avatar-chip", () => ({
+  SubagentAvatarChip: ({ subagentId }: { subagentId: string }) => (
+    <span data-testid="avatar-stub" data-subagent-id={subagentId} />
+  ),
+}));
 
 import { WORKFLOW_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/workflow";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
@@ -19,6 +29,10 @@ afterEach(() => {
   cleanup();
   useWorkflowStore.getState().reset();
   useViewerStore.getState().reset();
+});
+
+afterAll(() => {
+  mock.restore();
 });
 
 describe("WORKFLOW_DESCRIPTOR — useCardSummary projection", () => {
@@ -93,6 +107,27 @@ describe("WORKFLOW_DESCRIPTOR — static metadata", () => {
 
   test("exposes a stop action", () => {
     expect(WORKFLOW_DESCRIPTOR.onStop).toBeDefined();
+  });
+
+  test("provides a renderCount slot (the agent-avatar chip)", () => {
+    expect(WORKFLOW_DESCRIPTOR.renderCount).toBeDefined();
+
+    act(() => {
+      const store = useWorkflowStore.getState();
+      store.startRun({ runId: "wf-chip", label: "Chip", timestamp: 1 });
+      store.applyProgress({ runId: "wf-chip", agentsSpawned: 3 });
+    });
+
+    const { getByTestId } = render(
+      <>{WORKFLOW_DESCRIPTOR.renderCount!("wf-chip")}</>,
+    );
+
+    // The custom count slot renders the agent-avatar chip with the formatted
+    // "N agents" label rather than the default string-count Typography.
+    expect(getByTestId("workflow-inline-card-agents-chip")).toBeTruthy();
+    expect(
+      getByTestId("workflow-inline-card-step-count").textContent,
+    ).toBe("3 agents");
   });
 });
 

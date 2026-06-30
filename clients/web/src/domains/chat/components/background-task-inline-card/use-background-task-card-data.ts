@@ -1,8 +1,8 @@
 /**
- * Builds the props for `BackgroundTaskInlineProgressCard` from a single
- * background task's store entry. Maps the task status to the shared
- * tool-progress card props — the same shape the workflow, subagent, and ACP
- * inline cards feed their shells.
+ * Builds the `ToolCallCardData` consumed by `InlineProcessCard` via the
+ * background-task descriptor, from a single background task's store entry. Maps
+ * the task status to the shared tool-progress card props — the same shape the
+ * workflow, subagent, and ACP inline cards feed their shells.
  *
  * Returns `null` when no entry exists for the given id yet — the window where
  * the assistant message containing the inline card mounts a hair before the

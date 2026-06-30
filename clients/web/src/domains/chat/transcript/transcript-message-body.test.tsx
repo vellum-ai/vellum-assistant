@@ -22,6 +22,18 @@ mock.module("@/domains/chat/components/chat-attachments/message-attachments", ()
   MessageAttachments: () => <div data-testid="attachments" />,
 }));
 
+// The ACP-run and background-task rows wire their transcript stop button to
+// these standalone actions; stub them so clicking Stop records the call without
+// pulling in the daemon SDK / store wiring.
+const stopAcpRunMock = mock(async () => {});
+const stopBackgroundTaskMock = mock(async () => {});
+mock.module("@/domains/chat/utils/acp-run-actions", () => ({
+  stopAcpRun: stopAcpRunMock,
+}));
+mock.module("@/domains/chat/utils/background-task-actions", () => ({
+  stopBackgroundTask: stopBackgroundTaskMock,
+}));
+
 mock.module("@/domains/chat/components/chat-markdown-message", () => ({
   ChatMarkdownMessage: ({
     content,
@@ -1115,7 +1127,8 @@ describe("TranscriptMessageBody — generic inline process cards", () => {
     expect(stopped).toEqual(["wf-1"]);
   });
 
-  test("renders the ACP-run descriptor row, open only (no stop in transcript)", () => {
+  test("renders the ACP-run descriptor row and wires open + stop", () => {
+    stopAcpRunMock.mockClear();
     const toolCall: ChatMessageToolCall = {
       id: "tc-acp",
       name: "acp_spawn",
@@ -1134,11 +1147,14 @@ describe("TranscriptMessageBody — generic inline process cards", () => {
     const row = getByTestId("inline-process-card");
     expect(row.getAttribute("data-process-kind")).toBe("acp-run");
     expect(row.getAttribute("data-process-id")).toBe("acp-1");
-    // ACP passes no stop handler in the transcript today.
-    expect(row.getAttribute("data-has-stop")).toBe("false");
+    expect(row.getAttribute("data-has-stop")).toBe("true");
+
+    fireEvent.click(getByTestId("inline-process-card-stop"));
+    expect(stopAcpRunMock).toHaveBeenCalledWith("acp-1");
   });
 
-  test("renders the background-task descriptor row, open only (no stop in transcript)", () => {
+  test("renders the background-task descriptor row and wires open + stop", () => {
+    stopBackgroundTaskMock.mockClear();
     const toolCall: ChatMessageToolCall = {
       id: "tc-bg",
       name: "bash",
@@ -1157,6 +1173,9 @@ describe("TranscriptMessageBody — generic inline process cards", () => {
     const row = getByTestId("inline-process-card");
     expect(row.getAttribute("data-process-kind")).toBe("background-task");
     expect(row.getAttribute("data-process-id")).toBe("bg-1");
-    expect(row.getAttribute("data-has-stop")).toBe("false");
+    expect(row.getAttribute("data-has-stop")).toBe("true");
+
+    fireEvent.click(getByTestId("inline-process-card-stop"));
+    expect(stopBackgroundTaskMock).toHaveBeenCalledWith("bg-1");
   });
 });

@@ -154,8 +154,8 @@ export type ToolCallCardStep =
  * successful and failed tool calls can render a distinct chrome state.
  *
  * The subagent leading-icon slot (`<SubagentAvatarChip>`) is plumbed directly
- * through the shell's `leadingIcon` ReactNode prop by
- * `SubagentInlineProgressCard`, so this data shape doesn't need to carry it.
+ * through the inline card's `leadingIcon` ReactNode prop by the subagent
+ * descriptor's `renderCardLeading`, so this data shape doesn't need to carry it.
  */
 export interface ToolCallCardData {
   /**
@@ -795,9 +795,9 @@ export function computeToolCallCardDataFromItems(
         i.kind === "toolCall",
     )
     .map((i) => i.toolCall);
-  // `subagent_spawn` calls are rendered inline by `SubagentInlineProgressCard`
-  // at the transcript level — surfacing them as steps inside the unified card
-  // would render the spawn twice.
+  // `subagent_spawn` calls are rendered inline by `InlineProcessCard` (via the
+  // subagent descriptor) at the transcript level — surfacing them as steps
+  // inside the unified card would render the spawn twice.
   const renderableToolCalls = toolCalls.filter(
     (tc) => !isSubagentSpawnCall(tc),
   );

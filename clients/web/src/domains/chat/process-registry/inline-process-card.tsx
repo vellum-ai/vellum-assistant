@@ -36,6 +36,11 @@ export interface InlineProcessCardProps {
   onStop?: () => void;
   /** Accessible label for the stop button; defaults to `"Stop"`. */
   stopAriaLabel?: string;
+  /**
+   * Custom count slot. When provided, replaces the default string-count
+   * `Typography` (e.g. the workflow agent-avatar chip).
+   */
+  countSlot?: ReactNode;
   /** `data-testid` for the root row. */
   testId?: string;
 }
@@ -47,6 +52,7 @@ export function InlineProcessCard({
   onOpen,
   onStop,
   stopAriaLabel,
+  countSlot,
   testId,
 }: InlineProcessCardProps) {
   const handleOpenKeyDown = useCallback(
@@ -101,7 +107,9 @@ export function InlineProcessCard({
         />
       </span>
       <span className="flex shrink-0 items-center gap-2">
-        {showCount ? (
+        {countSlot != null ? (
+          countSlot
+        ) : showCount ? (
           <Typography
             variant="body-small-default"
             className="text-[var(--content-tertiary)]"

@@ -15,7 +15,7 @@ import { Typography } from "@vellumai/design-library";
 
 import { ActiveOverlayShell } from "@/domains/chat/components/active-overlay-shell";
 import { ChatPill } from "@/domains/chat/components/chat-pill";
-import { InlineProcessCard } from "@/domains/chat/process-registry/inline-process-card";
+import { InlineProcessCardRow } from "@/domains/chat/process-registry/inline-process-card-row";
 import { StackedChipsPill } from "@/domains/chat/process-registry/stacked-chips-pill";
 import type { BackgroundProcessDescriptor } from "@/domains/chat/process-registry/types";
 
@@ -27,12 +27,14 @@ export interface ActiveProcessOverlayProps {
 }
 
 /**
- * One inline-card row inside the expanded dropdown.
+ * One inline-card row inside the expanded dropdown. Renders through the shared
+ * {@link InlineProcessCardRow} (so the summary fetch, null short-circuit, and
+ * custom count slot all live in one place), wiring the descriptor's own
+ * `onOpenDetail` / `onStop` handlers.
  *
- * Its own component (not a bare `.map` callback) because it calls the
- * `descriptor.useCardSummary` hook — hooks can't run inside a loop callback.
- * Returns `null` while the summary is unavailable so a not-yet-projected
- * process simply doesn't render a row.
+ * Opening drills into the detail panel and dismisses the dropdown so the two
+ * layers stop competing for column width; stopping keeps it open
+ * (`InlineProcessCard` gates the stop button on `state === "loading"`).
  */
 function OverlayRow({
   descriptor,
@@ -43,17 +45,10 @@ function OverlayRow({
   id: string;
   onClose: () => void;
 }) {
-  const summary = descriptor.useCardSummary(id);
-  if (!summary) return null;
-
   return (
-    <InlineProcessCard
-      summary={summary}
-      leadingIcon={descriptor.renderCardLeading(id)}
-      openAriaLabel={descriptor.openCardAriaLabel}
-      // Opening drills into the detail panel and dismisses the dropdown so the
-      // two layers stop competing for column width; stopping keeps it open
-      // (`InlineProcessCard` gates the stop button on `state === "loading"`).
+    <InlineProcessCardRow
+      descriptor={descriptor}
+      id={id}
       onOpen={() => {
         descriptor.onOpenDetail(id);
         onClose();
@@ -97,7 +92,7 @@ export function ActiveProcessOverlay({
             size="compact"
           >
             {/* pointer-events-none so the ChatPill button owns clicks + cursor —
-                clicking anywhere toggles. Mirrors `active-workflows-pill`. */}
+                clicking anywhere toggles. */}
             <span className="pointer-events-none inline-flex items-center gap-1.5">
               {pill.glyph}
               <Typography

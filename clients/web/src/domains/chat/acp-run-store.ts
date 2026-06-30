@@ -611,7 +611,7 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
     for (const entry of entries) {
       // byId / orderedIds / merge are handled above by seedEntriesFromHistory;
       // this loop only maintains the spawn-anchor index and the seq high-water
-      // mark. Use the shared setToolUseAnchor helper (PR 13) for the index.
+      // mark. Use the shared setToolUseAnchor helper for the index.
       nextByToolUseId = setToolUseAnchor(
         nextByToolUseId,
         entry.parentToolUseId,
