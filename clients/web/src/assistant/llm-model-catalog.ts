@@ -60,6 +60,15 @@ export const MODELS_BY_PROVIDER = {
       longContextPricingThresholdTokens: 200_000,
     },
     {
+      id: "claude-sonnet-5",
+      displayName: "Claude Sonnet 5",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
       id: "claude-sonnet-4-6",
       displayName: "Claude Sonnet 4.6",
       contextWindowTokens: 1_000_000,
@@ -327,6 +336,15 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "anthropic/claude-opus-4.6",
       displayName: "Claude Opus 4.6",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
+      id: "anthropic/claude-sonnet-5",
+      displayName: "Claude Sonnet 5",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
