@@ -18,8 +18,8 @@ import { toast } from "@vellumai/design-library";
 
 import { shortSha } from "./utils";
 
-// Re-export so existing importers/mocks that pull `shortSha` from this hook
-// module keep working now that the helper lives in `./utils`.
+// Re-exported so this module is also a valid import path for `shortSha`
+// (callers and tests reference it both here and from `./utils`).
 export { shortSha };
 
 interface UsePluginDetailOptions {
