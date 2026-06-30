@@ -175,6 +175,24 @@ describe("InlineProcessCard — stop button", () => {
     expect(screen.queryByTestId("inline-process-card-stop")).toBeNull();
   });
 
+  test("is hidden for a terminal summary even when onStop is supplied", () => {
+    // Parity with the four existing inline cards, which gate the stop control
+    // on the running (loading) state; terminal rows must not surface a stale
+    // destructive action that dispatches an unnecessary cancellation.
+    for (const state of ["complete", "warning", "denied", "error"] as const) {
+      const { unmount } = render(
+        <InlineProcessCard
+          summary={summary({ state })}
+          leadingIcon={leadingIcon}
+          openAriaLabel="Open thing"
+          onStop={() => {}}
+        />,
+      );
+      expect(screen.queryByTestId("inline-process-card-stop")).toBeNull();
+      unmount();
+    }
+  });
+
   test("clicking stop calls onStop and NOT onOpen (stopPropagation)", () => {
     let opens = 0;
     let stops = 0;

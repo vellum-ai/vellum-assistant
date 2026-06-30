@@ -110,7 +110,7 @@ export function InlineProcessCard({
             {count}
           </Typography>
         ) : null}
-        {onStop ? (
+        {onStop && summary.state === "loading" ? (
           <Button
             variant="dangerGhost"
             size="compact"
