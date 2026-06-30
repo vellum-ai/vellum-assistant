@@ -10,7 +10,9 @@ import { bootstrapConversation } from "../persistence/conversation-bootstrap.js"
 import { getConversation } from "../persistence/conversation-crud.js";
 import { invalidateAssistantInferredItemsForConversation } from "../plugins/defaults/memory/task-memory-cleanup.js";
 import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { runBackgroundJob } from "../runtime/background-job-runner.js";
+import { publishConversationListChanged } from "../runtime/sync/resource-sync-events.js";
 import { runSequencesOnce } from "../sequence/engine.js";
 import { areCoreToolsInitialized } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
@@ -53,6 +55,82 @@ type ScheduleConversationCreatedNotifier = (info: {
   scheduleJobId: string;
   title: string;
 }) => void;
+
+/**
+ * Emit the attention signal for a `notify`-mode schedule firing. The default
+ * `notifyScheduleOneShot` for {@link startScheduler}; tests inject a stub.
+ */
+async function emitScheduleNotifySignal(payload: {
+  id: string;
+  label: string;
+  message: string;
+  routingIntent: RoutingIntent;
+  routingHints: Record<string, unknown>;
+}): Promise<void> {
+  await emitNotificationSignal({
+    sourceEventName: "schedule.notify",
+    sourceChannel: "scheduler",
+    sourceContextId: payload.id,
+    attentionHints: {
+      requiresAction: true,
+      urgency: "high",
+      isAsyncBackground: false,
+      visibleInSourceNow: false,
+    },
+    contextPayload: {
+      scheduleId: payload.id,
+      label: payload.label,
+      message: payload.message,
+    },
+    routingIntent: payload.routingIntent,
+    routingHints: payload.routingHints,
+    conversationMetadata: {
+      groupId: "system:scheduled",
+      scheduleJobId: payload.id,
+      source: "schedule",
+    },
+    dedupeKey: `schedule:notify:${payload.id}:${Date.now()}`,
+    throwOnError: true,
+  });
+}
+
+/** Emit the attention signal for a watcher notification. */
+function emitWatcherNotifySignal(notification: {
+  title: string;
+  body: string;
+}): void {
+  void emitNotificationSignal({
+    sourceEventName: "watcher.notification",
+    sourceChannel: "watcher",
+    sourceContextId: `watcher-${Date.now()}`,
+    attentionHints: {
+      requiresAction: false,
+      urgency: "low",
+      isAsyncBackground: true,
+      visibleInSourceNow: false,
+    },
+    contextPayload: {
+      title: notification.title,
+      body: notification.body,
+    },
+    dedupeKey: `watcher:notification:${crypto.randomUUID()}`,
+  });
+}
+
+/** Broadcast + refresh the conversation list when a schedule creates one. */
+function broadcastScheduleConversationCreated(info: {
+  conversationId: string;
+  scheduleJobId: string;
+  title: string;
+}): void {
+  broadcastMessage({
+    type: "schedule_conversation_created",
+    conversationId: info.conversationId,
+    scheduleJobId: info.scheduleJobId,
+    title: info.title,
+  });
+  publishConversationListChanged("created");
+}
 
 export interface SchedulerHandle {
   runOnce(): Promise<number>;
@@ -120,11 +198,26 @@ async function handleExecutionFailure(params: {
 /** The running scheduler, retained so shutdown can stop it. */
 let instance: SchedulerHandle | null = null;
 
+/**
+ * Publish the current background wake intent without statically importing the
+ * publisher — `background-wake/next-wake.js` imports the schedule store, so a
+ * static import here would close an import cycle. Best-effort and fire-and-forget.
+ */
+function refreshBackgroundWakeIntentSoon(reason: string): void {
+  void import("../background-wake/publisher.js")
+    .then(({ refreshBackgroundWakeIntent }) =>
+      refreshBackgroundWakeIntent(reason),
+    )
+    .catch((err) =>
+      log.warn({ err, reason }, "Failed to queue background wake refresh"),
+    );
+}
+
 export function startScheduler(
   processMessage: ScheduleMessageProcessor,
-  notifyScheduleOneShot: ScheduleNotifyModeNotifier,
-  watcherNotifier?: WatcherNotifier,
-  onScheduleConversationCreated?: ScheduleConversationCreatedNotifier,
+  notifyScheduleOneShot: ScheduleNotifyModeNotifier = emitScheduleNotifySignal,
+  watcherNotifier: WatcherNotifier = emitWatcherNotifySignal,
+  onScheduleConversationCreated: ScheduleConversationCreatedNotifier = broadcastScheduleConversationCreated,
 ): SchedulerHandle {
   let stopped = false;
   let tickRunning = false;
@@ -177,6 +270,11 @@ export function startScheduler(
       clearInterval(timer);
     },
   };
+
+  // Publish the initial background wake intent now that the scheduler is live
+  // and its schedules are visible to `computeNextBackgroundWakeIntent`.
+  refreshBackgroundWakeIntentSoon("daemon-startup");
+
   return instance;
 }
 

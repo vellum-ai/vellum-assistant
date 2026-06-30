@@ -2,7 +2,6 @@ import { join } from "node:path";
 
 import { config as dotenvConfig } from "dotenv";
 
-import { refreshBackgroundWakeIntent } from "../background-wake/publisher.js";
 import { setPointerMessageProcessor } from "../calls/call-pointer-messages.js";
 import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { setRelayBroadcast } from "../calls/relay-server.js";
@@ -23,7 +22,6 @@ import { startCliIpcServer } from "../ipc/assistant-server.js";
 import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
 import { startSkillIpcServer } from "../ipc/skill-server.js";
 import { registerMemoryJobHandlers } from "../jobs/register-job-handlers.js";
-import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import {
@@ -65,10 +63,7 @@ import {
 import { startRuntimeHttpServer } from "../runtime/http-server.js";
 import { warmLocalGuardianPrincipalCache } from "../runtime/local-actor-identity.js";
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
-import {
-  publishConfigChanged,
-  publishConversationListChanged,
-} from "../runtime/sync/resource-sync-events.js";
+import { publishConfigChanged } from "../runtime/sync/resource-sync-events.js";
 import { recoverStaleSchedules } from "../schedule/schedule-recovery.js";
 import { startScheduler } from "../schedule/scheduler.js";
 import { rotateToolInvocations } from "../telemetry/tool-usage-store.js";
@@ -860,85 +855,29 @@ export async function runDaemon(): Promise<void> {
     );
   }
 
-  startScheduler(
-    async (conversationId, message, options) => {
-      await processMessage(
-        conversationId,
-        message,
-        options
-          ? {
-              ...(options.trustClass
-                ? {
-                    trustContext: {
-                      sourceChannel: "vellum",
-                      trustClass: options.trustClass,
-                    },
-                  }
-                : {}),
-              ...(options.taskRunId ? { taskRunId: options.taskRunId } : {}),
-              ...(options.overrideProfile
-                ? { overrideProfile: options.overrideProfile }
-                : {}),
-              ...(options.cronRunId ? { cronRunId: options.cronRunId } : {}),
-            }
-          : undefined,
-      );
-    },
-    async (schedule) => {
-      await emitNotificationSignal({
-        sourceEventName: "schedule.notify",
-        sourceChannel: "scheduler",
-        sourceContextId: schedule.id,
-        attentionHints: {
-          requiresAction: true,
-          urgency: "high",
-          isAsyncBackground: false,
-          visibleInSourceNow: false,
-        },
-        contextPayload: {
-          scheduleId: schedule.id,
-          label: schedule.label,
-          message: schedule.message,
-        },
-        routingIntent: schedule.routingIntent,
-        routingHints: schedule.routingHints,
-        conversationMetadata: {
-          groupId: "system:scheduled",
-          scheduleJobId: schedule.id,
-          source: "schedule",
-        },
-        dedupeKey: `schedule:notify:${schedule.id}:${Date.now()}`,
-        throwOnError: true,
-      });
-    },
-    (notification) => {
-      void emitNotificationSignal({
-        sourceEventName: "watcher.notification",
-        sourceChannel: "watcher",
-        sourceContextId: `watcher-${Date.now()}`,
-        attentionHints: {
-          requiresAction: false,
-          urgency: "low",
-          isAsyncBackground: true,
-          visibleInSourceNow: false,
-        },
-        contextPayload: {
-          title: notification.title,
-          body: notification.body,
-        },
-        dedupeKey: `watcher:notification:${crypto.randomUUID()}`,
-      });
-    },
-    (info) => {
-      broadcastMessage({
-        type: "schedule_conversation_created",
-        conversationId: info.conversationId,
-        scheduleJobId: info.scheduleJobId,
-        title: info.title,
-      });
-      publishConversationListChanged("created");
-    },
-  );
+  startScheduler(async (conversationId, message, options) => {
+    await processMessage(
+      conversationId,
+      message,
+      options
+        ? {
+            ...(options.trustClass
+              ? {
+                  trustContext: {
+                    sourceChannel: "vellum",
+                    trustClass: options.trustClass,
+                  },
+                }
+              : {}),
+            ...(options.taskRunId ? { taskRunId: options.taskRunId } : {}),
+            ...(options.overrideProfile
+              ? { overrideProfile: options.overrideProfile }
+              : {}),
+            ...(options.cronRunId ? { cronRunId: options.cronRunId } : {}),
+          }
+        : undefined,
+    );
+  });
 
   // Fire-and-forget: Qdrant init and memory worker startup run concurrently
   // with the rest of daemon boot. Must run AFTER `startRuntimeHttpServer()`
@@ -1190,7 +1129,6 @@ export async function runDaemon(): Promise<void> {
   startWorkspaceHeartbeatService();
 
   startHeartbeatService();
-  refreshBackgroundWakeIntent("daemon-startup");
 
   installShutdownHandlers();
 
