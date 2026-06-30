@@ -20,6 +20,12 @@ interface PluginDetailMobileProps {
   assistantId: string;
   name: string;
   onBack: () => void;
+  /**
+   * Known external state from the selected list row, used to seed the header
+   * icon before the detail query resolves so click-through shows the right
+   * glyph immediately. `undefined` for deep-links with no matching row.
+   */
+  externalHint?: boolean;
 }
 
 /**
@@ -45,6 +51,7 @@ export function PluginDetailMobile({
   assistantId,
   name,
   onBack,
+  externalHint,
 }: PluginDetailMobileProps) {
   const {
     plugin,
@@ -72,6 +79,10 @@ export function PluginDetailMobile({
   }, []);
 
   const isExternal = plugin?.source?.kind === "github";
+  // Gate the header icon on the loaded plugin, seeding the known external state
+  // from the selected list row, so we never flash a wrong glyph (🧩 → 📦) while
+  // the detail query is still loading. `undefined` until we know either.
+  const resolvedExternal = plugin ? isExternal : externalHint;
   const updateAvailable = drift?.status === "update-available";
   const title = plugin?.name ?? name;
 
@@ -116,7 +127,11 @@ export function PluginDetailMobile({
       <div className="mt-4 flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2">
-            <PluginIcon external={isExternal} size="md" />
+            {resolvedExternal === undefined ? (
+              <span aria-hidden className="h-8 w-8 shrink-0" />
+            ) : (
+              <PluginIcon external={resolvedExternal} size="md" />
+            )}
             <h2
               className="min-w-0 truncate text-title-medium"
               style={{ color: "var(--content-emphasised)" }}

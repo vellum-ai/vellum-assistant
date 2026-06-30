@@ -203,9 +203,17 @@ export function PluginsTab({ assistantId, initialPluginName }: PluginsTabProps) 
   const isSearching = isFetching && !isLoading;
 
   if (selectedPluginName) {
+    // Seed the detail header icon from the already-loaded list row so
+    // click-through shows the right glyph immediately (no load-time flash);
+    // `undefined` for a deep-link with no matching row falls back to a
+    // glyph-less placeholder until the detail query resolves.
+    const selectedExternalHint = items.find(
+      (p) => p.name === selectedPluginName,
+    )?.external;
     const detailProps = {
       assistantId,
       name: selectedPluginName,
+      externalHint: selectedExternalHint,
       onBack: () => setSelectedPluginName(null),
     };
     return isMobile ? (

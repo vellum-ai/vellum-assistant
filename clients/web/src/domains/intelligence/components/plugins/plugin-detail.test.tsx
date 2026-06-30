@@ -34,9 +34,40 @@ const ASSISTANT_ID = "asst-1";
 const LOCAL_COMMIT = "60a392b0000000000000000000000000000000aa";
 const REMOTE_COMMIT = "3eae1820000000000000000000000000000000bb";
 
+const PACKAGE = "\u{1F4E6}"; // 📦 — external (catalog) glyph
+const PUZZLE = "\u{1F9E9}"; // 🧩 — local glyph
+
+const realFetch = globalThis.fetch;
+
 afterEach(() => {
   cleanup();
+  globalThis.fetch = realFetch;
 });
+
+/**
+ * Render `PluginDetail` with no seeded detail data so the query stays in its
+ * loading state, exercising the gated/seeded header icon. `fetch` is stubbed
+ * to never resolve so the detail query never settles mid-assertion.
+ */
+function renderLoadingDetail(externalHint?: boolean) {
+  globalThis.fetch = (() =>
+    new Promise<Response>(() => {})) as unknown as typeof fetch;
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, staleTime: Number.POSITIVE_INFINITY },
+    },
+  });
+  return render(
+    <QueryClientProvider client={client}>
+      <PluginDetail
+        assistantId={ASSISTANT_ID}
+        name="loading-plugin"
+        onBack={() => {}}
+        externalHint={externalHint}
+      />
+    </QueryClientProvider>,
+  );
+}
 
 function upToDateInspect(
   name: string,
@@ -243,6 +274,44 @@ describe("PluginDetail", () => {
     expect(html).toContain("Download for macOS");
     expect(html).toContain(`href="${url}"`);
     expect(html).toContain("Remove");
+  });
+
+  test("while loading with no externalHint, the header shows a glyph-less placeholder (no 🧩, no 📦)", () => {
+    const { container } = renderLoadingDetail();
+
+    // The detail query hasn't resolved and there's no seeded hint, so the
+    // header must not flash either glyph (avoids the 🧩 → 📦 load flicker).
+    expect(container.textContent).not.toContain(PUZZLE);
+    expect(container.textContent).not.toContain(PACKAGE);
+  });
+
+  test("while loading with externalHint, the header shows the seeded 📦 (not 🧩)", () => {
+    const { container } = renderLoadingDetail(true);
+
+    expect(container.textContent).toContain(PACKAGE);
+    expect(container.textContent).not.toContain(PUZZLE);
+  });
+
+  test("renders the external 📦 glyph once a github-sourced plugin has loaded", () => {
+    const { container } = renderDetail(
+      "caveman",
+      {
+        name: "caveman",
+        installed: false,
+        description: "Talk like a caveman.",
+        homepage: null,
+        license: null,
+        version: "1.8.2",
+        source: { kind: "github", repo: "example-org/caveman", ref: "v1.8.2" },
+        readme: "# Caveman",
+        ref: "v1.8.2",
+        artifact: null,
+      },
+      upToDateInspect("caveman", false),
+    );
+
+    expect(container.textContent).toContain(PACKAGE);
+    expect(container.textContent).not.toContain(PUZZLE);
   });
 
   test("invokes onBack when the back button is clicked", () => {
