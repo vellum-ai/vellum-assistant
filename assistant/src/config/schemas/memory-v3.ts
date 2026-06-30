@@ -214,6 +214,41 @@ export const MemoryV3PruneSchema = z
   })
   .describe("Memory v3 prune-valve (resident card footprint) bounds.");
 
+/**
+ * Entity-lane tuning: the heading-anchored named-entity match. A distinctive
+ * token the message shares with a `## ` section heading surfaces that section,
+ * so a named entity (person, place, project, product, bot) the additive needle
+ * buries under a long message's bulk theme is retrieved on the exact-name
+ * signal instead.
+ */
+export const MemoryV3EntitySchema = z
+  .object({
+    enabled: z
+      .boolean({ error: "memory.v3.entity.enabled must be a boolean" })
+      .default(true)
+      .describe(
+        "Whether the entity lane runs: surface the section whose `## ` heading names a distinctive entity the message mentions. Recall-additive and ~free when the message names no catalogued entity.",
+      ),
+    idfFloor: z
+      .number({ error: "memory.v3.entity.idfFloor must be a number" })
+      .nonnegative("memory.v3.entity.idfFloor must be a non-negative number")
+      .default(4)
+      .describe(
+        'Minimum corpus IDF for a `## ` heading token to become an entity key. Excludes hub tokens (e.g. "vellum") common enough that an exact match cannot disambiguate; those pages ride the core/hot lanes instead.',
+      ),
+    cap: z
+      .number({ error: "memory.v3.entity.cap must be a number" })
+      .int("memory.v3.entity.cap must be an integer")
+      .positive("memory.v3.entity.cap must be a positive integer")
+      .default(8)
+      .describe(
+        "Hard cap on the number of distinct entity-heading articles surfaced per turn.",
+      ),
+  })
+  .describe(
+    "Memory v3 entity-lane (heading-anchored named-entity match) tuning.",
+  );
+
 // NOTE: a retired `workingSet` sub-config (maxPages/evictWindow for the old
 // per-turn carry set) used to live here. Existing user config files may still
 // contain the key; zod default unknown-key stripping accepts and ignores it,
@@ -273,6 +308,7 @@ export const MemoryV3ConfigSchema = z
         "Optional path to a file whose contents replace the bundled per-turn selector system prompt (the instructions that tell the selector which candidate pages to keep). Absolute paths are used as-is, a leading `~/` is expanded to the home directory, otherwise the path is resolved under the workspace root. The selector prompt takes no placeholders — the candidate pool is supplied separately as the user message — so the file is used verbatim. If the file is missing, unreadable, empty, or over 1 MiB, the bundled prompt is used and a warning is logged.",
       ),
     edge: MemoryV3EdgeSchema.default(MemoryV3EdgeSchema.parse({})),
+    entity: MemoryV3EntitySchema.default(MemoryV3EntitySchema.parse({})),
   })
   .describe("Memory v3 — section-grain lane retrieval");
 
