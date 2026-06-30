@@ -74,6 +74,7 @@ import {
 } from "./fork-message-copy.js";
 import { getMemoryPersistenceHooks } from "./memory-lifecycle-hooks.js";
 import {
+  rawAll,
   rawExec,
   rawGet,
   rawLogsRun,
@@ -2232,6 +2233,28 @@ export function clearStaleProcessingFlags(): number {
   return rawRun(
     "UPDATE conversations SET processing_started_at = NULL WHERE processing_started_at IS NOT NULL",
   );
+}
+
+/**
+ * List conversations whose persisted `processing_started_at` is older than
+ * `cutoff` (a millisecond epoch). Drives the running-daemon stale-processing
+ * reaper: unlike `clearStaleProcessingFlags` (a blanket startup reset), this
+ * returns the specific over-age conversations so the reaper can hand each one
+ * to the graceful abort path before force-clearing — and so it never touches a
+ * turn that started recently enough to still be plausibly live. Returns id +
+ * the start timestamp, oldest first.
+ */
+export function findProcessingConversationsStartedBefore(
+  cutoff: number,
+): Array<{ id: string; processingStartedAt: number }> {
+  const rows = rawAll<{ id: string; processing_started_at: number }>(
+    "SELECT id, processing_started_at FROM conversations WHERE processing_started_at IS NOT NULL AND processing_started_at < ? ORDER BY processing_started_at ASC",
+    cutoff,
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    processingStartedAt: row.processing_started_at,
+  }));
 }
 
 /**

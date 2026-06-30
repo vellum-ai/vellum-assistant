@@ -34,6 +34,7 @@ import { stopEventLoopWatchdog } from "./event-loop-watchdog.js";
 import { stopDiskPressureGuardForLifecycle } from "./lifecycle.js";
 import { stopOrphanReaper } from "./orphan-reaper.js";
 import { runShutdownHooks } from "./shutdown-registry.js";
+import { stopStaleProcessingReaper } from "./stale-processing-reaper.js";
 
 const log = getLogger("lifecycle");
 
@@ -46,6 +47,7 @@ function stopBackgroundServicesAndCleanupPidFile(): void {
   stopGatewayFlagListener();
   stopDiskPressureGuardForLifecycle();
   stopOrphanReaper();
+  stopStaleProcessingReaper();
   stopEventLoopWatchdog();
   cleanupPidFile();
 }

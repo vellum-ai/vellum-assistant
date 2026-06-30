@@ -116,6 +116,7 @@ import {
 import { installShutdownHandlers } from "./shutdown-handlers.js";
 import { registerShutdownHook } from "./shutdown-registry.js";
 import { refreshSkillCapabilityMemories } from "./skill-memory-refresh.js";
+import { startStaleProcessingReaper } from "./stale-processing-reaper.js";
 import { broadcastDaemonStatus } from "./status.js";
 
 const log = getLogger("lifecycle");
@@ -637,6 +638,13 @@ export async function runDaemon(): Promise<void> {
   startUsageTelemetryReporter();
   startDiskPressureGuardForLifecycle();
   startOrphanReaper();
+  if (config.conversations.staleProcessingReaper.enabled) {
+    startStaleProcessingReaper({
+      ceilingMs: config.conversations.staleProcessingReaper.ceilingMs,
+      sweepIntervalMs:
+        config.conversations.staleProcessingReaper.sweepIntervalMs,
+    });
+  }
   startEventLoopWatchdog();
 
   // Initialize Qdrant vector store and memory worker in the background so the

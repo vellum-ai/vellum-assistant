@@ -23,7 +23,9 @@ export type AbortReasonKind =
   /** Voice session bridge aborted the conversation (turn supersession, call end). */
   | "voice_session_aborted"
   /** A scheduled work item run was cancelled or its conversation reset. */
-  | "work_item_aborted";
+  | "work_item_aborted"
+  /** The stale-processing reaper found a turn whose processing flag exceeded the staleness ceiling and forced it to unwind. */
+  | "stale_processing_reaped";
 
 const ABORT_REASON_TAG = "__vellumAbortReason" as const;
 
