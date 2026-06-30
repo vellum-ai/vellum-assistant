@@ -25,6 +25,14 @@ const HEAD_WEIGHT = 2.5;
 /** `body`-field weight in the BM25F term-frequency blend. */
 const BODY_WEIGHT = 1;
 
+/** A scored section-needle hit: the article, its best-scoring section index
+ *  (into `SectionIndex.sections`), and that section's raw BM25F score. */
+export interface SectionNeedleScoredHit {
+  article: Slug;
+  section: number;
+  score: number;
+}
+
 export interface SectionNeedle {
   /**
    * Returns up to `k` distinct articles ranked by BM25F score (descending),
@@ -32,6 +40,11 @@ export interface SectionNeedle {
    * `SectionIndex.sections`). Ties break by `(article, ordinal)`.
    */
   query(text: string, k: number): { article: Slug; section: number }[];
+  /**
+   * Like {@link query} but includes the raw BM25F score per hit, in the same
+   * rank order (score desc, then (article, ordinal) asc).
+   */
+  queryScored(text: string, k: number): SectionNeedleScoredHit[];
   /**
    * Highest-scoring section index (into `SectionIndex.sections`) for `article`
    * against `queryText`. Returns the article's first section index when no term
@@ -164,10 +177,7 @@ export function buildSectionNeedle(index: SectionIndex): SectionNeedle {
     return sa.article.localeCompare(sc.article) || sa.ordinal - sc.ordinal;
   }
 
-  function query(
-    text: string,
-    k: number,
-  ): { article: Slug; section: number }[] {
+  function queryScored(text: string, k: number): SectionNeedleScoredHit[] {
     if (k <= 0 || docCount === 0) return [];
 
     const queryTerms = new Set(tokenize(text));
@@ -179,15 +189,25 @@ export function buildSectionNeedle(index: SectionIndex): SectionNeedle {
     // Dedupe to distinct articles, keeping each article's best (first-ranked)
     // section, until we have `k` articles.
     const seen = new Set<Slug>();
-    const result: { article: Slug; section: number }[] = [];
+    const result: SectionNeedleScoredHit[] = [];
     for (const doc of ranked) {
       const article = sections[doc]!.article;
       if (seen.has(article)) continue;
       seen.add(article);
-      result.push({ article, section: doc });
+      result.push({ article, section: doc, score: scores.get(doc) ?? 0 });
       if (result.length >= k) break;
     }
     return result;
+  }
+
+  function query(
+    text: string,
+    k: number,
+  ): { article: Slug; section: number }[] {
+    return queryScored(text, k).map(({ article, section }) => ({
+      article,
+      section,
+    }));
   }
 
   function bestSection(article: Slug, queryText: string): number {
@@ -211,5 +231,5 @@ export function buildSectionNeedle(index: SectionIndex): SectionNeedle {
     return best;
   }
 
-  return { query, bestSection, idf };
+  return { query, queryScored, bestSection, idf };
 }
