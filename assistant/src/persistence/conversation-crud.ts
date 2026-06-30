@@ -29,7 +29,6 @@ import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
 import { MEMORY_RETROSPECTIVE_SOURCES } from "../plugins/defaults/memory/memory-retrospective-constants.js";
-import { MEMORY_V3_INJECTED_BLOCK_METADATA_KEY } from "../plugins/defaults/memory/v3/ever-injected-store.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { UserError } from "../util/errors.js";
@@ -171,8 +170,11 @@ export const messageMetadataSchema = z
     imageSourcePaths: z.record(z.string(), z.string()).optional(),
     memoryInjectedBlock: z.string().optional(),
     /** Memory-v3 frozen net-new card block (unwrapped) — the v3 counterpart
-     *  of `memoryInjectedBlock`. A row carries at most one of the two. */
-    [MEMORY_V3_INJECTED_BLOCK_METADATA_KEY]: z.string().optional(),
+     *  of `memoryInjectedBlock`. A row carries at most one of the two. The key
+     *  matches the memory plugin's `MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`, kept
+     *  as a literal here (like `memoryInjectedBlock`) so the storage schema does
+     *  not import the memory feature. */
+    memoryV3InjectedBlock: z.string().optional(),
     turnContextBlock: z.string().optional(),
     pkbSystemReminderBlock: z.string().optional(),
     workspaceBlock: z.string().optional(),
