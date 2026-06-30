@@ -9,6 +9,7 @@
 import { getGuardianDeliveryFresh } from "../contacts/guardian-delivery-reader.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import type { ConversationCreateOptions } from "./handlers/shared.js";
+import type { TrustContext } from "./trust-context.js";
 
 type GuardianDeliveryFetch = (input?: {
   channelTypes?: string[];
@@ -40,21 +41,37 @@ export async function warmGuardianBindings(
 /**
  * Resolve the system prompt to freeze onto a newly constructed conversation.
  *
- * An explicit `systemPromptOverride` (including an empty string) is used
- * verbatim. Otherwise the guardian binding is warmed first so the default
- * build's persona slot resolves the guardian's `users/<slug>.md` instead of
- * falling back to `users/default.md` on a cold cache — the conversation's
- * prompt is built once here and reused for every turn (the agent loop never
- * re-resolves it), so a cold cache would pin the wrong persona for the
- * conversation's whole lifetime.
+ * The conversation's prompt is built once here and reused for every turn (the
+ * agent loop never re-resolves it), so the persona slot must resolve correctly
+ * at construction.
+ *
+ * - An explicit `systemPromptOverride` (including an empty string) is used
+ *   verbatim.
+ * - A channel-routed conversation that already carries the requester's
+ *   `trustContext` (e.g. Slack / Telegram inbound) builds with it, so the
+ *   persona resolves the *requester's* `users/<slug>.md` (a DB contact lookup)
+ *   rather than the guardian/default profile.
+ * - Otherwise (no construction-time identity — the local vellum app sets trust
+ *   after creation) the guardian binding is warmed first so the persona slot
+ *   resolves the guardian's `users/<slug>.md` instead of `users/default.md` on
+ *   a cold cache.
  */
 export async function resolveInitialSystemPrompt(
   storedOptions: ConversationCreateOptions | undefined,
-  deps: { warm?: () => Promise<void>; build?: () => string } = {},
+  deps: {
+    warm?: () => Promise<void>;
+    build?: (trustContext: TrustContext | undefined) => string;
+  } = {},
 ): Promise<string> {
   if (storedOptions?.systemPromptOverride !== undefined) {
     return storedOptions.systemPromptOverride;
   }
-  await (deps.warm ?? warmGuardianBindings)();
-  return (deps.build ?? buildSystemPrompt)();
+  const trustContext = storedOptions?.trustContext;
+  if (trustContext === undefined) {
+    await (deps.warm ?? warmGuardianBindings)();
+  }
+  const build =
+    deps.build ??
+    ((tc: TrustContext | undefined) => buildSystemPrompt({ trustContext: tc }));
+  return build(trustContext);
 }

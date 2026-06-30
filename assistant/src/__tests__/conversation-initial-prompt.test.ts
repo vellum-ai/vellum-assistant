@@ -3,10 +3,11 @@
  *
  * A conversation's system prompt is built once at construction and frozen for
  * every turn (the agent loop never re-resolves it), so the persona slot must
- * resolve correctly here. The guardian binding the persona resolver reads is
- * gateway-owned and only populated asynchronously, so the default-build path
- * must warm it BEFORE building — otherwise a cold cache pins `users/default.md`
- * for the conversation's lifetime.
+ * resolve correctly here. With no construction-time identity the default-build
+ * path must warm the gateway guardian binding BEFORE building (else a cold cache
+ * pins `users/default.md`); a channel-routed conversation that already carries
+ * the requester's trust context must build with it so the requester's profile
+ * resolves instead of the guardian/default one.
  *
  * Dependency seams are injected so this exercises the sequencing without mocking
  * the widely-imported guardian-delivery / system-prompt modules (those global
@@ -19,21 +20,32 @@ import {
   warmGuardianBindings,
 } from "../daemon/conversation-initial-prompt.js";
 import type { ConversationCreateOptions } from "../daemon/handlers/shared.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 
-function recordingDeps(calls: string[]): {
-  warm: () => Promise<void>;
-  build: () => string;
-} {
+function spyDeps() {
+  const calls: string[] = [];
+  const builtWith: Array<TrustContext | undefined> = [];
   return {
-    warm: async () => {
-      calls.push("warm");
-    },
-    build: () => {
-      calls.push("build");
-      return "BUILD";
+    calls,
+    builtWith,
+    deps: {
+      warm: async () => {
+        calls.push("warm");
+      },
+      build: (trustContext: TrustContext | undefined) => {
+        calls.push("build");
+        builtWith.push(trustContext);
+        return "BUILD";
+      },
     },
   };
 }
+
+const REQUESTER_TRUST = {
+  sourceChannel: "slack",
+  trustClass: "trusted_contact",
+  requesterExternalUserId: "user-123",
+} as unknown as TrustContext;
 
 describe("warmGuardianBindings", () => {
   test("warms both the vellum-channel key and the unfiltered fallback key", async () => {
@@ -49,25 +61,36 @@ describe("warmGuardianBindings", () => {
 });
 
 describe("resolveInitialSystemPrompt", () => {
-  test("warms the guardian binding before building the default prompt", async () => {
-    const calls: string[] = [];
+  test("no construction-time identity: warms the guardian binding, then builds with no trust context", async () => {
+    const { calls, builtWith, deps } = spyDeps();
+    const result = await resolveInitialSystemPrompt(undefined, deps);
+
+    expect(result).toBe("BUILD");
+    // The warm MUST precede the build so the persona slot resolves the
+    // guardian's users/<slug>.md instead of users/default.md on a cold cache.
+    expect(calls).toEqual(["warm", "build"]);
+    expect(builtWith).toEqual([undefined]);
+  });
+
+  test("channel-routed: threads the requester trust context and skips the guardian warm", async () => {
+    const { calls, builtWith, deps } = spyDeps();
     const result = await resolveInitialSystemPrompt(
-      undefined,
-      recordingDeps(calls),
+      { trustContext: REQUESTER_TRUST } as ConversationCreateOptions,
+      deps,
     );
 
     expect(result).toBe("BUILD");
-    // Regression: the warm MUST precede the build so the persona slot resolves
-    // the guardian's users/<slug>.md instead of users/default.md on a cold
-    // gateway-binding cache.
-    expect(calls).toEqual(["warm", "build"]);
+    // The requester's identity resolves the persona via a DB lookup, so no
+    // guardian-cache warm is needed and the trust context must reach the build.
+    expect(calls).toEqual(["build"]);
+    expect(builtWith).toEqual([REQUESTER_TRUST]);
   });
 
   test("an explicit override is used verbatim and skips the warm and build", async () => {
-    const calls: string[] = [];
+    const { calls, deps } = spyDeps();
     const result = await resolveInitialSystemPrompt(
       { systemPromptOverride: "CUSTOM PROMPT" } as ConversationCreateOptions,
-      recordingDeps(calls),
+      deps,
     );
 
     expect(result).toBe("CUSTOM PROMPT");
@@ -75,10 +98,10 @@ describe("resolveInitialSystemPrompt", () => {
   });
 
   test("an explicit empty-string override is honored verbatim (not treated as absent)", async () => {
-    const calls: string[] = [];
+    const { calls, deps } = spyDeps();
     const result = await resolveInitialSystemPrompt(
       { systemPromptOverride: "" } as ConversationCreateOptions,
-      recordingDeps(calls),
+      deps,
     );
 
     expect(result).toBe("");
