@@ -354,6 +354,7 @@ describe("orchestrate — candidate pool composition", () => {
         needleK = k;
         return [];
       },
+      queryScored: () => [],
       bestSection: () => -1,
       idf: () => 0,
     };
@@ -887,7 +888,12 @@ describe("orchestrate — degradation", () => {
     const result = await orchestrate(
       makeTurn(1, "zzzzz no-match"),
       depsOf(lanes, {
-        needle: { query: () => [], bestSection: () => -1, idf: () => 0 },
+        needle: {
+          query: () => [],
+          queryScored: () => [],
+          bestSection: () => -1,
+          idf: () => 0,
+        },
       }),
     );
     expect(result.selections).toEqual([]);
@@ -930,6 +936,7 @@ describe("orchestrate — entity lane", () => {
     // maps a message token to topic-a's HEADING section.
     const needle = {
       query: () => [{ article: "topic-a", section: leadDoc! }],
+      queryScored: () => [{ article: "topic-a", section: leadDoc!, score: 1 }],
       bestSection: () => leadDoc!,
       idf: () => 0,
     };
@@ -958,6 +965,7 @@ describe("orchestrate — entity lane", () => {
     const heading = sectionIndex.sections[headingDoc!]!;
     const needle = {
       query: () => [] as { article: Slug; section: number }[],
+      queryScored: () => [],
       bestSection: () => -1,
       idf: () => 0,
     };
