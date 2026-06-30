@@ -377,12 +377,36 @@ describe("memory v2 qdrant — collection lifecycle", () => {
     expect(params.sparse_vectors.summary_sparse).toBeDefined();
   });
 
-  test("detects a wrong-dimension dense vector on an existing collection and recreates", async () => {
+  test("recreates when named vectors are missing AND sized wrong (schema drift wins)", async () => {
+    // Both a missing summary channel AND a wrong dense dimension. The schema
+    // recreate still wins: missing named vectors make the collection
+    // unqueryable (HTTP 400) and the fix reproduces from disk, so the recreate
+    // at the configured size repairs both at once.
+    state.collectionExistsBeforeCreate = true;
+    state.getCollectionInfo = {
+      config: {
+        params: {
+          vectors: { dense: { size: 768 } },
+          sparse_vectors: { sparse: {} },
+        },
+      },
+    };
+
+    const result = await ensureConceptPageCollection();
+
+    expect(state.getCollectionCalls).toBe(1);
+    expect(state.deleteCollectionCalls).toEqual([MEMORY_V2_COLLECTION]);
+    expect(state.createCollectionCalls).toBe(1);
+    expect(result).toEqual({ migrated: true });
+  });
+
+  test("leaves a wrong-dimension collection intact (defers to startup reconcile)", async () => {
     // All required named vectors PRESENT, but the dense channels are sized to a
     // different embedding dimension than the configured 384 (e.g. a 768-dim
-    // collection from a prior embedding model). Every upsert would fail with
-    // HTTP 400 until the collection is recreated — the missing-vector check
-    // alone never catches this.
+    // collection from a prior embedding model). This lazy ensure runs on hot
+    // upsert/query paths and cannot run an embed probe, so it must not destroy
+    // the populated collection — the probe-gated startup reconcile owns
+    // destructive dimension migration.
     state.collectionExistsBeforeCreate = true;
     state.getCollectionInfo = {
       config: {
@@ -396,9 +420,9 @@ describe("memory v2 qdrant — collection lifecycle", () => {
     const result = await ensureConceptPageCollection();
 
     expect(state.getCollectionCalls).toBe(1);
-    expect(state.deleteCollectionCalls).toEqual([MEMORY_V2_COLLECTION]);
-    expect(state.createCollectionCalls).toBe(1);
-    expect(result).toEqual({ migrated: true });
+    expect(state.deleteCollectionCalls).toEqual([]);
+    expect(state.createCollectionCalls).toBe(0);
+    expect(result).toEqual({ migrated: false });
   });
 
   test("leaves a fully migrated collection untouched", async () => {

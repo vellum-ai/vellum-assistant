@@ -35,7 +35,10 @@
 //     for the next turn and drop below `epsilon` if no longer relevant.
 
 import type { AssistantConfig } from "../../config/types.js";
-import { embedWithBackend } from "../../persistence/embeddings/embedding-backend.js";
+import {
+  embedWithBackend,
+  isEmbeddingDimensionAvailable,
+} from "../../persistence/embeddings/embedding-backend.js";
 import { applyCorrectionIfCalibrated } from "../anisotropy.js";
 import { clampUnitInterval } from "../validation.js";
 import type { EdgeIndex } from "./edge-index.js";
@@ -130,15 +133,24 @@ export async function selectCandidates(
     .join("\n");
 
   if (annQueryText.trim().length > 0) {
-    throwIfAborted(signal);
-    const denseResult = await embedWithBackend(config, [annQueryText], {
-      signal,
-    });
-    const dense = await applyCorrectionIfCalibrated(
-      denseResult.vectors[0],
-      denseResult.provider,
-      denseResult.model,
-    );
+    // Dense short-circuit: when the reachable backend can't produce vectors of
+    // the committed collection dimension (degraded backend or dimension
+    // mismatch), skip the embed round-trip that `embedWithBackend` would only
+    // reject on its dimension assertion every turn. `hybridQueryConceptPages`
+    // treats an empty dense vector as sparse-only, so the ANN candidate scan
+    // still runs on BM25 — the dense channel just contributes nothing.
+    let dense: number[] = [];
+    if (await isEmbeddingDimensionAvailable(config)) {
+      throwIfAborted(signal);
+      const denseResult = await embedWithBackend(config, [annQueryText], {
+        signal,
+      });
+      dense = await applyCorrectionIfCalibrated(
+        denseResult.vectors[0],
+        denseResult.provider,
+        denseResult.model,
+      );
+    }
     throwIfAborted(signal);
     const sparse = generateBm25QueryEmbedding(annQueryText);
     const limit =

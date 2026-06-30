@@ -54,6 +54,7 @@ mock.module("../../../persistence/embeddings/qdrant-client.js", () => ({
 const state = {
   embedCalls: [] as Array<{ inputs: unknown[] }>,
   embedReturn: [[0.1, 0.2, 0.3]] as number[][],
+  dimensionAvailable: true,
   /**
    * Programmable Qdrant query response queues — one per channel. Each test
    * stages whatever ordered hits it needs and lets `simBatch` /
@@ -79,6 +80,7 @@ const realEmbeddingBackend =
   await import("../../../persistence/embeddings/embedding-backend.js");
 mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
   ...realEmbeddingBackend,
+  isEmbeddingDimensionAvailable: async () => state.dimensionAvailable,
   embedWithBackend: async (_config: AssistantConfig, inputs: unknown[]) => {
     state.embedCalls.push({ inputs });
     return {
@@ -173,6 +175,7 @@ const { _resetMemoryV2QdrantForTests } = await import("../qdrant.js");
 function resetState(): void {
   state.embedCalls.length = 0;
   state.embedReturn = [[0.1, 0.2, 0.3]];
+  state.dimensionAvailable = true;
   state.queryResponses.dense.length = 0;
   state.queryResponses.sparse.length = 0;
   state.queryCalls.length = 0;
@@ -376,6 +379,44 @@ describe("selectCandidates", () => {
     // Source-set membership matches each slug's actual provenance.
     expect(out.fromPrior).toEqual(new Set(["alice-vscode", "carol-jazz"]));
     expect(out.fromAnn).toEqual(new Set(["alice-vscode", "delta-recipe"]));
+  });
+
+  test("committed-dimension/reachable-backend mismatch skips the dense embed and runs the ANN scan sparse-only", async () => {
+    // Simulates a 3072-dim collection committed while only a 384-dim backend
+    // is reachable: the ANN candidate scan skips the dense embed (no
+    // `embedWithBackend` throw) and runs BM25-only via the empty dense vector,
+    // so prior-state survivors and sparse ANN hits still populate candidates.
+    state.dimensionAvailable = false;
+    stageHybridResponse([
+      { slug: "delta-recipe", sparseScore: 1 /* denseScore omitted */ },
+    ]);
+
+    const out = await selectCandidates({
+      priorState: {
+        messageId: "msg-1",
+        state: { "alice-vscode": 0.5 },
+        everInjected: [],
+        currentTurn: 1,
+        updatedAt: 1,
+      },
+      userText: "user said hello",
+      assistantText: "",
+      nowText: "",
+      config: makeConfig(),
+    });
+
+    // No dense embed round-trip was paid.
+    expect(state.embedCalls).toHaveLength(0);
+    // Only the two sparse channels hit Qdrant; the dense channels were skipped
+    // (empty dense vector → sparse-only query).
+    expect(state.queryCalls.map((c) => c.using).sort()).toEqual([
+      "sparse",
+      "summary_sparse",
+    ]);
+    // Prior survivor + sparse ANN hit both land in the candidate set.
+    expect(out.fromPrior).toEqual(new Set(["alice-vscode"]));
+    expect(out.fromAnn).toEqual(new Set(["delta-recipe"]));
+    expect(out.candidates).toEqual(new Set(["alice-vscode", "delta-recipe"]));
   });
 
   test("ANN candidate query honors `config.memory.v2.ann_candidate_limit` and runs without slug restriction", async () => {

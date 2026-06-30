@@ -33,7 +33,10 @@
 //   across turns.
 
 import type { AssistantConfig } from "../../config/types.js";
-import { embedWithBackend } from "../../persistence/embeddings/embedding-backend.js";
+import {
+  embedWithBackend,
+  isEmbeddingDimensionAvailable,
+} from "../../persistence/embeddings/embedding-backend.js";
 import { applyCorrectionIfCalibrated } from "../anisotropy.js";
 import { clampUnitInterval } from "../validation.js";
 import { hybridQueryConceptPages } from "./qdrant.js";
@@ -166,18 +169,29 @@ export async function simBatch(
     return new Map();
   }
 
+  // Dense short-circuit: when the reachable backend can't produce vectors of
+  // the committed collection dimension (degraded backend or dimension
+  // mismatch), skip the embed round-trip that `embedWithBackend` would only
+  // reject on its dimension assertion every turn. `hybridQueryConceptPages`
+  // treats an empty dense vector as sparse-only, so BM25 still scores the
+  // candidates — the dense channel just contributes nothing this turn.
+  const denseAvailable = await isEmbeddingDimensionAvailable(config);
+
   // Sparse uses BM25: the query side encodes binary occurrences per token,
   // and the stored doc vectors carry the IDF · TF-saturated weights — Qdrant
   // dot product then yields the BM25 score directly.
-  throwIfAborted(options?.signal);
-  const denseResult = await embedWithBackend(config, [text], {
-    signal: options?.signal,
-  });
-  const denseVector = await applyCorrectionIfCalibrated(
-    denseResult.vectors[0],
-    denseResult.provider,
-    denseResult.model,
-  );
+  let denseVector: number[] = [];
+  if (denseAvailable) {
+    throwIfAborted(options?.signal);
+    const denseResult = await embedWithBackend(config, [text], {
+      signal: options?.signal,
+    });
+    denseVector = await applyCorrectionIfCalibrated(
+      denseResult.vectors[0],
+      denseResult.provider,
+      denseResult.model,
+    );
+  }
   throwIfAborted(options?.signal);
   const sparseVector = generateBm25QueryEmbedding(text);
 

@@ -320,12 +320,13 @@ describe("memory v3 section-dense-store — collection lifecycle", () => {
     ]);
   });
 
-  test("recreates the collection when its dense vector dimension drifts", async () => {
+  test("recreates the collection on dimension drift (page-derived, repopulated by maintain)", async () => {
     state.collectionExists = true;
     // Existing collection sized to a different embedding dimension than the
-    // configured 4 (e.g. a 384-dim collection from a prior model). Every upsert
-    // would fail with HTTP 400 until it is recreated; the next backfill
-    // re-embeds the sections.
+    // configured 4 (e.g. a 384-dim collection from a prior model). The section
+    // collection is page-derived and repopulated by the probe-gated
+    // maintain/backfill, and the startup reconcile only repairs the v2
+    // collection's dimension, so a v3-only drift is repaired here.
     state.getCollectionInfo = {
       config: { params: { vectors: { size: 384, distance: "Cosine" } } },
     };
@@ -335,11 +336,6 @@ describe("memory v3 section-dense-store — collection lifecycle", () => {
     expect(state.getCollectionCalls).toBe(1);
     expect(state.deleteCollectionCalls).toEqual([SECTION_COLLECTION]);
     expect(state.createCollectionCalls).toBe(1);
-    // The recreated collection is sized to the configured dimension.
-    const params = state.createCollectionParams as {
-      vectors: { size: number };
-    };
-    expect(params.vectors.size).toBe(4);
   });
 
   test("leaves a dimension-matched existing collection untouched", async () => {

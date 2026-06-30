@@ -61,6 +61,7 @@ const state = {
   embedCalls: [] as Array<{ inputs: unknown[] }>,
   sparseCalls: [] as string[],
   embedReturn: [[0.1, 0.2, 0.3]] as number[][],
+  dimensionAvailable: true,
   // Programmable Qdrant query response — one entry per `using` channel,
   // shifted in order so each test can stage dense + sparse results.
   queryResponses: {
@@ -87,6 +88,7 @@ const realEmbeddingBackend =
   await import("../../../persistence/embeddings/embedding-backend.js");
 mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
   ...realEmbeddingBackend,
+  isEmbeddingDimensionAvailable: async () => state.dimensionAvailable,
   embedWithBackend: async (_config: AssistantConfig, inputs: unknown[]) => {
     state.embedCalls.push({ inputs });
     return {
@@ -162,6 +164,7 @@ function resetState(): void {
   state.embedCalls.length = 0;
   state.sparseCalls.length = 0;
   state.embedReturn = [[0.1, 0.2, 0.3]];
+  state.dimensionAvailable = true;
   state.queryResponses.dense.length = 0;
   state.queryResponses.sparse.length = 0;
   state.queryCalls.length = 0;
@@ -513,6 +516,32 @@ describe("simBatch", () => {
         must: [{ key: "slug", match: { any: ["alice", "bob", "carol"] } }],
       });
     }
+  });
+
+  test("committed-dimension/reachable-backend mismatch skips the dense embed and degrades to sparse-only", async () => {
+    // Simulates a 3072-dim collection committed while only a 384-dim backend
+    // is reachable: the dense embed is skipped (no `embedWithBackend` throw),
+    // and `hybridQueryConceptPages` runs sparse-only via the empty dense vector
+    // so BM25 still scores the candidate.
+    state.dimensionAvailable = false;
+    const config = configWithWeights(0.0, 1.0);
+    stageHybridResponse([
+      { slug: "sparse-only-page", sparseScore: 7.5 /* denseScore omitted */ },
+    ]);
+
+    const out = await simBatch("query", ["sparse-only-page"], config);
+
+    // No dense embed round-trip was paid.
+    expect(state.embedCalls).toHaveLength(0);
+    // Sparse channels still ran; the dense channels were skipped (empty dense
+    // vector), so only the two sparse `using` channels hit Qdrant.
+    expect(state.queryCalls.map((c) => c.using).sort()).toEqual([
+      "sparse",
+      "summary_sparse",
+    ]);
+    // BM25 still produced a score for the candidate: sparse normalized to 1.0
+    // (single hit), sparse_weight 1.0 → fused 1.0.
+    expect(out.get("sparse-only-page")).toBeCloseTo(1.0, 6);
   });
 
   test("embeds the query text exactly once via dense + sparse backends", async () => {

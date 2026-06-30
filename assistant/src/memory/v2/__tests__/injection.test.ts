@@ -94,6 +94,7 @@ const realEmbeddingBackend =
   await import("../../../persistence/embeddings/embedding-backend.js");
 mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
   ...realEmbeddingBackend,
+  isEmbeddingDimensionAvailable: async () => true,
   embedWithBackend: async () => ({
     provider: "local",
     model: "test-model",
