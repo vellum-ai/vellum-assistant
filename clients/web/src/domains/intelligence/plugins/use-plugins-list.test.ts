@@ -332,4 +332,53 @@ describe("usePluginsList", () => {
       expect(result.current.categorySupported).toBe(false),
     );
   });
+
+  test("refetches unfiltered counts when the warmed catalog disagrees with the cached buckets", async () => {
+    // Simulate a timeout-degraded first read: the daemon bucketed `mailer` under
+    // `system` because the bounded category lookup timed out. The catalog (held
+    // pending) actually knows `mailer` is `email`.
+    const degraded: InstalledResult = {
+      data: {
+        plugins: [installed({ id: "mailer", name: "mailer", category: "system" })],
+        categoryCounts: { system: 1 },
+        totalCount: 1,
+      } as PluginsGetResponse,
+      response: { ok: true, status: 200 },
+    };
+    const warm: InstalledResult = {
+      data: {
+        plugins: [installed({ id: "mailer", name: "mailer", category: "email" })],
+        categoryCounts: { email: 1 },
+        totalCount: 1,
+      } as PluginsGetResponse,
+      response: { ok: true, status: 200 },
+    };
+    installedResult = degraded;
+    catalogResult = catalogOk([match({ name: "mailer", category: "email" })]);
+    let releaseCatalog: () => void = () => {};
+    catalogGate = new Promise<void>((resolve) => {
+      releaseCatalog = resolve;
+    });
+
+    const { result } = renderPluginsList();
+
+    // Initial unfiltered read resolves degraded (catalog still pending).
+    await waitFor(() =>
+      expect(result.current.installedCategoryCounts).toEqual({ system: 1 }),
+    );
+
+    // The daemon catalog is now warm; a re-read returns the real category.
+    installedResult = warm;
+    releaseCatalog();
+
+    // Catalog success exposes the disagreement, so the hook refetches the
+    // unfiltered installed read and the badges heal to the real category.
+    await waitFor(() =>
+      expect(result.current.installedCategoryCounts).toEqual({ email: 1 }),
+    );
+    const unfilteredReads = pluginsGetSpy.mock.calls.filter(
+      (c) => !c[0]?.query?.category,
+    ).length;
+    expect(unfilteredReads).toBeGreaterThanOrEqual(2);
+  });
 });

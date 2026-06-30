@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type {
     InstalledPlugin,
@@ -208,6 +208,54 @@ export function usePluginsList(
     if (categoryCountsObserved) setCategorySupportedLatched(true);
   }, [categoryCountsObserved]);
   const categorySupported = categorySupportedLatched || categoryCountsObserved;
+
+  // Self-heal timeout-degraded category counts. A cold catalog can make the
+  // daemon's bounded category lookup time out, so the installed read buckets
+  // every plugin under `system` and the client caches those counts as fresh. The
+  // catalog warms moments later (the daemon caches it), so a later server-side
+  // `?category=` request returns the real categories — leaving a stale `system`
+  // badge that no longer matches what the filter returns. The catalog query
+  // succeeding proves the daemon's catalog is warm: if it disagrees with the
+  // cached installed buckets (a plugin the catalog knows is non-`system` that the
+  // installed read bucketed `system`), refetch the unfiltered installed read once
+  // so the badges match the warmed server. One-shot per assistant — the refetch
+  // reads the warm catalog and clears the disagreement, so it can't loop.
+  const queryClient = useQueryClient();
+  const healedAssistant = useRef<string | null>(null);
+  useEffect(() => {
+    if (healedAssistant.current === assistantId) return;
+    if (!catalogQuery.isSuccess) return;
+    const installed = unfilteredInstalledData?.plugins;
+    if (!installed?.length) return;
+    const realCategory = new Map(
+      (catalogQuery.data?.matches ?? EMPTY_MATCHES).map((m) => [
+        m.name,
+        m.category,
+      ]),
+    );
+    const stale = installed.some((p) => {
+      const real = realCategory.get(p.name);
+      return (
+        real != null &&
+        real !== SYSTEM_CATEGORY &&
+        (p.category ?? SYSTEM_CATEGORY) === SYSTEM_CATEGORY
+      );
+    });
+    if (!stale) return;
+    healedAssistant.current = assistantId;
+    void queryClient.invalidateQueries({
+      queryKey: pluginsGetQueryKey({
+        path: { assistant_id: assistantId },
+        query: { q: undefined },
+      }),
+    });
+  }, [
+    assistantId,
+    catalogQuery.isSuccess,
+    catalogQuery.data?.matches,
+    unfilteredInstalledData?.plugins,
+    queryClient,
+  ]);
 
   return {
     items,
