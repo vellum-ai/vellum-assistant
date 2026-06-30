@@ -223,6 +223,25 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
       {
+        id: "claude-sonnet-5",
+        displayName: "Claude Sonnet 5",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        // Introductory pricing in effect through 2026-08-31 ($2/$10 vs the
+        // $3/$15 standard rate). Bump to standard once the intro window ends.
+        pricing: {
+          inputPer1mTokens: 2,
+          outputPer1mTokens: 10,
+          cacheWritePer1mTokens: 2.5,
+          cacheReadPer1mTokens: 0.2,
+        },
+      },
+      {
         id: "claude-sonnet-4-6",
         displayName: "Claude Sonnet 4.6",
         contextWindowTokens: 1000000,
@@ -902,6 +921,25 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           outputPer1mTokens: 25,
           cacheWritePer1mTokens: 6.25,
           cacheReadPer1mTokens: 0.5,
+        },
+      },
+      {
+        id: "anthropic/claude-sonnet-5",
+        displayName: "Claude Sonnet 5",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        // Introductory pricing in effect through 2026-08-31 ($2/$10 vs the
+        // $3/$15 standard rate). Bump to standard once the intro window ends.
+        pricing: {
+          inputPer1mTokens: 2,
+          outputPer1mTokens: 10,
+          cacheWritePer1mTokens: 2.5,
+          cacheReadPer1mTokens: 0.2,
         },
       },
       {
