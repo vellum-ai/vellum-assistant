@@ -17,11 +17,15 @@ export type SubagentStatus =
   | "awaiting_input"
   | "completed"
   | "failed"
-  | "aborted";
+  | "aborted"
+  // Assigned on daemon restart to a subagent that was still in flight when the
+  // process died. Terminal — the run is not auto-resumed; the parent is left to
+  // decide whether to re-spawn.
+  | "interrupted";
 
 /** Terminal states — once entered, a subagent cannot transition out. */
 export const TERMINAL_STATUSES: ReadonlySet<SubagentStatus> =
-  new Set<SubagentStatus>(["completed", "failed", "aborted"]);
+  new Set<SubagentStatus>(["completed", "failed", "aborted", "interrupted"]);
 
 // ── Config (spawn-time) ─────────────────────────────────────────────────
 
