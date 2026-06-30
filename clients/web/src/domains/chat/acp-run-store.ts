@@ -15,6 +15,10 @@ import { create } from "zustand";
 import { createSelectors } from "@/utils/create-selectors";
 import { isActiveAcpStatus, type AcpRunStatus } from "@/utils/acp-run-status";
 import {
+  mergeTerminalStatus,
+  seedEntriesFromHistory,
+} from "@/domains/chat/store-helpers/merge-history-entry";
+import {
   optimisticCancel,
   optimisticRestore,
   optimisticRetire,
@@ -292,10 +296,11 @@ function mergeHistoryEntry(
 ): AcpRunEntry {
   const events = mergeEvents(existing.events, incoming.events);
 
-  const status =
-    isActiveAcpStatus(existing.status) || !isActiveAcpStatus(incoming.status)
-      ? incoming.status
-      : existing.status;
+  const status = mergeTerminalStatus(
+    existing.status,
+    incoming.status,
+    isActiveAcpStatus,
+  );
 
   return {
     ...existing,
@@ -586,29 +591,34 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
   seedFromHistory: (entries) => {
     const { byId, orderedIds, byToolUseId, highWaterMark } = get();
 
-    const nextById = { ...byId };
-    const nextOrderedIds = [...orderedIds];
+    // Union live + history events by seq and always merge terminal/status/
+    // usage metadata from history so a live entry can't stay stale. The shared
+    // helper owns the byId/orderedIds insertion; the seq high-water mark and the
+    // tool-use index are acp-specific and folded in from the merged result.
+    const { byId: nextById, orderedIds: nextOrderedIds } = seedEntriesFromHistory(
+      {
+        entries,
+        byId,
+        orderedIds,
+        idOf: (entry) => entry.acpSessionId,
+        merge: mergeHistoryEntry,
+      },
+    );
+
     let nextByToolUseId = byToolUseId;
     let nextHighWaterMark = highWaterMark;
 
     for (const entry of entries) {
-      const existing = nextById[entry.acpSessionId];
-      // Union live + history events by seq and always merge terminal/status/
-      // usage metadata from history so a live entry can't stay stale.
-      const merged = existing ? mergeHistoryEntry(existing, entry) : entry;
-      nextById[entry.acpSessionId] = merged;
-
-      if (!nextOrderedIds.includes(entry.acpSessionId)) {
-        nextOrderedIds.push(entry.acpSessionId);
-      }
-
+      // byId / orderedIds / merge are handled above by seedEntriesFromHistory;
+      // this loop only maintains the spawn-anchor index and the seq high-water
+      // mark. Use the shared setToolUseAnchor helper (PR 13) for the index.
       nextByToolUseId = setToolUseAnchor(
         nextByToolUseId,
         entry.parentToolUseId,
         entry.acpSessionId,
       );
 
-      for (const event of merged.events) {
+      for (const event of nextById[entry.acpSessionId].events) {
         if (typeof event.seq !== "number") continue;
         nextHighWaterMark = bumpHighWaterMark(
           nextHighWaterMark,

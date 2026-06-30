@@ -25,6 +25,10 @@ import {
   type BackgroundTaskStatus,
 } from "@/utils/background-task-status";
 import {
+  mergeTerminalStatus,
+  seedEntriesFromHistory,
+} from "@/domains/chat/store-helpers/merge-history-entry";
+import {
   optimisticCancel,
   optimisticRestore,
   optimisticRetire,
@@ -141,11 +145,11 @@ function mergeHistoryEntry(
   existing: BackgroundTaskEntry,
   incoming: BackgroundTaskEntry,
 ): BackgroundTaskEntry {
-  const status =
-    isActiveBackgroundTaskStatus(existing.status) ||
-    !isActiveBackgroundTaskStatus(incoming.status)
-      ? incoming.status
-      : existing.status;
+  const status = mergeTerminalStatus(
+    existing.status,
+    incoming.status,
+    isActiveBackgroundTaskStatus,
+  );
 
   return {
     ...existing,
@@ -269,18 +273,15 @@ const useBackgroundTaskStoreBase = create<BackgroundTaskStore>()((set, get) => (
 
   seedFromHistory: (entries) => {
     const { byId, orderedIds } = get();
-    const nextById = { ...byId };
-    const nextOrderedIds = [...orderedIds];
-
-    for (const entry of entries) {
-      const existing = nextById[entry.id];
-      nextById[entry.id] = existing
-        ? mergeHistoryEntry(existing, entry)
-        : entry;
-      if (!nextOrderedIds.includes(entry.id)) nextOrderedIds.push(entry.id);
-    }
-
-    set({ byId: nextById, orderedIds: nextOrderedIds });
+    set(
+      seedEntriesFromHistory({
+        entries,
+        byId,
+        orderedIds,
+        idOf: (entry) => entry.id,
+        merge: mergeHistoryEntry,
+      }),
+    );
   },
 
   reset: () => set({ byId: {}, orderedIds: [] }),
