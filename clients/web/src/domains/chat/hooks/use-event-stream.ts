@@ -23,7 +23,6 @@
  */
 
 import {
-  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -45,13 +44,7 @@ import { recordLifecycleDiagnostic } from "@/lib/diagnostics";
 import type { EventStream } from "@/lib/streaming/stream-transport";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
 import type { AssistantEvent } from "@/types/event-types";
-import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import type { UseAssistantReachabilityResult } from "@/assistant/use-assistant-reachability";
-
-/** Transient cap on buffered `tool_output_chunk` envelopes so a backgrounded
- *  tab (rAF paused) can't grow the buffer without bound; the reducer also
- *  bounds the row's `streamedOutput` tail. */
-const MAX_BUFFERED_TOOL_OUTPUT_CHUNKS = 256;
 
 /** Params accepted by {@link useEventStream}. */
 export interface UseEventStreamParams {
@@ -137,38 +130,8 @@ export function useEventStream({
   // from an uncommitted render and the filter would reject events
   // for what is still the actually-committed conversation.
   const activeConversationIdLatestRef = useRef(activeConversationId);
-
-  // rAF-coalesced `tool_output_chunk` fold. Foreground bash output and
-  // streaming subagent output (surfaced as tool output) arrive at high
-  // frequency; folding + re-rendering the non-virtualized transcript per chunk
-  // janks. Buffer the chunk envelopes and fold them through the reducer once
-  // per animation frame. Any non-chunk envelope flushes the buffer first, so
-  // ordering with `tool_result` (which clears `streamedOutput`) is preserved.
-  const toolOutputChunkBufferRef = useRef<AssistantEventEnvelope[]>([]);
-  const toolOutputFlushHandleRef = useRef<number | null>(null);
-
-  const flushToolOutputChunks = useCallback(() => {
-    if (toolOutputFlushHandleRef.current != null) {
-      cancelAnimationFrame(toolOutputFlushHandleRef.current);
-      toolOutputFlushHandleRef.current = null;
-    }
-    const buffered = toolOutputChunkBufferRef.current;
-    if (buffered.length === 0) return;
-    toolOutputChunkBufferRef.current = [];
-    const fold = useChatSessionStore.getState().applyEnvelopeToSnapshot;
-    for (const envelope of buffered) fold(envelope);
-  }, []);
-
   useLayoutEffect(() => {
     activeConversationIdLatestRef.current = activeConversationId;
-    // Drop buffered chunks for the conversation we're leaving — they belong to
-    // a snapshot that `switchToConversation` has reset; folding them into the
-    // incoming conversation would misattribute output.
-    if (toolOutputFlushHandleRef.current != null) {
-      cancelAnimationFrame(toolOutputFlushHandleRef.current);
-      toolOutputFlushHandleRef.current = null;
-    }
-    toolOutputChunkBufferRef.current = [];
   }, [activeConversationId]);
 
   // Stable burst-limiter — its internal counter / window state must
@@ -321,32 +284,11 @@ export function useEventStream({
     // replays the ring tail, so events that arrive first aren't lost. Gated on
     // the same commit-phase active-conversation ref the consumer's filter uses.
     if (
-      !envelope.conversationId ||
-      envelope.conversationId !== activeConversationIdLatestRef.current
+      envelope.conversationId &&
+      envelope.conversationId === activeConversationIdLatestRef.current
     ) {
-      return;
+      useChatSessionStore.getState().applyEnvelopeToSnapshot(envelope);
     }
-    // High-frequency tool output is coalesced into one fold per animation
-    // frame (see `flushToolOutputChunks`). Everything else folds immediately,
-    // after flushing any pending chunks so streamed output lands before the
-    // `tool_result` that clears it.
-    if (envelope.message.type === "tool_output_chunk") {
-      toolOutputChunkBufferRef.current.push(envelope);
-      if (
-        toolOutputChunkBufferRef.current.length >=
-        MAX_BUFFERED_TOOL_OUTPUT_CHUNKS
-      ) {
-        flushToolOutputChunks();
-      } else if (toolOutputFlushHandleRef.current == null) {
-        toolOutputFlushHandleRef.current = requestAnimationFrame(() => {
-          toolOutputFlushHandleRef.current = null;
-          flushToolOutputChunks();
-        });
-      }
-      return;
-    }
-    flushToolOutputChunks();
-    useChatSessionStore.getState().applyEnvelopeToSnapshot(envelope);
   });
 
   useBusSubscription("sse.opened", (payload) => {
@@ -428,10 +370,6 @@ export function useEventStream({
   useEffect(() => {
     return () => {
       cancelReconciliationRef.current();
-      if (toolOutputFlushHandleRef.current != null) {
-        cancelAnimationFrame(toolOutputFlushHandleRef.current);
-        toolOutputFlushHandleRef.current = null;
-      }
     };
   }, []);
 }
