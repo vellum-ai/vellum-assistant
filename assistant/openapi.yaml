@@ -22668,7 +22668,7 @@ paths:
     post:
       operationId: schedules_post
       summary: Create schedule
-      description: Create a new recurring schedule. Currently restricted to mode='execute'.
+      description: Create a new recurring schedule (execute, script, or workflow mode).
       tags:
         - schedules
       requestBody:
@@ -22702,12 +22702,20 @@ paths:
                   description: Whether the schedule starts active (default true)
                 mode:
                   type: string
-                  description: "'execute' (default) or 'workflow' (flag-gated)"
+                  description: "'execute' (default), 'script', or 'workflow' (flag-gated)"
                 workflowName:
                   type: string
                   description: Saved workflow to trigger (required for workflow mode)
                 workflowArgs:
                   description: Args passed to the workflow run (workflow mode)
+                script:
+                  type: string
+                  description: Shell command run on each fire (required for script mode)
+                timeoutMs:
+                  anyOf:
+                    - type: number
+                    - type: "null"
+                  description: Script execution timeout override in ms (script mode)
                 inferenceProfile:
                   anyOf:
                     - type: string

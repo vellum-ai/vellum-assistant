@@ -416,9 +416,21 @@ Examples:
           "-d, --description <text>",
           "Authored description explaining what the schedule is for",
         )
-        .requiredOption(
+        .option(
           "-m, --message <text>",
-          "Message body sent to the assistant on each fire",
+          "Message body sent to the assistant on each fire (required for execute mode)",
+        )
+        .option(
+          "--mode <mode>",
+          "Schedule mode: 'execute' (default), 'script', or 'workflow'",
+        )
+        .option(
+          "--script <command>",
+          "Shell command to run on each fire (required for --mode script)",
+        )
+        .option(
+          "--timeout-ms <ms>",
+          "Script execution timeout override in ms (--mode script)",
         )
         .option(
           "-t, --timezone <tz>",
@@ -436,7 +448,10 @@ Examples:
 Options:
   -e, --expression <expr>   Cron (e.g. '*/30 * * * *') or RRULE expression.
   -d, --description <text>  Authored description explaining what the schedule is for.
-  -m, --message <text>      Message body sent on each fire.
+  -m, --message <text>      Message body sent on each fire (execute mode).
+  --mode <mode>             execute (default), script, or workflow.
+  --script <command>        Shell command for --mode script.
+  --timeout-ms <ms>         Script timeout override in ms (--mode script).
   -t, --timezone <tz>       IANA timezone applied to the expression.
   --profile <name>          Inference profile (llm.profiles key) the schedule's
                             runs use. When omitted, runs use the default —
@@ -448,11 +463,17 @@ Arguments:
   <name>   Display name for the schedule.
 
 Behavior:
-  Creates a recurring schedule in 'execute' mode. The IPC endpoint is
-  currently locked to execute mode; notify/script/wake schedules remain
-  reachable only through the in-assistant schedule_create LLM tool.
+  Defaults to 'execute' mode (requires --message). Pass --mode script with
+  --script to run a shell command on each fire with no LLM call; the script's
+  env includes $VELLUM_WORKSPACE_DIR and $__SCHEDULE_ID (this schedule's id).
+  notify/wake schedules remain reachable only through the schedule_create tool.
 
 Examples:
+  $ assistant schedules create "GitHub watcher" \\
+      --mode script \\
+      --script 'cd "$VELLUM_WORKSPACE_DIR/schedules/$__SCHEDULE_ID" && bun poll.ts' \\
+      --expression '*/15 * * * *' \\
+      --description 'Polls GitHub notifications' --json
   $ assistant schedules create "Heartbeat" \\
       --expression '*/30 * * * *' \\
       --description 'Checks service heartbeat every 30 minutes' \\
@@ -474,7 +495,10 @@ Examples:
             opts: {
               expression: string;
               description: string;
-              message: string;
+              message?: string;
+              mode?: string;
+              script?: string;
+              timeoutMs?: string;
               timezone?: string;
               profile?: string;
               enabled: boolean;
@@ -506,13 +530,33 @@ Examples:
               return;
             }
 
+            const mode = opts.mode ?? "execute";
+            if (mode === "script" && !opts.script) {
+              const error = "--script is required for --mode script";
+              if (opts.json) writeOutput(cmd, { ok: false, error });
+              else log.error(error);
+              process.exitCode = 1;
+              return;
+            }
+            if (mode === "execute" && !opts.message) {
+              const error = "--message is required for execute mode";
+              if (opts.json) writeOutput(cmd, { ok: false, error });
+              else log.error(error);
+              process.exitCode = 1;
+              return;
+            }
+
             const body: Record<string, unknown> = {
               name: scheduleName,
               expression: opts.expression,
               description,
-              message: opts.message,
               enabled: opts.enabled,
             };
+            // Omit mode for the default; the route treats absent as 'execute'.
+            if (mode !== "execute") body.mode = mode;
+            if (opts.message != null) body.message = opts.message;
+            if (opts.script != null) body.script = opts.script;
+            if (opts.timeoutMs != null) body.timeoutMs = Number(opts.timeoutMs);
             if (opts.timezone != null) body.timezone = opts.timezone;
             if (opts.profile != null) body.inferenceProfile = opts.profile;
 
