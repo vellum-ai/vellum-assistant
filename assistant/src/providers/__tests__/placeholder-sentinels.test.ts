@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  couldBePlaceholderSentinelPrefix,
   isPlaceholderSentinelText,
   PLACEHOLDER_BLOCKS_OMITTED,
   PLACEHOLDER_EMPTY_TURN,
@@ -51,5 +52,29 @@ describe("isPlaceholderSentinelText", () => {
     expect(isPlaceholderSentinelText("   ")).toBe(false);
     expect(isPlaceholderSentinelText("hello there")).toBe(false);
     expect(isPlaceholderSentinelText("__PLACEHOLDER__")).toBe(false);
+  });
+});
+
+describe("couldBePlaceholderSentinelPrefix", () => {
+  test("holds a buffer that could still grow into a sentinel", () => {
+    expect(couldBePlaceholderSentinelPrefix("_")).toBe(true);
+    expect(couldBePlaceholderSentinelPrefix("__PLACEHOLD")).toBe(true);
+    expect(couldBePlaceholderSentinelPrefix(BARE_EMPTY)).toBe(true);
+  });
+
+  test("holds the leading-space-corrupted prefix the proxy streams", () => {
+    // The streamed echo starts with a space, so an untrimmed prefix check would
+    // release it onto the live UI; the normalized check holds it.
+    expect(couldBePlaceholderSentinelPrefix(" ")).toBe(true);
+    expect(couldBePlaceholderSentinelPrefix(" __PLACE")).toBe(true);
+    expect(couldBePlaceholderSentinelPrefix(` ${BARE_EMPTY}`)).toBe(true);
+    expect(couldBePlaceholderSentinelPrefix(`\x00__PLACE`)).toBe(true);
+  });
+
+  test("releases text that cannot become a sentinel", () => {
+    expect(couldBePlaceholderSentinelPrefix(" hello")).toBe(false);
+    expect(couldBePlaceholderSentinelPrefix("hello")).toBe(false);
+    // Overshoots the sentinel — no longer a prefix.
+    expect(couldBePlaceholderSentinelPrefix(`${BARE_EMPTY} x`)).toBe(false);
   });
 });
