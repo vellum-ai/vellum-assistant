@@ -17,8 +17,9 @@
 // regardless of how the thresholds are tuned.
 //
 // This module is intentionally PURE — no async, no I/O, no logging, and no
-// imports beyond the two scored-hit types. `observeTurn` (a later PR) wires the
-// feature flag into `config.enabled` and feeds in the finder-lane hits.
+// imports beyond the two scored-hit types. `config.enabled` is the resolved
+// injection-gate flag value supplied by the caller, which also feeds in the
+// finder-lane hits.
 
 import type { DenseHitScored } from "./dense.js";
 import type { SectionNeedleScoredHit } from "./section-needle.js";

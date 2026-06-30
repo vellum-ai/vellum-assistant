@@ -1059,10 +1059,37 @@ describe("orchestrate — injection gate", () => {
     expect(result.lanes.finder).toEqual([]);
   });
 
+  test("gate stays inert when the dense lane produced no hits (denseK = 0 new-user/outage case)", async () => {
+    const lanes = await buildLanes();
+    // denseK: 0 leaves `densed` empty — the new-user profile, or any embedding
+    // outage. A low-score needle hit (norm ≈ 0.011) would CLOSE the gate if it
+    // ran on sparse signal alone, but zero dense hits means dense is
+    // unavailable, not low-relevance: the gate is dense-gated and never runs, so
+    // selection proceeds and memory is not suppressed.
+    const needle = {
+      query: () => [],
+      queryScored: () => [{ article: "topic-a", section: 0, score: 0.1 }],
+      bestSection: () => -1,
+      idf: () => 0,
+    };
+    providerStub = selectProvider(["topic-a"]);
+
+    const result = await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, { needle, denseK: 0, gateConfig: gateConfigOf() }),
+    );
+
+    expect(selectCalls).toBe(1);
+    expect(result.selections.map((s) => s.slug)).toContain("topic-a");
+  });
+
   test("bypassForCore: true on a closed gate selects the stable prefix only (no finder lines)", async () => {
     const lanes = await buildLanes();
-    // Low-signal query → the gate closes; bypassForCore runs selectPool over the
-    // stable prefix (core+hot) with an empty finder tail.
+    // Non-empty low-score dense (0.1, below every dense threshold) makes the
+    // dense-gated gate run and close for the low-signal query; bypassForCore
+    // then runs selectPool over the stable prefix (core+hot) with an empty
+    // finder tail.
+    denseHits = [{ article: "topic-b", section: 0, score: 0.1 }];
     providerStub = selectProvider([]);
 
     const result = await orchestrate(
@@ -1070,6 +1097,7 @@ describe("orchestrate — injection gate", () => {
       depsOf(lanes, {
         coreSlugs: ["topic-c"],
         hotSlugs: ["topic-d"],
+        denseK: 100,
         gateConfig: gateConfigOf({ bypassForCore: true }),
       }),
     );
@@ -1082,6 +1110,37 @@ describe("orchestrate — injection gate", () => {
     expect(lastPoolLines.every((l) => l.includes("# memory/concepts/"))).toBe(
       true,
     );
+    expect(result.lanes.finder).toEqual([]);
+    expect(result.matchedSections.size).toBe(0);
+  });
+
+  test("bypassForCore honors selectorEnabled: false — stable prefix passes through without the selector", async () => {
+    const lanes = await buildLanes();
+    // Non-empty low-score dense closes the gate; with the selector off (the
+    // new-user profile), the bypass mirrors the normal path and passes the
+    // stable prefix straight through via selectAllPoolCandidates rather than
+    // forcing the selectPool LLM call.
+    denseHits = [{ article: "topic-b", section: 0, score: 0.1 }];
+    providerStub = selectProvider([]); // must NOT be called
+
+    const result = await orchestrate(
+      makeTurn(1, "zzzz nomatch"),
+      depsOf(lanes, {
+        coreSlugs: ["topic-c"],
+        hotSlugs: ["topic-d"],
+        denseK: 100,
+        selectorEnabled: false,
+        gateConfig: gateConfigOf({ bypassForCore: true }),
+      }),
+    );
+
+    // The selector never ran; selections are exactly the stable-prefix slugs in
+    // cache order (selectAllPoolCandidates over the stable-only pool).
+    expect(selectCalls).toBe(0);
+    expect(result.selections.map((s) => s.slug)).toEqual([
+      "topic-c",
+      "topic-d",
+    ]);
     expect(result.lanes.finder).toEqual([]);
     expect(result.matchedSections.size).toBe(0);
   });
