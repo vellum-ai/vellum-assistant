@@ -14,6 +14,7 @@ export const INFERENCE_PROVIDERS = [
   "together",
   "openrouter",
   "gemini",
+  "ollama",
   "minimax",
   "atlascloud",
 ] as const;

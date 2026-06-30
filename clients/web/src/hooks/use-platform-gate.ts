@@ -80,7 +80,7 @@ export interface PlatformGateOptions {
  * `initializing`, `cleaning_up`, `error`, and `active` with
  * `isLocal: false`).
  */
-function useActiveAssistantIsSelfHosted(): boolean {
+export function useActiveAssistantIsSelfHosted(): boolean {
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   if (assistantState.kind === "self_hosted") return true;
   if (assistantState.kind === "active" && assistantState.isLocal) return true;
