@@ -31,6 +31,7 @@ import {
 import { isUntrustedShellLockdownActive } from "../../runtime/effective-capabilities.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
+import type { CompletedBackgroundTool } from "../background-tool-registry.js";
 import {
   generateBackgroundToolId,
   isBackgroundToolLimitReached,
@@ -318,7 +319,7 @@ export const hostShellTool = {
                 ? `Background host command cancelled (id=${bgId}).`
                 : result.content;
             const completedAt = Date.now();
-            recordCompletedBackgroundTool({
+            const completion: CompletedBackgroundTool = {
               id: bgId,
               toolName: "host_bash",
               conversationId: context.conversationId,
@@ -328,7 +329,8 @@ export const hostShellTool = {
               exitCode: null,
               output,
               completedAt,
-            });
+            };
+            recordCompletedBackgroundTool(completion);
             broadcastMessage(
               {
                 type: "background_tool_completed",
@@ -351,6 +353,7 @@ export const hostShellTool = {
               hint: framing,
               source: "background-tool",
               persistTriggerAsEvent: true,
+              backgroundToolCompletion: completion,
               untrustedOutput: {
                 content: output || "(no output)",
                 source: "tool_result",
@@ -370,7 +373,7 @@ export const hostShellTool = {
                   ? err.message
                   : String(err);
             const completedAt = Date.now();
-            recordCompletedBackgroundTool({
+            const completion: CompletedBackgroundTool = {
               id: bgId,
               toolName: "host_bash",
               conversationId: context.conversationId,
@@ -380,7 +383,8 @@ export const hostShellTool = {
               exitCode: null,
               output,
               completedAt,
-            });
+            };
+            recordCompletedBackgroundTool(completion);
             broadcastMessage(
               {
                 type: "background_tool_completed",
@@ -400,6 +404,7 @@ export const hostShellTool = {
                   : `Background host command failed (id=${bgId}): ${err instanceof Error ? err.message : String(err)}`,
               source: "background-tool",
               persistTriggerAsEvent: true,
+              backgroundToolCompletion: completion,
             });
           })
           .finally(() => removeBackgroundTool(bgId));
@@ -559,7 +564,7 @@ export const hostShellTool = {
             ? `Background host command cancelled (id=${bgId}).`
             : result.content;
         const completedAt = Date.now();
-        recordCompletedBackgroundTool({
+        const completion: CompletedBackgroundTool = {
           id: bgId,
           toolName: "host_bash",
           conversationId: context.conversationId,
@@ -569,7 +574,8 @@ export const hostShellTool = {
           exitCode: code ?? null,
           output,
           completedAt,
-        });
+        };
+        recordCompletedBackgroundTool(completion);
         broadcastMessage(
           {
             type: "background_tool_completed",
@@ -593,6 +599,7 @@ export const hostShellTool = {
           hint: framing,
           source: "background-tool",
           persistTriggerAsEvent: true,
+          backgroundToolCompletion: completion,
           untrustedOutput: {
             content: output || "(no output)",
             source: "tool_result",
@@ -613,7 +620,7 @@ export const hostShellTool = {
             ? `Background host command cancelled (id=${bgId}).`
             : err.message;
         const completedAt = Date.now();
-        recordCompletedBackgroundTool({
+        const completion: CompletedBackgroundTool = {
           id: bgId,
           toolName: "host_bash",
           conversationId: context.conversationId,
@@ -623,7 +630,8 @@ export const hostShellTool = {
           exitCode: null,
           output,
           completedAt,
-        });
+        };
+        recordCompletedBackgroundTool(completion);
         broadcastMessage(
           {
             type: "background_tool_completed",
@@ -643,6 +651,7 @@ export const hostShellTool = {
               : `Background host command failed (id=${bgId}): ${err.message}`,
           source: "background-tool",
           persistTriggerAsEvent: true,
+          backgroundToolCompletion: completion,
         });
         removeBackgroundTool(bgId);
       });

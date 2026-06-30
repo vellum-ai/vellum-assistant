@@ -11,6 +11,7 @@ import { isUntrustedShellLockdownActive } from "../../runtime/effective-capabili
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
 import { getDataDir } from "../../util/platform.js";
+import type { CompletedBackgroundTool } from "../background-tool-registry.js";
 import {
   generateBackgroundToolId,
   isBackgroundToolLimitReached,
@@ -427,6 +428,17 @@ export const shellTool = {
             ? `Background command cancelled (id=${bgId}).`
             : fmtResult.content;
         const completedAt = Date.now();
+        const completion: CompletedBackgroundTool = {
+          id: bgId,
+          toolName: "bash",
+          conversationId: context.conversationId,
+          command,
+          startedAt,
+          status,
+          exitCode: code ?? null,
+          output,
+          completedAt,
+        };
 
         // Wake AFTER the terminal status is known so a user-cancelled run wakes
         // the assistant with the cancellation — not the SIGKILL-framed "completed"
@@ -440,6 +452,7 @@ export const shellTool = {
           hint: framing,
           source: "background-tool",
           persistTriggerAsEvent: true,
+          backgroundToolCompletion: completion,
           untrustedOutput: {
             content: output,
             source: "tool_result",
@@ -448,17 +461,7 @@ export const shellTool = {
             maxChars: MAX_OUTPUT_LENGTH * 2,
           },
         });
-        recordCompletedBackgroundTool({
-          id: bgId,
-          toolName: "bash",
-          conversationId: context.conversationId,
-          command,
-          startedAt,
-          status,
-          exitCode: code ?? null,
-          output,
-          completedAt,
-        });
+        recordCompletedBackgroundTool(completion);
         broadcastMessage(
           {
             type: "background_tool_completed",
@@ -493,15 +496,8 @@ export const shellTool = {
         });
 
         const framing = `Background command failed (id=${bgId}): ${err.message}`;
-        void wakeAgentForOpportunity({
-          conversationId: context.conversationId,
-          hint: framing,
-          source: "background-tool",
-          persistTriggerAsEvent: true,
-        });
-
         const completedAt = Date.now();
-        recordCompletedBackgroundTool({
+        const completion: CompletedBackgroundTool = {
           id: bgId,
           toolName: "bash",
           conversationId: context.conversationId,
@@ -511,7 +507,16 @@ export const shellTool = {
           exitCode: null,
           output: framing,
           completedAt,
+        };
+        void wakeAgentForOpportunity({
+          conversationId: context.conversationId,
+          hint: framing,
+          source: "background-tool",
+          persistTriggerAsEvent: true,
+          backgroundToolCompletion: completion,
         });
+
+        recordCompletedBackgroundTool(completion);
         broadcastMessage(
           {
             type: "background_tool_completed",

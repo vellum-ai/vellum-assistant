@@ -189,6 +189,10 @@ describe("bash tool background mode", () => {
     // Command stdout is fenced as untrusted output, not inlined in the hint.
     expect(wakeCall.untrustedOutput?.content).toContain("bg_output_12345");
     expect(wakeCall.untrustedOutput?.source).toBe("tool_result");
+    // Durable completion record stamped onto the persisted wake.
+    expect(wakeCall.backgroundToolCompletion?.id).toBe("bg-test1234");
+    expect(wakeCall.backgroundToolCompletion?.status).toBe("completed");
+    expect(wakeCall.backgroundToolCompletion?.exitCode).toBe(0);
   });
 
   test("failing background process delivers an error hint via wake", async () => {
@@ -210,6 +214,9 @@ describe("bash tool background mode", () => {
     expect(wakeCall.hint).toContain("bg-test1234");
     // The command fails with exit code 1, so the hint should reflect failure
     expect(wakeCall.hint).toContain("exit=1");
+    expect(wakeCall.backgroundToolCompletion?.id).toBe("bg-test1234");
+    expect(wakeCall.backgroundToolCompletion?.status).toBe("failed");
+    expect(wakeCall.backgroundToolCompletion?.exitCode).toBe(1);
   });
 
   test("cancelled background process wakes with the cancellation, not a completed result", async () => {
@@ -234,6 +241,8 @@ describe("bash tool background mode", () => {
     expect(wakeCall.hint).toContain("cancelled");
     expect(wakeCall.hint).not.toContain("completed");
     expect(wakeCall.untrustedOutput?.content).toContain("cancelled");
+    expect(wakeCall.backgroundToolCompletion?.id).toBe("bg-test1234");
+    expect(wakeCall.backgroundToolCompletion?.status).toBe("cancelled");
   });
 
   test("foreground mode still works when background is not set", async () => {
