@@ -20818,7 +20818,10 @@ paths:
       description:
         Return one entry per directory under `<workspaceDir>/plugins/`, sorted alphabetically. Matches the CLI's
         `assistant plugins list`. Supports `?q=<text>` for case-insensitive substring matching across plugin id, name,
-        and description.
+        and description. Each entry carries a `category` (marketplace slug from the Skills taxonomy, or `null` for
+        non-marketplace installs); the response also reports `categoryCounts` (per-category totals, computed before the
+        category filter) and `totalCount`. `?category=<slug>` filters the returned plugins by category server-side while
+        leaving the counts unfiltered. A marketplace outage degrades `category` to `null` without failing the list.
       tags:
         - plugins
       parameters:
@@ -20828,6 +20831,12 @@ paths:
           schema:
             type: string
           description: Optional substring filter applied to plugin id, name, and description.
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter installed plugins by category slug (Skills taxonomy).
       responses:
         "200":
           description: Successful response
@@ -20865,12 +20874,29 @@ paths:
                           type: array
                           items:
                             type: string
+                        category:
+                          description:
+                            Marketplace category slug (Skills taxonomy); null when origin/category is unknown, e.g. non-marketplace
+                            installs.
+                          anyOf:
+                            - type: string
+                            - type: "null"
                       required:
                         - id
                         - name
                         - description
                         - version
                       additionalProperties: false
+                  categoryCounts:
+                    description: Installed plugins per category (before the category filter is applied).
+                    type: object
+                    propertyNames:
+                      type: string
+                    additionalProperties:
+                      type: number
+                  totalCount:
+                    description: Total installed plugins matching non-category filters.
+                    type: number
                 required:
                   - plugins
                 additionalProperties: false
@@ -21731,6 +21757,11 @@ paths:
                         description:
                           description: Short description, when known (external entries only today).
                           type: string
+                        category:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description: Marketplace category slug (Skills taxonomy); null when the entry declares none.
                         source:
                           type: object
                           properties:
@@ -21755,6 +21786,7 @@ paths:
                       required:
                         - name
                         - path
+                        - category
                         - source
                       additionalProperties: false
                     description: Directory matches, sorted alphabetically by name.

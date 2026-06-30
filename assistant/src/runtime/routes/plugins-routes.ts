@@ -73,6 +73,7 @@ import {
   type PluginUpgradeStrategy,
   upgradePlugin,
 } from "../../cli/lib/upgrade-plugin.js";
+import { getLocalCategorySlugs } from "../../skills/categories-cache.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   BadRequestError,
@@ -113,10 +114,27 @@ const pluginInfoSchema = z.object({
     .describe(
       "Non-fatal issues with this entry (missing `package.json`, malformed JSON, ...). Omitted when clean.",
     ),
+  category: z
+    .string()
+    .nullable()
+    .optional()
+    .describe(
+      "Marketplace category slug (Skills taxonomy); null when origin/category is unknown, e.g. non-marketplace installs.",
+    ),
 });
 
 const pluginsListResponseSchema = z.object({
   plugins: z.array(pluginInfoSchema),
+  categoryCounts: z
+    .record(z.string(), z.number())
+    .optional()
+    .describe(
+      "Installed plugins per category (before the category filter is applied).",
+    ),
+  totalCount: z
+    .number()
+    .optional()
+    .describe("Total installed plugins matching non-category filters."),
 });
 
 const pluginMatchSourceSchema = z
@@ -148,6 +166,12 @@ const pluginSearchMatchSchema = z.object({
     .string()
     .optional()
     .describe("Short description, when known (external entries only today)."),
+  category: z
+    .string()
+    .nullable()
+    .describe(
+      "Marketplace category slug (Skills taxonomy); null when the entry declares none.",
+    ),
   source: pluginMatchSourceSchema,
 });
 
@@ -615,6 +639,7 @@ interface PluginView {
   version: string | null;
   path: string;
   issues?: string[];
+  category?: string | null;
 }
 
 function projectPlugin(entry: InstalledPluginInfo): PluginView {
@@ -634,11 +659,56 @@ function projectPlugin(entry: InstalledPluginInfo): PluginView {
   return view;
 }
 
+/**
+ * Marketplace → Skills category slug aliases for known, unambiguous mismatches.
+ * Keep this tiny: only add a mapping when it is obviously correct. Marketplace
+ * slugs with no clean Skills equivalent are intentionally absent so they fall
+ * through to `null` → the "system" bucket.
+ */
+const MARKETPLACE_CATEGORY_ALIASES: Record<string, string> = {
+  developer: "development",
+};
+
+/**
+ * Normalize a raw marketplace category slug to the shared Skills taxonomy so
+ * the rail never carries an invisible bucket. Lowercases + trims, applies the
+ * alias map, then returns the slug only when it is a valid Skills slug —
+ * otherwise `null`, which buckets under "system" so the plugin stays both
+ * counted and reachable. `validSlugs` is resolved once per request by the
+ * caller (never per item).
+ */
+export function normalizeMarketplaceCategory(
+  raw: string | null | undefined,
+  validSlugs: Set<string>,
+): string | null {
+  if (!raw) return null;
+  const slug = raw.trim().toLowerCase();
+  if (!slug) return null;
+  const aliased = MARKETPLACE_CATEGORY_ALIASES[slug] ?? slug;
+  return validSlugs.has(aliased) ? aliased : null;
+}
+
+/**
+ * Valid Skills category slugs the marketplace categories normalize against.
+ * Sync + local (bundled YAML via the Skills categories-cache) so the plugins
+ * list never takes on remote latency; a read failure degrades to an empty set,
+ * normalizing every category to `null` → "system" rather than throwing —
+ * mirroring the bounded posture of the catalog lookup.
+ */
+function getValidCategorySlugs(): Set<string> {
+  try {
+    return getLocalCategorySlugs();
+  } catch {
+    return new Set();
+  }
+}
+
 /** Wire shape for a catalog match. Mirrors {@link pluginSearchMatchSchema}. */
 interface PluginMatchView {
   name: string;
   path: string;
   description?: string;
+  category: string | null;
   source: { kind: "github"; repo: string; path?: string; ref: string };
 }
 
@@ -647,10 +717,14 @@ interface PluginMatchView {
  * serializer's `Record<string, unknown>` contract holds. The wire shape is
  * identical to {@link PluginSearchMatch}.
  */
-function projectMatch(m: PluginSearchMatch): PluginMatchView {
+function projectMatch(
+  m: PluginSearchMatch,
+  validSlugs: Set<string>,
+): PluginMatchView {
   const view: PluginMatchView = {
     name: m.name,
     path: m.path,
+    category: normalizeMarketplaceCategory(m.category, validSlugs),
     source: {
       kind: "github",
       repo: m.source.repo,
@@ -678,14 +752,103 @@ function matchesQuery(plugin: PluginView, needle: string): boolean {
 // Handler — list installed
 // ---------------------------------------------------------------------------
 
-function handleListPlugins({ queryParams = {} }: RouteHandlerArgs): {
+/** Uncategorized fallback bucket — matches the Skills taxonomy default. */
+const UNCATEGORIZED = "system";
+
+/**
+ * Time budget for the marketplace category lookup on the installed list.
+ * The installed list is a fast local read; the catalog is a remote GitHub
+ * fetch that can hang on a cold cache. Bounding the lookup keeps `GET
+ * /v1/plugins` responsive during a marketplace slowdown.
+ */
+const CATEGORY_LOOKUP_TIMEOUT_MS = 1500;
+
+/**
+ * Resolve the marketplace category map, racing the catalog fetch against a
+ * timer so a slow/hanging GitHub fetch can't block the installed list: on a
+ * rejection or a timeout past {@link CATEGORY_LOOKUP_TIMEOUT_MS} it degrades to
+ * an empty map (every `category` resolves to `null`). `timeoutMs` is injectable
+ * so tests can exercise the bound without the full production budget.
+ */
+export async function loadCategoryMapBounded(
+  timeoutMs: number = CATEGORY_LOOKUP_TIMEOUT_MS,
+): Promise<Map<string, string | null>> {
+  // Clear the timer once the race settles so a catalog-wins path doesn't leave
+  // the timer pending per request (matters for shutdown / test handles).
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const catalog = await Promise.race([
+      getPluginCatalog(DEFAULT_PLUGIN_REF, {
+        fetch: globalThis.fetch.bind(globalThis),
+      }),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), timeoutMs);
+      }),
+    ]);
+    if (!catalog) return new Map();
+    return new Map(catalog.matches.map((m) => [m.name, m.category]));
+  } catch {
+    return new Map();
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function handleListPlugins({
+  queryParams = {},
+}: RouteHandlerArgs): Promise<{
   plugins: PluginView[];
-} {
+  categoryCounts: Record<string, number>;
+  totalCount: number;
+}> {
   const q = queryParams.q?.trim();
+  const category = queryParams.category?.trim();
+
   const installed = listInstalledPlugins();
   const projected = installed.map(projectPlugin);
-  const filtered = q ? projected.filter((p) => matchesQuery(p, q)) : projected;
-  return { plugins: filtered };
+
+  // Nothing installed → `categoryCounts`/`totalCount` are deterministically
+  // empty and there is nothing to categorize, so skip the network-bound catalog
+  // lookup entirely (no wasted GitHub request or bounded stall wait).
+  if (projected.length === 0) {
+    return { plugins: [], categoryCounts: {}, totalCount: 0 };
+  }
+
+  // Categories live only in the catalog. A marketplace outage OR slowdown must
+  // never block the installed list, so the lookup is bounded: it degrades to an
+  // empty map (every category becomes `null`) on a rejection or a stall.
+  const categoryMap = await loadCategoryMapBounded();
+
+  // Normalize raw marketplace slugs to the shared Skills taxonomy once per
+  // request: a raw slug with no Skills row (e.g. `developer`, `memory`) would
+  // otherwise be counted in "All" yet unreachable by any rail row. Normalizing
+  // maps the unambiguous ones (`developer` → `development`) and folds the rest
+  // to `null` → "system", so counts always match visible rows.
+  const validSlugs = getValidCategorySlugs();
+
+  // An installed plugin's `id` is its directory name, which is the catalog
+  // match's `name` — so it's the lookup key.
+  const withCategory = projected.map((p) => ({
+    ...p,
+    category: normalizeMarketplaceCategory(categoryMap.get(p.id), validSlugs),
+  }));
+
+  let list = q ? withCategory.filter((p) => matchesQuery(p, q)) : withCategory;
+
+  // Counts are taken BEFORE the category filter so the rail badges stay stable
+  // while a single category is selected.
+  const categoryCounts: Record<string, number> = {};
+  for (const p of list) {
+    const bucket = p.category ?? UNCATEGORIZED;
+    categoryCounts[bucket] = (categoryCounts[bucket] ?? 0) + 1;
+  }
+  const totalCount = list.length;
+
+  if (category) {
+    list = list.filter((p) => (p.category ?? UNCATEGORIZED) === category);
+  }
+
+  return { plugins: list, categoryCounts, totalCount };
 }
 
 // ---------------------------------------------------------------------------
@@ -718,13 +881,17 @@ async function handleSearchPlugins({
       fetch: globalThis.fetch.bind(globalThis),
     });
     const matches = filterPluginCatalog(catalog, query);
+    // Resolve the valid Skills slugs once per request, then normalize each
+    // match's marketplace category against them so "Available" filters
+    // consistently against the same taxonomy as the installed rail.
+    const validSlugs = getValidCategorySlugs();
     // Re-pack `readonly` lib types into mutable copies so the route
     // serializer's `Record<string, unknown>` contract holds. The wire
     // shape is identical.
     return {
       query,
       ref: catalog.ref,
-      matches: matches.map(projectMatch),
+      matches: matches.map((m) => projectMatch(m, validSlugs)),
     };
   } catch (err) {
     if (err instanceof InvalidSearchPatternError) {
@@ -1088,7 +1255,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "List installed plugins",
     description:
-      "Return one entry per directory under `<workspaceDir>/plugins/`, sorted alphabetically. Matches the CLI's `assistant plugins list`. Supports `?q=<text>` for case-insensitive substring matching across plugin id, name, and description.",
+      "Return one entry per directory under `<workspaceDir>/plugins/`, sorted alphabetically. Matches the CLI's `assistant plugins list`. Supports `?q=<text>` for case-insensitive substring matching across plugin id, name, and description. Each entry carries a `category` (marketplace slug from the Skills taxonomy, or `null` for non-marketplace installs); the response also reports `categoryCounts` (per-category totals, computed before the category filter) and `totalCount`. `?category=<slug>` filters the returned plugins by category server-side while leaving the counts unfiltered. A marketplace outage degrades `category` to `null` without failing the list.",
     tags: ["plugins"],
     queryParams: [
       {
@@ -1096,6 +1263,12 @@ export const ROUTES: RouteDefinition[] = [
         schema: { type: "string" },
         description:
           "Optional substring filter applied to plugin id, name, and description.",
+      },
+      {
+        name: "category",
+        schema: { type: "string" },
+        description:
+          "Filter installed plugins by category slug (Skills taxonomy).",
       },
     ],
     responseBody: pluginsListResponseSchema,

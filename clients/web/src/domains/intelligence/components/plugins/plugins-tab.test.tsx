@@ -19,9 +19,11 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { PLUGIN_INSTALL_ERROR } from "@/domains/intelligence/plugins/constants";
+import type { CategoryInfo } from "@/domains/intelligence/skills/use-skill-categories";
 import type {
   PluginsByNameGetResponse,
   PluginsByNameInspectGetResponse,
@@ -32,15 +34,29 @@ import type {
 const ASSISTANT_ID = "asst-1";
 const okResponse = { response: new Response(), error: undefined };
 
+// The shared Skills taxonomy the rail renders from. Seeded by default so the
+// rail gate hinges solely on whether the installed read carries categoryCounts.
+const CATEGORY_DEFS: CategoryInfo[] = [
+  { slug: "email", label: "Email", description: "Email tools", icon: "mail" },
+  { slug: "system", label: "System", description: "System tools", icon: "settings" },
+];
+
 type InstalledPlugin = PluginsGetResponse["plugins"][number];
 type CatalogMatch = PluginsSearchGetResponse["matches"][number];
 
 // Per-test holders the SDK mocks read. `installedStatus` lets a case force the
 // installed read into its failure branch (a non-ok, non-404 response).
+// `installedCategoryCounts` (when set) makes the installed read taxonomy-aware,
+// which is what gates the category rail.
 let installedPlugins: InstalledPlugin[];
 let installedStatus: number;
+let installedCategoryCounts: Record<string, number> | undefined;
 let catalogMatches: CatalogMatch[];
+let categoryDefs: CategoryInfo[];
 let inspectByName: Record<string, PluginsByNameInspectGetResponse>;
+// When set, the installed read awaits this gate before resolving — lets a test
+// hold a category-filtered installed read pending after the initial load.
+let installedGate: Promise<unknown> | null = null;
 
 const installSpy = mock(async (_options: unknown) => ({
   data: { ok: true },
@@ -61,13 +77,34 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   pluginsInstallPost: installSpy,
   pluginsByNameDelete: deleteSpy,
   pluginsByNameUpgradePost: upgradeSpy,
-  pluginsGet: mock(async () => ({
-    data: { plugins: installedPlugins } as PluginsGetResponse,
-    response: new Response(null, { status: installedStatus }),
-    error: undefined,
-  })),
+  // Mirrors the daemon: filter installed plugins by the requested category
+  // slug, and (when taxonomy-aware) echo the UNFILTERED categoryCounts/total.
+  pluginsGet: mock(async (options: { query?: { category?: string } }) => {
+    if (installedGate) await installedGate;
+    const selected = options.query?.category;
+    const plugins = selected
+      ? installedPlugins.filter((p) => (p.category ?? "system") === selected)
+      : installedPlugins;
+    const body = installedCategoryCounts
+      ? ({
+          plugins,
+          categoryCounts: installedCategoryCounts,
+          totalCount: installedPlugins.length,
+        } as PluginsGetResponse)
+      : ({ plugins } as PluginsGetResponse);
+    return {
+      data: body,
+      response: new Response(null, { status: installedStatus }),
+      error: undefined,
+    };
+  }),
   pluginsSearchGet: mock(async () => ({
     data: { query: "", ref: "main", matches: catalogMatches } as PluginsSearchGetResponse,
+    ...okResponse,
+  })),
+  // Backs the shared Skills category taxonomy the rail renders from.
+  skillsCategoriesGet: mock(async () => ({
+    data: { categories: categoryDefs },
     ...okResponse,
   })),
   pluginsByNameInspectGet: mock(async (options: { path: { name: string } }) => ({
@@ -146,6 +183,7 @@ function catalog(overrides: Partial<CatalogMatch> = {}): CatalogMatch {
   return {
     name: "apollo-bot-brain",
     path: "github:acme/apollo-bot-brain@1111111111111111111111111111111111111111",
+    category: null,
     source: {
       kind: "github",
       repo: "acme/apollo-bot-brain",
@@ -182,11 +220,36 @@ function clickStatusOption(label: string): void {
   fireEvent.click(option);
 }
 
+/**
+ * Force `useIsMobile` true so the filter button opens the BottomSheet (the
+ * mobile category surface) instead of the desktop Status popover. Returns a
+ * restore fn the caller invokes once done.
+ */
+function forceMobile(): () => void {
+  const original = window.matchMedia;
+  window.matchMedia = ((query: string) => ({
+    matches: true,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia;
+  return () => {
+    window.matchMedia = original;
+  };
+}
+
 beforeEach(() => {
   installedPlugins = [];
   installedStatus = 200;
+  installedCategoryCounts = undefined;
   catalogMatches = [];
+  categoryDefs = CATEGORY_DEFS;
   inspectByName = {};
+  installedGate = null;
   installSpy.mockClear();
   deleteSpy.mockClear();
   upgradeSpy.mockClear();
@@ -335,5 +398,289 @@ describe("PluginsTab", () => {
     const { findByLabelText } = renderTab({ plugin: "simple-memory" });
 
     expect(await findByLabelText("Back to plugins")).toBeTruthy();
+  });
+
+  test("renders the category rail with counts when the daemon supports categories", async () => {
+    installedPlugins = [
+      installed({ id: "mailer", name: "mailer", category: "email" }),
+    ];
+    installedCategoryCounts = { email: 1 };
+    catalogMatches = [catalog({ name: "sys-cat", category: "system" })];
+
+    const { findByRole } = renderTab();
+    const nav = await findByRole("navigation", { name: "Plugin categories" });
+
+    // "All" + each seeded Skills category renders a row.
+    expect(within(nav).getByRole("button", { name: /All/ })).toBeTruthy();
+    const emailRow = within(nav).getByRole("button", { name: /Email/ });
+    const systemRow = within(nav).getByRole("button", { name: /System/ });
+    // Email: 1 installed + 0 catalog. System: 0 installed + 1 catalog.
+    expect(emailRow.textContent).toContain("1");
+    expect(systemRow.textContent).toContain("1");
+  });
+
+  test("respects the status filter when deriving category badges", async () => {
+    // email is installed-only; system is available-only.
+    installedPlugins = [
+      installed({ id: "mailer", name: "mailer", category: "email" }),
+    ];
+    installedCategoryCounts = { email: 1 };
+    catalogMatches = [catalog({ name: "sys-cat", category: "system" })];
+
+    const { findByRole, getByLabelText } = renderTab();
+    const nav = await findByRole("navigation", { name: "Plugin categories" });
+
+    // "All": both axes contribute (email: 1 installed, system: 1 catalog).
+    expect(
+      within(nav).getByRole("button", { name: /Email/ }).textContent,
+    ).toContain("1");
+    expect(
+      within(nav).getByRole("button", { name: /System/ }).textContent,
+    ).toContain("1");
+
+    // "Installed": the available-only System badge drops so it no longer counts
+    // rows the status filter hides; Email (installed) stays 1.
+    fireEvent.click(getByLabelText("Filter plugins"));
+    clickStatusOption("Installed");
+    await waitFor(() =>
+      expect(
+        within(nav).getByRole("button", { name: /System/ }).textContent,
+      ).not.toContain("1"),
+    );
+    expect(
+      within(nav).getByRole("button", { name: /Email/ }).textContent,
+    ).toContain("1");
+  });
+
+  test("hides the rail counts while a search term is active, restoring them when cleared", async () => {
+    // Search is client-side (the term never reaches the data hook), so the
+    // count gating must key off the term — not react-query's fetch state.
+    installedPlugins = [
+      installed({ id: "mailer", name: "mailer", category: "email" }),
+    ];
+    installedCategoryCounts = { email: 1 };
+    catalogMatches = [catalog({ name: "sys-cat", category: "system" })];
+
+    const { findByRole, getByLabelText } = renderTab();
+    const nav = await findByRole("navigation", { name: "Plugin categories" });
+
+    // With no active search the per-category badges show (email: 1, system: 1).
+    expect(
+      within(nav).getByRole("button", { name: /Email/ }).textContent,
+    ).toContain("1");
+    expect(
+      within(nav).getByRole("button", { name: /System/ }).textContent,
+    ).toContain("1");
+
+    // Typing a term hides every badge — the unfiltered counts would mislead
+    // while the visible rows are filtered client-side.
+    fireEvent.change(getByLabelText("Search plugins"), {
+      target: { value: "mailer" },
+    });
+    await waitFor(() =>
+      expect(
+        within(nav).getByRole("button", { name: /Email/ }).textContent,
+      ).not.toContain("1"),
+    );
+    expect(
+      within(nav).getByRole("button", { name: /System/ }).textContent,
+    ).not.toContain("1");
+
+    // Clearing the term restores the badges.
+    fireEvent.change(getByLabelText("Search plugins"), {
+      target: { value: "" },
+    });
+    await waitFor(() =>
+      expect(
+        within(nav).getByRole("button", { name: /Email/ }).textContent,
+      ).toContain("1"),
+    );
+    expect(
+      within(nav).getByRole("button", { name: /System/ }).textContent,
+    ).toContain("1");
+  });
+
+  test("selecting a category filters both installed and available", async () => {
+    installedPlugins = [
+      installed({ id: "mailer", name: "mailer", category: "email" }),
+      installed({ id: "sysd", name: "sysd", category: "system" }),
+    ];
+    installedCategoryCounts = { email: 1, system: 1 };
+    catalogMatches = [
+      catalog({ name: "email-cat", category: "email" }),
+      catalog({ name: "sys-cat", category: "system" }),
+    ];
+
+    const { findByRole, findByText, queryByText } = renderTab();
+
+    // Everything shows under the default "All" selection.
+    await findByText("mailer");
+    expect(queryByText("sysd")).toBeTruthy();
+    expect(queryByText("email-cat")).toBeTruthy();
+    expect(queryByText("sys-cat")).toBeTruthy();
+
+    const nav = await findByRole("navigation", { name: "Plugin categories" });
+    fireEvent.click(within(nav).getByRole("button", { name: /Email/ }));
+
+    // Installed filters server-side (?category=); available filters client-side.
+    await waitFor(() => expect(queryByText("sysd")).toBeNull());
+    expect(queryByText("sys-cat")).toBeNull();
+    expect(queryByText("mailer")).toBeTruthy();
+    expect(queryByText("email-cat")).toBeTruthy();
+  });
+
+  test("a plugin both installed and in the catalog is deduped from rows and counts", async () => {
+    // `mailer` is installed AND surfaces in the catalog (the two reads are
+    // independent). It must render once (installed) and count once, not twice.
+    installedPlugins = [
+      installed({ id: "mailer", name: "mailer", category: "email" }),
+    ];
+    installedCategoryCounts = { email: 1 };
+    catalogMatches = [
+      catalog({ name: "mailer", category: "email" }),
+      catalog({ name: "apollo-bot-brain", category: "email" }),
+    ];
+
+    const { findByRole, findByText, queryAllByText } = renderTab();
+    const nav = await findByRole("navigation", { name: "Plugin categories" });
+
+    // The fresh catalog plugin is Available; `mailer` renders once, never as a
+    // second "Available" row alongside its installed row.
+    await findByText("apollo-bot-brain");
+    expect(queryAllByText("mailer")).toHaveLength(1);
+
+    // Email: 1 installed + 1 deduped catalog (apollo) = 2 — NOT 3 (no double
+    // count of the installed `mailer`). "All" mirrors the deduped union total.
+    const allRow = within(nav).getByRole("button", { name: /All/ });
+    const emailRow = within(nav).getByRole("button", { name: /Email/ });
+    expect(allRow.textContent).toContain("2");
+    expect(emailRow.textContent).toContain("2");
+  });
+
+  test("an installed plugin is not Available even when its catalog category differs", async () => {
+    // Installed under "system" (e.g. the marketplace lookup degraded the
+    // category), but its catalog entry is "email". Selecting Email must NOT
+    // surface it as Available — dedup is against the UNFILTERED installed names.
+    installedPlugins = [
+      installed({ id: "mailer", name: "mailer", category: "system" }),
+    ];
+    installedCategoryCounts = { system: 1 };
+    catalogMatches = [
+      catalog({ name: "mailer", category: "email" }),
+      catalog({ name: "apollo-bot-brain", category: "email" }),
+    ];
+
+    const { findByRole, findByText, queryByText } = renderTab();
+    const nav = await findByRole("navigation", { name: "Plugin categories" });
+
+    fireEvent.click(within(nav).getByRole("button", { name: /Email/ }));
+
+    // `apollo` is the only Available row under Email; the installed `mailer`
+    // (bucketed under system) is suppressed despite its email catalog entry.
+    await findByText("apollo-bot-brain");
+    await waitFor(() => expect(queryByText("mailer")).toBeNull());
+  });
+
+  test("falls back to a single column when the daemon omits categoryCounts", async () => {
+    installedPlugins = [installed()];
+    catalogMatches = [catalog()];
+    // installedCategoryCounts stays undefined → older daemon, no rail.
+
+    const { findByText, queryByRole } = renderTab();
+    await findByText("simple-memory");
+
+    expect(
+      queryByRole("navigation", { name: "Plugin categories" }),
+    ).toBeNull();
+  });
+
+  test("the mobile filter sheet surfaces the category taxonomy", async () => {
+    installedPlugins = [
+      installed({ id: "mailer", name: "mailer", category: "email" }),
+    ];
+    installedCategoryCounts = { email: 1 };
+    catalogMatches = [catalog({ name: "sys-cat", category: "system" })];
+
+    const restoreMatchMedia = forceMobile();
+    try {
+      const { findByLabelText } = renderTab();
+      // The desktop <aside> rail is hidden on mobile; the sheet is the only
+      // category surface. Open it via the filter button.
+      fireEvent.click(await findByLabelText("Filter plugins"));
+
+      const sheet = await screen.findByRole("dialog");
+      // Status stays available alongside the new Categories axis.
+      expect(within(sheet).getByText("Status")).toBeTruthy();
+      expect(within(sheet).getByText("Categories")).toBeTruthy();
+      // "All" + each seeded Skills category renders a selectable row.
+      expect(within(sheet).getByText("Email")).toBeTruthy();
+      expect(within(sheet).getByText("System")).toBeTruthy();
+    } finally {
+      restoreMatchMedia();
+    }
+  });
+
+  test("the mobile filter sheet omits Categories when the daemon lacks support", async () => {
+    installedPlugins = [installed()];
+    // installedCategoryCounts stays undefined → older daemon, no taxonomy.
+
+    const restoreMatchMedia = forceMobile();
+    try {
+      const { findByLabelText } = renderTab();
+      fireEvent.click(await findByLabelText("Filter plugins"));
+
+      const sheet = await screen.findByRole("dialog");
+      // Status is still offered, but no Categories section is rendered.
+      expect(within(sheet).getByText("Status")).toBeTruthy();
+      expect(within(sheet).queryByText("Categories")).toBeNull();
+    } finally {
+      restoreMatchMedia();
+    }
+  });
+
+  test("hides the rail when no categories load even if categoryCounts is present", async () => {
+    installedPlugins = [installed({ category: "email" })];
+    installedCategoryCounts = { email: 1 };
+    categoryDefs = [];
+
+    const { findByText, queryByRole } = renderTab();
+    await findByText("simple-memory");
+
+    expect(
+      queryByRole("navigation", { name: "Plugin categories" }),
+    ).toBeNull();
+  });
+
+  test("keeps the category rail mounted while a category-filtered read is pending", async () => {
+    installedPlugins = [
+      installed({ id: "mailer", name: "mailer", category: "email" }),
+      installed({ id: "sysd", name: "sysd", category: "system" }),
+    ];
+    installedCategoryCounts = { email: 1, system: 1 };
+
+    const { findByRole, queryByRole } = renderTab();
+    const nav = await findByRole("navigation", { name: "Plugin categories" });
+
+    // Hold every subsequent installed read pending, then select a category. The
+    // filtered read stays in flight, but the rail must remain mounted so the
+    // user can still switch or clear the category — support derives from the
+    // cached unfiltered read (latched), not the in-flight filtered one.
+    let releaseInstalled: () => void = () => {};
+    installedGate = new Promise<void>((resolve) => {
+      releaseInstalled = resolve;
+    });
+    fireEvent.click(within(nav).getByRole("button", { name: /Email/ }));
+
+    expect(
+      queryByRole("navigation", { name: "Plugin categories" }),
+    ).not.toBeNull();
+
+    // Let the pending read resolve; the rail is still there afterward.
+    releaseInstalled();
+    await waitFor(() =>
+      expect(
+        queryByRole("navigation", { name: "Plugin categories" }),
+      ).not.toBeNull(),
+    );
   });
 });

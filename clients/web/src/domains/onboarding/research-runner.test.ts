@@ -26,6 +26,7 @@ function match(
   return {
     name,
     path: `github:${repo}@abc123`,
+    category: null,
     ...(description ? { description } : {}),
     source: { kind: "github", repo, ref: "abc123" },
   };
