@@ -134,20 +134,32 @@ export interface ModelProfileInfo {
 // ─── Shutdown context ────────────────────────────────────────────────────────
 
 /**
- * Context passed to the `shutdown` hook during daemon teardown. Kept
- * intentionally narrower than {@link InitContext} — most teardown
- * paths only need to know which assistant version they're shutting
- * down against (e.g. for version-conditional cleanup of state files
- * written by a previous boot).
+ * Why a plugin's `shutdown` hook is firing.
  *
- * Additional fields may be added as concrete plugin needs surface; the
- * `assistantVersion` field mirrors the init context's so plugins that
- * stash a version stamp at init can compare against the same name on
- * tear-down without keeping their own copy.
+ * - `shutdown` — the daemon is tearing down (process exit).
+ * - `uninstall` — the plugin's directory was removed at runtime.
+ * - `disable` — the plugin was disabled at runtime (e.g. a `.disabled`
+ *   sentinel was added, or a feature flag turned it off).
+ */
+export type ShutdownReason = "shutdown" | "uninstall" | "disable";
+
+/**
+ * Context passed to the `shutdown` hook. Kept intentionally narrower than
+ * {@link InitContext} — teardown paths only need to know which assistant
+ * version they're shutting down against (e.g. for version-conditional cleanup
+ * of state files written by a previous boot) and {@link ShutdownReason why}
+ * they're being torn down (so a plugin can, e.g., delete its state on
+ * `uninstall` but preserve it across a plain `shutdown`).
+ *
+ * The `assistantVersion` field mirrors the init context's so plugins that stash
+ * a version stamp at init can compare against the same name on tear-down
+ * without keeping their own copy.
  */
 export interface ShutdownContext {
   /** Assistant semver for compatibility checks inside the plugin. */
   assistantVersion: string;
+  /** Why the plugin is shutting down. */
+  reason: ShutdownReason;
 }
 
 // ─── User-prompt-submit hook context ─────────────────────────────────────────

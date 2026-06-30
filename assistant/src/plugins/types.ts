@@ -71,6 +71,7 @@ export type {
   HookFunction,
   InitContext,
   ShutdownContext,
+  ShutdownReason,
 } from "../plugin-api/types.js";
 
 // ─── Memory-graph result ─────────────────────────────────────────────────────

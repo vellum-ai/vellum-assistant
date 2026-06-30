@@ -10,6 +10,8 @@ import { getSqlite, resetDb } from "../persistence/db-connection.js";
 import { stopQdrantManager } from "../persistence/embeddings/qdrant-manager.js";
 import { stopMemoryJobsWorker } from "../persistence/jobs-worker.js";
 import { stopMemoryWorkerProcess } from "../persistence/worker-control.js";
+import { HOOKS } from "../plugin-api/constants.js";
+import { runHook } from "../plugins/pipeline.js";
 import { stopRuntimeHttpServer } from "../runtime/http-server.js";
 import { stopScheduler } from "../schedule/scheduler.js";
 import { getSubagentManager } from "../subagent/index.js";
@@ -17,6 +19,7 @@ import { stopUsageTelemetryReporter } from "../telemetry/usage-telemetry-reporte
 import { browserManager } from "../tools/browser/browser-manager.js";
 import { cleanupShellOutputTempFiles } from "../tools/shared/shell-output.js";
 import { getLogger } from "../util/logger.js";
+import { APP_VERSION } from "../version.js";
 import { getEnrichmentService } from "../workspace/commit-message-enrichment-service.js";
 import {
   commitAllPendingWorkspaceChanges,
@@ -78,13 +81,27 @@ async function shutdown(): Promise<void> {
   await stopWorkspaceHeartbeatService();
   await stopHeartbeatService();
 
-  // Run registered plugin/skill shutdown hooks (e.g. the memory plugin's
-  // filing-service teardown, meet-join session teardown) before stopping the
+  // Run registered shutdown-registry hooks (skill teardown like meet-join, plus
+  // daemon singletons such as the consent-cache refresh) before stopping the
   // server so any HTTP round-trips and SSE emissions still have live transports.
   try {
     await runShutdownHooks("daemon-shutdown");
   } catch (err) {
     log.warn({ err }, "Skill shutdown hooks failed (non-fatal)");
+  }
+
+  // Fire plugin / user / workspace `shutdown` hooks through the unified hook
+  // pipeline — the same dispatch path every other lifecycle hook uses — before
+  // stopping the server so any teardown work still has live transports. We don't
+  // unregister tool/route surfaces here: the daemon is exiting, so that
+  // in-memory registry state is discarded with the process anyway.
+  try {
+    await runHook(HOOKS.SHUTDOWN, {
+      assistantVersion: APP_VERSION,
+      reason: "shutdown",
+    });
+  } catch (err) {
+    log.warn({ err }, "Plugin shutdown hooks failed (non-fatal)");
   }
 
   // Commit any uncommitted workspace changes before stopping the server.
