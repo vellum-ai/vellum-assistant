@@ -65,7 +65,6 @@ import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streamin
 import { publishConfigChanged } from "../runtime/sync/resource-sync-events.js";
 import { recoverStaleSchedules } from "../schedule/schedule-recovery.js";
 import { startScheduler } from "../schedule/scheduler.js";
-import { rotateToolInvocations } from "../telemetry/tool-usage-store.js";
 import { startUsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { syncFlagGatedTools } from "../tools/registry.js";
 import { registerBuiltinTtsProviders } from "../tts/providers/register-builtins.js";
@@ -1090,12 +1089,6 @@ export async function runDaemon(): Promise<void> {
       );
     }
   })();
-
-  if (config.auditLog.retentionDays > 0) {
-    void rotateToolInvocations(config.auditLog.retentionDays).catch((err) => {
-      log.warn({ err }, "Audit log rotation failed");
-    });
-  }
 
   startWorkspaceHeartbeatService();
 

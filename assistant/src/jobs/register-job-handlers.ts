@@ -4,6 +4,7 @@ import { mediaProcessingJob } from "../media/job-handlers/media-processing.js";
 import {
   pruneOldConversationsJob,
   pruneOldLlmRequestLogsJob,
+  pruneOldToolInvocationsJob,
   pruneOldTraceEventsJob,
 } from "../persistence/job-handlers/cleanup.js";
 import { registerJobHandler } from "../persistence/jobs-worker.js";
@@ -55,6 +56,9 @@ export function registerMemoryJobHandlers(): void {
   );
   registerJobHandler("prune_old_trace_events", (job, config) =>
     pruneOldTraceEventsJob(job, config),
+  );
+  registerJobHandler("prune_old_tool_invocations", (job, config) =>
+    pruneOldToolInvocationsJob(job, config),
   );
   registerJobHandler("build_conversation_summary", async (job, config) => {
     // Stale rows enqueued before v2 was enabled must not consume the
