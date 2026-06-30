@@ -118,6 +118,7 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
     installedTotal,
     catalogMatches,
     unfilteredInstalledNames,
+    filter,
   );
 
   // Two-pane rail only when the daemon understands the category taxonomy AND
@@ -401,9 +402,12 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
  * them — plus a client bucketing of the catalog. Catalog matches already in the
  * unfiltered installed set are skipped so an installed marketplace plugin counts
  * once (under installed), never twice. `totalCount` is the installed total + the
- * deduped catalog total, matching the deduped union of visible rows. All inputs
- * are unfiltered, so badges stay stable while a category is selected. Mirrors
- * skills' `useDerivedCounts`.
+ * deduped catalog total, matching the deduped union of visible rows. Category
+ * inputs are unfiltered, so badges stay stable while a category is selected.
+ * The status `filter` is respected on the status axis (Skills derives counts
+ * from both axes): `installed` counts only installed plugins, `available` only
+ * the deduped catalog, so a badge never counts rows the status filter hides.
+ * Mirrors skills' `useDerivedCounts`.
  */
 function useMergedPluginCounts(
   installedCategoryCounts: Record<string, number> | undefined,
@@ -411,38 +415,49 @@ function useMergedPluginCounts(
   installedTotal: number | undefined,
   catalogMatches: PluginCatalogMatch[],
   unfilteredInstalledNames: Set<string>,
+  filter: PluginFilter,
 ): { counts: Record<string, number>; totalCount: number } {
   return useMemo(() => {
     const counts: Record<string, number> = {};
-    if (
-      installedCategoryCounts &&
-      Object.keys(installedCategoryCounts).length > 0
-    ) {
-      Object.assign(counts, installedCategoryCounts);
-    } else {
-      for (const plugin of installedPlugins) {
-        const cat = plugin.category ?? SYSTEM_CATEGORY;
-        counts[cat] = (counts[cat] ?? 0) + 1;
+    const includeInstalled = filter !== "available";
+    const includeCatalog = filter !== "installed";
+
+    if (includeInstalled) {
+      if (
+        installedCategoryCounts &&
+        Object.keys(installedCategoryCounts).length > 0
+      ) {
+        Object.assign(counts, installedCategoryCounts);
+      } else {
+        for (const plugin of installedPlugins) {
+          const cat = plugin.category ?? SYSTEM_CATEGORY;
+          counts[cat] = (counts[cat] ?? 0) + 1;
+        }
       }
     }
     let catalogTotal = 0;
-    for (const match of catalogMatches) {
-      // An installed marketplace plugin also appears in the catalog; counting it
-      // here would double it against the installed counts, so dedup against the
-      // unfiltered installed names — it already counts under installed.
-      if (unfilteredInstalledNames.has(match.name)) continue;
-      const cat = match.category ?? SYSTEM_CATEGORY;
-      counts[cat] = (counts[cat] ?? 0) + 1;
-      catalogTotal += 1;
+    if (includeCatalog) {
+      for (const match of catalogMatches) {
+        // An installed marketplace plugin also appears in the catalog; counting
+        // it here would double it against the installed counts, so dedup against
+        // the unfiltered installed names — it already counts under installed.
+        if (unfilteredInstalledNames.has(match.name)) continue;
+        const cat = match.category ?? SYSTEM_CATEGORY;
+        counts[cat] = (counts[cat] ?? 0) + 1;
+        catalogTotal += 1;
+      }
     }
     const installedTotalResolved = installedTotal ?? installedPlugins.length;
-    return { counts, totalCount: installedTotalResolved + catalogTotal };
+    const totalCount =
+      (includeInstalled ? installedTotalResolved : 0) + catalogTotal;
+    return { counts, totalCount };
   }, [
     installedCategoryCounts,
     installedPlugins,
     installedTotal,
     catalogMatches,
     unfilteredInstalledNames,
+    filter,
   ]);
 }
 

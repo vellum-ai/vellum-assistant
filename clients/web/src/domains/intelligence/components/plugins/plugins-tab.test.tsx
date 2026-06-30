@@ -419,6 +419,39 @@ describe("PluginsTab", () => {
     expect(systemRow.textContent).toContain("1");
   });
 
+  test("respects the status filter when deriving category badges", async () => {
+    // email is installed-only; system is available-only.
+    installedPlugins = [
+      installed({ id: "mailer", name: "mailer", category: "email" }),
+    ];
+    installedCategoryCounts = { email: 1 };
+    catalogMatches = [catalog({ name: "sys-cat", category: "system" })];
+
+    const { findByRole, getByLabelText } = renderTab();
+    const nav = await findByRole("navigation", { name: "Plugin categories" });
+
+    // "All": both axes contribute (email: 1 installed, system: 1 catalog).
+    expect(
+      within(nav).getByRole("button", { name: /Email/ }).textContent,
+    ).toContain("1");
+    expect(
+      within(nav).getByRole("button", { name: /System/ }).textContent,
+    ).toContain("1");
+
+    // "Installed": the available-only System badge drops so it no longer counts
+    // rows the status filter hides; Email (installed) stays 1.
+    fireEvent.click(getByLabelText("Filter plugins"));
+    clickStatusOption("Installed");
+    await waitFor(() =>
+      expect(
+        within(nav).getByRole("button", { name: /System/ }).textContent,
+      ).not.toContain("1"),
+    );
+    expect(
+      within(nav).getByRole("button", { name: /Email/ }).textContent,
+    ).toContain("1");
+  });
+
   test("hides the rail counts while a search term is active, restoring them when cleared", async () => {
     // Search is client-side (the term never reaches the data hook), so the
     // count gating must key off the term — not react-query's fetch state.
