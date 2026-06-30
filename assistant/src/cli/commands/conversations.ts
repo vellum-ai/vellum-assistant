@@ -95,7 +95,7 @@ function readSeedMessages(
 
 async function createConversationCli(
   title: string | undefined,
-  opts?: { contentFile?: string },
+  opts?: { contentFile?: string; json?: boolean },
 ): Promise<void> {
   const messages = readSeedMessages(opts?.contentFile);
   if (process.exitCode) return;
@@ -119,9 +119,21 @@ async function createConversationCli(
     },
   });
 
-  if (!result.ok) return exitFromIpcResult(result);
+  if (!result.ok) {
+    if (opts?.json) {
+      log.info(JSON.stringify({ ok: false, error: result.error }));
+      process.exitCode = 1;
+      return;
+    }
+    return exitFromIpcResult(result);
+  }
 
   const conversation = result.result!;
+  // JSON output so callers can capture the new id programmatically.
+  if (opts?.json) {
+    log.info(JSON.stringify({ ok: true, ...conversation }));
+    return;
+  }
   const seedSuffix = conversation.messagesInserted
     ? `, seeded ${conversation.messagesInserted} messages`
     : "";
@@ -218,6 +230,7 @@ Examples:
         .command("new [title]")
         .description("Create a new conversation")
         .option("--content-file <path>", "Seed messages from a JSON file")
+        .option("--json", "Output result as JSON")
         .addHelpText(
           "after",
           `
