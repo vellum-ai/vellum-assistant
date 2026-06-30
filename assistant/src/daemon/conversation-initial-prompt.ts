@@ -28,7 +28,10 @@ import type { ConversationCreateOptions } from "./handlers/shared.js";
 export async function resolveInitialSystemPrompt(
   storedOptions: ConversationCreateOptions | undefined,
 ): Promise<string> {
-  if (storedOptions?.systemPromptOverride) {
+  // Presence check, not truthiness: an explicit empty-string override means
+  // "no system prompt" and must be honored verbatim (matching the prior `??`
+  // path). Only an absent override falls through to the default build.
+  if (storedOptions?.systemPromptOverride !== undefined) {
     return storedOptions.systemPromptOverride;
   }
   await getGuardianDelivery({ channelTypes: ["vellum"] });

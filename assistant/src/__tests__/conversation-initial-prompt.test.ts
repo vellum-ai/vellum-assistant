@@ -54,4 +54,13 @@ describe("resolveInitialSystemPrompt", () => {
     expect(result).toBe("CUSTOM PROMPT");
     expect(calls).toEqual([]);
   });
+
+  test("an explicit empty-string override is honored verbatim (not treated as absent)", async () => {
+    const result = await resolveInitialSystemPrompt({
+      systemPromptOverride: "",
+    } as ConversationCreateOptions);
+
+    expect(result).toBe("");
+    expect(calls).toEqual([]);
+  });
 });
