@@ -27,26 +27,12 @@ import { googleCalendarProvider } from "../watcher/providers/google-calendar.js"
 import { linearProvider } from "../watcher/providers/linear.js";
 import { outlookProvider } from "../watcher/providers/outlook.js";
 import { outlookCalendarProvider } from "../watcher/providers/outlook-calendar.js";
-import { startMeetHost } from "./meet-host-startup.js";
-
 const log = getLogger("lifecycle");
 
 export async function initializeProvidersAndTools(
   config: AssistantConfig,
 ): Promise<void> {
   log.info("Daemon startup: initializing providers and tools");
-
-  // Register meet-join via the lazy-external path. The skill runs as a
-  // separate `bun run` subprocess; the daemon installs proxy
-  // tools/routes/shutdown-hooks here that dispatch over the skill IPC
-  // socket on first use. Failures are non-fatal: the daemon continues
-  // without meet tools and surfaces the cause in the log.
-  void startMeetHost().catch((err) => {
-    log.error(
-      { err },
-      "Failed to register meet-join; daemon will continue without meet tools",
-    );
-  });
 
   // Rehydrate the platform base URL from the credential store so managed
   // proxy activation survives assistant restarts. The in-memory override is
