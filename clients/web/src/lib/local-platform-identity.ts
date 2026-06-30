@@ -34,12 +34,15 @@ type PlatformStatusBody = {
   organization_id?: unknown;
   hasAssistantApiKey?: unknown;
   has_assistant_api_key?: unknown;
+  clientInstallationId?: unknown;
+  client_installation_id?: unknown;
 };
 
 type LocalPlatformStatus = {
   assistantId: string | null;
   organizationId: string | null;
   hasAssistantApiKey: boolean | null;
+  clientInstallationId: string | null;
 };
 
 type EnsureRegistrationResponse = {
@@ -164,7 +167,19 @@ async function ensureLocalAssistantPlatformIdentity(
     throw new Error("Sign in to Vellum and select an organization to register this local assistant.");
   }
 
-  const registration = await ensureRegistration(assistant, organizationId);
+  const clientInstallationId =
+    status?.clientInstallationId ?? getDeviceId() ?? null;
+  if (!clientInstallationId) {
+    throw new Error(
+      "Unable to identify this local assistant host for platform registration.",
+    );
+  }
+
+  const registration = await ensureRegistration(
+    assistant,
+    organizationId,
+    clientInstallationId,
+  );
   const registrationPlatformAssistantId = firstString(
     registration.assistant?.id,
     registration.assistant_id,
@@ -180,7 +195,11 @@ async function ensureLocalAssistantPlatformIdentity(
 
   let assistantApiKey = stringValue(registration.assistant_api_key);
   if (!assistantApiKey && status?.hasAssistantApiKey !== true) {
-    assistantApiKey = await reprovisionApiKey(assistant, organizationId);
+    assistantApiKey = await reprovisionApiKey(
+      assistant,
+      organizationId,
+      clientInstallationId,
+    );
   }
 
   await injectPlatformCredentials(gateway, {
@@ -245,6 +264,10 @@ async function fetchPlatformStatus(
       body?.hasAssistantApiKey,
       body?.has_assistant_api_key,
     ),
+    clientInstallationId: firstString(
+      body?.clientInstallationId,
+      body?.client_installation_id,
+    ),
   };
 }
 
@@ -268,11 +291,13 @@ async function resolveOrganizationId(
 async function ensureRegistration(
   assistant: LockfileAssistant,
   organizationId: string,
+  clientInstallationId: string,
 ): Promise<EnsureRegistrationResponse> {
   const body = await platformPost<EnsureRegistrationResponse>(
     "/v1/assistants/self-hosted-local/ensure-registration/",
     assistant,
     organizationId,
+    clientInstallationId,
   );
   return body;
 }
@@ -280,11 +305,13 @@ async function ensureRegistration(
 async function reprovisionApiKey(
   assistant: LockfileAssistant,
   organizationId: string,
+  clientInstallationId: string,
 ): Promise<string | null> {
   const body = await platformPost<ReprovisionApiKeyResponse>(
     "/v1/assistants/self-hosted-local/reprovision-api-key/",
     assistant,
     organizationId,
+    clientInstallationId,
   );
   return stringValue(body.provisioning?.assistant_api_key);
 }
@@ -293,12 +320,8 @@ async function platformPost<T>(
   path: string,
   assistant: LockfileAssistant,
   organizationId: string,
+  clientInstallationId: string,
 ): Promise<T> {
-  const deviceId = getDeviceId();
-  if (!deviceId) {
-    throw new Error("Unable to identify this device for local assistant platform registration.");
-  }
-
   const headers = new Headers({
     ...(await buildVellumMutatingHeaders(
       {
@@ -328,9 +351,9 @@ async function platformPost<T>(
     headers,
     credentials: isElectron() ? "omit" : "same-origin",
     body: JSON.stringify({
-      client_installation_id: deviceId,
+      client_installation_id: clientInstallationId,
       runtime_assistant_id: assistant.assistantId,
-      client_platform: "macos",
+      client_platform: isElectron() ? "macos" : "web",
     }),
   }).catch((error: unknown) => {
     throw new Error(

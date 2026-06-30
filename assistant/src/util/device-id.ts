@@ -67,6 +67,53 @@ function resolveDeviceIdPaths(): { dir: string; file: string } {
   return { dir, file: join(dir, "device.json") };
 }
 
+function readDeviceIdFromFile(filePath: string): string | null {
+  if (!existsSync(filePath)) {
+    return null;
+  }
+
+  const raw = JSON.parse(readFileSync(filePath, "utf-8"));
+  if (
+    raw &&
+    typeof raw === "object" &&
+    typeof raw.deviceId === "string" &&
+    raw.deviceId.length > 0
+  ) {
+    return raw.deviceId as string;
+  }
+  return null;
+}
+
+/**
+ * Read the current stable device ID without creating or writing device.json.
+ */
+export function getExistingDeviceId(): string | null {
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const fromEnv = getDeviceIdOverride();
+  if (fromEnv) {
+    cached = fromEnv;
+    log.info({ deviceId: cached }, "Resolved device ID from VELLUM_DEVICE_ID");
+    return cached;
+  }
+
+  const { file: filePath } = resolveDeviceIdPaths();
+  try {
+    const existing = readDeviceIdFromFile(filePath);
+    if (existing) {
+      cached = existing;
+      log.info({ deviceId: cached }, "Resolved device ID from device.json");
+      return cached;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
 /**
  * Get the stable device ID for this machine.
  *
@@ -95,18 +142,11 @@ export function getDeviceId(): string {
   const generated = randomUUID();
 
   try {
-    if (existsSync(filePath)) {
-      const raw = JSON.parse(readFileSync(filePath, "utf-8"));
-      if (
-        raw &&
-        typeof raw === "object" &&
-        typeof raw.deviceId === "string" &&
-        raw.deviceId.length > 0
-      ) {
-        cached = raw.deviceId as string;
-        log.info({ deviceId: cached }, "Resolved device ID from device.json");
-        return cached;
-      }
+    const existing = readDeviceIdFromFile(filePath);
+    if (existing) {
+      cached = existing;
+      log.info({ deviceId: cached }, "Resolved device ID from device.json");
+      return cached;
     }
   } catch (err) {
     log.warn({ err }, "Failed to read device.json — generating new device ID");
