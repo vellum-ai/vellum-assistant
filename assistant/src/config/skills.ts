@@ -783,6 +783,32 @@ function discoverPluginResidentSkills(): SkillSummary[] {
 
 // ─── Catalog loading ─────────────────────────────────────────────────────────
 
+/**
+ * Scope a list of skills to a conversation's per-chat plugin selection.
+ *
+ * `effectiveEnabledPluginSet` is the conversation's effective set as produced
+ * by `getEffectiveEnabledPluginSet`: `null` means there is no per-chat
+ * restriction, so the input is returned unchanged (all globally-enabled
+ * plugins apply). When a set is given, a plugin-contributed skill
+ * (`owner.kind === "plugin"`) survives only if its owning plugin id is in the
+ * set; non-plugin skills (bundled/managed/workspace/extra) are always retained.
+ *
+ * Pure: returns the same array reference when there is no restriction, and a
+ * filtered copy otherwise, so callers can pass a cached catalog without
+ * mutating the cache.
+ */
+export function filterSkillsByEnabledPlugins(
+  skills: SkillSummary[],
+  effectiveEnabledPluginSet: Set<string> | null,
+): SkillSummary[] {
+  if (effectiveEnabledPluginSet === null) return skills;
+  return skills.filter((skill) => {
+    const owner = skill.owner;
+    if (owner?.kind !== "plugin") return true;
+    return effectiveEnabledPluginSet.has(owner.id);
+  });
+}
+
 function skillSummaryFromDefinition(
   skill: SkillDefinition,
   source: SkillSource,

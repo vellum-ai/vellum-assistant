@@ -3008,6 +3008,66 @@ describe("includes metadata does not auto-activate child skill tools", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Per-chat plugin scope — effectiveEnabledPluginSet drops plugin skills
+// ---------------------------------------------------------------------------
+
+describe("projectSkillTools per-chat plugin scope", () => {
+  function makePluginSkill(id: string, pluginId: string): SkillSummary {
+    return {
+      ...makeSkill(id, `/skills/${id}`, "plugin"),
+      owner: { kind: "plugin", id: pluginId },
+    };
+  }
+
+  beforeEach(() => {
+    mockCatalog = [makeSkill("deploy"), makePluginSkill("plug_skill", "b")];
+    mockManifests = {
+      deploy: makeManifest(["deploy_run"]),
+      plug_skill: makeManifest(["plug_action"]),
+    };
+    mockRegisteredTools = new Map();
+    mockUnregisteredSkillIds = [];
+    mockSkillRefCount = new Map();
+    mockVersionHashes = {};
+    mockVersionHashErrors = new Set();
+    mockRegisterFailures = new Set();
+  });
+
+  test("set excluding the owning plugin drops that plugin's skill tools", () => {
+    const result = projectSkillTools([], {
+      preactivatedSkillIds: ["deploy", "plug_skill"],
+      previouslyActiveSkillIds: new Map<string, string>(),
+      effectiveEnabledPluginSet: new Set(["a"]),
+    });
+
+    expect(result.allowedToolNames.has("deploy_run")).toBe(true);
+    expect(result.allowedToolNames.has("plug_action")).toBe(false);
+  });
+
+  test("null set leaves plugin skill resolution unchanged", () => {
+    const result = projectSkillTools([], {
+      preactivatedSkillIds: ["deploy", "plug_skill"],
+      previouslyActiveSkillIds: new Map<string, string>(),
+      effectiveEnabledPluginSet: null,
+    });
+
+    expect(result.allowedToolNames.has("deploy_run")).toBe(true);
+    expect(result.allowedToolNames.has("plug_action")).toBe(true);
+  });
+
+  test("set including the owning plugin keeps that plugin's skill tools", () => {
+    const result = projectSkillTools([], {
+      preactivatedSkillIds: ["deploy", "plug_skill"],
+      previouslyActiveSkillIds: new Map<string, string>(),
+      effectiveEnabledPluginSet: new Set(["b"]),
+    });
+
+    expect(result.allowedToolNames.has("deploy_run")).toBe(true);
+    expect(result.allowedToolNames.has("plug_action")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Skill load harness — validates shared test helpers
 // ---------------------------------------------------------------------------
 

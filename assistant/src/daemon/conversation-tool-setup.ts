@@ -441,6 +441,14 @@ export interface SkillProjectionContext {
   /** Per-turn override profile. */
   currentTurnOverrideProfile?: string;
   /**
+   * The conversation's per-chat plugin scope (mirrors
+   * {@link Conversation.enabledPlugins}). `null`/absent means no per-chat
+   * restriction. Read per turn so skill resolution drops plugin-owned skills
+   * outside the conversation's effective set via
+   * {@link getEffectiveEnabledPluginSet}.
+   */
+  readonly enabledPlugins?: string[] | null;
+  /**
    * Conversation id for `skill_loaded` telemetry. Absent (e.g. minimal test
    * contexts) disables telemetry recording in the skill projection.
    */
@@ -788,6 +796,9 @@ export function createResolveToolsCallback(
       preactivatedSkillIds: effectivePreactivated,
       previouslyActiveSkillIds: ctx.skillProjectionState,
       cache: ctx.skillProjectionCache,
+      // Scope plugin-contributed skills to the conversation's per-chat plugin
+      // selection (null = no restriction).
+      effectiveEnabledPluginSet: getEffectiveEnabledPluginSet(ctx),
       // skill_loaded telemetry context — resolved per turn so attribution
       // reflects the call site/profile the current turn actually runs on.
       telemetry:
