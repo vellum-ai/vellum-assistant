@@ -182,6 +182,7 @@ function makeCtx(overrides: Partial<Context> = {}): Conversation {
     getTurnChannelContext: () => null,
 
     buildCurrentSystemPrompt: () => "system prompt",
+    syncLoopSystemPrompt: () => {},
     modelOverride: undefined,
     graphMemory: {} as Context["graphMemory"],
     ...overrides,

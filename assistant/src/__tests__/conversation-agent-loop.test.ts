@@ -778,6 +778,7 @@ function makeCtx(
     }),
 
     buildCurrentSystemPrompt: () => "system prompt",
+    syncLoopSystemPrompt: () => {},
     modelOverride: undefined,
 
     graphMemory: {
