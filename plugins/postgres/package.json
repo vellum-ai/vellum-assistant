@@ -1,0 +1,10 @@
+{
+  "name": "postgres",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "peerDependencies": {
+    "@vellumai/plugin-api": ">=0.8.0"
+  },
+  "vellum": {}
+}
