@@ -731,19 +731,24 @@ const CATEGORY_LOOKUP_TIMEOUT_MS = 1500;
 export async function loadCategoryMapBounded(
   timeoutMs: number = CATEGORY_LOOKUP_TIMEOUT_MS,
 ): Promise<Map<string, string | null>> {
+  // Clear the timer once the race settles so a catalog-wins path doesn't leave
+  // a ~1500ms timer pending per request (matters for shutdown / test handles).
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const catalog = await Promise.race([
       getPluginCatalog(DEFAULT_PLUGIN_REF, {
         fetch: globalThis.fetch.bind(globalThis),
       }),
-      new Promise<null>((resolve) =>
-        setTimeout(() => resolve(null), timeoutMs),
-      ),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), timeoutMs);
+      }),
     ]);
     if (!catalog) return new Map();
     return new Map(catalog.matches.map((m) => [m.name, m.category]));
   } catch {
     return new Map();
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
