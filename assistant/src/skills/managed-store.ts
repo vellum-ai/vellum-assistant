@@ -81,10 +81,24 @@ export function validateCompanionPath(
       error: `companion file path must resolve under the skill directory: "${filePath}"`,
     };
   }
-  // A companion write must never clobber a top-level store-owned file: SKILL.md
-  // is the discovery entry point (generated from name/description/body), and the
-  // metadata files carry provenance the store owns.
-  if (RESERVED_COMPANION_NAMES.has(rel.replaceAll(sep, "/"))) {
+  // A companion write must never target a top-level store-owned file: SKILL.md
+  // is the discovery entry point (generated from name/description/body), the
+  // metadata files carry provenance the store owns, and TOOLS.json is reserved
+  // because it is the manifest that registers executable skill tools. Allowing a
+  // scaffold companion write to plant a TOOLS.json would let an author (the
+  // memory retrospective runs unattended over prompt-injectable content) turn an
+  // instruction-only managed skill into one that registers — and dynamically
+  // imports — attacker-controlled executors, a code-injection surface. Managed
+  // skills authored via scaffold carry instructions and reference files only;
+  // executable tools are a first-party/bundled concept.
+  //
+  // The comparison is case-insensitive. The install target includes
+  // case-insensitive filesystems (macOS APFS/HFS+ default), where a companion
+  // written as `tools.json` / `Tools.json` resolves to the very file the
+  // manifest scanner later reads as `TOOLS.json` (and likewise for `skill.md`).
+  // An exact-case check would let a varied-case name slip a manifest past this
+  // guard, so lowercase the candidate before testing membership.
+  if (RESERVED_COMPANION_NAMES.has(rel.replaceAll(sep, "/").toLowerCase())) {
     return {
       error: `companion file path must not overwrite the store-owned file: "${filePath}"`,
     };
@@ -92,11 +106,16 @@ export function validateCompanionPath(
   return { resolvedPath };
 }
 
-/** Top-level files owned by the store; companion writes may never target them. */
+/**
+ * Top-level files owned by the store; companion writes may never target them.
+ * Entries are lowercase — the membership check lowercases the candidate path so
+ * case variants (e.g. `tools.json`) are rejected on case-insensitive filesystems.
+ */
 const RESERVED_COMPANION_NAMES = new Set([
-  "SKILL.md",
+  "skill.md",
   "install-meta.json",
   "version.json",
+  "tools.json",
 ]);
 
 // ─── SKILL.md generation ─────────────────────────────────────────────────────
