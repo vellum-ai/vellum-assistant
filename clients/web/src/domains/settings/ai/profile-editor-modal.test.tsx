@@ -100,7 +100,7 @@ function makeConnection(name: string, provider = "anthropic"): ProviderConnectio
 
 function Wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+    defaultOptions: { queries: { retry: false, enabled: false } },
   });
   return createElement(QueryClientProvider, { client }, children);
 }
@@ -564,6 +564,31 @@ describe("ProfileEditorModal create mode — provider-first", () => {
       expect(resolved).toBe(true);
     });
     expect(toastSuccessCalls).toEqual([]);
+  });
+
+  test('saving Fireworks DeepSeek V4 Flash with effort "none" persists the explicit opt-out', async () => {
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const onSave = (name: string, entry: unknown) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown> });
+      return Promise.resolve();
+    };
+
+    renderCreate([makeConnection("fireworks-managed", "fireworks")], onSave);
+
+    selectProvider("Fireworks");
+    selectModel("DeepSeek V4 Flash");
+    fireEvent.click(getButton("Advanced"));
+    fireEvent.click(getButton("none"));
+
+    await waitFor(() => {
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+    fireEvent.click(getSaveBtn());
+
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    expect(saveCalls[0].entry.effort).toBe("none");
   });
 });
 
