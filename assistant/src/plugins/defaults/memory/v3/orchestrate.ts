@@ -61,7 +61,11 @@ import { edgeExpand } from "./edge.js";
 import type { EntityIndex } from "./entity-lane.js";
 import { entityLane } from "./entity-lane.js";
 import { checkV3Gate, type V3GateConfig, type V3GateResult } from "./gate.js";
-import type { PoolCandidate, StableCandidate } from "./pool-select.js";
+import type {
+  PoolCandidate,
+  SelectorPool,
+  StableCandidate,
+} from "./pool-select.js";
 import { selectAllPoolCandidates, selectPool } from "./pool-select.js";
 import type { SectionNeedle } from "./section-needle.js";
 import type {
@@ -246,6 +250,15 @@ export async function orchestrate(
       return { slug, card };
     });
 
+  // Run the selector over a pool, or pass its candidates straight through when
+  // the selector LLM is disabled (`selectorEnabled: false`, the new-user
+  // profile). Shared by the normal step-3 selection and the gate's
+  // bypass-to-stable path so the two cannot diverge.
+  const runSelection = async (pool: SelectorPool): Promise<SelectedPage[]> =>
+    deps.selectorEnabled === false
+      ? selectAllPoolCandidates(pool)
+      : selectPool(pool, turn, deps.selectorPrompt);
+
   // Step 1: needle (sync BM25) and the enabled dense lane (async embed +
   // Qdrant) run in parallel. Both return distinct articles each tagged with
   // their best-scoring section index/ordinal. The reply-query pass re-runs the
@@ -381,7 +394,16 @@ export async function orchestrate(
   // never drop a turn's memory). A closed gate either hard-skips selection
   // (empty selections) or, when `bypassForCore` is set, runs selectPool over the
   // stable prefix only — never the finder tail.
-  if (deps.gateConfig?.enabled) {
+  //
+  // The gate is dense-gated: it only runs when the dense lane produced hits
+  // (`densed.length > 0`). In healthy operation dense returns top-k hits for any
+  // query, so zero dense hits means dense is unavailable — denseK=0 (the
+  // new-user/small-corpus profile), a degraded embedding backend, or a Qdrant
+  // error (`denseLaneScored` swallows these to `[]`) — NOT low relevance.
+  // checkV3Gate reads only finder scores and cannot tell those apart, so without
+  // dense signal we pass open rather than suppress all memory (not even the
+  // core/hot/fresh prefix) on every lexically-weak turn.
+  if (deps.gateConfig?.enabled && densed.length > 0) {
     let gate: V3GateResult | null = null;
     try {
       gate = checkV3Gate({
@@ -403,10 +425,7 @@ export async function orchestrate(
         {
           conversationId: turn.conversationId,
           turnNumber: turn.turnNumber,
-          reason: gate.reason,
-          pass: gate.pass,
-          topDenseScore: gate.topDenseScore,
-          topNormSparseScore: gate.topNormSparseScore,
+          gate,
         },
         "memory-v3 injection gate decision",
       );
@@ -418,15 +437,18 @@ export async function orchestrate(
           matchedSections: new Map(),
           lanes: { core, hot, fresh, finder: [] },
         });
-        return deps.gateConfig.bypassForCore
-          ? closed(
-              await selectPool(
-                { stable: buildStable(), finder: [] },
-                turn,
-                deps.selectorPrompt,
-              ),
-            )
-          : closed([]);
+        if (deps.gateConfig.bypassForCore) {
+          // Select over the stable prefix only. `runSelection` mirrors the
+          // normal path: with the selector off (the new-user profile) it passes
+          // the stable candidates straight through rather than forcing the
+          // selectPool LLM call — which that profile disables and which throws
+          // MemoryV3RetrievalUnavailableError with no provider, escaping the
+          // gate on a benign low-signal turn.
+          return closed(
+            await runSelection({ stable: buildStable(), finder: [] }),
+          );
+        }
+        return closed([]);
       }
     }
   }
@@ -517,10 +539,7 @@ export async function orchestrate(
   // contract. `selectorPrompt` is the (optionally overridden) instruction
   // scaffold; `undefined` falls through to the bundled default.
   const pool = { stable, finder: finderTail };
-  const selections =
-    deps.selectorEnabled === false
-      ? selectAllPoolCandidates(pool)
-      : await selectPool(pool, turn, deps.selectorPrompt);
+  const selections = await runSelection(pool);
 
   return {
     selections,
