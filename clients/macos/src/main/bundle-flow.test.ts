@@ -26,7 +26,9 @@ mock.module("electron", () => ({
 }));
 
 const getLockfileDataMock = mock(
-  (_paths: string[]): { ok: true; data: unknown } | { ok: false; status: number } => ({
+  (
+    _paths: string[],
+  ): { ok: true; data: unknown } | { ok: false; status: number } => ({
     ok: false as const,
     status: 500,
   }),
@@ -35,9 +37,10 @@ const resolveLockfilePathsMock = mock((_env: NodeJS.ProcessEnv) => [
   "/fake/lockfile",
 ]);
 const resolveConfigDirMock = mock((_env: NodeJS.ProcessEnv) => "/fake/config");
-const getGuardianAccessTokenMock = mock(
-  async () => ({ ok: true as const, accessToken: "fake-token" }),
-);
+const getGuardianAccessTokenMock = mock(async () => ({
+  ok: true as const,
+  accessToken: "fake-token",
+}));
 
 // Full `@vellumai/local-mode` surface so the real `./local-mode` (imported by
 // bundle-flow for resolveCliInvocation) links cleanly.
@@ -67,9 +70,11 @@ mock.module("./cli-installer", () => ({
   ensureCliInstalled: ensureCliInstalledMock,
 }));
 
-const openBundleConfirmationMock = mock(
-  async (_data: BundleScanData) => true,
-);
+mock.module("./session-token-store", () => ({
+  getSessionToken: () => null,
+}));
+
+const openBundleConfirmationMock = mock(async (_data: BundleScanData) => true);
 const installBundleConfirmationMock = mock(() => undefined);
 
 mock.module("./bundle-confirmation", () => ({
@@ -283,7 +288,9 @@ describe("handleBundleFile", () => {
 
     expect(showErrorBoxMock).toHaveBeenCalledTimes(1);
     expect(showErrorBoxMock.mock.calls[0]?.[0]).toBe("Bundle blocked");
-    expect(showErrorBoxMock.mock.calls[0]?.[1]).toContain("Detected malicious script");
+    expect(showErrorBoxMock.mock.calls[0]?.[1]).toContain(
+      "Detected malicious script",
+    );
     expect(openBundleConfirmationMock).not.toHaveBeenCalled();
   });
 
