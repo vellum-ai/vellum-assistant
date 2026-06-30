@@ -249,6 +249,81 @@ export const MemoryV3EntitySchema = z
     "Memory v3 entity-lane (heading-anchored named-entity match) tuning.",
   );
 
+/**
+ * Per-turn injection-gate tuning: thresholds the retrieval signals must clear
+ * for the gate to open and run the selector. The gate's on/off is the
+ * `memory-v3-injection-gate` feature flag (a separate concern), so this schema
+ * carries no `enabled` field — only the tuning knobs.
+ */
+export const MemoryV3GateSchema = z
+  .object({
+    denseThreshold: z
+      .number({ error: "memory.v3.gate.denseThreshold must be a number" })
+      .min(0)
+      .max(1)
+      .default(0.52)
+      .describe(
+        "Top-1 dense cosine similarity must clear this for a dense pass.",
+      ),
+    sparseThreshold: z
+      .number({ error: "memory.v3.gate.sparseThreshold must be a number" })
+      .min(0)
+      .max(1)
+      .default(0.35)
+      .describe(
+        "Normalized top-1 BM25F must clear this for any sparse signal.",
+      ),
+    sparseOnlyThreshold: z
+      .number({ error: "memory.v3.gate.sparseOnlyThreshold must be a number" })
+      .min(0)
+      .max(1)
+      .default(0.45)
+      .describe(
+        "Higher normalized-BM25F bar to pass on sparse signal alone when dense fails.",
+      ),
+    denseClusterThreshold: z
+      .number({
+        error: "memory.v3.gate.denseClusterThreshold must be a number",
+      })
+      .min(0)
+      .max(1)
+      .default(0.47)
+      .describe(
+        "Floor every top-3 dense score must clear for a borderline-cluster pass.",
+      ),
+    denseClusterMaxDelta: z
+      .number({ error: "memory.v3.gate.denseClusterMaxDelta must be a number" })
+      .min(0)
+      .max(1)
+      .default(0.04)
+      .describe(
+        "Maximum spread (max-min) within the top-3 dense cluster for a cluster pass.",
+      ),
+    topK: z
+      .number({ error: "memory.v3.gate.topK must be a number" })
+      .int("memory.v3.gate.topK must be an integer")
+      .positive("memory.v3.gate.topK must be a positive integer")
+      .default(5)
+      .describe(
+        "Number of top candidates examined per retriever (dense, sparse).",
+      ),
+    bm25NormK: z
+      .union([z.number().positive(), z.null()])
+      .default(null)
+      .describe(
+        "BM25F normalization constant k in norm = raw/(raw+k). null = built-in default (auto-calibration pending).",
+      ),
+    bypassForCore: z
+      .boolean({ error: "memory.v3.gate.bypassForCore must be a boolean" })
+      .default(false)
+      .describe(
+        "When the gate closes, still run selectPool over only the stable prefix (core/hot/fresh/skills) instead of skipping entirely. Off by default — the gate is a hard skip.",
+      ),
+  })
+  .describe(
+    "Memory v3 per-turn injection gate tuning (thresholds; on/off is the `memory-v3-injection-gate` feature flag).",
+  );
+
 // NOTE: a retired `workingSet` sub-config (maxPages/evictWindow for the old
 // per-turn carry set) used to live here. Existing user config files may still
 // contain the key; zod default unknown-key stripping accepts and ignores it,
@@ -317,6 +392,7 @@ export const MemoryV3ConfigSchema = z
       ),
     edge: MemoryV3EdgeSchema.default(MemoryV3EdgeSchema.parse({})),
     entity: MemoryV3EntitySchema.default(MemoryV3EntitySchema.parse({})),
+    gate: MemoryV3GateSchema.default(MemoryV3GateSchema.parse({})),
   })
   .describe("Memory v3 — section-grain lane retrieval");
 
