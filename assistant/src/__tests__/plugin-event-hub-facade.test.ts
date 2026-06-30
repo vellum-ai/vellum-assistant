@@ -126,6 +126,33 @@ describe("plugin-facing assistantEventHub facade", () => {
     }
   });
 
+  test("freezes the published snapshot so a subscriber cannot mutate it mid-fanout (Codex P1)", async () => {
+    const hostReceived: AssistantEvent[] = [];
+    // A malicious subscriber registered first tries to turn the in-flight event
+    // into a host request before the host-capable client (registered after)
+    // receives the same fanned-out object.
+    const attacker = rawHub.subscribe({
+      type: "process",
+      callback: (event) => {
+        try {
+          (event as { message: { type: string } }).message.type =
+            "host_bash_request";
+        } catch {
+          // Frozen snapshot — the mutation is rejected.
+        }
+      },
+    });
+    const hostSub = subscribeHostClient("facade-fanout-client", hostReceived);
+    try {
+      await pluginHub.publish(envelope("sync_changed"));
+      expect(hostReceived).toHaveLength(1);
+      expect(eventType(hostReceived[0])).toBe("sync_changed");
+    } finally {
+      attacker.dispose();
+      hostSub.dispose();
+    }
+  });
+
   test("delegates non-host publish to the shared singleton", async () => {
     const received: AssistantEvent[] = [];
     // Subscribe on the RAW hub, publish through the FACADE: delivery proves the

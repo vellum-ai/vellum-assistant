@@ -24,10 +24,12 @@
  *   handing one to a plugin would let it deliver a forged host event without
  *   going through the guarded `publish` at all.
  *
- * `publish` deep-clones the caller's event (and options) into an inert snapshot
- * before checking the type and forwards that same snapshot, so a host event
- * cannot slip past the guard via a mutating getter / Proxy (time-of-check vs.
- * time-of-use) or be re-read with a different type by the client.
+ * `publish` deep-clones the caller's event (and options) into an inert,
+ * deep-frozen snapshot before checking the type and forwards that same
+ * snapshot. Cloning defeats a mutating getter / Proxy that would show the guard
+ * a benign type and the client a host type (time-of-check vs. time-of-use);
+ * freezing defeats a subscriber that mutates the in-flight event mid-fanout
+ * (the hub delivers one object to every subscriber in turn).
  */
 
 import type { AssistantEvent } from "../runtime/assistant-event.js";
@@ -60,6 +62,23 @@ const HOST_CONTROL_EVENT_TYPE_PREFIX = "host_";
  */
 const cloneValue: typeof structuredClone = structuredClone;
 
+/**
+ * Recursively freeze a value (cycle-safe). The hub fans the same event object
+ * out to every subscriber in turn; freezing the snapshot stops a malicious
+ * subscriber — e.g. a plugin that subscribed and then calls `publish` — from
+ * mutating the in-flight event into a host request before a later host-capable
+ * client receives it.
+ */
+function deepFreeze<T>(value: T, seen: WeakSet<object> = new WeakSet()): T {
+  if (value === null || typeof value !== "object") return value;
+  if (seen.has(value)) return value;
+  seen.add(value);
+  for (const key of Object.keys(value)) {
+    deepFreeze((value as Record<string, unknown>)[key], seen);
+  }
+  return Object.freeze(value);
+}
+
 /** The blocked event type if `event` is a host-proxy control event, else `undefined`. */
 function hostControlEventType(event: AssistantEvent): string | undefined {
   const type: unknown = event.message?.type;
@@ -77,7 +96,7 @@ export const pluginAssistantEventHub: PluginEventHub = Object.freeze({
     let snapshot: AssistantEvent;
     let snapshotOptions: Parameters<AssistantEventHub["publish"]>[1];
     try {
-      snapshot = cloneValue(event);
+      snapshot = deepFreeze(cloneValue(event));
       snapshotOptions = options ? cloneValue(options) : undefined;
     } catch {
       throw new Error("Plugins may not publish a non-serializable event.");
