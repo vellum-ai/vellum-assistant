@@ -32,21 +32,28 @@ function fakeConfig(): AssistantConfig {
   } as unknown as AssistantConfig;
 }
 
-/** Deps whose first read primitive throws, so the orchestrator rejects. */
+/**
+ * Deps that drive a `migrate` whose destructive collection recreate throws (a
+ * genuine Qdrant failure mid-reconcile), so the orchestrator rejects. A read
+ * failure no longer rejects — it defers — so the rejection is triggered through
+ * a downstream op that is intentionally not caught.
+ */
 function throwingDeps(): ReconcileDeps {
   return {
-    probeBackendDimension: mock(async () => {
-      throw new Error("backend probe blew up");
-    }),
-    readConceptPageCollectionDim: mock(async () => {
-      throw new Error("collection read blew up");
-    }),
-    decideEmbeddingReconcile: mock(() => {
-      throw new Error("should not reach the decision");
-    }),
+    probeBackendDimension: mock(async () => ({
+      provider: "gemini" as const,
+      model: "m",
+      dim: 3072,
+    })),
+    readConceptPageCollectionDim: mock(async () => 384),
+    decideEmbeddingReconcile: mock(
+      () => ({ kind: "migrate", fromDim: 384, toDim: 3072 }) as const,
+    ),
     persistVectorSize: mock(() => {}),
     setInMemoryVectorSize: mock(() => {}),
-    recreateCollectionsAtDim: mock(async () => {}),
+    recreateCollectionsAtDim: mock(async () => {
+      throw new Error("qdrant recreate blew up");
+    }),
     ensureCollections: mock(async () => {}),
     enqueueReembed: mock(() => {}),
   };
@@ -95,7 +102,7 @@ describe("lifecycle embedding-reconcile wiring", () => {
     expect(reachedNextStep).toBe(true);
   });
 
-  test("the real reconcile rejects when its read primitives throw — proving the try/catch is load-bearing", async () => {
+  test("the real reconcile rejects when a destructive op throws — proving the try/catch is load-bearing", async () => {
     const config = fakeConfig();
 
     // Without the surrounding catch, this would propagate and abort startup.

@@ -731,7 +731,14 @@ export function loadConfig(): AssistantConfig {
     // in-memory `config` returned below carries the deployment-context fills as
     // this run's effective values.
     const willSeed = !configFileExisted && suppressConfigDiskWritesDepth === 0;
-    const firstLaunchSeed = willSeed ? structuredClone(config) : null;
+    // Snapshot the embedding provider BEFORE deployment-context fills. The
+    // first-launch seed persists the service-mode context defaults (for
+    // discoverability), but the platform embedding-provider intent must stay
+    // in-memory only: persisting `provider: "gemini"` would make it sticky and
+    // override a later non-platform run of this workspace.
+    const preContextEmbeddingProvider = willSeed
+      ? config.memory.embeddings.provider
+      : null;
 
     // Layer deployment-context defaults (e.g. IS_PLATFORM=true → all service
     // modes = "managed") onto the in-memory config for any leaves that aren't
@@ -752,15 +759,13 @@ export function loadConfig(): AssistantConfig {
       );
     }
 
-    // First-launch seed only: when config.json does not exist, write the full
-    // schema defaults to disk so users can discover and edit all available
-    // options. Deployment-context defaults are deliberately excluded from the
-    // persisted seed — they are applied in-memory on every load (above) and are
-    // intentionally NOT persisted, so disk records user intent (schema defaults
-    // only) while the in-memory cache holds the effective values. Persisting the
-    // platform fills (e.g. IS_PLATFORM=true → provider "gemini", managed service
-    // modes) would make them sticky and able to override a later non-platform
-    // run of the same workspace.
+    // First-launch seed only: when config.json does not exist, write the
+    // effective config to disk so users can discover and edit all available
+    // options. Deployment-context service-mode defaults (e.g. IS_PLATFORM=true →
+    // managed service modes) are included for discoverability, but the platform
+    // embedding-provider intent is restored to its pre-context value so it is
+    // never persisted — writing `provider: "gemini"` would make it sticky and
+    // able to override a later non-platform run of the same workspace.
     //
     // When the file already exists, leave it alone — disk represents user
     // intent, while the in-memory `cached: AssistantConfig` (above) has all
@@ -768,14 +773,18 @@ export function loadConfig(): AssistantConfig {
     // so consumers calling `getConfig().memory.v2.bm25_b` continue to receive
     // the schema default whenever the field is absent on disk. Contract: disk =
     // user intent, in-memory cache = effective values.
-    if (willSeed && firstLaunchSeed) {
+    if (willSeed) {
       try {
         const dir = dirname(configPath);
         if (!existsSync(dir)) {
           mkdirSync(dir, { recursive: true });
         }
+        const seed = structuredClone(config);
+        if (preContextEmbeddingProvider !== null) {
+          seed.memory.embeddings.provider = preContextEmbeddingProvider;
+        }
         // Strip dataDir (runtime-derived) from the persisted config
-        const { dataDir: _, ...persistable } = firstLaunchSeed;
+        const { dataDir: _, ...persistable } = seed;
         writeFileSync(configPath, JSON.stringify(persistable, null, 2) + "\n");
         log.info("Wrote default config to %s", configPath);
       } catch (err) {

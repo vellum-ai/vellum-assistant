@@ -150,7 +150,7 @@ describe("deployment-context embedding-provider default (via loadConfig)", () =>
     expect(qdrantRaw.vectorSize).toBeUndefined();
   });
 
-  test("first launch (no config.json) does not persist deployment-context fills", () => {
+  test("first launch (no config.json) persists managed service modes but not the platform embedding provider", () => {
     // No config.json on disk: this is the first-launch SEED path that writes a
     // default config so the file exists for users to edit.
     if (existsSync(CONFIG_PATH)) rmSync(CONFIG_PATH, { force: true });
@@ -161,11 +161,11 @@ describe("deployment-context embedding-provider default (via loadConfig)", () =>
     // In-memory effective config still reflects the platform intent.
     expect(config.memory.embeddings.provider).toBe("gemini");
 
-    // But the seeded config.json on disk records user intent (schema defaults
-    // only) — the platform fills are applied in-memory on every load and are
-    // intentionally NOT persisted. The embedding provider reflects the schema
-    // default ("auto"), never the platform "gemini", and the managed service
-    // modes are absent so a later non-platform run is not overridden by them.
+    // The seeded config.json persists the managed service modes (for
+    // discoverability), but the platform embedding-provider intent is kept
+    // in-memory only: persisting "gemini" would make it sticky and override a
+    // later non-platform run of this workspace. So on disk the embedding
+    // provider reflects the schema default ("auto"), never "gemini".
     const raw = readConfig();
     const memoryRaw = (raw.memory ?? {}) as Record<string, unknown>;
     const embeddingsRaw = (memoryRaw.embeddings ?? {}) as Record<
@@ -175,12 +175,13 @@ describe("deployment-context embedding-provider default (via loadConfig)", () =>
     expect(embeddingsRaw.provider).not.toBe("gemini");
     expect(embeddingsRaw.provider ?? "auto").toBe("auto");
 
+    // Managed service modes ARE persisted on first launch (existing behavior).
     const servicesRaw = (raw.services ?? {}) as Record<string, unknown>;
     const webSearchRaw = (servicesRaw["web-search"] ?? {}) as Record<
       string,
       unknown
     >;
-    expect(webSearchRaw.mode).not.toBe("managed");
+    expect(webSearchRaw.mode).toBe("managed");
   });
 
   test("IS_PLATFORM='1' also fills provider=gemini in memory", () => {
