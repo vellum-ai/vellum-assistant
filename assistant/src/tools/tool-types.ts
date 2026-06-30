@@ -1,25 +1,24 @@
 /**
- * Tool-related type declarations shared between the daemon and any
- * skill-side package that needs to describe tools, permission risk, or tool
- * execution results on the wire.
+ * Tool-related type declarations: the neutral leaf module describing
+ * tools, permission risk, and tool execution results.
  *
- * Pure type-level declarations only (+ the `RiskLevel` enum, which is a value
- * but is safely cross-package). No runtime helpers live here — the assistant
- * keeps all behavior functions in `assistant/src/tools/` and re-exports the
- * types from this file.
+ * Pure type-level declarations only (+ the `RiskLevel` enum, which is a
+ * value). No runtime helpers live here — the assistant keeps all behavior
+ * functions in `assistant/src/tools/` and re-exports the types from this
+ * file. This module imports nothing, so it can sit at the bottom of the
+ * import graph and be consumed by `tools/types.ts`, `providers/types.ts`,
+ * and `permissions/types.ts` without creating cycles.
  *
  * Heavy daemon-internal references (CES client, host-proxy classes, trust
  * classifications, interface IDs, content blocks, CES `ApprovalRequired`)
- * are held as opaque `unknown` / broadened-`string` placeholders on this
- * side so the contracts package never reaches into the assistant or the
- * service-contracts runtime. The assistant redeclares `Tool`, `ToolContext`,
- * `ToolExecutionResult`, `ToolExecutedEvent`, `ToolLifecycleEvent`,
- * `ToolLifecycleEventHandler`, and `ProxyToolResolver` in
- * `assistant/src/tools/types.ts` with the concrete types in place, so
- * existing call sites keep their full type information. The two sides are
- * structurally independent — no inheritance, no intersection — which
- * avoids TypeScript's contravariance mismatches on lifecycle-event
- * handlers.
+ * are held as opaque `unknown` / broadened-`string` placeholders here. The
+ * assistant redeclares `Tool`, `ToolContext`, `ToolExecutionResult`,
+ * `ToolExecutedEvent`, `ToolLifecycleEvent`, `ToolLifecycleEventHandler`,
+ * and `ProxyToolResolver` in `assistant/src/tools/types.ts` with the
+ * concrete types in place, so existing call sites keep their full type
+ * information. The two sides are structurally independent — no inheritance,
+ * no intersection — which avoids TypeScript's contravariance mismatches on
+ * lifecycle-event handlers.
  */
 
 // ---------------------------------------------------------------------------

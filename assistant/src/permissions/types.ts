@@ -1,8 +1,8 @@
 export type {
   AllowlistOption,
   ScopeOption,
-} from "@vellumai/skill-host-contracts";
-export { RiskLevel } from "@vellumai/skill-host-contracts";
+} from "../tools/tool-types.js";
+export { RiskLevel } from "../tools/tool-types.js";
 
 export type ApprovalMode = "prompted" | "auto" | "blocked" | "unknown";
 
