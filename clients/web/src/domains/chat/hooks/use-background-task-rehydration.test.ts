@@ -71,6 +71,21 @@ function toolRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function completedRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "bg-1",
+    toolName: "bash",
+    conversationId: "conv-1",
+    command: "sleep 10",
+    startedAt: NOW,
+    status: "completed",
+    exitCode: 0,
+    output: "done",
+    completedAt: NOW + 1000,
+    ...overrides,
+  };
+}
+
 function runningEntry(
   id: string,
   conversationId = "conv-1",
@@ -85,6 +100,25 @@ function runningEntry(
   };
 }
 
+function completedEntry(
+  id: string,
+  status: "completed" | "failed" | "cancelled" = "completed",
+): BackgroundTaskEntry {
+  return {
+    id,
+    toolName: "bash",
+    conversationId: "conv-1",
+    command: "sleep 10",
+    startedAt: NOW,
+    status,
+    exitCode: status === "completed" ? 0 : 1,
+    output: "done",
+    completedAt: NOW + 1000,
+  };
+}
+
+const EMPTY_SNAPSHOT = { active: [], completed: [] };
+
 beforeEach(() => {
   requests.length = 0;
   nextResponses = [];
@@ -97,7 +131,7 @@ afterEach(() => {
 
 describe("fetchBackgroundTasks", () => {
   test("requests the assistant-scoped route filtered by conversation", async () => {
-    nextResponses = [{ status: 200, body: { tools: [] } }];
+    nextResponses = [{ status: 200, body: { tools: [], completed: [] } }];
     await fetchBackgroundTasks("asst-1", "conv-1");
 
     expect(requests).toHaveLength(1);
@@ -106,19 +140,49 @@ describe("fetchBackgroundTasks", () => {
   });
 
   test("maps returned tools to running entries", async () => {
-    nextResponses = [{ status: 200, body: { tools: [toolRow()] } }];
-    const entries = await fetchBackgroundTasks("asst-1", "conv-1");
+    nextResponses = [{ status: 200, body: { tools: [toolRow()], completed: [] } }];
+    const snapshot = await fetchBackgroundTasks("asst-1", "conv-1");
 
-    expect(entries).toEqual([
+    expect(snapshot).toEqual({
+      active: [
+        {
+          id: "bg-1",
+          toolName: "bash",
+          conversationId: "conv-1",
+          command: "sleep 10",
+          startedAt: NOW,
+          status: "running",
+        },
+      ],
+      completed: [],
+    });
+  });
+
+  test("maps the completed ring to terminal entries", async () => {
+    nextResponses = [
+      { status: 200, body: { tools: [], completed: [completedRow()] } },
+    ];
+    const snapshot = await fetchBackgroundTasks("asst-1", "conv-1");
+
+    expect(snapshot?.completed).toEqual([
       {
         id: "bg-1",
         toolName: "bash",
         conversationId: "conv-1",
         command: "sleep 10",
         startedAt: NOW,
-        status: "running",
+        status: "completed",
+        exitCode: 0,
+        output: "done",
+        completedAt: NOW + 1000,
       },
     ]);
+  });
+
+  test("tolerates a response without a completed field", async () => {
+    nextResponses = [{ status: 200, body: { tools: [toolRow()] } }];
+    const snapshot = await fetchBackgroundTasks("asst-1", "conv-1");
+    expect(snapshot?.completed).toEqual([]);
   });
 
   test("returns null on a non-ok response (distinct from an empty snapshot)", async () => {
@@ -129,9 +193,9 @@ describe("fetchBackgroundTasks", () => {
 
 describe("rehydration", () => {
   test("a list response seeds running entries", async () => {
-    nextResponses = [{ status: 200, body: { tools: [toolRow()] } }];
-    const entries = await fetchBackgroundTasks("asst-1", "conv-1");
-    applyBackgroundTaskSnapshot(entries, []);
+    nextResponses = [{ status: 200, body: { tools: [toolRow()], completed: [] } }];
+    const snapshot = await fetchBackgroundTasks("asst-1", "conv-1");
+    applyBackgroundTaskSnapshot(snapshot, []);
 
     const entry = getState().byId["bg-1"]!;
     expect(entry.status).toBe("running");
@@ -141,24 +205,57 @@ describe("rehydration", () => {
 
   test("retires a known task absent from the snapshot", () => {
     getState().seedFromHistory([runningEntry("bg-1")]);
-    // bg-1 existed before the fetch and the daemon no longer reports it.
-    applyBackgroundTaskSnapshot([], ["bg-1"]);
+    // bg-1 existed before the fetch and the daemon reports it in neither list.
+    applyBackgroundTaskSnapshot(EMPTY_SNAPSHOT, ["bg-1"]);
 
     expect(getState().byId["bg-1"]!.status).toBe("cancelled");
+  });
+
+  test("settles a known task reported in the completed ring instead of cancelling it", () => {
+    // bg-1 was running in the store; it finished while the chat was unmounted,
+    // so the daemon reports it under `completed`, not `tools`. It must settle to
+    // its real terminal status, NOT be retired as cancelled (the codex P2).
+    getState().seedFromHistory([runningEntry("bg-1")]);
+    applyBackgroundTaskSnapshot(
+      { active: [], completed: [completedEntry("bg-1", "completed")] },
+      ["bg-1"],
+    );
+
+    const entry = getState().byId["bg-1"]!;
+    expect(entry.status).toBe("completed");
+    expect(entry.exitCode).toBe(0);
+    expect(entry.output).toBe("done");
+  });
+
+  test("seeds a completed task the store never saw (different conversation active)", () => {
+    // The store was never seeded for bg-9 (the page opened on another
+    // conversation), but the daemon's completed ring carries it. Rehydrating
+    // creates the settled entry rather than leaving the result as raw JSON.
+    applyBackgroundTaskSnapshot(
+      { active: [], completed: [completedEntry("bg-9", "failed")] },
+      [],
+    );
+
+    const entry = getState().byId["bg-9"]!;
+    expect(entry.status).toBe("failed");
+    expect(entry.output).toBe("done");
   });
 
   test("leaves an in-flight-started (not-known) task running", () => {
     // bg-2 started after the snapshot was captured: in the store but absent
     // from `knownIds`, so retirement must skip it.
     getState().seedFromHistory([runningEntry("bg-2")]);
-    applyBackgroundTaskSnapshot([], []);
+    applyBackgroundTaskSnapshot(EMPTY_SNAPSHOT, []);
 
     expect(getState().byId["bg-2"]!.status).toBe("running");
   });
 
   test("keeps a task still reported by the snapshot running", () => {
     getState().seedFromHistory([runningEntry("bg-1")]);
-    applyBackgroundTaskSnapshot([runningEntry("bg-1")], ["bg-1"]);
+    applyBackgroundTaskSnapshot(
+      { active: [runningEntry("bg-1")], completed: [] },
+      ["bg-1"],
+    );
 
     expect(getState().byId["bg-1"]!.status).toBe("running");
   });

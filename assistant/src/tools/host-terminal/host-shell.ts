@@ -35,6 +35,7 @@ import {
   generateBackgroundToolId,
   isBackgroundToolLimitReached,
   MAX_BACKGROUND_TOOLS,
+  recordCompletedBackgroundTool,
   registerBackgroundTool,
   removeBackgroundTool,
 } from "../background-tool-registry.js";
@@ -310,19 +311,32 @@ export const hostShellTool = {
               : result.isError
                 ? "failed"
                 : "completed";
+            // A cancelled command's proxy result carries SIGKILL/"failed"
+            // framing; surface the cancellation instead (see shell.ts).
+            const output =
+              status === "cancelled"
+                ? `Background host command cancelled (id=${bgId}).`
+                : result.content;
+            const completedAt = Date.now();
+            recordCompletedBackgroundTool({
+              id: bgId,
+              toolName: "host_bash",
+              conversationId: context.conversationId,
+              command,
+              startedAt,
+              status,
+              exitCode: null,
+              output,
+              completedAt,
+            });
             broadcastMessage(
               {
                 type: "background_tool_completed",
                 id: bgId,
                 conversationId: context.conversationId,
                 status,
-                // A cancelled command's proxy result carries SIGKILL/"failed"
-                // framing; surface the cancellation instead (see shell.ts).
-                output:
-                  status === "cancelled"
-                    ? `Background host command cancelled (id=${bgId}).`
-                    : result.content,
-                completedAt: Date.now(),
+                output,
+                completedAt,
               },
               context.conversationId,
             );
@@ -346,19 +360,32 @@ export const hostShellTool = {
             const status = abortController.signal.aborted
               ? "cancelled"
               : "failed";
+            const output =
+              status === "cancelled"
+                ? `Background host command cancelled (id=${bgId}).`
+                : err instanceof Error
+                  ? err.message
+                  : String(err);
+            const completedAt = Date.now();
+            recordCompletedBackgroundTool({
+              id: bgId,
+              toolName: "host_bash",
+              conversationId: context.conversationId,
+              command,
+              startedAt,
+              status,
+              exitCode: null,
+              output,
+              completedAt,
+            });
             broadcastMessage(
               {
                 type: "background_tool_completed",
                 id: bgId,
                 conversationId: context.conversationId,
                 status,
-                output:
-                  status === "cancelled"
-                    ? `Background host command cancelled (id=${bgId}).`
-                    : err instanceof Error
-                      ? err.message
-                      : String(err),
-                completedAt: Date.now(),
+                output,
+                completedAt,
               },
               context.conversationId,
             );
@@ -519,6 +546,24 @@ export const hostShellTool = {
           : result.isError
             ? "failed"
             : "completed";
+        // A cancelled command's SIGKILL output is framed as "failed";
+        // surface the cancellation instead (see shell.ts).
+        const output =
+          status === "cancelled"
+            ? `Background host command cancelled (id=${bgId}).`
+            : result.content;
+        const completedAt = Date.now();
+        recordCompletedBackgroundTool({
+          id: bgId,
+          toolName: "host_bash",
+          conversationId: context.conversationId,
+          command,
+          startedAt,
+          status,
+          exitCode: code ?? null,
+          output,
+          completedAt,
+        });
         broadcastMessage(
           {
             type: "background_tool_completed",
@@ -526,13 +571,8 @@ export const hostShellTool = {
             conversationId: context.conversationId,
             status,
             exitCode: code,
-            // A cancelled command's SIGKILL output is framed as "failed";
-            // surface the cancellation instead (see shell.ts).
-            output:
-              status === "cancelled"
-                ? `Background host command cancelled (id=${bgId}).`
-                : result.content,
-            completedAt: Date.now(),
+            output,
+            completedAt,
           },
           context.conversationId,
         );
@@ -559,17 +599,30 @@ export const hostShellTool = {
         completed = true;
         clearTimeout(timer);
         const status = aborted ? "cancelled" : "failed";
+        const output =
+          status === "cancelled"
+            ? `Background host command cancelled (id=${bgId}).`
+            : err.message;
+        const completedAt = Date.now();
+        recordCompletedBackgroundTool({
+          id: bgId,
+          toolName: "host_bash",
+          conversationId: context.conversationId,
+          command,
+          startedAt,
+          status,
+          exitCode: null,
+          output,
+          completedAt,
+        });
         broadcastMessage(
           {
             type: "background_tool_completed",
             id: bgId,
             conversationId: context.conversationId,
             status,
-            output:
-              status === "cancelled"
-                ? `Background host command cancelled (id=${bgId}).`
-                : err.message,
-            completedAt: Date.now(),
+            output,
+            completedAt,
           },
           context.conversationId,
         );

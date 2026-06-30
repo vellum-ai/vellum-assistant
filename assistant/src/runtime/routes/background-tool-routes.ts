@@ -11,6 +11,7 @@ import { z } from "zod";
 import {
   cancelBackgroundTool,
   listBackgroundTools,
+  listCompletedBackgroundTools,
 } from "../../tools/background-tool-registry.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
@@ -23,6 +24,7 @@ async function handleBackgroundToolList({
 }: RouteHandlerArgs) {
   const conversationId = queryParams.conversationId || undefined;
   const tools = listBackgroundTools(conversationId);
+  const completed = listCompletedBackgroundTools(conversationId);
 
   return {
     tools: tools.map((t) => ({
@@ -31,6 +33,20 @@ async function handleBackgroundToolList({
       conversationId: t.conversationId,
       command: t.command,
       startedAt: t.startedAt,
+    })),
+    // Recently-completed tools let a client that missed the live completion
+    // event (chat unmounted / different conversation active) recover the
+    // terminal status on rehydration instead of wrongly retiring as cancelled.
+    completed: completed.map((t) => ({
+      id: t.id,
+      toolName: t.toolName,
+      conversationId: t.conversationId,
+      command: t.command,
+      startedAt: t.startedAt,
+      status: t.status,
+      exitCode: t.exitCode,
+      output: t.output,
+      completedAt: t.completedAt,
     })),
   };
 }
@@ -53,6 +69,13 @@ const BackgroundToolSchema = z.object({
   conversationId: z.string(),
   command: z.string(),
   startedAt: z.number(),
+});
+
+const CompletedBackgroundToolSchema = BackgroundToolSchema.extend({
+  status: z.enum(["completed", "failed", "cancelled"]),
+  exitCode: z.number().nullable(),
+  output: z.string(),
+  completedAt: z.number(),
 });
 
 export const ROUTES: RouteDefinition[] = [
@@ -79,6 +102,7 @@ export const ROUTES: RouteDefinition[] = [
     ],
     responseBody: z.object({
       tools: z.array(BackgroundToolSchema),
+      completed: z.array(CompletedBackgroundToolSchema),
     }),
   },
   {

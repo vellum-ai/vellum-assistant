@@ -15,6 +15,7 @@ import {
   generateBackgroundToolId,
   isBackgroundToolLimitReached,
   MAX_BACKGROUND_TOOLS,
+  recordCompletedBackgroundTool,
   registerBackgroundTool,
   removeBackgroundTool,
 } from "../background-tool-registry.js";
@@ -434,6 +435,24 @@ export const shellTool = {
             : code === 0
               ? "completed"
               : "failed";
+        // A cancelled command exits with a null code, which formatShellOutput
+        // frames as "failed"; surface the cancellation instead.
+        const output =
+          status === "cancelled"
+            ? `Background command cancelled (id=${bgId}).`
+            : fmtResult.content;
+        const completedAt = Date.now();
+        recordCompletedBackgroundTool({
+          id: bgId,
+          toolName: "bash",
+          conversationId: context.conversationId,
+          command,
+          startedAt,
+          status,
+          exitCode: code ?? null,
+          output,
+          completedAt,
+        });
         broadcastMessage(
           {
             type: "background_tool_completed",
@@ -441,13 +460,8 @@ export const shellTool = {
             conversationId: context.conversationId,
             status,
             exitCode: code ?? null,
-            // A cancelled command exits with a null code, which formatShellOutput
-            // frames as "failed"; surface the cancellation instead.
-            output:
-              status === "cancelled"
-                ? `Background command cancelled (id=${bgId}).`
-                : fmtResult.content,
-            completedAt: Date.now(),
+            output,
+            completedAt,
           },
           context.conversationId,
         );
@@ -480,6 +494,18 @@ export const shellTool = {
           persistTriggerAsEvent: true,
         });
 
+        const completedAt = Date.now();
+        recordCompletedBackgroundTool({
+          id: bgId,
+          toolName: "bash",
+          conversationId: context.conversationId,
+          command,
+          startedAt,
+          status: "failed",
+          exitCode: null,
+          output: framing,
+          completedAt,
+        });
         broadcastMessage(
           {
             type: "background_tool_completed",
@@ -488,7 +514,7 @@ export const shellTool = {
             status: "failed",
             exitCode: null,
             output: framing,
-            completedAt: Date.now(),
+            completedAt,
           },
           context.conversationId,
         );

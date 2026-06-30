@@ -2310,8 +2310,49 @@ paths:
                         - command
                         - startedAt
                       additionalProperties: false
+                  completed:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        toolName:
+                          type: string
+                        conversationId:
+                          type: string
+                        command:
+                          type: string
+                        startedAt:
+                          type: number
+                        status:
+                          type: string
+                          enum:
+                            - completed
+                            - failed
+                            - cancelled
+                        exitCode:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        output:
+                          type: string
+                        completedAt:
+                          type: number
+                      required:
+                        - id
+                        - toolName
+                        - conversationId
+                        - command
+                        - startedAt
+                        - status
+                        - exitCode
+                        - output
+                        - completedAt
+                      additionalProperties: false
                 required:
                   - tools
+                  - completed
                 additionalProperties: false
   /v1/background-tools/cancel:
     post:
