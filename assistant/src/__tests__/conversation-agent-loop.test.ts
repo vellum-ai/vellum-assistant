@@ -32,6 +32,8 @@ const conversationDiskViewRealSnapshot = {
   ) as Record<string, unknown>),
 };
 let mockUiConfig: { userTimezone?: string; detectedTimezone?: string } = {};
+let mockLlmProfiles: Record<string, unknown> = {};
+let mockLlmActiveProfile: string | undefined;
 
 // ── Module mocks (must precede imports of the module under test) ─────
 
@@ -80,8 +82,9 @@ mock.module("../config/loader.js", () => ({
           },
         },
       },
-      profiles: {},
+      profiles: mockLlmProfiles,
       callSites: {},
+      activeProfile: mockLlmActiveProfile,
       pricingOverrides: [],
     },
     rateLimit: { maxRequestsPerMinute: 0 },
@@ -835,6 +838,8 @@ function makeCompactionResult(
 
 beforeEach(() => {
   mockUiConfig = {};
+  mockLlmProfiles = {};
+  mockLlmActiveProfile = undefined;
   mockEstimateTokens = 1000;
   mockReducerStepFn = null;
   mockOverflowAction = "fail_gracefully";
@@ -903,6 +908,39 @@ beforeEach(() => {
 
 describe("session-agent-loop", () => {
   describe("user-prompt-submit hook failures", () => {
+    test("passes the effective profile to hooks even when it was already announced", async () => {
+      mockLlmProfiles = {
+        balanced: {
+          label: "Balanced",
+          model: "accounts/fireworks/models/glm-5p2",
+        },
+        quality: { label: "Quality", model: "claude-opus-4-8" },
+      };
+      mockLlmActiveProfile = "quality";
+      const observedProfileKeys: string[] = [];
+      registerPlugin({
+        manifest: {
+          name: "test-observe-model-profile",
+          version: "1.0.0",
+        },
+        hooks: {
+          "user-prompt-submit": async (ctx: UserPromptSubmitContext) => {
+            observedProfileKeys.push(ctx.modelProfileKey);
+          },
+        },
+      });
+
+      const ctx = makeCtx({
+        inferenceProfile: "balanced",
+        lastNotifiedInferenceProfile: "balanced",
+        providerResponses: [textResponse("ok")],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(observedProfileKeys).toEqual(["balanced"]);
+    });
+
     test("logs and continues with prior hook mutations", async () => {
       registerPlugin({
         manifest: {

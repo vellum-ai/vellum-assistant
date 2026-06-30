@@ -471,8 +471,8 @@ export default async function postCompact(
   // ctx.conversationId   — conversation the turn being compacted is scoped to
   // ctx.isNonInteractive — true when no human is present (scheduled, background,
   //                        or headless run)
-  // ctx.modelProfileKey  — active inference-profile key to surface, or null when
-  //                        unchanged since last announced to the model
+  // ctx.modelProfileKey  — effective inference-profile identity for the model
+  //                        the compacted turn keeps using
   // ctx.injectionMode    — "full" (restore complete runtime context) or
   //                        "minimal" (reduced volume the overflow-recovery
   //                        downgrade selects); defaults to "full"

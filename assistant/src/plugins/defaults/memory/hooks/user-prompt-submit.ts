@@ -343,14 +343,15 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
   // block, channel/voice/transport hints, and the turn's trust/index/call-site
   // — from the live conversation, so we hand in only the request id and
   // conversation id plus the field resolved once at turn start
-  // (`isNonInteractive`). The `model_profile` label is rendered here from the
-  // turn's resolved profile key, using the call site self-resolved from the
-  // live conversation. The unified `<turn_context>` actor input is
+  // (`isNonInteractive`). The `model_profile` label is rendered from the
+  // turn-start notice key when the profile changed, using the call site
+  // self-resolved from the live conversation. The unified `<turn_context>`
+  // actor input is
   // self-resolved from the live conversation's trust context. This first-call
   // assembly always runs at `"full"` volume; overflow reduction only downgrades
   // the mode on later re-injection.
   const modelProfile = resolveTurnModelProfileLabel(
-    ctx.modelProfileKey,
+    conversation?.currentTurnModelProfileNoticeKey ?? null,
     conversation?.currentCallSite ?? "mainAgent",
     config.llm,
     ctx.conversationId,
