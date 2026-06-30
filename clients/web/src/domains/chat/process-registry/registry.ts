@@ -9,9 +9,8 @@ import type { BackgroundProcessDescriptor } from "@/domains/chat/process-registr
  *
  * The array ORDER is load-bearing: it encodes the left-to-right order in which
  * the overlay pills are stacked above the composer — subagents, then acp-runs,
- * then workflows, then background-tasks. This replaces the former "do not
- * reorder" comment that lived next to the hard-coded slots in `chat-body.tsx`.
- * Reordering this array reorders the overlay.
+ * then workflows, then background-tasks. Reordering this array reorders the
+ * overlay.
  */
 export const PROCESS_KINDS: BackgroundProcessDescriptor[] = [
   SUBAGENT_DESCRIPTOR,
