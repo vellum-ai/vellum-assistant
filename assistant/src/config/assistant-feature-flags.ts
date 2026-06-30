@@ -326,3 +326,25 @@ export function isAssistantFeatureFlagEnabled(
 ): boolean {
   return !!getAssistantFeatureFlagValue(key, config);
 }
+
+/**
+ * Backends that resolve lexical message-content search.
+ *   fts5   — SQLite FTS5 full-text index (default)
+ *   qdrant — BM25-style sparse Qdrant lexical index (messages_lexical)
+ */
+export type MessagesSearchBackend = "fts5" | "qdrant";
+
+/**
+ * Resolve the active messages search backend from the
+ * `messages-search-backend` flag. Coerces to the two valid literals,
+ * defaulting to `fts5` for any unexpected value so an unprovisioned or
+ * malformed flag leaves full-text search behavior unchanged.
+ */
+export function getMessagesSearchBackend(
+  config: AssistantConfig,
+): MessagesSearchBackend {
+  return getAssistantFeatureFlagValue("messages-search-backend", config) ===
+    "qdrant"
+    ? "qdrant"
+    : "fts5";
+}
