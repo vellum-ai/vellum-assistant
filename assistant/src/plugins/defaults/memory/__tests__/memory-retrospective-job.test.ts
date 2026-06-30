@@ -130,6 +130,13 @@ mock.module("../memory-retrospective-state.js", () => ({
   ],
 }));
 
+mock.module("../find-most-recent-retrospective-for.js", () => ({
+  findMostRecentRetrospectiveFor: (_id: string) =>
+    priorRetroId
+      ? { id: priorRetroId, forkParentConversationId: priorRetroOwnerId }
+      : null,
+}));
+
 mock.module("../../../../persistence/conversation-crud.js", () => ({
   getMessagesAfter: (_id: string, _afterId: string | null) => newMessages,
   getMessages: (id: string) => {
@@ -137,10 +144,6 @@ mock.module("../../../../persistence/conversation-crud.js", () => ({
     if (id === priorRetroId) return priorRetroMessages;
     return [];
   },
-  findMostRecentRetrospectiveFor: (_id: string) =>
-    priorRetroId
-      ? { id: priorRetroId, forkParentConversationId: priorRetroOwnerId }
-      : null,
   // The handler calls `getConversation(sourceConversationId)` to read the
   // source's title for the fork title. `collectPriorRetrospectiveRemembers`
   // also calls it with the prior retro id to discriminate legacy vs fork
