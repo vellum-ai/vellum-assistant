@@ -52,10 +52,8 @@ export type ProcessPillConfig =
   | { variant: "count"; glyph: ReactNode };
 
 /**
- * The single contract that genericizes a background-process UI surface.
- *
- * Each axis exists because it maps to a *real* divergence across the four
- * kinds — none is speculative:
+ * The single contract that genericizes a background-process UI surface. Each
+ * field maps to a real divergence across the four kinds:
  *
  * - `kind` — discriminates the descriptor in the registry.
  * - `useActiveIds` — each kind owns a different store, so the source of the

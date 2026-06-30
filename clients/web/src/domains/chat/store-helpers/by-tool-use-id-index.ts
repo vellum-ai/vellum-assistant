@@ -4,11 +4,6 @@
  * Several background-process stores (workflow, subagent, ACP) keep a
  * `byToolUseId` index — a `Map<toolUseId, entryId>` — so the transcript can
  * anchor an inline card to the exact tool-use that spawned the run.
- *
- * These helpers centralize the immutable-update + reference-stability
- * discipline those stores rely on: the index is only cloned when its contents
- * actually change, so selectors subscribed to the index don't churn on
- * no-op updates.
  */
 
 /**

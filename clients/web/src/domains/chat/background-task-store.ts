@@ -163,8 +163,8 @@ function mergeHistoryEntry(
 /**
  * Optimistic cancel/restore/retire config for the background-task store. The
  * optimistic cancel sets no `completedAt`, so a non-null `completedAt` marks a
- * settled real terminal that restore must not revive — even one that preserved
- * the "cancelled" status via a racing failed completion.
+ * settled real terminal that restore must not revive (incl. a racing failed
+ * completion that kept the "cancelled" status).
  */
 const LIFECYCLE_CONFIG: OptimisticLifecycleConfig<
   BackgroundTaskEntry,

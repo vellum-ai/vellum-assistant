@@ -11,7 +11,7 @@ export interface StackedChipsPillProps {
   /**
    * Renders a single stacked chip for one id. The chip owns its own visuals
    * (avatar / icon / glyph) and the stacking offset (`-ml-1 ring-2` for every
-   * chip past the first), mirroring the per-surface pills this generalizes.
+   * chip past the first).
    */
   renderChip: (id: string) => ReactNode;
   /** Visible-chip cap before the remainder collapses to a "+N" badge. */

@@ -1,10 +1,7 @@
 // Generic inline progress row shared by the four background-process surfaces
-// (subagent / workflow / ACP run / background task). Reproduces the body those
-// cards each re-declared, byte-for-byte: status indicator → leading icon →
-// Title | detail carousel → "X agents" count → stop, on the transparent chat
-// background with a full-row --surface-active hover (no boxed surface). The
-// leading cluster is the open affordance (role="button"); the stop button stays
-// a separate sibling so it isn't nested inside an interactive element.
+// (subagent / workflow / ACP run / background task). The leading cluster is the
+// open affordance (role="button"); the stop button stays a separate sibling so
+// it isn't nested inside an interactive element.
 //
 // Pure presentational: callers project their store state into a `CardSummary`
 // and supply the per-surface leading icon + handlers. No store reads here.

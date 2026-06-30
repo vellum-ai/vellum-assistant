@@ -9,7 +9,7 @@
  * workflow store for `runId`, so the descriptor can wire it with just an id.
  * Renders nothing when the run has no card-worthy state yet, or when the count
  * is "0 …"/"1 …" — a workflow with fewer than two agents doesn't warrant the
- * avatar-stack chip (mirrors the legacy card's `showStepCount` gate).
+ * avatar-stack chip.
  */
 
 import { Typography } from "@vellumai/design-library";
@@ -30,8 +30,7 @@ export function WorkflowAgentsChip({ runId }: { runId: string }) {
   const countLabel = data.stepCount;
 
   // Hide the chip for 0- or 1-agent workflows: a single-agent (or empty) run
-  // doesn't warrant the avatar-stack chip, matching the legacy card's
-  // `showStepCount = !!stepCount && !"0 " && !"1 "` gate.
+  // doesn't warrant the avatar-stack chip.
   if (countLabel.startsWith("0 ") || countLabel.startsWith("1 ")) return null;
 
   return (

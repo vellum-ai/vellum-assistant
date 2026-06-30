@@ -19,9 +19,8 @@ import type {
 
 /**
  * Active subagent ids for the current conversation. The descriptor's
- * `useActiveIds` contract takes no arguments, so the conversation scoping the
- * bespoke surface applies (`useActiveSubagentIds(activeConversationId)` in
- * `chat-route-content`) is resolved here from the conversation store.
+ * `useActiveIds` contract takes no arguments, so the conversation scoping is
+ * resolved here from the conversation store.
  */
 function useActiveIds(): string[] {
   const activeConversationId = useConversationStore.use.activeConversationId();
@@ -39,7 +38,7 @@ function useActiveIds(): string[] {
  * read distinctly instead of all showing the generic activity verb; falls back
  * to the live `currentStepTitle` when there's no label. The info line keeps the
  * live activity (`currentStepInfo`), but falls back to `currentStepTitle` when
- * it would just echo the label-as-title — mirroring the bespoke card.
+ * it would just echo the label-as-title.
  */
 function useCardSummary(id: string): CardSummary | null {
   const label = useSubagentStore((s) => s.byId[id]?.label);

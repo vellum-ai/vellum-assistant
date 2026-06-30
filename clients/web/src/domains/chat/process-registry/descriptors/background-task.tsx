@@ -47,8 +47,7 @@ function BackgroundTaskCardLeading({ id }: { id: string }) {
 /**
  * One stacked chip for the overlay pill. The chip owns its own stacking offset
  * (`-ml-1 ring-2` for every chip past the first) since `StackedChipsPill`
- * passes only `id`, not an index — mirroring the original pill's per-glyph
- * offset.
+ * passes only `id`, not an index.
  */
 function BackgroundTaskChip({ id }: { id: string }) {
   const toolName = useBackgroundTaskStore((s) => s.byId[id]?.toolName);
@@ -85,8 +84,7 @@ export const BACKGROUND_TASK_DESCRIPTOR: BackgroundProcessDescriptor = {
   onOpenDetail: (id) =>
     useViewerStore.getState().openProcessDetail({ kind: "background-task", id }),
   // `stopBackgroundTask` can reject (offline / non-OK / no active assistant);
-  // report instead of leaving an unhandled rejection. Mirrors the bespoke
-  // callers.
+  // report instead of leaving an unhandled rejection.
   onStop: (id) =>
     void stopBackgroundTask(id).catch((err) => {
       captureError(err, { context: "BackgroundTaskDescriptor.stop" });

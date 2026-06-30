@@ -4,13 +4,10 @@ import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/
 import type { ToolProgressCardState } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell";
 
 /**
- * The byte-identical "local copy" of the shell's StatusIndicator that the four
- * background-process inline cards each re-declared. Extracted here so the
- * generic {@link InlineProcessCard} and the per-surface cards share one
- * implementation.
+ * Shared five-state status indicator for the inline process cards, consumed by
+ * the generic {@link InlineProcessCard}.
  *
- * Renders the full five-state mapping (the ACP card carried the richest set,
- * which is the superset of the others):
+ * Renders the full five-state mapping:
  *   - `loading`  → pulsing {@link ThreeDotIndicator} (no `data-state`)
  *   - `complete` → green {@link CheckCircle2}
  *   - `warning`  → amber {@link AlertTriangle} (e.g. a cancelled-but-completed

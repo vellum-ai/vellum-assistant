@@ -337,8 +337,8 @@ function bumpHighWaterMark(
 
 /**
  * Build the optimistic cancel/restore/retire config for the acp-run store. An
- * optimistic cancel stamps `completedAt`; a retire additionally records a stop
- * reason (e.g. `daemon_restarted`). Restore clears `completedAt`.
+ * optimistic cancel stamps `completedAt`; a retire also records a stop reason
+ * (e.g. `daemon_restarted`).
  */
 function acpLifecycleConfig(
   completedAt?: number,

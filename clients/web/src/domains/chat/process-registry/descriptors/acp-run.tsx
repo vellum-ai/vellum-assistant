@@ -58,9 +58,8 @@ function AcpRunCardLeading({ id }: { id: string }) {
 
 /**
  * One stacked brand mark for the overlay pill, keyed off the run's backing
- * agent. Owns its own stacking offset via `:not(:first-child)` so the generic
- * `StackedChipsPill` (which maps over ids without an index) reproduces the
- * overlapping-marks layout of the original `ActiveAcpRunsPill` chip exactly.
+ * agent. Owns its own stacking offset via `:not(:first-child)` since the generic
+ * `StackedChipsPill` maps over ids without an index.
  */
 function AcpAgentChip({ id }: { id: string }) {
   const agent = useAcpRunStore((s) => s.byId[id]?.agent);
@@ -88,7 +87,7 @@ export const ACP_RUN_DESCRIPTOR: BackgroundProcessDescriptor = {
   onOpenDetail: (id) =>
     useViewerStore.getState().openProcessDetail({ kind: "acp-run", id }),
   // `stopAcpRun` can reject (offline / non-OK / no active assistant); report
-  // instead of leaving an unhandled rejection. Mirrors the bespoke callers.
+  // instead of leaving an unhandled rejection.
   onStop: (id) =>
     void stopAcpRun(id).catch((err) => {
       captureError(err, { context: "AcpRunDescriptor.stop" });

@@ -1,9 +1,7 @@
 // Generic, registry-driven "active X" chat overlay shared by the four
-// background-process surfaces (subagent / workflow / ACP run / background task).
-// Reproduces the bespoke `ActiveWorkflowsOverlay` shape — `ActiveOverlayShell`
-// chrome + a per-kind pill + one `InlineProcessCard` per active id — but reads
-// everything it needs from a `BackgroundProcessDescriptor` instead of hardwiring
-// a single kind's pill, copy, and handlers.
+// background-process surfaces (subagent / workflow / ACP run / background task):
+// `ActiveOverlayShell` chrome + a per-kind pill + one `InlineProcessCard` per
+// active id, all read from a `BackgroundProcessDescriptor`.
 //
 // `ids` are passed in (owned by the registry/caller, projected from the kind's
 // store) rather than read here, so this component is store-agnostic and trivial
@@ -59,8 +57,7 @@ function OverlayRow({
 }
 
 /**
- * Registry-driven version of the bespoke "active X" overlays. Self-gating:
- * renders nothing when there are no active ids.
+ * Self-gating: renders nothing when there are no active ids.
  */
 export function ActiveProcessOverlay({
   descriptor,

@@ -1,7 +1,6 @@
 /**
- * Generic optimistic cancel / restore / retire lifecycle for entry-map stores.
- *
- * The acp-run and background-task stores share a byte-parallel trio:
+ * Generic optimistic cancel / restore / retire lifecycle for entry-map stores
+ * (used by the acp-run and background-task stores):
  *
  * - **cancel** — optimistically mark an active entry "cancelling/cancelled"
  *   (user pressed Stop). No-op for unknown or already-terminal entries so a

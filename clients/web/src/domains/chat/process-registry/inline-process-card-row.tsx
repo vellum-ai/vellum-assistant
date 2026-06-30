@@ -3,7 +3,7 @@
 // `useCardSummary` hook and projects the result into the shared card, supplying
 // the descriptor's leading icon, open-affordance label, and custom count slot
 // (`descriptor.renderCount`). Returns `null` in the spawn race (no card-worthy
-// state yet), matching the bespoke cards it replaces.
+// state yet).
 //
 // The descriptor hook MUST run inside a component (not a bare `.map` callback),
 // so each row is its own component subscribing to its own id.

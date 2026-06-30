@@ -23,9 +23,6 @@
  * `isActive(status)` reports whether a status is non-terminal (active). The
  * incoming (history) status wins unless the live entry is already terminal and
  * the incoming one is not — in which case the live terminal status is kept.
- *
- * Equivalent to each store's original inline expression:
- *   `isActive(existing) || !isActive(incoming) ? incoming : existing`.
  */
 export function mergeTerminalStatus<S>(
   existingStatus: S,
@@ -45,10 +42,9 @@ export function mergeTerminalStatus<S>(
  * its id appended to `orderedIds`. Ordering of pre-existing ids is preserved and
  * new ids are appended in `entries` order.
  *
- * Reference stability matches the stores' hand-rolled loops: fresh `byId` and
- * `orderedIds` containers are always returned (callers pass these straight into
- * `set`). The `idOf` extractor lets each store key on its own id field
- * (`acpSessionId` vs `id`).
+ * Always returns fresh `byId` and `orderedIds` containers (callers pass these
+ * straight into `set`). The `idOf` extractor lets each store key on its own id
+ * field (`acpSessionId` vs `id`).
  *
  * @returns the next `byId` map and `orderedIds` array.
  */
