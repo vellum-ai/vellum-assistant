@@ -43,6 +43,8 @@ const MEMORY_JOB_TYPES = [
   "memory_v2_activation_recompute",
   "memory_v3_maintain",
   "memory_retrospective",
+  "index_message_lexical",
+  "purge_conversation_lexical",
 ].sort();
 
 /**
