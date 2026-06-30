@@ -12,9 +12,10 @@
  *
  * On desktop, each slider has a personality avatar peeking in from each screen
  * edge — one per end label (ten in all). Dead-center, both hide; the further
- * the user drags toward an end, the further that end's avatar pokes in. It makes
- * the abstract trait axes feel like characters reacting to the choice. (Hidden
- * on mobile, where the narrow track leaves no room for them.)
+ * the user drags toward an end, the further that end's avatar pokes in. They're
+ * scattered down the page edges (NOT aligned to their slider row) so they read
+ * as a loose crowd reacting to the choices. (Hidden on mobile, where the narrow
+ * track leaves no room for them.)
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -98,6 +99,14 @@ const PERSONALITY_AXES: PersonalityAxis[] = [
   },
 ];
 
+/**
+ * Vertical anchor (viewport-height fraction) for each axis' peeking avatars,
+ * scattered down the page rather than pinned to the slider rows — and spaced
+ * far enough apart that several on the same edge don't pile up. The same anchor
+ * serves both ends of an axis: only one side is ever shown at a time.
+ */
+const AVATAR_TOPS = ["9%", "27%", "45%", "62%", "79%"];
+
 /** Sliders start centered — no axis is nudged either way until the user acts. */
 const DEFAULT_VALUE = 50;
 
@@ -146,23 +155,24 @@ function useViewportWidth(): number {
 
 /**
  * One personality avatar peeking in from a screen edge. It's anchored to the
- * true viewport edge via `calc(50% - 50vw)` — the slider column is horizontally
- * centered, so 50% of the (full-width) row sits at screen-center, and pulling
- * back 50vw lands exactly on the edge — no measurement needed. `progress`
- * (0 at center → 1 at the far end) drives how far it slides in, plus a little
- * grow + fade so the entrance feels alive. Sits behind the row's labels/track
- * (`-z-10`) and never intercepts pointer events.
+ * true viewport edge via `calc(50% - 50vw)` — the overlay is full-width, so 50%
+ * is screen-center and pulling back 50vw lands on the edge — and to `top` for
+ * its scattered vertical slot. `progress` (0 at center → 1 at the far end)
+ * drives how far it slides in, plus a little grow + fade so the entrance feels
+ * alive. Never intercepts pointer events.
  */
 function EdgePeekAvatar({
   components,
   traits,
   side,
+  top,
   size,
   progress,
 }: {
   components: CharacterComponents;
   traits: CharacterTraits;
   side: "left" | "right";
+  top: string;
   size: number;
   progress: number;
 }) {
@@ -173,9 +183,10 @@ function EdgePeekAvatar({
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none absolute top-1/2 -z-10"
+      className="pointer-events-none absolute"
       style={{
         [side]: "calc(50% - 50vw)",
+        top,
         width: size,
         height: size,
         opacity: Math.min(1, p * 1.6),
@@ -196,70 +207,38 @@ function EdgePeekAvatar({
   );
 }
 
-/** One trait row: edge avatars (desktop only), left label, track, right label. */
+/** One trait row: left label, the tinted track, right label. */
 function PersonalitySlider({
   axis,
   value,
   onValueChange,
   fg,
-  components,
-  leftAvatar,
-  rightAvatar,
-  avatarSize,
 }: {
   axis: PersonalityAxis;
   value: number;
   onValueChange: (next: number) => void;
   fg: string;
-  /** Null while loading or on mobile — gates the peeking avatars off. */
-  components: CharacterComponents | null;
-  leftAvatar: CharacterTraits;
-  rightAvatar: CharacterTraits;
-  avatarSize: number;
 }) {
-  // Distance from center toward each end, 0 (centered) → 1 (hard against the
-  // end). Only one side is ever non-zero, so the opposite avatar stays hidden.
-  const leftProgress = Math.max(0, (DEFAULT_VALUE - value) / DEFAULT_VALUE);
-  const rightProgress = Math.max(0, (value - DEFAULT_VALUE) / DEFAULT_VALUE);
-
   // Responsive: on mobile the labels sit on one line split to the slider's two
   // ends (left label hard-left, right label hard-right) above a full-width
   // track, so it's obvious which end each label belongs to; on >=sm they flank
   // the track in a single row. Flex `order` + wrap drives the reflow.
   return (
-    <div className="relative flex flex-wrap items-center gap-x-5 gap-y-1.5 sm:flex-nowrap">
-      {components && (
-        <>
-          <EdgePeekAvatar
-            components={components}
-            traits={leftAvatar}
-            side="left"
-            size={avatarSize}
-            progress={leftProgress}
-          />
-          <EdgePeekAvatar
-            components={components}
-            traits={rightAvatar}
-            side="right"
-            size={avatarSize}
-            progress={rightProgress}
-          />
-        </>
-      )}
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 sm:flex-nowrap">
       <span
-        className="relative z-[1] order-1 flex-1 text-left text-base sm:w-32 sm:flex-none sm:text-right sm:text-[17px]"
+        className="order-1 flex-1 text-left text-base sm:w-32 sm:flex-none sm:text-right sm:text-[17px]"
         style={{ color: fg }}
       >
         {axis.left}
       </span>
       <span
-        className="relative z-[1] order-2 flex-1 text-right text-base sm:order-3 sm:w-32 sm:flex-none sm:text-left sm:text-[17px]"
+        className="order-2 flex-1 text-right text-base sm:order-3 sm:w-32 sm:flex-none sm:text-left sm:text-[17px]"
         style={{ color: fg }}
       >
         {axis.right}
       </span>
       <SliderPrimitive.Root
-        className="relative z-[1] order-3 flex h-6 w-full touch-none items-center select-none sm:order-2 sm:w-auto sm:flex-1"
+        className="relative order-3 flex h-6 w-full touch-none items-center select-none sm:order-2 sm:w-auto sm:flex-1"
         value={[value]}
         onValueChange={(next) => onValueChange(next[0] ?? DEFAULT_VALUE)}
         min={0}
@@ -276,6 +255,57 @@ function PersonalitySlider({
           style={{ backgroundColor: THUMB_COLOR }}
         />
       </SliderPrimitive.Root>
+    </div>
+  );
+}
+
+/**
+ * Full-bleed layer of the ten peeking avatars, behind the slider column. Each
+ * axis' value drives its two edge avatars: the distance from center toward an
+ * end (0 → 1) is how far that end's avatar pokes in; the opposite side stays
+ * hidden. Scattered down the edges via `AVATAR_TOPS`.
+ */
+function EdgeAvatarLayer({
+  components,
+  values,
+  sideAvatars,
+  size,
+}: {
+  components: CharacterComponents;
+  values: Record<string, number>;
+  sideAvatars: { left: CharacterTraits; right: CharacterTraits }[];
+  size: number;
+}) {
+  return (
+    <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10">
+      {PERSONALITY_AXES.map((axis, i) => {
+        const value = values[axis.id] ?? DEFAULT_VALUE;
+        const leftProgress = Math.max(0, (DEFAULT_VALUE - value) / DEFAULT_VALUE);
+        const rightProgress = Math.max(0, (value - DEFAULT_VALUE) / DEFAULT_VALUE);
+        const top = AVATAR_TOPS[i] ?? "50%";
+        const pair = sideAvatars[i];
+        if (!pair) return null;
+        return (
+          <div key={axis.id}>
+            <EdgePeekAvatar
+              components={components}
+              traits={pair.left}
+              side="left"
+              top={top}
+              size={size}
+              progress={leftProgress}
+            />
+            <EdgePeekAvatar
+              components={components}
+              traits={pair.right}
+              side="right"
+              top={top}
+              size={size}
+              progress={rightProgress}
+            />
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -323,6 +353,15 @@ export function CreatePersonalityStep({
     <div className="absolute inset-0 z-10 overflow-hidden" style={{ color: tone.fg }}>
       <OnboardingTopBar onBack={onBack} onNext={onForward} />
 
+      {isDesktop && components && (
+        <EdgeAvatarLayer
+          components={components}
+          values={values}
+          sideAvatars={sideAvatars}
+          size={avatarSize}
+        />
+      )}
+
       <div className="absolute left-1/2 top-[14%] flex w-full max-w-2xl -translate-x-1/2 flex-col items-center gap-10 px-6">
         <h1
           className="text-center text-[2.6rem] leading-none"
@@ -332,7 +371,7 @@ export function CreatePersonalityStep({
         </h1>
 
         <div className="flex w-full flex-col gap-8 sm:gap-11">
-          {PERSONALITY_AXES.map((axis, i) => (
+          {PERSONALITY_AXES.map((axis) => (
             <PersonalitySlider
               key={axis.id}
               axis={axis}
@@ -341,10 +380,6 @@ export function CreatePersonalityStep({
                 setValues((prev) => ({ ...prev, [axis.id]: next }))
               }
               fg={tone.fg}
-              components={isDesktop ? components : null}
-              leftAvatar={sideAvatars[i]?.left ?? axis.leftAvatar}
-              rightAvatar={sideAvatars[i]?.right ?? axis.rightAvatar}
-              avatarSize={avatarSize}
             />
           ))}
         </div>
