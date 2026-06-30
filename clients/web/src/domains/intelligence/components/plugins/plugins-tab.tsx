@@ -9,7 +9,7 @@ import {
     TriangleAlert,
     X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 
 import { PluginDetail } from "@/domains/intelligence/components/plugins/plugin-detail";
@@ -95,11 +95,19 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
     getLocalBool(TIP_STORAGE_KEY, false),
   );
 
-  // Category selection is per-assistant; clear it when the active assistant
-  // changes so a stale slug isn't sent as `?category=` to the next assistant.
-  useEffect(() => {
+  // Category selection is per-assistant. Reset it synchronously when the active
+  // assistant changes (during render, not in an effect) and read through an
+  // effective category that is already `null` on that render — otherwise the
+  // first render after a switch would pass the previous assistant's slug into
+  // the data hook, issuing `?category=<old>` against the new assistant before an
+  // effect could clear it.
+  const [categoryAssistantId, setCategoryAssistantId] = useState(assistantId);
+  if (assistantId !== categoryAssistantId) {
+    setCategoryAssistantId(assistantId);
     setCategory(null);
-  }, [assistantId]);
+  }
+  const effectiveCategory =
+    assistantId === categoryAssistantId ? category : null;
 
   const { data: categories = [] } = useSkillCategories(assistantId);
 
@@ -116,7 +124,7 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
     installedTotal,
     catalogMatches,
     unfilteredInstalledNames,
-  } = usePluginsList(assistantId, category);
+  } = usePluginsList(assistantId, effectiveCategory);
 
   const { counts, totalCount } = useMergedPluginCounts(
     installedCategoryCounts,
@@ -301,7 +309,7 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
         catalogLoading && filter !== "installed" ? (
           <LoadingState />
         ) : (
-          <EmptyState filter={filter} category={category} />
+          <EmptyState filter={filter} category={effectiveCategory} />
         )
       ) : (
         <ul className="flex flex-col gap-2">
@@ -343,7 +351,7 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
         onFilterChange={setFilter}
         isSearching={isSearching}
         categories={categoryRailEnabled ? categories : []}
-        category={category}
+        category={effectiveCategory}
         onCategoryChange={setCategory}
         counts={counts}
         totalCount={totalCount}
@@ -359,7 +367,7 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
           <aside className="hidden w-56 shrink-0 overflow-y-auto md:block">
             <CategorySidebar
               ariaLabel="Plugin categories"
-              selected={category}
+              selected={effectiveCategory}
               onSelect={setCategory}
               counts={counts}
               totalCount={totalCount}
