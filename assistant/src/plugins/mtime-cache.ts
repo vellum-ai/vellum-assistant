@@ -177,12 +177,21 @@ const disabledPluginDirs = new Set<string>();
  * workspace hooks. Refreshes plugin discovery first, then delegates the actual
  * hook resolution to the hook loader. Plugin hooks run in install-date order,
  * the workspace hook runs last.
+ *
+ * `effectiveEnabledPlugins` carries the per-chat plugin scope: when non-null,
+ * user plugins outside the set are skipped (standalone workspace hooks always
+ * run). `null`/omitted means no per-chat restriction.
  */
 export async function getUserHooksFor<TCtx = unknown>(
   hookName: string,
+  effectiveEnabledPlugins?: Set<string> | null,
 ): Promise<HookFunction<TCtx>[]> {
   await scanPlugins();
-  return collectUserHooks<TCtx>(hookName, discoveredPluginDirs);
+  return collectUserHooks<TCtx>(
+    hookName,
+    discoveredPluginDirs,
+    effectiveEnabledPlugins,
+  );
 }
 
 // ─── Tool cache ──────────────────────────────────────────────────────────────

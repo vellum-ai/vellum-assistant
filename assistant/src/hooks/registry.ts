@@ -89,9 +89,16 @@ export function unregisterPluginHooks(pluginName: string): void {
  * over the concrete context type their hook receives. Hooks that mutate the
  * context in place return `void`; hooks that return a new context replace
  * the threaded value for the next hook in the chain.
+ *
+ * `effectiveEnabledPlugins` layers the per-chat plugin scope on top of the
+ * global disabled check: when non-null, a hook's contributing plugin must also
+ * be a member of the set or the hook is excluded for this turn (applies to both
+ * in-process default plugins and user-land plugins). `null`/omitted means no
+ * per-chat restriction — every globally-enabled plugin's hooks run, unchanged.
  */
 export async function getHooksFor<TCtx = unknown>(
   name: string,
+  effectiveEnabledPlugins?: Set<string> | null,
 ): Promise<HookFunction<TCtx>[]> {
   // First-party defaults from the hook registry, filtered by the `.disabled`
   // sentinel at read time. This is what makes `assistant plugins disable
@@ -99,13 +106,20 @@ export async function getHooksFor<TCtx = unknown>(
   // registered but are filtered out on the next turn.
   const defaultHooks: HookFunction<TCtx>[] = [];
   for (const entry of hookRegistry.get(name) ?? []) {
-    if (!isPluginDisabled(entry.pluginName)) {
-      defaultHooks.push(entry.fn as HookFunction<TCtx>);
+    if (isPluginDisabled(entry.pluginName)) continue;
+    if (
+      effectiveEnabledPlugins != null &&
+      !effectiveEnabledPlugins.has(entry.pluginName)
+    ) {
+      continue;
     }
+    defaultHooks.push(entry.fn as HookFunction<TCtx>);
   }
 
-  // User-land hooks from the mtime cache (async, may re-import).
-  const userHooks = await getUserHooksFor<TCtx>(name);
+  // User-land hooks from the mtime cache (async, may re-import). The per-chat
+  // scope is threaded through so a deselected user plugin's hooks are excluded
+  // too — standalone workspace hooks (not owned by a plugin) always run.
+  const userHooks = await getUserHooksFor<TCtx>(name, effectiveEnabledPlugins);
 
   return [...defaultHooks, ...userHooks];
 }

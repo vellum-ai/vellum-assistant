@@ -96,8 +96,16 @@ export function unregisterPluginInjectors(pluginName: string): void {
  * and tool registries honor. The order-sorted union is memoized across the
  * filter (rebuilt only on a registration change); only the small per-plugin
  * disabled check re-runs each call.
+ *
+ * `effectiveEnabledPlugins` layers the per-chat plugin scope on top of the
+ * global disabled check: when non-null, an injector's contributing plugin must
+ * also be a member of the set or the injector is excluded for this turn. `null`
+ * (or omitted) means no per-chat restriction — every globally-enabled plugin's
+ * injectors run, unchanged.
  */
-export function getRegisteredInjectors(): Injector[] {
+export function getRegisteredInjectors(
+  effectiveEnabledPlugins?: Set<string> | null,
+): Injector[] {
   if (cachedChain === null) {
     const pairs: Array<{ plugin: string; injector: Injector }> = [];
     for (const [plugin, injectors] of injectorsByPlugin) {
@@ -110,7 +118,10 @@ export function getRegisteredInjectors(): Injector[] {
   const isEnabled = (plugin: string): boolean => {
     let enabled = enabledByPlugin.get(plugin);
     if (enabled === undefined) {
-      enabled = !isPluginDisabled(plugin);
+      enabled =
+        !isPluginDisabled(plugin) &&
+        (effectiveEnabledPlugins == null ||
+          effectiveEnabledPlugins.has(plugin));
       enabledByPlugin.set(plugin, enabled);
     }
     return enabled;

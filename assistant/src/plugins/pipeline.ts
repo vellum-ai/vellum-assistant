@@ -109,16 +109,20 @@ function cloneHookValue<T>(value: T, seen = new WeakMap<object, unknown>()): T {
  *
  * @param name        The hook identifier — pick one from {@link HOOKS}.
  * @param initialCtx  Context the first hook receives.
+ * @param effectiveEnabledPlugins  Per-chat plugin scope (see
+ *        {@link getHooksFor}): when non-null, only hooks contributed by a
+ *        plugin in the set run. `null`/omitted means no per-chat restriction.
  * @returns The final context after the chain settles. Same reference as
  *          `initialCtx` when no plugin registers `name`.
  */
 export async function runHook<TCtx>(
   name: HookName,
   initialCtx: TCtx,
+  effectiveEnabledPlugins?: Set<string> | null,
 ): Promise<TCtx> {
   let hooks: HookFunction<TCtx>[];
   try {
-    hooks = await getHooksFor<TCtx>(name);
+    hooks = await getHooksFor<TCtx>(name, effectiveEnabledPlugins);
   } catch (err) {
     log.error(
       { err, hookName: name },
