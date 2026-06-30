@@ -315,14 +315,11 @@ export interface ViewerActions {
 
   // --- Process-detail routing facade ---
   /**
-   * Forward-compatible entry point for opening any background-process detail
-   * panel by `{ kind, id }`. Delegates to the matching per-kind `openXDetail`
-   * action so new process kinds route through one call site.
-   *
-   * This is purely additive over the per-kind actions: the destructive
-   * `mainView` enum collapse — and absorbing the payload-carrying
-   * `tool-detail` / `document` / `channel-setup` views into this facade — is a
-   * deferred follow-up.
+   * Opens any background-process detail panel by `{ kind, id }`, delegating to
+   * the matching per-kind `openXDetail` action so every process kind routes
+   * through one call site. Handles the four process kinds (subagent, workflow,
+   * acp-run, background-task); `tool-detail`, `document`, and `channel-setup`
+   * keep their own dedicated open actions.
    */
   openProcessDetail: (ref: { kind: ProcessKind; id: string }) => void;
   /**
