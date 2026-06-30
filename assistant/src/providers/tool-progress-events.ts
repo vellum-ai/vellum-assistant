@@ -18,6 +18,14 @@ export function createToolProgressEmitter(
     string,
     { emittedAt: number; accumulatedJson: string }
   >();
+  const pendingInputEmitByToolUseId = new Map<
+    string,
+    {
+      timeout: ReturnType<typeof setTimeout>;
+      toolName: string;
+      accumulatedJson: string;
+    }
+  >();
 
   const emitPreviewStart = (toolUseId: string, toolName: string): void => {
     if (!onEvent || !toolUseId || !toolName) return;
@@ -44,9 +52,42 @@ export function createToolProgressEmitter(
       last &&
       now - last.emittedAt < INPUT_JSON_DELTA_EMIT_INTERVAL_MS
     ) {
+      const pending = pendingInputEmitByToolUseId.get(toolUseId);
+      if (pending) {
+        pending.toolName = toolName;
+        pending.accumulatedJson = accumulatedJson;
+        return;
+      }
+      const delay = INPUT_JSON_DELTA_EMIT_INTERVAL_MS - (now - last.emittedAt);
+      const timeout = setTimeout(() => {
+        const latest = pendingInputEmitByToolUseId.get(toolUseId);
+        if (!latest) return;
+        pendingInputEmitByToolUseId.delete(toolUseId);
+        lastInputEmitByToolUseId.set(toolUseId, {
+          emittedAt: Date.now(),
+          accumulatedJson: latest.accumulatedJson,
+        });
+        onEvent({
+          type: "input_json_delta",
+          toolName: latest.toolName,
+          toolUseId,
+          accumulatedJson: latest.accumulatedJson,
+        });
+      }, delay);
+      timeout.unref?.();
+      pendingInputEmitByToolUseId.set(toolUseId, {
+        timeout,
+        toolName,
+        accumulatedJson,
+      });
       return;
     }
 
+    const pending = pendingInputEmitByToolUseId.get(toolUseId);
+    if (pending) {
+      clearTimeout(pending.timeout);
+      pendingInputEmitByToolUseId.delete(toolUseId);
+    }
     lastInputEmitByToolUseId.set(toolUseId, {
       emittedAt: now,
       accumulatedJson,
