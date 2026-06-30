@@ -7,6 +7,7 @@ import {
   sendSlackAttachments,
   sendSlackReaction,
   sendSlackReply,
+  sendSlackStreamOp,
   sendSlackTypingIndicator,
 } from "./send.js";
 
@@ -88,5 +89,11 @@ export const slackTransport: ChannelTransport = {
       status.loadingMessages,
     );
     return { ok: true };
+  },
+
+  async streamReply(_ctx, payload) {
+    const op = payload.slackStream;
+    if (!op) return { ok: true };
+    return sendSlackStreamOp(payload.chatId, op);
   },
 };

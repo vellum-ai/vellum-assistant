@@ -133,6 +133,18 @@ export function extractMessageTsFromCallbackUrl(
 }
 
 /**
+ * Whether a reply callback URL targets the Slack delivery endpoint.
+ */
+export function isSlackDeliveryCallbackUrl(callbackUrl?: string): boolean {
+  if (!callbackUrl) return false;
+  try {
+    return new URL(callbackUrl).pathname.endsWith("/deliver/slack");
+  } catch {
+    return callbackUrl.endsWith("/deliver/slack");
+  }
+}
+
+/**
  * Extract the channel from a Slack reply callback URL, if present.
  */
 export function extractChannelFromCallbackUrl(

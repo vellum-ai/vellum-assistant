@@ -11,11 +11,7 @@ import { getDiskPressureStatus } from "../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../daemon/disk-pressure-policy.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import {
-  addSlackDmLiveDeliveredTextResponseIndex,
-  getSlackDmLiveDeliveredTextResponseIndexes,
-  updateDeliveredSegmentCount,
-} from "../persistence/delivery-channels.js";
+import { updateDeliveredSegmentCount } from "../persistence/delivery-channels.js";
 import {
   clearPayload,
   linkMessage,
@@ -38,7 +34,7 @@ import {
 import { finalizeEventDelivery } from "./finalize-event-delivery.js";
 import { deliverChannelReply } from "./gateway-client.js";
 import type { MessageProcessor } from "./http-types.js";
-import { createSlackDmTextDeliveryController } from "./slack-dm-text-delivery.js";
+import { createSlackReplySession } from "./slack-reply-session.js";
 import { resolveRoutingStateFromRuntime } from "./trust-context-resolver.js";
 
 const log = getLogger("runtime-http");
@@ -293,17 +289,13 @@ export async function sweepFailedEvents(
       typeof payload.externalChatId === "string"
         ? payload.externalChatId
         : undefined;
-    const slackDmTextDelivery = externalChatId
-      ? createSlackDmTextDeliveryController({
+    const slackReplySession = externalChatId
+      ? createSlackReplySession({
           sourceChannel,
           chatType: metadataChatType,
           replyCallbackUrl,
           chatId: externalChatId,
           assistantId,
-          deliveredTextResponseIndexes:
-            getSlackDmLiveDeliveredTextResponseIndexes(event.id),
-          onTextResponseDelivered: (responseIndex) =>
-            addSlackDmLiveDeliveredTextResponseIndex(event.id, responseIndex),
         })
       : undefined;
     let replyMessageId: string | undefined;
@@ -315,7 +307,7 @@ export async function sweepFailedEvents(
       ) {
         replyMessageId = msg.messageId;
       }
-      slackDmTextDelivery?.observeEvent(msg);
+      slackReplySession?.observeEvent(msg);
     };
 
     let userMessageId: string | undefined;
@@ -349,8 +341,8 @@ export async function sweepFailedEvents(
       );
     } catch (err) {
       log.error({ err, eventId: event.id }, "Retry failed for channel event");
-      if (slackDmTextDelivery) {
-        await slackDmTextDelivery.waitForPendingDeliveries();
+      if (slackReplySession) {
+        await slackReplySession.finish();
       }
       recordProcessingFailure(event.id, err);
       continue;
@@ -366,7 +358,7 @@ export async function sweepFailedEvents(
           assistantId,
           replyMessageId,
           userMessageId,
-          slackDmTextDelivery,
+          slackReplySession,
         });
       } catch (err) {
         log.error(
