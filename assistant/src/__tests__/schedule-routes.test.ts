@@ -1241,7 +1241,7 @@ describe("POST /schedules — create", () => {
     expect(job.description).toBe("Description fallback");
   });
 
-  test("rejects modes other than execute/workflow", async () => {
+  test("rejects modes other than execute/workflow/script", async () => {
     await expect(
       postCreate({
         name: "x",
@@ -1250,7 +1250,9 @@ describe("POST /schedules — create", () => {
         message: "hi",
         mode: "notify",
       }),
-    ).rejects.toThrow("Only 'execute' and 'workflow' modes are supported");
+    ).rejects.toThrow(
+      "Only 'execute', 'script', and 'workflow' modes are supported",
+    );
   });
 
   test("rejects an unparseable expression", async () => {
