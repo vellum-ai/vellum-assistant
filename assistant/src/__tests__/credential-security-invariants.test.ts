@@ -221,13 +221,11 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "runtime/routes/credential-routes.ts", // CLI credential management routes (CLI-migrated to IPC)
       "runtime/routes/sanity-routes.ts", // Sanity connect/discover routes (reads stored api_token from credential store)
       "runtime/routes/platform-routes.ts", // CLI platform connect/disconnect/status routes (CLI-migrated to IPC)
-      "ipc/skill-routes/providers.ts", // host.providers.secureKeys.getProviderKey IPC route (out-of-process SkillHost companion)
       "inbound/platform-callback-registration.ts", // managed credential lookup for platform base URL, assistant ID, and API key
       "tts/providers/elevenlabs-provider.ts", // ElevenLabs TTS API key lookup
       "tts/providers/deepgram-provider.ts", // Deepgram TTS API key lookup
       "tts/providers/xai-provider.ts", // xAI TTS API key lookup
       "credential-health/credential-health-service.ts", // credential health check reads access tokens for liveness pings
-      "ipc/skill-routes/providers.ts", // skill IPC route exposes provider key lookup to hosted skills
       "runtime/routes/avatar-routes.ts", // avatar generate route reads platform_base_url from credential store
       "cli/commands/keys.ts", // CLI provider key management
       "cli/commands/oauth/connect.ts", // CLI OAuth connect stored-secret verification

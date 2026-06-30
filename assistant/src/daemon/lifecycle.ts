@@ -20,7 +20,6 @@ import { backfillRelationshipStateIfMissing } from "../home/relationship-state-w
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { startCliIpcServer } from "../ipc/assistant-server.js";
 import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
-import { startSkillIpcServer } from "../ipc/skill-server.js";
 import { registerMemoryJobHandlers } from "../jobs/register-job-handlers.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
@@ -627,11 +626,6 @@ export async function runDaemon(): Promise<void> {
   // daemon already holds the socket, so this process never runs background jobs
   // against the shared database as an unmanageable duplicate.
   await startCliIpcServer();
-
-  // Start the skill IPC server so first-party skill processes can connect for
-  // host capabilities. The meet-host supervisor reads the live server from the
-  // skill-server singleton at dispatch time.
-  await startSkillIpcServer();
 
   // Warm the gateway guardian-delivery cache so the SSE eager-subscribe path
   // (sync, IO-free) resolves the local actor principal on the FIRST client
