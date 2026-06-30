@@ -128,20 +128,36 @@ const THUMB_COLOR = "#FDFDFC";
 const EDGE_GAP = 0.16;
 
 /**
- * Keep an avatar's color off the background. The toned backdrop is painted in
- * the selected avatar's color, so a side avatar sharing it would melt into the
- * page. When that happens, swap to another palette color (stable per slot via
- * `seed`); otherwise keep the hand-picked color.
+ * Resolve the colors for one side's avatars (top→bottom), keeping the
+ * hand-picked color wherever it's valid and only swapping when it would either
+ * (a) match the background — the backdrop is painted in the selected avatar's
+ * color, so a same-colored avatar melts in — or (b) match the avatar directly
+ * above it, so two same-colored characters never stack on one edge. A
+ * replacement also dodges the next avatar's preferred color where possible, to
+ * avoid forcing a chain of swaps.
  */
-function avoidBackgroundColor(
-  preferred: string,
+function resolveSideColors(
+  preferred: string[],
   selectedColor: string | undefined,
   palette: string[],
-  seed: number,
-): string {
-  if (!selectedColor || preferred !== selectedColor) return preferred;
-  const options = palette.filter((c) => c !== selectedColor);
-  return options.length > 0 ? (options[seed % options.length] ?? preferred) : preferred;
+): string[] {
+  const resolved: string[] = [];
+  for (let i = 0; i < preferred.length; i++) {
+    const prev = resolved[i - 1];
+    const next = preferred[i + 1];
+    const want = preferred[i] ?? "";
+    const bad = (c: string) => c === selectedColor || c === prev;
+    if (!bad(want)) {
+      resolved.push(want);
+      continue;
+    }
+    const alt =
+      palette.find((c) => !bad(c) && c !== next) ??
+      palette.find((c) => !bad(c)) ??
+      want;
+    resolved.push(alt);
+  }
+  return resolved;
 }
 
 /** Track a live viewport width so the peeking avatars scale with the screen. */
@@ -334,19 +350,24 @@ export function CreatePersonalityStep({
   const avatarSize = Math.round(
     Math.min(300, Math.max(160, viewportWidth * 0.16)),
   );
-  // Resolve each axis' two avatars once, swapping any color that matches the
-  // background. Stable unless the components or the selected color change.
+  // Resolve each side's colors top-to-bottom once: keep the hand-picked color,
+  // but swap any that matches the background or the avatar stacked above it.
+  // Stable unless the components or the selected color change.
   const sideAvatars = useMemo(() => {
     const palette = components?.colors.map((c) => c.id) ?? [];
+    const leftColors = resolveSideColors(
+      PERSONALITY_AXES.map((a) => a.leftAvatar.color),
+      selectedColor,
+      palette,
+    );
+    const rightColors = resolveSideColors(
+      PERSONALITY_AXES.map((a) => a.rightAvatar.color),
+      selectedColor,
+      palette,
+    );
     return PERSONALITY_AXES.map((axis, i) => ({
-      left: {
-        ...axis.leftAvatar,
-        color: avoidBackgroundColor(axis.leftAvatar.color, selectedColor, palette, i * 2),
-      },
-      right: {
-        ...axis.rightAvatar,
-        color: avoidBackgroundColor(axis.rightAvatar.color, selectedColor, palette, i * 2 + 1),
-      },
+      left: { ...axis.leftAvatar, color: leftColors[i] ?? axis.leftAvatar.color },
+      right: { ...axis.rightAvatar, color: rightColors[i] ?? axis.rightAvatar.color },
     }));
   }, [components, selectedColor]);
   // Frontend-only: keep each axis' value locally; nothing is persisted yet.
