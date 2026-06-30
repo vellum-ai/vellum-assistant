@@ -119,6 +119,20 @@ export function resolveConversationAttribution(
   }
 }
 
+/**
+ * Resolve a conversation's effective per-chat plugin scope as a Set for
+ * membership checks. Returns `null` when there is no per-chat restriction
+ * (`enabledPlugins` null/undefined) — meaning all globally-enabled plugins
+ * apply — otherwise a Set of the scoped plugin ids. Later tool/skill/hook
+ * filters intersect their candidate set against this; `null` is the no-op
+ * sentinel (no intersection).
+ */
+export function getEffectiveEnabledPluginSet(conv: {
+  enabledPlugins?: string[] | null;
+}): Set<string> | null {
+  return conv.enabledPlugins == null ? null : new Set(conv.enabledPlugins);
+}
+
 // ── createToolExecutor ───────────────────────────────────────────────
 
 /**
