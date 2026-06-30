@@ -38,6 +38,7 @@ import {
 import { useBackgroundHatch } from "@/domains/onboarding/use-background-hatch";
 import { useResearchRunner } from "@/domains/onboarding/research-runner";
 import { sendResearchCorrection } from "@/domains/onboarding/send-research-correction";
+import { applyPersonality } from "@/domains/onboarding/apply-personality";
 import {
   clearResearchSnapshot,
   readResearchSnapshot,
@@ -554,7 +555,18 @@ export function ResearchOnboardingRoute() {
         )}
         {step === "personality" && (
           <CreatePersonalityStep
-            onContinue={() => goForwardTo("integration")}
+            onContinue={(personalityValues) => {
+              // Apply the sliders to the assistant's persona on a throwaway side
+              // thread (awaits hatch readiness internally, then archives). Fire-
+              // and-forget — the rewrite turn finishes during the later steps,
+              // well before the chat handoff. Best-effort; never blocks the flow.
+              void applyPersonality({
+                awaitAssistantId: awaitHatchReady,
+                values: personalityValues,
+                userName: formValues?.firstName?.trim() || undefined,
+              });
+              goForwardTo("integration");
+            }}
             onBack={() => goBackTo("different")}
             onForward={onForward}
           />

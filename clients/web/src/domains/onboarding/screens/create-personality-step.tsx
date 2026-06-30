@@ -40,7 +40,9 @@ preloadBundledAvatarComponents();
 const DESKTOP_MIN_WIDTH = 640;
 
 interface CreatePersonalityStepProps {
-  onContinue: () => void;
+  /** Continue, reporting the slider values (keyed by axis id) so the route can
+   *  apply them to the assistant's persona. */
+  onContinue: (values: Record<string, number>) => void;
   onBack: () => void;
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
@@ -412,7 +414,7 @@ export function CreatePersonalityStep({
 
         <button
           type="button"
-          onClick={onContinue}
+          onClick={() => onContinue(values)}
           className="mt-4 flex h-11 w-[234px] cursor-pointer items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition-transform duration-150 active:scale-[0.97]"
           style={{
             backgroundColor: tone.isLight ? "#1A1A1A" : "#FFFFFF",
