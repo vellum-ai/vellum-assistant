@@ -34,6 +34,14 @@ export async function resolveInitialSystemPrompt(
   if (storedOptions?.systemPromptOverride !== undefined) {
     return storedOptions.systemPromptOverride;
   }
-  await getGuardianDelivery({ channelTypes: ["vellum"] });
+  // Warm both guardian-binding cache keys the desktop/native persona resolver
+  // reads: the "vellum"-channel key for `peekGuardianForChannel("vellum")` and
+  // the unfiltered key for its `peekAnyGuardian()` fallback. Warming only one
+  // would still freeze users/default.md when the guardian lives on a non-vellum
+  // channel (phone / Telegram).
+  await Promise.all([
+    getGuardianDelivery({ channelTypes: ["vellum"] }),
+    getGuardianDelivery(),
+  ]);
   return buildSystemPrompt();
 }

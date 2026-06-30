@@ -36,14 +36,16 @@ describe("resolveInitialSystemPrompt", () => {
     calls.length = 0;
   });
 
-  test("warms the guardian binding before building the default prompt", async () => {
+  test("warms both guardian-binding cache keys before building the default prompt", async () => {
     const result = await resolveInitialSystemPrompt(undefined);
 
     expect(result).toBe("DEFAULT_BUILD");
-    // Regression: the warm MUST precede the build so the persona slot resolves
-    // the guardian's users/<slug>.md instead of users/default.md on a cold
-    // gateway-binding cache.
-    expect(calls).toEqual(["warm:vellum", "build"]);
+    // Regression: both keys the persona resolver reads — the "vellum" key and
+    // the unfiltered (peekAnyGuardian) key — must be warmed before the build so
+    // the persona slot resolves the guardian's users/<slug>.md instead of
+    // users/default.md on a cold gateway-binding cache, regardless of which
+    // channel the guardian lives on.
+    expect(calls).toEqual(["warm:vellum", "warm:ALL", "build"]);
   });
 
   test("an explicit override is used verbatim and skips the warm and build", async () => {
