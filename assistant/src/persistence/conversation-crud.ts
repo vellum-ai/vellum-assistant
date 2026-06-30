@@ -28,20 +28,9 @@ import { findConversation } from "../daemon/conversation-registry.js";
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
-import { forkGraphMemoryState } from "../plugins/defaults/memory/graph/graph-memory-state-store.js";
 import { MEMORY_RETROSPECTIVE_SOURCES } from "../plugins/defaults/memory/memory-retrospective-constants.js";
-import { forkRetrospectiveState } from "../plugins/defaults/memory/memory-retrospective-state.js";
 import { cancelPendingJobsForConversation } from "../plugins/defaults/memory/task-memory-cleanup.js";
-import {
-  forkActivationState,
-  seedForkActivationState,
-} from "../plugins/defaults/memory/v2/activation-store.js";
-import { extractInjectedConceptSlugs } from "../plugins/defaults/memory/v2/injected-block-slugs.js";
-import {
-  forkEverInjected,
-  MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
-  seedEverInjectedFromSlugs,
-} from "../plugins/defaults/memory/v3/ever-injected-store.js";
+import { MEMORY_V3_INJECTED_BLOCK_METADATA_KEY } from "../plugins/defaults/memory/v3/ever-injected-store.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { UserError } from "../util/errors.js";
@@ -227,30 +216,6 @@ function cloneForkMessageMetadata(
   }
 
   return JSON.stringify({ forkSourceMessageId: sourceMessageId });
-}
-
-/**
- * Read a persisted memory-injection block off a message's metadata JSON, or
- * `null` when absent/malformed. `key` selects the injection layer: v2's
- * `memoryInjectedBlock` or memory-v3's card block
- * (`MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`). The block is what the request
- * builder re-attaches as the message's `<memory>` content each turn.
- */
-function readInjectedBlock(
-  metadata: string | null,
-  key: string,
-): string | null {
-  if (!metadata) return null;
-  try {
-    const parsed: unknown = JSON.parse(metadata);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      const block = (parsed as Record<string, unknown>)[key];
-      if (typeof block === "string") return block;
-    }
-  } catch {
-    // Malformed metadata — treat as no block.
-  }
-  return null;
 }
 
 /**
@@ -1173,64 +1138,17 @@ function populateForkContentsInProcess(args: PopulateForkContentsArgs): void {
     latestAssistantMessageAt: latestForkedAssistant?.messageAt ?? null,
   });
 
-  // Carry the parent's per-conversation memory state into the child so the
-  // forked thread resumes with the same activation/injection log and
-  // in-context tracker the parent had at fork time. Only valid for
-  // full-history forks: a truncated fork would inherit activation/tracker
-  // entries for turns the child does not actually contain.
-  if (isFullHistoryFork) {
-    forkActivationState(db, sourceConversationId, fork.id);
-    forkEverInjected(db, sourceConversationId, fork.id);
-    forkGraphMemoryState(sourceConversationId, fork.id);
-  } else {
-    // Truncated fork: the wholesale copy above would over-claim, but
-    // seeding nothing makes the child re-select and re-attach every page
-    // whose `<memory>` attachment it already inherited (observed in
-    // production: 89 duplicate page injections on one fork). Derive
-    // `everInjected` from the inherited attachments themselves — scoped to
-    // the child's visible window, since attachments behind an inherited
-    // compaction boundary are not rendered and must stay re-injectable.
-    // The v2 and v3 layers persist under separate metadata keys with the
-    // same `# memory/concepts/<slug>.md` header convention, so each seeds
-    // its own dedup record from its own blocks.
-    const visibleStartIndex = Math.min(
-      inheritedCompactedMessageCount,
-      messagesToCopy.length,
-    );
-    const inheritedSlugs = new Set<string>();
-    const inheritedV3Slugs = new Set<string>();
-    for (const message of messagesToCopy.slice(visibleStartIndex)) {
-      const block = readInjectedBlock(message.metadata, "memoryInjectedBlock");
-      if (block) {
-        for (const slug of extractInjectedConceptSlugs(block)) {
-          inheritedSlugs.add(slug);
-        }
-      }
-      const v3Block = readInjectedBlock(
-        message.metadata,
-        MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
-      );
-      if (v3Block) {
-        for (const slug of extractInjectedConceptSlugs(v3Block)) {
-          inheritedV3Slugs.add(slug);
-        }
-      }
-    }
-    seedForkActivationState(db, fork.id, [...inheritedSlugs]);
-    seedEverInjectedFromSlugs(
-      db,
-      sourceConversationId,
-      fork.id,
-      [...inheritedV3Slugs],
-      Date.now(),
-    );
-  }
-  forkRetrospectiveState({
-    database: db,
+  // Carry the parent's per-conversation memory state into the child (activation
+  // and injection logs, graph state, retrospective state). Runs synchronously
+  // inside the fork transaction; a no-op when memory is absent or disabled.
+  getMemoryPersistenceHooks().onConversationForked({
+    db,
     sourceConversationId,
-    forkedConversationId: fork.id,
+    forkId: fork.id,
+    isFullHistoryFork,
+    messagesToCopy,
     forkedMessageIds,
-    lastCopiedSourceMessageId: messagesToCopy.at(-1)?.id ?? null,
+    inheritedCompactedMessageCount,
   });
 
   // Carry the source's compaction events that predate the fork boundary so the

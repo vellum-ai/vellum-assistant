@@ -265,6 +265,7 @@ describe("per-surface disabled-state filtering", () => {
       onMessagePersisted() {
         calls++;
       },
+      onConversationForked() {},
     });
     const event: MessagePersistedEvent = {
       messageId: "msg-1",

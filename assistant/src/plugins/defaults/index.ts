@@ -517,6 +517,10 @@ export function guardPersistenceHooksByDisabledState(
       if (isPluginDisabled(pluginName)) return;
       return hooks.onMessagePersisted(event);
     },
+    onConversationForked(event) {
+      if (isPluginDisabled(pluginName)) return;
+      return hooks.onConversationForked(event);
+    },
   };
 }
 
