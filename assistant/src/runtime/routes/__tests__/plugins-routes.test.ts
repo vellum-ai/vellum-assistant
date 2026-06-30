@@ -239,7 +239,10 @@ import {
   NotFoundError,
   ServiceUnavailableError,
 } from "../errors.js";
-import { ROUTES as PLUGINS_ROUTES } from "../plugins-routes.js";
+import {
+  loadCategoryMapBounded,
+  ROUTES as PLUGINS_ROUTES,
+} from "../plugins-routes.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 
 function findHandler(operationId: string): RouteDefinition["handler"] {
@@ -568,6 +571,57 @@ describe("GET /v1/plugins", () => {
     expect(result.plugins.map((p) => p.category)).toEqual([null, null]);
     expect(result.categoryCounts).toEqual({ system: 2 });
     expect(result.totalCount).toBe(2);
+  });
+
+  // The category lookup is bounded so a slow/hanging marketplace fetch (a cold
+  // cache stuck on GitHub) can't hold up the installed list — it degrades to an
+  // empty map exactly like the rejection path above. `loadCategoryMapBounded`
+  // takes an injectable timeout so we can prove the bound without waiting the
+  // full 1500ms production budget.
+  test("bounds the catalog lookup: a stall past the budget degrades to an empty map", async () => {
+    // GIVEN a catalog fetch that resolves only AFTER the (shortened) budget.
+    getCatalogSpy.mockImplementation(
+      (ref) =>
+        new Promise<PluginCatalog>((resolve) => {
+          setTimeout(
+            () =>
+              resolve(
+                catalog(ref, [
+                  {
+                    name: "alpha",
+                    path: "github:acme/alpha@v1",
+                    category: "productivity",
+                    source: { kind: "github", repo: "acme/alpha", ref: "v1" },
+                  },
+                ]),
+              ),
+            80,
+          );
+        }),
+    );
+
+    // WHEN the bound (10ms) elapses first, the timer wins the race.
+    const map = await loadCategoryMapBounded(10);
+
+    // THEN we fall back to an empty map, so every category resolves to null and
+    // the installed list returns immediately instead of blocking on GitHub.
+    expect(map.size).toBe(0);
+  });
+
+  test("returns the catalog category map when the lookup resolves within the budget", async () => {
+    getCatalogSpy.mockImplementation(async (ref) =>
+      catalog(ref, [
+        {
+          name: "alpha",
+          path: "github:acme/alpha@v1",
+          category: "productivity",
+          source: { kind: "github", repo: "acme/alpha", ref: "v1" },
+        },
+      ]),
+    );
+
+    const map = await loadCategoryMapBounded();
+    expect(map.get("alpha")).toBe("productivity");
   });
 });
 

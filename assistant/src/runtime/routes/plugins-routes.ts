@@ -707,6 +707,46 @@ function matchesQuery(plugin: PluginView, needle: string): boolean {
 /** Uncategorized fallback bucket — matches the Skills taxonomy default. */
 const UNCATEGORIZED = "system";
 
+/**
+ * Time budget for the marketplace category lookup on the installed list.
+ * The installed list is a fast local read; the catalog is a remote GitHub
+ * fetch that can hang on a cold cache. Bounding the lookup keeps `GET
+ * /v1/plugins` responsive during a marketplace slowdown.
+ */
+const CATEGORY_LOOKUP_TIMEOUT_MS = 1500;
+
+/**
+ * Resolve the marketplace category map within a bounded time budget.
+ *
+ * Categories live only in the catalog, but the installed list must stay a fast
+ * local path: a marketplace outage (rejection) OR slowdown (a slow/hanging
+ * fetch on a cold cache) must never block it. We race the catalog fetch against
+ * a short timer; if the fetch rejects or does not resolve within
+ * {@link CATEGORY_LOOKUP_TIMEOUT_MS}, we degrade to an empty map so every
+ * `category` becomes `null` and the list returns immediately.
+ *
+ * `timeoutMs` is injectable so tests can exercise the bound without waiting the
+ * full production budget.
+ */
+export async function loadCategoryMapBounded(
+  timeoutMs: number = CATEGORY_LOOKUP_TIMEOUT_MS,
+): Promise<Map<string, string | null>> {
+  try {
+    const catalog = await Promise.race([
+      getPluginCatalog(DEFAULT_PLUGIN_REF, {
+        fetch: globalThis.fetch.bind(globalThis),
+      }),
+      new Promise<null>((resolve) =>
+        setTimeout(() => resolve(null), timeoutMs),
+      ),
+    ]);
+    if (!catalog) return new Map();
+    return new Map(catalog.matches.map((m) => [m.name, m.category]));
+  } catch {
+    return new Map();
+  }
+}
+
 async function handleListPlugins({
   queryParams = {},
 }: RouteHandlerArgs): Promise<{
@@ -720,18 +760,10 @@ async function handleListPlugins({
   const installed = listInstalledPlugins();
   const projected = installed.map(projectPlugin);
 
-  // Categories live only in the catalog. A marketplace outage must never fail
-  // the installed list, so degrade to an empty map (every category becomes
-  // `null`) instead of throwing.
-  let categoryMap: Map<string, string | null>;
-  try {
-    const catalog = await getPluginCatalog(DEFAULT_PLUGIN_REF, {
-      fetch: globalThis.fetch.bind(globalThis),
-    });
-    categoryMap = new Map(catalog.matches.map((m) => [m.name, m.category]));
-  } catch {
-    categoryMap = new Map();
-  }
+  // Categories live only in the catalog. A marketplace outage OR slowdown must
+  // never block the installed list, so the lookup is bounded: it degrades to an
+  // empty map (every category becomes `null`) on a rejection or a stall.
+  const categoryMap = await loadCategoryMapBounded();
 
   // An installed plugin's `id` is its directory name, which is the catalog
   // match's `name` — so it's the lookup key.
