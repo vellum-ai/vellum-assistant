@@ -30,10 +30,40 @@ const fakeIndex = {
   },
 };
 
+// Model the process-local singleton so the worker scenario (init never ran in
+// this process) is exercisable: getMessagesLexicalIndex throws until
+// initMessagesLexicalIndex sets it, mirroring the real module's behavior.
+let singletonReady = true;
+const initConfigCalls: Array<{
+  url: string;
+  collection?: string;
+  onDisk?: boolean;
+}> = [];
+
+function resetLexicalSingleton(ready: boolean): void {
+  singletonReady = ready;
+  initConfigCalls.length = 0;
+}
+
 mock.module(
   "../../../../../persistence/embeddings/messages-lexical-index.js",
   () => ({
-    getMessagesLexicalIndex: () => fakeIndex,
+    MESSAGES_LEXICAL_COLLECTION: "messages_lexical",
+    getMessagesLexicalIndex: () => {
+      if (!singletonReady) {
+        throw new Error("Messages lexical index not initialized.");
+      }
+      return fakeIndex;
+    },
+    initMessagesLexicalIndex: (config: {
+      url: string;
+      collection?: string;
+      onDisk?: boolean;
+    }) => {
+      initConfigCalls.push(config);
+      singletonReady = true;
+      return fakeIndex;
+    },
   }),
 );
 
@@ -113,6 +143,7 @@ describe("indexMessageLexicalJob", () => {
   beforeEach(async () => {
     upsertCalls.length = 0;
     deleteByConversationCalls.length = 0;
+    resetLexicalSingleton(true);
     resetDbForTesting();
     await initializeDb();
   }, 30_000);
@@ -158,6 +189,37 @@ describe("indexMessageLexicalJob", () => {
     );
     expect(upsertCalls).toHaveLength(0);
   });
+
+  test("lazily initializes the index from config when not yet initialized (worker process)", async () => {
+    // Simulate the out-of-process worker, which never runs runMemoryStartup —
+    // the singleton is not initialized in this process.
+    resetLexicalSingleton(false);
+
+    const createdAt = 1_700_000_000_001;
+    insertConversation("conv-w");
+    insertMessage({
+      id: "msg-w",
+      conversationId: "conv-w",
+      content: "indexed by the worker",
+      createdAt,
+    });
+
+    await indexMessageLexicalJob(
+      makeJob("index_message_lexical", { messageId: "msg-w" }),
+      TEST_CONFIG,
+    );
+
+    // The handler initialized the index from config instead of throwing.
+    expect(initConfigCalls).toHaveLength(1);
+    expect(initConfigCalls[0]).toEqual({
+      url: TEST_CONFIG.memory.qdrant.url,
+      collection: "messages_lexical",
+      onDisk: TEST_CONFIG.memory.qdrant.onDisk,
+    });
+    // ...and proceeded to index the message.
+    expect(upsertCalls).toHaveLength(1);
+    expect(upsertCalls[0].messageId).toBe("msg-w");
+  });
 });
 
 describe("purgeConversationLexicalJob", () => {
@@ -168,6 +230,7 @@ describe("purgeConversationLexicalJob", () => {
   beforeEach(async () => {
     upsertCalls.length = 0;
     deleteByConversationCalls.length = 0;
+    resetLexicalSingleton(true);
     resetDbForTesting();
     await initializeDb();
   }, 30_000);
@@ -186,5 +249,17 @@ describe("purgeConversationLexicalJob", () => {
       TEST_CONFIG,
     );
     expect(deleteByConversationCalls).toHaveLength(0);
+  });
+
+  test("lazily initializes the index from config when not yet initialized (worker process)", async () => {
+    resetLexicalSingleton(false);
+
+    await purgeConversationLexicalJob(
+      makeJob("purge_conversation_lexical", { conversationId: "conv-w" }),
+      TEST_CONFIG,
+    );
+
+    expect(initConfigCalls).toHaveLength(1);
+    expect(deleteByConversationCalls).toEqual(["conv-w"]);
   });
 });
