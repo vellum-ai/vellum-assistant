@@ -267,4 +267,38 @@ describe("plugin-facing assistantEventHub facade", () => {
       hostSub.dispose();
     }
   });
+
+  test("snapshots plugin subscription filters so a filter getter never runs during fanout (Codex P1)", async () => {
+    let getterCalls = 0;
+    const filter = {};
+    Object.defineProperty(filter, "conversationId", {
+      enumerable: true,
+      get() {
+        getterCalls += 1;
+        return undefined;
+      },
+    });
+    const pluginSub = pluginHub.subscribe({
+      type: "process",
+      filter: filter as { conversationId?: string },
+      callback: () => {},
+    });
+    const hostSub = subscribeHostClient("facade-filter-client", []);
+    try {
+      const callsAfterSubscribe = getterCalls;
+      // A conversation-scoped event makes the hub read `entry.filter.conversationId`
+      // during fanout; with an inert snapshot the plugin's getter never fires.
+      await rawHub.publish(
+        {
+          message: { type: "host_bash_request" },
+          conversationId: "conv-1",
+        } as unknown as AssistantEvent,
+        { targetCapability: "host_bash" },
+      );
+      expect(getterCalls).toBe(callsAfterSubscribe);
+    } finally {
+      pluginSub.dispose();
+      hostSub.dispose();
+    }
+  });
 });

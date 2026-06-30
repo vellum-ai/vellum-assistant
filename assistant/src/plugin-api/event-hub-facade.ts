@@ -42,6 +42,7 @@
 
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import {
+  type AssistantEventFilter,
   type AssistantEventHub,
   assistantEventHub,
 } from "../runtime/assistant-event-hub.js";
@@ -105,16 +106,24 @@ function hostControlEventType(event: AssistantEvent): string | undefined {
 
 /** The plugin-facing event hub. See module docs. */
 export const pluginAssistantEventHub: PluginEventHub = Object.freeze({
-  subscribe: (subscriber) =>
+  subscribe: (subscriber) => {
     // Plugins subscribe as in-process consumers only — never as device
     // "clients" — so a plugin cannot impersonate/evict a real client by id or
-    // receive host-capability-targeted events meant for the desktop app. Its
+    // receive host-capability-targeted events meant for the desktop app. The
+    // filter is canonicalized to inert data so the hub never invokes a
+    // plugin-defined getter while reading `entry.filter` during fanout, and the
     // callback is handed an isolated, frozen snapshot so it cannot mutate an
-    // in-flight event that a real client receives later in the same fanout (the
-    // hub delivers one shared object to every subscriber in turn).
-    assistantEventHub.subscribe({
+    // in-flight event a real client receives later in the same fanout (the hub
+    // delivers one shared object to every subscriber in turn).
+    let filter: AssistantEventFilter | undefined;
+    try {
+      filter = subscriber.filter ? wireSnapshot(subscriber.filter) : undefined;
+    } catch {
+      filter = undefined;
+    }
+    return assistantEventHub.subscribe({
       type: "process",
-      filter: subscriber.filter,
+      filter,
       callback: (event) => {
         let isolated: AssistantEvent;
         try {
@@ -124,7 +133,8 @@ export const pluginAssistantEventHub: PluginEventHub = Object.freeze({
         }
         return subscriber.callback(isolated);
       },
-    }),
+    });
+  },
 
   publish: async (event, options) => {
     let snapshot: AssistantEvent;
@@ -145,5 +155,9 @@ export const pluginAssistantEventHub: PluginEventHub = Object.freeze({
   },
 
   hasSubscribersForEvent: (event) =>
-    assistantEventHub.hasSubscribersForEvent(event),
+    // Read the caller's `conversationId` once and pass an inert object, so the
+    // hub never reads a plugin-defined getter.
+    assistantEventHub.hasSubscribersForEvent({
+      conversationId: event?.conversationId,
+    }),
 });
