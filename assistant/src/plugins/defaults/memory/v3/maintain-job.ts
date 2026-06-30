@@ -121,6 +121,13 @@ export interface ChangedPageCandidate {
 /** Injectable collaborators; defaults wire the real implementations. */
 export interface MaintainJobDeps {
   /**
+   * Establish the section collection before delta selection. Recreates it (and
+   * clears the embed high-water) on absence or dimension drift, so a wiped
+   * collection is observed by {@link selectChangedPages} and re-embedded in full
+   * this pass rather than after a clobbered reset.
+   */
+  ensureSectionCollection: typeof realEnsureSectionCollection;
+  /**
    * The slugs whose sections to re-embed this pass: pages new or edited since
    * the last successful pass. See {@link computeChangedPages}.
    */
@@ -375,6 +382,7 @@ async function selectAllPagesFromWorkspace(
 function defaultDeps(config: AssistantConfig): MaintainJobDeps {
   const workspaceDir = getWorkspaceDir();
   return {
+    ensureSectionCollection: realEnsureSectionCollection,
     selectChangedPages: () => selectChangedPagesFromWorkspace(workspaceDir),
     buildSectionIndex: realBuildSectionIndex,
     readPageBody: (slug) => readPageBodyFromWorkspace(workspaceDir, slug),
@@ -823,6 +831,14 @@ export async function maintainJob(
   // does not re-trigger it next pass; advance it only when every page succeeded.
   try {
     const startedAtMs = Date.now();
+    // Establish the collection BEFORE selecting deltas. If it is absent or
+    // dimension-drifted, `ensureSectionCollection` recreates it empty and clears
+    // the embed high-water; selecting deltas first would read the stale mark, so
+    // this pass would re-embed only recent pages and then commit `startedAtMs`,
+    // clobbering the reset and stranding the rest. Ensuring first makes the
+    // cleared mark visible to `selectChangedPages`, turning this pass into the
+    // full-corpus re-embed the recreate requires.
+    await deps.ensureSectionCollection(deps.config);
     const changed = await deps.selectChangedPages();
     const { reembedded, reembedFailures } = await reembedChangedPages(
       changed,

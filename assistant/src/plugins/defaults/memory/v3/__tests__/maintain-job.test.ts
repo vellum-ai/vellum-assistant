@@ -79,6 +79,7 @@ describe("maintainJob", () => {
     };
     const base: MaintainJobDeps = {
       config: CONFIG,
+      ensureSectionCollection: async () => {},
       selectChangedPages: async () => [],
       buildSectionIndex: async (slugs) => {
         calls.built.push(slugs);
@@ -114,6 +115,28 @@ describe("maintainJob", () => {
     };
     return { deps: { ...base, ...overrides }, calls };
   }
+
+  test("ensures the section collection before selecting deltas", async () => {
+    // A drift recreate inside ensureSectionCollection clears the embed
+    // high-water; it must run before selectChangedPages reads the mark, or this
+    // pass re-embeds only recent pages and the end-of-pass commit clobbers the
+    // reset, stranding the rest. Assert the ordering that prevents that.
+    memoryV3LiveSlot = true;
+    const order: string[] = [];
+    const { deps: d } = deps({
+      ensureSectionCollection: async () => {
+        order.push("ensure");
+      },
+      selectChangedPages: async () => {
+        order.push("select");
+        return [];
+      },
+    });
+
+    await maintainJob(JOB, CONFIG, d);
+
+    expect(order).toEqual(["ensure", "select"]);
+  });
 
   test("no-op when v3 is disabled", async () => {
     const { deps: d, calls } = deps({
@@ -797,6 +820,7 @@ describe("maintainJob skill usage-prune", () => {
     const sectionDeletes: string[] = [];
     const d: MaintainJobDeps = {
       config: makeConfig(skillPruneDays),
+      ensureSectionCollection: async () => {},
       selectChangedPages: async () => [],
       buildSectionIndex: async (slugs) => makeIndex(slugs),
       readPageBody: async (s) => `body for ${s}`,
