@@ -16,7 +16,7 @@
 //   - Stop cancels the task via `stopBackgroundTask` while it is running; the
 //     button disables after a click to avoid a double-cancel.
 
-import { AlertCircle, CheckCircle2, Square, SquareTerminal } from "lucide-react";
+import { AlertCircle, CheckCircle2, Square } from "lucide-react";
 import {
   useCallback,
   useState,
@@ -26,6 +26,7 @@ import {
 
 import { Button } from "@vellumai/design-library";
 
+import { BackgroundTaskGlyph } from "@/domains/chat/components/background-task-glyph";
 import { HeaderStepCarousel } from "@/domains/chat/components/tool-progress-card/header-step-carousel";
 import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
 import { useBackgroundTaskCardData } from "@/domains/chat/components/background-task-inline-card/use-background-task-card-data";
@@ -121,9 +122,9 @@ export function BackgroundTaskInlineProgressCard({
       >
         {statusIndicator}
         <span className="mx-1 flex shrink-0 items-center">
-          <SquareTerminal
+          <BackgroundTaskGlyph
+            toolName={data.toolName}
             className="h-4 w-4 text-[var(--content-secondary)]"
-            aria-hidden
           />
         </span>
         <HeaderStepCarousel

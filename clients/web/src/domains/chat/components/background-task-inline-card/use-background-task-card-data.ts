@@ -16,7 +16,10 @@ import { useMemo } from "react";
 
 import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
 import type { ToolProgressCardState } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell";
-import type { BackgroundTaskStatus } from "@/utils/background-task-status";
+import {
+  backgroundTaskTitle,
+  type BackgroundTaskStatus,
+} from "@/utils/background-task-status";
 
 export interface BackgroundTaskCardData {
   state: ToolProgressCardState;
@@ -24,6 +27,8 @@ export interface BackgroundTaskCardData {
   title: string;
   /** Secondary descriptor — the command being run. */
   info: string;
+  /** Tool that spawned the task (`bash` / `host_bash`) — drives the glyph. */
+  toolName: string;
 }
 
 /**
@@ -44,20 +49,6 @@ function deriveCardState(status: BackgroundTaskStatus): ToolProgressCardState {
   }
 }
 
-/** Header headline for each task status. */
-function deriveTitle(status: BackgroundTaskStatus): string {
-  switch (status) {
-    case "running":
-      return "Running command";
-    case "completed":
-      return "Command finished";
-    case "cancelled":
-      return "Command cancelled";
-    case "failed":
-      return "Command failed";
-  }
-}
-
 /**
  * React hook: subscribe to the background task store entry for `id` and project
  * it into card props. Returns `null` when no entry exists yet so callers can
@@ -72,8 +63,9 @@ export function useBackgroundTaskCardData(
     if (!entry) return null;
     return {
       state: deriveCardState(entry.status),
-      title: deriveTitle(entry.status),
+      title: backgroundTaskTitle(entry.status),
       info: entry.command,
+      toolName: entry.toolName,
     };
   }, [entry]);
 }

@@ -32,13 +32,16 @@ function makeEntry(
 afterEach(cleanup);
 
 describe("BackgroundTaskDetailPanel", () => {
-  test("renders command, status, exit code, and output for a terminal task", () => {
+  test("renders title, command, status, exit code, and output for a terminal task", () => {
     render(<BackgroundTaskDetailPanel entry={makeEntry()} onClose={noop} />);
-    // Command appears in both the header title and the command code block.
-    expect(screen.getAllByText("npm run build").length).toBeGreaterThanOrEqual(1);
+    // Title is the status label; the command lives only in the code block.
+    expect(screen.getByText("Command finished")).toBeDefined();
+    expect(screen.getByText("npm run build")).toBeDefined();
     expect(screen.getByText("Completed")).toBeDefined();
     expect(screen.getByText("Exit code: 0")).toBeDefined();
     expect(screen.getByText("Build succeeded in 4.2s")).toBeDefined();
+    // A settled task offers no Stop control.
+    expect(screen.queryByLabelText("Stop command")).toBeNull();
   });
 
   test("renders a non-zero exit code for a failed task", () => {
@@ -51,14 +54,16 @@ describe("BackgroundTaskDetailPanel", () => {
     expect(screen.getByText("Exit code: 1")).toBeDefined();
   });
 
-  test("hides the output and exit-code sections while the task is still running", () => {
+  test("shows a Stop button and hides output/exit code while the task is still running", () => {
     render(
       <BackgroundTaskDetailPanel
         entry={makeEntry({ status: "running", output: undefined })}
         onClose={noop}
       />,
     );
+    expect(screen.getByText("Running command")).toBeDefined();
     expect(screen.getByText("Running")).toBeDefined();
+    expect(screen.getByLabelText("Stop command")).toBeDefined();
     expect(screen.queryByText("Output")).toBeNull();
     expect(screen.queryByText(/Exit code:/)).toBeNull();
   });

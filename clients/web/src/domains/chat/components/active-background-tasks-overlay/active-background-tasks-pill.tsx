@@ -1,8 +1,10 @@
-import { ChevronDown, ChevronUp, SquareTerminal } from "lucide-react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 
 import { Typography } from "@vellumai/design-library";
 
+import { BackgroundTaskGlyph } from "@/domains/chat/components/background-task-glyph";
 import { ChatPill } from "@/domains/chat/components/chat-pill";
+import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
 
 /** Cap on stacked terminal glyphs before collapsing the remainder to "+N". */
 const MAX_VISIBLE_BACKGROUND_TASK_GLYPHS = 6;
@@ -20,6 +22,9 @@ export function ActiveBackgroundTasksPill({
 }: ActiveBackgroundTasksPillProps) {
   const visibleIds = taskIds.slice(0, MAX_VISIBLE_BACKGROUND_TASK_GLYPHS);
   const overflowCount = taskIds.length - MAX_VISIBLE_BACKGROUND_TASK_GLYPHS;
+  // Per-task glyph (host_bash → file-terminal, bash → square-terminal); look up
+  // the tool by id from the store since the pill only receives ids.
+  const byId = useBackgroundTaskStore((s) => s.byId);
 
   return (
     <ChatPill
@@ -41,9 +46,9 @@ export function ActiveBackgroundTasksPill({
                 index === 0 ? "" : "-ml-1 ring-2 ring-[var(--surface-lift)]"
               }`}
             >
-              <SquareTerminal
+              <BackgroundTaskGlyph
+                toolName={byId[id]?.toolName ?? "bash"}
                 className="h-3.5 w-3.5 text-[var(--content-emphasised)]"
-                aria-hidden
               />
             </span>
           ))}

@@ -4,6 +4,7 @@ import {
   type BackgroundTaskStatus,
   backgroundTaskStatusColor,
   backgroundTaskStatusLabel,
+  backgroundTaskTitle,
   isActiveBackgroundTaskStatus,
 } from "./background-task-status";
 
@@ -45,5 +46,14 @@ describe("backgroundTaskStatusLabel", () => {
     expect(backgroundTaskStatusLabel("completed")).toBe("Completed");
     expect(backgroundTaskStatusLabel("failed")).toBe("Failed");
     expect(backgroundTaskStatusLabel("cancelled")).toBe("Cancelled");
+  });
+});
+
+describe("backgroundTaskTitle", () => {
+  it("returns the inline-card/detail-panel headline for each status", () => {
+    expect(backgroundTaskTitle("running")).toBe("Running command");
+    expect(backgroundTaskTitle("completed")).toBe("Command finished");
+    expect(backgroundTaskTitle("failed")).toBe("Command failed");
+    expect(backgroundTaskTitle("cancelled")).toBe("Command cancelled");
   });
 });

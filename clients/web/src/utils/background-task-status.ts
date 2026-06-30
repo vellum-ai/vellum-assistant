@@ -30,6 +30,26 @@ export function backgroundTaskStatusColor(status: BackgroundTaskStatus): string 
   }
 }
 
+/**
+ * Title for the detail panel and inline card headline, e.g. "Running command"
+ * / "Command finished". Distinct from {@link backgroundTaskStatusLabel}, which
+ * is the shorter status-badge copy ("Running" / "Completed").
+ */
+export function backgroundTaskTitle(status: BackgroundTaskStatus): string {
+  switch (status) {
+    case "running":
+      return "Running command";
+    case "completed":
+      return "Command finished";
+    case "cancelled":
+      return "Command cancelled";
+    case "failed":
+      return "Command failed";
+    default:
+      return "Command";
+  }
+}
+
 /** Human-readable label for the status badge. */
 export function backgroundTaskStatusLabel(status: BackgroundTaskStatus): string {
   switch (status) {
