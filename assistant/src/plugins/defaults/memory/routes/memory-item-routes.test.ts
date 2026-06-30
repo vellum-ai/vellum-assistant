@@ -6,7 +6,7 @@
  */
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../util/logger.js", () => ({
+mock.module("../../../../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
@@ -15,7 +15,7 @@ mock.module("../../util/logger.js", () => ({
 
 // Stub config loader — return a config with memory.v2.enabled=false so the
 // v1 paths under test stay active.
-mock.module("../../config/loader.js", () => ({
+mock.module("../../../../config/loader.js", () => ({
   loadConfig: () => mockConfig,
   getConfig: () => mockConfig,
   invalidateConfigCache: () => {},
@@ -42,7 +42,7 @@ let mockHybridSearchResults: Array<{
   payload: Record<string, unknown>;
 }> = [];
 
-mock.module("../../persistence/embeddings/embedding-backend.js", () => ({
+mock.module("../../../../persistence/embeddings/embedding-backend.js", () => ({
   getMemoryBackendStatus: async () => mockBackendStatus,
   embedWithBackend: async () => mockEmbedResult,
   generateSparseEmbedding: () => ({
@@ -51,7 +51,7 @@ mock.module("../../persistence/embeddings/embedding-backend.js", () => ({
   }),
 }));
 
-mock.module("../../persistence/embeddings/qdrant-client.js", () => ({
+mock.module("../../../../persistence/embeddings/qdrant-client.js", () => ({
   getQdrantClient: () => ({
     hybridSearch: async () => [...mockHybridSearchResults],
     searchWithFilter: async () => [...mockHybridSearchResults],
@@ -60,9 +60,12 @@ mock.module("../../persistence/embeddings/qdrant-client.js", () => ({
   resolveQdrantUrl: () => "http://127.0.0.1:6333",
 }));
 
-mock.module("../../persistence/embeddings/qdrant-circuit-breaker.js", () => ({
-  withQdrantBreaker: async (fn: () => Promise<unknown>) => fn(),
-}));
+mock.module(
+  "../../../../persistence/embeddings/qdrant-circuit-breaker.js",
+  () => ({
+    withQdrantBreaker: async (fn: () => Promise<unknown>) => fn(),
+  }),
+);
 
 import { eq } from "drizzle-orm";
 
@@ -70,15 +73,19 @@ import {
   getDb,
   getMemoryDb,
   getMemorySqlite,
-} from "../../persistence/db-connection.js";
-import { initializeDb } from "../../persistence/db-init.js";
+} from "../../../../persistence/db-connection.js";
+import { initializeDb } from "../../../../persistence/db-init.js";
 import {
   memoryGraphNodes,
   memoryJobs,
-} from "../../persistence/schema/index.js";
-import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
+} from "../../../../persistence/schema/index.js";
+import {
+  BadRequestError,
+  ConflictError,
+  NotFoundError,
+} from "../../../../runtime/routes/errors.js";
+import type { RouteDefinition } from "../../../../runtime/routes/types.js";
 import { ROUTES } from "./memory-item-routes.js";
-import type { RouteDefinition } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

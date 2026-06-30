@@ -7,44 +7,44 @@ import { join } from "node:path";
 
 import { z } from "zod";
 
-import { loadConfig } from "../../config/loader.js";
-import type { AssistantConfig } from "../../config/types.js";
+import { loadConfig } from "../../../../config/loader.js";
+import type { AssistantConfig } from "../../../../config/types.js";
 import {
   type ConceptFrequencyResponse,
   getConceptFrequencySummary,
-} from "../../memory/memory-v2-concept-frequency.js";
+} from "../../../../memory/memory-v2-concept-frequency.js";
 import {
   getEdgeIndex,
   totalEdgeCount,
   validateEdgeTargets,
-} from "../../memory/v2/edge-index.js";
-import { runComparisonOverHistory } from "../../memory/v2/harness/compare.js";
-import type { Retriever } from "../../memory/v2/harness/retriever.js";
-import { createRouterRetriever } from "../../memory/v2/harness/router-retriever.js";
-import type { ComparisonReport } from "../../memory/v2/harness/runner.js";
-import { computeInjectionScores } from "../../memory/v2/injection-events.js";
-import { loadNowText } from "../../memory/v2/now-text.js";
-import { getPageIndex } from "../../memory/v2/page-index.js";
+} from "../../../../memory/v2/edge-index.js";
+import { runComparisonOverHistory } from "../../../../memory/v2/harness/compare.js";
+import type { Retriever } from "../../../../memory/v2/harness/retriever.js";
+import { createRouterRetriever } from "../../../../memory/v2/harness/router-retriever.js";
+import type { ComparisonReport } from "../../../../memory/v2/harness/runner.js";
+import { computeInjectionScores } from "../../../../memory/v2/injection-events.js";
+import { loadNowText } from "../../../../memory/v2/now-text.js";
+import { getPageIndex } from "../../../../memory/v2/page-index.js";
 import {
   getConceptsDir,
   listPages,
   readPage,
   renderPageContent,
-} from "../../memory/v2/page-store.js";
-import { ROUTER_PROMPT } from "../../memory/v2/prompts/router.js";
-import { type RouterSource, runRouter } from "../../memory/v2/router.js";
-import { seedV2SkillEntries } from "../../memory/v2/skill-store.js";
-import { getDb } from "../../persistence/db-connection.js";
+} from "../../../../memory/v2/page-store.js";
+import { ROUTER_PROMPT } from "../../../../memory/v2/prompts/router.js";
+import { type RouterSource, runRouter } from "../../../../memory/v2/router.js";
+import { seedV2SkillEntries } from "../../../../memory/v2/skill-store.js";
+import { getDb } from "../../../../persistence/db-connection.js";
 import {
   enqueueMemoryJob,
   type MemoryJobType,
-} from "../../persistence/jobs-store.js";
-import { getLogger } from "../../util/logger.js";
-import { getWorkspaceDir } from "../../util/platform.js";
-import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import { RouteError } from "./errors.js";
-import type { RouteDefinition } from "./types.js";
-import type { RouteHandlerArgs } from "./types.js";
+} from "../../../../persistence/jobs-store.js";
+import { ACTOR_PRINCIPALS } from "../../../../runtime/auth/route-policy.js";
+import { RouteError } from "../../../../runtime/routes/errors.js";
+import type { RouteDefinition } from "../../../../runtime/routes/types.js";
+import type { RouteHandlerArgs } from "../../../../runtime/routes/types.js";
+import { getLogger } from "../../../../util/logger.js";
+import { getWorkspaceDir } from "../../../../util/platform.js";
 
 const log = getLogger("memory-v2-routes");
 

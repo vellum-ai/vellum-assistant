@@ -12,18 +12,21 @@
 
 import { z } from "zod";
 
-import { getConfig } from "../../config/loader.js";
-import type { AssistantConfig } from "../../config/types.js";
-import { runMemoryEval } from "../../memory/v3-eval/eval-packets.js";
+import { getConfig } from "../../../../config/loader.js";
+import type { AssistantConfig } from "../../../../config/types.js";
+import { runMemoryEval } from "../../../../memory/v3-eval/eval-packets.js";
 import {
   type TallyResult,
   tallyVerdicts,
-} from "../../memory/v3-eval/eval-tally.js";
-import { getDb } from "../../persistence/db-connection.js";
-import { getLogger } from "../../util/logger.js";
-import { getWorkspaceDir } from "../../util/platform.js";
-import { ACTOR_PRINCIPALS, type RoutePolicy } from "../auth/route-policy.js";
-import type { RouteDefinition } from "./types.js";
+} from "../../../../memory/v3-eval/eval-tally.js";
+import { getDb } from "../../../../persistence/db-connection.js";
+import {
+  ACTOR_PRINCIPALS,
+  type RoutePolicy,
+} from "../../../../runtime/auth/route-policy.js";
+import type { RouteDefinition } from "../../../../runtime/routes/types.js";
+import { getLogger } from "../../../../util/logger.js";
+import { getWorkspaceDir } from "../../../../util/platform.js";
 
 const log = getLogger("memory-eval-routes");
 
