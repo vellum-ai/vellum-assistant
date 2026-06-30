@@ -53,7 +53,10 @@ import { SpeakerIdentityTracker } from "../calls/speaker-identification.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig, getNestedValue } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import { registerPluginHooks } from "../hooks/registry.js";
 import { addMessage } from "../persistence/conversation-crud.js";
+import { HOOKS } from "../plugin-api/constants.js";
+import type { ShutdownContext } from "../plugins/types.js";
 import {
   createTimeout,
   extractToolUse,
@@ -77,7 +80,6 @@ import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir, vellumRoot } from "../util/platform.js";
 import { getAssistantName } from "./identity-helpers.js";
-import { registerShutdownHook } from "./shutdown-registry.js";
 
 /**
  * Adapt pino's `(meta, msg)` call shape to the contract's `(msg, meta?)`
@@ -226,11 +228,16 @@ function buildRegistriesFacet(skillId: string): RegistriesFacet {
       registerExternalTools({ kind: "skill", id: skillId }, provider as never),
     registerSkillRoute: (route: SkillRoute): SkillRouteHandle =>
       registerSkillRoute(route) as unknown as SkillRouteHandle,
-    // Namespace hook names by skillId so two skills using the same label
-    // (e.g. "cleanup") cannot silently overwrite each other's entries in
-    // the shared shutdown-hook map.
+    // Register the skill's teardown as a `shutdown` hook in the unified hook
+    // registry, namespaced by skillId so two skills using the same label
+    // (e.g. "cleanup") cannot silently overwrite each other's entries. It fires
+    // through `runHook(HOOKS.SHUTDOWN)` at daemon shutdown like every other
+    // lifecycle hook; the skill-facing callback takes the shutdown reason
+    // string, so adapt the threaded {@link ShutdownContext} to it.
     registerShutdownHook: (name, hook) =>
-      registerShutdownHook(`${skillId}:${name}`, hook),
+      registerPluginHooks(`${skillId}:${name}`, {
+        [HOOKS.SHUTDOWN]: (ctx) => hook((ctx as ShutdownContext).reason),
+      }),
   };
 }
 
@@ -245,7 +252,7 @@ function buildSpeakersFacet(): SpeakersFacet {
  * `skillId`. The id prefixes logger names (so cross-cutting diagnostics
  * carry the owning skill) and namespaces shutdown-hook registrations (so
  * two skills using the same hook label cannot silently overwrite each
- * other in the shared shutdown-hook map).
+ * other in the unified hook registry).
  */
 export function createDaemonSkillHost(skillId: string): SkillHost {
   return {

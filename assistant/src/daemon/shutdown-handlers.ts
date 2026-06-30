@@ -34,7 +34,6 @@ import { cleanupPidFile } from "./daemon-control.js";
 import { stopEventLoopWatchdog } from "./event-loop-watchdog.js";
 import { stopDiskPressureGuardForLifecycle } from "./lifecycle.js";
 import { stopOrphanReaper } from "./orphan-reaper.js";
-import { runShutdownHooks } from "./shutdown-registry.js";
 
 const log = getLogger("lifecycle");
 
@@ -85,19 +84,10 @@ async function shutdown(): Promise<void> {
   // Stop the periodic consent-cache refresh (a daemon-owned interval).
   await stopConsentRefresh();
 
-  // Run registered shutdown-registry hooks (skill teardown like meet-join)
-  // before stopping the server so any HTTP round-trips and SSE emissions still
-  // have live transports.
-  try {
-    await runShutdownHooks("daemon-shutdown");
-  } catch (err) {
-    log.warn({ err }, "Skill shutdown hooks failed (non-fatal)");
-  }
-
-  // Fire plugin / user / workspace `shutdown` hooks through the unified hook
-  // pipeline — the same dispatch path every other lifecycle hook uses — before
-  // stopping the server so any teardown work still has live transports. We don't
-  // unregister tool/route surfaces here: the daemon is exiting, so that
+  // Fire plugin / user / workspace / skill `shutdown` hooks through the unified
+  // hook pipeline — the same dispatch path every other lifecycle hook uses —
+  // before stopping the server so any teardown work still has live transports.
+  // We don't unregister tool/route surfaces here: the daemon is exiting, so that
   // in-memory registry state is discarded with the process anyway.
   try {
     await runHook(HOOKS.SHUTDOWN, {
