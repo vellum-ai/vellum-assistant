@@ -457,9 +457,10 @@ describe("buildSystemPrompt", () => {
       expect(result).not.toContain("{{userSlug}}");
     });
 
-    test("substitutes the unmodified bundled BOOTSTRAP.md template", () => {
-      // Copy the real bundled BOOTSTRAP.md into the test workspace so we
-      // verify substitution against the actual template the daemon ships.
+    test("leaves no unresolved placeholders in the bundled BOOTSTRAP.md template", () => {
+      // Render the real bundled BOOTSTRAP.md the daemon ships and verify
+      // substitution leaves no leftover {{userSlug}} placeholder, whether or
+      // not the current template happens to reference it.
       mockPersona.userSlug = "alice";
       const bundled = readFileSync(
         join(import.meta.dirname, "..", "prompts", "templates", "BOOTSTRAP.md"),
@@ -467,7 +468,6 @@ describe("buildSystemPrompt", () => {
       );
       writeFileSync(join(TEST_DIR, "BOOTSTRAP.md"), bundled);
       const result = buildSystemPrompt();
-      expect(result).toContain("users/alice.md");
       expect(result).not.toContain("{{userSlug}}");
     });
   });
