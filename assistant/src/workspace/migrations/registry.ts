@@ -115,6 +115,7 @@ import { swapQualityProfileToOpusMigration } from "./114-swap-quality-profile-to
 import { dropFrontierProfileMigration } from "./115-drop-frontier-profile.js";
 import { renameMemoryPluginDisabledSentinelMigration } from "./116-rename-memory-plugin-disabled-sentinel.js";
 import { normalizeStaleLeanMemoryV3DefaultsMigration } from "./117-normalize-stale-lean-memory-v3-defaults.js";
+import { seedNowMdMigration } from "./118-seed-now-md.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -241,4 +242,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   dropFrontierProfileMigration,
   renameMemoryPluginDisabledSentinelMigration,
   normalizeStaleLeanMemoryV3DefaultsMigration,
+  seedNowMdMigration,
 ];
