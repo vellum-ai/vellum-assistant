@@ -57,7 +57,6 @@ import { ensureSectionCollection } from "./section-dense-store.js";
 import type { SectionNeedle } from "./section-needle.js";
 import { buildSectionNeedle } from "./section-needle.js";
 import { buildSectionIndex } from "./sections.js";
-import type { ResolvedV3Tuning } from "./tuning-profile.js";
 import { resolveV3Tuning } from "./tuning-profile.js";
 import {
   type MemoryRoutingTurn,
@@ -113,11 +112,12 @@ export interface ShadowLanes {
    *  keyed by slug. Frozen at lane build so the selector's stable prefix is
    *  byte-identical across turns until the next invalidation. */
   prefixCards: Map<Slug, string>;
-  /** Corpus-size-adaptive tuning resolved at lane build: the lean new-user
-   *  profile until the corpus crosses the page threshold, the configured/full
-   *  profile after. Read at orchestrate time so the per-turn params match the
-   *  lane-build params (hot/fresh K, learned-edge lane) chosen here. */
-  tuning: ResolvedV3Tuning;
+  /** Real concept-page count at lane build (page-index entries with a real
+   *  mtime): the corpus-size signal for {@link resolveV3Tuning}. The lane-build
+   *  tuning (hot/fresh K, learned-edge graph) is derived from it here, and the
+   *  per-turn orchestrate knobs are re-resolved from it each turn so a live
+   *  config edit takes effect without waiting for a lane rebuild. */
+  realConceptPageCount: number;
 }
 
 /** Milliseconds per day — converts `hotSet.halfLifeDays` config to ms. */
@@ -337,7 +337,7 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
     freshSlugs,
     alwaysCandidateSlugs,
     prefixCards,
-    tuning,
+    realConceptPageCount,
   };
 }
 
@@ -571,6 +571,13 @@ export async function observeTurn(
     if (cfg.memory.enabled === false) return null;
     const lanes = await getLanes(cfg);
     const v3 = cfg.memory.v3;
+    // Re-resolve the corpus-adaptive tuning each turn from the CURRENT config
+    // (with the lane-build corpus-size signal) so a live config.json edit to a
+    // per-turn knob (selectorEnabled, denseK, replyQueryK, edge.*) takes effect
+    // on the next turn instead of waiting for the next lane rebuild. The
+    // lane-build params (hot/fresh K, learned-edge graph) stay frozen on the
+    // lanes for stable-prefix cache reuse.
+    const tuning = resolveV3Tuning(cfg, lanes.realConceptPageCount);
     const result = await orchestrate(turn, {
       sectionIndex: lanes.sectionIndex,
       needle: lanes.needle,
@@ -581,16 +588,16 @@ export async function observeTurn(
       freshSlugs: lanes.freshSlugs,
       alwaysCandidateSlugs: lanes.alwaysCandidateSlugs,
       prefixCards: lanes.prefixCards,
-      needleK: lanes.tuning.needleK,
-      denseK: lanes.tuning.denseK,
-      replyQueryK: lanes.tuning.replyQueryK,
-      edgeSeeds: lanes.tuning.edgeSeedCount,
-      edgePerSeed: lanes.tuning.edgePerSeed,
-      edgeCap: lanes.tuning.edgeCap,
+      needleK: tuning.needleK,
+      denseK: tuning.denseK,
+      replyQueryK: tuning.replyQueryK,
+      edgeSeeds: tuning.edgeSeedCount,
+      edgePerSeed: tuning.edgePerSeed,
+      edgeCap: tuning.edgeCap,
       learnedGraph: lanes.learnedGraph,
       learnedPerSeed: v3.learnedEdges.perSeed,
-      learnedCap: lanes.tuning.learnedEdgesCap,
-      selectorEnabled: lanes.tuning.selectorEnabled,
+      learnedCap: tuning.learnedEdgesCap,
+      selectorEnabled: tuning.selectorEnabled,
       selectorPrompt: resolveSelectorPrompt(
         v3.selectorPromptPath,
         getWorkspaceDir(),
