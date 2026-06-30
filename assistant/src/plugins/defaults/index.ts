@@ -24,7 +24,11 @@
  * {@link registerDefaultPlugins} at call time.
  */
 
-import { registerMemoryPersistenceHooks } from "../../persistence/memory-lifecycle-hooks.js";
+import {
+  type MemoryPersistenceHooks,
+  registerMemoryPersistenceHooks,
+} from "../../persistence/memory-lifecycle-hooks.js";
+import { isPluginDisabled } from "../disabled-state.js";
 import {
   clearInjectorRegistry,
   registerPluginInjectors,
@@ -498,16 +502,41 @@ export function registerDefaultPluginJobHandlers(): void {
 }
 
 /**
+ * Wrap a plugin's persistence hooks so each call no-ops while that plugin is
+ * disabled (`assistant plugins disable <name>`), mirroring the read-time
+ * disabled-state filtering the injector/hook/job-handler/tool surfaces apply.
+ * The sentinel is checked per call, so enable/disable takes effect on the next
+ * write without a daemon restart.
+ */
+export function guardPersistenceHooksByDisabledState(
+  pluginName: string,
+  hooks: MemoryPersistenceHooks,
+): MemoryPersistenceHooks {
+  return {
+    onMessagePersisted(event) {
+      if (isPluginDisabled(pluginName)) return;
+      return hooks.onMessagePersisted(event);
+    },
+  };
+}
+
+/**
  * Install the memory feature's persistence-lifecycle handlers into the
  * persistence seam — the persistence-hooks analog of
  * {@link registerDefaultPluginJobHandlers}. `bootstrapPlugins` calls this
- * before the per-plugin init loop so the seam is wired regardless of the
- * memory plugin's disabled-state (a disabled memory plugin's indexer no-ops
- * via its own config gate). The seam holds a single handler set, so this
+ * before the per-plugin init loop so the seam is wired up front; the handlers
+ * are guarded by {@link guardPersistenceHooksByDisabledState} so a disabled
+ * memory plugin drives no persistence side effects and re-enabling it takes
+ * effect on the next write. The seam holds a single handler set, so this
  * replaces any prior registration.
  */
 export function registerDefaultPluginPersistenceHooks(): void {
-  registerMemoryPersistenceHooks(memoryPersistenceHooks);
+  registerMemoryPersistenceHooks(
+    guardPersistenceHooksByDisabledState(
+      memoryPkg.name,
+      memoryPersistenceHooks,
+    ),
+  );
 }
 
 /**
