@@ -458,6 +458,14 @@ function BannerNotice({
         placement === "electron" ? "px-4 pt-2" : "px-0 pt-0",
         className,
       )}
+      style={
+        placement === "web"
+          ? {
+              paddingTop:
+                "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
+            }
+          : undefined
+      }
     >
       <StatusBannerNotice
         tone={banner.tone}
