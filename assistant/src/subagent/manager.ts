@@ -931,8 +931,12 @@ export class SubagentManager {
   }
 
   /**
-   * Update the parent sender for all active children of a conversation.
-   * Called when the parent client reconnects to a new socket.
+   * Update the parent sender for all active children of a conversation and
+   * re-emit each child's current status to it. Called when the parent client
+   * reconnects to a new socket, so a reconnecting client resyncs any status it
+   * missed while disconnected (e.g. a subagent marked `interrupted` during
+   * rehydration after a daemon restart, whose card would otherwise stay stuck
+   * on a stale `running`).
    */
   updateParentSender(
     parentConversationId: string,
@@ -943,9 +947,19 @@ export class SubagentManager {
 
     for (const childId of children) {
       const managed = this.subagents.get(childId);
-      if (managed && !TERMINAL_STATUSES.has(managed.state.status)) {
+      if (!managed) continue;
+      if (!TERMINAL_STATUSES.has(managed.state.status)) {
         managed.parentSendToClient = newSendToClient;
       }
+      // Re-emit the current status so the reconnecting client corrects any card
+      // it left in a stale state while disconnected.
+      newSendToClient({
+        type: "subagent_status_changed",
+        subagentId: childId,
+        status: managed.state.status,
+        error: managed.state.error,
+        usage: managed.state.usage,
+      } as ServerMessage);
     }
   }
 
