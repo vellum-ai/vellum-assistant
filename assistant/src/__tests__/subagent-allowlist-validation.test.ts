@@ -14,8 +14,8 @@ function allReferencedToolNames(): Set<string> {
 
 describe("findUnknownAllowlistTools", () => {
   test("returns [] when every referenced tool name is registered", () => {
-    // Mirrors today's production state: every allowlist entry resolves to a
-    // real registered tool, so the boot-time check is a silent no-op.
+    // A registered-name set that covers every allowlist entry yields no
+    // unknowns — a fully-resolvable registry is a silent no-op.
     expect(findUnknownAllowlistTools(allReferencedToolNames())).toEqual([]);
   });
 
