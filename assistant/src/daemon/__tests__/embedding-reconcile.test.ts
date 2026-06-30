@@ -7,9 +7,13 @@ import {
   reconcileEmbeddingIdentity,
 } from "../embedding-reconcile.js";
 
-function fakeConfig(provider = "auto"): AssistantConfig {
+function fakeConfig(
+  provider = "auto",
+  opts: { enabled?: boolean } = {},
+): AssistantConfig {
   return {
     memory: {
+      enabled: opts.enabled ?? true,
       embeddings: { provider },
       qdrant: { vectorSize: 384 },
     },
@@ -26,6 +30,8 @@ function makeDeps(opts: {
   decision: ReconcileAction;
   committedDim?: number | null;
   probeDim?: number | null;
+  /** When set, `readConceptPageCollectionDim` rejects instead of resolving. */
+  committedDimError?: Error;
 }): ReconcileDeps {
   return {
     probeBackendDimension: mock(async () =>
@@ -33,7 +39,10 @@ function makeDeps(opts: {
         ? null
         : { provider: "gemini" as const, model: "m", dim: opts.probeDim },
     ),
-    readConceptPageCollectionDim: mock(async () => opts.committedDim ?? null),
+    readConceptPageCollectionDim: mock(async () => {
+      if (opts.committedDimError) throw opts.committedDimError;
+      return opts.committedDim ?? null;
+    }),
     decideEmbeddingReconcile: mock(() => opts.decision),
     persistVectorSize: mock(() => {}),
     setInMemoryVectorSize: mock(() => {}),
@@ -61,6 +70,60 @@ describe("reconcileEmbeddingIdentity", () => {
     expect(deps.recreateCollectionsAtDim).toHaveBeenCalledTimes(0);
     expect(deps.persistVectorSize).toHaveBeenCalledTimes(0);
     expect(deps.setInMemoryVectorSize).toHaveBeenCalledTimes(0);
+    expect(deps.ensureCollections).toHaveBeenCalledTimes(0);
+    expect(deps.enqueueReembed).toHaveBeenCalledTimes(0);
+  });
+
+  test("memory disabled short-circuits to noop with ZERO side effects", async () => {
+    const deps = makeDeps({
+      // The decision is irrelevant — the disabled gate returns before it runs.
+      decision: { kind: "commit-fresh", dim: 3072 },
+      committedDim: null,
+      probeDim: 3072,
+    });
+
+    const outcome = await reconcileEmbeddingIdentity(
+      fakeConfig("gemini", { enabled: false }),
+      deps,
+    );
+
+    expect(outcome).toEqual({ action: "noop", dim: null });
+    // Nothing is read, probed, persisted, recreated, ensured, or enqueued.
+    expect(deps.probeBackendDimension).toHaveBeenCalledTimes(0);
+    expect(deps.readConceptPageCollectionDim).toHaveBeenCalledTimes(0);
+    expect(deps.decideEmbeddingReconcile).toHaveBeenCalledTimes(0);
+    expect(deps.persistVectorSize).toHaveBeenCalledTimes(0);
+    expect(deps.setInMemoryVectorSize).toHaveBeenCalledTimes(0);
+    expect(deps.recreateCollectionsAtDim).toHaveBeenCalledTimes(0);
+    expect(deps.ensureCollections).toHaveBeenCalledTimes(0);
+    expect(deps.enqueueReembed).toHaveBeenCalledTimes(0);
+  });
+
+  test("a committed-dim read failure defers (degraded), never treated as fresh", async () => {
+    const deps = makeDeps({
+      // Even though the decision would be commit-fresh on a null committed dim,
+      // the read throws first, so we must defer WITHOUT persisting/recreating.
+      decision: { kind: "commit-fresh", dim: 3072 },
+      committedDimError: new Error("qdrant down"),
+      probeDim: 3072,
+    });
+
+    const outcome = await reconcileEmbeddingIdentity(
+      fakeConfig("gemini"),
+      deps,
+    );
+
+    expect(outcome).toEqual({
+      action: "defer-degraded",
+      reason: "could not read committed collection dimension",
+    });
+    // The throw short-circuits before probing and before the decision runs, so
+    // nothing is persisted, recreated, ensured, or enqueued.
+    expect(deps.probeBackendDimension).toHaveBeenCalledTimes(0);
+    expect(deps.decideEmbeddingReconcile).toHaveBeenCalledTimes(0);
+    expect(deps.persistVectorSize).toHaveBeenCalledTimes(0);
+    expect(deps.setInMemoryVectorSize).toHaveBeenCalledTimes(0);
+    expect(deps.recreateCollectionsAtDim).toHaveBeenCalledTimes(0);
     expect(deps.ensureCollections).toHaveBeenCalledTimes(0);
     expect(deps.enqueueReembed).toHaveBeenCalledTimes(0);
   });
