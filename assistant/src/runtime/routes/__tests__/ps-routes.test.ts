@@ -26,8 +26,8 @@ mock.module("../../../util/process-tree.js", () => ({
       { pid: 200, name: "qdrant", command: "qdrant", children: [] },
       {
         pid: 300,
-        name: "memory-worker",
-        command: "bun run /app/memory/worker.ts",
+        name: "jobs-worker",
+        command: "bun run /app/jobs/worker.ts",
         children: [
           {
             pid: 400,
@@ -78,7 +78,7 @@ describe("ps route handler", () => {
     const { processes } = await getHandler()();
     const names = JSON.stringify(processes);
 
-    expect(names).toContain("memory-worker");
+    expect(names).toContain("jobs-worker");
     expect(names).toContain("embed-helper");
   });
 
