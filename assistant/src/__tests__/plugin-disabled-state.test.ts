@@ -17,6 +17,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { getHooksFor } from "../hooks/registry.js";
 import { RiskLevel } from "../permissions/types.js";
+import type { MessagePersistedEvent } from "../persistence/memory-lifecycle-hooks.js";
+import { guardPersistenceHooksByDisabledState } from "../plugins/defaults/index.js";
 import {
   clearInjectorRegistry,
   getRegisteredInjectors,
@@ -255,5 +257,35 @@ describe("per-surface disabled-state filtering", () => {
 
     hooks = await getHooksFor("user-prompt-submit");
     expect(hooks).toHaveLength(0);
+  });
+
+  test("persistence hooks no-op while the memory plugin is disabled", async () => {
+    let calls = 0;
+    const guarded = guardPersistenceHooksByDisabledState("default-memory", {
+      onMessagePersisted() {
+        calls++;
+      },
+    });
+    const event: MessagePersistedEvent = {
+      messageId: "msg-1",
+      conversationId: "conv-1",
+      role: "user",
+      content: "[]",
+      createdAt: 0,
+    };
+
+    // Enabled: the wrapped handler runs.
+    await guarded.onMessagePersisted(event);
+    expect(calls).toBe(1);
+
+    // Disable via sentinel — checked at call time, no restart needed.
+    await createSentinel("default-memory");
+    await guarded.onMessagePersisted(event);
+    expect(calls).toBe(1);
+
+    // Re-enable.
+    await removeSentinel("default-memory");
+    await guarded.onMessagePersisted(event);
+    expect(calls).toBe(2);
   });
 });

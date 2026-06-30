@@ -54,7 +54,6 @@ const MEMORY_DIR = join(ASSISTANT_SRC, "plugins", "defaults", "memory");
 const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
   "assistant/src/persistence/conversation-crud.ts": new Set([
     "graph/graph-memory-state-store",
-    "indexer",
     "memory-retrospective-constants",
     "memory-retrospective-state",
     "task-memory-cleanup",
