@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
+import { MemoryRouter } from "react-router";
 
 import { ApiError } from "@/utils/api-errors";
 import type { ContactPayload } from "@/domains/contacts/types";
@@ -114,7 +115,11 @@ function Wrapper({ children }: { children: ReactNode }) {
       mutations: { retry: false },
     },
   });
-  return createElement(QueryClientProvider, { client }, children);
+  return createElement(
+    MemoryRouter,
+    null,
+    createElement(QueryClientProvider, { client }, children),
+  );
 }
 
 function getInputByPlaceholder(placeholder: string): HTMLInputElement {
