@@ -39,22 +39,10 @@ export function BackgroundTaskDetailPanel({
     <DetailShell
       Glyph={SquareTerminal}
       title={entry.command}
+      headerTrailing={<BackgroundTaskStatusBadge status={entry.status} />}
       closeLabel="Close task detail"
       onClose={onClose}
     >
-      <div className="mb-4 flex items-center gap-2">
-        <BackgroundTaskStatusBadge status={entry.status} />
-        {showExitCode && (
-          <Typography
-            variant="body-small-default"
-            as="span"
-            className="text-[var(--content-tertiary)]"
-          >
-            Exit code: {entry.exitCode}
-          </Typography>
-        )}
-      </div>
-
       <div>
         <SectionLabel>Command</SectionLabel>
         <CodeBlock text={entry.command} />
@@ -65,6 +53,16 @@ export function BackgroundTaskDetailPanel({
           <SectionLabel>Output</SectionLabel>
           <CodeBlock text={entry.output as string} />
         </div>
+      )}
+
+      {showExitCode && (
+        <Typography
+          variant="body-small-default"
+          as="p"
+          className="mt-2 text-[var(--content-tertiary)]"
+        >
+          Exit code: {entry.exitCode}
+        </Typography>
       )}
     </DetailShell>
   );
