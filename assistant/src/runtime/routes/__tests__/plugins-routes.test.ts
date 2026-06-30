@@ -260,19 +260,16 @@ function invoke(args: RouteHandlerArgs = {}): {
   return listHandler(args) as { plugins: Array<Record<string, unknown>> };
 }
 
-// The route response strips `category` (added to the lib match shape but not
-// yet to the wire schema), so the wire matches are `PluginSearchMatch` minus it.
-type PluginMatchWire = Omit<PluginSearchMatch, "category">;
-
+// The route wire shape mirrors the lib match — including `category`.
 async function invokeSearch(args: RouteHandlerArgs = {}): Promise<{
   query: string;
   ref: string;
-  matches: PluginMatchWire[];
+  matches: PluginSearchMatch[];
 }> {
   return (await searchHandler(args)) as {
     query: string;
     ref: string;
-    matches: PluginMatchWire[];
+    matches: PluginSearchMatch[];
   };
 }
 
@@ -473,7 +470,7 @@ describe("GET /v1/plugins/search", () => {
         {
           name: "simple-memory",
           path: "github:vellum-ai/simple-memory@ed09a4c01bf18e4ac8859faee94cb65c7cbd1ca3",
-          category: null,
+          category: "productivity",
           source: {
             kind: "github",
             repo: "vellum-ai/simple-memory",
@@ -504,7 +501,8 @@ describe("GET /v1/plugins/search", () => {
     expect(ref).toBe("my-feature-branch");
 
     // The query is applied in-memory by the real filter: `^simple` matches
-    // only `simple-memory`, and the source discriminator is preserved.
+    // only `simple-memory`. The source discriminator and the marketplace
+    // `category` both flow through to the wire.
     expect(result).toEqual({
       query: "^simple",
       ref: "my-feature-branch",
@@ -512,6 +510,7 @@ describe("GET /v1/plugins/search", () => {
         {
           name: "simple-memory",
           path: "github:vellum-ai/simple-memory@ed09a4c01bf18e4ac8859faee94cb65c7cbd1ca3",
+          category: "productivity",
           source: {
             kind: "github",
             repo: "vellum-ai/simple-memory",
@@ -543,6 +542,8 @@ describe("GET /v1/plugins/search", () => {
     expect(ref).toBe("main");
     expect(result.query).toBe("");
     expect(result.matches.map((m) => m.name)).toEqual(["caveman"]);
+    // An entry that declares no category surfaces as `category: null`.
+    expect(result.matches[0]?.category).toBeNull();
   });
 
   test("whitespace-only ?ref= falls back to the default ref", async () => {
@@ -625,6 +626,7 @@ describe("GET /v1/plugins/search", () => {
       result.matches.push({
         name: "b",
         path: "x",
+        category: null,
         source: {
           kind: "github",
           repo: "acme/b",
