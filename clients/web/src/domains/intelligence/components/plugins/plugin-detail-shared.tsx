@@ -207,7 +207,9 @@ export function PluginDetailActions({
   return (
     <>
       {installed ? (
-        <div className="flex shrink-0 items-center gap-2">
+        // Wrap on narrow (mobile overlay) widths so a Download + Upgrade +
+        // Remove set can't push actions off-screen; single row on desktop.
+        <div className="flex flex-wrap items-center gap-2 md:flex-nowrap md:shrink-0">
           {artifact ? (
             <Button asChild leftIcon={<Download aria-hidden />}>
               <a href={artifact.url} download>
