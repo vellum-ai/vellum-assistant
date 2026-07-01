@@ -2266,6 +2266,14 @@ describe("platform credential injection", () => {
         userId: "user-1",
         webhookSecret: "webhook-secret-123",
       });
+      expect(saveAssistantEntryMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          assistantId: "my-local",
+          platformAssistantId: "platform-assistant-1",
+          platformBaseUrl: "https://platform.vellum.ai",
+          platformOrganizationId: "org-1",
+        }),
+      );
     } finally {
       restoreFetch();
     }

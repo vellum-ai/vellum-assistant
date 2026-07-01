@@ -133,6 +133,42 @@ export function getCliInstallDir(): string {
 }
 
 /**
+ * Rename an adopted version-named install dir (e.g. `cli/0.9.0`) to the
+ * canonical `cli/latest` so its name reflects reality after an in-place float.
+ *
+ * Version-named dirs are only ever created by pinned builds. When a later
+ * unpinned build adopts one and bumps its contents to a newer version in
+ * place, the dir name goes stale (`cli/0.9.0` now holding 0.10.x) and the path
+ * baked into the locator/wrapper misleads debugging (LUM-2648). Pinned builds
+ * always install into a correctly-named dir, so this is a no-op for them.
+ *
+ * Non-fatal — failures are logged and leave the existing dir untouched.
+ */
+export function migrateStaleInstallDir(): void {
+  if (PINNED_CLI_VERSION) return;
+
+  const cliRoot = getCliRootDir();
+  const latestDir = path.join(cliRoot, LATEST_INSTALL_DIR);
+  if (existsSync(binPathIn(latestDir))) return; // already canonical
+
+  const existing = findExistingInstallDir();
+  if (existing === null || path.basename(existing) === LATEST_INSTALL_DIR) {
+    return;
+  }
+
+  try {
+    // Drop any partial `cli/latest` (dir without a bin) so the rename lands.
+    rmSync(latestDir, { recursive: true, force: true });
+    renameSync(existing, latestDir);
+    log.info(
+      `[cli-installer] renamed stale CLI install ${path.basename(existing)} -> ${LATEST_INSTALL_DIR}`,
+    );
+  } catch (err) {
+    log.error("[cli-installer] failed to migrate stale CLI install dir:", err);
+  }
+}
+
+/**
  * Absolute path of what the bundled bun should execute as the CLI: the repo
  * source entry in local builds, otherwise the installed `vellum` binary.
  * Everything downstream (invocation, locator, PATH wrapper) flows through
@@ -184,6 +220,9 @@ export function writeFileAtomicSync(
  * wrapper is never pointed at a missing binary.
  */
 export function writeCliLocator(): void {
+  // Heal a stale versioned install dir first so the locator points at the
+  // canonical path rather than an old version-named one (LUM-2648).
+  migrateStaleInstallDir();
   if (!isCliInstalled()) return;
 
   try {

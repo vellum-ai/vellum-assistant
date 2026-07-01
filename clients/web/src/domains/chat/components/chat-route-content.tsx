@@ -19,12 +19,8 @@
 
 import { type Dispatch, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
-import { useActiveSubagentIds } from "@/domains/chat/hooks/use-active-subagent-ids";
-import { useActiveAcpRunIds } from "@/domains/chat/hooks/use-active-acp-run-ids";
-import { useActiveBackgroundTaskIds } from "@/domains/chat/hooks/use-active-background-task-ids";
 import { useAcpRunRehydration } from "@/domains/chat/hooks/use-acp-run-rehydration";
 import { useBackgroundTaskRehydration } from "@/domains/chat/hooks/use-background-task-rehydration";
-import { useActiveWorkflowRunIds } from "@/domains/chat/hooks/use-active-workflow-run-ids";
 import { useChatUIState } from "@/domains/chat/hooks/use-chat-ui-state";
 import { useTranscriptData } from "@/domains/chat/hooks/use-transcript-data";
 import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
@@ -41,10 +37,13 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
 import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachment-gate";
 import { useComposerStore } from "@/domains/chat/composer-store";
-import { ActiveSubagentsOverlay } from "@/domains/chat/components/active-subagents-overlay/active-subagents-overlay";
-import { ActiveAcpRunsOverlay } from "@/domains/chat/components/active-acp-runs-overlay/active-acp-runs-overlay";
-import { ActiveBackgroundTasksOverlay } from "@/domains/chat/components/active-background-tasks-overlay/active-background-tasks-overlay";
-import { ActiveWorkflowsOverlay } from "@/domains/chat/components/active-workflows-overlay/active-workflows-overlay";
+import { ActiveProcessOverlay } from "@/domains/chat/process-registry/active-process-overlay";
+import { PROCESS_KINDS } from "@/domains/chat/process-registry/registry";
+import type { ProcessKind } from "@/domains/chat/process-registry/types";
+import { SUBAGENT_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/subagent";
+import { ACP_RUN_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/acp-run";
+import { WORKFLOW_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/workflow";
+import { BACKGROUND_TASK_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/background-task";
 import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-drawer";
 import { ChatBody } from "@/domains/chat/components/chat-body";
 import { ChatComposer } from "@/domains/chat/components/chat-composer/chat-composer";
@@ -151,6 +150,44 @@ export interface ChatMainPanelProps {
 
 /** @deprecated Use {@link ChatMainPanelProps} — kept as a re-export for migration. */
 export type ChatRouteContentProps = ChatMainPanelProps;
+
+/**
+ * Builds the registry-driven row of active background-process overlays.
+ *
+ * Each descriptor's `useActiveIds()` is a zero-arg hook that resolves the
+ * active conversation internally, so the hooks are called here at the
+ * orchestrator level (where the conversation lives in context). They must be
+ * called explicitly per-kind — the Rules of Hooks forbid iterating
+ * `PROCESS_KINDS` with hooks — and the results are keyed by `descriptor.kind`,
+ * so the overlay row order follows `PROCESS_KINDS` without positional coupling.
+ *
+ * `hasAny` lets the caller omit the row entirely when nothing is active, so the
+ * absolutely-positioned container never mounts empty; the overlays themselves
+ * also self-gate on their own ids.
+ */
+function useActiveProcessSlots() {
+  const subagentIds = SUBAGENT_DESCRIPTOR.useActiveIds();
+  const acpRunIds = ACP_RUN_DESCRIPTOR.useActiveIds();
+  const workflowIds = WORKFLOW_DESCRIPTOR.useActiveIds();
+  const backgroundTaskIds = BACKGROUND_TASK_DESCRIPTOR.useActiveIds();
+  // Keyed by `descriptor.kind` (not array position) so reordering
+  // `PROCESS_KINDS` can't silently feed an overlay the wrong kind's ids.
+  const idsByKind: Record<ProcessKind, string[]> = {
+    subagent: subagentIds,
+    "acp-run": acpRunIds,
+    workflow: workflowIds,
+    "background-task": backgroundTaskIds,
+  };
+  const hasAny = Object.values(idsByKind).some((ids) => ids.length > 0);
+  const overlays = PROCESS_KINDS.map((descriptor) => (
+    <ActiveProcessOverlay
+      key={descriptor.kind}
+      descriptor={descriptor}
+      ids={idsByKind[descriptor.kind]}
+    />
+  ));
+  return { overlays, hasAny };
+}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -279,10 +316,8 @@ export function ChatMainPanel({
     if (assistantId) void useViewerStore.getState().loadDocument(assistantId, surfaceId);
   }, [assistantId]);
 
-  const activeSubagentIds = useActiveSubagentIds(activeConversationId);
-  const activeAcpRunIds = useActiveAcpRunIds(activeConversationId);
-  const activeBackgroundTaskIds = useActiveBackgroundTaskIds(activeConversationId);
-  const activeWorkflowRunIds = useActiveWorkflowRunIds();
+  const { overlays: activeProcessOverlays, hasAny: hasActiveProcess } =
+    useActiveProcessSlots();
 
   // Rehydrate ACP runs from the daemon on conversation load so completed and
   // in-progress runs reappear after a refresh / reconnect.
@@ -294,14 +329,6 @@ export function ChatMainPanel({
 
   const onSubagentClick = useCallback((id: string) => {
     useViewerStore.getState().openSubagentDetail(id);
-  }, []);
-
-  const onAcpRunClick = useCallback((acpSessionId: string) => {
-    useViewerStore.getState().openAcpRunDetail(acpSessionId);
-  }, []);
-
-  const onBackgroundTaskClick = useCallback((id: string) => {
-    useViewerStore.getState().openBackgroundTaskDetail(id);
   }, []);
 
   const onStopSubagent = useCallback(
@@ -913,40 +940,6 @@ export function ChatMainPanel({
     transcriptProps: chatTranscriptProps,
   };
 
-  const activeSubagentsSlot =
-    activeSubagentIds.length > 0 ? (
-      <ActiveSubagentsOverlay
-        subagentIds={activeSubagentIds}
-        onSubagentClick={onSubagentClick}
-        onStopSubagent={onStopSubagent}
-      />
-    ) : undefined;
-
-  const activeAcpRunsSlot =
-    activeAcpRunIds.length > 0 ? (
-      <ActiveAcpRunsOverlay
-        acpRunIds={activeAcpRunIds}
-        onAcpRunClick={onAcpRunClick}
-      />
-    ) : undefined;
-
-  const activeWorkflowsSlot =
-    activeWorkflowRunIds.length > 0 ? (
-      <ActiveWorkflowsOverlay
-        workflowRunIds={activeWorkflowRunIds}
-        onWorkflowClick={onWorkflowClick}
-        onStopWorkflow={onStopWorkflow}
-      />
-    ) : undefined;
-
-  const activeBackgroundTasksSlot =
-    activeBackgroundTaskIds.length > 0 ? (
-      <ActiveBackgroundTasksOverlay
-        taskIds={activeBackgroundTaskIds}
-        onTaskClick={onBackgroundTaskClick}
-      />
-    ) : undefined;
-
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
@@ -983,10 +976,9 @@ export function ChatMainPanel({
       startersSlot={startersSlot}
       belowFoldSlot={belowFoldSlot}
       dockStartersToBottom={dockStartersToBottom}
-      activeSubagentsSlot={activeSubagentsSlot}
-      activeAcpRunsSlot={activeAcpRunsSlot}
-      activeWorkflowsSlot={activeWorkflowsSlot}
-      activeBackgroundTasksSlot={activeBackgroundTasksSlot}
+      activeProcessOverlaysSlot={
+        hasActiveProcess ? activeProcessOverlays : undefined
+      }
     />
   );
 

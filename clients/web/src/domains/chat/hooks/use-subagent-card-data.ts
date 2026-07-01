@@ -1,6 +1,7 @@
 /**
- * Builds the props for `SubagentInlineProgressCard` from a single
- * subagent's store entry. Translates the subagent's timeline events
+ * Builds the `ToolCallCardData` consumed by `InlineProcessCard` via the
+ * subagent descriptor, from a single subagent's store entry. Translates the
+ * subagent's timeline events
  * (`SubagentTimelineEvent[]`) into the unified `ToolCallCardStep[]`
  * shape consumed by the shared tool-progress card chrome.
  *

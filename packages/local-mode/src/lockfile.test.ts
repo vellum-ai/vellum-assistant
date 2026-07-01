@@ -171,6 +171,32 @@ describe("upsertLockfileAssistant", () => {
       name: "Renamed",
     });
   });
+
+  test("preserves activeAssistant when no active id is provided", () => {
+    writeOnDisk({
+      activeAssistant: "asst_active",
+      assistants: [
+        {
+          assistantId: "asst_active",
+          cloud: "local",
+          runtimeUrl: "http://active",
+        },
+        { assistantId: "asst_1", cloud: "local", runtimeUrl: "http://a" },
+      ],
+    });
+
+    const result = upsertLockfileAssistant(
+      [lockfilePath],
+      { assistantId: "asst_1", name: "Renamed" },
+      undefined,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(readOnDisk().activeAssistant).toBe("asst_active");
+    if (result.ok) {
+      expect(result.lockfile.activeAssistant).toBe("asst_active");
+    }
+  });
 });
 
 describe("replacePlatformAssistants", () => {
@@ -270,7 +296,9 @@ describe("replacePlatformAssistants", () => {
       "org_a",
     );
 
-    const assistants = readOnDisk().assistants as Array<Record<string, unknown>>;
+    const assistants = readOnDisk().assistants as Array<
+      Record<string, unknown>
+    >;
     expect(assistants).toHaveLength(1);
     expect(assistants[0]).toMatchObject({
       assistantId: "asst_dup",

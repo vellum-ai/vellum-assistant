@@ -109,6 +109,12 @@ export const LockfileAssistantSchema = z.object({
   hatchedAt: z.string().optional(),
   /** Owning org for platform assistants; absent for local ones. */
   organizationId: z.string().optional(),
+  /** Platform assistant UUID for a self-hosted local assistant registration. */
+  platformAssistantId: z.string().optional(),
+  /** Platform base URL used for a self-hosted local assistant registration. */
+  platformBaseUrl: z.string().optional(),
+  /** Platform organization UUID used for a self-hosted local assistant registration. */
+  platformOrganizationId: z.string().optional(),
   resources: LocalAssistantResourcesSchema.optional(),
 });
 
