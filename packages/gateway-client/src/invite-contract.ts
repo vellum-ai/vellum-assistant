@@ -121,8 +121,20 @@ export type InviteRedemptionOutcome = z.infer<
 // ---------------------------------------------------------------------------
 // IPC schemas
 // ---------------------------------------------------------------------------
+//
+// The schemas below define the gateway-native invite redemption IPC surface.
+// Schema-to-method mapping:
+//
+// - `RedeemInviteByCodeRequestSchema` / `RedeemInviteByTokenRequestSchema` —
+//   request shapes for the gateway redemption engine (code and link-token
+//   redemption).
+// - `RedeemVoiceInviteRequestSchema` — gateway IPC `redeem_voice_invite`.
+// - `GetActiveVoiceInviteRequestSchema` — gateway IPC
+//   `get_active_voice_invite`.
+// - `InviteRedeemedNotificationSchema` — daemon IPC `invite_redeemed`
+//   notification.
 
-/** IPC request for `redeem_invite_by_code` (6-digit invite code). */
+/** Gateway redemption-engine request for code redemption (6-digit code). */
 export const RedeemInviteByCodeRequestSchema = z.object({
   code: z.string().min(1),
   sourceChannel: z.string().min(1),
@@ -136,7 +148,7 @@ export type RedeemInviteByCodeRequest = z.infer<
   typeof RedeemInviteByCodeRequestSchema
 >;
 
-/** IPC request for `redeem_invite_by_token` (raw link token). */
+/** Gateway redemption-engine request for token redemption (raw link token). */
 export const RedeemInviteByTokenRequestSchema = z.object({
   rawToken: z.string().min(1),
   sourceChannel: z.string().min(1),
@@ -150,7 +162,7 @@ export type RedeemInviteByTokenRequest = z.infer<
   typeof RedeemInviteByTokenRequestSchema
 >;
 
-/** IPC request for `redeem_voice_invite` (voice-channel spoken code). */
+/** Request for gateway IPC `redeem_voice_invite` (voice-channel spoken code). */
 export const RedeemVoiceInviteRequestSchema = z.object({
   callerExternalUserId: z.string().min(1),
   code: z.string().min(1),
@@ -160,7 +172,7 @@ export type RedeemVoiceInviteRequest = z.infer<
   typeof RedeemVoiceInviteRequestSchema
 >;
 
-/** IPC request for `get_active_voice_invite`. */
+/** Request for gateway IPC `get_active_voice_invite`. */
 export const GetActiveVoiceInviteRequestSchema = z.object({
   callerExternalUserId: z.string().min(1),
 });

@@ -1,12 +1,11 @@
 /**
  * Tests for the shared invite contract.
  *
- * The pinned hash vectors below were computed with the ORIGINAL daemon
- * implementations (`assistant/src/persistence/invite-store.ts` `hashToken`
- * and `assistant/src/util/voice-code.ts` `hashVoiceCode`) before they were
- * repointed here. They prove the shared helpers stay byte-for-byte
- * compatible with hashes already stored in assistant/gateway DBs — do not
- * update them to "fix" a failure; a mismatch means the hash scheme broke.
+ * The pinned hash vectors below define the hash compatibility contract:
+ * `hashInviteToken` and `hashInviteCode` must produce exactly these outputs
+ * because invite hashes already stored in the assistant and gateway DBs were
+ * produced with them. Do not update the vectors to "fix" a failure — a
+ * mismatch means the hash scheme broke.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -28,7 +27,7 @@ import {
   type InviteRedemptionOutcome,
 } from "../invite-contract.js";
 
-describe("hash helpers — pinned vectors from the original daemon implementations", () => {
+describe("hash helpers — pinned compatibility vectors", () => {
   test("hashInviteToken matches invite-store.ts hashToken output", () => {
     expect(hashInviteToken("test-raw-token")).toBe(
       "7ef58e99b3406554f5ce0c0055b8ed3ea4db2c8a36613092d644c57c6a033330",
