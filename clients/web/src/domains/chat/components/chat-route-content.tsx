@@ -240,8 +240,11 @@ export function ChatMainPanel({
     activeConversation,
   } = useChatUIState();
 
-  // Channel-origin conversations disable edit/recall: the undo path deletes imported channel history.
-  const editRecallDisabled = isChannelConversation(activeConversation);
+  // Edit/recall + undo require a PROVEN-native conversation: while the row is
+  // unresolved (activeConversation undefined) or channel-origin, the undo path
+  // would delete imported channel history, so treat those as not-native.
+  const isNativeConversation =
+    activeConversation != null && !isChannelConversation(activeConversation);
 
   // -------------------------------------------------------------------------
   // Composer — `ChatComposer` and `ComposerDraftNotices` self-source every
@@ -708,6 +711,7 @@ export function ChatMainPanel({
     isEditing,
     editingMessageId,
     cancelEditing,
+    canUndoEdit: isNativeConversation,
     sendDisabled,
     typingDisabled,
     assistantId,
@@ -876,7 +880,7 @@ export function ChatMainPanel({
       canStopGenerating={canStopGenerating}
       assistantId={assistantId}
       conversationId={activeConversation?.conversationId}
-      onRecallLastMessage={isIdle && !editRecallDisabled ? handleRecallLastMessage : undefined}
+      onRecallLastMessage={isIdle && isNativeConversation ? handleRecallLastMessage : undefined}
       onCancelEdit={isEditing ? handleCancelEdit : undefined}
       textareaMaxHeightPx={isEmptyConversation ? 320 : undefined}
       suggestion={suggestion}

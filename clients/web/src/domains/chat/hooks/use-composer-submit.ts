@@ -30,6 +30,8 @@ export interface UseComposerSubmitParams {
   isEditing: boolean;
   editingMessageId: string | null;
   cancelEditing: () => void;
+  /** True only when the active conversation is proven native; gates the edit/undo path that would otherwise delete imported channel history. */
+  canUndoEdit: boolean;
   sendDisabled: boolean;
   typingDisabled: boolean;
   assistantId: string | null;
@@ -54,6 +56,7 @@ export function useComposerSubmit({
   isEditing,
   editingMessageId,
   cancelEditing,
+  canUndoEdit,
   sendDisabled,
   typingDisabled,
   assistantId,
@@ -112,7 +115,7 @@ export function useComposerSubmit({
     // Engage the auto-pin window so the new turn lands at the bottom.
     scrollToLatest({ behavior: "auto" });
 
-    if (isEditing && editingMessageId && assistantId && activeConversationId) {
+    if (isEditing && editingMessageId && assistantId && activeConversationId && canUndoEdit) {
       cancelEditing();
       try {
         await conversationsByIdUndoPost({
@@ -124,7 +127,7 @@ export function useComposerSubmit({
     }
     const contentWithQuotes = buildContentWithQuotes(stagedQuotes, trimmed);
     await sendMessage(contentWithQuotes, attachmentsToSend);
-  }, [sendDisabled, activeConversationId, inputRef, scrollToLatest, isEditing, editingMessageId, assistantId, cancelEditing, sendMessage]);
+  }, [sendDisabled, activeConversationId, inputRef, scrollToLatest, isEditing, editingMessageId, assistantId, cancelEditing, canUndoEdit, sendMessage]);
 
   const handleFormSubmit = useCallback((e: FormEvent) => {
     e.preventDefault();
