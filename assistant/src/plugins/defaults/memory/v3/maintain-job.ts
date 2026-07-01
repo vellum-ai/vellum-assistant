@@ -425,7 +425,7 @@ function defaultBackfillDeps(config: AssistantConfig): BackfillJobDeps {
     nowMs: () => Date.now(),
     config,
     embedProbe: async () => {
-      await embedWithBackend(["memory-v3 backfill preflight"]);
+      await embedWithBackend(config, ["memory-v3 backfill preflight"]);
     },
   };
 }

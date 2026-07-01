@@ -190,7 +190,10 @@ async function runSeedV2CliCommandEntries(generation: number): Promise<void> {
             })
           : generateSparseEmbedding(input);
       try {
-        const embedded = await embedWithBackend(seeds.map((s) => s.content));
+        const embedded = await embedWithBackend(
+          config,
+          seeds.map((s) => s.content),
+        );
         denseVectors = await Promise.all(
           embedded.vectors.map((v) =>
             applyCorrectionIfCalibrated(v, embedded.provider, embedded.model),

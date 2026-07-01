@@ -181,7 +181,7 @@ export async function simBatch(
   let denseVector: number[] = [];
   if (denseAvailable) {
     throwIfAborted(options?.signal);
-    const denseResult = await embedWithBackend([text], {
+    const denseResult = await embedWithBackend(config, [text], {
       signal: options?.signal,
     });
     denseVector = await applyCorrectionIfCalibrated(

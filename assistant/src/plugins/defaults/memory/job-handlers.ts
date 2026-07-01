@@ -149,7 +149,7 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
   },
   {
     type: "graph_trigger_embed",
-    handler: (job) => embedGraphTriggerJob(job),
+    handler: (job, config) => embedGraphTriggerJob(job, config),
   },
   {
     type: "graph_extract",

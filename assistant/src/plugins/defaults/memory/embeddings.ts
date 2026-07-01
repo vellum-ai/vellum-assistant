@@ -1,4 +1,5 @@
 import { getConfig } from "../../../config/loader.js";
+import type { AssistantConfig } from "../../../config/types.js";
 import type {
   EmbeddingInput,
   EmbeddingRequestOptions,
@@ -12,9 +13,14 @@ import { resolveQdrantUrl as resolveQdrantUrlWithConfig } from "../../../persist
  * `persistence/job-utils`) and take the full `AssistantConfig` as their first
  * argument — they read both the `memory` slice (Qdrant collection and vector
  * settings) and the `llm` slice (embedding-backend selection). Memory code
- * reaches those operations through this accessor, which resolves the live config
- * internally, so the feature's call sites neither hold nor thread
- * `AssistantConfig` just to embed.
+ * reaches those operations through this accessor: the self-contained ones
+ * (`embedAndUpsert`, `selectedBackendSupportsMultimodal`, `resolveQdrantUrl`)
+ * resolve the live config internally, so their call sites need not hold it.
+ * `embedWithBackend` keeps its `config` parameter — it is a primitive whose
+ * vectors the caller stores alongside its own config-derived metadata (cache
+ * keys, vector-size checks, Qdrant collection), so it must embed with the
+ * caller's exact config snapshot rather than a re-read that could diverge from
+ * that metadata mid-operation.
  *
  * The embed operations are loaded via dynamic `import()` inside each wrapper so
  * that importing this module for a single operation does not eagerly pull the
@@ -43,6 +49,7 @@ export async function embedAndUpsert(
 
 /** Embed one or more inputs via the selected embedding backend. */
 export async function embedWithBackend(
+  config: AssistantConfig,
   inputs: EmbeddingInput[],
   options?: EmbeddingRequestOptions,
 ): Promise<
@@ -54,7 +61,7 @@ export async function embedWithBackend(
 > {
   const { embedWithBackend: withConfig } =
     await import("../../../persistence/embeddings/embedding-backend.js");
-  return withConfig(getConfig(), inputs, options);
+  return withConfig(config, inputs, options);
 }
 
 /** Whether the active embedding backend handles multimodal inputs. */

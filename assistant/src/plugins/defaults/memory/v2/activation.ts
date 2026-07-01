@@ -140,7 +140,7 @@ export async function selectCandidates(
     let dense: number[] = [];
     if (await isEmbeddingDimensionAvailable(config)) {
       throwIfAborted(signal);
-      const denseResult = await embedWithBackend([annQueryText], {
+      const denseResult = await embedWithBackend(config, [annQueryText], {
         signal,
       });
       dense = await applyCorrectionIfCalibrated(

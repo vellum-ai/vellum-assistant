@@ -186,7 +186,7 @@ async function searchNodesSemantic(
     const backendStatus = await getMemoryBackendStatus(config);
     if (!backendStatus.provider) return null;
 
-    const embedded = await embedWithBackend([query]);
+    const embedded = await embedWithBackend(config, [query]);
     const queryVector = embedded.vectors[0];
     if (!queryVector) return null;
 

@@ -66,7 +66,7 @@ export async function denseLane(
 
   let points: Array<{ payload?: unknown; score?: number }>;
   try {
-    const { vectors } = await embedWithBackend([query]);
+    const { vectors } = await embedWithBackend(config, [query]);
     const vector = vectors[0];
     if (!vector || vector.length === 0) return [];
 

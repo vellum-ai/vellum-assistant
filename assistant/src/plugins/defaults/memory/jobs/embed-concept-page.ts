@@ -185,7 +185,7 @@ export async function embedConceptPageJob(
   let bodyFresh = false;
   let summaryFresh = false;
   if (toEmbed.length > 0) {
-    let embedded = await embedWithBackend(toEmbed);
+    let embedded = await embedWithBackend(config, toEmbed);
     let appliedSlots = slots;
     // Backend rotation between `getMemoryBackendStatus()` and
     // `embedWithBackend()` would tag the cached half with the old
@@ -205,7 +205,7 @@ export async function embedConceptPageJob(
         allTexts.push({ type: "text", text: summaryText });
         allSlots.push("summary");
       }
-      embedded = await embedWithBackend(allTexts);
+      embedded = await embedWithBackend(config, allTexts);
       appliedSlots = allSlots;
       bodyDense = undefined;
       summaryDense = undefined;

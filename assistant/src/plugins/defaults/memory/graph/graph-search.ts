@@ -3,6 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { getConfig } from "../../../../config/loader.js";
+import type { AssistantConfig } from "../../../../config/types.js";
 import type { EmbeddingInput } from "../../../../persistence/embeddings/embedding-types.js";
 import { isQdrantBreakerOpen } from "../../../../persistence/embeddings/qdrant-circuit-breaker.js";
 import { withQdrantBreaker } from "../../../../persistence/embeddings/qdrant-circuit-breaker.js";
@@ -239,7 +240,10 @@ export function enqueueGraphNodeEmbed(nodeId: string): void {
  * Job handler: embed a trigger's condition text and store the
  * embedding on the trigger row.
  */
-export async function embedGraphTriggerJob(job: MemoryJob): Promise<void> {
+export async function embedGraphTriggerJob(
+  job: MemoryJob,
+  config: AssistantConfig,
+): Promise<void> {
   const triggerId = asString(job.payload.triggerId);
   if (!triggerId) return;
 
@@ -259,7 +263,7 @@ export async function embedGraphTriggerJob(job: MemoryJob): Promise<void> {
 
   if (!row || !row.condition) return;
 
-  const result = await embedWithBackend([row.condition]);
+  const result = await embedWithBackend(config, [row.condition]);
   const vector = result.vectors[0];
   if (!vector) return;
 

@@ -357,6 +357,7 @@ async function embedSectionsCached(
 
   // Embed the misses in one batched call (the dominant cost).
   let embedded = await embedWithBackend(
+    config,
     missIndices.map((i) => sections[i]!.text),
   );
   let writeProvider = embedded.provider;
@@ -373,7 +374,10 @@ async function embedSectionsCached(
     (embedded.provider !== status.provider || embedded.model !== status.model);
   if (rotated) {
     effectiveIndices = sections.map((_, i) => i);
-    embedded = await embedWithBackend(sections.map((s) => s.text));
+    embedded = await embedWithBackend(
+      config,
+      sections.map((s) => s.text),
+    );
     writeProvider = embedded.provider;
     writeModel = embedded.model;
   }
