@@ -65,6 +65,7 @@ export type MemoryJobType =
   | "index_message_lexical"
   | "purge_conversation_lexical"
   | "delete_message_lexical"
+  | "backfill_lexical_index"
   // Retired/legacy — no live handler; persisted rows drop via LEGACY_JOB_TYPES.
   | "memory_v3_consolidate"
   | "memory_v3_index_maintenance"

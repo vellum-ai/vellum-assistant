@@ -1,4 +1,4 @@
-import { parseFrontmatterFields } from "../../../../skills/frontmatter.js";
+import { parseFrontmatterFields } from "../frontmatter.js";
 import type { PageIndexEntry } from "../v2/page-index.js";
 import type { Slug } from "./types.js";
 

@@ -22,6 +22,18 @@ mock.module("@/domains/chat/components/chat-attachments/message-attachments", ()
   MessageAttachments: () => <div data-testid="attachments" />,
 }));
 
+// The ACP-run and background-task rows wire their transcript stop button to
+// these standalone actions; stub them so clicking Stop records the call without
+// pulling in the daemon SDK / store wiring.
+const stopAcpRunMock = mock(async () => {});
+const stopBackgroundTaskMock = mock(async () => {});
+mock.module("@/domains/chat/utils/acp-run-actions", () => ({
+  stopAcpRun: stopAcpRunMock,
+}));
+mock.module("@/domains/chat/utils/background-task-actions", () => ({
+  stopBackgroundTask: stopBackgroundTaskMock,
+}));
+
 mock.module("@/domains/chat/components/chat-markdown-message", () => ({
   ChatMarkdownMessage: ({
     content,
@@ -122,6 +134,47 @@ mock.module(
         </div>
       );
     },
+  }),
+);
+
+// The four transcript inline-card render paths (workflow / ACP run /
+// background task — and subagent, via `SubagentSpawnGroup`) all route through
+// the generic `InlineProcessCardRow`. Stub it so these tests can assert which
+// descriptor + id each render helper maps to, and that the transcript's
+// `onOpen`/`onStop` wiring reaches the row — without hydrating each kind's
+// store (the row's own markup is covered by `inline-process-card.test`).
+mock.module(
+  "@/domains/chat/process-registry/inline-process-card-row",
+  () => ({
+    InlineProcessCardRow: ({
+      descriptor,
+      id,
+      onOpen,
+      onStop,
+    }: {
+      descriptor: { kind: string };
+      id: string;
+      onOpen?: () => void;
+      onStop?: () => void;
+    }) => (
+      <div
+        data-testid="inline-process-card"
+        data-process-kind={descriptor.kind}
+        data-process-id={id}
+        data-has-stop={onStop ? "true" : "false"}
+      >
+        <button
+          type="button"
+          data-testid="inline-process-card-open"
+          onClick={() => onOpen?.()}
+        />
+        <button
+          type="button"
+          data-testid="inline-process-card-stop"
+          onClick={() => onStop?.()}
+        />
+      </div>
+    ),
   }),
 );
 
@@ -1014,3 +1067,115 @@ function taskProgressSurface(surfaceId: string): Surface {
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// Generic inline card (PR 10): each render helper maps resolved ids → the
+// generic `InlineProcessCardRow` (stubbed above) with the right descriptor,
+// and preserves the transcript's existing `onOpen`/`onStop` handler wiring.
+// ---------------------------------------------------------------------------
+
+describe("TranscriptMessageBody — generic inline process cards", () => {
+  function renderBody(
+    message: DisplayMessage,
+    props: {
+      onWorkflowClick?: (id: string) => void;
+      onStopWorkflow?: (id: string) => void;
+    } = {},
+  ) {
+    return render(
+      <TranscriptMessageBody
+        message={message}
+        onSurfaceAction={noop}
+        onWorkflowClick={props.onWorkflowClick}
+        onStopWorkflow={props.onStopWorkflow}
+      />,
+    );
+  }
+
+  test("renders the workflow descriptor row and wires open + stop", () => {
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-wf",
+      name: "run_workflow",
+      input: {},
+      result: JSON.stringify({ runId: "wf-1" }),
+      completedAt: 1,
+    };
+    const opened: string[] = [];
+    const stopped: string[] = [];
+    const { getByTestId } = renderBody(
+      {
+        id: "m-wf",
+        role: "assistant",
+        contentBlocks: [toolUseBlock(toolCall)],
+        toolCalls: [toolCall],
+        timestamp: 1_000,
+      },
+      {
+        onWorkflowClick: (id) => opened.push(id),
+        onStopWorkflow: (id) => stopped.push(id),
+      },
+    );
+
+    const row = getByTestId("inline-process-card");
+    expect(row.getAttribute("data-process-kind")).toBe("workflow");
+    expect(row.getAttribute("data-process-id")).toBe("wf-1");
+    expect(row.getAttribute("data-has-stop")).toBe("true");
+
+    fireEvent.click(getByTestId("inline-process-card-open"));
+    fireEvent.click(getByTestId("inline-process-card-stop"));
+    expect(opened).toEqual(["wf-1"]);
+    expect(stopped).toEqual(["wf-1"]);
+  });
+
+  test("renders the ACP-run descriptor row and wires open + stop", () => {
+    stopAcpRunMock.mockClear();
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-acp",
+      name: "acp_spawn",
+      input: {},
+      result: JSON.stringify({ acpSessionId: "acp-1" }),
+      completedAt: 1,
+    };
+    const { getByTestId } = renderBody({
+      id: "m-acp",
+      role: "assistant",
+      contentBlocks: [toolUseBlock(toolCall)],
+      toolCalls: [toolCall],
+      timestamp: 1_000,
+    });
+
+    const row = getByTestId("inline-process-card");
+    expect(row.getAttribute("data-process-kind")).toBe("acp-run");
+    expect(row.getAttribute("data-process-id")).toBe("acp-1");
+    expect(row.getAttribute("data-has-stop")).toBe("true");
+
+    fireEvent.click(getByTestId("inline-process-card-stop"));
+    expect(stopAcpRunMock).toHaveBeenCalledWith("acp-1");
+  });
+
+  test("renders the background-task descriptor row and wires open + stop", () => {
+    stopBackgroundTaskMock.mockClear();
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-bg",
+      name: "bash",
+      input: { background: true },
+      result: JSON.stringify({ backgrounded: true, id: "bg-1" }),
+      completedAt: 1,
+    };
+    const { getByTestId } = renderBody({
+      id: "m-bg",
+      role: "assistant",
+      contentBlocks: [toolUseBlock(toolCall)],
+      toolCalls: [toolCall],
+      timestamp: 1_000,
+    });
+
+    const row = getByTestId("inline-process-card");
+    expect(row.getAttribute("data-process-kind")).toBe("background-task");
+    expect(row.getAttribute("data-process-id")).toBe("bg-1");
+    expect(row.getAttribute("data-has-stop")).toBe("true");
+
+    fireEvent.click(getByTestId("inline-process-card-stop"));
+    expect(stopBackgroundTaskMock).toHaveBeenCalledWith("bg-1");
+  });
+});

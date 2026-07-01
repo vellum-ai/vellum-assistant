@@ -7,6 +7,7 @@
 // ---------------------------------------------------------------------------
 
 import type { ContentBlock, ImageContent } from "@vellumai/plugin-api";
+import { getConfiguredProvider } from "@vellumai/plugin-api";
 
 import type { AssistantConfig } from "../../../../config/types.js";
 import { embedWithRetry } from "../../../../persistence/embeddings/embed.js";
@@ -15,12 +16,8 @@ import {
   selectedBackendSupportsMultimodal,
 } from "../../../../persistence/embeddings/embedding-backend.js";
 import type { QdrantSparseVector } from "../../../../persistence/embeddings/qdrant-client.js";
-import {
-  extractToolUse,
-  getConfiguredProvider,
-  userMessage,
-} from "../../../../providers/provider-send-message.js";
 import { getLogger } from "../../../../util/logger.js";
+import { extractToolUse, userMessage } from "../llm-helpers.js";
 import { searchGraphNodes } from "./graph-search.js";
 import type { InContextTracker } from "./injection.js";
 import {

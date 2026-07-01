@@ -47,6 +47,12 @@ interface RetireArgs {
   yes: boolean;
 }
 
+interface SelfHostedPlatformRegistration {
+  platformAssistantId: string;
+  platformBaseUrl: string | null;
+  organizationId: string | null;
+}
+
 const PLATFORM_TOKEN_ENV = "VELLUM_PLATFORM_TOKEN";
 
 function readPlatformRetireToken(): string | null {
@@ -79,6 +85,24 @@ function resolveTrustedSelfHostedPlatformUrl(
     "⚠️  Stored platform URL does not match the configured platform URL; skipping platform unregister.",
   );
   return null;
+}
+
+function nonEmptyString(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function lockfileSelfHostedPlatformRegistration(
+  entry: AssistantEntry,
+): SelfHostedPlatformRegistration | null {
+  const platformAssistantId = nonEmptyString(entry.platformAssistantId);
+  if (!platformAssistantId) return null;
+
+  return {
+    platformAssistantId,
+    platformBaseUrl: nonEmptyString(entry.platformBaseUrl),
+    organizationId: nonEmptyString(entry.platformOrganizationId),
+  };
 }
 
 async function deletePlatformAssistant(
@@ -115,12 +139,10 @@ async function deletePlatformAssistant(
   }
 }
 
-async function unregisterSelfHostedLocalPlatformRecord(
+async function readSelfHostedPlatformRegistration(
   entry: AssistantEntry,
-): Promise<void> {
-  const token = readPlatformRetireToken();
-  if (!token) return;
-
+): Promise<SelfHostedPlatformRegistration | null> {
+  const fallback = lockfileSelfHostedPlatformRegistration(entry);
   const gatewayUrl = entry.localUrl ?? entry.runtimeUrl;
   const platformAssistant = await readGatewayCredential(
     gatewayUrl,
@@ -128,12 +150,21 @@ async function unregisterSelfHostedLocalPlatformRecord(
     entry.bearerToken,
   );
   if (platformAssistant.unreachable) {
+    if (fallback) {
+      console.warn(
+        "\u26a0\ufe0f  Could not read platform registration from the local assistant; using saved platform registration.",
+      );
+      return fallback;
+    }
     console.warn(
-      "\u26a0\ufe0f  Could not read platform registration from the local assistant; skipping platform unregister.",
+      "\u26a0\ufe0f  Could not read platform registration from the local assistant and no saved platform registration is available; skipping platform unregister.",
     );
-    return;
+    return null;
   }
-  if (!platformAssistant.value) return;
+
+  const platformAssistantId =
+    nonEmptyString(platformAssistant.value) ?? fallback?.platformAssistantId;
+  if (!platformAssistantId) return null;
 
   const [platformBaseUrl, organizationId] = await Promise.all([
     readGatewayCredential(
@@ -147,21 +178,42 @@ async function unregisterSelfHostedLocalPlatformRecord(
       entry.bearerToken,
     ),
   ]);
+
+  return {
+    platformAssistantId,
+    platformBaseUrl:
+      nonEmptyString(platformBaseUrl.value) ??
+      fallback?.platformBaseUrl ??
+      null,
+    organizationId:
+      nonEmptyString(organizationId.value) ?? fallback?.organizationId ?? null,
+  };
+}
+
+async function unregisterSelfHostedLocalPlatformRecord(
+  entry: AssistantEntry,
+): Promise<void> {
+  const token = readPlatformRetireToken();
+  if (!token) return;
+
+  const registration = await readSelfHostedPlatformRegistration(entry);
+  if (!registration) return;
+
   const platformUrl = resolveTrustedSelfHostedPlatformUrl(
-    platformBaseUrl.value,
+    registration.platformBaseUrl,
   );
   if (!platformUrl) return;
-  if (!organizationId.value) {
+  if (!registration.organizationId) {
     console.warn(
       "⚠️  Could not read platform organization ID from the local assistant; skipping platform unregister.",
     );
     return;
   }
 
-  await deletePlatformAssistant(platformAssistant.value, {
+  await deletePlatformAssistant(registration.platformAssistantId, {
     token,
     platformUrl,
-    organizationId: organizationId.value,
+    organizationId: registration.organizationId,
     label: "Platform self-hosted unregister",
     successMessage: "\u2705 Platform self-hosted registration unregistered.",
     alreadyGoneMessage:

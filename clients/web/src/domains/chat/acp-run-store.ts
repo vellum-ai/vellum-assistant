@@ -14,6 +14,18 @@ import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
 import { isActiveAcpStatus, type AcpRunStatus } from "@/utils/acp-run-status";
+import {
+  mergeTerminalStatus,
+  seedEntriesFromHistory,
+} from "@/domains/chat/store-helpers/merge-history-entry";
+import {
+  optimisticCancel,
+  optimisticRestore,
+  optimisticRetire,
+  type OptimisticLifecycleConfig,
+} from "@/domains/chat/store-helpers/optimistic-lifecycle";
+
+import { setToolUseAnchor } from "./store-helpers/by-tool-use-id-index";
 
 // ---------------------------------------------------------------------------
 // Optimistic-steer marker contract
@@ -284,10 +296,11 @@ function mergeHistoryEntry(
 ): AcpRunEntry {
   const events = mergeEvents(existing.events, incoming.events);
 
-  const status =
-    isActiveAcpStatus(existing.status) || !isActiveAcpStatus(incoming.status)
-      ? incoming.status
-      : existing.status;
+  const status = mergeTerminalStatus(
+    existing.status,
+    incoming.status,
+    isActiveAcpStatus,
+  );
 
   return {
     ...existing,
@@ -322,6 +335,34 @@ function bumpHighWaterMark(
   return new Map(highWaterMark).set(acpSessionId, seq);
 }
 
+/**
+ * Build the optimistic cancel/restore/retire config for the acp-run store. An
+ * optimistic cancel stamps `completedAt`; a retire also records a stop reason
+ * (e.g. `daemon_restarted`).
+ */
+function acpLifecycleConfig(
+  completedAt?: number,
+  stopReason?: string,
+): OptimisticLifecycleConfig<AcpRunEntry, AcpRunStatus> {
+  return {
+    getStatus: (entry) => entry.status,
+    isActive: isActiveAcpStatus,
+    cancelledStatus: "cancelled",
+    applyCancel: (entry) => ({ ...entry, status: "cancelled", completedAt }),
+    applyRestore: (entry, prev) => ({
+      ...entry,
+      status: prev,
+      completedAt: undefined,
+    }),
+    applyRetire: (entry) => ({
+      ...entry,
+      status: "cancelled",
+      stopReason,
+      completedAt,
+    }),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
@@ -349,10 +390,13 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
         parentToolUseId: existing.parentToolUseId ?? params.parentToolUseId,
       };
 
-      const nextByToolUseId =
-        params.parentToolUseId && !existing.parentToolUseId
-          ? new Map(byToolUseId).set(params.parentToolUseId, params.acpSessionId)
-          : byToolUseId;
+      const nextByToolUseId = existing.parentToolUseId
+        ? byToolUseId
+        : setToolUseAnchor(
+            byToolUseId,
+            params.parentToolUseId,
+            params.acpSessionId,
+          );
 
       set({
         byId: { ...byId, [params.acpSessionId]: resumed },
@@ -378,9 +422,11 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
 
     // Only clone the tool-use index when this spawn carries a
     // `parentToolUseId`; otherwise keep the reference stable.
-    const nextByToolUseId = params.parentToolUseId
-      ? new Map(byToolUseId).set(params.parentToolUseId, params.acpSessionId)
-      : byToolUseId;
+    const nextByToolUseId = setToolUseAnchor(
+      byToolUseId,
+      params.parentToolUseId,
+      params.acpSessionId,
+    );
 
     set({
       byId: { ...byId, [params.acpSessionId]: entry },
@@ -482,53 +528,36 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
 
   cancelRun: (params) => {
     const { byId } = get();
-    const existing = byId[params.acpSessionId];
-    if (!existing || !isActiveAcpStatus(existing.status)) return;
+    const next = optimisticCancel(
+      byId[params.acpSessionId],
+      acpLifecycleConfig(params.completedAt),
+    );
+    if (!next) return;
 
-    set({
-      byId: {
-        ...byId,
-        [params.acpSessionId]: {
-          ...existing,
-          status: "cancelled",
-          completedAt: params.completedAt,
-        },
-      },
-    });
+    set({ byId: { ...byId, [params.acpSessionId]: next } });
   },
 
   restoreRunStatus: (params) => {
     const { byId } = get();
-    const existing = byId[params.acpSessionId];
-    // Only revert our own optimistic cancel; if a real terminal already landed,
-    // leave it.
-    if (!existing || existing.status !== "cancelled") return;
+    const next = optimisticRestore(
+      byId[params.acpSessionId],
+      params.status,
+      acpLifecycleConfig(),
+    );
+    if (!next) return;
 
-    set({
-      byId: {
-        ...byId,
-        [params.acpSessionId]: {
-          ...existing,
-          status: params.status,
-          completedAt: undefined,
-        },
-      },
-    });
+    set({ byId: { ...byId, [params.acpSessionId]: next } });
   },
 
   retireMissingRuns: (params) => {
     const { byId } = get();
+    const config = acpLifecycleConfig(params.completedAt, "daemon_restarted");
     let changed = false;
     const next = { ...byId };
     for (const id of params.acpSessionIds) {
-      const existing = next[id];
-      if (!existing || !isActiveAcpStatus(existing.status)) continue;
-      next[id] = {
-        ...existing,
-        status: "cancelled",
-        stopReason: "daemon_restarted",
-        completedAt: params.completedAt,
-      };
+      const retired = optimisticRetire(next[id], config);
+      if (!retired) continue;
+      next[id] = retired;
       changed = true;
     }
     if (changed) set({ byId: next });
@@ -562,30 +591,34 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
   seedFromHistory: (entries) => {
     const { byId, orderedIds, byToolUseId, highWaterMark } = get();
 
-    const nextById = { ...byId };
-    const nextOrderedIds = [...orderedIds];
+    // Union live + history events by seq and always merge terminal/status/
+    // usage metadata from history so a live entry can't stay stale. The shared
+    // helper owns the byId/orderedIds insertion; the seq high-water mark and the
+    // tool-use index are acp-specific and folded in from the merged result.
+    const { byId: nextById, orderedIds: nextOrderedIds } = seedEntriesFromHistory(
+      {
+        entries,
+        byId,
+        orderedIds,
+        idOf: (entry) => entry.acpSessionId,
+        merge: mergeHistoryEntry,
+      },
+    );
+
     let nextByToolUseId = byToolUseId;
     let nextHighWaterMark = highWaterMark;
 
     for (const entry of entries) {
-      const existing = nextById[entry.acpSessionId];
-      // Union live + history events by seq and always merge terminal/status/
-      // usage metadata from history so a live entry can't stay stale.
-      const merged = existing ? mergeHistoryEntry(existing, entry) : entry;
-      nextById[entry.acpSessionId] = merged;
+      // byId / orderedIds / merge are handled above by seedEntriesFromHistory;
+      // this loop only maintains the spawn-anchor index and the seq high-water
+      // mark. Use the shared setToolUseAnchor helper for the index.
+      nextByToolUseId = setToolUseAnchor(
+        nextByToolUseId,
+        entry.parentToolUseId,
+        entry.acpSessionId,
+      );
 
-      if (!nextOrderedIds.includes(entry.acpSessionId)) {
-        nextOrderedIds.push(entry.acpSessionId);
-      }
-
-      if (entry.parentToolUseId) {
-        nextByToolUseId = new Map(nextByToolUseId).set(
-          entry.parentToolUseId,
-          entry.acpSessionId,
-        );
-      }
-
-      for (const event of merged.events) {
+      for (const event of nextById[entry.acpSessionId].events) {
         if (typeof event.seq !== "number") continue;
         nextHighWaterMark = bumpHighWaterMark(
           nextHighWaterMark,

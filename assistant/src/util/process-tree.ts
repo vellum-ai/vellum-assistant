@@ -64,7 +64,10 @@ function scriptName(scriptPath: string): string {
  * Derive a readable name from a command line. For interpreter invocations
  * (`bun run /…/jobs/worker.ts`) the script path is far more useful than the
  * interpreter name, so prefer the first script-looking argument and summarize it
- * as `<parent-dir>-<filename>` (e.g. `jobs-worker`). Plain binaries
+ * as `<parent-dir>-<filename>` (e.g. `jobs-worker`). When an interpreter is run
+ * without a script file (`bun run dev`, `bun x prettier`, `bun repl`) the bare
+ * interpreter name says nothing about what is running, so surface the arguments
+ * — what was actually run — alongside it (e.g. `bun run dev`). Plain binaries
  * (`/…/vellum-qdrant`) keep their bare executable name.
  */
 export function deriveName(command: string): string {
@@ -73,8 +76,13 @@ export function deriveName(command: string): string {
 
   const argv0 = basename(tokens[0]);
   if (RUNTIMES.has(argv0)) {
-    const script = tokens.slice(1).find((t) => SCRIPT_EXT_RE.test(t));
+    const args = tokens.slice(1);
+    const script = args.find((t) => SCRIPT_EXT_RE.test(t));
     if (script) return scriptName(script);
+    // No script to summarize: show the non-flag arguments so the entry reads as
+    // "what was run" rather than an opaque `bun`. Flags are dropped as noise.
+    const meaningful = args.filter((t) => !t.startsWith("-"));
+    if (meaningful.length > 0) return `${argv0} ${meaningful.join(" ")}`;
   }
   return argv0;
 }

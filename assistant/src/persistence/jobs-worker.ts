@@ -1,5 +1,3 @@
-import { join } from "node:path";
-
 import { getConfig } from "../config/loader.js";
 import { isMemoryV3Live } from "../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../config/types.js";
@@ -8,9 +6,7 @@ import {
   diskPressureBackgroundSkipLogFields,
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
-import { countBufferLines } from "../plugins/defaults/memory/v2/consolidation-job.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir } from "../util/platform.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
 import {
   getLastScheduledCleanupEnqueueMs,
@@ -796,8 +792,10 @@ export function maybeEnqueueGraphMaintenanceJobs(
       // The checkpoint advances so the next check fires after the regular
       // interval. Manual "Run now" is unaffected (routes layer, not schedule).
       if (jobType === consolidateEntry.jobType) {
-        const bufferPath = join(getWorkspaceDir(), "memory", "buffer.md");
-        if (countBufferLines(bufferPath) < MIN_BUFFER_LINES_FOR_CONSOLIDATION) {
+        if (
+          getMemoryPersistenceHooks().countMemoryBufferLines() <
+          MIN_BUFFER_LINES_FOR_CONSOLIDATION
+        ) {
           log.debug(
             "Scheduled consolidation skipped: buffer under minimum line threshold",
           );
@@ -830,8 +828,7 @@ export function maybeEnqueueGraphMaintenanceJobs(
     maxLines !== null &&
     !hasActiveJobOfType(consolidateEntry.jobType)
   ) {
-    const bufferPath = join(getWorkspaceDir(), "memory", "buffer.md");
-    if (countBufferLines(bufferPath) >= maxLines) {
+    if (getMemoryPersistenceHooks().countMemoryBufferLines() >= maxLines) {
       enqueueMemoryJob(
         consolidateEntry.jobType,
         AUTOMATIC_CONSOLIDATION_JOB_PAYLOAD,

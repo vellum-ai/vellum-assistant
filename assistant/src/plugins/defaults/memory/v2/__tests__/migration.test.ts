@@ -28,7 +28,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type {
   Message,
   Provider,
-  ProviderResponse,
   SendMessageOptions,
 } from "@vellumai/plugin-api";
 
@@ -62,18 +61,8 @@ mock.module("../../../../../persistence/jobs-store.js", () => ({
 // provider, but the safety net mock keeps any accidental real-call from
 // reaching the network — and lets us add a "no provider configured" test.
 let providerStub: Provider | null = null;
-mock.module("../../../../../providers/provider-send-message.js", () => ({
+mock.module("@vellumai/plugin-api", () => ({
   getConfiguredProvider: async () => providerStub,
-  userMessage: (text: string) => ({
-    role: "user" as const,
-    content: [{ type: "text" as const, text }],
-  }),
-  extractText: (response: ProviderResponse) => {
-    const block = response.content.find(
-      (b): b is { type: "text"; text: string } => b.type === "text",
-    );
-    return block?.text?.trim() ?? "";
-  },
 }));
 
 import {
@@ -100,7 +89,7 @@ import * as schema from "../../../../../persistence/schema/index.js";
 import type { Cluster, V1Edge, V1Item } from "../migration.js";
 
 // Dynamic import — runs *after* the mock.module calls above so the migration
-// module's transitive references to logger / jobs-store / provider-send-message
+// module's transitive references to logger / jobs-store / @vellumai/plugin-api
 // resolve to our stubs (matches the pattern used in `qdrant.test.ts`).
 const {
   clusterByTopic,

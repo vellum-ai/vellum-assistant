@@ -341,6 +341,67 @@ describe("vellum retire", () => {
     expect(retireLocalMock).toHaveBeenCalledWith("assistant-1", entry);
   });
 
+  test("local retire uses saved platform registration when local credentials are unreachable", async () => {
+    const entry = makeEntry("assistant-1", {
+      name: "Example Assistant",
+      platformAssistantId: "platform-assistant-1",
+      platformBaseUrl: "https://platform.example.test",
+      platformOrganizationId: "org-123",
+    });
+    writeLockfile([entry]);
+    readPlatformTokenMock.mockReturnValue("session-token");
+    getPlatformUrlMock.mockReturnValue("https://platform.example.test");
+    readGatewayCredentialMock.mockResolvedValue({
+      value: null,
+      unreachable: true,
+    });
+    process.argv = ["bun", "vellum", "retire", "assistant-1", "--yes"];
+
+    await retire();
+
+    expect(readGatewayCredentialMock).toHaveBeenCalledWith(
+      entry.localUrl ?? entry.runtimeUrl,
+      "vellum:platform_assistant_id",
+      entry.bearerToken,
+    );
+    expect(loopbackSafeFetchMock).toHaveBeenCalledWith(
+      "https://platform.example.test/v1/assistants/platform-assistant-1/retire/",
+      {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Session-Token": "session-token",
+          "Vellum-Organization-Id": "org-123",
+        },
+      },
+    );
+    expect(consoleWarnSpy.mock.calls.flat().join("\n")).toContain(
+      "using saved platform registration",
+    );
+    expect(retireLocalMock).toHaveBeenCalledWith("assistant-1", entry);
+    expect(loadAllAssistants()).toEqual([]);
+  });
+
+  test("local retire continues when local credentials are unreachable and no saved platform registration exists", async () => {
+    const entry = makeEntry("assistant-1", { name: "Example Assistant" });
+    writeLockfile([entry]);
+    readPlatformTokenMock.mockReturnValue("session-token");
+    readGatewayCredentialMock.mockResolvedValue({
+      value: null,
+      unreachable: true,
+    });
+    process.argv = ["bun", "vellum", "retire", "assistant-1", "--yes"];
+
+    await retire();
+
+    expect(loopbackSafeFetchMock).not.toHaveBeenCalled();
+    expect(consoleWarnSpy.mock.calls.flat().join("\n")).toContain(
+      "no saved platform registration is available",
+    );
+    expect(retireLocalMock).toHaveBeenCalledWith("assistant-1", entry);
+    expect(loadAllAssistants()).toEqual([]);
+  });
+
   test("local retire skips platform unregister when stored platform URL origin mismatches", async () => {
     const entry = makeEntry("assistant-1", { name: "Example Assistant" });
     writeLockfile([entry]);

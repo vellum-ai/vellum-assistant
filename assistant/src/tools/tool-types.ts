@@ -1,0 +1,445 @@
+/**
+ * Tool-related type declarations: the neutral leaf module describing
+ * tools, permission risk, and tool execution results.
+ *
+ * Pure type-level declarations only (+ the `RiskLevel` enum, which is a
+ * value). No runtime helpers live here — the assistant keeps all behavior
+ * functions in `assistant/src/tools/` and re-exports the types from this
+ * file. This module imports nothing, so it can sit at the bottom of the
+ * import graph and be consumed by `tools/types.ts`, `providers/types.ts`,
+ * and `permissions/types.ts` without creating cycles.
+ *
+ * Heavy daemon-internal references (CES client, host-proxy classes, trust
+ * classifications, interface IDs, content blocks, CES `ApprovalRequired`)
+ * are held as opaque `unknown` / broadened-`string` placeholders here. The
+ * assistant redeclares `Tool`, `ToolContext`, `ToolExecutionResult`,
+ * `ToolExecutedEvent`, `ToolLifecycleEvent`, `ToolLifecycleEventHandler`,
+ * and `ProxyToolResolver` in `assistant/src/tools/types.ts` with the
+ * concrete types in place, so existing call sites keep their full type
+ * information. The two sides are structurally independent — no inheritance,
+ * no intersection — which avoids TypeScript's contravariance mismatches on
+ * lifecycle-event handlers.
+ */
+
+// ---------------------------------------------------------------------------
+// Simple type-level declarations — moved in full
+// ---------------------------------------------------------------------------
+
+export type ExecutionTarget = "sandbox" | "host";
+
+/** The kind of extension that owns a tool. Core tools have no owner. */
+export type OwnerKind = "skill" | "mcp" | "plugin";
+
+/**
+ * Identifies which extension owns a tool (skill / plugin / MCP server).
+ * Tracked by the daemon's tool registry keyed by tool name, not stored on
+ * the `Tool` object itself. The registry function `getToolOwner(name)`
+ * returns this shape; ownership is established at `register_tools` time
+ * via the `host.registries.register_tools` IPC method.
+ */
+export interface OwnerInfo {
+  kind: OwnerKind;
+  /** ID of the owning extension (skill id / plugin name / MCP server id). */
+  id: string;
+}
+
+export enum RiskLevel {
+  Low = "low",
+  Medium = "medium",
+  High = "high",
+}
+
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  input_schema: object;
+}
+
+export type ErrorCategory =
+  | "permission_denied"
+  | "auth"
+  | "tool_failure"
+  | "unexpected";
+
+export interface DiffInfo {
+  filePath: string;
+  oldContent: string;
+  newContent: string;
+  isNewFile: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Sensitive-output binding (pure data)
+// ---------------------------------------------------------------------------
+
+export type SensitiveOutputKind = "invite_code";
+
+export interface SensitiveOutputBinding {
+  kind: SensitiveOutputKind;
+  placeholder: string;
+  value: string;
+}
+
+// ---------------------------------------------------------------------------
+// Proxy approval contract (pure data + callback signature)
+// ---------------------------------------------------------------------------
+
+/** Approval request from the outbound proxy when a policy decision requires user confirmation. */
+export interface ProxyApprovalRequest {
+  decision: {
+    kind: "ask_missing_credential" | "ask_unauthenticated";
+    target: {
+      hostname: string;
+      port: number | null;
+      path: string;
+      scheme: "http" | "https";
+    };
+    /** Present when kind is "ask_missing_credential". */
+    matchingPatterns?: string[];
+  };
+  sessionId: string;
+  /** HTTP method (plain HTTP only; undefined for HTTPS CONNECT tunnels). */
+  method?: string;
+  /** Curated non-sensitive headers (plain HTTP only). */
+  requestHeaders?: Record<string, string>;
+}
+
+/** Callback for proxy policy decisions requiring user confirmation. Returns true if approved. */
+export type ProxyApprovalCallback = (
+  request: ProxyApprovalRequest,
+) => Promise<boolean>;
+
+/** Env vars a proxy session injects into child processes. */
+export interface ProxyEnvVars {
+  HTTP_PROXY: string;
+  HTTPS_PROXY: string;
+  NO_PROXY: string;
+  NODE_EXTRA_CA_CERTS?: string;
+  SSL_CERT_FILE?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Tool execution result
+//
+// `contentBlocks` is declared as `unknown[]` here; the assistant redeclares
+// this interface with the concrete `ContentBlock[]` in its own copy.
+// Skill-side consumers that don't care about typed content-block access are
+// unaffected.
+// ---------------------------------------------------------------------------
+
+export interface ToolExecutionResult {
+  content: string;
+  isError: boolean;
+  diff?: DiffInfo;
+  /** Optional status message for display (e.g. timeout, truncation). */
+  status?: string;
+  /** Optional rich content blocks (e.g. images) to include alongside text in the tool result. */
+  contentBlocks?: unknown[];
+  /**
+   * Runtime-internal sensitive output bindings (placeholder -> real value).
+   * Populated by the executor when tool output contains
+   * `<vellum-sensitive-output>` directives. The agent loop merges these
+   * into a per-run substitution map for deterministic post-generation
+   * replacement. MUST NOT be emitted in client-facing events or logs.
+   */
+  sensitiveBindings?: SensitiveOutputBinding[];
+  /**
+   * When true, the agent loop should yield control back to the user after
+   * returning this result — tool results are pushed to history and the loop
+   * breaks without another LLM call. Two callers set this: interactive
+   * surfaces (tables with action buttons, file uploads) that force-stop the
+   * loop so the LLM cannot bypass the "wait for user action" instruction,
+   * and tools like `remember` that expose a `finish_turn` parameter letting
+   * the LLM voluntarily end its turn.
+   */
+  yieldToUser?: boolean;
+  /** Risk level from the classifier (populated during permission check). */
+  riskLevel?: string;
+  /** Human-readable reason for the risk classification. */
+  riskReason?: string;
+  /** ID of the trust rule that matched this invocation (if any). */
+  matchedTrustRuleId?: string;
+  /** Whether the daemon is running in a containerized (Docker) environment. */
+  isContainerized?: boolean;
+  /** Scope options ladder for the rule editor (narrowest to broadest). */
+  riskScopeOptions?: Array<{ pattern: string; label: string }>;
+  /**
+   * When present, indicates that a CES tool returned an `approval_required`
+   * response. The executor uses the approval bridge to prompt the guardian,
+   * commit the grant decision to CES, and retry the original tool invocation
+   * with the granted grantId. CES tools populate this field rather than
+   * returning a textual error so the executor can intercept and handle the
+   * approval flow transparently.
+   *
+   * Declared as `unknown` here to keep this package free of CES runtime
+   * imports; the assistant narrows it back to the concrete `ApprovalRequired`
+   * shape via intersection.
+   */
+  cesApprovalRequired?: unknown;
+}
+
+export type ProxyToolResolver = (
+  toolName: string,
+  input: Record<string, unknown>,
+) => Promise<ToolExecutionResult>;
+
+// ---------------------------------------------------------------------------
+// Tool lifecycle events
+// ---------------------------------------------------------------------------
+
+interface ToolLifecycleEventBase {
+  toolName: string;
+  input: Record<string, unknown>;
+  workingDir: string;
+  conversationId: string;
+  requestId?: string;
+  executionTarget?: ExecutionTarget;
+}
+
+export interface AllowlistOption {
+  label: string;
+  description: string;
+  pattern: string;
+}
+
+export interface ScopeOption {
+  label: string;
+  scope: string;
+}
+
+export interface ToolExecutionStartEvent extends ToolLifecycleEventBase {
+  type: "start";
+  startedAtMs: number;
+}
+
+export interface ToolPermissionPromptEvent extends ToolLifecycleEventBase {
+  type: "permission_prompt";
+  riskLevel: string;
+  /** Classifier-provided reason explaining why the risk level was assigned (bash/host_bash only). */
+  riskReason?: string;
+  reason: string;
+  allowlistOptions: AllowlistOption[];
+  scopeOptions: ScopeOption[];
+  diff?: DiffInfo;
+  persistentDecisionsAllowed?: boolean;
+}
+
+export interface ToolPermissionDeniedEvent extends ToolLifecycleEventBase {
+  type: "permission_denied";
+  riskLevel: string;
+  /** Classifier-provided reason explaining why the risk level was assigned (bash/host_bash only). */
+  riskReason?: string;
+  /** ID of the trust rule that matched this invocation (if any). */
+  matchedTrustRuleId?: string;
+  decision: "deny" | "always_deny";
+  reason: string;
+  durationMs: number;
+}
+
+export interface ToolExecutedEvent extends ToolLifecycleEventBase {
+  type: "executed";
+  riskLevel: string;
+  /** ID of the trust rule that matched this invocation (if any). */
+  matchedTrustRuleId?: string;
+  decision: string;
+  durationMs: number;
+  result: ToolExecutionResult;
+}
+
+export interface ToolExecutionErrorEvent extends ToolLifecycleEventBase {
+  type: "error";
+  riskLevel: string;
+  /** ID of the trust rule that matched this invocation (if any). */
+  matchedTrustRuleId?: string;
+  decision: string;
+  durationMs: number;
+  errorMessage: string;
+  isExpected: boolean;
+  /** Classifies the error for downstream consumers (audit, alerting, monitoring). */
+  errorCategory: ErrorCategory;
+  errorName?: string;
+  errorStack?: string;
+}
+
+export type ToolLifecycleEvent =
+  | ToolExecutionStartEvent
+  | ToolPermissionPromptEvent
+  | ToolPermissionDeniedEvent
+  | ToolExecutedEvent
+  | ToolExecutionErrorEvent;
+
+export type ToolLifecycleEventHandler = (
+  event: ToolLifecycleEvent,
+) => void | Promise<void>;
+
+// ---------------------------------------------------------------------------
+// Tool context
+//
+// Heavy daemon-internal fields (CES client, host-proxy classes, trust
+// classification, interface ID, secret-prompt result shape) are declared
+// `unknown` here. The assistant redeclares `ToolContext` with the concrete
+// daemon types in its own copy.
+// ---------------------------------------------------------------------------
+
+export interface ToolContext {
+  workingDir: string;
+  conversationId: string;
+  /** Logical assistant scope for multi-assistant routing. */
+  assistantId?: string;
+  /** When set, the tool execution is part of a task run. Used to retrieve ephemeral permission rules. */
+  taskRunId?: string;
+  /** Per-message request ID for log correlation across conversation/connection boundaries. */
+  requestId?: string;
+  /** Optional callback for streaming incremental output to the client. */
+  onOutput?: (chunk: string) => void;
+  /** Abort signal for cooperative cancellation. Tools should check this periodically. */
+  signal?: AbortSignal;
+  /** Optional callback for tool lifecycle events (start/prompt/deny/execute/error). */
+  onToolLifecycleEvent?: ToolLifecycleEventHandler;
+  /** Optional resolver for proxy tools - delegates execution to an external client. */
+  proxyToolResolver?: ProxyToolResolver;
+  /** When set, only tools in this set may execute. Tools outside the set are blocked with an error. */
+  allowedToolNames?: Set<string>;
+  /**
+   * Prompt the user for a secret value via native SecureField UI.
+   *
+   * The concrete return shape is owned by the assistant
+   * (`SecretPromptResult`); declared as `unknown` here so this package stays
+   * free of daemon-side imports.
+   */
+  requestSecret?: (params: {
+    service: string;
+    field: string;
+    label: string;
+    description?: string;
+    placeholder?: string;
+    purpose?: string;
+    allowedTools?: string[];
+    allowedDomains?: string[];
+  }) => Promise<unknown>;
+  /** Optional callback to send a message to the connected client (e.g. open_url). */
+  sendToClient?: (msg: { type: string; [key: string]: unknown }) => void;
+  /** True when an interactive client is connected (not just a no-op callback). */
+  isInteractive?: boolean;
+  /** Memory scope ID from the conversation's memory policy, so memory tools can target the correct scope. */
+  memoryScopeId?: string;
+  /** When true, tools with side effects should always prompt for confirmation. */
+  forcePromptSideEffects?: boolean;
+  /**
+   * When true, the tool requires a fresh interactive approval for every
+   * invocation - no cached grants, temporary overrides, persistent
+   * "Always Allow" rules, or non-interactive auto-approve shortcuts may
+   * bypass the prompt. This flag is independently sufficient: it
+   * promotes allow → prompt decisions on its own and suppresses
+   * temporary override options in the prompt UI. Used by
+   * `manage_secure_command_tool` to ensure a human reviews each secure
+   * bundle installation.
+   */
+  requireFreshApproval?: boolean;
+  /** Approval callback for proxy policy decisions that require user confirmation. */
+  proxyApprovalCallback?: ProxyApprovalCallback;
+  /** Optional principal identifier propagated to sub-tool confirmation flows. */
+  principal?: string;
+  /**
+   * Trust classification of the actor who initiated this tool invocation.
+   * Broadened to `string` here; the assistant narrows this back to its
+   * concrete `TrustClass` union ("guardian" | "trusted_contact" | "unknown")
+   * in `assistant/src/tools/types.ts`.
+   */
+  trustClass: string;
+  /** Channel through which the tool invocation originates (e.g. 'telegram', 'phone'). Used for scoped grant consumption. */
+  executionChannel?: string;
+  /** Voice/call session ID, if the invocation originates from a call. Used for scoped grant consumption. */
+  callSessionId?: string;
+  /** True when the tool invocation was triggered by a user clicking a surface action button (not a regular message). */
+  triggeredBySurfaceAction?: boolean;
+  /** True when the user explicitly approved this tool invocation via the interactive permission prompt (not auto-approved by trust rules or temporary overrides). */
+  approvedViaPrompt?: boolean;
+  /**
+   * True when the invocation is inside a scheduled task run whose
+   * `required_tools` array pre-authorized this tool at task-creation time.
+   * Tools that normally require a surface-action click (e.g. bulk archive,
+   * unsubscribe) may treat this as equivalent consent, since the user
+   * already reviewed the tool list when the task was saved.
+   */
+  batchAuthorizedByTask?: boolean;
+  /** External user ID of the requester (non-guardian actor). Used for scoped grant consumption. */
+  requesterExternalUserId?: string;
+  /** Chat ID of the requester (non-guardian actor). Used for tool grant request escalation notifications. */
+  requesterChatId?: string;
+  /** Human-readable identifier for the requester (e.g., @username). */
+  requesterIdentifier?: string;
+  /** Preferred display name for the requester. */
+  requesterDisplayName?: string;
+  /** Slack channel ID for channel-scoped permission enforcement. When set, tools are checked against the channel's permission profile. */
+  channelPermissionChannelId?: string;
+  /** The tool_use block ID from the LLM response, used to correlate confirmation prompts with specific tool invocations. */
+  toolUseId?: string;
+  /**
+   * Optional proxy for delegating host_bash execution to a connected client
+   * (managed/cloud-hosted mode). Held as `unknown` here; the assistant
+   * narrows to the concrete `HostBashProxy` class.
+   */
+  hostBashProxy?: unknown;
+  /**
+   * Optional proxy for delegating CDP commands to a connected client
+   * (managed/cloud-hosted mode). Held as `unknown` here; the assistant
+   * narrows to the concrete `HostBrowserProxy` class.
+   */
+  hostBrowserProxy?: unknown;
+  /**
+   * Optional proxy for delegating host_file_read/write/edit execution to a
+   * connected client (managed/cloud-hosted mode). Held as `unknown` here;
+   * the assistant narrows to the concrete `HostFileProxy` class.
+   */
+  hostFileProxy?: unknown;
+  /** True when the assistant is running as a platform-managed remote instance. Used to auto-approve sandboxed bash tools. */
+  isPlatformHosted?: boolean;
+  /**
+   * CES RPC client for credential execution operations. Held as `unknown`
+   * here; the assistant narrows to the concrete `CesClient` class.
+   */
+  cesClient?: unknown;
+  /**
+   * The interface ID of the connected client driving the current turn (e.g.
+   * "macos", "chrome-extension"). Browser backend policy uses this to decide
+   * transport preference — for example, macOS-originated turns prefer the
+   * user's real Chrome session via the paired extension before falling back
+   * to cdp-inspect or local Playwright.
+   *
+   * Broadened to `string` here; the assistant narrows to its concrete
+   * `InterfaceId` union.
+   */
+  transportInterface?: string;
+  /**
+   * True when the host browser proxy's sender was overridden by an
+   * extension connection (WebSocket browser-relay).
+   * The CDP factory uses this to distinguish between an SSE-backed proxy
+   * (macOS, no extension) and an extension-backed proxy: only the latter
+   * should suppress desktop-auto cdp-inspect when temporarily unavailable,
+   * because the extension transport was explicitly expected and the
+   * disconnection is transient. An SSE-backed proxy that reports
+   * unavailable (e.g. non-interactive turn) should NOT suppress
+   * cdp-inspect — the proxy was never expected to service browser requests.
+   */
+  hostBrowserRegistryRouted?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Tool
+// ---------------------------------------------------------------------------
+
+export interface Tool {
+  name: string;
+  description: string;
+  category: string;
+  defaultRiskLevel: RiskLevel;
+  /** Declared execution target from the skill manifest. Used by resolveExecutionTarget
+   * to accurately label lifecycle events for skill-provided tools. */
+  executionTarget?: ExecutionTarget;
+  getDefinition(): ToolDefinition;
+  execute(
+    input: Record<string, unknown>,
+    context: ToolContext,
+  ): Promise<ToolExecutionResult>;
+}

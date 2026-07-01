@@ -205,11 +205,27 @@ export async function saveLockfileAssistant(assistant: {
   runtimeUrl: string;
   hatchedAt: string;
   organizationId?: string;
+  platformAssistantId?: string;
+  platformBaseUrl?: string;
+  platformOrganizationId?: string;
 }): Promise<void> {
   const result = await saveLockfileAssistantHost(
     assistant,
     assistant.assistantId,
   );
+  if (result.ok) {
+    commitLockfile(result.lockfile);
+  }
+}
+
+/**
+ * Update an existing assistant entry without changing the lockfile's active
+ * assistant pointer.
+ */
+export async function updateLockfileAssistant(
+  assistant: LockfileAssistant,
+): Promise<void> {
+  const result = await saveLockfileAssistantHost({ ...assistant }, undefined);
   if (result.ok) {
     commitLockfile(result.lockfile);
   }

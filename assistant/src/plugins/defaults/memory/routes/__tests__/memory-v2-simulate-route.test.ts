@@ -22,12 +22,10 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type {
   Message,
   Provider,
-  ProviderResponse,
   SendMessageOptions,
-  ToolUseContent,
 } from "@vellumai/plugin-api";
 
-import type { ToolDefinition } from "../../../../../providers/types.js";
+import type { ToolDefinition } from "../../llm-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Mocks (installed before the route module is imported)
@@ -123,10 +121,10 @@ interface ProviderCall {
   options: SendMessageOptions | undefined;
 }
 const providerCalls: ProviderCall[] = [];
-mock.module("../../../../../providers/provider-send-message.js", () => ({
+// The route imports `getConfiguredProvider` from `@vellumai/plugin-api`; the
+// pure `extractToolUse` helper runs for real from the plugin's `llm-helpers`.
+mock.module("@vellumai/plugin-api", () => ({
   getConfiguredProvider: async () => providerStub,
-  extractToolUse: (response: ProviderResponse) =>
-    response.content.find((b): b is ToolUseContent => b.type === "tool_use"),
 }));
 
 // Platform helpers. `getWorkspaceDir` must return the per-test tmp dir so

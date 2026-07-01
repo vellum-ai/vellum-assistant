@@ -31,7 +31,7 @@ import { dirname, join, relative, sep } from "node:path";
 
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
-import { FRONTMATTER_REGEX } from "../../../../skills/frontmatter.js";
+import { FRONTMATTER_REGEX } from "../frontmatter.js";
 import { invalidateEdgeIndex } from "./edge-index.js";
 import { invalidatePageIndex } from "./page-index.js";
 import { type ConceptPage, ConceptPageFrontmatterSchema } from "./types.js";

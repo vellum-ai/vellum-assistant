@@ -46,6 +46,7 @@ const MEMORY_JOB_TYPES = [
   "index_message_lexical",
   "purge_conversation_lexical",
   "delete_message_lexical",
+  "backfill_lexical_index",
 ].sort();
 
 /**

@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.10.3
+  version: 0.10.4
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -18812,6 +18812,29 @@ paths:
           schema:
             type: string
           description: Conversation that contains the message
+      responses:
+        "200":
+          description: Successful response
+  /v1/messages/lexical/backfill:
+    post:
+      operationId: messages_lexical_backfill_post
+      summary: Enqueue a resumable backfill of messages into the lexical index
+      description:
+        "Enqueues the cursor-checkpointed backfill job that indexes existing messages into the Qdrant lexical
+        (BM25-style) collection in batches. Resumable and idempotent — re-running continues from the last checkpoint.
+        Pass `force: true` to reset the cursor and re-index from the beginning. Not run at daemon startup."
+      tags:
+        - memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                force:
+                  type: boolean
+              additionalProperties: false
       responses:
         "200":
           description: Successful response

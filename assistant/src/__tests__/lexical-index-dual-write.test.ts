@@ -349,6 +349,9 @@ describe("delete paths route through the persistence-hook seam", () => {
     },
     async onAllConversationsCleared() {},
     onWorkerStartup() {},
+    countMemoryBufferLines() {
+      return 0;
+    },
   };
 
   beforeEach(() => {

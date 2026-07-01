@@ -38,7 +38,6 @@ import type {
   Provider,
   ProviderResponse,
   SendMessageOptions,
-  ToolUseContent,
 } from "@vellumai/plugin-api";
 
 import { makeMockLogger } from "../../../../../__tests__/helpers/mock-logger.js";
@@ -55,14 +54,8 @@ const providerCalls: Array<{
   userText: string;
 }> = [];
 
-mock.module("../../../../../providers/provider-send-message.js", () => ({
+mock.module("@vellumai/plugin-api", () => ({
   getConfiguredProvider: async () => providerStub,
-  userMessage: (text: string) => ({
-    role: "user" as const,
-    content: [{ type: "text" as const, text }],
-  }),
-  extractToolUse: (response: ProviderResponse) =>
-    response.content.find((b): b is ToolUseContent => b.type === "tool_use"),
 }));
 
 // emitNotificationSignal spy — captures every notification the sweep emits

@@ -8,14 +8,12 @@
 // Also detects behavioral patterns in the assistant's own actions.
 // ---------------------------------------------------------------------------
 
+import { getConfiguredProvider } from "@vellumai/plugin-api";
+
 import type { AssistantConfig } from "../../../../config/types.js";
-import {
-  extractToolUse,
-  getConfiguredProvider,
-  userMessage,
-} from "../../../../providers/provider-send-message.js";
 import { BackendUnavailableError } from "../../../../util/errors.js";
 import { getLogger } from "../../../../util/logger.js";
+import { extractToolUse, userMessage } from "../llm-helpers.js";
 import { createEdge, createNode, queryNodes } from "./store.js";
 
 const log = getLogger("graph-pattern-scan");
