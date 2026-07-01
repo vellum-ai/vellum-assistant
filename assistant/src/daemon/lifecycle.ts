@@ -873,12 +873,9 @@ export async function runDaemon(): Promise<void> {
   writePid(process.pid);
 
   // Install the `assistant` CLI symlink idempotently on every daemon start.
-  // Non-blocking — failures are logged but don't affect startup.
-  try {
-    installAssistantSymlink();
-  } catch (err) {
-    log.warn({ err }, "Assistant symlink installation failed — continuing");
-  }
+  // Best-effort and self-contained: every step swallows its own errors, so a
+  // failure never affects startup.
+  installAssistantSymlink();
 
   startEmbeddingRuntimeManager();
 
