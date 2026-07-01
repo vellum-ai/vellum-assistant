@@ -96,6 +96,16 @@ mock.module("../../../cli/lib/list-installed-plugins.js", () => ({
   listInstalledPlugins: () => installedFixture,
 }));
 
+// Set of plugin dir names carrying a `.disabled` sentinel. Tests populate it to
+// mark a plugin disabled; the real check reads the workspace filesystem, so we
+// substitute an in-memory set to keep the route's `enabled` projection
+// deterministic and decoupled from disk.
+const disabledFixture = new Set<string>();
+
+mock.module("../../../plugins/disabled-state.js", () => ({
+  isPluginDisabled: (name: string) => disabledFixture.has(name),
+}));
+
 // Mock the catalog cache: `getCatalogSpy` records every invocation and
 // returns the (unfiltered) catalog the route then filters in memory via the
 // real `filterPluginCatalog`. The real `search-plugins.js` module is left
@@ -323,6 +333,7 @@ function pluginEntry(
 
 beforeEach(() => {
   installedFixture = [];
+  disabledFixture.clear();
 });
 
 describe("GET /v1/plugins", () => {
@@ -363,6 +374,8 @@ describe("GET /v1/plugins", () => {
     expect(result.plugins[0]).toEqual({
       id: "alpha",
       name: "alpha",
+      // No `.disabled` sentinel → the plugin is enabled.
+      enabled: true,
       description: "Alpha plugin",
       version: "1.2.3",
       path: "/workspace/plugins/alpha",
@@ -444,6 +457,21 @@ describe("GET /v1/plugins", () => {
 
     const [entry] = (await invoke()).plugins;
     expect(entry?.issues).toEqual(["missing package.json"]);
+  });
+
+  test("reports enabled: false for a plugin with a `.disabled` sentinel, true otherwise", async () => {
+    installedFixture = [
+      pluginEntry({ name: "off" }),
+      pluginEntry({ name: "on" }),
+    ];
+    // Only `off` carries the sentinel; `on` has none.
+    disabledFixture.add("off");
+
+    const byId = new Map(
+      (await invoke()).plugins.map((p) => [p.id, p.enabled]),
+    );
+    expect(byId.get("off")).toBe(false);
+    expect(byId.get("on")).toBe(true);
   });
 
   test("?q= filters case-insensitively on id, name, and description", async () => {

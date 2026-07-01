@@ -73,6 +73,7 @@ import {
   type PluginUpgradeStrategy,
   upgradePlugin,
 } from "../../cli/lib/upgrade-plugin.js";
+import { isPluginDisabled } from "../../plugins/disabled-state.js";
 import { getLocalCategorySlugs } from "../../skills/categories-cache.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
@@ -96,6 +97,11 @@ const pluginInfoSchema = z.object({
       "Plugin's directory name (kebab-case). Matches `assistant plugins install <id>`.",
     ),
   name: z.string().describe("Display name. Equal to `id` today."),
+  enabled: z
+    .boolean()
+    .describe(
+      "Whether the plugin is active in this workspace. `false` when a `.disabled` sentinel is present under its directory; `true` otherwise.",
+    ),
   description: z
     .string()
     .nullable()
@@ -635,6 +641,7 @@ const pluginDiffResponseSchema = z.object({
 interface PluginView {
   id: string;
   name: string;
+  enabled: boolean;
   description: string | null;
   version: string | null;
   path: string;
@@ -649,6 +656,8 @@ function projectPlugin(entry: InstalledPluginInfo): PluginView {
   const view: PluginView = {
     id: entry.name,
     name: entry.name,
+    // `entry.name` is the plugin directory name, which is the sentinel key.
+    enabled: !isPluginDisabled(entry.name),
     description: entry.packageJson?.description ?? null,
     version: entry.packageJson?.version ?? null,
     path: entry.target,
