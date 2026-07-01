@@ -951,7 +951,9 @@ When you do capture a procedure:
 
 2. Capture procedure-scoped knowledge alongside the body. Failure modes, gotchas, and cached values you observed in the trace (error signatures and how you recovered, preconditions, IDs/paths/endpoints that held steady) belong in companion files passed via \`scaffold_managed_skill\`'s \`files\` input (for example \`references/failure-modes.md\`), and the SKILL.md body should reference them so a future load surfaces them.
 
-3. Set \`category\` to the single closest-fitting value from this published set (a value outside it gets no Skills-UI bucket, so always pick from the list, never invent one): browsing, calendar, commerce, content, development, email, health, integrations, messaging, productivity, system, voice.
+3. Set \`activation_hints\` to the concrete situations that should trigger this skill later — phrased as the intent you observed in the trace ("user asks to …", "needs to …", "when the goal is …"), NOT the mechanical steps. These become the skill's "Use when" retrieval signal, so a future turn with a matching intent surfaces the skill even when its name doesn't match the request. Give 1–4 short, distinct triggers. Optionally set \`avoid_when\` for situations where the skill should NOT be used.
+
+4. Set \`category\` to the single closest-fitting value from this published set (a value outside it gets no Skills-UI bucket, so always pick from the list, never invent one): browsing, calendar, commerce, content, development, email, health, integrations, messaging, productivity, system, voice.
 
 Ordinary facts still go through \`remember\` (unlinked) exactly as above — skills are for executed, reusable procedures, not for facts.
 `;

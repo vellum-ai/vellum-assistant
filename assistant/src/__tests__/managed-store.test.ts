@@ -192,6 +192,37 @@ describe("buildSkillMarkdown", () => {
     expect(parsed.metadata.vellum.includes).toEqual(["child-a", "child-b"]);
   });
 
+  test("activation-hints and avoid-when emit kebab-case YAML lists in metadata.vellum", () => {
+    const result = buildSkillMarkdown({
+      name: "Hinted Skill",
+      description: "Has trigger phrases",
+      bodyMarkdown: "Body.",
+      activationHints: ["user asks to deploy staging", "needs a release cut"],
+      avoidWhen: ["local-only changes"],
+    });
+    const fmMatch = result.match(/^---\n([\s\S]*?)\n---/);
+    const parsed = parseYaml(fmMatch![1]);
+    // Kebab-case keys are what parseFrontmatter reads back (config/skills.ts).
+    expect(parsed.metadata.vellum["activation-hints"]).toEqual([
+      "user asks to deploy staging",
+      "needs a release cut",
+    ]);
+    expect(parsed.metadata.vellum["avoid-when"]).toEqual([
+      "local-only changes",
+    ]);
+  });
+
+  test("omits activation-hints / avoid-when when empty and no other vellum fields", () => {
+    const result = buildSkillMarkdown({
+      name: "Empty Hints",
+      description: "Empty arrays",
+      bodyMarkdown: "Body.",
+      activationHints: [],
+      avoidWhen: [],
+    });
+    expect(result).not.toContain("metadata:");
+  });
+
   test("includes optional category in metadata.vellum", () => {
     const result = buildSkillMarkdown({
       name: "Categorized Skill",
@@ -1075,6 +1106,29 @@ describe("YAML metadata round-trip", () => {
     );
     expect(skill!.emoji).toBe("🔬");
     expect(skill!.includes).toEqual(["child-a", "child-b"]);
+  });
+
+  test("activation hints and avoid-when round-trip into SkillSummary", () => {
+    // An assistant-authored (retrospective) skill written via createManagedSkill
+    // carries activation hints so the memory seeder emits a "Use when:" clause
+    // for it, just like bundled skills.
+    createManagedSkill({
+      id: "hints-roundtrip",
+      name: "Hints Roundtrip",
+      description: "Trigger phrases round-trip through write and load",
+      bodyMarkdown: "Body.",
+      activationHints: ["user asks to deploy staging", "needs a release cut"],
+      avoidWhen: ["local-only changes"],
+    });
+
+    const catalog = loadSkillCatalog(undefined, [join(TEST_DIR, "skills")]);
+    const skill = catalog.find((s) => s.id === "hints-roundtrip");
+    expect(skill).toBeDefined();
+    expect(skill!.activationHints).toEqual([
+      "user asks to deploy staging",
+      "needs a release cut",
+    ]);
+    expect(skill!.avoidWhen).toEqual(["local-only changes"]);
   });
 
   test("hand-authored YAML nested metadata parses correctly", () => {
