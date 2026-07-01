@@ -358,13 +358,39 @@ describe("createSkillTool — required/type/enum validation", () => {
     );
 
     const result = await tool.execute(
-      { phone_number: 61415323232 },
+      { phone_number: 15550100 },
       makeContext(),
     );
 
     expect(result.isError).toBe(false);
     const parsed = JSON.parse(result.content);
-    expect(parsed.input).toEqual({ phone_number: "61415323232" });
+    expect(parsed.input).toEqual({ phone_number: "15550100" });
+  });
+
+  test("rejects integers outside the safe range instead of coercing a rounded value", async () => {
+    const hash = computeSkillVersionHash(tempDir);
+    const tool = createSkillTool(
+      makeEntry({
+        executor: "echo.ts",
+        input_schema: {
+          type: "object",
+          properties: { account_id: { type: "string" } },
+          required: ["account_id"],
+        },
+      }),
+      tempDir,
+      hash,
+      BUNDLED,
+    );
+
+    const result = await tool.execute(
+      { account_id: 12345678901234567890 },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "test_tool"');
+    expect(result.content).toContain("account_id must be a string");
   });
 
   test("rejects enum violation with `must be one of` message", async () => {

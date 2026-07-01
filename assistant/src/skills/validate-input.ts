@@ -107,7 +107,7 @@ export function coerceStringBooleans(
  * `type: "string"`.
  *
  * Some providers' models emit numeric-looking string values as unquoted JSON
- * numbers (e.g. a phone number `61415323232` instead of `"+61415323232"`).
+ * numbers (e.g. a phone number `15550100` instead of `"+15550100"`).
  * Plain `JSON.parse` yields a JS `Number`, which then fails the validator's
  * `typeof === "string"` check with a confusing "must be a string" error that
  * sends the model down a wrong retry path. The value's intent is unambiguous —
@@ -117,9 +117,13 @@ export function coerceStringBooleans(
  * self-correcting format error rather than a type error.
  *
  * Only finite numbers are coerced; `NaN`/`Infinity` (which can't come from
- * JSON.parse anyway) and non-number types are left untouched. Pure: returns a
- * new object when a coercion applies, otherwise returns `input` unchanged.
- * Never mutates `input` or `schema`.
+ * JSON.parse anyway) and non-number types are left untouched. Integers outside
+ * the safe range are also left untouched: `JSON.parse` has already rounded them
+ * (e.g. `12345678901234567890` → `12345678901234567000`), so `String()` would
+ * emit a corrupted identifier. Leaving them un-coerced makes the validator
+ * return a type error, prompting the model to retry with a quoted string that
+ * preserves every digit. Pure: returns a new object when a coercion applies,
+ * otherwise returns `input` unchanged. Never mutates `input` or `schema`.
  */
 export function coerceStringNumbers(
   input: Record<string, unknown>,
@@ -135,6 +139,10 @@ export function coerceStringNumbers(
     if (rawSubSchema.type !== "string") continue;
     const value = input[key];
     if (typeof value !== "number" || !Number.isFinite(value)) continue;
+    // An integer beyond the safe range was already rounded by JSON.parse;
+    // coercing it would lock in a corrupted identifier. Skip it so validation
+    // fails and the model retries with a lossless quoted string.
+    if (Number.isInteger(value) && !Number.isSafeInteger(value)) continue;
     coerced ??= { ...input };
     coerced[key] = String(value);
   }
