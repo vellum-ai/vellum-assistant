@@ -6,6 +6,7 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -47,6 +48,12 @@ const LOCAL_CLI_ENTRY =
   typeof __VELLUM_LOCAL_CLI_ENTRY__ === "string"
     ? __VELLUM_LOCAL_CLI_ENTRY__
     : "";
+
+// Baked by electron.vite.config.ts from .tool-versions: the version of the
+// bundled bun. Empty outside a packaged build (e.g. under bun test).
+declare const __VELLUM_BUN_VERSION__: string;
+const BUNDLED_BUN_VERSION =
+  typeof __VELLUM_BUN_VERSION__ === "string" ? __VELLUM_BUN_VERSION__ : "";
 
 /**
  * Repo CLI entry for local builds, when the checkout is actually runnable:
@@ -247,6 +254,31 @@ function seedCliLockfile(installDir: string): boolean {
   return true;
 }
 
+/**
+ * Stamp `packageManager: bun@<version>` into the install dir's package.json to
+ * mark the install bun-only. Both `bun add` and the seeded package.json omit
+ * the field, so a manual `npm install` during recovery would silently drift the
+ * install to a package-lock.json the bun loader ignores (LUM-2649). No-op when
+ * the bun version is unknown (non-packaged build) or already stamped. Non-fatal.
+ */
+function stampPackageManager(installDir: string): void {
+  if (!BUNDLED_BUN_VERSION) return;
+
+  const pkgPath = path.join(installDir, "package.json");
+  const packageManager = `bun@${BUNDLED_BUN_VERSION}`;
+  try {
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+    if (pkg.packageManager === packageManager) return;
+    pkg.packageManager = packageManager;
+    writeFileAtomicSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+  } catch (err) {
+    log.warn(
+      "[cli-installer] failed to stamp packageManager into package.json:",
+      err,
+    );
+  }
+}
+
 /** Spawn the bundled bun with `args` in `cwd` and await its exit. */
 function runBun(args: string[], cwd: string): Promise<void> {
   const bunPath = getBundledBunPath();
@@ -313,22 +345,28 @@ async function bunInstallCli(): Promise<void> {
       ? ["install", "--frozen-lockfile", "--ignore-scripts"]
       : ["add", `vellum@${PINNED_CLI_VERSION}`, "--ignore-scripts"];
     await runBun(args, installDir);
-    return;
+  } else {
+    // Unpinned: float to the environment's dist-tag, falling back to the seeded
+    // frozen lockfile (resolved at build time) when the registry is unreachable.
+    const spec = `vellum@${getCliDistTag()}`;
+    try {
+      await runBun(["add", spec, "--ignore-scripts"], installDir);
+    } catch (err) {
+      if (!seedCliLockfile(installDir)) throw err;
+      log.warn(
+        `[cli-installer] \`bun add ${spec}\` failed; falling back to seeded lockfile:`,
+        err,
+      );
+      await runBun(
+        ["install", "--frozen-lockfile", "--ignore-scripts"],
+        installDir,
+      );
+    }
   }
 
-  // Unpinned: float to the environment's dist-tag, falling back to the seeded
-  // frozen lockfile (resolved at build time) when the registry is unreachable.
-  const spec = `vellum@${getCliDistTag()}`;
-  try {
-    await runBun(["add", spec, "--ignore-scripts"], installDir);
-  } catch (err) {
-    if (!seedCliLockfile(installDir)) throw err;
-    log.warn(
-      `[cli-installer] \`bun add ${spec}\` failed; falling back to seeded lockfile:`,
-      err,
-    );
-    await runBun(["install", "--frozen-lockfile", "--ignore-scripts"], installDir);
-  }
+  // Mark the freshly written install bun-only so manual recovery doesn't drift
+  // it to npm (LUM-2649). Both bun add and the seeded package.json omit the field.
+  stampPackageManager(installDir);
 }
 
 // Singleton promise prevents concurrent installs from corrupting node_modules.

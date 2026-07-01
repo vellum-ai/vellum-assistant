@@ -10,6 +10,11 @@ import { FakeChild } from "./test-helpers";
 const userDataPath = "/mock/userData";
 const mockResourcesPath = "/mock/resources";
 
+// Baked from .tool-versions by electron.vite.config.ts in a real build; set here
+// (before the module import below reads it) so the packageManager stamp is live.
+const mockBunVersion = "1.3.11";
+(globalThis as Record<string, unknown>).__VELLUM_BUN_VERSION__ = mockBunVersion;
+
 // `process.resourcesPath` is only defined inside a packaged Electron app.
 // Set a known value so `path.join(process.resourcesPath, "bun")` works.
 Object.defineProperty(process, "resourcesPath", { value: mockResourcesPath, writable: true });
@@ -35,6 +40,9 @@ const existsSyncByPath: Record<string, boolean> = {};
 let readdirSyncReturn: Array<{ name: string; isDirectory: () => boolean }> = [];
 let readdirSyncError: Error | null = null;
 let writeFileSyncError: Error | null = null;
+// Contents returned by readFileSync (the install package.json stampPackageManager reads).
+let readFileSyncReturn = '{"dependencies":{"vellum":"latest"}}';
+let readFileSyncError: Error | null = null;
 const chmodSyncCalls: Array<[string, number]> = [];
 const mkdirSyncCalls: Array<[string, object]> = [];
 const rmSyncCalls: Array<[string, object]> = [];
@@ -60,6 +68,10 @@ mock.module("node:fs", () => ({
   readdirSync: (_p: string, _opts?: object) => {
     if (readdirSyncError) throw readdirSyncError;
     return readdirSyncReturn;
+  },
+  readFileSync: (_p: string, _enc?: string) => {
+    if (readFileSyncError) throw readFileSyncError;
+    return readFileSyncReturn;
   },
   renameSync: (src: string, dst: string) => {
     renameSyncCalls.push([src, dst]);
@@ -122,6 +134,8 @@ afterEach(() => {
   readdirSyncReturn.length = 0;
   readdirSyncError = null;
   writeFileSyncError = null;
+  readFileSyncReturn = '{"dependencies":{"vellum":"latest"}}';
+  readFileSyncError = null;
   chmodSyncCalls.length = 0;
   mkdirSyncCalls.length = 0;
   rmSyncCalls.length = 0;
@@ -537,6 +551,56 @@ describe("ensureCliInstalled", () => {
     // No stale tree to clear — only cleanupOldVersions may rm sibling dirs,
     // and there are none here.
     expect(rmSyncCalls).toHaveLength(0);
+  });
+
+  test("stamps packageManager into the freshly installed package.json", async () => {
+    existsSyncDefault = false;
+    readFileSyncReturn = '{"dependencies":{"vellum":"latest"}}';
+
+    const promise = ensureCliInstalled();
+    existsSyncByPath[cliBinPath] = true;
+    lastChild.emit("close", 0);
+    await promise;
+
+    // Written atomically: temp file first, then renamed into place.
+    const pkgWrite = writeFileSyncCalls.find(
+      ([p]) => p === `${latestInstallDir}/package.json.tmp`,
+    );
+    expect(pkgWrite).toBeDefined();
+    const written = JSON.parse(pkgWrite![1]);
+    expect(written.packageManager).toBe(`bun@${mockBunVersion}`);
+    // Existing fields are preserved.
+    expect(written.dependencies).toEqual({ vellum: "latest" });
+    expect(renameSyncCalls).toContainEqual([
+      `${latestInstallDir}/package.json.tmp`,
+      `${latestInstallDir}/package.json`,
+    ]);
+  });
+
+  test("does not rewrite package.json when packageManager already matches", async () => {
+    existsSyncDefault = false;
+    readFileSyncReturn = `{"packageManager":"bun@${mockBunVersion}","dependencies":{"vellum":"latest"}}`;
+
+    const promise = ensureCliInstalled();
+    existsSyncByPath[cliBinPath] = true;
+    lastChild.emit("close", 0);
+    await promise;
+
+    const pkgWrite = writeFileSyncCalls.find(
+      ([p]) => p === `${latestInstallDir}/package.json.tmp`,
+    );
+    expect(pkgWrite).toBeUndefined();
+  });
+
+  test("a failed packageManager stamp does not reject the install", async () => {
+    existsSyncDefault = false;
+    readFileSyncError = new Error("EACCES: permission denied");
+
+    const promise = ensureCliInstalled();
+    existsSyncByPath[cliBinPath] = true;
+    lastChild.emit("close", 0);
+
+    await expect(promise).resolves.toBeUndefined();
   });
 
   test("throws when the install completes but links no bin", async () => {

@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
@@ -42,6 +43,22 @@ const resolveBuildSha = (): string => {
     return execSync("git rev-parse --short HEAD", { encoding: "utf8" }).trim();
   } catch {
     return "unknown";
+  }
+};
+
+// Bun version bundled with the app, read from the repo-root `.tool-versions`
+// (the same source fetch-bun.sh downloads from). Baked into the main bundle so
+// the CLI installer can stamp `packageManager: bun@<version>` on the install it
+// writes, marking that install bun-only (see cli-installer.ts, LUM-2649).
+const resolveBunVersion = (): string => {
+  try {
+    const toolVersions = readFileSync(
+      path.resolve(__dirname, "../../.tool-versions"),
+      "utf8",
+    );
+    return toolVersions.match(/^bun\s+(\S+)/m)?.[1] ?? "";
+  } catch {
+    return "";
   }
 };
 
