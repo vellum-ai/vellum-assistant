@@ -91,7 +91,9 @@ export const FALLBACK_TURN_TRUST: TrustContext = {
 export function resolveTrustClass(
   trustContext: TrustContext | undefined,
 ): TrustClass {
-  if (trustContext === undefined && isHttpAuthDisabled()) return "guardian";
+  if (trustContext === undefined && isHttpAuthDisabled()) {
+    return "guardian";
+  }
   return trustContext?.trustClass ?? "unknown";
 }
 

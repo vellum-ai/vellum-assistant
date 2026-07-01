@@ -33,8 +33,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  if (prior === undefined) delete process.env.DISABLE_HTTP_AUTH;
-  else process.env.DISABLE_HTTP_AUTH = prior;
+  if (prior === undefined) {
+    delete process.env.DISABLE_HTTP_AUTH;
+  } else {
+    process.env.DISABLE_HTTP_AUTH = prior;
+  }
 });
 
 describe("isPersonalMemoryAllowed — no exposure to non-guardian channel actors under DISABLE_HTTP_AUTH", () => {

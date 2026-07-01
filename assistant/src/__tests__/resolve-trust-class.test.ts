@@ -12,6 +12,7 @@ mock.module("../config/env.js", () => ({
 // ── Real imports (after mocks) ───────────────────────────────────────
 
 import {
+  FALLBACK_TURN_TRUST,
   resolveTrustClass,
   type TrustContext,
 } from "../daemon/trust-context.js";
@@ -58,5 +59,16 @@ describe("resolveTrustClass", () => {
     // guardian, so control-plane gates don't block local development.
     fakeHttpAuthDisabled = true;
     expect(resolveTrustClass(undefined)).toBe("guardian");
+  });
+
+  test("does not elevate the FALLBACK_TURN_TRUST snapshot to guardian when HTTP auth is disabled", () => {
+    // conversation-tool-setup substitutes FALLBACK_TURN_TRUST (a *present*,
+    // unknown-class context) when no per-turn snapshot has been captured. Because
+    // it is a resolved context -- not `undefined` -- the dev-bypass must not
+    // elevate it: the fallback's documented bias-to-unknown has to survive
+    // DISABLE_HTTP_AUTH so a missing snapshot can't grant guardian trust. This is
+    // the fail-safe sibling to LUM-2665; see LUM-2669.
+    fakeHttpAuthDisabled = true;
+    expect(resolveTrustClass(FALLBACK_TURN_TRUST)).toBe("unknown");
   });
 });
