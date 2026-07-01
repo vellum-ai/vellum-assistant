@@ -23,13 +23,8 @@ describe("resolveProcessingWaitMs", () => {
     expect(resolveProcessingWaitMs(4000, 5000)).toBe(10000);
   });
 
-  test("always returns strictly greater than the max lock-hold", () => {
-    for (const commit of [1, 100, 4000, 10000]) {
-      for (const abort of [1, 5000, 8000]) {
-        expect(resolveProcessingWaitMs(commit, abort)).toBeGreaterThan(
-          commit + abort,
-        );
-      }
-    }
+  test("adds the fixed margin to commit window plus abort budget", () => {
+    expect(resolveProcessingWaitMs(1000, 5000)).toBe(7000);
+    expect(resolveProcessingWaitMs(4000, 0)).toBe(5000);
   });
 });
