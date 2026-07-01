@@ -16036,6 +16036,80 @@ paths:
                 format: binary
         "500":
           description: Failed to create archive
+  /v1/memory-graph:
+    get:
+      operationId: memorygraph_get
+      summary: Get the memory graph
+      description:
+        Return the assistant's memory as a backend-agnostic graph of nodes (concepts, skills, capabilities) and
+        edges (authored links and learned associations). Returns supported=false when the active backend exposes no
+        graph.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  backend:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  supported:
+                    type: boolean
+                  nodes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        label:
+                          type: string
+                        summary:
+                          type: string
+                        kind:
+                          type: string
+                        weight:
+                          type: number
+                        updatedAtMs:
+                          type: number
+                      required:
+                        - id
+                        - label
+                      additionalProperties: false
+                  edges:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        source:
+                          type: string
+                        target:
+                          type: string
+                        kind:
+                          type: string
+                        weight:
+                          type: number
+                        description:
+                          type: string
+                        directed:
+                          type: boolean
+                      required:
+                        - source
+                        - target
+                      additionalProperties: false
+                  truncated:
+                    type: boolean
+                required:
+                  - backend
+                  - supported
+                  - nodes
+                  - edges
+                additionalProperties: false
   /v1/memory-items:
     get:
       operationId: memoryitems_get
