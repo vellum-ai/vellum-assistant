@@ -34,6 +34,7 @@ import {
   isSuppressedToolChip,
 } from "@/domains/chat/transcript/message-content";
 import { MessageReactions } from "@/domains/chat/transcript/message-reactions";
+import { useUserReactionToggle } from "@/domains/chat/hooks/use-message-reactions";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
 import { stopAcpRun } from "@/domains/chat/utils/acp-run-actions";
 import { stopBackgroundTask } from "@/domains/chat/utils/background-task-actions";
@@ -146,6 +147,7 @@ export function TranscriptMessageBody({
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [revealed, setRevealed] = useState(false);
   const slackMessageUrl = getSlackLinkUrl(message.slackMessage?.messageLink);
+  const toggleUserReaction = useUserReactionToggle(conversationId);
 
   useEffect(() => {
     if (!revealed) return;
@@ -753,6 +755,16 @@ export function TranscriptMessageBody({
             assistantId={assistantId}
           />
         )}
+        {message.reactions?.length ? (
+          <MessageReactions
+            reactions={message.reactions}
+            assistantDisplayName={assistantDisplayName}
+            onUserReactionClick={(reaction) => {
+              void toggleUserReaction(message, reaction.emoji);
+            }}
+            className="-mt-1 pl-1"
+          />
+        ) : null}
         {trailer}
       </div>
     </div>

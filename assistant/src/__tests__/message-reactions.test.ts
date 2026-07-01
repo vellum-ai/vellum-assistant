@@ -12,16 +12,16 @@ import {
   appendMessageReaction,
   createConversation,
   getMessageById,
+  getMessages,
 } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { handleListMessages } from "../runtime/routes/conversation-routes.js";
-import {
-  executeSendReaction,
-  isSingleEmoji,
-} from "../tools/reactions/send-reaction.js";
+import { ROUTES as MESSAGE_REACTION_ROUTES } from "../runtime/routes/message-reaction-routes.js";
+import { executeSendReaction } from "../tools/reactions/send-reaction.js";
 import type { ToolContext } from "../tools/types.js";
+import { isSingleEmoji } from "../util/emoji.js";
 
 await initializeDb();
 
@@ -183,6 +183,30 @@ describe("executeSendReaction", () => {
     });
   });
 
+  test("treats an attachment-only (file block) user message as reactable", async () => {
+    const conv = createConversation();
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([{ type: "text", text: "older message" }]),
+    );
+    const target = await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([
+        { type: "file", fileId: "file-1", filename: "report.pdf" },
+      ]),
+    );
+
+    const result = await executeSendReaction(
+      { emoji: "📄" },
+      toolContext(conv.id),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.content).messageId).toBe(target.id);
+  });
+
   test("skips hidden and daemon-injected user rows when resolving the target", async () => {
     const conv = createConversation();
     const target = await addMessage(
@@ -238,6 +262,151 @@ describe("executeSendReaction", () => {
       toolContext(conv.id),
     );
     expect(result.isError).toBe(true);
+  });
+});
+
+const setReactionRoute = MESSAGE_REACTION_ROUTES.find(
+  (r) => r.operationId === "message_reactions_set",
+);
+if (!setReactionRoute) {
+  throw new Error("message_reactions_set route not registered");
+}
+const setReaction = (body: Record<string, unknown>) =>
+  setReactionRoute.handler({ body }) as Promise<{
+    messageId: string;
+    reactions: Array<{ emoji: string; actor: string; createdAt: number }>;
+  }>;
+
+describe("message_reactions_set route", () => {
+  beforeEach(resetState);
+
+  async function seedAssistantMessage() {
+    const conv = createConversation();
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([{ type: "text", text: "how did the launch go?" }]),
+    );
+    const target = await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([
+        { type: "text", text: "It went great — all systems nominal." },
+      ]),
+    );
+    return { conv, target };
+  }
+
+  test("add persists a user reaction, publishes, and writes a hidden context row", async () => {
+    const { conv, target } = await seedAssistantMessage();
+
+    const result = await setReaction({
+      conversationId: conv.id,
+      messageId: target.id,
+      emoji: "🎉",
+    });
+    expect(result.reactions).toEqual([
+      expect.objectContaining({ emoji: "🎉", actor: "user" }),
+    ]);
+
+    const row = getMessageById(target.id);
+    expect(JSON.parse(row?.metadata ?? "{}").reactions).toHaveLength(1);
+
+    await flushHub();
+    expect(publishedReactionUpdates).toHaveLength(1);
+    expect(publishedReactionUpdates[0]).toMatchObject({
+      conversationId: conv.id,
+      messageId: target.id,
+    });
+
+    // The hidden signal row reaches the LLM history but not the UI list.
+    const response = handleListMessages({
+      queryParams: { conversationId: conv.id },
+    }) as { messages: Array<{ id: string; content?: string }> };
+    expect(response.messages).toHaveLength(2);
+
+    const rows = getMessages(conv.id);
+    const signalRow = rows.find((r) => r.content.includes("<user_reaction"));
+    expect(signalRow).toBeDefined();
+    expect(signalRow?.content).toContain("🎉");
+    expect(signalRow?.content).toContain("It went great");
+    expect(JSON.parse(signalRow?.metadata ?? "{}").hidden).toBe(true);
+  });
+
+  test("re-adding the same reaction is idempotent — no duplicate event or signal row", async () => {
+    const { conv, target } = await seedAssistantMessage();
+    await setReaction({
+      conversationId: conv.id,
+      messageId: target.id,
+      emoji: "👍",
+    });
+    await setReaction({
+      conversationId: conv.id,
+      messageId: target.id,
+      emoji: "👍",
+    });
+
+    await flushHub();
+    expect(publishedReactionUpdates).toHaveLength(1);
+
+    const rows = getMessages(conv.id);
+    expect(
+      rows.filter((r) => r.content.includes("<user_reaction")),
+    ).toHaveLength(1);
+  });
+
+  test("remove deletes the reaction and writes a removal signal row", async () => {
+    const { conv, target } = await seedAssistantMessage();
+    await setReaction({
+      conversationId: conv.id,
+      messageId: target.id,
+      emoji: "👍",
+    });
+
+    const result = await setReaction({
+      conversationId: conv.id,
+      messageId: target.id,
+      emoji: "👍",
+      op: "remove",
+    });
+    expect(result.reactions).toEqual([]);
+
+    const rows = getMessages(conv.id);
+    const signalTexts = rows
+      .filter((r) => r.content.includes("<user_reaction"))
+      .map(
+        (r) =>
+          (JSON.parse(r.content) as Array<{ text: string }>)[0]?.text ?? "",
+      );
+    expect(signalTexts.filter((t) => t.includes('removed="true"'))).toHaveLength(
+      1,
+    );
+  });
+
+  test("rejects non-assistant targets and invalid emoji", async () => {
+    const conv = createConversation();
+    const userMsg = await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([{ type: "text", text: "hello" }]),
+    );
+
+    expect(
+      setReaction({
+        conversationId: conv.id,
+        messageId: userMsg.id,
+        emoji: "👍",
+      }),
+    ).rejects.toThrow("assistant messages");
+
+    const { target } = await seedAssistantMessage();
+    expect(
+      setReaction({
+        conversationId: target.conversationId,
+        messageId: target.id,
+        emoji: "not an emoji",
+      }),
+    ).rejects.toThrow("single Unicode emoji");
   });
 });
 

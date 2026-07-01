@@ -1,15 +1,13 @@
 import { z } from "zod";
 
-import { conversationMessagesSyncTag } from "../../daemon/message-types/sync.js";
 import { RiskLevel } from "../../permissions/types.js";
 import {
   appendMessageReaction,
   getRecentUserMessages,
-  type MessageReaction,
   type MessageRow,
 } from "../../persistence/conversation-crud.js";
-import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
-import { publishSyncInvalidation } from "../../runtime/sync/sync-publisher.js";
+import { publishMessageReactionUpdated } from "../../runtime/sync/message-reaction-events.js";
+import { isSingleEmoji } from "../../util/emoji.js";
 import { registerTool } from "../registry.js";
 import type {
   ToolContext,
@@ -20,35 +18,6 @@ import type {
 const InputSchema = z.object({
   emoji: z.string().min(1),
 });
-
-// Longest legitimate emoji are ZWJ sequences (family, couple, flags with
-// tags) — all comfortably under 32 UTF-16 code units. Anything longer is a
-// sentence, not a reaction.
-const EMOJI_MAX_LENGTH = 32;
-
-/**
- * True when `value` is a single emoji grapheme: exactly one grapheme
- * cluster containing at least one pictographic scalar. Covers plain emoji,
- * variation-selector forms, ZWJ sequences, skin tones, keycaps, and
- * regional-indicator flags while rejecting plain text and multi-emoji
- * strings.
- */
-export function isSingleEmoji(value: string): boolean {
-  if (!value || value.length > EMOJI_MAX_LENGTH) {
-    return false;
-  }
-  const segments = [
-    ...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(
-      value,
-    ),
-  ];
-  if (segments.length !== 1) {
-    return false;
-  }
-  return /\p{Extended_Pictographic}|\p{Regional_Indicator}|\u{20E3}/u.test(
-    value,
-  );
-}
 
 /**
  * True when a user-role row is a real user-authored message a reaction can
@@ -85,7 +54,12 @@ export function isReactableUserMessage(row: MessageRow): boolean {
           return true;
         }
         const type = (block as { type?: unknown })?.type;
-        return type === "text" || type === "image" || type === "document";
+        return (
+          type === "text" ||
+          type === "image" ||
+          type === "document" ||
+          type === "file"
+        );
       });
     }
   } catch {
@@ -146,30 +120,6 @@ export async function executeSendReaction(
     content: JSON.stringify({ reacted: true, emoji, messageId: target.id }),
     isError: false,
   };
-}
-
-/**
- * Broadcast the typed `message_reaction_updated` event (full replacement
- * set, patches the row in place on live clients) plus the `sync_changed`
- * messages tag as the catch-up signal for clients that missed it. Publishes
- * via the event hub directly — the `resource-sync-events` helpers pull in
- * daemon handler modules that would cycle back into the tool manifest.
- */
-function publishMessageReactionUpdated(
-  conversationId: string,
-  messageId: string,
-  reactions: MessageReaction[],
-): void {
-  broadcastMessage(
-    {
-      type: "message_reaction_updated",
-      conversationId,
-      messageId,
-      reactions,
-    },
-    conversationId,
-  );
-  void publishSyncInvalidation([conversationMessagesSyncTag(conversationId)]);
 }
 
 export const sendReactionTool = {
