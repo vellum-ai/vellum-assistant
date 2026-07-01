@@ -527,6 +527,14 @@ export function guardPersistenceHooksByDisabledState(
       if (isPluginDisabled(pluginName)) return;
       return hooks.onConversationForked(event);
     },
+    // Gated like the active side effects above: a disabled plugin reports an
+    // empty buffer, so the maintenance scheduler treats it as "no buffered
+    // work" and skips consolidation — matching how disabled injectors/hooks go
+    // inert.
+    countMemoryBufferLines() {
+      if (isPluginDisabled(pluginName)) return 0;
+      return hooks.countMemoryBufferLines();
+    },
     // Cleanup hooks are NOT gated on disabled-state: they must run even while
     // the plugin is disabled, or jobs/conversations created while it was
     // enabled would be orphaned.
