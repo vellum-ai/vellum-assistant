@@ -18081,6 +18081,22 @@ paths:
                             - channelId
                             - channelTs
                           additionalProperties: false
+                        reactions:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              emoji:
+                                type: string
+                              actor:
+                                type: string
+                              createdAt:
+                                type: number
+                            required:
+                              - emoji
+                              - actor
+                              - createdAt
+                            additionalProperties: false
                         queueStatus:
                           type: string
                           enum:

@@ -31,8 +31,9 @@ import {
   type ContentBlockActivityItem,
   groupContentBlocks,
   isSubagentSpawnCall,
-  isSuppressedUiTool,
+  isSuppressedToolChip,
 } from "@/domains/chat/transcript/message-content";
+import { MessageReactions } from "@/domains/chat/transcript/message-reactions";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
 import { stopAcpRun } from "@/domains/chat/utils/acp-run-actions";
 import { stopBackgroundTask } from "@/domains/chat/utils/background-task-actions";
@@ -490,7 +491,7 @@ export function TranscriptMessageBody({
         }
       } else {
         const tc = item.toolCall;
-        if (isSuppressedUiTool(tc)) {
+        if (isSuppressedToolChip(tc)) {
           continue;
         }
         groupToolCalls.push(tc);
@@ -721,6 +722,13 @@ export function TranscriptMessageBody({
       >
         <div className={columnClass}>
           {renderUserContent(userItems)}
+          {message.reactions?.length ? (
+            <MessageReactions
+              reactions={message.reactions}
+              assistantDisplayName={assistantDisplayName}
+              className="-mt-1 pr-1"
+            />
+          ) : null}
           {trailer}
         </div>
       </div>

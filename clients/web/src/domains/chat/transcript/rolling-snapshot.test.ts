@@ -61,6 +61,17 @@ const surfaceShow = (seq: number, id: string, surfaceId: string) =>
     surfaceType: "form",
     data: {},
   } as AssistantEvent);
+const reactionUpdated = (
+  seq: number,
+  messageId: string,
+  reactions: Array<{ emoji: string; actor: string; createdAt: number }>,
+) =>
+  env(seq, {
+    type: "message_reaction_updated",
+    conversationId: "c1",
+    messageId,
+    reactions,
+  } as AssistantEvent);
 
 // A representative turn: user echo → reasoning → answer → finalize.
 const cleanTurn = (): AssistantEventEnvelope[] => [
@@ -350,6 +361,33 @@ describe("rolling-snapshot reducer", () => {
           cleanProcessing,
         );
       }
+    });
+  });
+
+  describe("message_reaction_updated", () => {
+    const reactions = [{ emoji: "🎉", actor: "assistant", createdAt: 5000 }];
+
+    test("patches the target message's reactions in place", () => {
+      const seeded = applyEvent(SEED, userEcho(1, "u1", "I got the job!"));
+      const after = applyEvent(seeded, reactionUpdated(2, "u1", reactions));
+      const target = after.messages.find((m) => m.id === "u1");
+      expect(target?.reactions).toEqual(reactions);
+    });
+
+    test("replaces the reaction set rather than appending", () => {
+      const seeded = applyEvent(SEED, userEcho(1, "u1", "hello"));
+      const first = applyEvent(seeded, reactionUpdated(2, "u1", reactions));
+      const replacement = [{ emoji: "👍", actor: "assistant", createdAt: 6000 }];
+      const second = applyEvent(first, reactionUpdated(3, "u1", replacement));
+      expect(second.messages.find((m) => m.id === "u1")?.reactions).toEqual(
+        replacement,
+      );
+    });
+
+    test("leaves history untouched when the target message is absent", () => {
+      const seeded = applyEvent(SEED, userEcho(1, "u1", "hello"));
+      const after = applyEvent(seeded, reactionUpdated(2, "missing", reactions));
+      expect(after.messages).toBe(seeded.messages);
     });
   });
 });

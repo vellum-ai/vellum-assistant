@@ -187,6 +187,20 @@ export function appendEventToMessages(
       return event.kind === "confirmation" || event.kind === "acp_confirmation"
         ? clearConfirmationByRequestId(messages, event.requestId)
         : messages;
+    case "message_reaction_updated": {
+      // The event carries the full replacement reaction set for one message;
+      // patch that row in place. `mergedMessageIds` is checked so a reaction
+      // still lands when the target row was folded into a consolidated row.
+      const matchesTarget = (m: DisplayMessage) =>
+        m.id === event.messageId ||
+        (m.mergedMessageIds?.includes(event.messageId) ?? false);
+      if (!messages.some(matchesTarget)) {
+        return messages;
+      }
+      return messages.map((m) =>
+        matchesTarget(m) ? { ...m, reactions: event.reactions } : m,
+      );
+    }
     default:
       // Total: events that don't change message content (turn lifecycle,
       // queue, subagent/workflow, sync, unknowns) leave the list untouched.

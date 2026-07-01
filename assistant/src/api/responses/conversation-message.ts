@@ -446,6 +446,25 @@ export type ConversationContentBlock = z.infer<
 // ---------------------------------------------------------------------------
 
 /**
+ * An emoji reaction attached to a conversation message, mirroring chat-app
+ * reactions. The shape is actor-general: `assistant` (via the
+ * `send_reaction` tool) is the only producer today, but the field is an
+ * open string so future sources (user reactions, channel-synced reactions)
+ * extend it without a wire break.
+ */
+export const ConversationMessageReactionSchema = z.object({
+  /** The reaction as a literal Unicode emoji (e.g. "👍"). */
+  emoji: z.string(),
+  /** Who placed the reaction (e.g. "assistant"). */
+  actor: z.string(),
+  /** Epoch-millisecond timestamp of when the reaction was placed. */
+  createdAt: z.number(),
+});
+export type ConversationMessageReaction = z.infer<
+  typeof ConversationMessageReactionSchema
+>;
+
+/**
  * A single consolidated history row as returned by the daemon's messages
  * endpoint. Consecutive assistant DB rows are merged into one display row;
  * `mergedMessageIds` records the folded ids.
@@ -579,6 +598,12 @@ export const ConversationMessageSchema = z.object({
    *  spawning tool call's `{backgrounded,id}` id. */
   backgroundToolCompletion: BackgroundToolCompletionSchema.optional(),
   slackMessage: ConversationSlackMessageSchema.optional(),
+  /**
+   * Emoji reactions attached to this message, newest last. Read from the
+   * persisted row's metadata; live updates arrive via the
+   * `message_reaction_updated` event carrying the full replacement set.
+   */
+  reactions: z.array(ConversationMessageReactionSchema).optional(),
   /**
    * Queue state for a user message that is still waiting in the daemon's
    * in-memory queue (enqueued while the agent was mid-turn, not yet drained or
