@@ -160,6 +160,16 @@ export function publishConversationTitleChanged(
   );
 }
 
+export function publishConversationEnabledPluginsChanged(
+  conversationId: string,
+  originClientId?: string,
+): void {
+  void publishSyncInvalidation(
+    [SYNC_TAGS.conversationsList, conversationMetadataSyncTag(conversationId)],
+    originClientId,
+  );
+}
+
 export function publishConversationInferenceProfileChanged(
   params: {
     conversationId: string;
