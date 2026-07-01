@@ -364,59 +364,6 @@ export function findActiveVoiceInvites(params: {
 }
 
 // ---------------------------------------------------------------------------
-// claimA2AInvite — validate + consume an A2A invite token
-// ---------------------------------------------------------------------------
-
-export function claimA2AInvite(params: {
-  tokenHash: string;
-  redeemedByExternalUserId: string;
-}): { claimed: boolean; invite: IngressInvite | null; error?: string } {
-  const invite = findByTokenHash(params.tokenHash);
-
-  if (!invite) {
-    return { claimed: false, invite: null, error: "not_found" };
-  }
-
-  if (invite.sourceChannel !== "a2a") {
-    return { claimed: false, invite, error: "wrong_channel" };
-  }
-
-  // Idempotency: if already redeemed by the same acceptor, return success
-  if (invite.status === "redeemed") {
-    if (invite.redeemedByExternalUserId === params.redeemedByExternalUserId) {
-      return { claimed: true, invite };
-    }
-    return { claimed: false, invite, error: "already_redeemed_by_other" };
-  }
-
-  if (invite.status !== "active") {
-    return { claimed: false, invite, error: "not_found" };
-  }
-
-  if (Date.now() >= invite.expiresAt) {
-    markInviteExpired(invite.id);
-    return { claimed: false, invite, error: "expired" };
-  }
-
-  if (invite.useCount >= invite.maxUses) {
-    return { claimed: false, invite, error: "already_redeemed" };
-  }
-
-  const recorded = recordInviteUse({
-    inviteId: invite.id,
-    externalUserId: params.redeemedByExternalUserId,
-  });
-
-  if (!recorded) {
-    return { claimed: false, invite, error: "not_found" };
-  }
-
-  // Re-read to get updated state
-  const updated = findByTokenHash(params.tokenHash);
-  return { claimed: true, invite: updated };
-}
-
-// ---------------------------------------------------------------------------
 // findByInviteCodeHash
 // ---------------------------------------------------------------------------
 
