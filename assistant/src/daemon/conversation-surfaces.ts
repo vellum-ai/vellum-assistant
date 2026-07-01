@@ -2925,6 +2925,23 @@ export async function surfaceProxyResolver(
     const surfaceType = input.surface_type as SurfaceType;
     const title = typeof input.title === "string" ? input.title : undefined;
     const rawData = isPlainObject(input.data) ? input.data : {};
+
+    // channel_setup is a side-effect-only command: it opens the channel setup
+    // drawer on the client. Emitted as `open_panel` (not `ui_surface_show`)
+    // so the rolling-snapshot reducer never folds it into the transcript.
+    if (surfaceType === "channel_setup") {
+      ctx.sendToClient({
+        type: "open_panel",
+        panelType: "channel_setup",
+        data: rawData as Record<string, unknown>,
+        conversationId: ctx.conversationId,
+      });
+      return {
+        content: JSON.stringify({ surfaceId, status: "displayed" }),
+        isError: false,
+      };
+    }
+
     // Each surface type that has a canonical Zod schema gets parsed through it;
     // the rest pass through raw until migrated (LUM-2134 scope). The per-type
     // normalizers validate+recover; the union cast at the end is only for the

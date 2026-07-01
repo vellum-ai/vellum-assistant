@@ -4,10 +4,6 @@
  * Provides a `startVoiceTurn()` function that manages a voice turn
  * directly through the conversation, translating agent-loop events into
  * simple callbacks suitable for real-time TTS streaming.
- *
- * Dependency injection follows the same module-level setter pattern used by
- * setRelayBroadcast in relay-server.ts: the daemon lifecycle injects
- * dependencies at startup via `setVoiceBridgeDeps()`.
  */
 
 import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
@@ -49,30 +45,6 @@ export function resolveProcessingWaitMs(
   abortUnwindMs: number,
 ): number {
   return turnCommitMaxWaitMs + abortUnwindMs + PROCESSING_WAIT_MARGIN_MS;
-}
-
-// ---------------------------------------------------------------------------
-// Module-level dependency injection
-// ---------------------------------------------------------------------------
-
-export interface VoiceBridgeDeps {
-  resolveAttachments: (attachmentIds: string[]) => Array<{
-    id: string;
-    filename: string;
-    mimeType: string;
-    data: string;
-    filePath?: string;
-  }>;
-}
-
-let deps: VoiceBridgeDeps | undefined;
-
-/**
- * Inject dependencies from daemon lifecycle.
- * Must be called during daemon startup before any voice turns are executed.
- */
-export function setVoiceBridgeDeps(d: VoiceBridgeDeps): void {
-  deps = d;
 }
 
 // ---------------------------------------------------------------------------
@@ -287,12 +259,6 @@ function buildVoiceCallControlPrompt(opts: {
 export async function startVoiceTurn(
   opts: VoiceTurnOptions,
 ): Promise<VoiceTurnHandle> {
-  if (!deps) {
-    throw new Error(
-      "Voice bridge not initialized — setVoiceBridgeDeps() was not called",
-    );
-  }
-
   const eventSink: VoiceRunEventSink = {
     onTextDelta: (msg) => {
       opts.onTextDelta?.(msg.text);

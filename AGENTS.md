@@ -131,6 +131,10 @@ Proactively remove unused code during every change. Remove code your change make
 
 Default to no comment — bias aggressively toward terseness and rely on good naming. Follow the commenting density of the surrounding code.
 
+## Control-Flow Braces
+
+Wrap every `if` / `else` / `for` / `while` / `do…while` body in braces, even a single-statement one-liner. Braces make control flow easy to scan — the block boundary is explicit — and close a common footgun: a second line added under a braceless condition reads as if it sits inside the branch but runs unconditionally. The ESLint `curly` rule flags this in both `assistant/` and `clients/web/` (currently at `warn`); it is fully auto-fixable, so add braces to any control statement you touch.
+
 ## Generic Examples
 
 Never include personal user data — real names, emails, phone numbers, account IDs, or other identifying details of specific people — anywhere in the codebase. This covers code, tests, fixtures, documentation, comments, commit messages, and AGENTS.md files. Always use generic placeholders:
@@ -205,9 +209,7 @@ Each LLM call site has a stable identifier (`LLMCallSite` from `assistant/src/co
 
 ## Skill Isolation
 
-The `assistant/` module must not import from `skills/` via relative paths (e.g. `../skills/meet-join/...`), and `skills/` must not import from `assistant/`. Both directions are enforced by `assistant/src/__tests__/skill-boundary-guard.test.ts`.
-
-First-party skills run as separate processes. The daemon ships their source tree alongside its binary (Docker build context whitelisted by the repo-root `.dockerignore`; macOS `.app` Resources/) plus a generated `manifest.json` that lists the skill's tools, routes, and shutdown hooks. At daemon startup, `assistant/src/daemon/meet-host-startup.ts` reads the manifest and installs proxy tools/routes/hooks; on first invocation, `MeetHostSupervisor` spawns the skill via `bun run` and dispatches via the `assistant-skill.sock` IPC socket. The skill speaks to the daemon through the `SkillHost` contract in `@vellumai/skill-host-contracts` — neither side imports the other. See `skills/meet-join/AGENTS.md` for the meet-join-specific shape.
+The `assistant/` module must not import from `skills/` via relative paths (e.g. `../skills/<name>/...`), and `skills/` must not import from `assistant/`. Both directions are enforced by `assistant/src/__tests__/skill-boundary-guard.test.ts`.
 
 ## Tooling Direction
 

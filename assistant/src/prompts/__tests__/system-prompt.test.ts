@@ -125,50 +125,23 @@ describe("buildSystemPrompt — persona override", () => {
   });
 });
 
-describe("buildSystemPrompt — hasNoClient pin", () => {
-  // Marker unique to the `{{^hasNoClient}}` branch of 05-access-preference:
-  // host fallbacks only render when a client is connected.
-  const WITH_CLIENT_MARKER = "`host_bash` with CLIs";
-
+describe("buildSystemPrompt — hasNoClient no longer affects the prompt", () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true });
   });
 
-  test("hasNoClient renders divergent access-preference text", () => {
-    expect(buildSystemPrompt({ hasNoClient: false })).toContain(
-      WITH_CLIENT_MARKER,
-    );
-    expect(buildSystemPrompt({ hasNoClient: true })).not.toContain(
-      WITH_CLIENT_MARKER,
-    );
-  });
-
-  test("personaOverride.hasNoClient pins the flag over the conversation-derived option", () => {
-    // Fork-retrospective case: the fork is hydrated clientless
-    // (hasNoClient: true) but pins the source's live-turn value (false) so
-    // the prompt byte-matches the source's cached prefix.
+  // No system-prompt section branches on hasNoClient, so neither the flag nor
+  // the SystemPromptPersonaOverride.hasNoClient pin changes prompt output.
+  // Guards against a future section re-coupling to the flag.
+  test("output is identical regardless of the flag or its pin", () => {
+    const base = buildSystemPrompt({ hasNoClient: false });
+    expect(buildSystemPrompt({ hasNoClient: true })).toBe(base);
     expect(
       buildSystemPrompt({
         hasNoClient: true,
         personaOverride: { hasNoClient: false },
       }),
-    ).toContain(WITH_CLIENT_MARKER);
-    // And the pin wins in the other direction too.
-    expect(
-      buildSystemPrompt({
-        hasNoClient: false,
-        personaOverride: { hasNoClient: true },
-      }),
-    ).not.toContain(WITH_CLIENT_MARKER);
-  });
-
-  test("a personaOverride without the pin leaves the conversation-derived flag untouched", () => {
-    expect(
-      buildSystemPrompt({ hasNoClient: true, personaOverride: {} }),
-    ).not.toContain(WITH_CLIENT_MARKER);
-    expect(
-      buildSystemPrompt({ hasNoClient: false, personaOverride: {} }),
-    ).toContain(WITH_CLIENT_MARKER);
+    ).toBe(base);
   });
 });
 

@@ -560,16 +560,15 @@ Examples:
             if (opts.timezone != null) body.timezone = opts.timezone;
             if (opts.profile != null) body.inferenceProfile = opts.profile;
 
-            const result = await cliIpcCall<ListSchedulesResponse>(
+            const result = await cliIpcCall<GetScheduleResponse>(
               "createSchedule",
               { body },
             );
 
             if (!result.ok) return exitFromIpcResult(result, cmd);
 
-            const response = result.result ?? { schedules: [] };
             if (opts.json) {
-              writeOutput(cmd, response);
+              writeOutput(cmd, result.result ?? {});
               return;
             }
 

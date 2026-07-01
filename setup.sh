@@ -47,7 +47,7 @@ git config core.hooksPath .githooks
 # ---------------------------------------------------------------------------
 # Install dependencies and register local packages as linkable
 # ---------------------------------------------------------------------------
-for dir in cli gateway assistant credential-executor evals; do
+for dir in cli gateway assistant credential-executor; do
   info "Installing dependencies in ${dir}/"
   (cd "${REPO_ROOT}/${dir}" && bun install)
   info "Registering ${dir}/ as a linkable package"

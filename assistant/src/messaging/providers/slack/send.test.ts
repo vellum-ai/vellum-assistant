@@ -31,6 +31,12 @@ mock.module("./api.js", () => ({
     }
   },
   uploadToSlackUrl: async () => {},
+  startSlackStream: (params: { markdownText?: string }) =>
+    callSlackApiMock("chat.startStream", { ...params }),
+  appendSlackStream: (params: { markdownText?: string }) =>
+    callSlackApiMock("chat.appendStream", { ...params }),
+  stopSlackStream: (params: { markdownText?: string }) =>
+    callSlackApiMock("chat.stopStream", { ...params }),
 }));
 
 const { SlackApiError } = await import("./api.js");

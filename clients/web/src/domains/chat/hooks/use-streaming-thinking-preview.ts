@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-export const STREAMING_THINKING_PREVIEW_UPDATE_INTERVAL_MS = 5_000;
+export const STREAMING_THINKING_PREVIEW_UPDATE_INTERVAL_MS = 2_000;
 
 export function firstSentenceOfLatestThinkingParagraph(
   text: string,

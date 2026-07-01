@@ -85,7 +85,11 @@ Seriousness (0 - 100): ${playfulSerious}
 Politeness (0 - 100): ${100 - politeUnfiltered}
 Unfiltered Rawness/Crassness (0 - 100): ${politeUnfiltered}
 
-Rewrite your identity files (IDENTITY.md, SOUL.md, users/guardian.md) to reflect your new personality. Write them in first person in a voice and style that matches your new personality.
+Rewrite your identity files (IDENTITY.md, SOUL.md, users/guardian.md) to reflect your new personality — first person, in a voice and style that matches it.
+
+Overwrite each file completely with file_write: write the whole file fresh in one pass. This is a from-scratch rewrite, not an edit — do not append to what's already there, do not patch individual lines, and leave none of the current default wording behind. Fill in every IDENTITY.md placeholder (the _(not yet chosen)_ / _(not yet established)_ fields).
+
+Each rewritten file must still be complete: SOUL.md keeps everything you operate by — how you use memory, your boundaries, your compliance stance — re-expressed in your new voice rather than dropped. When you finish, every file should read top-to-bottom as this new personality, with nothing left in the generic default voice.
 </system-message>`;
 }
 

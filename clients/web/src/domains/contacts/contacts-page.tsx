@@ -456,8 +456,8 @@ export function ContactsPage({
   );
 
   const handleSaveSlackConfig = useCallback(
-    async (botToken: string, appToken: string): Promise<void> => {
-      await saveSlackMutation.mutateAsync({ botToken, appToken });
+    (botToken: string, appToken: string) => {
+      saveSlackMutation.mutate({ botToken, appToken });
     },
     [saveSlackMutation],
   );
@@ -652,6 +652,8 @@ export function ContactsPage({
             onDisconnect={handleDisconnect}
             onSaveTelegramToken={handleSaveTelegramToken}
             onSaveSlackConfig={handleSaveSlackConfig}
+            slackSaveStatus={saveSlackMutation.status}
+            slackSaveError={saveSlackMutation.error?.message ?? null}
             onSlackThreadModeChange={handleSlackThreadModeChange}
             onSaveTwilioCredentials={handleSaveTwilioCredentials}
             onGenerateInviteLink={a2aChannel ? handleOpenInviteLink : undefined}

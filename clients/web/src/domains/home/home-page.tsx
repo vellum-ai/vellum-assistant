@@ -7,15 +7,17 @@ import { CreateScheduleModal } from "@/domains/settings/components/create-schedu
 import { SystemTasksSection } from "@/domains/settings/components/system-tasks-section";
 import { useSystemTasks } from "@/domains/settings/hooks/use-system-tasks";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useSupportsBulkFeedStatus } from "@/lib/backwards-compat/bulk-feed-status";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
-import { ResizablePanel, Tabs } from "@vellumai/design-library";
+import { Button, ResizablePanel, Tabs } from "@vellumai/design-library";
 import { HomeSchedulesPanel } from "./components/home-schedules-panel";
 import { ScheduleDetailPanel } from "./components/schedule-detail-panel";
 import { SystemTaskDetailPanel } from "./components/system-task-detail-panel";
 import { HomeDetailPanel } from "./detail-panel/home-detail-panel";
 import { HomeFeedList } from "./home-feed-list";
 import { HomeTopHeader } from "./home-top-header";
+import { excludeHighUrgency } from "./utils";
 import { useHomeSchedulesData } from "./hooks/use-home-schedules-data";
 import { useHomeFeedQuery } from "./hooks/use-home-feed-query";
 import { useHomeStateQuery } from "./hooks/use-home-state-query";
@@ -219,6 +221,31 @@ export function HomePage({
     [onOpenConversation],
   );
 
+  const feedItems = feedQuery.data?.items ?? [];
+  const visibleFeedItems = excludeHighUrgency(
+    feedItems.filter((i) => i.status !== "dismissed"),
+  );
+  const newCount = visibleFeedItems.filter((i) => i.status === "new").length;
+  const activeCount = visibleFeedItems.length;
+  const supportsBulkStatus = useSupportsBulkFeedStatus();
+
+  const handleMarkAllRead = useCallback(() => {
+    feedQuery.markAll.mutate({
+      from: ["new"],
+      to: "seen",
+      ids: visibleFeedItems.filter((i) => i.status === "new").map((i) => i.id),
+    });
+  }, [feedQuery.markAll, visibleFeedItems]);
+
+  const handleClearAll = useCallback(() => {
+    feedQuery.markAll.mutate({
+      from: ["new", "seen", "acted_on"],
+      to: "dismissed",
+      ids: visibleFeedItems.map((i) => i.id),
+    });
+    setSelectedItem(null);
+  }, [feedQuery.markAll, visibleFeedItems]);
+
   // Link a scheduled-run notification back to its schedule, but only when that
   // schedule still exists in the loaded list (it may have since been deleted).
   const selectedItemScheduleId = getFeedItemScheduleId(selectedItem);
@@ -362,8 +389,32 @@ export function HomePage({
             : "."}
         </div>
       ) : null}
+      {supportsBulkStatus && (newCount > 0 || activeCount > 0) && (
+        <div className="flex items-center justify-end gap-[var(--app-spacing-sm)]">
+          {newCount > 0 && (
+            <Button
+              variant="ghost"
+              size="compact"
+              onClick={handleMarkAllRead}
+              disabled={feedQuery.markAll.isPending}
+            >
+              Mark all as read
+            </Button>
+          )}
+          {activeCount > 0 && (
+            <Button
+              variant="ghost"
+              size="compact"
+              onClick={handleClearAll}
+              disabled={feedQuery.markAll.isPending}
+            >
+              Clear all
+            </Button>
+          )}
+        </div>
+      )}
       <HomeFeedList
-        items={feedQuery.data?.items ?? []}
+        items={feedItems}
         selectedItemId={selectedItem?.id}
         validConversationIds={validConversationIds}
         onSelectItem={handleSelectItem}

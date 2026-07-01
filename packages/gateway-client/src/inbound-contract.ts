@@ -69,6 +69,11 @@ export const SourceMetadataSchema = z
     slackBotMentioned: z.boolean().optional(),
     /** Slack workspace/team ID. */
     account: z.string().optional(),
+    /**
+     * Slack-specific: team ID the inbound actor belongs to. Threads to the
+     * daemon as the `recipient_team_id` for channel reply streaming.
+     */
+    actorTeamId: z.string().optional(),
 
     /**
      * Per-channel inbound admission policy attached by the gateway. The

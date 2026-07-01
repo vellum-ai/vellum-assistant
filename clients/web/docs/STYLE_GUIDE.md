@@ -509,6 +509,32 @@ import { useCallback } from "react";
 const label = "Send message";
 ```
 
+### Braces on all control statements
+
+Always wrap the body of `if`, `else`, `for`, `while`, and `do…while` in
+braces, even a single statement on the same line.
+
+```ts
+// Good
+if (!user) {
+  return null;
+}
+
+// Avoid — a second line added below reads as guarded but always runs
+if (!user) return null;
+```
+
+Braces make control flow easy to scan: the block boundary is explicit,
+so it's obvious at a glance exactly what the branch runs. They also close
+a common footgun — a second line added under a braceless condition reads
+as if it sits inside the branch, but executes unconditionally.
+
+The `curly` ESLint rule flags braceless bodies (currently at `warn`). It
+is fully auto-fixable — `eslint --fix` adds the braces with no behavior
+change — so add braces to any control statement you touch.
+
+Reference: [ESLint — `curly`](https://eslint.org/docs/latest/rules/curly)
+
 ---
 
 ## Unused code

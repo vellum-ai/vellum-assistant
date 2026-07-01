@@ -312,6 +312,7 @@ describe("buildSystemPrompt", () => {
     expect(result).not.toContain("## External Communications Identity");
     expect(result).not.toContain("## In-Chat Configuration");
     expect(result).not.toContain("## Historical Mentions Are Read-Only");
+    expect(result).not.toContain("## Communication");
   });
 
   test("does not include removed domain routing sections", () => {
@@ -664,26 +665,6 @@ describe("buildSystemPrompt", () => {
       expect(result).toContain("Batch independent tool calls");
     });
 
-    test("bundled communication section renders and sorts before the parallel-tool-calls block", () => {
-      // `01-communication` sorts ahead of `01-parallel-tool-calls`, so the
-      // communication guidance leads the operational sections.
-      const result = buildSystemPrompt();
-      expect(result).toContain("## Communication");
-      // The core rule: deliberation belongs in private thinking, not text.
-      expect(result).toContain(
-        "in your private thinking — never in user-facing text",
-      );
-      // Closes by deferring to the user's established communication preferences.
-      expect(result).toContain(
-        "Always prioritize communication preferences that you've established",
-      );
-      const communicationIdx = result.indexOf("## Communication");
-      const parallelIdx = result.indexOf("<use_parallel_tool_calls>");
-      expect(communicationIdx).toBeGreaterThan(-1);
-      expect(parallelIdx).toBeGreaterThan(-1);
-      expect(communicationIdx).toBeLessThan(parallelIdx);
-    });
-
     test("workspace prefix with frontmatter renders body at the very top", () => {
       mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
       writeFileSync(
@@ -887,7 +868,9 @@ describe("buildSystemPrompt", () => {
         // after the stable instruction sections
         const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
         expect(boundaryIdx).toBeGreaterThan(-1);
-        expect(result.indexOf("## Communication")).toBeLessThan(boundaryIdx);
+        expect(result.indexOf("<use_parallel_tool_calls>")).toBeLessThan(
+          boundaryIdx,
+        );
         expect(result.indexOf("# Voice Profile")).toBeGreaterThan(boundaryIdx);
       });
 
@@ -967,7 +950,9 @@ describe("buildSystemPrompt", () => {
         expect(result.indexOf("Custom head section.")).toBeLessThan(
           boundaryIdx,
         );
-        expect(result.indexOf("## Communication")).toBeGreaterThan(boundaryIdx);
+        expect(result.indexOf("<use_parallel_tool_calls>")).toBeGreaterThan(
+          boundaryIdx,
+        );
 
         // AND the bundled default declaration on 11-channel-persona is
         // ignored — no second marker
@@ -1065,91 +1050,6 @@ describe("buildSystemPrompt", () => {
         const result = buildSystemPrompt();
         expect(result).toContain("## Assistant CLI");
         expect(result).toContain("`assistant` CLI is available");
-      });
-    });
-
-    describe("access-preference section (slot 05)", () => {
-      const ACCESS_FILE = join(SYSTEM_PROMPTS_DIR, "05-access-preference.md");
-      // Mirrors the bundled `templates/system/05-access-preference.md` — both
-      // variants live in the markdown body and the renderer picks one via
-      // mustache-style `{{#hasNoClient}}` / `{{^hasNoClient}}` conditionals.
-      const TEMPLATE_BODY = [
-        "## External Service Access",
-        "",
-        "{{#hasNoClient}}",
-        "Priority: (1) sandbox `bash` — install tools yourself; (2) browser automation as last resort (no API, visual interaction, or OAuth consent).",
-        "{{/hasNoClient}}",
-        "{{^hasNoClient}}",
-        "Priority: (1) sandbox `bash` - install tools yourself, only fall back to host when you need local files/auth; (2) `host_bash` with CLIs (gh, aws, etc.) using --json flags; (3) browser automation as last resort (no API, visual interaction, or OAuth consent).",
-        "{{/hasNoClient}}",
-        "",
-      ].join("\n");
-
-      test("with-client (default) renders the three-tier priority list", () => {
-        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
-        writeFileSync(ACCESS_FILE, TEMPLATE_BODY);
-        const result = buildSystemPrompt();
-        expect(result).toContain("## External Service Access");
-        expect(result).toContain("`host_bash` with CLIs");
-        expect(result).toContain("browser automation as last resort");
-        // The no-client body (em-dash separator after sandbox `bash`) must
-        // not leak when the with-client variant is active.
-        expect(result).not.toContain("install tools yourself; (2) browser");
-        expect(result).toContain("## External Service Access");
-      });
-
-      test("hasNoClient=true renders the two-tier (no host_bash) priority list", () => {
-        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
-        writeFileSync(ACCESS_FILE, TEMPLATE_BODY);
-        const result = buildSystemPrompt({ hasNoClient: true });
-        expect(result).toContain("## External Service Access");
-        expect(result).toContain("browser automation as last resort");
-        // The host_bash tier must be absent in the no-client variant.
-        expect(result).not.toContain("`host_bash` with CLIs");
-        // The no-client body uses an em-dash + semicolon separator after
-        // sandbox `bash`; the with-client body uses a comma — guard against
-        // the wrong variant leaking through.
-        expect(result).toContain("install tools yourself; (2) browser");
-        expect(result).not.toContain(
-          "only fall back to host when you need local files/auth",
-        );
-      });
-
-      test("standalone tag lines do not bleed extra blank lines into output", () => {
-        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
-        writeFileSync(ACCESS_FILE, TEMPLATE_BODY);
-        const result = buildSystemPrompt();
-        // The heading and the active variant body should sit on adjacent
-        // lines separated by exactly one blank line — no triple-newline
-        // artifacts from the section markers.
-        expect(result).toMatch(
-          /## External Service Access\n\nPriority: \(1\) sandbox `bash` -/,
-        );
-      });
-
-      test("bundled access-preference default renders when no workspace override", () => {
-        // Bundled `05-access-preference.md` carries both with-client and
-        // no-client variants inline behind mustache section conditionals,
-        // so the default body renders without any workspace file present.
-        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
-        const result = buildSystemPrompt();
-        expect(result).toContain("## External Service Access");
-        expect(result).toContain("`host_bash` with CLIs");
-      });
-
-      test("renders after the attachment section to preserve original order", () => {
-        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
-        writeFileSync(
-          join(SYSTEM_PROMPTS_DIR, "04-attachment.md"),
-          "## Sending Files to the User\n\nbody.\n",
-        );
-        writeFileSync(ACCESS_FILE, TEMPLATE_BODY);
-        const result = buildSystemPrompt();
-        const attachmentIdx = result.indexOf("## Sending Files to the User");
-        const accessIdx = result.indexOf("## External Service Access");
-        expect(attachmentIdx).toBeGreaterThan(-1);
-        expect(accessIdx).toBeGreaterThan(-1);
-        expect(attachmentIdx).toBeLessThan(accessIdx);
       });
     });
 
@@ -1329,17 +1229,16 @@ describe("buildSystemPrompt", () => {
         expect(result).toContain("`assistant credentials prompt`");
       });
 
-      test("renders after the access-preference section to preserve original order", () => {
-        // Static-block order from the pre-registry inline build was
-        // access-preference → credential-security.  The numeric prefix on
-        // the registry id (`06-` > `05-`) preserves that order.
+      test("renders after the attachment section to preserve original order", () => {
+        // Registry ids sort by numeric prefix, so `06-credential-security`
+        // renders after the preceding static section `04-attachment`.
         mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
         const result = buildSystemPrompt();
-        const accessIdx = result.indexOf("## External Service Access");
+        const attachmentIdx = result.indexOf("## Sending Files to the User");
         const credentialIdx = result.indexOf("## Credential Security");
-        expect(accessIdx).toBeGreaterThan(-1);
+        expect(attachmentIdx).toBeGreaterThan(-1);
         expect(credentialIdx).toBeGreaterThan(-1);
-        expect(accessIdx).toBeLessThan(credentialIdx);
+        expect(attachmentIdx).toBeLessThan(credentialIdx);
       });
     });
 

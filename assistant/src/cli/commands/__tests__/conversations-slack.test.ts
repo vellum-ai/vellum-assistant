@@ -101,7 +101,7 @@ mock.module("../../../messaging/providers/slack/send.js", () => ({
     if (slackReplyError) throw slackReplyError;
     return { ok: true, ts: "1700000000.000200" };
   },
-  sendSlackTypingIndicator: async () => "1700000000.000200",
+  sendSlackStreamOp: async () => ({ ok: true, ts: "1700000000.000200" }),
   sendSlackReaction: async () => {},
   sendSlackAssistantThreadStatus: async () => {},
   sendSlackAttachments: async () => ({

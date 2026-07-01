@@ -69,6 +69,12 @@ mock.module("../dense.js", () => ({
   ...realDense,
   denseLane: async (...args: Parameters<typeof realDense.denseLane>) =>
     denseMockActive ? [] : realDense.denseLane(...args),
+  // Defensive: this fixture never sets denseK > 0, so orchestrate does not call
+  // the scored lane today — but mirror the delegation so a future denseK > 0
+  // test can't silently reach real Qdrant after the orchestrate swap.
+  denseLaneScored: async (
+    ...args: Parameters<typeof realDense.denseLaneScored>
+  ) => (denseMockActive ? [] : realDense.denseLaneScored(...args)),
 }));
 
 // In-memory everInjected store backing the net-new dedup, swapped in only
