@@ -137,7 +137,6 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../../persistence/schema/index.js",
     "../../../../prompts/system-prompt.js",
     "../../../../providers/platform-proxy/context.js",
-    "../../../../runtime/actor-trust-resolver.js",
     "../../../../runtime/assistant-event-hub.js",
     "../../../../runtime/auth/route-policy.js",
     "../../../../runtime/background-job-runner.js",
@@ -308,13 +307,19 @@ function collectPluginFiles(): PluginFile[] {
       cwd: process.cwd(),
     })) {
       const norm = rel.split("/").join(sep);
-      if (norm.endsWith(".test.ts") || norm.endsWith(".test.tsx")) continue;
-      if (norm.split(sep).includes("__tests__")) continue;
+      if (norm.endsWith(".test.ts") || norm.endsWith(".test.tsx")) {
+        continue;
+      }
+      if (norm.split(sep).includes("__tests__")) {
+        continue;
+      }
       const underDefaults = relative(DEFAULTS_REL, norm);
       const segments = underDefaults.split(sep);
       // A file directly under defaults/ (e.g. index.ts) is the registry, not a
       // plugin — it has no plugin directory segment.
-      if (segments.length < 2) continue;
+      if (segments.length < 2) {
+        continue;
+      }
       const absPath = join(process.cwd(), norm);
       files.push({
         plugin: segments[0]!,
@@ -342,11 +347,15 @@ function collectEscapes(files: PluginFile[]): Escape[] {
     let match: RegExpExecArray | null;
     while ((match = regex.exec(file.source)) !== null) {
       const specifier = match[1] ?? match[2] ?? match[3];
-      if (!specifier || specifier === "@vellumai/plugin-api") continue;
+      if (!specifier || specifier === "@vellumai/plugin-api") {
+        continue;
+      }
       if (specifier.startsWith(".")) {
         const resolved = resolve(dirname(file.absPath), specifier);
         // Stays inside the plugin's own directory → allowed.
-        if (!relative(pluginRoot, resolved).startsWith("..")) continue;
+        if (!relative(pluginRoot, resolved).startsWith("..")) {
+          continue;
+        }
       }
       escapes.push({ plugin: file.plugin, specifier, relPath: file.relPath });
     }
@@ -359,7 +368,9 @@ function escapesByPlugin(escapes: Escape[]): Map<string, string[]> {
   const sets = new Map<string, Set<string>>();
   for (const e of escapes) {
     let set = sets.get(e.plugin);
-    if (!set) sets.set(e.plugin, (set = new Set()));
+    if (!set) {
+      sets.set(e.plugin, (set = new Set()));
+    }
     set.add(e.specifier);
   }
   return new Map(
@@ -436,7 +447,9 @@ describe("plugin import boundary", () => {
         }
       }
       for (const spec of [...allowed].sort()) {
-        if (!found.has(spec)) stale.push(`  - ${plugin}: "${spec}"`);
+        if (!found.has(spec)) {
+          stale.push(`  - ${plugin}: "${spec}"`);
+        }
       }
     }
 
@@ -454,7 +467,9 @@ describe("plugin import boundary", () => {
       );
     }
     if (stale.length > 0) {
-      if (problems.length > 0) problems.push("");
+      if (problems.length > 0) {
+        problems.push("");
+      }
       problems.push(
         "Stale baseline entries (no longer imported — tighten the baseline):",
         ...stale,

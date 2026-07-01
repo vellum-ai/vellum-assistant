@@ -321,11 +321,11 @@ async function handleCreateSchedule(body: Record<string, unknown>) {
         { id: job.id, name: job.name, workflowName },
         "Workflow schedule created",
       );
+      return { schedule: serializeSchedule(job, new Map()) };
     } catch (err) {
       if (err instanceof Error) throw new BadRequestError(err.message);
       throw err;
     }
-    return handleListSchedules({});
   }
 
   if (mode === "script") {
@@ -352,11 +352,11 @@ async function handleCreateSchedule(body: Record<string, unknown>) {
         timeoutMs,
       });
       log.info({ id: job.id, name: job.name }, "Script schedule created");
+      return { schedule: serializeSchedule(job, new Map()) };
     } catch (err) {
       if (err instanceof Error) throw new BadRequestError(err.message);
       throw err;
     }
-    return handleListSchedules({});
   }
 
   try {
@@ -372,11 +372,11 @@ async function handleCreateSchedule(body: Record<string, unknown>) {
       inferenceProfile,
     });
     log.info({ id: job.id, name: job.name }, "Schedule created");
+    return { schedule: serializeSchedule(job, new Map()) };
   } catch (err) {
     if (err instanceof Error) throw new BadRequestError(err.message);
     throw err;
   }
-  return handleListSchedules({});
 }
 
 async function handleToggleSchedule(id: string, body: Record<string, unknown>) {
@@ -762,7 +762,7 @@ export const ROUTES: RouteDefinition[] = [
         .optional(),
     }),
     responseBody: z.object({
-      schedules: z.array(scheduleSchema).describe("Updated schedule list"),
+      schedule: scheduleSchema.describe("The created schedule"),
     }),
     handler: ({ body }: RouteHandlerArgs) => handleCreateSchedule(body ?? {}),
   },

@@ -36,9 +36,6 @@ const log = getLogger("slack-reply-session");
  */
 const STREAM_COALESCE_MS = 400;
 
-/** Env kill-switch: when set to any value, Slack reply streaming is disabled. */
-const STREAMING_DISABLED_ENV = "VELLUM_SLACK_STREAMING_DISABLED";
-
 /**
  * How durable finalize should reconcile against the streaming session.
  *
@@ -62,10 +59,15 @@ export type SlackReplySession = {
 };
 
 /**
- * Whether a turn is eligible for native Slack reply streaming. Streaming
- * targets assistant-container DMs, which always carry a `thread_ts`
- * (`chat.startStream` requires one). Non-threaded DMs and channel messages
- * fall back to durable delivery.
+ * Whether a turn is eligible for native Slack reply streaming. Every eligible
+ * turn resolves to a threaded reply, since `chat.startStream` requires a
+ * `thread_ts`. Assistant-container DMs carry that thread implicitly; channel
+ * turns (including app-mention threads) thread under the inbound message.
+ *
+ * DMs infer the reader, so they stream without recipient identity. Channels
+ * must name the reader: `chat.startStream` requires both `recipient_user_id`
+ * and `recipient_team_id`, so a channel turn missing either falls back to
+ * durable delivery.
  *
  * @see https://docs.slack.dev/reference/methods/chat.startStream/
  */
@@ -73,14 +75,16 @@ export function shouldStreamSlackReply(params: {
   sourceChannel: ChannelId;
   chatType?: string;
   replyCallbackUrl?: string;
+  recipientUserId?: string;
+  recipientTeamId?: string;
 }): boolean {
-  if (process.env[STREAMING_DISABLED_ENV]) return false;
-  return (
-    params.sourceChannel === "slack" &&
-    params.chatType === "im" &&
-    isSlackDeliveryCallbackUrl(params.replyCallbackUrl) &&
-    extractThreadTsFromCallbackUrl(params.replyCallbackUrl) !== null
-  );
+  if (params.sourceChannel !== "slack") return false;
+  if (!isSlackDeliveryCallbackUrl(params.replyCallbackUrl)) return false;
+  if (extractThreadTsFromCallbackUrl(params.replyCallbackUrl) === null) {
+    return false;
+  }
+  if (params.chatType === "im") return true;
+  return Boolean(params.recipientUserId && params.recipientTeamId);
 }
 
 type StreamState = "idle" | "streaming" | "fallback";
@@ -102,13 +106,17 @@ export function createSlackReplySession(params: {
   replyCallbackUrl?: string;
   chatId: string;
   assistantId?: string;
+  /** Slack user ID of the reader; required to stream into a channel. */
+  recipientUserId?: string;
+  /** Slack team ID of the reader; required to stream into a channel. */
+  recipientTeamId?: string;
   /** Gap between coalesced `appendStream` calls. Defaults to {@link STREAM_COALESCE_MS}. */
   coalesceMs?: number;
 }): SlackReplySession | undefined {
   if (!shouldStreamSlackReply(params) || !params.replyCallbackUrl) {
     return undefined;
   }
-  const { chatId, assistantId } = params;
+  const { chatId, assistantId, recipientUserId, recipientTeamId } = params;
   const coalesceMs = params.coalesceMs ?? STREAM_COALESCE_MS;
   const replyCallbackUrl = params.replyCallbackUrl;
   const threadTs = extractThreadTsFromCallbackUrl(replyCallbackUrl);
@@ -181,6 +189,8 @@ export function createSlackReplySession(params: {
             markdownText: firstChunk,
             ...(planActive ? { taskDisplayMode: "plan" as const } : {}),
             ...(tasks ? { tasks } : {}),
+            ...(recipientUserId ? { recipientUserId } : {}),
+            ...(recipientTeamId ? { recipientTeamId } : {}),
           },
         });
         if (result.ok && result.ts) {

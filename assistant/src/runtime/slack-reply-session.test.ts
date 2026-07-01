@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { ChannelDeliveryResult } from "@vellumai/gateway-client";
 
@@ -95,11 +95,6 @@ const slackStreamOps = (): Array<Record<string, unknown>> =>
 beforeEach(() => {
   deliverCalls.length = 0;
   deliverImpl = async () => ({ ok: true, ts: "stream-ts-1" });
-  delete process.env.VELLUM_SLACK_STREAMING_DISABLED;
-});
-
-afterEach(() => {
-  delete process.env.VELLUM_SLACK_STREAMING_DISABLED;
 });
 
 describe("shouldStreamSlackReply", () => {
@@ -123,12 +118,47 @@ describe("shouldStreamSlackReply", () => {
     ).toBe(false);
   });
 
-  test("rejects channel messages", () => {
+  test("admits a channel turn carrying both recipient IDs", () => {
     expect(
       shouldStreamSlackReply({
         sourceChannel: "slack",
         chatType: "channel",
         replyCallbackUrl: CALLBACK_URL,
+        recipientUserId: "U123",
+        recipientTeamId: "T123",
+      }),
+    ).toBe(true);
+  });
+
+  test("admits an app-mention turn (no chatType) carrying both recipient IDs", () => {
+    expect(
+      shouldStreamSlackReply({
+        sourceChannel: "slack",
+        replyCallbackUrl: CALLBACK_URL,
+        recipientUserId: "U123",
+        recipientTeamId: "T123",
+      }),
+    ).toBe(true);
+  });
+
+  test("rejects a channel turn missing the recipient team ID", () => {
+    expect(
+      shouldStreamSlackReply({
+        sourceChannel: "slack",
+        chatType: "channel",
+        replyCallbackUrl: CALLBACK_URL,
+        recipientUserId: "U123",
+      }),
+    ).toBe(false);
+  });
+
+  test("rejects a channel turn missing the recipient user ID", () => {
+    expect(
+      shouldStreamSlackReply({
+        sourceChannel: "slack",
+        chatType: "channel",
+        replyCallbackUrl: CALLBACK_URL,
+        recipientTeamId: "T123",
       }),
     ).toBe(false);
   });
@@ -137,17 +167,6 @@ describe("shouldStreamSlackReply", () => {
     expect(
       shouldStreamSlackReply({
         sourceChannel: "telegram",
-        chatType: "im",
-        replyCallbackUrl: CALLBACK_URL,
-      }),
-    ).toBe(false);
-  });
-
-  test("honors the env kill-switch", () => {
-    process.env.VELLUM_SLACK_STREAMING_DISABLED = "1";
-    expect(
-      shouldStreamSlackReply({
-        sourceChannel: "slack",
         chatType: "im",
         replyCallbackUrl: CALLBACK_URL,
       }),
@@ -193,6 +212,33 @@ describe("createSlackReplySession", () => {
       messageTs: "stream-ts-1",
       deliveredSegmentCount: 1,
     });
+  });
+
+  test("stamps recipient IDs on the start op for a channel turn", async () => {
+    const session = createSlackReplySession({
+      sourceChannel: "slack",
+      chatType: "channel",
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+      recipientUserId: "U123",
+      recipientTeamId: "T123",
+    })!;
+    expect(session).toBeDefined();
+
+    session.observeEvent(textDelta("The complete answer."));
+    session.observeEvent(messageComplete("assistant-msg-1"));
+    await session.finish();
+
+    expect(slackStreamOps()).toEqual([
+      {
+        action: "start",
+        threadTs: THREAD_TS,
+        markdownText: "The complete answer.",
+        recipientUserId: "U123",
+        recipientTeamId: "T123",
+      },
+      { action: "stop", streamTs: "stream-ts-1" },
+    ]);
   });
 
   test("coalesces mid-stream deltas into incremental appends", async () => {

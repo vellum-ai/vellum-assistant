@@ -16,6 +16,7 @@ import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { startCliIpcServer } from "../ipc/assistant-server.js";
 import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
 import { registerMemoryJobHandlers } from "../jobs/register-job-handlers.js";
+import { startMonitoring } from "../monitoring/control.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import { clearStaleProcessingFlags } from "../persistence/conversation-crud.js";
@@ -659,6 +660,10 @@ export async function runDaemon(): Promise<void> {
   }
 
   startScheduler();
+
+  // Spawn the resource monitor as a child of the daemon when enabled, off the
+  // main event loop.
+  startMonitoring();
 
   // The runtime HTTP server is up; broadcast the fresh daemon status so
   // connected clients pick up the transition.

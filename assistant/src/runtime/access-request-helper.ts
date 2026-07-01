@@ -54,7 +54,52 @@ export interface AccessRequestParams {
 
 export type AccessRequestResult =
   | { notified: true; created: boolean; requestId: string }
-  | { notified: false; reason: "no_sender_id" };
+  | { notified: false; reason: "no_sender_id" | "already_denied" };
+
+// ---------------------------------------------------------------------------
+// Terminal-deny lookup
+// ---------------------------------------------------------------------------
+
+/**
+ * Assistant-scoped conversation id for an actor's access requests. Stable key
+ * that dedupes pending prompts and detects a prior terminal deny for the same
+ * (assistant, channel, actor).
+ */
+export function accessRequestConversationId(
+  canonicalAssistantId: string,
+  sourceChannel: string,
+  actorExternalId: string,
+): string {
+  return `access-req-${canonicalAssistantId}-${sourceChannel}-${actorExternalId}`;
+}
+
+/**
+ * Whether the guardian has already terminally denied an access request from
+ * this actor on this channel. Callers use it to suppress re-engagement — both
+ * the guardian prompt and the self-verify challenge — for a sender the guardian
+ * explicitly rejected. Reads the retained `denied` canonical request scoped by
+ * the assistant-scoped conversation id.
+ */
+export function isAccessRequestDenied(params: {
+  canonicalAssistantId: string;
+  sourceChannel: string;
+  actorExternalId: string;
+}): boolean {
+  const conversationId = accessRequestConversationId(
+    params.canonicalAssistantId,
+    params.sourceChannel,
+    params.actorExternalId,
+  );
+  return (
+    listCanonicalGuardianRequests({
+      status: "denied",
+      requesterExternalUserId: params.actorExternalId,
+      sourceChannel: params.sourceChannel,
+      kind: "access_request",
+      conversationId,
+    }).length > 0
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Helper
@@ -122,7 +167,11 @@ export async function notifyGuardianOfAccessRequest(
   // matches requests for the same assistant. Without this, a pending request
   // from assistant A could be returned for assistant B, allowing the caller
   // to piggyback on A's guardian approval.
-  const conversationId = `access-req-${canonicalAssistantId}-${sourceChannel}-${actorExternalId}`;
+  const conversationId = accessRequestConversationId(
+    canonicalAssistantId,
+    sourceChannel,
+    actorExternalId,
+  );
 
   // Deduplicate: skip creation if there is already a pending canonical request
   // for the same requester on this channel *and* assistant. Still return
@@ -145,6 +194,26 @@ export async function notifyGuardianOfAccessRequest(
       created: false,
       requestId: existingCanonical[0].id,
     };
+  }
+
+  // Terminal-deny suppression: once the guardian has denied an access request
+  // for this sender on this channel, subsequent inbound must not re-prompt.
+  // The denied decision persists the sender as an unverified_contact (see the
+  // accessRequestResolver deny path); re-surfacing the same request the
+  // guardian already rejected would be noise. The guardian can still verify the
+  // contact manually — that path does not go through here.
+  if (
+    isAccessRequestDenied({
+      canonicalAssistantId,
+      sourceChannel,
+      actorExternalId,
+    })
+  ) {
+    log.debug(
+      { sourceChannel, actorExternalId },
+      "Suppressing access request notification — guardian already denied this sender",
+    );
+    return { notified: false, reason: "already_denied" };
   }
 
   const senderIdentifier = actorDisplayName || actorUsername || actorExternalId;

@@ -319,14 +319,12 @@ export interface SystemPromptPersonaOverride {
   /**
    * Pins the `hasNoClient` flag for the prompt build, taking precedence over
    * the top-level `BuildSystemPromptOptions.hasNoClient` (which mirrors the
-   * conversation's live client state). The `05-access-preference` section
-   * renders different text under the flag — early in the prompt, so a
-   * mismatch breaks byte-parity with a cached prefix even when persona and
-   * profile match. Used by fork-based memory retrospectives: the fork is
-   * hydrated clientless (`hasNoClient = true`) while the source's live turns
-   * ran under the source's own client state (`false` for interactive
-   * interfaces, `true` for channel-routed sources) — the pin carries that
-   * live-turn value.
+   * conversation's live client state). No system-prompt section branches on
+   * `hasNoClient`, so this pin does not affect prompt output; it is retained
+   * so fork-based memory retrospectives can thread the source conversation's
+   * live-turn value (`false` for interactive interfaces, `true` for
+   * channel-routed sources) through the build without depending on the fork's
+   * clientless hydration default.
    */
   hasNoClient?: boolean;
 }

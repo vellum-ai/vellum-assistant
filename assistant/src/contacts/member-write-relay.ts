@@ -181,3 +181,44 @@ export async function revokeMemberChannel(
     return null;
   }
 }
+
+// ── Seed unverified ──────────────────────────────────────────────────
+
+export interface SeedUnverifiedMemberChannelParams {
+  sourceChannel: string;
+  externalUserId: string;
+  displayName?: string;
+}
+
+/**
+ * Seed a contact channel for a sender at the `unverified` admission tier,
+ * gateway-first. Used when the guardian denies an access request: the sender
+ * becomes a known `unverified_contact` — no longer an unknown stranger — so
+ * subsequent inbound resolves as `unverified_contact` instead of re-running
+ * discovery.
+ *
+ * Delegates to the gateway `create_contact` IPC, which upserts via
+ * `ContactStore.upsertContact` (gateway DB is the ACL source of truth, with a
+ * best-effort assistant-DB mirror). A brand-new channel lands at status
+ * `unverified`; an existing channel's status is preserved, so a blocked,
+ * revoked, or already-active row is never reactivated or downgraded.
+ *
+ * Best-effort: the gateway owns the ACL verdict, so a failed relay is logged
+ * and swallowed — it must never fail the guardian's deny decision.
+ */
+export async function seedUnverifiedMemberChannel(
+  params: SeedUnverifiedMemberChannelParams,
+): Promise<void> {
+  try {
+    await ipcCallPersistent("create_contact", {
+      channelType: params.sourceChannel,
+      address: params.externalUserId,
+      ...(params.displayName ? { displayName: params.displayName } : {}),
+    });
+  } catch (err) {
+    log.warn(
+      { err, sourceChannel: params.sourceChannel },
+      "seed_unverified_channel relay failed (best-effort); sender not persisted as unverified_contact",
+    );
+  }
+}

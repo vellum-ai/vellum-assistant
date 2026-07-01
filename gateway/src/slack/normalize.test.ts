@@ -1433,6 +1433,35 @@ describe("source.threadId propagation", () => {
     });
   });
 
+  describe("actor team ID capture", () => {
+    it("captures event.team as actor.teamId for channel messages", () => {
+      const config = makeConfig();
+      const event = makeChannelEvent({ team: "T999" });
+      const result = normalizeSlackChannelMessage(event, "evt-team-1", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.actor.teamId).toBe("T999");
+    });
+
+    it("captures event.team as actor.teamId for app mentions", () => {
+      const config = makeConfig();
+      const event = makeAppMentionEvent({ team: "T999" });
+      const result = normalizeSlackAppMention(event, "evt-team-2", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.actor.teamId).toBe("T999");
+    });
+
+    it("omits actor.teamId when the event carries no team", () => {
+      const config = makeConfig();
+      const event = makeChannelEvent();
+      const result = normalizeSlackChannelMessage(event, "evt-team-3", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.actor.teamId).toBeUndefined();
+    });
+  });
+
   describe("normalizeSlackReactionAdded", () => {
     it("populates source.threadId with the reacted message's ts", () => {
       const config = makeConfig();

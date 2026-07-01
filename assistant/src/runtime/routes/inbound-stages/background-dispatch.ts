@@ -243,6 +243,8 @@ export function processChannelMessageInBackground(
         replyCallbackUrl,
         chatId: externalChatId,
         assistantId,
+        recipientUserId: slackInbound?.actorExternalUserId,
+        recipientTeamId: slackInbound?.actorTeamId,
       });
       const observeAgentEvent = (msg: ServerMessage): void => {
         if (

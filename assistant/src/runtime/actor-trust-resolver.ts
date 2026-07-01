@@ -34,6 +34,7 @@ import type { TrustContext } from "../daemon/trust-context.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
 import { getCachedMemberAcl } from "./member-verdict-cache.js";
+import type { TrustClass } from "./trust-class.js";
 
 const log = getLogger("actor-trust-resolver");
 
@@ -44,27 +45,11 @@ export type { TrustContext } from "../daemon/trust-context.js";
 // ---------------------------------------------------------------------------
 
 /**
- * Trust classification for an inbound actor.
- *
- * - `'guardian'`: The sender matches the active guardian binding for this
- *   (assistant, channel). Guardians have full control-plane access and
- *   self-approve tool invocations.
- * - `'trusted_contact'`: The sender is an active contact with a channel
- *   (not the guardian). Trusted contacts can invoke tools but require
- *   guardian approval for sensitive operations.
- * - `'unverified_contact'`: The sender matches a contact channel whose
- *   status is `pending` or `unverified` — known to the guardian but not yet
- *   verified. Treated identically to `trusted_contact` for every downstream
- *   capability/tool/approval decision; the distinction is admission-only.
- * - `'unknown'`: The sender has no contact record, no identity could be
- *   established, or the sender is a blocked/revoked contact. Unknown
- *   actors are fail-closed with no escalation path.
+ * Trust classification for an inbound actor. Defined once in `./trust-class.ts`
+ * (shared with the persistence metadata schema) and re-exported here, the
+ * canonical import site for the resolver's consumers.
  */
-export type TrustClass =
-  | "guardian"
-  | "trusted_contact"
-  | "unverified_contact"
-  | "unknown";
+export type { TrustClass };
 
 /**
  * Fully resolved trust context from the actor trust resolver.
@@ -211,7 +196,8 @@ export function resolveActorTrust(
     };
     guardianPrincipalId = guardianDelivery.principalId ?? undefined;
     isGuardian =
-      guardianDelivery.address.toLowerCase() === canonicalSenderId.toLowerCase();
+      guardianDelivery.address.toLowerCase() ===
+      canonicalSenderId.toLowerCase();
   }
 
   log.debug(

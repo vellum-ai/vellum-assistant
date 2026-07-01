@@ -5,12 +5,10 @@ import { getWorkspaceDir } from "../util/platform.js";
 
 /**
  * Update the `## Avatar` section in IDENTITY.md with a plain-text description.
- *
- * If `description` is null, clears the section content (leaves the heading so
- * the assistant knows to fill it in). If the section doesn't exist, appends it.
+ * If the section doesn't exist, appends it.
  */
 export function updateIdentityAvatarSection(
-  description: string | null,
+  description: string,
   log?: { warn: (obj: Record<string, unknown>, msg: string) => void },
 ): void {
   const identityPath = join(getWorkspaceDir(), "IDENTITY.md");
@@ -31,9 +29,7 @@ export function updateIdentityAvatarSection(
     return;
   }
 
-  const sectionBody = description
-    ? `## Avatar\n${description}\n`
-    : "## Avatar\nNo description yet — describe what the current avatar looks like.\n";
+  const sectionBody = `## Avatar\n${description}\n`;
 
   // Match ## Avatar and its content up to (but not including) the next heading
   // at any level, or end of file. Uses multiline ^ to match headings at line start.

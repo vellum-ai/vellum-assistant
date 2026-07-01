@@ -499,6 +499,66 @@ describe("SlackSocketModeClient thread tracking", () => {
     }
   });
 
+  test("stamps payload-level team_id onto events lacking an inner team", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+
+    try {
+      await resolveSlackUser("U-mentioned", "xoxb-test");
+
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-team-wrapper",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-team-wrapper",
+            team_id: "T-WORKSPACE",
+            event: {
+              type: "app_mention",
+              user: "U-mentioned",
+              text: "<@UBOT> hello",
+              ts: "1700000000.000100",
+              channel: "C-thread",
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.actor.teamId).toBe("T-WORKSPACE");
+
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-team-inner",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-team-inner",
+            team_id: "T-WORKSPACE",
+            event: {
+              type: "app_mention",
+              user: "U-mentioned",
+              text: "<@UBOT> hello again",
+              ts: "1700000000.000200",
+              channel: "C-thread",
+              team: "T-CONNECT-HOME",
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(2);
+      expect(emitted[1].event.actor.teamId).toBe("T-CONNECT-HOME");
+    } finally {
+      rawDb.close();
+    }
+  });
+
   test("emits a slow app mention before its immediate thread reply", async () => {
     const { rawDb, store } = createSlackStore();
     const emitted: NormalizedSlackEvent[] = [];

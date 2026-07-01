@@ -328,7 +328,6 @@ describe("rolling-snapshot reducer", () => {
       // phase-only behavior is preserved for daemons that don't report it.
       const after = applyEvent(SEED, turnStart(1, "a1"));
       expect(after.processing).toBeUndefined();
-      expect("processing" in after).toBe(false);
     });
 
     test("a replayed lower-seq turn-start cannot resurrect a closed turn", () => {

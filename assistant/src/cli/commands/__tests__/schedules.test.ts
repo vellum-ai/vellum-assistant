@@ -670,33 +670,31 @@ describe("schedules create", () => {
     mockIpcResult = {
       ok: true,
       result: {
-        schedules: [
-          {
-            id: "new-schedule-id",
-            name: "Heartbeat",
-            enabled: true,
-            syntax: "cron",
-            expression: "*/30 * * * *",
-            cronExpression: "*/30 * * * *",
-            timezone: null,
-            message: "run heartbeat",
-            script: null,
-            nextRunAt: 1_778_800_000_000,
-            lastRunAt: null,
-            lastStatus: null,
-            retryCount: 0,
-            maxRetries: 3,
-            retryBackoffMs: 60_000,
-            description: "Checks service heartbeat",
-            cadenceDescription: "Every 30 minutes",
-            mode: "execute",
-            status: "active",
-            routingIntent: "all_channels",
-            reuseConversation: false,
-            wakeConversationId: null,
-            isOneShot: false,
-          },
-        ],
+        schedule: {
+          id: "new-schedule-id",
+          name: "Heartbeat",
+          enabled: true,
+          syntax: "cron",
+          expression: "*/30 * * * *",
+          cronExpression: "*/30 * * * *",
+          timezone: null,
+          message: "run heartbeat",
+          script: null,
+          nextRunAt: 1_778_800_000_000,
+          lastRunAt: null,
+          lastStatus: null,
+          retryCount: 0,
+          maxRetries: 3,
+          retryBackoffMs: 60_000,
+          description: "Checks service heartbeat",
+          cadenceDescription: "Every 30 minutes",
+          mode: "execute",
+          status: "active",
+          routingIntent: "all_channels",
+          reuseConversation: false,
+          wakeConversationId: null,
+          isOneShot: false,
+        },
       },
     };
 
@@ -715,13 +713,11 @@ describe("schedules create", () => {
 
     expect(exitCode).toBe(0);
     expect(JSON.parse(stdout)).toEqual({
-      schedules: [
-        expect.objectContaining({
-          id: "new-schedule-id",
-          description: "Checks service heartbeat",
-          cadenceDescription: "Every 30 minutes",
-        }),
-      ],
+      schedule: expect.objectContaining({
+        id: "new-schedule-id",
+        description: "Checks service heartbeat",
+        cadenceDescription: "Every 30 minutes",
+      }),
     });
     expect(logLines).toEqual([]);
   });
