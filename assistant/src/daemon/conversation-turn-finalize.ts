@@ -49,6 +49,23 @@ interface TurnTailState {
 }
 
 /**
+ * Parse a persisted message's metadata against `messageMetadataSchema` — the
+ * single source of truth for its shape (including the actor trust class) —
+ * returning the validated fields, or `undefined` when the column is absent or
+ * malformed. Keeps callers off a hand-copied metadata/trust-class union.
+ */
+function parseFinalizedRowMetadata(metadataJson: string | null) {
+  if (!metadataJson) return undefined;
+  try {
+    const parsed = messageMetadataSchema.safeParse(JSON.parse(metadataJson));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    // Malformed metadata JSON — index without provenance, matching `addMessage`.
+    return undefined;
+  }
+}
+
+/**
  * Build the deferred finalize side-effect for one finalized assistant row:
  * memory segment indexing, lexical indexing, and attention projection.
  *
@@ -71,27 +88,10 @@ export function buildDeferredFinalizeEffect(params: {
   return async () => {
     const finalizedRow = getMessageById(assistantMessageId, conversationId);
     if (!finalizedRow) return;
-    let provenanceTrustClass:
-      | "guardian"
-      | "trusted_contact"
-      | "unverified_contact"
-      | "unknown"
-      | undefined;
-    let automated: boolean | undefined;
-    if (finalizedRow.metadata) {
-      try {
-        const parsedMeta = messageMetadataSchema.safeParse(
-          JSON.parse(finalizedRow.metadata),
-        );
-        if (parsedMeta.success) {
-          provenanceTrustClass = parsedMeta.data.provenanceTrustClass;
-          automated = parsedMeta.data.automated;
-        }
-      } catch {
-        // Malformed metadata JSON — fall through with undefined fields,
-        // matching the legacy behavior in `addMessage`.
-      }
-    }
+    // Provenance/automation flags for the memory write-gate come off the
+    // persisted metadata; `messageMetadataSchema` types their shape, so read
+    // them from the parse rather than re-declaring the trust-class union.
+    const metadata = parseFinalizedRowMetadata(finalizedRow.metadata);
     try {
       await indexMessageNow(
         {
@@ -101,8 +101,8 @@ export function buildDeferredFinalizeEffect(params: {
           content: contentJson,
           createdAt: finalizedRow.createdAt,
           scopeId: "default",
-          provenanceTrustClass,
-          automated,
+          provenanceTrustClass: metadata?.provenanceTrustClass,
+          automated: metadata?.automated,
         },
         getConfig().memory,
       );
@@ -196,16 +196,24 @@ export async function runDeferredTurnTail(params: {
     rlog.warn({ err }, "Post-turn tool result truncation failed (non-fatal)");
   }
 
-  // Mirror the final assistant row into the JSONL disk view.
-  if (state.lastAssistantMessageId) {
-    const convForDisk = getConversation(ctx.conversationId);
-    if (convForDisk) {
-      syncMessageToDisk(
-        ctx.conversationId,
-        state.lastAssistantMessageId,
-        convForDisk.createdAt,
-      );
+  // Mirror the final assistant row into the JSONL disk view. Guarded like the
+  // steps above: this runs AFTER the terminal SSE, so a throw here (e.g. a
+  // SQLite read failure in `getConversation`) must not escape into the loop's
+  // outer catch and emit a second, contradictory terminal event for a turn the
+  // client already saw complete.
+  try {
+    if (state.lastAssistantMessageId) {
+      const convForDisk = getConversation(ctx.conversationId);
+      if (convForDisk) {
+        syncMessageToDisk(
+          ctx.conversationId,
+          state.lastAssistantMessageId,
+          convForDisk.createdAt,
+        );
+      }
     }
+  } catch (err) {
+    rlog.warn({ err }, "Failed to sync assistant message to disk (non-fatal)");
   }
 
   rlog.info(
