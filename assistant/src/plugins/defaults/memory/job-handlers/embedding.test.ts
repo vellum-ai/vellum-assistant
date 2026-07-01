@@ -41,24 +41,11 @@ mock.module("../../../../persistence/job-utils.js", () => ({
 }));
 
 import { resetDbForTesting } from "../../../../__tests__/db-test-helpers.js";
-import { DEFAULT_CONFIG } from "../../../../config/defaults.js";
-import type { AssistantConfig } from "../../../../config/types.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import { initializeDb } from "../../../../persistence/db-init.js";
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
 import { mediaAssets } from "../../../../persistence/schema/index.js";
 import { embedMediaJob } from "./embedding.js";
-
-const TEST_CONFIG: AssistantConfig = {
-  ...DEFAULT_CONFIG,
-  memory: {
-    ...DEFAULT_CONFIG.memory,
-    extraction: {
-      ...DEFAULT_CONFIG.memory.extraction,
-      useLLM: false,
-    },
-  },
-};
 
 describe("embedMediaJob", () => {
   // initializeDb runs the full migration chain (hundreds of steps); under
@@ -90,12 +77,12 @@ describe("embedMediaJob", () => {
   }
 
   test("skips when assetId is missing", async () => {
-    await embedMediaJob(makeJob({}), TEST_CONFIG);
+    await embedMediaJob(makeJob({}));
     expect(embedAndUpsertCalls).toHaveLength(0);
   });
 
   test("skips when asset is not found", async () => {
-    await embedMediaJob(makeJob({ assetId: "nonexistent" }), TEST_CONFIG);
+    await embedMediaJob(makeJob({ assetId: "nonexistent" }));
     expect(embedAndUpsertCalls).toHaveLength(0);
   });
 
@@ -122,7 +109,7 @@ describe("embedMediaJob", () => {
       })
       .run();
 
-    await embedMediaJob(makeJob({ assetId: "asset-registered" }), TEST_CONFIG);
+    await embedMediaJob(makeJob({ assetId: "asset-registered" }));
     expect(embedAndUpsertCalls).toHaveLength(0);
   });
 
@@ -149,7 +136,7 @@ describe("embedMediaJob", () => {
       })
       .run();
 
-    await embedMediaJob(makeJob({ assetId: "asset-image" }), TEST_CONFIG);
+    await embedMediaJob(makeJob({ assetId: "asset-image" }));
 
     expect(embedAndUpsertCalls).toHaveLength(1);
     const call = embedAndUpsertCalls[0];
@@ -191,7 +178,7 @@ describe("embedMediaJob", () => {
       })
       .run();
 
-    await embedMediaJob(makeJob({ assetId: "asset-audio" }), TEST_CONFIG);
+    await embedMediaJob(makeJob({ assetId: "asset-audio" }));
 
     expect(embedAndUpsertCalls).toHaveLength(1);
     const call = embedAndUpsertCalls[0];
@@ -224,7 +211,7 @@ describe("embedMediaJob", () => {
       })
       .run();
 
-    await embedMediaJob(makeJob({ assetId: "asset-video" }), TEST_CONFIG);
+    await embedMediaJob(makeJob({ assetId: "asset-video" }));
 
     expect(embedAndUpsertCalls).toHaveLength(1);
     const call = embedAndUpsertCalls[0];

@@ -11,12 +11,10 @@ import { getConfiguredProvider } from "@vellumai/plugin-api";
 
 import type { AssistantConfig } from "../../../../config/types.js";
 import { embedWithRetry } from "../../../../persistence/embeddings/embed.js";
-import {
-  generateSparseEmbedding,
-  selectedBackendSupportsMultimodal,
-} from "../../../../persistence/embeddings/embedding-backend.js";
+import { generateSparseEmbedding } from "../../../../persistence/embeddings/embedding-backend.js";
 import type { QdrantSparseVector } from "../../../../persistence/embeddings/qdrant-client.js";
 import { getLogger } from "../../../../util/logger.js";
+import { selectedBackendSupportsMultimodal } from "../embeddings.js";
 import { extractToolUse, userMessage } from "../llm-helpers.js";
 import { searchGraphNodes } from "./graph-search.js";
 import type { InContextTracker } from "./injection.js";
@@ -973,7 +971,7 @@ export async function retrieveForTurn(
 
   if (imageBlocks.length > 0) {
     try {
-      const isMultimodal = await selectedBackendSupportsMultimodal(opts.config);
+      const isMultimodal = await selectedBackendSupportsMultimodal();
       if (isMultimodal) {
         const maxImageQueries = 2;
         for (

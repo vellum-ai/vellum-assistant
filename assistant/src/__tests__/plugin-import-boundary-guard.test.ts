@@ -187,6 +187,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../persistence/embeddings/messages-lexical-index.js",
     "../../../persistence/embeddings/qdrant-client.js",
     "../../../persistence/embeddings/qdrant-manager.js",
+    "../../../persistence/job-utils.js",
     "../../../persistence/jobs-store.js",
     "../../../persistence/jobs-worker.js",
     "../../../persistence/memory-lifecycle-hooks.js",
