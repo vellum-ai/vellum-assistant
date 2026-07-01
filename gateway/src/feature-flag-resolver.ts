@@ -1,6 +1,7 @@
 import { loadFeatureFlagDefaults } from "./feature-flag-defaults.js";
 import { readEnvFeatureFlagOverrides } from "./feature-flag-env-overrides.js";
 import { readRemoteFeatureFlags } from "./feature-flag-remote-store.js";
+import { resolveAbsentFlagDefault } from "./feature-flag-staged-rollout.js";
 import { readPersistedFeatureFlags } from "./feature-flag-store.js";
 
 /**
@@ -8,7 +9,9 @@ import { readPersistedFeatureFlags } from "./feature-flag-store.js";
  *
  * Priority: env override > persisted (user-toggled) > remote (platform-pushed) > registry default.
  * Undeclared keys return `false` (fail closed), even if stale local/remote
- * state contains a value for them.
+ * state contains a value for them. When no explicit value is present, the
+ * registry default is resolved through {@link resolveAbsentFlagDefault} so
+ * staged-rollout flags fail safe to `false` on managed deployments.
  */
 export function getFeatureFlagValue(key: string): boolean | string {
   const defaults = loadFeatureFlagDefaults();
@@ -26,7 +29,7 @@ export function getFeatureFlagValue(key: string): boolean | string {
   const remoteValue = remote[key];
   if (remoteValue !== undefined) return remoteValue;
 
-  return defaultDef.defaultEnabled;
+  return resolveAbsentFlagDefault(key, defaultDef.defaultEnabled);
 }
 
 /**

@@ -11,6 +11,7 @@ import { z } from "zod";
 import { loadFeatureFlagDefaults } from "../feature-flag-defaults.js";
 import { readEnvFeatureFlagOverrides } from "../feature-flag-env-overrides.js";
 import { readRemoteFeatureFlags } from "../feature-flag-remote-store.js";
+import { resolveAbsentFlagDefault } from "../feature-flag-staged-rollout.js";
 import { readPersistedFeatureFlags } from "../feature-flag-store.js";
 import type { IpcRoute } from "./server.js";
 
@@ -21,6 +22,10 @@ const GetFeatureFlagParamsSchema = z.object({
 /**
  * Compute the merged feature flag state: defaults < remote < persisted.
  * Returns a `Record<string, boolean | string>` keyed by flag name.
+ *
+ * When a flag has no persisted/remote value the registry default is resolved
+ * through {@link resolveAbsentFlagDefault} so staged-rollout flags fail safe to
+ * `false` on managed deployments instead of the `true` registry default.
  */
 export function getMergedFeatureFlags(): Record<string, boolean | string> {
   const defaults = loadFeatureFlagDefaults();
@@ -36,7 +41,7 @@ export function getMergedFeatureFlags(): Record<string, boolean | string> {
         ? persistedValue
         : remoteValue !== undefined
           ? remoteValue
-          : def.defaultEnabled;
+          : resolveAbsentFlagDefault(key, def.defaultEnabled);
   }
 
   const envOverrides = readEnvFeatureFlagOverrides();

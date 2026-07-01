@@ -5,30 +5,10 @@ import { fetchImpl } from "./fetch.js";
 import { loadFeatureFlagDefaults } from "./feature-flag-defaults.js";
 import { writeRemoteFeatureFlags } from "./feature-flag-remote-store.js";
 import { arePlatformFeaturesEnabled } from "./feature-flag-resolver.js";
+import { GA_NORMALIZATION_EXEMPT_FLAGS } from "./feature-flag-staged-rollout.js";
 import { getLogger } from "./logger.js";
 
 const log = getLogger("remote-feature-flag-sync");
-
-/**
- * Registry flags that default on (`defaultEnabled: true`) but are exempt from
- * GA normalization, so a platform-sent `false` is honored rather than rewritten
- * to `true`.
- *
- * A flag belongs here while its default is flipped on for local/self-hosted
- * installs but its managed rollout is still being staged through LaunchDarkly
- * targeting. Without the exemption the gateway would rewrite the platform's
- * blanket-deny `false` back to `true`, opting every managed assistant in at once
- * and defeating the staged rollout. Remove a key once its managed targeting is
- * complete and it is safe for the platform to leave it on unconditionally.
- *
- * `messages-search-backend`: default flipped to `qdrant` in the registry; the
- * managed cutover is gated on the companion LaunchDarkly targeting
- * (`vellum-assistant-platform` #8742) so managed assistants stay on `fts5` until
- * explicitly targeted on.
- */
-const GA_NORMALIZATION_EXEMPT_FLAGS: ReadonlySet<string> = new Set([
-  "messages-search-backend",
-]);
 
 /**
  * Steady-state polling interval: 5 minutes.

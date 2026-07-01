@@ -41,6 +41,17 @@ const TEST_REGISTRY = {
       description: "A string flag with empty default",
       defaultEnabled: "",
     },
+    {
+      // GA-normalization-exempt staged-rollout flag (defaultEnabled: true, but
+      // listed in GA_NORMALIZATION_EXEMPT_FLAGS). On managed deployments an
+      // absent value must fail safe to false rather than the true default.
+      id: "messages-search-backend",
+      scope: "assistant",
+      key: "messages-search-backend",
+      label: "Messages Search Backend",
+      description: "Messages search backend (qdrant default; staged rollout)",
+      defaultEnabled: true,
+    },
   ],
 };
 
@@ -68,9 +79,11 @@ afterEach(() => {
   delete process.env.VELLUM_FLAG_BROWSER;
   delete process.env.VELLUM_FLAG_A2A_CHANNEL;
   delete process.env.VELLUM_FLAG_DEFAULT_MODEL;
+  delete process.env.IS_PLATFORM;
 });
 
-const { isFeatureFlagEnabled, getFeatureFlagValue } = await import("../feature-flag-resolver.js");
+const { isFeatureFlagEnabled, getFeatureFlagValue } =
+  await import("../feature-flag-resolver.js");
 const { resetFeatureFlagDefaultsCache, _setRegistryCandidateOverrides } =
   await import("../feature-flag-defaults.js");
 const { clearFeatureFlagStoreCache, writeFeatureFlag } =
@@ -174,5 +187,47 @@ describe("getFeatureFlagValue", () => {
     resetEnvOverridesCache();
 
     expect(getFeatureFlagValue("default-model")).toBe("env-model");
+  });
+});
+
+describe("getFeatureFlagValue · staged-rollout (GA-normalization-exempt) flags", () => {
+  test("absent value falls back to the registry default on non-managed installs", () => {
+    // No IS_PLATFORM: local/self-hosted gets the new true default.
+    expect(getFeatureFlagValue("messages-search-backend")).toBe(true);
+  });
+
+  test("absent value fails safe to false on a managed deployment", () => {
+    // On managed (IS_PLATFORM=true), an absent value must NOT opt in via the
+    // true registry default — it fails safe to false until LD supplies a value.
+    // Covers: deployed before platform provisioning, stale/empty remote cache,
+    // or a failed first fetch.
+    process.env.IS_PLATFORM = "true";
+    expect(getFeatureFlagValue("messages-search-backend")).toBe(false);
+  });
+
+  test("explicit remote value is honored on a managed deployment", () => {
+    // Once LD targeting supplies an explicit value it wins over the fail-safe.
+    process.env.IS_PLATFORM = "true";
+    writeRemoteFeatureFlags({ "messages-search-backend": true });
+    expect(getFeatureFlagValue("messages-search-backend")).toBe(true);
+  });
+
+  test("explicit remote false is honored on a managed deployment", () => {
+    process.env.IS_PLATFORM = "true";
+    writeRemoteFeatureFlags({ "messages-search-backend": false });
+    expect(getFeatureFlagValue("messages-search-backend")).toBe(false);
+  });
+
+  test("persisted override is honored on a managed deployment", () => {
+    process.env.IS_PLATFORM = "true";
+    writeFeatureFlag("messages-search-backend", true);
+    expect(getFeatureFlagValue("messages-search-backend")).toBe(true);
+  });
+
+  test("a non-exempt GA flag still uses its true default on a managed deployment", () => {
+    // The managed fail-safe applies only to exempt flags — browser (GA, not
+    // exempt) must keep its true default even on managed with no explicit value.
+    process.env.IS_PLATFORM = "true";
+    expect(getFeatureFlagValue("browser")).toBe(true);
   });
 });

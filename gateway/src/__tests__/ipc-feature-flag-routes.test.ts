@@ -53,6 +53,15 @@ const TEST_REGISTRY = {
       description: "Default LLM model identifier",
       defaultEnabled: "claude-sonnet-4-6",
     },
+    {
+      // GA-normalization-exempt staged-rollout flag (defaultEnabled: true).
+      id: "messages-search-backend",
+      scope: "assistant",
+      key: "messages-search-backend",
+      label: "Messages Search Backend",
+      description: "Messages search backend (qdrant default; staged rollout)",
+      defaultEnabled: true,
+    },
   ],
 };
 
@@ -78,6 +87,7 @@ afterEach(() => {
   clearRemoteFeatureFlagStoreCache();
   resetEnvOverridesCache();
   delete process.env.VELLUM_FLAG_A2A_CHANNEL;
+  delete process.env.IS_PLATFORM;
 });
 
 const { resetFeatureFlagDefaultsCache, _setRegistryCandidateOverrides } =
@@ -248,6 +258,29 @@ describe("IPC feature flag routes", () => {
     expect(res.error).toBeUndefined();
     const flags = res.result as Record<string, boolean>;
     expect(flags["a2a-channel"]).toBe(true);
+    expect(flags["browser"]).toBe(true);
+  });
+
+  test("get_feature_flags fails a staged-rollout flag safe to false on managed when absent", async () => {
+    // messages-search-backend defaults true in the registry but is a
+    // GA-normalization-exempt staged-rollout flag. On a managed deployment
+    // (IS_PLATFORM=true) with no persisted/remote value, the merged map served
+    // to the daemon must resolve it to false — not the true registry default —
+    // so managed assistants stay on fts5 until LD targets them on. browser (GA,
+    // not exempt) keeps its true default.
+    process.env.IS_PLATFORM = "true";
+    if (existsSync(featureFlagStorePath)) rmSync(featureFlagStorePath);
+    if (existsSync(remoteFeatureFlagStorePath))
+      rmSync(remoteFeatureFlagStorePath);
+    clearFeatureFlagStoreCache();
+    clearRemoteFeatureFlagStoreCache();
+
+    await startServerAndConnect();
+    const res = await sendRequest(client, "get_feature_flags");
+
+    expect(res.error).toBeUndefined();
+    const flags = res.result as Record<string, boolean | string>;
+    expect(flags["messages-search-backend"]).toBe(false);
     expect(flags["browser"]).toBe(true);
   });
 
