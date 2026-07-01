@@ -7,6 +7,7 @@ import { memoryGraphOptions } from "@/domains/intelligence/memory-graph/get-memo
 import { Button } from "@vellumai/design-library";
 
 import { buildForceLayout } from "./build-force-layout";
+import { ConceptDetailPanel, type ConceptDetailNode } from "./concept-detail-panel";
 import { ConceptGraphLegend } from "./concept-graph-legend";
 import { NODE_KIND_COLORS } from "./constants";
 import type { ConceptNodeKind, GraphLayoutNode } from "./types";
@@ -152,6 +153,8 @@ export function ConceptGraphView({
   // Bumped only when the focused node changes, so the DOM tooltip re-renders.
   // The canvas itself never needs React state.
   const [focusLabel, setFocusLabel] = useState<string | null>(null);
+  // The concept opened into the detail drawer (null = graph only).
+  const [openNode, setOpenNode] = useState<ConceptDetailNode | null>(null);
 
   const labelFor = useCallback(
     (id: string | null): string | null => {
@@ -428,11 +431,17 @@ export function ConceptGraphView({
       if (!v.moved) {
         const { x, y } = localPoint(e);
         const hit = hitTest(x, y);
-        v.selectedId = v.selectedId === hit ? null : hit;
-        setFocusLabel(labelFor(v.selectedId));
+        if (hit) {
+          // Click a node → open its concept page in the detail drawer.
+          const n = layout.nodes.find((nn) => nn.id === hit);
+          if (n) setOpenNode({ id: n.id, label: n.label, updatedAtMs: n.updatedAtMs });
+        } else {
+          v.selectedId = null;
+          setFocusLabel(null);
+        }
       }
     },
-    [hitTest, labelFor],
+    [hitTest, layout.nodes],
   );
 
   useEffect(() => {
@@ -559,6 +568,14 @@ export function ConceptGraphView({
       ) : null}
 
       {body}
+
+      {ready && openNode ? (
+        <ConceptDetailPanel
+          assistantId={assistantId}
+          node={openNode}
+          onClose={() => setOpenNode(null)}
+        />
+      ) : null}
     </div>
   );
 }

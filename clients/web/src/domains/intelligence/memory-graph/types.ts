@@ -43,3 +43,10 @@ export interface MemoryGraph {
 export type MemoryGraphResult =
   | { kind: "ready"; graph: MemoryGraph }
   | { kind: "unsupported" };
+
+/** Detail for a single node — the concept's rendered markdown, fetched on open. */
+export interface MemoryGraphNodeDetail {
+  found: boolean;
+  title?: string;
+  content?: string;
+}

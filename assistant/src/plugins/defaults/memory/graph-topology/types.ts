@@ -68,3 +68,17 @@ export const MemoryGraphSchema = z.object({
   truncated: z.boolean().optional(),
 });
 export type MemoryGraph = z.infer<typeof MemoryGraphSchema>;
+
+/**
+ * Detail for a single graph node — the concept's own rendered content, fetched
+ * on demand when a user opens a node. `found: false` when the node has no
+ * readable page (deleted, or a backend that can't render node bodies).
+ */
+export const MemoryGraphNodeDetailSchema = z.object({
+  found: z.boolean(),
+  /** Display title (humanized id). */
+  title: z.string().optional(),
+  /** Markdown body of the concept page (frontmatter already stripped). */
+  content: z.string().optional(),
+});
+export type MemoryGraphNodeDetail = z.infer<typeof MemoryGraphNodeDetailSchema>;

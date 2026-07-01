@@ -24,7 +24,12 @@ import { readPage, renderPageContent } from "../v2/page-store.js";
 import { buildEdgeGraph } from "../v3/edge.js";
 import { computeLearnedEdgeGraph } from "../v3/learned-edges.js";
 import type { Slug } from "../v3/types.js";
-import type { MemoryGraph, MemoryGraphEdge, MemoryGraphNode } from "./types.js";
+import type {
+  MemoryGraph,
+  MemoryGraphEdge,
+  MemoryGraphNode,
+  MemoryGraphNodeDetail,
+} from "./types.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** Matches the selection window the v3 shadow lanes read for learned edges. */
@@ -228,4 +233,21 @@ export async function getMemoryGraph(
   });
 
   return { backend: BACKEND_MEMORY_V3, supported: true, ...assembled };
+}
+
+/**
+ * Fetch a single concept node's content (its markdown body) by id. Used when a
+ * user opens a node in the graph. Concepts only — skill/capability slugs and
+ * unreadable pages return `{ found: false }`.
+ */
+export async function getMemoryGraphNode(
+  config: AssistantConfig,
+  id: string,
+): Promise<MemoryGraphNodeDetail> {
+  if (!isMemoryV3Live(config) || !id || id.startsWith("skills/")) {
+    return { found: false };
+  }
+  const page = await readPage(getWorkspaceDir(), id).catch(() => null);
+  if (!page) return { found: false };
+  return { found: true, title: humanizeSlug(id), content: page.body };
 }
