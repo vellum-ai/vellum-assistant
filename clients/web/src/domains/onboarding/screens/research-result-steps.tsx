@@ -811,9 +811,8 @@ export function LetsChatReadyStep({
   /** Redo into this step — only set when the user has stepped back. */
   onForward?: () => void;
 }) {
-  // Constant dark surface for the UI text; the avatar tone colors the pills.
+  // Constant dark surface for the UI (the plugin cards match the facts cards).
   const tone = DARK_TONE;
-  const avatarTone = useOnboardingTone();
   const reduce = useReducedMotion();
   const [starting, setStarting] = useState(false);
 
@@ -911,11 +910,10 @@ export function LetsChatReadyStep({
           </h1>
         </div>
 
-        {/* One entry per installed plugin: the name as an avatar-tinted pill,
-            the description directly beneath it (no card container). Directly
-            under the title. */}
+        {/* One card per installed plugin (name + description), themed to match
+            the "facts about you" cards. Directly under the title. */}
         {hasPlugins && (
-          <div className="mt-6 flex flex-col gap-5">
+          <div className="mt-4 flex flex-col gap-3">
             {plugins.map((p, i) => (
               <motion.div
                 key={p.name}
@@ -924,24 +922,21 @@ export function LetsChatReadyStep({
                 transition={
                   reduce ? { duration: 0 } : { duration: 0.3, delay: i * 0.06 }
                 }
-                className="flex flex-col items-start gap-1.5"
+                className="rounded-2xl px-5 py-4"
+                style={{
+                  backgroundColor: tone.isLight
+                    ? "rgba(0,0,0,0.06)"
+                    : "rgba(255,255,255,0.1)",
+                }}
               >
-                <span
-                  className="inline-flex items-center whitespace-nowrap rounded-full px-3 py-1 text-[14px] font-medium"
-                  style={{
-                    backgroundColor: avatarTone.bg,
-                    color: avatarTone.fg,
-                  }}
-                >
-                  {p.displayName}
-                </span>
+                <div className="text-[15px] font-medium">{p.displayName}</div>
                 {p.description && (
-                  <p
-                    className="text-[14px] leading-snug"
+                  <div
+                    className="mt-1 text-[13px] leading-snug"
                     style={{ color: tone.fgMuted }}
                   >
                     {p.description}
-                  </p>
+                  </div>
                 )}
               </motion.div>
             ))}
