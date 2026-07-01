@@ -100,6 +100,39 @@ async function fetchInstalled(
 }
 
 /**
+ * Sticky per-assistant capability latch. `observed` is the live signal that the
+ * daemon supports a feature for the current render; once true it latches so the
+ * feature's UI doesn't flicker off while the backing read is momentarily pending
+ * (e.g. mid category switch). The latch resets SYNCHRONOUSLY when `assistantId`
+ * changes — cleared during render, not in an effect — so a prior assistant's
+ * latched `true` never leaks into the first render of a next assistant whose
+ * daemon omits the capability.
+ */
+function useStickyAssistantCapability(
+  assistantId: string,
+  observed: boolean,
+): boolean {
+  const [latch, setLatch] = useState({ assistantId, latched: false });
+  const latchedForThisAssistant =
+    latch.assistantId === assistantId ? latch.latched : false;
+  if (latch.assistantId !== assistantId) {
+    // Reset during render (the discarded render's effects never commit) so the
+    // stale latch can't gate even one render for the new assistant.
+    setLatch({ assistantId, latched: false });
+  }
+  useEffect(() => {
+    if (observed) {
+      setLatch((prev) =>
+        prev.assistantId === assistantId && prev.latched
+          ? prev
+          : { assistantId, latched: true },
+      );
+    }
+  }, [assistantId, observed]);
+  return latchedForThisAssistant || observed;
+}
+
+/**
  * Single source of truth for the Plugins tab list: the installed read
  * (`pluginsGet`, with an older-daemon 404 → empty degradation) and the
  * catalog (`pluginsSearchGet`), merged via `mergePlugins` and `sortPlugins`
@@ -196,43 +229,22 @@ export function usePluginsList(
   const unfilteredInstalledData =
     category !== null ? installedCountsQuery.data : installedQuery.data;
 
-  // Latch support sticky once the unfiltered read first carries `categoryCounts`
-  // (it's a stable daemon capability): the live OR covers the current render, and
-  // the latch keeps it true across a category switch while the unfiltered source
-  // is momentarily pending, so the rail never vanishes mid-filter.
-  const categoryCountsObserved =
-    unfilteredInstalledData?.categoryCounts !== undefined;
-  const [categorySupportedLatched, setCategorySupportedLatched] =
-    useState(false);
-  // Support is a per-assistant daemon capability. Reset the latch when the
-  // active assistant changes so a `true` observed for a prior assistant can't
-  // keep the rail alive for a next assistant whose daemon omits `categoryCounts`.
-  useEffect(() => {
-    setCategorySupportedLatched(false);
-  }, [assistantId]);
-  useEffect(() => {
-    if (categoryCountsObserved) setCategorySupportedLatched(true);
-  }, [categoryCountsObserved]);
-  const categorySupported = categorySupportedLatched || categoryCountsObserved;
-
-  // Latch plugin enable/disable support the same way: it's observed once any
-  // installed item carries `enabled` (a stable per-assistant daemon capability),
-  // and stays sticky across a category switch while the unfiltered source is
-  // momentarily pending. Reset on assistant change so a prior assistant's `true`
-  // can't gate the toggle for a next assistant whose daemon omits `enabled`.
-  const pluginToggleObserved = (
-    unfilteredInstalledData?.plugins ?? EMPTY_INSTALLED
-  ).some((p) => p.enabled !== undefined);
-  const [pluginToggleSupportedLatched, setPluginToggleSupportedLatched] =
-    useState(false);
-  useEffect(() => {
-    setPluginToggleSupportedLatched(false);
-  }, [assistantId]);
-  useEffect(() => {
-    if (pluginToggleObserved) setPluginToggleSupportedLatched(true);
-  }, [pluginToggleObserved]);
-  const pluginToggleSupported =
-    pluginToggleSupportedLatched || pluginToggleObserved;
+  // Category-rail and plugin-toggle support are both sticky per-assistant daemon
+  // capabilities: observed live from the unfiltered read, latched so the UI
+  // doesn't flicker off while that read is momentarily pending mid category
+  // switch, and reset SYNCHRONOUSLY on assistant change (see the helper) so a
+  // prior assistant's `true` can't gate one render for a next assistant whose
+  // daemon omits the capability.
+  const categorySupported = useStickyAssistantCapability(
+    assistantId,
+    unfilteredInstalledData?.categoryCounts !== undefined,
+  );
+  const pluginToggleSupported = useStickyAssistantCapability(
+    assistantId,
+    (unfilteredInstalledData?.plugins ?? EMPTY_INSTALLED).some(
+      (p) => p.enabled !== undefined,
+    ),
+  );
 
   // Self-heal timeout-degraded category counts. A cold catalog can make the
   // daemon's bounded category lookup time out, so the installed read buckets
