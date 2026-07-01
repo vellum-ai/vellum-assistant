@@ -298,6 +298,8 @@ export function ActiveChatView() {
     reachabilityPhase: reachability.state.phase,
     reachabilityProbe: reachability.probe,
     getPendingInitialMessage: () => peekPendingPreChatContext()?.initialMessage ?? undefined,
+    getPendingInitialMessageHidden: () =>
+      peekPendingPreChatContext()?.initialMessageHidden === true,
   });
 
   // Onboarding deep-link attribution: emit the research-onboarding check-in

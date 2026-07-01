@@ -73,12 +73,21 @@ import {
   LookingYouUpStep,
   ResearchResultsStep,
   SuggestionsStep,
+  LetsChatReadyStep,
 } from "@/domains/onboarding/screens/research-result-steps";
 import { OnboardingTonedBackdrop } from "@/domains/onboarding/components/onboarding-toned-backdrop";
 import {
   OnboardingStageSizeProvider,
   useElementSize,
 } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
+
+/**
+ * Hidden kickoff sent on the user's behalf when they hit "Let's chat" at the
+ * end of the personality-onboarding flow. It drives the assistant's first reply
+ * but renders no user bubble, so the chat opens with the assistant proactively
+ * greeting the user in the persona they just configured.
+ */
+const LETS_CHAT_KICKOFF_MESSAGE = "Wake up, I'm excited to chat!";
 
 /** Build the research subject from the collected form values. */
 function researchSubjectFrom(values: ResearchOnboardingValues): ResearchSubject {
@@ -277,7 +286,14 @@ export function ResearchOnboardingRoute() {
       setResearchConversationId(snapshot.researchConversationId ?? null);
       // Re-enqueue the named plugin installs against the re-hatched assistant so
       // a suggestion click awaits real (idempotent) installs, not an empty map.
-      if (snapshot.research) hydrateResearch(snapshot.research, awaitHatchReady);
+      if (snapshot.research)
+        hydrateResearch(
+          {
+            ...snapshot.research,
+            pluginCatalog: snapshot.research.pluginCatalog ?? {},
+          },
+          awaitHatchReady,
+        );
       setStep(resolveResumeStep(snapshot));
       setForwardStack([]);
     }
@@ -304,6 +320,7 @@ export function ResearchOnboardingRoute() {
               claims: research.claims,
               suggestions: research.suggestions,
               installedPlugins: research.installedPlugins,
+              pluginCatalog: research.pluginCatalog,
             }
           : null,
       ...(researchConversationId
@@ -323,6 +340,7 @@ export function ResearchOnboardingRoute() {
     research.claims,
     research.suggestions,
     research.installedPlugins,
+    research.pluginCatalog,
   ]);
 
   // Mid-flow resume: we restored a journey whose research turn hadn't settled.
@@ -346,6 +364,7 @@ export function ResearchOnboardingRoute() {
         ? { resumeConversationId: researchConversationId }
         : {}),
       onConversationCreated: setResearchConversationId,
+      includeSuggestions: !personalityEnabled,
     });
   }, [
     restored,
@@ -356,6 +375,7 @@ export function ResearchOnboardingRoute() {
     research.status,
     startResearch,
     awaitHatchReady,
+    personalityEnabled,
   ]);
 
   // If we're sitting on the results step when the research turn resolves empty
@@ -375,7 +395,7 @@ export function ResearchOnboardingRoute() {
     values: ResearchOnboardingValues,
     face: GiveMeAFaceValues | null,
     entryPrompt?: string,
-    { skip = false }: { skip?: boolean } = {},
+    { skip = false, hidden = false }: { skip?: boolean; hidden?: boolean } = {},
   ) {
     // Handing off to the chat ends the research-onboarding journey — drop the
     // resume snapshot so a later visit starts clean instead of resuming this one.
@@ -413,6 +433,10 @@ export function ResearchOnboardingRoute() {
                 occupation: role,
                 hobby: hobbies.join(", "),
               }),
+            // A hidden kickoff (the "Let's chat" handoff) drives the first reply
+            // without rendering a user bubble, so the chat opens as a proactive
+            // greeting in the configured persona.
+            ...(hidden ? { initialMessageHidden: true } : {}),
           }),
       // Friendly title for the behind-the-scenes research conversation.
       ...(isResearch
@@ -459,6 +483,9 @@ export function ResearchOnboardingRoute() {
       subject: researchSubjectFrom(values),
       conversationTitle: researchTitleFor(values),
       onConversationCreated: setResearchConversationId,
+      // The "Let's chat" final step replaces suggestions when personality
+      // onboarding is on, so don't ask the model to generate any.
+      includeSuggestions: !personalityEnabled,
     });
     goForwardTo("face");
   }
@@ -674,7 +701,35 @@ export function ResearchOnboardingRoute() {
             onForward={onForward}
           />
         )}
-        {step === "suggestions" && (
+        {step === "suggestions" && personalityEnabled && (
+          <LetsChatReadyStep
+            installedPlugins={research.installedPlugins}
+            pluginCatalog={research.pluginCatalog}
+            onStart={async () => {
+              // Terminal step: the handoff leaves via enterAssistant, not
+              // goForwardTo, so emit the completion here (mirrors SuggestionsStep).
+              emitResearchOnboardingStepCompleted(
+                RESEARCH_ONBOARDING_FUNNEL_STEPS.suggestions,
+                { userId, outcome: "completed" },
+              );
+              // Wait out any background capability installs so the primed chat
+              // can discover their skills, and any removal correction so rejected
+              // claims can't leak into it — same gating as the suggestion click.
+              await Promise.all([
+                research.awaitPluginInstalls(),
+                researchCorrectionRef.current,
+              ]);
+              // Drop into a fresh chat with the hidden kickoff so the assistant
+              // opens by greeting the user in the persona they configured.
+              enterAssistant(formValues, faceValues, LETS_CHAT_KICKOFF_MESSAGE, {
+                hidden: true,
+              });
+            }}
+            onBack={() => goBackTo(noClaims ? "looking" : "results")}
+            onForward={onForward}
+          />
+        )}
+        {step === "suggestions" && !personalityEnabled && (
           <SuggestionsStep
             suggestions={research.suggestions}
             loading={researchLoading}

@@ -18137,6 +18137,12 @@ paths:
                     - low
                     - medium
                     - high
+                hidden:
+                  description:
+                    When true, persist the user message but suppress it from the UI transcript (it stays in LLM-side history
+                    and still drives the turn). Used to prime a proactive assistant greeting without showing the
+                    triggering user message. Honored on the standard send path only.
+                  type: boolean
                 onboarding:
                   type: object
                   properties:

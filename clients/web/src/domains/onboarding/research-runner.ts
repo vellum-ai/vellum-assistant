@@ -209,6 +209,13 @@ export interface ResearchRunnerState {
    * or nothing fit.
    */
   installedPlugins: string[];
+  /**
+   * Map of plugin install name → one-line description, from the fetched
+   * first-party catalog. Lets the UI render each installed plugin with its real
+   * name + description (not just the name). Empty when the catalog was
+   * unavailable (or, after a refresh-resume, not re-fetched).
+   */
+  pluginCatalog: Record<string, string>;
 }
 
 export interface StartResearchOptions {
@@ -232,6 +239,13 @@ export interface StartResearchOptions {
    * thread if the page is refreshed mid-search.
    */
   onConversationCreated?: (conversationId: string) => void;
+  /**
+   * Whether to ask the model for clickable `suggestions`. Off for the "Let's
+   * chat" final step (personality-onboarding flag), which installs the picked
+   * plugins and primes a chat instead of surfacing suggestion cards. Defaults to
+   * true so the legacy suggestions flow is unchanged.
+   */
+  includeSuggestions?: boolean;
 }
 
 export interface UseResearchRunner extends ResearchRunnerState {
@@ -315,6 +329,7 @@ export function useResearchRunner(): UseResearchRunner {
     claims: [],
     suggestions: [],
     installedPlugins: [],
+    pluginCatalog: {},
   });
   // Monotonic run id: every fresh run claims the next id; in-flight loops bail
   // the moment a newer run supersedes them. Paired with the last subject key so
@@ -342,6 +357,7 @@ export function useResearchRunner(): UseResearchRunner {
       conversationTitle,
       resumeConversationId,
       onConversationCreated,
+      includeSuggestions = true,
     }: StartResearchOptions) => {
       const subjectKey = JSON.stringify(subject);
       if (subjectKeyRef.current === subjectKey) return;
@@ -362,6 +378,7 @@ export function useResearchRunner(): UseResearchRunner {
         claims: [],
         suggestions: [],
         installedPlugins: [],
+        pluginCatalog: {},
       });
 
       void (async () => {
@@ -381,6 +398,13 @@ export function useResearchRunner(): UseResearchRunner {
           const { capabilities, validNames } =
             await fetchAvailableCapabilities(assistantId);
           if (isStale()) return;
+          // Name → description for the fetched catalog, so the UI can show each
+          // installed plugin with its real name + description. Carried on every
+          // state update below (the poll loop replaces state wholesale).
+          const pluginCatalog: Record<string, string> = Object.fromEntries(
+            capabilities.map((c) => [c.name, c.description]),
+          );
+          setState((s) => ({ ...s, pluginCatalog }));
           // Nothing installable (empty/unavailable catalog) — release the click
           // gate so suggestion clicks never wait on the research turn.
           if (validNames.size === 0) resolvePluginsReady();
@@ -413,7 +437,9 @@ export function useResearchRunner(): UseResearchRunner {
           const postResearchPrompt = async (cid: string): Promise<boolean> => {
             const body: MessagesPostData["body"] = {
               conversationId: cid,
-              content: buildResearchPrompt(subject, capabilities),
+              content: buildResearchPrompt(subject, capabilities, {
+                includeSuggestions,
+              }),
               sourceChannel: "vellum",
               // `interface` is the transport ("web"); the real OS travels in
               // `clientOs` so the assistant's `client_os` context is correct
@@ -558,6 +584,7 @@ export function useResearchRunner(): UseResearchRunner {
                   validNames,
                   modelPlugins: validPlugins,
                 }),
+                pluginCatalog,
               });
               if (complete) sawCompletePayload = true;
               stableReads = text === lastText ? stableReads + 1 : 0;
