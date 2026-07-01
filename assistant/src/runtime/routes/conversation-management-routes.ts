@@ -330,6 +330,9 @@ async function handleDeleteConversation({
       targetId: summaryId,
     });
   }
+  // The lexical-index purge is fired by `deleteConversation` itself (via the
+  // `onConversationDeleted` persistence hook), so every delete caller cleans up
+  // — no route-level purge needed here.
   log.info({ conversationId: resolvedId }, "Deleted conversation");
 
   publishConversationListAndMetadataChanged(

@@ -1422,6 +1422,13 @@ export function deleteConversation(id: string): DeletedMemoryIds {
     removeConversationDir(id, createdAtForDiskCleanup);
   }
 
+  // Let the memory feature purge the conversation's per-message index (e.g. its
+  // lexical points). Fired from the shared primitive so every delete caller —
+  // route, wipe, retrospective cleanup/GC — cleans up. Routed through the
+  // persistence-hook seam so this layer stays decoupled from the memory plugin;
+  // a no-op when memory is not present.
+  getMemoryPersistenceHooks().onConversationDeleted(id);
+
   return result;
 }
 
@@ -1527,6 +1534,12 @@ export async function deleteConversationGently(
   if (createdAtForDiskCleanup != null) {
     removeConversationDir(id, createdAtForDiskCleanup);
   }
+
+  // Let the memory feature purge the conversation's per-message index — the
+  // gentle path is the retrospective-GC caller, which would otherwise leak the
+  // conversation's lexical points. Routed through the persistence-hook seam;
+  // a no-op when memory is not present.
+  getMemoryPersistenceHooks().onConversationDeleted(id);
 
   return result;
 }
@@ -2595,6 +2608,20 @@ export async function clearAll(): Promise<{
     );
   }
 
+  // Let the memory feature drop its bulk per-message index (e.g. the whole
+  // lexical Qdrant collection) — a "delete all" leaves no ids to key
+  // per-message cleanup on. Routed through the persistence-hook seam so this
+  // layer stays decoupled from the memory plugin; a no-op when memory is not
+  // present. AWAITED so the drop completes before clear-all returns and writes
+  // resume — a message created right after must not upsert into a collection
+  // that is about to be dropped. Best-effort — a failure must not fail the
+  // whole clear-all.
+  try {
+    await getMemoryPersistenceHooks().onAllConversationsCleared();
+  } catch (err) {
+    log.warn({ err }, "clearAll: failed to clear memory per-message index");
+  }
+
   // Clear the disk-view conversations directory and recreate it empty
   try {
     rmSync(getConversationsDir(), { recursive: true, force: true });
@@ -2680,6 +2707,12 @@ export function deleteLastExchange(conversationId: string): number {
 
   deleteOrphanAttachments(candidateAttachmentIds);
 
+  // Let the memory feature clean up the undone messages' per-message index
+  // entries. This bulk delete bypasses `deleteMessageById`, so notify the seam
+  // with the collected ids — after the transaction and off the write path. A
+  // no-op when memory is not present.
+  getMemoryPersistenceHooks().onMessagesDeleted(messageIds);
+
   return deleted;
 }
 
@@ -2723,6 +2756,13 @@ export async function reserveMessage(
 /**
  * Update the content of an existing message. Used when consolidating
  * multiple assistant messages into one.
+ *
+ * This is a pure CRUD primitive: it does NOT enqueue a lexical reindex, because
+ * it is also driven by mid-stream partial flushes and high-frequency tool-timing
+ * stamps (`_startedAt`/`_previewStartedAt`) that either don't change searchable
+ * text or would spam reindex jobs. Callers on genuine content-change seams
+ * (streaming finalize, channel edits, consolidation) enqueue the reindex
+ * themselves via `enqueueLexicalIndexForMessage`.
  */
 export function updateMessageContent(
   messageId: string,
@@ -2899,6 +2939,15 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
   });
 
   deleteOrphanAttachments(candidateAttachmentIds);
+
+  // Let the memory feature clean up the deleted message's per-message index
+  // entry. Notified only when the row actually existed (`msgRow` set), after the
+  // transaction and off the write path, via the persistence-hook seam (a no-op
+  // when memory is not present). Covers single-message deletes (consolidation)
+  // that do not go through the conversation-level purge.
+  if (msgRow) {
+    getMemoryPersistenceHooks().onMessagesDeleted([messageId]);
+  }
 
   return result;
 }
