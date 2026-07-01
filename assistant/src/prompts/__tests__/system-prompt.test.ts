@@ -135,10 +135,8 @@ describe("buildSystemPrompt — default persona trust-class guardrail", () => {
   let priorAuthEnv: string | undefined;
 
   beforeEach(() => {
-    // resolveTrustClass short-circuits to "guardian" when HTTP auth is
-    // disabled; pin it off so the passed trust context drives the render.
+    // Captured so the DISABLE_HTTP_AUTH regression test below can restore it.
     priorAuthEnv = process.env.DISABLE_HTTP_AUTH;
-    process.env.DISABLE_HTTP_AUTH = "false";
 
     mkdirSync(join(TEST_DIR, "users"), { recursive: true });
     // Render the real shipped template, not a sentinel.
@@ -196,6 +194,20 @@ describe("buildSystemPrompt — default persona trust-class guardrail", () => {
     expect(result).not.toContain(GUARDRAIL);
     expect(result).not.toContain(TRUSTED_GREETING);
     expect(result).not.toContain(STRANGER_GREETING);
+  });
+
+  test("renders for a non-guardian even when HTTP auth is disabled", () => {
+    // Platform-managed deployments run with DISABLE_HTTP_AUTH=true, under which
+    // resolveTrustClass() collapses every actor to "guardian". The guardrail
+    // must gate on the actor's real trust class instead, or it would silently
+    // switch off for the non-guardian channel actors it exists to protect.
+    process.env.DISABLE_HTTP_AUTH = "true";
+    const result = buildSystemPrompt({
+      trustContext: { sourceChannel: "slack", trustClass: "unknown" },
+    });
+
+    expect(result).toContain(GUARDRAIL);
+    expect(result).toContain(STRANGER_GREETING);
   });
 
   test("never leaks literal mustache tags or comment lines", () => {
