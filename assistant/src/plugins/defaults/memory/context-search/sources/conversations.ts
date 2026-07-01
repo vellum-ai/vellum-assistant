@@ -1,9 +1,11 @@
+import { getMessagesSearchBackend } from "../../../../../config/assistant-feature-flags.js";
 import { readSlackMetadata } from "../../../../../messaging/providers/slack/message-metadata.js";
 import { AUTO_ANALYSIS_SOURCE } from "../../../../../persistence/auto-analysis-constants.js";
 import {
   buildFtsMatchQuery,
   buildRecallEvidenceExcerpt,
 } from "../../../../../persistence/conversation-queries.js";
+import { searchMessageIdsLexical } from "../../../../../persistence/conversation-search-lexical.js";
 import { rawAll } from "../../../../../persistence/raw-query.js";
 import {
   parseExternalContentEnvelope,
@@ -90,20 +92,21 @@ export async function searchConversationSource(
     normalizedLimit,
     normalizedLimit * CONVERSATION_SEARCH_PREFETCH_MULTIPLIER,
   );
-  const ftsMatches = buildRecallFtsMatchQueries(trimmedQuery);
-  let rows: ConversationEvidenceRow[] = [];
 
-  for (const ftsMatch of ftsMatches) {
-    try {
-      rows = mergeConversationRows(
-        rows,
-        searchWithFts(ftsMatch, queryLimit, context.conversationId),
-      );
-    } catch {
-      // Try the next, broader query shape.
-    }
-
-    if (rows.length >= normalizedLimit) break;
+  let rows: ConversationEvidenceRow[];
+  if (getMessagesSearchBackend(context.config) === "qdrant") {
+    rows = await gatherCandidateRowsFromQdrant(
+      trimmedQuery,
+      queryLimit,
+      context.conversationId,
+    );
+  } else {
+    rows = gatherCandidateRowsFromFts(
+      trimmedQuery,
+      queryLimit,
+      normalizedLimit,
+      context.conversationId,
+    );
   }
 
   if (rows.length === 0) {
@@ -135,6 +138,68 @@ export async function searchConversationSource(
   };
 }
 
+/**
+ * Generate candidate rows via SQLite FTS5. Walks progressively broader match
+ * shapes, merging matches until enough rows are collected, and swallows a
+ * malformed-query error on any single shape so a broader shape can still run.
+ * Returns an empty array when no shape matches — the caller then degrades to
+ * the LIKE fallback.
+ */
+function gatherCandidateRowsFromFts(
+  query: string,
+  queryLimit: number,
+  normalizedLimit: number,
+  excludedConversationId: string,
+): ConversationEvidenceRow[] {
+  const ftsMatches = buildRecallFtsMatchQueries(query);
+  let rows: ConversationEvidenceRow[] = [];
+
+  for (const ftsMatch of ftsMatches) {
+    try {
+      rows = mergeConversationRows(
+        rows,
+        searchWithFts(ftsMatch, queryLimit, excludedConversationId),
+      );
+    } catch {
+      // Try the next, broader query shape.
+    }
+
+    if (rows.length >= normalizedLimit) break;
+  }
+
+  return rows;
+}
+
+/**
+ * Generate candidate rows via the Qdrant lexical index. Qdrant is
+ * candidate-generation only: it supplies over-fetched message-id candidates
+ * (ranked by sparse score) whose rows are then re-fetched with the exact same
+ * source/type/excluded-conversation predicates FTS applies, so only the
+ * candidate *source* differs. Final ordering stays with the app-side scorer.
+ *
+ * Returns an empty array when the query tokenizes to no sparse terms (the
+ * lexical helper's empty guard) or when the Qdrant call throws — in both cases
+ * the caller degrades to the LIKE fallback, mirroring how the FTS path falls
+ * back when it matches nothing.
+ */
+async function gatherCandidateRowsFromQdrant(
+  query: string,
+  queryLimit: number,
+  excludedConversationId: string,
+): Promise<ConversationEvidenceRow[]> {
+  let candidates: Array<{ messageId: string }>;
+  try {
+    candidates = await searchMessageIdsLexical(query, queryLimit);
+  } catch {
+    return [];
+  }
+
+  const candidateIds = candidates.map((candidate) => candidate.messageId);
+  if (candidateIds.length === 0) return [];
+
+  return searchByIds(candidateIds, queryLimit, excludedConversationId);
+}
+
 function searchWithFts(
   ftsMatch: string,
   limit: number,
@@ -161,6 +226,47 @@ function searchWithFts(
     LIMIT ?
     `,
     ftsMatch,
+    SUBAGENT_SOURCE,
+    AUTO_ANALYSIS_SOURCE,
+    NOTIFICATION_SOURCE,
+    excludedConversationId,
+    limit,
+  );
+}
+
+/**
+ * Fetch evidence rows for an explicit set of candidate message ids, applying
+ * the identical source/type/excluded-conversation predicates `searchWithFts`
+ * enforces. Only the candidate source differs (`m.id IN (...)` vs
+ * `messages_fts MATCH`); the app-side scorer determines final ordering, so the
+ * SQL tie-break falls back to recency.
+ */
+function searchByIds(
+  messageIds: readonly string[],
+  limit: number,
+  excludedConversationId: string,
+): ConversationEvidenceRow[] {
+  const placeholders = messageIds.map(() => "?").join(", ");
+  return rawAll<ConversationEvidenceRow>(
+    `
+    SELECT
+      m.id AS message_id,
+      m.conversation_id,
+      m.role,
+      m.content,
+      m.created_at,
+      m.metadata,
+      c.title
+    FROM messages m
+    JOIN conversations c ON c.id = m.conversation_id
+    WHERE m.id IN (${placeholders})
+      AND (c.source IS NULL OR c.source NOT IN (?, ?, ?))
+      AND c.id != ?
+      AND c.conversation_type != 'private'
+    ORDER BY m.created_at DESC
+    LIMIT ?
+    `,
+    ...messageIds,
     SUBAGENT_SOURCE,
     AUTO_ANALYSIS_SOURCE,
     NOTIFICATION_SOURCE,

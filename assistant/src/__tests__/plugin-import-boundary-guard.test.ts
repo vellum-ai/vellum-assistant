@@ -78,10 +78,12 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../util/logger.js",
   ],
   memory: [
+    "../../../../../config/assistant-feature-flags.js",
     "../../../../../config/types.js",
     "../../../../../messaging/providers/slack/message-metadata.js",
     "../../../../../persistence/auto-analysis-constants.js",
     "../../../../../persistence/conversation-queries.js",
+    "../../../../../persistence/conversation-search-lexical.js",
     "../../../../../persistence/db-connection.js",
     "../../../../../persistence/embeddings/embed.js",
     "../../../../../persistence/embeddings/embedding-backend.js",
