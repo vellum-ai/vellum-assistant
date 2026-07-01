@@ -312,6 +312,7 @@ describe("buildSystemPrompt", () => {
     expect(result).not.toContain("## External Communications Identity");
     expect(result).not.toContain("## In-Chat Configuration");
     expect(result).not.toContain("## Historical Mentions Are Read-Only");
+    expect(result).not.toContain("## Communication");
   });
 
   test("does not include removed domain routing sections", () => {
@@ -664,26 +665,6 @@ describe("buildSystemPrompt", () => {
       expect(result).toContain("Batch independent tool calls");
     });
 
-    test("bundled communication section renders and sorts before the parallel-tool-calls block", () => {
-      // `01-communication` sorts ahead of `01-parallel-tool-calls`, so the
-      // communication guidance leads the operational sections.
-      const result = buildSystemPrompt();
-      expect(result).toContain("## Communication");
-      // The core rule: deliberation belongs in private thinking, not text.
-      expect(result).toContain(
-        "in your private thinking — never in user-facing text",
-      );
-      // Closes by deferring to the user's established communication preferences.
-      expect(result).toContain(
-        "Always prioritize communication preferences that you've established",
-      );
-      const communicationIdx = result.indexOf("## Communication");
-      const parallelIdx = result.indexOf("<use_parallel_tool_calls>");
-      expect(communicationIdx).toBeGreaterThan(-1);
-      expect(parallelIdx).toBeGreaterThan(-1);
-      expect(communicationIdx).toBeLessThan(parallelIdx);
-    });
-
     test("workspace prefix with frontmatter renders body at the very top", () => {
       mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
       writeFileSync(
@@ -887,7 +868,9 @@ describe("buildSystemPrompt", () => {
         // after the stable instruction sections
         const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
         expect(boundaryIdx).toBeGreaterThan(-1);
-        expect(result.indexOf("## Communication")).toBeLessThan(boundaryIdx);
+        expect(result.indexOf("<use_parallel_tool_calls>")).toBeLessThan(
+          boundaryIdx,
+        );
         expect(result.indexOf("# Voice Profile")).toBeGreaterThan(boundaryIdx);
       });
 
@@ -967,7 +950,9 @@ describe("buildSystemPrompt", () => {
         expect(result.indexOf("Custom head section.")).toBeLessThan(
           boundaryIdx,
         );
-        expect(result.indexOf("## Communication")).toBeGreaterThan(boundaryIdx);
+        expect(result.indexOf("<use_parallel_tool_calls>")).toBeGreaterThan(
+          boundaryIdx,
+        );
 
         // AND the bundled default declaration on 11-channel-persona is
         // ignored — no second marker
