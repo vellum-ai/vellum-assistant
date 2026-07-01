@@ -82,9 +82,7 @@ import {
 
 let carryMockActive = false;
 
-const realProvider = {
-  ...(await import("../../../../../providers/provider-send-message.js")),
-};
+const realPluginApi = await import("@vellumai/plugin-api");
 const realFlags = {
   ...(await import("../../../../../config/assistant-feature-flags.js")),
 };
@@ -98,16 +96,14 @@ const realDense = { ...(await import("../dense.js")) };
 const realPageContent = { ...(await import("../page-content.js")) };
 
 let providerStub: Provider | null = null;
-mock.module("../../../../../providers/provider-send-message.js", () => ({
-  ...realProvider,
+mock.module("@vellumai/plugin-api", () => ({
+  ...realPluginApi,
   getConfiguredProvider: async (
-    ...args: Parameters<typeof realProvider.getConfiguredProvider>
+    ...args: Parameters<typeof realPluginApi.getConfiguredProvider>
   ) =>
     carryMockActive
       ? providerStub
-      : realProvider.getConfiguredProvider(...args),
-  extractToolUse: (response: ProviderResponse) =>
-    response.content.find((b) => b.type === "tool_use"),
+      : realPluginApi.getConfiguredProvider(...args),
 }));
 
 mock.module("../../../../../util/logger.js", () => ({
