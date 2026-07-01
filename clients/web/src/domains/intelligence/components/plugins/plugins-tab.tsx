@@ -277,17 +277,19 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
   const hasActiveSearch = searchValue.trim().length > 0;
 
   if (selectedPluginName) {
-    // Seed the detail header icon from the already-loaded list row: catalog
-    // rows are known-external (📦 immediately, no load-time flash). Installed
-    // rows and unmatched deep-links are `undefined` (origin unknown), so the
-    // header shows a glyph-less placeholder until the detail query resolves.
-    const selectedExternalHint = items.find(
-      (p) => p.name === selectedPluginName,
-    )?.external;
+    // Seed the detail header icon + Active/Off toggle from the already-loaded
+    // list row: catalog rows are known-external (📦 immediately, no load-time
+    // flash). Installed rows and unmatched deep-links are `undefined` (origin
+    // unknown), so the header shows a glyph-less placeholder until the detail
+    // query resolves. `enabled` is likewise sourced from the row — the detail
+    // GET carries no enablement — and is `undefined` for available/deep-link
+    // rows, which hides the toggle.
+    const selectedRow = items.find((p) => p.name === selectedPluginName);
     const detailProps = {
       assistantId,
       name: selectedPluginName,
-      externalHint: selectedExternalHint,
+      externalHint: selectedRow?.external,
+      enabled: selectedRow?.enabled,
       onBack: handleCloseDetail,
     };
     return isMobile ? (

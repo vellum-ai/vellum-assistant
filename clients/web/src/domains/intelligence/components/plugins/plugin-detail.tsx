@@ -12,6 +12,7 @@ import {
 import { PluginOriginBadge } from "@/domains/intelligence/components/plugins/plugin-origin-badge";
 import { UpdateAvailableBadge } from "@/domains/intelligence/components/plugins/update-available-badge";
 import { usePluginDetail } from "@/domains/intelligence/plugins/use-plugin-detail";
+import { usePluginToggle } from "@/domains/intelligence/plugins/use-plugin-toggle";
 import type { PluginDrift } from "@/domains/intelligence/use-plugin-drift";
 import type { PluginsByNameGetResponse } from "@/generated/daemon/types.gen";
 import { Button, Card } from "@vellumai/design-library";
@@ -27,6 +28,12 @@ interface PluginDetailProps {
    * glyph immediately. `undefined` for deep-links with no matching row.
    */
   externalHint?: boolean;
+  /**
+   * Active/Off state from the selected list row (the detail GET carries no
+   * enablement). `undefined` on older daemons or a deep-link with no matching
+   * row — the Active/Off toggle stays hidden in that case.
+   */
+  enabled?: boolean;
 }
 
 /**
@@ -48,6 +55,7 @@ export function PluginDetail({
   name,
   onBack,
   externalHint,
+  enabled,
 }: PluginDetailProps) {
   const {
     plugin,
@@ -65,6 +73,8 @@ export function PluginDetail({
     isUpgradeError,
     hasLocalEdits,
   } = usePluginDetail(assistantId, name, { onRemoved: onBack });
+
+  const { toggle, togglingName } = usePluginToggle(assistantId);
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
@@ -88,6 +98,9 @@ export function PluginDetail({
           isRemoving={isRemoving}
           isUpgrading={isUpgrading}
           hasLocalEdits={hasLocalEdits}
+          enabled={enabled}
+          onToggle={() => toggle(name, !enabled)}
+          isToggling={togglingName === name}
         />
       </div>
 
@@ -141,6 +154,9 @@ interface HeaderProps {
   isRemoving: boolean;
   isUpgrading: boolean;
   hasLocalEdits: boolean;
+  enabled?: boolean;
+  onToggle?: () => void;
+  isToggling: boolean;
 }
 
 function Header({
@@ -155,6 +171,9 @@ function Header({
   isRemoving,
   isUpgrading,
   hasLocalEdits,
+  enabled,
+  onToggle,
+  isToggling,
 }: HeaderProps) {
   const isExternal = plugin?.source?.kind === "github";
   // Gate the header icon on the loaded plugin, seeding the known external state
@@ -214,6 +233,9 @@ function Header({
           isRemoving={isRemoving}
           isUpgrading={isUpgrading}
           hasLocalEdits={hasLocalEdits}
+          enabled={enabled}
+          onToggle={onToggle}
+          isToggling={isToggling}
         />
       ) : null}
     </div>

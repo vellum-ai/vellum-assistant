@@ -21,7 +21,7 @@ import { shortSha } from "@/domains/intelligence/plugins/utils";
 import type { PluginDrift } from "@/domains/intelligence/use-plugin-drift";
 import type { PluginsByNameGetResponse } from "@/generated/daemon/types.gen";
 import { cn } from "@/utils/misc";
-import { Button, ConfirmDialog } from "@vellumai/design-library";
+import { Button, ConfirmDialog, Toggle } from "@vellumai/design-library";
 
 /**
  * Presentational building blocks shared by the plugin detail surfaces so the
@@ -152,6 +152,19 @@ interface PluginDetailActionsProps {
   isUpgrading: boolean;
   /** Gates whether an upgrade prompts before overwriting local edits. */
   hasLocalEdits: boolean;
+  /**
+   * Whether the installed copy is active in this workspace. `undefined` when the
+   * enablement isn't known (older daemon, or a deep-link with no list row) — the
+   * Active/Off toggle is hidden in that case. Only meaningful when installed.
+   */
+  enabled?: boolean;
+  /**
+   * Flip the plugin's active state (optimistic, no confirm). Paired with
+   * `enabled`; when either is absent the toggle is hidden.
+   */
+  onToggle?: () => void;
+  /** True while this plugin's enable/disable request is in flight. */
+  isToggling?: boolean;
 }
 
 /**
@@ -171,6 +184,9 @@ export function PluginDetailActions({
   isRemoving,
   isUpgrading,
   hasLocalEdits,
+  enabled,
+  onToggle,
+  isToggling,
 }: PluginDetailActionsProps) {
   const [confirmingRemove, setConfirmingRemove] = useState(false);
   const [confirmingUpgrade, setConfirmingUpgrade] = useState(false);
@@ -210,6 +226,25 @@ export function PluginDetailActions({
         // Wrap on narrow (mobile overlay) widths so a Download + Upgrade +
         // Remove set can't push actions off-screen; single row on desktop.
         <div className="flex flex-wrap items-center gap-2 md:flex-nowrap md:shrink-0">
+          {/* Active/Off toggle leads the cluster (mirrors the MCP card). Hidden
+              when enablement is unknown — an older daemon or a deep-link with no
+              list row to source it from. Optimistic, so no confirm dialog. */}
+          {enabled !== undefined && onToggle ? (
+            <div className="flex items-center gap-2">
+              <Toggle
+                checked={enabled}
+                onChange={onToggle}
+                disabled={isToggling}
+                aria-label={`${enabled ? "Deactivate" : "Activate"} ${plugin.name}`}
+              />
+              <span
+                className="text-body-small-default"
+                style={{ color: "var(--content-tertiary)" }}
+              >
+                {enabled ? "Active" : "Off"}
+              </span>
+            </div>
+          ) : null}
           {artifact ? (
             <Button asChild leftIcon={<Download aria-hidden />}>
               <a href={artifact.url} download>
