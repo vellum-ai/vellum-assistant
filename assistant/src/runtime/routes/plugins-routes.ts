@@ -80,14 +80,13 @@ import {
   type PluginUpgradeStrategy,
   upgradePlugin,
 } from "../../cli/lib/upgrade-plugin.js";
-import {
-  buildSyncChangedMessage,
-  SYNC_TAGS,
-} from "../../daemon/message-types/sync.js";
 import { isPluginDisabled } from "../../plugins/disabled-state.js";
 import { getLocalCategorySlugs } from "../../skills/categories-cache.js";
-import { broadcastMessage } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import {
+  getOriginClientId,
+  publishPluginsChanged,
+} from "../sync/resource-sync-events.js";
 import {
   BadRequestError,
   ConflictError,
@@ -1289,24 +1288,28 @@ function mapTogglePluginError(err: unknown): RouteError {
 
 /**
  * Toggle a plugin's `.disabled` sentinel through the shared toggle-plugin lib,
- * then broadcast a generic `sync_changed(plugins:list)` so every client
- * refetches `GET /v1/plugins`. Enable and disable emit the SAME invalidation —
- * the tag names WHICH resource is stale, not the new value.
+ * then publish a generic `sync_changed(plugins:list)` via the canonical
+ * resource-sync publisher so every client refetches `GET /v1/plugins`. Enable
+ * and disable emit the SAME invalidation — the tag names WHICH resource is
+ * stale, not the new value. The origin client id is threaded through so the
+ * initiating client can self-echo-suppress; `publishPluginsChanged` swallows
+ * broadcast failures, so a hub error never fails a toggle that already
+ * succeeded.
  */
-function handleEnablePlugin({ pathParams = {} }: RouteHandlerArgs) {
+function handleEnablePlugin({ pathParams = {}, headers }: RouteHandlerArgs) {
   try {
     enablePlugin(pathParams.name ?? "");
-    broadcastMessage(buildSyncChangedMessage([SYNC_TAGS.pluginsList]));
+    publishPluginsChanged(getOriginClientId(headers));
     return { ok: true };
   } catch (err) {
     throw mapTogglePluginError(err);
   }
 }
 
-function handleDisablePlugin({ pathParams = {} }: RouteHandlerArgs) {
+function handleDisablePlugin({ pathParams = {}, headers }: RouteHandlerArgs) {
   try {
     disablePlugin(pathParams.name ?? "");
-    broadcastMessage(buildSyncChangedMessage([SYNC_TAGS.pluginsList]));
+    publishPluginsChanged(getOriginClientId(headers));
     return { ok: true };
   } catch (err) {
     throw mapTogglePluginError(err);
