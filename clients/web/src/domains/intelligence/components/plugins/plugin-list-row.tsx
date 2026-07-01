@@ -153,8 +153,14 @@ export function PluginListRow({
             {showToggle ? (
               // Toggle has no onClick to stopPropagation, so wrap it: the row is
               // a role="button" and would otherwise select on switch clicks.
-              <span onClick={(e) => e.stopPropagation()}>
+              // inline-flex on both wrappers drops the switch's baseline gap so
+              // it centers with the Remove button.
+              <span
+                className="inline-flex items-center"
+                onClick={(e) => e.stopPropagation()}
+              >
                 <Toggle
+                  className="inline-flex"
                   checked={item.enabled ?? false}
                   onChange={() => onToggle?.(!item.enabled)}
                   disabled={isToggling}

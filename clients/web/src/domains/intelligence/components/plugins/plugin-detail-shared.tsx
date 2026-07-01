@@ -224,6 +224,9 @@ export function PluginDetailActions({
           {enabled !== undefined && onToggle ? (
             <div className="flex items-center gap-2">
               <Toggle
+                // inline-flex so the switch centers on the box (not the text
+                // baseline) and lines up with the label + Remove button.
+                className="inline-flex"
                 checked={enabled}
                 onChange={onToggle}
                 disabled={isToggling}
