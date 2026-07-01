@@ -947,10 +947,13 @@ export function LetsChatReadyStep({
             landing slot (`noteSlotRef`) for the single avatar that flies down
             from the heading, mirroring SuggestionsStep. */}
         <div className="mt-7 flex items-center gap-3">
+          {/* Reserves the avatar's horizontal room but not its full height, so
+              the row is only as tall as the text and the flown avatar lands
+              vertically centered on the line (not within a 64px box). */}
           <div
             ref={noteSlotRef}
             className="shrink-0"
-            style={{ width: NOTE_AVATAR, height: NOTE_AVATAR }}
+            style={{ width: NOTE_AVATAR }}
           />
           <motion.p
             className="text-[15px]"
