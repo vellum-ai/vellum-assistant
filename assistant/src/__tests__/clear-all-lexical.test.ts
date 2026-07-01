@@ -60,6 +60,26 @@ describe("clearAll bulk lexical index cleanup", () => {
     expect(clearCalls).toBe(1);
   });
 
+  test("clearAll AWAITS the collection drop before returning", async () => {
+    // The drop must complete before clearAll resolves — otherwise a write right
+    // after clear-all could land in a collection that is about to be dropped.
+    // Register a hook whose drop yields to the microtask queue before finishing;
+    // if clearAll did not await, `dropCompleted` would still be false here.
+    let dropCompleted = false;
+    registerMemoryPersistenceHooks({
+      ...getMemoryPersistenceHooks(),
+      async onAllConversationsCleared() {
+        await new Promise((r) => setTimeout(r, 10));
+        dropCompleted = true;
+      },
+    });
+
+    await clearAll();
+    expect(dropCompleted).toBe(true);
+
+    registerDefaultPluginPersistenceHooks();
+  });
+
   test("clearAll is a safe no-op when the memory hooks are not registered", async () => {
     // Persistence must work with no memory present — the seam falls through to
     // its no-op and clearAll does not touch the lexical index.
@@ -68,6 +88,6 @@ describe("clearAll bulk lexical index cleanup", () => {
     await clearAll();
     expect(clearCalls).toBe(0);
     // Restore for any later test in the same process.
-    registerMemoryPersistenceHooks(getMemoryPersistenceHooks());
+    registerDefaultPluginPersistenceHooks();
   });
 });

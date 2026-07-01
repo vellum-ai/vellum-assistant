@@ -1422,6 +1422,13 @@ export function deleteConversation(id: string): DeletedMemoryIds {
     removeConversationDir(id, createdAtForDiskCleanup);
   }
 
+  // Let the memory feature purge the conversation's per-message index (e.g. its
+  // lexical points). Fired from the shared primitive so every delete caller —
+  // route, wipe, retrospective cleanup/GC — cleans up. Routed through the
+  // persistence-hook seam so this layer stays decoupled from the memory plugin;
+  // a no-op when memory is not present.
+  getMemoryPersistenceHooks().onConversationDeleted(id);
+
   return result;
 }
 
@@ -1527,6 +1534,12 @@ export async function deleteConversationGently(
   if (createdAtForDiskCleanup != null) {
     removeConversationDir(id, createdAtForDiskCleanup);
   }
+
+  // Let the memory feature purge the conversation's per-message index — the
+  // gentle path is the retrospective-GC caller, which would otherwise leak the
+  // conversation's lexical points. Routed through the persistence-hook seam;
+  // a no-op when memory is not present.
+  getMemoryPersistenceHooks().onConversationDeleted(id);
 
   return result;
 }
@@ -2599,9 +2612,12 @@ export async function clearAll(): Promise<{
   // lexical Qdrant collection) — a "delete all" leaves no ids to key
   // per-message cleanup on. Routed through the persistence-hook seam so this
   // layer stays decoupled from the memory plugin; a no-op when memory is not
-  // present. Best-effort — a failure must not fail the whole clear-all.
+  // present. AWAITED so the drop completes before clear-all returns and writes
+  // resume — a message created right after must not upsert into a collection
+  // that is about to be dropped. Best-effort — a failure must not fail the
+  // whole clear-all.
   try {
-    getMemoryPersistenceHooks().onAllConversationsCleared();
+    await getMemoryPersistenceHooks().onAllConversationsCleared();
   } catch (err) {
     log.warn({ err }, "clearAll: failed to clear memory per-message index");
   }

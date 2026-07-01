@@ -41,6 +41,8 @@ import { consolidateAssistantMessages } from "../daemon/conversation-history.js"
 import {
   addMessage,
   createConversation,
+  deleteConversation,
+  deleteConversationGently,
   deleteLastExchange,
   deleteMessageById,
   forkConversation,
@@ -180,6 +182,28 @@ describe("messages lexical-index dual-write", () => {
     expect(countJobs("purge_conversation_lexical", conv.id)).toBe(1);
   });
 
+  test("deleteConversation (direct, no route) enqueues a purge for the conversation", async () => {
+    // Retrospective startup cleanup calls deleteConversation directly, bypassing
+    // the HTTP route — the purge must still fire from the shared primitive.
+    const conv = createConversation("Direct delete thread");
+    await addMessage(conv.id, "user", "index me then delete me");
+
+    resetMemoryJobs();
+    deleteConversation(conv.id);
+
+    expect(countJobs("purge_conversation_lexical", conv.id)).toBe(1);
+  });
+
+  test("deleteConversationGently (retrospective GC) enqueues a purge for the conversation", async () => {
+    const conv = createConversation("Gentle delete thread");
+    await addMessage(conv.id, "user", "index me then gently delete me");
+
+    resetMemoryJobs();
+    await deleteConversationGently(conv.id);
+
+    expect(countJobs("purge_conversation_lexical", conv.id)).toBe(1);
+  });
+
   test("deleteMessageById enqueues a delete_message_lexical job for the removed message", async () => {
     const conv = createConversation("Single delete thread");
     const message = await addMessage(conv.id, "user", "delete just me");
@@ -280,27 +304,35 @@ describe("messages lexical-index dual-write", () => {
   });
 });
 
-// The delete paths must route their per-message cleanup through the
-// `MemoryPersistenceHooks.onMessagesDeleted` seam rather than importing memory
-// internals directly, so persistence stays decoupled from the plugin.
-describe("delete paths route through the onMessagesDeleted seam", () => {
+// The delete paths must route their cleanup through the persistence-hook seam
+// rather than importing memory internals directly, so persistence stays
+// decoupled from the plugin: single-message deletes fire `onMessagesDeleted`,
+// and whole-conversation deletes fire `onConversationDeleted` from the shared
+// `deleteConversation`/`deleteConversationGently` primitive (covering every
+// caller, not just the HTTP route).
+describe("delete paths route through the persistence-hook seam", () => {
   const deletedBatches: string[][] = [];
+  const deletedConversations: string[] = [];
   const spyHooks: MemoryPersistenceHooks = {
     onMessagePersisted() {},
     onConversationForked() {},
     onConversationWiped() {
       return 0;
     },
+    onConversationDeleted(id) {
+      deletedConversations.push(id);
+    },
     onMessagesDeleted(ids) {
       deletedBatches.push(ids);
     },
-    onAllConversationsCleared() {},
+    async onAllConversationsCleared() {},
     onWorkerStartup() {},
   };
 
   beforeEach(() => {
     resetMemoryJobs();
     deletedBatches.length = 0;
+    deletedConversations.length = 0;
     registerMemoryPersistenceHooks(spyHooks);
   });
 
@@ -311,6 +343,26 @@ describe("delete paths route through the onMessagesDeleted seam", () => {
 
   test("the spy hook is installed", () => {
     expect(getMemoryPersistenceHooks()).toBe(spyHooks);
+  });
+
+  test("deleteConversation fires onConversationDeleted (covers all callers, not just the route)", async () => {
+    const conv = createConversation("Seam conversation delete");
+    await addMessage(conv.id, "user", "hello");
+
+    deletedConversations.length = 0;
+    deleteConversation(conv.id);
+
+    expect(deletedConversations).toEqual([conv.id]);
+  });
+
+  test("deleteConversationGently fires onConversationDeleted (the retrospective-GC path)", async () => {
+    const conv = createConversation("Seam gentle delete");
+    await addMessage(conv.id, "user", "hello");
+
+    deletedConversations.length = 0;
+    await deleteConversationGently(conv.id);
+
+    expect(deletedConversations).toEqual([conv.id]);
   });
 
   test("deleteMessageById fires onMessagesDeleted with the single id", async () => {

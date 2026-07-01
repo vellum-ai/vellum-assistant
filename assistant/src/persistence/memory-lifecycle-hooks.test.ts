@@ -23,8 +23,9 @@ const baseHooks: MemoryPersistenceHooks = {
   onConversationWiped() {
     return 0;
   },
+  onConversationDeleted() {},
   onMessagesDeleted() {},
-  onAllConversationsCleared() {},
+  async onAllConversationsCleared() {},
   onWorkerStartup() {},
 };
 
@@ -81,6 +82,21 @@ describe("memory persistence-lifecycle seam", () => {
     expect(calls).toBe(0);
   });
 
+  test("onConversationDeleted defaults to a no-op and forwards the id to the registered impl", () => {
+    // No-op default — the "memory not present" path does not throw.
+    getMemoryPersistenceHooks().onConversationDeleted("conv-1");
+
+    const seen: string[] = [];
+    registerMemoryPersistenceHooks({
+      ...baseHooks,
+      onConversationDeleted(id) {
+        seen.push(id);
+      },
+    });
+    getMemoryPersistenceHooks().onConversationDeleted("conv-1");
+    expect(seen).toEqual(["conv-1"]);
+  });
+
   test("onMessagesDeleted defaults to a no-op and forwards ids to the registered impl", () => {
     // No-op default — the "memory not present" path does not throw.
     getMemoryPersistenceHooks().onMessagesDeleted(["msg-a", "msg-b"]);
@@ -96,17 +112,20 @@ describe("memory persistence-lifecycle seam", () => {
     expect(seen).toEqual([["msg-a", "msg-b"]]);
   });
 
-  test("onAllConversationsCleared defaults to a no-op and calls the registered impl", () => {
-    getMemoryPersistenceHooks().onAllConversationsCleared();
+  test("onAllConversationsCleared defaults to a no-op and awaits the registered impl", async () => {
+    // No-op default resolves without throwing.
+    await getMemoryPersistenceHooks().onAllConversationsCleared();
 
     let cleared = 0;
     registerMemoryPersistenceHooks({
       ...baseHooks,
-      onAllConversationsCleared() {
+      async onAllConversationsCleared() {
+        // Yield so a non-awaiting caller would observe cleared === 0.
+        await Promise.resolve();
         cleared++;
       },
     });
-    getMemoryPersistenceHooks().onAllConversationsCleared();
+    await getMemoryPersistenceHooks().onAllConversationsCleared();
     expect(cleared).toBe(1);
   });
 });

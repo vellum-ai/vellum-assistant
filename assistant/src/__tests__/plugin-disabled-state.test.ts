@@ -269,8 +269,9 @@ describe("per-surface disabled-state filtering", () => {
       onConversationWiped() {
         return 0;
       },
+      onConversationDeleted() {},
       onMessagesDeleted() {},
-      onAllConversationsCleared() {},
+      async onAllConversationsCleared() {},
       onWorkerStartup() {},
     });
     const event: MessagePersistedEvent = {
@@ -300,6 +301,7 @@ describe("per-surface disabled-state filtering", () => {
     let wiped = 0;
     let swept = 0;
     const deleted: string[][] = [];
+    const convDeleted: string[] = [];
     let cleared = 0;
     const guarded = guardPersistenceHooksByDisabledState("default-memory", {
       onMessagePersisted() {},
@@ -308,10 +310,13 @@ describe("per-surface disabled-state filtering", () => {
         wiped++;
         return 7;
       },
+      onConversationDeleted(id) {
+        convDeleted.push(id);
+      },
       onMessagesDeleted(ids) {
         deleted.push(ids);
       },
-      onAllConversationsCleared() {
+      async onAllConversationsCleared() {
         cleared++;
       },
       onWorkerStartup() {
@@ -324,10 +329,12 @@ describe("per-surface disabled-state filtering", () => {
     // Cleanup hooks are NOT gated: they must still run (and return real values)
     // while disabled, or state created while enabled would be orphaned.
     expect(guarded.onConversationWiped("conv-1")).toBe(7);
+    guarded.onConversationDeleted("conv-9");
     guarded.onMessagesDeleted(["msg-1", "msg-2"]);
-    guarded.onAllConversationsCleared();
+    await guarded.onAllConversationsCleared();
     guarded.onWorkerStartup();
     expect(wiped).toBe(1);
+    expect(convDeleted).toEqual(["conv-9"]);
     expect(deleted).toEqual([["msg-1", "msg-2"]]);
     expect(cleared).toBe(1);
     expect(swept).toBe(1);

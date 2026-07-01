@@ -120,14 +120,20 @@ export const memoryPersistenceHooks: MemoryPersistenceHooks = {
   },
 
   onConversationWiped(conversationId: string): number {
-    const cancelledJobCount = cancelPendingJobsForConversation(conversationId);
-    // Purge the conversation's points from the lexical (Qdrant) index. Cleanup
-    // path — runs even while the plugin is disabled so points written while it
-    // was enabled are not orphaned. Enqueued AFTER cancellation: that pass fails
-    // every pending `conversationId`-keyed job, which would otherwise sweep this
-    // very purge (and inflate the returned cancelled count).
+    // Cancel pending memory jobs only. The lexical purge is fired from the
+    // shared delete primitive via `onConversationDeleted` (which
+    // `wipeConversation` reaches through its internal `deleteConversation`), so
+    // the purge lands AFTER this cancellation pass and cannot be swept by it.
+    return cancelPendingJobsForConversation(conversationId);
+  },
+
+  onConversationDeleted(conversationId: string): void {
+    // Purge the conversation's points from the lexical (Qdrant) index. Fired
+    // from the shared delete primitive, so every delete caller — route, wipe,
+    // retrospective cleanup, GC — cleans up. The enqueue helper self-selects:
+    // enqueue a job when memory is enabled, run the delete inline (best-effort,
+    // breaker-wrapped) when it is disabled.
     enqueuePurgeConversationLexical(conversationId);
-    return cancelledJobCount;
   },
 
   onMessagesDeleted(messageIds: string[]): void {
@@ -139,11 +145,13 @@ export const memoryPersistenceHooks: MemoryPersistenceHooks = {
     }
   },
 
-  onAllConversationsCleared(): void {
+  async onAllConversationsCleared(): Promise<void> {
     // Drop the whole lexical (Qdrant) collection — a "delete all" leaves no ids
-    // to key per-message cleanup on. Best-effort; runs inline (the memory job
-    // queue is wiped by the same clear-all).
-    void clearMessagesLexicalIndex(getConfig());
+    // to key per-message cleanup on. Awaited so the drop completes before
+    // clear-all returns and writes resume; otherwise a message created right
+    // after clear-all could upsert into the not-yet-dropped collection and then
+    // be erased when the drop lands.
+    await clearMessagesLexicalIndex(getConfig());
   },
 
   onWorkerStartup(): void {
