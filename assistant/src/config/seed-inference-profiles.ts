@@ -58,16 +58,31 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     thinking: { enabled: true, streamThinking: true },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
   },
-  // Served by Anthropic Opus via managed platform inference — the most capable
-  // managed profile. The `quality-optimized` intent resolves to Opus for the
-  // `anthropic` provider.
+  // Served by Anthropic Opus via managed platform inference. The
+  // `quality-optimized` intent resolves to Opus for the `anthropic` provider.
   "quality-optimized": {
     intent: "quality-optimized",
     provider: "anthropic",
     connectionName: "anthropic-managed",
     source: "managed",
     label: "Quality",
-    description: "High-quality results with the most capable model",
+    description: "High-quality results for demanding tasks",
+    maxTokens: 32000,
+    effort: "high",
+    thinking: { enabled: true, streamThinking: true },
+    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
+  },
+  // Served by Anthropic Fable via managed platform inference — the frontier
+  // tier above Quality (Opus). `model` is pinned explicitly since no catalog
+  // intent maps to Fable; the wire layer (providers/retry.ts) handles its
+  // adaptive-thinking-only constraint.
+  frontier: {
+    model: "claude-fable-5",
+    provider: "anthropic",
+    connectionName: "anthropic-managed",
+    source: "managed",
+    label: "Frontier",
+    description: "The most advanced frontier model (Claude Fable 5)",
     maxTokens: 32000,
     effort: "high",
     thinking: { enabled: true, streamThinking: true },
