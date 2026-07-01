@@ -219,6 +219,7 @@ mock.module("@/lib/local-mode", () => ({
   loadLockfile: async () => ({ assistants: [], activeAssistant: null }),
   setActiveLockfileAssistant: async () => {},
   saveLockfileAssistant: async () => {},
+  updateLockfileAssistant: async () => {},
   primeLocalGatewayConnection: async () => {},
   primeLocalGatewayConnectionWithRepair: async () => {},
   getLocalGatewayUrl: () => localGatewayUrlValue,
@@ -491,8 +492,7 @@ describe("onboarding lifecycle sync", () => {
       render(<HatchingScreen />);
 
       await waitFor(
-        () =>
-          expect(connectLocalAssistantMock).toHaveBeenCalledWith("local-1"),
+        () => expect(connectLocalAssistantMock).toHaveBeenCalledWith("local-1"),
         { timeout: 5_000 },
       );
     } finally {
