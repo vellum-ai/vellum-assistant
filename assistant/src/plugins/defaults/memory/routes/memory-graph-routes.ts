@@ -16,8 +16,14 @@ import {
   type RoutePolicy,
 } from "../../../../runtime/auth/route-policy.js";
 import type { RouteDefinition } from "../../../../runtime/routes/types.js";
-import { getMemoryGraph } from "../graph-topology/build-memory-graph.js";
-import { MemoryGraphSchema } from "../graph-topology/types.js";
+import {
+  getMemoryGraph,
+  getMemoryGraphNode,
+} from "../graph-topology/build-memory-graph.js";
+import {
+  MemoryGraphNodeDetailSchema,
+  MemoryGraphSchema,
+} from "../graph-topology/types.js";
 
 const READ_POLICY: RoutePolicy = {
   requiredScopes: ["settings.read"],
@@ -39,5 +45,27 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["memory"],
     responseBody: MemoryGraphSchema,
     handler: () => getMemoryGraph(getConfig()),
+  },
+  {
+    operationId: "getMemoryGraphNode",
+    endpoint: "memory-graph-node",
+    method: "GET",
+    policy: READ_POLICY,
+    summary: "Get a memory graph node's content",
+    description:
+      "Return the rendered markdown content of a single concept node by id, " +
+      "for the graph's node-detail view. `found: false` when the node has no " +
+      "readable page.",
+    tags: ["memory"],
+    queryParams: [
+      {
+        name: "id",
+        schema: { type: "string" },
+        description: "Node id (concept-page slug).",
+      },
+    ],
+    responseBody: MemoryGraphNodeDetailSchema,
+    handler: ({ queryParams }) =>
+      getMemoryGraphNode(getConfig(), queryParams?.id ?? ""),
   },
 ];

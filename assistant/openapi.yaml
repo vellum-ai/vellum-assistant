@@ -16110,6 +16110,39 @@ paths:
                   - nodes
                   - edges
                 additionalProperties: false
+  /v1/memory-graph-node:
+    get:
+      operationId: memorygraphnode_get
+      summary: Get a memory graph node's content
+      description:
+        "Return the rendered markdown content of a single concept node by id, for the graph's node-detail view.
+        `found: false` when the node has no readable page."
+      tags:
+        - memory
+      parameters:
+        - name: id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Node id (concept-page slug).
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  found:
+                    type: boolean
+                  title:
+                    type: string
+                  content:
+                    type: string
+                required:
+                  - found
+                additionalProperties: false
   /v1/memory-items:
     get:
       operationId: memoryitems_get
