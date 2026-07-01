@@ -89,8 +89,8 @@ const PERSONALITY_AXES: PersonalityAxis[] = [
   },
   {
     id: "execute-collaborate",
-    left: "Execute",
-    right: "Collaborate",
+    left: "Independent",
+    right: "Collaborative",
     leftAvatar: { bodyShape: "star", eyeStyle: "angry", color: "orange" },
     rightAvatar: { bodyShape: "flower", eyeStyle: "goofy", color: "teal" },
   },
@@ -410,10 +410,18 @@ export function CreatePersonalityStep({
           >
             Create my personality
           </h1>
-          {locked && (
+          {locked ? (
             <p className="text-center text-[15px]" style={{ color: tone.fgMuted }}>
               Personality locked — chat with your assistant to make any more
               updates
+            </p>
+          ) : (
+            <p
+              className="max-w-md text-center text-[15px]"
+              style={{ color: tone.fgMuted }}
+            >
+              How do you want me to talk to you? You can always ask me to change
+              my personality later.
             </p>
           )}
         </div>
