@@ -35,6 +35,7 @@ const existsSyncByPath: Record<string, boolean> = {};
 let readdirSyncReturn: Array<{ name: string; isDirectory: () => boolean }> = [];
 let readdirSyncError: Error | null = null;
 let writeFileSyncError: Error | null = null;
+let renameSyncError: Error | null = null;
 const chmodSyncCalls: Array<[string, number]> = [];
 const mkdirSyncCalls: Array<[string, object]> = [];
 const rmSyncCalls: Array<[string, object]> = [];
@@ -62,6 +63,7 @@ mock.module("node:fs", () => ({
     return readdirSyncReturn;
   },
   renameSync: (src: string, dst: string) => {
+    if (renameSyncError) throw renameSyncError;
     renameSyncCalls.push([src, dst]);
     fsCallOrder.push(`renameSync:${dst}`);
   },
@@ -99,6 +101,7 @@ const {
   shQuote,
   writeFileAtomicSync,
   writeCliLocator,
+  migrateStaleInstallDir,
   buildInstallEnv,
   isCliInstalled,
   ensureCliInstalled,
@@ -122,6 +125,7 @@ afterEach(() => {
   readdirSyncReturn.length = 0;
   readdirSyncError = null;
   writeFileSyncError = null;
+  renameSyncError = null;
   chmodSyncCalls.length = 0;
   mkdirSyncCalls.length = 0;
   rmSyncCalls.length = 0;
@@ -265,6 +269,52 @@ describe("writeCliLocator", () => {
   });
 });
 
+// --- migrateStaleInstallDir ---
+
+describe("migrateStaleInstallDir", () => {
+  test("renames an adopted versioned dir to cli/latest", () => {
+    readdirSyncReturn = [dirEntry("0.9.0")];
+    existsSyncByPath[binPathFor("0.9.0")] = true;
+
+    migrateStaleInstallDir();
+
+    // Clears any partial cli/latest, then renames the stale dir into place.
+    expect(rmSyncCalls.map(([p]) => p)).toContain(latestInstallDir);
+    expect(renameSyncCalls).toContainEqual([
+      `${userDataPath}/cli/0.9.0`,
+      latestInstallDir,
+    ]);
+  });
+
+  test("no-ops when cli/latest already holds the install", () => {
+    readdirSyncReturn = [dirEntry("0.9.0"), dirEntry("latest")];
+    existsSyncByPath[binPathFor("0.9.0")] = true;
+    existsSyncByPath[cliBinPath] = true;
+
+    migrateStaleInstallDir();
+
+    expect(renameSyncCalls).toHaveLength(0);
+    expect(rmSyncCalls).toHaveLength(0);
+  });
+
+  test("no-ops when nothing is installed", () => {
+    readdirSyncReturn = [];
+
+    migrateStaleInstallDir();
+
+    expect(renameSyncCalls).toHaveLength(0);
+    expect(rmSyncCalls).toHaveLength(0);
+  });
+
+  test("swallows rename errors", () => {
+    readdirSyncReturn = [dirEntry("0.9.0")];
+    existsSyncByPath[binPathFor("0.9.0")] = true;
+    renameSyncError = new Error("EXDEV: cross-device link");
+
+    expect(() => migrateStaleInstallDir()).not.toThrow();
+  });
+});
+
 // --- isCliInstalled ---
 
 describe("isCliInstalled", () => {
@@ -298,17 +348,23 @@ describe("ensureCliInstalled", () => {
     await expect(ensureCliInstalled()).resolves.toBeUndefined();
   });
 
-  test("adopts an existing install without spawning", async () => {
+  test("adopts an existing install and heals its stale versioned name", async () => {
     existsSyncDefault = false;
     readdirSyncReturn = [dirEntry("0.9.0")];
     existsSyncByPath[binPathFor("0.9.0")] = true;
 
     await ensureCliInstalled();
 
-    // The adopted dir is used as-is — no install, no cleanup.
+    // No reinstall — the contents are already bumped; only the name is stale.
     expect(spawnCalls).toHaveLength(0);
-    expect(rmSyncCalls).toHaveLength(0);
-    expect(renameSyncCalls).toEqual([[`${locatorPath}.tmp`, locatorPath]]);
+    // The stale versioned dir is renamed to the canonical cli/latest so the
+    // locator path stops misleading debugging (LUM-2648)...
+    expect(renameSyncCalls).toContainEqual([
+      `${userDataPath}/cli/0.9.0`,
+      latestInstallDir,
+    ]);
+    // ...and the locator is still refreshed.
+    expect(renameSyncCalls).toContainEqual([`${locatorPath}.tmp`, locatorPath]);
   });
 
   test("fresh unpinned install spawns bun add vellum@latest", async () => {
