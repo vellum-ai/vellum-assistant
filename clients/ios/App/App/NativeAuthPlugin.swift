@@ -109,7 +109,6 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         }
 
         let loginHint = call.getString("loginHint")
-        let providerHint = call.getString("providerHint")
         let intent = call.getString("intent")
 
         guard let codeVerifier = WorkOSAuth.generateCodeVerifier() else {
@@ -140,7 +139,6 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                 challenge: codeChallenge,
                 state: state,
                 loginHint: loginHint,
-                providerHint: providerHint,
                 intent: intent
             ) else {
                 call.reject("Failed to build authorize URL")
