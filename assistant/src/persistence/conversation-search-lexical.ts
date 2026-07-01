@@ -18,6 +18,18 @@ import {
  * Resolve message-id candidates for `query` from the Qdrant lexical index,
  * ranked by sparse similarity score (highest first).
  *
+ * This is a **pure lexical candidate generator**: it returns the top-`limit`
+ * message ids by sparse score with NO visibility, source, or
+ * active-conversation filtering (the only scoping it applies is the optional
+ * `conversationId` restriction). Those exclusions (active conversation,
+ * private conversations, non-message sources) live in SQL at the read sites.
+ *
+ * Callers that apply such post-retrieval SQL filters MUST over-fetch: pass an
+ * inflated `limit` (the `CONVERSATION_SEARCH_PREFETCH_MULTIPLIER` prefetch
+ * pattern the recall source uses) and re-limit after filtering in SQL.
+ * Applying the caller's real limit here first would let excluded rows consume
+ * the candidate slots and drop valid visible matches below the fold.
+ *
  * @param query          free-text search query
  * @param limit          maximum number of candidates to return
  * @param opts.conversationId  restrict results to a single conversation
