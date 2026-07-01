@@ -309,6 +309,8 @@ export async function startSlackStream(params: {
   markdownText?: string;
   taskDisplayMode?: "plan";
   tasks?: readonly SlackStreamTask[];
+  recipientUserId?: string;
+  recipientTeamId?: string;
 }): Promise<string | undefined> {
   const body: Record<string, unknown> = {
     channel: params.channel,
@@ -316,6 +318,9 @@ export async function startSlackStream(params: {
   };
   if (params.markdownText) body.markdown_text = params.markdownText;
   if (params.taskDisplayMode) body.task_display_mode = params.taskDisplayMode;
+  // Channel streams must name the reader; DMs infer it and omit both fields.
+  if (params.recipientUserId) body.recipient_user_id = params.recipientUserId;
+  if (params.recipientTeamId) body.recipient_team_id = params.recipientTeamId;
   const chunks = toTaskUpdateChunks(params.tasks);
   if (chunks) body.chunks = chunks;
 

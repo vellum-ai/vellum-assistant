@@ -267,6 +267,8 @@ export async function sendSlackStreamOp(
         markdownText: op.markdownText,
         taskDisplayMode: op.taskDisplayMode,
         tasks: op.tasks,
+        recipientUserId: op.recipientUserId,
+        recipientTeamId: op.recipientTeamId,
       });
       log.info({ channel, ts }, "Slack stream started");
       return { ok: ts !== undefined, ts };
@@ -292,25 +294,6 @@ export async function sendSlackStreamOp(
       return { ok: true, ts: op.streamTs };
     }
   }
-}
-
-/**
- * Send a typing indicator placeholder message to Slack.
- * Returns the placeholder message ts for later update.
- */
-export async function sendSlackTypingIndicator(
-  chatId: string,
-  threadTs?: string,
-): Promise<string | undefined> {
-  const body: Record<string, string> = { channel: chatId, text: "\u2026" };
-  if (threadTs) body.thread_ts = threadTs;
-
-  const result = await callSlackApi("chat.postMessage", body);
-  log.debug(
-    { chatId, placeholderTs: result.ts, hasThreadTs: !!threadTs },
-    "Slack typing placeholder sent",
-  );
-  return result.ts;
 }
 
 /**
