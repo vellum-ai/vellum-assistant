@@ -427,6 +427,11 @@ interface InsertMessageCoreParams {
   content: string;
   metadata?: Record<string, unknown>;
   clientMessageId?: string;
+  /** Pre-assigned message ID. When omitted, one is generated via
+   *  `uuid()`. Callers that already have a correlation ID (e.g.
+   *  `requestId` for user turns) can pass it here so the persisted
+   *  row ID matches the runtime request ID. */
+  id?: string;
 }
 
 /**
@@ -453,9 +458,10 @@ interface InsertMessageCoreParams {
 async function insertMessageCore(
   params: InsertMessageCoreParams,
 ): Promise<InsertedMessage> {
-  const { conversationId, role, content, metadata, clientMessageId } = params;
+  const { conversationId, role, content, metadata, clientMessageId, id } =
+    params;
   const db = getDb();
-  const messageId = uuid();
+  const messageId = id ?? uuid();
 
   if (metadata) {
     const result = messageMetadataSchema.safeParse(metadata);
@@ -1655,6 +1661,10 @@ export interface AddMessageOptions {
    *  duplicate inserts for the same `(conversationId, clientMessageId)`
    *  pair are silently skipped. */
   clientMessageId?: string;
+  /** Pre-assigned message ID. When omitted, one is generated
+   *  internally. Pass the same value as `requestId` for user turns so
+   *  the persisted row ID matches the runtime correlation ID. */
+  id?: string;
 }
 
 /**
@@ -1668,13 +1678,14 @@ export async function addMessage(
   content: string,
   options?: AddMessageOptions,
 ) {
-  const { metadata, skipIndexing, clientMessageId } = options ?? {};
+  const { metadata, skipIndexing, clientMessageId, id } = options ?? {};
   const inserted = await insertMessageCore({
     conversationId,
     role,
     content,
     metadata,
     clientMessageId,
+    id,
   });
 
   if (inserted.deduplicated) {
