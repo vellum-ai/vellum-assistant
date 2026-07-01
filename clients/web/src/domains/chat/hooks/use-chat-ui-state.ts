@@ -80,10 +80,7 @@ export function useChatUIState(): ChatUIState {
   // while a turn is in flight.
   const transcript = useTranscriptMessages();
 
-  // The daemon's authoritative per-conversation processing flag, carried on the
-  // rolling snapshot and refreshed by every `/messages` reseed. Narrow selector
-  // so this only re-renders when the flag itself flips, not on every folded
-  // content event. `undefined` on pre-0.8.8 daemons → phase-only behavior.
+  // Authoritative processing flag off the rolling snapshot; narrow selector so it re-renders only when the flag flips.
   const snapshotProcessing = useChatSessionStore((s) => s.snapshot?.processing);
 
   // TanStack Query — deduped with any other call for the same conversation.

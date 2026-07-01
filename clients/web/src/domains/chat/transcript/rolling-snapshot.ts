@@ -256,12 +256,7 @@ export function applyEvent(
     typeof seq === "number" ? Math.max(history.seq ?? -1, seq) : history.seq ?? null;
   const processing = nextProcessingState(history.processing, envelope.message, seq);
 
-  return {
-    ...history,
-    messages,
-    seq: nextSeq,
-    ...(processing !== undefined ? { processing } : {}),
-  };
+  return { ...history, messages, seq: nextSeq, processing };
 }
 
 /** Rebuild the history from a snapshot and a run of events — the full
