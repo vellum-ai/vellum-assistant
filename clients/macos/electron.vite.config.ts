@@ -76,6 +76,7 @@ const BUILD_DEFINES = {
     process.env.VELLUM_ENVIRONMENT || "local",
   ),
   __VELLUM_LOCAL_CLI_ENTRY__: JSON.stringify(LOCAL_CLI_ENTRY),
+  __VELLUM_BUN_VERSION__: JSON.stringify(resolveBunVersion()),
   __VELLUM_ENABLE_CHROME_DEVTOOLS__: JSON.stringify(
     process.env.VELLUM_ENABLE_CHROME_DEVTOOLS === "true" ||
       process.env.VELLUM_ENABLE_CHROME_DEVTOOLS === "1",
