@@ -10,7 +10,10 @@ import { join } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
 import type { ChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import {
+  resolveTrustClass,
+  type TrustContext,
+} from "../daemon/trust-context.js";
 import { markActivationSession } from "../plugins/defaults/memory/activation-session-store.js";
 import { ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE } from "../telemetry/activation-funnel.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
@@ -393,6 +396,23 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const hasNoClient =
     options?.personaOverride?.hasNoClient ?? options?.hasNoClient;
 
+  // Trust class of the current actor, lifted onto the render context so
+  // persona sections — notably `users/default.md`, the persona rendered for
+  // non-guardian actors — can gate privacy guardrails on who is being spoken
+  // to. `resolveTrustClass` applies the dev-bypass (HTTP auth disabled →
+  // guardian) and the fail-closed default (no trust context → unknown)
+  // uniformly, matching the semantics every other trust gate uses. The
+  // booleans are precomputed because the mustache renderer only does truthy
+  // gating, not string comparison.
+  const trustClass = resolveTrustClass(options?.trustContext);
+  const isGuardian = trustClass === "guardian";
+  // `unverified_contact` is treated identically to `trusted_contact` for every
+  // downstream capability decision (see TrustClass docs), so persona-level
+  // framing groups them too.
+  const isTrustedContact =
+    trustClass === "trusted_contact" || trustClass === "unverified_contact";
+  const isStranger = trustClass === "unknown";
+
   // Section render context.  Workspace section frontmatter `enabled:`
   // predicates, `{{key}}` / `{{#flag}}...{{/flag}}` body interpolation,
   // and `{{key}}` paths inside `workspacePath` all resolve against this
@@ -409,6 +429,10 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
     workspaceDir: getWorkspaceDir(),
     userSlug,
     channelSlug,
+    trustClass,
+    isGuardian,
+    isTrustedContact,
+    isStranger,
   };
 
   // Every system-prompt block flows through the bundled section
