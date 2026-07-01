@@ -192,7 +192,7 @@ describe("getFeatureFlagValue", () => {
 
 describe("getFeatureFlagValue · staged-rollout (GA-normalization-exempt) flags", () => {
   test("absent value falls back to the registry default on non-managed installs", () => {
-    // No IS_PLATFORM: local/self-hosted gets the new true default.
+    // No IS_PLATFORM: local/self-hosted resolves the true registry default.
     expect(getFeatureFlagValue("messages-search-backend")).toBe(true);
   });
 

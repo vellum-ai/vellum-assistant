@@ -382,7 +382,7 @@ describe("searchConversations · fts5 backend ignores the lexical index", () => 
     deleteMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY);
     searchMessageIdsLexicalMock.mockClear();
     lexicalReturns(["should-not-be-used"]);
-    // Force fts5 explicitly: the flag now defaults to qdrant, so an unset flag
+    // Force fts5 explicitly: the registry default is qdrant, so an unset flag
     // would resolve to qdrant. An explicit `false` override pins the fts5 path.
     setOverridesForTesting({ "messages-search-backend": false });
   });

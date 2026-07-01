@@ -123,7 +123,7 @@ describe("getMessagesSearchBackend · managed staged-rollout guard", () => {
 
   test("uses the qdrant registry default on non-managed even before hydration", () => {
     // Local/self-hosted (IS_PLATFORM unset): the guard must not fire, so an
-    // unhydrated cache still yields the new qdrant registry default.
+    // unhydrated cache still yields the qdrant registry default.
     delete process.env.IS_PLATFORM;
     clearFeatureFlagOverridesCache();
     expect(getMessagesSearchBackend(CONFIG)).toBe("qdrant");

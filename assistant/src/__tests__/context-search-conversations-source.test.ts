@@ -70,7 +70,7 @@ describe("searchConversationSource", () => {
   beforeEach(() => {
     getDb().run("DELETE FROM messages");
     getDb().run("DELETE FROM conversations");
-    // The flag now defaults to qdrant, so pin fts5 explicitly for this suite —
+    // The registry default is qdrant, so pin fts5 explicitly for this suite —
     // an unset flag would otherwise resolve to qdrant. (The backfill gate would
     // still keep these on fts5 since the checkpoint is unset here, but pinning
     // the flag states the intent and isolates the suite from override leakage.)
