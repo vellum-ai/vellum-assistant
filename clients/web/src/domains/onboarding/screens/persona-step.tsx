@@ -17,12 +17,13 @@
  * still apply.
  */
 
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { ArrowRight } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top-bar";
+import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
 import { useOnboardingTone } from "@/domains/onboarding/onboarding-tone";
 import {
   preloadBundledAvatarComponents,
@@ -112,6 +113,23 @@ export function PersonaStep({
   const components = useBundledAvatarComponents();
   const reduce = useReducedMotion();
 
+  // The backdrop is painted in the selected avatar's color, so any showcase
+  // avatar sharing that color would melt into the background. Remap those to a
+  // distinct palette color (keeping the hand-picked color otherwise).
+  const characters = useOnboardingAvatarPoolStore.use.characters();
+  const selectedIndex = useOnboardingAvatarPoolStore.use.selectedIndex();
+  const selectedColor = characters[selectedIndex]?.color;
+  const examples = useMemo(() => {
+    const palette = components?.colors.map((c) => c.id) ?? [];
+    return PERSONA_EXAMPLES.map((ex) => {
+      if (ex.avatar.color !== selectedColor) return ex;
+      const alt =
+        palette.find((c) => c !== selectedColor && c !== ex.avatar.color) ??
+        palette.find((c) => c !== selectedColor);
+      return alt ? { ...ex, avatar: { ...ex.avatar, color: alt } } : ex;
+    });
+  }, [components, selectedColor]);
+
   const [index, setIndex] = useState(0);
   // Rotate while the field is empty and editable — a typed answer (or a locked
   // step) freezes the showcase so it isn't distracting.
@@ -119,12 +137,12 @@ export function PersonaStep({
   useEffect(() => {
     if (paused) return;
     const t = setInterval(() => {
-      setIndex((i) => (i + 1) % PERSONA_EXAMPLES.length);
+      setIndex((i) => (i + 1) % examples.length);
     }, ROTATE_INTERVAL_MS);
     return () => clearInterval(t);
-  }, [paused]);
+  }, [paused, examples.length]);
 
-  const current = PERSONA_EXAMPLES[index] ?? PERSONA_EXAMPLES[0]!;
+  const current = examples[index] ?? examples[0]!;
 
   function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter" && !locked) {
@@ -179,43 +197,19 @@ export function PersonaStep({
           </AnimatePresence>
         </div>
 
-        <div className="flex w-full flex-col items-center gap-3">
-          <input
-            id="persona-input"
-            type="text"
-            value={persona}
-            onChange={(e) => onPersonaChange(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={locked}
-            autoComplete="off"
-            placeholder={paused ? "Describe your own…" : current.phrase}
-            aria-label="Who do you want me to be?"
-            className="w-full max-w-md rounded-2xl border bg-transparent px-4 py-3 text-center text-[16px] outline-none transition-colors duration-150 placeholder:text-current placeholder:opacity-50 focus:border-current disabled:cursor-not-allowed disabled:opacity-70"
-            style={{ color: tone.fg, borderColor: tone.fgMuted }}
-          />
-
-          {/* Rotating, tappable example input — fills the field on click. Height
-              is reserved so the layout doesn't jump when it's hidden. */}
-          <div className="flex h-6 items-center justify-center">
-            <AnimatePresence mode="wait" initial={false}>
-              {!paused && (
-                <motion.button
-                  key={current.phrase}
-                  type="button"
-                  onClick={() => onPersonaChange(current.phrase)}
-                  initial={reduce ? false : { opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={reduce ? { opacity: 0 } : { opacity: 0, y: -8 }}
-                  transition={{ duration: 0.3, ease: "easeOut" }}
-                  className="cursor-pointer text-[14px] underline-offset-2 transition-opacity hover:opacity-100 hover:underline"
-                  style={{ color: tone.fgMuted }}
-                >
-                  Try “{current.phrase}”
-                </motion.button>
-              )}
-            </AnimatePresence>
-          </div>
-        </div>
+        <input
+          id="persona-input"
+          type="text"
+          value={persona}
+          onChange={(e) => onPersonaChange(e.target.value)}
+          onKeyDown={handleKeyDown}
+          disabled={locked}
+          autoComplete="off"
+          placeholder={paused ? "Describe your own…" : current.phrase}
+          aria-label="Who do you want me to be?"
+          className="w-full max-w-md rounded-2xl border bg-transparent px-4 py-3 text-center text-[16px] outline-none transition-colors duration-150 placeholder:text-current placeholder:opacity-50 focus:border-current disabled:cursor-not-allowed disabled:opacity-70"
+          style={{ color: tone.fg, borderColor: tone.fgMuted }}
+        />
 
         <button
           type="button"
