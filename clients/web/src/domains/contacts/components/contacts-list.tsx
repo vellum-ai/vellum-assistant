@@ -41,8 +41,8 @@ export function ContactsList({
     : regularContacts;
 
   return (
-    <Card className="h-full">
-      <div className="flex h-full min-w-0 flex-col gap-4">
+    <Card.Root className="flex h-full flex-col overflow-hidden">
+      <Card.Body className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
         <div className="flex items-center justify-between">
           <h2
             className="text-title-medium"
@@ -97,7 +97,7 @@ export function ContactsList({
         ) : null}
 
         {regularContacts.length > 0 ? (
-          <div className="flex flex-col gap-1">
+          <div className="min-h-0 flex-1 overflow-y-auto flex flex-col gap-1">
             {filtered.map((contact) => (
               <ContactRow
                 key={contact.id}
@@ -135,8 +135,8 @@ export function ContactsList({
             Add Contact
           </Button>
         )}
-      </div>
-    </Card>
+      </Card.Body>
+    </Card.Root>
   );
 }
 
