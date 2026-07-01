@@ -143,6 +143,45 @@ export function formatMessageSliceForTranscript(
   return lines.join("\n");
 }
 
+/**
+ * Append the `### Subagent: …` section for `msg` when its metadata carries a
+ * terminal (completed/failed/aborted) subagent notification; a no-op otherwise.
+ *
+ * `subagentOptions` controls how the child transcript renders. Callers pass the
+ * parent's time zone but NOT its display names: a subagent conversation persists
+ * the parent assistant's objective as a `user` message (see subagent/manager.ts),
+ * so reusing the parent's names would render the assistant's tasking text under
+ * the human user's name. An empty options object keeps child transcripts on
+ * generic role labels.
+ */
+function appendSubagentSection(
+  lines: string[],
+  msg: TranscriptMessage,
+  subagentOptions: TranscriptFormatOptions = {},
+): void {
+  const notif = parseMessageMetadata(msg.metadata)?.subagentNotification;
+  if (
+    !notif ||
+    (notif.status !== "completed" &&
+      notif.status !== "failed" &&
+      notif.status !== "aborted") ||
+    !notif.conversationId
+  ) {
+    return;
+  }
+  const subMessages = getMessages(notif.conversationId);
+  lines.push(`### Subagent: ${notif.label} (${notif.status})`);
+  lines.push("");
+  lines.push(formatSubagentMessages(subMessages, subagentOptions));
+  lines.push("");
+}
+
+/**
+ * Render one message as a transcript block: a `## role (time)` header, the
+ * extracted body text, and any terminal subagent section. Role and time honor
+ * `options` (display names + time zone); the subagent child transcript inherits
+ * only the time zone — see {@link appendSubagentSection}.
+ */
 function appendMessageBlock(
   lines: string[],
   msg: TranscriptMessage,
@@ -157,27 +196,7 @@ function appendMessageBlock(
   lines.push(text);
   lines.push("");
 
-  const notif = parseMessageMetadata(msg.metadata)?.subagentNotification;
-  if (
-    notif &&
-    (notif.status === "completed" ||
-      notif.status === "failed" ||
-      notif.status === "aborted") &&
-    notif.conversationId
-  ) {
-    const subMessages = getMessages(notif.conversationId);
-    lines.push(`### Subagent: ${notif.label} (${notif.status})`);
-    lines.push("");
-    // Subagent conversations persist the parent assistant's objective
-    // as a `user` message (see subagent/manager.ts), so reusing the
-    // parent's display-name options would render the assistant's
-    // tasking text under the human user's name. Keep child transcripts
-    // on generic role labels — and only pass through the time zone.
-    lines.push(
-      formatSubagentMessages(subMessages, { timeZone: options.timeZone }),
-    );
-    lines.push("");
-  }
+  appendSubagentSection(lines, msg, { timeZone: options.timeZone });
 }
 
 export function buildAnalysisTranscript(conversationId: string): string {
@@ -186,7 +205,6 @@ export function buildAnalysisTranscript(conversationId: string): string {
     return `# Conversation not found: ${conversationId}\n`;
   }
 
-  const allMessages = getMessages(conversationId);
   const title = conversation.title ?? "Untitled";
   const lines: string[] = [];
 
@@ -194,31 +212,11 @@ export function buildAnalysisTranscript(conversationId: string): string {
   lines.push(`Created: ${formatLocalTimestamp(conversation.createdAt)}`);
   lines.push("");
 
-  for (const msg of allMessages) {
-    const role = formatRole(msg.role);
-    const time = formatLocalTimestamp(msg.createdAt);
-    const content = parseContent(msg.content);
-    const text = extractAnalysisText(content);
-
-    lines.push(`## ${role} (${time})`);
-    lines.push(text);
-    lines.push("");
-
-    // Check for subagent notifications in metadata
-    const notif = parseMessageMetadata(msg.metadata)?.subagentNotification;
-    if (
-      notif &&
-      (notif.status === "completed" ||
-        notif.status === "failed" ||
-        notif.status === "aborted") &&
-      notif.conversationId
-    ) {
-      const subMessages = getMessages(notif.conversationId);
-      lines.push(`### Subagent: ${notif.label} (${notif.status})`);
-      lines.push("");
-      lines.push(formatSubagentMessages(subMessages));
-      lines.push("");
-    }
+  // Analyze-conversation flow renders under generic "User"/"Assistant" labels,
+  // so no options are threaded through (see `formatMessageSliceForTranscript`
+  // for the display-name variant).
+  for (const msg of getMessages(conversationId)) {
+    appendMessageBlock(lines, msg);
   }
 
   return lines.join("\n");
