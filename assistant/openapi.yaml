@@ -6459,6 +6459,12 @@ paths:
                           type: number
                         inferenceProfile:
                           type: string
+                        enabledPlugins:
+                          anyOf:
+                            - type: array
+                              items:
+                                type: string
+                            - type: "null"
                         isProcessing:
                           type: boolean
                       required:
@@ -6798,6 +6804,12 @@ paths:
                         type: number
                       inferenceProfile:
                         type: string
+                      enabledPlugins:
+                        anyOf:
+                          - type: array
+                            items:
+                              type: string
+                          - type: "null"
                       isProcessing:
                         type: boolean
                     required:
@@ -6999,6 +7011,12 @@ paths:
                         type: number
                       inferenceProfile:
                         type: string
+                      enabledPlugins:
+                        anyOf:
+                          - type: array
+                            items:
+                              type: string
+                          - type: "null"
                       isProcessing:
                         type: boolean
                     required:
@@ -8186,6 +8204,12 @@ paths:
                         type: number
                       inferenceProfile:
                         type: string
+                      enabledPlugins:
+                        anyOf:
+                          - type: array
+                            items:
+                              type: string
+                          - type: "null"
                       isProcessing:
                         type: boolean
                     required:

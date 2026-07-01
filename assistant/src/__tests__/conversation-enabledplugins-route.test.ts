@@ -25,6 +25,7 @@ import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { ROUTES } from "../runtime/routes/conversation-management-routes.js";
 import { BadRequestError, NotFoundError } from "../runtime/routes/errors.js";
+import { buildConversationDetailResponse } from "../runtime/services/conversation-serializer.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 
 await initializeDb();
@@ -69,6 +70,35 @@ describe("PUT /v1/conversations/:id/enabledplugins", () => {
       "plugin-a",
       "plugin-b",
     ]);
+
+    // The HTTP conversation-detail response (what the web `conversationsByIdGet`
+    // reads) must also carry the scope, not just the internal DB getter.
+    const detail = buildConversationDetailResponse(conversation.id);
+    expect(detail?.conversation.enabledPlugins).toEqual([
+      "plugin-a",
+      "plugin-b",
+    ]);
+  });
+
+  test("detail response omits enabledPlugins by default and preserves an explicit []", async () => {
+    const conversation = createConversation("enabledplugins-detail-shape");
+
+    // Default (no per-chat restriction): the field is omitted from the wire.
+    expect(
+      "enabledPlugins" in buildConversationDetailResponse(conversation.id)!
+        .conversation,
+    ).toBe(false);
+
+    // Explicit empty scope (user cleared all optional plugins): preserved as [].
+    await pluginsRoute.handler({
+      pathParams: { id: conversation.id },
+      body: { enabledPlugins: [] },
+      headers: {},
+    });
+    expect(
+      buildConversationDetailResponse(conversation.id)?.conversation
+        .enabledPlugins,
+    ).toEqual([]);
   });
 
   test("clears the scope to default when enabledPlugins is null", async () => {
