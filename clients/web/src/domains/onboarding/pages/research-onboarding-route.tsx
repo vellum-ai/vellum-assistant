@@ -706,7 +706,6 @@ export function ResearchOnboardingRoute() {
           <LetsChatReadyStep
             installedPlugins={research.installedPlugins}
             pluginCatalog={research.pluginCatalog}
-            loading={researchLoading}
             onStart={async () => {
               // Terminal step: the handoff leaves via enterAssistant, not
               // goForwardTo, so emit the completion here (mirrors SuggestionsStep).

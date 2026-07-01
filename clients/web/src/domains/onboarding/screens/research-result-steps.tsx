@@ -789,7 +789,6 @@ export function SuggestionsStep({
 export function LetsChatReadyStep({
   installedPlugins = [],
   pluginCatalog = {},
-  loading,
   onStart,
   onBack,
   onForward,
@@ -802,8 +801,6 @@ export function LetsChatReadyStep({
   installedPlugins?: string[];
   /** Name → description for the installed plugins, for the card subtitles. */
   pluginCatalog?: Record<string, string>;
-  /** True while the research turn is still streaming (plugins may still land). */
-  loading: boolean;
   /**
    * Enter the chat: awaits any in-flight plugin installs / corrections, then
    * hands off to the primed conversation. May be async — the button shows a
@@ -828,12 +825,12 @@ export function LetsChatReadyStep({
       description: pluginCatalog[name]?.trim() ?? "",
     }))
     .filter((p) => p.displayName.length > 0);
-  const hasNote = plugins.length > 0;
+  const hasPlugins = plugins.length > 0;
 
   // A single avatar starts over the heading slot and flies down to the note's
-  // landing slot — same choreography as SuggestionsStep. We measure both slot
-  // centers (relative to the column) so the flight follows the real layout as
-  // plugins stream in.
+  // landing slot — same choreography as SuggestionsStep. The note sits BELOW the
+  // plugin cards, so we re-measure when the card count changes to keep the
+  // flight landing on the real note position.
   const columnRef = useRef<HTMLDivElement>(null);
   const headSlotRef = useRef<HTMLDivElement>(null);
   const noteSlotRef = useRef<HTMLDivElement>(null);
@@ -864,14 +861,14 @@ export function LetsChatReadyStep({
     return () => window.removeEventListener("resize", measure);
     // Intentionally not re-measuring on `flown`: the head anchor must stay at
     // its pre-collapse position so the flight starts from where the avatar sat.
-  }, [hasNote]);
+  }, [plugins.length]);
 
-  // Fly down the moment we have the data: as soon as the note slot is measured.
+  // Fly down the moment the note slot is measured (the note always renders).
   const noteY = anchors?.note?.y;
   useEffect(() => {
-    if (!hasNote || noteY === undefined || flown) return;
+    if (noteY === undefined || flown) return;
     setFlown(true);
-  }, [hasNote, noteY, flown]);
+  }, [noteY, flown]);
 
   const handleStart = () => {
     if (starting) return;
@@ -912,68 +909,59 @@ export function LetsChatReadyStep({
             You&rsquo;re all set
           </h1>
         </div>
-        <p className="mb-7 mt-2 text-[15px]" style={{ color: tone.fgMuted }}>
-          {hasNote
-            ? "I've set myself up around who you are. Let's get into it."
-            : loading
-              ? "Getting everything ready…"
-              : "I've got what I need to help. Let's get into it."}
-        </p>
 
-        {hasNote && (
-          <>
-            {/* The "already set up …" line. No avatar of its own — it reserves a
-                landing slot (`noteSlotRef`) for the single avatar that flies down
-                from the heading, mirroring SuggestionsStep. */}
-            <div className="flex items-center gap-3">
-              <div
-                ref={noteSlotRef}
-                className="shrink-0"
-                style={{ width: NOTE_AVATAR, height: NOTE_AVATAR }}
-              />
-              <motion.p
-                className="text-[14px]"
-                style={{ color: tone.fg }}
-                initial={false}
-                animate={{ opacity: landed ? 1 : 0, x: landed ? 0 : -6 }}
-                transition={reduce ? { duration: 0 } : { duration: 0.35 }}
+        {/* One card per installed plugin (name + description), themed to match
+            the "facts about you" cards. Directly under the title. */}
+        {hasPlugins && (
+          <div className="mt-7 flex flex-col gap-3">
+            {plugins.map((p, i) => (
+              <motion.div
+                key={p.name}
+                initial={reduce ? false : { opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={
+                  reduce ? { duration: 0 } : { duration: 0.3, delay: i * 0.06 }
+                }
+                className="rounded-2xl px-5 py-4"
+                style={{
+                  backgroundColor: tone.isLight
+                    ? "rgba(0,0,0,0.06)"
+                    : "rgba(255,255,255,0.1)",
+                }}
               >
-                Already set up the plugins to help with your work.
-              </motion.p>
-            </div>
-
-            {/* One card per installed plugin (name + description), themed to
-                match the "facts about you" cards. */}
-            <div className="mt-4 flex flex-col gap-3">
-              {plugins.map((p, i) => (
-                <motion.div
-                  key={p.name}
-                  initial={reduce ? false : { opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={
-                    reduce ? { duration: 0 } : { duration: 0.3, delay: i * 0.06 }
-                  }
-                  className="rounded-2xl px-5 py-4"
-                  style={{
-                    backgroundColor: tone.isLight
-                      ? "rgba(0,0,0,0.06)"
-                      : "rgba(255,255,255,0.1)",
-                  }}
-                >
-                  <div className="text-[15px] font-medium">{p.displayName}</div>
-                  {p.description && (
-                    <div
-                      className="mt-1 text-[13px] leading-snug"
-                      style={{ color: tone.fgMuted }}
-                    >
-                      {p.description}
-                    </div>
-                  )}
-                </motion.div>
-              ))}
-            </div>
-          </>
+                <div className="text-[15px] font-medium">{p.displayName}</div>
+                {p.description && (
+                  <div
+                    className="mt-1 text-[13px] leading-snug"
+                    style={{ color: tone.fgMuted }}
+                  >
+                    {p.description}
+                  </div>
+                )}
+              </motion.div>
+            ))}
+          </div>
         )}
+
+        {/* The avatar line below the cards. No avatar of its own — it reserves a
+            landing slot (`noteSlotRef`) for the single avatar that flies down
+            from the heading, mirroring SuggestionsStep. */}
+        <div className="mt-7 flex items-center gap-3">
+          <div
+            ref={noteSlotRef}
+            className="shrink-0"
+            style={{ width: NOTE_AVATAR, height: NOTE_AVATAR }}
+          />
+          <motion.p
+            className="text-[15px]"
+            style={{ color: tone.fg }}
+            initial={false}
+            animate={{ opacity: landed ? 1 : 0, x: landed ? 0 : -6 }}
+            transition={reduce ? { duration: 0 } : { duration: 0.35 }}
+          >
+            I&rsquo;ve set myself up around who you are.
+          </motion.p>
+        </div>
 
         <button
           type="button"
@@ -993,7 +981,7 @@ export function LetsChatReadyStep({
           <FlyingHeadingAvatar
             head={anchors.head}
             note={anchors.note}
-            flyToNote={flown && hasNote && anchors.note !== undefined}
+            flyToNote={flown && anchors.note !== undefined}
             reduce={reduce}
             onLanded={() => setLanded(true)}
           />
