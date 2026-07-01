@@ -4068,6 +4068,8 @@ paths:
                       type: boolean
                     account:
                       type: string
+                    actorTeamId:
+                      type: string
                     admissionPolicy:
                       type: string
                       enum:
