@@ -6,7 +6,10 @@ import {
 } from "../../feature-flag-defaults.js";
 import { readEnvFeatureFlagOverrides } from "../../feature-flag-env-overrides.js";
 import { readRemoteFeatureFlags } from "../../feature-flag-remote-store.js";
-import { resolveAbsentFlagDefault } from "../../feature-flag-staged-rollout.js";
+import {
+  normalizeStaleRemoteFlagValue,
+  resolveAbsentFlagDefault,
+} from "../../feature-flag-staged-rollout.js";
 import {
   readPersistedFeatureFlags,
   writeFeatureFlag,
@@ -89,15 +92,16 @@ export function createFeatureFlagsGetHandler() {
       for (const [key, def] of Object.entries(defaults)) {
         const persistedValue = persisted[key];
         const remoteValue = remote[key];
-        // Resolve the absent-value fallback through the staged-rollout helper so
+        // Route the remote/absent value through the staged-rollout helpers so
         // the reported `enabled` state matches the daemon IPC map (and the value
-        // driving search) on managed deployments — a staged-rollout flag fails
-        // safe to `false` there instead of showing the `true` registry default.
+        // driving search): a stale staged-rollout `false` cached off-platform is
+        // normalized, and an absent value fails safe to `false` on managed
+        // instead of showing the `true` registry default.
         const base =
           persistedValue !== undefined
             ? persistedValue
             : remoteValue !== undefined
-              ? remoteValue
+              ? normalizeStaleRemoteFlagValue(key, remoteValue)
               : resolveAbsentFlagDefault(key, def.defaultEnabled);
         const envValue = envOverrides[key];
         entries.push({

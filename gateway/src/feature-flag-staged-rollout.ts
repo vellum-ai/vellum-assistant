@@ -57,6 +57,35 @@ export function shouldExemptFromGaNormalization(key: string): boolean {
 }
 
 /**
+ * Normalize a **remote-layer** (platform-pushed) value for `key` at read time,
+ * so a value already persisted in the remote cache is treated the same as a
+ * freshly fetched one (`RemoteFeatureFlagSync` applies the identical rule on
+ * write via {@link shouldExemptFromGaNormalization}).
+ *
+ * Off-platform, a stale `false` for a {@link GA_NORMALIZATION_EXEMPT_FLAGS} key
+ * — e.g. cached from a pre-flip sync under the platform's blanket-deny — is
+ * rewritten to `true` so it does not beat the `true` registry default when the
+ * next sync is skipped/failed (missing credentials, `VELLUM_DISABLE_PLATFORM`,
+ * network error). On a managed deployment the value passes through unchanged so
+ * the platform stays authoritative. Only remote `false` is rewritten; every
+ * other value (including any `false` a user persisted locally, which lives in a
+ * separate store) is returned as-is.
+ */
+export function normalizeStaleRemoteFlagValue(
+  key: string,
+  remoteValue: boolean | string,
+): boolean | string {
+  if (
+    remoteValue === false &&
+    GA_NORMALIZATION_EXEMPT_FLAGS.has(key) &&
+    !isPlatformMode()
+  ) {
+    return true;
+  }
+  return remoteValue;
+}
+
+/**
  * Resolve the fallback value for a flag that has no explicit value from any
  * override layer (env / persisted / remote).
  *

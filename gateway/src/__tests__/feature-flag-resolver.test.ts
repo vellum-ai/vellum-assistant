@@ -230,4 +230,24 @@ describe("getFeatureFlagValue · staged-rollout (GA-normalization-exempt) flags"
     process.env.IS_PLATFORM = "true";
     expect(getFeatureFlagValue("browser")).toBe(true);
   });
+
+  test("normalizes a stale remote false off-platform (no re-sync needed)", () => {
+    // A local/self-hosted install that synced under the platform's blanket-deny
+    // before the flip has messages-search-backend=false cached in the remote
+    // store. If the next sync is skipped/failed, that stale remote false would
+    // otherwise beat the true registry default. Off-platform it is normalized to
+    // true at read time, matching the sync-time normalization.
+    delete process.env.IS_PLATFORM;
+    writeRemoteFeatureFlags({ "messages-search-backend": false });
+    expect(getFeatureFlagValue("messages-search-backend")).toBe(true);
+  });
+
+  test("still honors a user-persisted false off-platform", () => {
+    // The stale-remote normalization only touches the remote layer. A value the
+    // user persisted locally (a different store) must still win, so a user who
+    // explicitly turned the flag off keeps fts5.
+    delete process.env.IS_PLATFORM;
+    writeFeatureFlag("messages-search-backend", false);
+    expect(getFeatureFlagValue("messages-search-backend")).toBe(false);
+  });
 });
