@@ -91,6 +91,7 @@ import {
   skillLoadedEvents,
   toolInvocations,
 } from "./schema/index.js";
+import { timeSyncSection } from "./slow-sync-log.js";
 
 const log = getLogger("conversation-store");
 
@@ -1691,13 +1692,21 @@ export async function addMessage(
 
 export function getMessages(conversationId: string): MessageRow[] {
   const db = getDb();
-  return db
-    .select()
-    .from(messages)
-    .where(eq(messages.conversationId, conversationId))
-    .orderBy(asc(messages.createdAt))
-    .all()
-    .map(parseMessage);
+  // Synchronous read of every row for the conversation — the dominant
+  // per-turn main-thread cost on large conversations. Timed so a freeze the
+  // event-loop watchdog detects can be attributed here (see slow-sync-log).
+  return timeSyncSection(
+    "conversation-crud:get-messages",
+    () =>
+      db
+        .select()
+        .from(messages)
+        .where(eq(messages.conversationId, conversationId))
+        .orderBy(asc(messages.createdAt))
+        .all()
+        .map(parseMessage),
+    (rows) => ({ conversationId, rowCount: rows.length }),
+  );
 }
 
 /**
