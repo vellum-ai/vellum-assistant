@@ -6,7 +6,7 @@
  * Both fail-safes apply **only on managed (platform) deployments** so the
  * managed rollout stays gated on LaunchDarkly targeting. Local / self-hosted
  * installs — even ones that hold platform credentials and sync remote flags —
- * are unaffected: they get the new `true` registry default.
+ * are unaffected: they resolve the `true` registry default.
  *
  *   1. GA-normalization exemption — `RemoteFeatureFlagSync` rewrites a
  *      platform-sent `false` to `true` for GA flags (`defaultEnabled: true`),

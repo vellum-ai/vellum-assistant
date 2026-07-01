@@ -422,9 +422,10 @@ export class RemoteFeatureFlagSync {
     //
     // Staged-rollout flags are excluded on managed deployments only
     // (see shouldExemptFromGaNormalization): they default on in the registry so
-    // local/self-hosted installs get the new default even here, but on a managed
-    // deployment they must honor a platform-sent `false` so managed assistants
-    // roll out gradually via LaunchDarkly targeting instead of switching at once.
+    // local/self-hosted installs keep the registry default even here, but on a
+    // managed deployment they must honor a platform-sent `false` so managed
+    // assistants roll out gradually via LaunchDarkly targeting rather than
+    // switching at once.
     const registry = loadFeatureFlagDefaults();
     const values: Record<string, boolean | string> = {};
     for (const [key, value] of Object.entries(body.flags)) {
