@@ -1025,7 +1025,7 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
-  test("lock-contention rejection: swallowed, no technical-issue speech, returns to idle", async () => {
+  test("lock-contention rejection: speaks a brief re-prompt, no technical-issue speech, returns to idle", async () => {
     mockStartVoiceTurn.mockImplementation(async () => {
       throw new Error("Conversation is already processing a message");
     });
@@ -1034,18 +1034,18 @@ describe("call-controller", () => {
 
     await controller.handleCallerUtterance("Hello");
 
-    // The transient lock-contention race must never be spoken to the caller.
+    // A wedged prior turn must never surface a technical-error message.
     const errorTokens = relay.sentTokens.filter((t) =>
       t.token.includes("technical issue"),
     );
     expect(errorTokens.length).toBe(0);
 
-    // An empty end-of-turn marker (last=true) must still be sent so the relay
-    // transitions back to listening despite swallowing the error.
-    const endOfTurnMarkers = relay.sentTokens.filter(
-      (t) => t.token === "" && t.last === true,
+    // A brief natural re-prompt (last=true) is spoken so the caller knows to
+    // repeat themselves and the relay transitions back to listening.
+    const reprompts = relay.sentTokens.filter(
+      (t) => t.token === "Sorry, could you say that again?" && t.last === true,
     );
-    expect(endOfTurnMarkers.length).toBeGreaterThan(0);
+    expect(reprompts.length).toBeGreaterThan(0);
 
     // Controller goes idle and re-arms the silence watchdog.
     expect(controller.getState()).toBe("idle");
