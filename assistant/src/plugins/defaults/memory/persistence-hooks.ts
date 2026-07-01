@@ -1,12 +1,12 @@
 import { join } from "node:path";
 
-import { getConfig } from "../../../config/loader.js";
 import type {
   ConversationForkedEvent,
   MemoryPersistenceHooks,
   MessagePersistedEvent,
 } from "../../../persistence/memory-lifecycle-hooks.js";
 import { getWorkspaceDir } from "../../../util/platform.js";
+import { getMemoryConfig } from "./config.js";
 import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
 import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
@@ -35,7 +35,7 @@ import {
  */
 export const memoryPersistenceHooks: MemoryPersistenceHooks = {
   async onMessagePersisted(event: MessagePersistedEvent): Promise<void> {
-    await indexMessageNow({ ...event, scopeId: "default" }, getConfig().memory);
+    await indexMessageNow({ ...event, scopeId: "default" }, getMemoryConfig());
   },
 
   onConversationForked(event: ConversationForkedEvent): void {

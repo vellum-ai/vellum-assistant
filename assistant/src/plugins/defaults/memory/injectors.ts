@@ -20,7 +20,6 @@ import { resolve } from "node:path";
 
 import type { Message } from "@vellumai/plugin-api";
 
-import { getConfig } from "../../../config/loader.js";
 import type { InjectionMatcher } from "../../../context/strip-injections.js";
 import { getInContextPkbPaths } from "../../../daemon/pkb-context-tracker.js";
 import { buildPkbReminder } from "../../../daemon/pkb-reminder-builder.js";
@@ -37,6 +36,7 @@ import {
 } from "../../types.js";
 import { hasInjectedUserTextBlock } from "../injection-presence.js";
 import { DEFAULT_INJECTOR_ORDER } from "../injector-order.js";
+import { getMemoryConfig } from "./config.js";
 import { getLiveGraphMemory } from "./graph/conversation-graph-memory.js";
 import { getPkbAutoInjectList } from "./pkb/autoinject.js";
 import { readPkbContext } from "./pkb/context.js";
@@ -64,7 +64,7 @@ const PKB_HINT_ARCHIVE_THRESHOLD = 0.7;
  * unchanged.
  */
 function isPkbInjectionSilencedByV2(): boolean {
-  return getConfig().memory.v2.enabled;
+  return getMemoryConfig().v2.enabled;
 }
 
 /**
