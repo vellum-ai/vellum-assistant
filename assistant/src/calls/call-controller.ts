@@ -523,7 +523,10 @@ export class CallController {
     }
 
     try {
-      this.state = "speaking";
+      // Stay in `processing` through the lock-wait and LLM generation; flip to
+      // `speaking` only when real outbound audio/tokens start (see
+      // beginSpeaking). This keeps barge-in from aborting a silent turn.
+      this.state = "processing";
 
       const fullResponseText = await this.streamTtsTokens(
         content,
@@ -628,6 +631,7 @@ export class CallController {
       if (useSynthesizedPath) {
         synthesizedTextBuffer += cleaned;
       } else {
+        this.beginSpeaking(runVersion);
         this.transport.sendTextToken(cleaned, false);
       }
     };
@@ -747,6 +751,7 @@ export class CallController {
     const sanitizedSynthText = sanitizeForTts(synthesizedTextBuffer.trim());
     if (useSynthesizedPath && provider && sanitizedSynthText.length > 0) {
       if (!this.isCurrentRun(runVersion)) return fullResponseText;
+      this.beginSpeaking(runVersion);
       await this.synthesizeAndStreamAudio(
         provider,
         sanitizedSynthText,
@@ -1247,6 +1252,18 @@ export class CallController {
       err instanceof Error &&
       err.message.includes("already processing a message")
     );
+  }
+
+  /**
+   * Flip from the pre-speech `processing` phase to `speaking` at the moment the
+   * first real outbound audio/token is emitted. Guarded so a superseded or
+   * aborted (idle) turn never (re)enters `speaking`, and so barge-in
+   * (handleBargeIn, gated on `speaking`) can't abort a turn that is still
+   * waiting for the processing lock or generating with no audio yet. See JARVIS-1232.
+   */
+  private beginSpeaking(runVersion: number): void {
+    if (!this.isCurrentRun(runVersion)) return;
+    if (this.state === "processing") this.state = "speaking";
   }
 
   private isCurrentRun(runVersion: number): boolean {
