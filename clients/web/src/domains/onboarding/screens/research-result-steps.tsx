@@ -788,6 +788,7 @@ export function SuggestionsStep({
  */
 export function LetsChatReadyStep({
   installedPlugins = [],
+  pluginCatalog = {},
   loading,
   onStart,
   onBack,
@@ -795,10 +796,12 @@ export function LetsChatReadyStep({
 }: {
   /**
    * Capabilities installed for the assistant this run (deterministic floor +
-   * the model's persona-level picks, catalog-gated). Surfaced as the
-   * confirmation note; empty when none were set up.
+   * the model's persona-level picks, catalog-gated). Surfaced as cards; empty
+   * when none were set up.
    */
   installedPlugins?: string[];
+  /** Name → description for the installed plugins, for the card subtitles. */
+  pluginCatalog?: Record<string, string>;
   /** True while the research turn is still streaming (plugins may still land). */
   loading: boolean;
   /**
@@ -811,16 +814,21 @@ export function LetsChatReadyStep({
   /** Redo into this step — only set when the user has stepped back. */
   onForward?: () => void;
 }) {
-  // Constant dark surface for the UI; the avatar tone is only for the pills.
+  // Constant dark surface for the UI (the plugin cards match the facts cards).
   const tone = DARK_TONE;
-  const avatarTone = useOnboardingTone();
   const reduce = useReducedMotion();
   const [starting, setStarting] = useState(false);
 
-  const pluginLabels = installedPlugins
-    .map(pluginDisplayName)
-    .filter((label) => label.length > 0);
-  const hasNote = pluginLabels.length > 0;
+  // Each installed plugin as a card: its display name + (when known) the
+  // catalog description. Names without a display label are dropped.
+  const plugins = installedPlugins
+    .map((name) => ({
+      name,
+      displayName: pluginDisplayName(name),
+      description: pluginCatalog[name]?.trim() ?? "",
+    }))
+    .filter((p) => p.displayName.length > 0);
+  const hasNote = plugins.length > 0;
 
   // A single avatar starts over the heading slot and flies down to the note's
   // landing slot — same choreography as SuggestionsStep. We measure both slot
@@ -913,21 +921,65 @@ export function LetsChatReadyStep({
         </p>
 
         {hasNote && (
-          <PluginSetupNote
-            pluginLabels={pluginLabels}
-            tone={tone}
-            pillTone={avatarTone}
-            reduce={reduce}
-            slotRef={noteSlotRef}
-            revealed={landed}
-          />
+          <>
+            {/* The "already set up …" line. No avatar of its own — it reserves a
+                landing slot (`noteSlotRef`) for the single avatar that flies down
+                from the heading, mirroring SuggestionsStep. */}
+            <div className="mt-12 flex items-center gap-3">
+              <div
+                ref={noteSlotRef}
+                className="shrink-0"
+                style={{ width: NOTE_AVATAR, height: NOTE_AVATAR }}
+              />
+              <motion.p
+                className="text-[14px]"
+                style={{ color: tone.fg }}
+                initial={false}
+                animate={{ opacity: landed ? 1 : 0, x: landed ? 0 : -6 }}
+                transition={reduce ? { duration: 0 } : { duration: 0.35 }}
+              >
+                Already set up the plugins to help with your work.
+              </motion.p>
+            </div>
+
+            {/* One card per installed plugin (name + description), themed to
+                match the "facts about you" cards. */}
+            <div className="mt-4 flex flex-col gap-3">
+              {plugins.map((p, i) => (
+                <motion.div
+                  key={p.name}
+                  initial={reduce ? false : { opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={
+                    reduce ? { duration: 0 } : { duration: 0.3, delay: i * 0.06 }
+                  }
+                  className="rounded-2xl px-5 py-4"
+                  style={{
+                    backgroundColor: tone.isLight
+                      ? "rgba(0,0,0,0.06)"
+                      : "rgba(255,255,255,0.1)",
+                  }}
+                >
+                  <div className="text-[15px] font-medium">{p.displayName}</div>
+                  {p.description && (
+                    <div
+                      className="mt-1 text-[13px] leading-snug"
+                      style={{ color: tone.fgMuted }}
+                    >
+                      {p.description}
+                    </div>
+                  )}
+                </motion.div>
+              ))}
+            </div>
+          </>
         )}
 
         <button
           type="button"
           onClick={handleStart}
           disabled={starting}
-          className="mt-12 flex cursor-pointer h-11 w-[200px] items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition duration-150 enabled:active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60"
+          className="mt-10 flex cursor-pointer h-11 w-[200px] items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition duration-150 enabled:active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60"
           style={{
             backgroundColor: tone.isLight ? "#1A1A1A" : "#FFFFFF",
             color: tone.isLight ? "#FFFFFF" : "#1A1A1A",

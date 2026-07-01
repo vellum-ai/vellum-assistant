@@ -287,7 +287,14 @@ export function ResearchOnboardingRoute() {
       setResearchConversationId(snapshot.researchConversationId ?? null);
       // Re-enqueue the named plugin installs against the re-hatched assistant so
       // a suggestion click awaits real (idempotent) installs, not an empty map.
-      if (snapshot.research) hydrateResearch(snapshot.research, awaitHatchReady);
+      if (snapshot.research)
+        hydrateResearch(
+          {
+            ...snapshot.research,
+            pluginCatalog: snapshot.research.pluginCatalog ?? {},
+          },
+          awaitHatchReady,
+        );
       setStep(resolveResumeStep(snapshot));
       setForwardStack([]);
     }
@@ -314,6 +321,7 @@ export function ResearchOnboardingRoute() {
               claims: research.claims,
               suggestions: research.suggestions,
               installedPlugins: research.installedPlugins,
+              pluginCatalog: research.pluginCatalog,
             }
           : null,
       ...(researchConversationId
@@ -333,6 +341,7 @@ export function ResearchOnboardingRoute() {
     research.claims,
     research.suggestions,
     research.installedPlugins,
+    research.pluginCatalog,
   ]);
 
   // Mid-flow resume: we restored a journey whose research turn hadn't settled.
@@ -696,6 +705,7 @@ export function ResearchOnboardingRoute() {
         {step === "suggestions" && personalityEnabled && (
           <LetsChatReadyStep
             installedPlugins={research.installedPlugins}
+            pluginCatalog={research.pluginCatalog}
             loading={researchLoading}
             onStart={async () => {
               // Terminal step: the handoff leaves via enterAssistant, not
