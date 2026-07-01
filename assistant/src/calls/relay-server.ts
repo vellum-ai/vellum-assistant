@@ -1450,6 +1450,16 @@ export class RelayConnection {
           },
           "Guardian notified of voice access request with caller name",
         );
+      } else if (accessResult.reason === "already_denied") {
+        // The guardian already denied this caller; they are intentionally not
+        // re-notified. Deliver the denial copy rather than the "I'll let them
+        // know" timeout copy, which would falsely promise a notification.
+        log.info(
+          { callSessionId: this.callSessionId },
+          "Voice caller previously denied — suppressing re-notification, delivering denial",
+        );
+        void this.handleAccessRequestDenied();
+        return;
       } else {
         log.warn(
           { callSessionId: this.callSessionId },

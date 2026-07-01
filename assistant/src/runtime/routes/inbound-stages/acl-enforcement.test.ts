@@ -53,11 +53,13 @@ mock.module("../../gateway-client.js", () => ({
 }));
 
 const accessRequestCalls: unknown[] = [];
+let accessRequestDeniedForTest = false;
 mock.module("../../access-request-helper.js", () => ({
   notifyGuardianOfAccessRequest: (params: unknown) => {
     accessRequestCalls.push(params);
     return { notified: true };
   },
+  isAccessRequestDenied: () => accessRequestDeniedForTest,
 }));
 
 // Invite transport: by default no adapter (no token). Per-test override below.
@@ -141,6 +143,7 @@ beforeEach(() => {
   findContactChannelCalls.length = 0;
   deliverReplyCalls.length = 0;
   accessRequestCalls.length = 0;
+  accessRequestDeniedForTest = false;
   inviteTokenForTest = undefined;
   guardianDeliveryList = [];
 });
@@ -377,5 +380,100 @@ describe("enforceIngressAcl — fail-closed on malformed member verdict", () => 
 
     expect(result.earlyResponse!.reason).toBe("not_a_member");
     expect(result.resolvedMember).toBeNull();
+  });
+});
+
+describe("enforceIngressAcl — a terminal deny suppresses re-prompting, not admission", () => {
+  // Per the Slack-permissions PRD, admission is pure rank-vs-floor: a
+  // guardian-denied sender is persisted as an unverified contact (rank 2) and is
+  // admitted on exactly the same terms as any other unverified contact. The deny
+  // only stops the guardian from being re-prompted; holding a contact out of
+  // every floor is the (separate) block action's job. These matched pairs pin
+  // that the denied flag does NOT change the admission outcome.
+  test("any_contact: a terminally-denied unverified member is still admitted by the floor", async () => {
+    accessRequestDeniedForTest = true;
+
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceMetadata: withVerdict(memberVerdict({ status: "unverified" })),
+        effectiveAdmissionPolicy: "any_contact",
+      }),
+    );
+
+    expect(result.earlyResponse).toBeUndefined();
+    expect(result.resolvedMember).not.toBeNull();
+    expect(result.resolvedMember!.status).toBe("unverified");
+  });
+
+  test("any_contact: a non-denied unverified member is admitted identically", async () => {
+    accessRequestDeniedForTest = false;
+
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceMetadata: withVerdict(memberVerdict({ status: "unverified" })),
+        effectiveAdmissionPolicy: "any_contact",
+      }),
+    );
+
+    expect(result.earlyResponse).toBeUndefined();
+    expect(result.resolvedMember).not.toBeNull();
+    expect(result.resolvedMember!.status).toBe("unverified");
+  });
+
+  test("strangers: a terminally-denied non-member is still bypassed to the floor", async () => {
+    accessRequestDeniedForTest = true;
+
+    const result = await enforceIngressAcl(
+      makeParams({
+        canonicalSenderId: "stranger-1",
+        rawSenderId: "stranger-1",
+        sourceMetadata: withVerdict({
+          trustClass: "unknown",
+          canonicalSenderId: "stranger-1",
+        }),
+        effectiveAdmissionPolicy: "strangers",
+      }),
+    );
+
+    expect(result.earlyResponse).toBeUndefined();
+    expect(result.resolvedMember).toBeNull();
+  });
+
+  test("strangers: a non-denied stranger is bypassed identically", async () => {
+    accessRequestDeniedForTest = false;
+
+    const result = await enforceIngressAcl(
+      makeParams({
+        canonicalSenderId: "stranger-1",
+        rawSenderId: "stranger-1",
+        sourceMetadata: withVerdict({
+          trustClass: "unknown",
+          canonicalSenderId: "stranger-1",
+        }),
+        effectiveAdmissionPolicy: "strangers",
+      }),
+    );
+
+    expect(result.earlyResponse).toBeUndefined();
+    expect(result.resolvedMember).toBeNull();
+  });
+
+  test("trusted_contacts: a denied unverified member is denied by the floor, not re-admitted", async () => {
+    // Under a strict floor (rank 3) an unverified contact (rank 2) does not clear
+    // the floor and is denied — same as any unverified contact, denied or not.
+    // The floor governs exclusion here; the deny governs only re-prompting.
+    accessRequestDeniedForTest = true;
+
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceMetadata: withVerdict(memberVerdict({ status: "unverified" })),
+        effectiveAdmissionPolicy: "trusted_contacts",
+      }),
+    );
+
+    expect(result.earlyResponse).toBeDefined();
+    expect(result.earlyResponse!.denied).toBe(true);
+    // `unverified` maps to `pending` at the API-facing member layer.
+    expect(result.earlyResponse!.reason).toBe("member_pending");
   });
 });
