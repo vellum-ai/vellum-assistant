@@ -466,6 +466,31 @@ describe("backfillLexicalIndexJob", () => {
       expect(isLexicalBackfillComplete()).toBe(false);
     });
 
+    test("clears an existing completion marker when memory is disabled (heals the gap on resume)", () => {
+      // Backfill completed, then memory was disabled. Messages written while
+      // disabled are absent from the index, so the completion marker must not
+      // survive: clearing it (cursor preserved) keeps reads on FTS and re-arms
+      // the backfill for the next boot after memory is re-enabled.
+      setMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY, "1");
+      setMemoryEnabled(false);
+
+      maybeEnqueueLexicalBackfillOnUpgrade();
+
+      expect(pendingBackfillJobCount()).toBe(0);
+      expect(isLexicalBackfillComplete()).toBe(false);
+    });
+
+    test("clears an existing completion marker when the memory plugin is disabled", () => {
+      setMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY, "1");
+      setMemoryEnabled(true);
+      setMemoryPluginDisabled(true);
+
+      maybeEnqueueLexicalBackfillOnUpgrade();
+
+      expect(pendingBackfillJobCount()).toBe(0);
+      expect(isLexicalBackfillComplete()).toBe(false);
+    });
+
     test("does NOT enqueue a duplicate when a backfill job is already pending", () => {
       // First call enqueues the one-time job.
       maybeEnqueueLexicalBackfillOnUpgrade();

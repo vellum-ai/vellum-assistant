@@ -52,17 +52,20 @@ const LEXICAL_BACKFILL_CHECKPOINT_ID_KEY = "lexical:messages:last_id";
  * backfill (migration-like), so it is consistent with the daemon-startup
  * philosophy of never blocking or doing expensive work at boot.
  *
- * Guards (all must pass to enqueue):
- * - Memory indexing must not be suppressed — memory enabled AND the memory
- *   plugin not disabled — using the same {@link isMemoryIndexingSuppressed}
- *   signal as the write/recall paths. When `memory.enabled === false` the memory
- *   job worker drains nothing (`runMemoryJobsOnce` returns early), so an enqueued
- *   backfill would sit pending forever and only accumulate dead rows. When the
- *   memory plugin is disabled via its `.disabled` sentinel, per-message index
- *   writes are suppressed, so completing a backfill would leave a stale index
- *   that a lexical-backed read could serve; gating on the same signal keeps the
- *   completion marker unset while writes are suppressed, so every read path stays
- *   on FTS in that state (the marker unifies them).
+ * Suppression handling. When memory indexing is suppressed — memory disabled,
+ * or the memory plugin disabled via its `.disabled` sentinel — per-message index
+ * writes are off, so any message created or edited while suppressed is absent
+ * from `messages_lexical`. If the backfill had already completed, that leaves a
+ * gap the completion sentinel would otherwise hide once indexing resumes. So
+ * when suppressed this clears the completion sentinel (leaving the resumable
+ * cursor intact) rather than enqueuing: the read paths keep serving FTS while
+ * suppressed (they share the {@link isMemoryIndexingSuppressed} signal), and on
+ * the next boot after indexing resumes this re-enqueues a backfill that drains
+ * from the preserved cursor forward, catching the messages missed during the
+ * disabled window before the completion sentinel is re-set and reads flip back
+ * to Qdrant.
+ *
+ * Guards to enqueue (when not suppressed):
  * - The completion sentinel must be unset. Once the backfill has fully drained
  *   on this instance there is nothing to do; the marker makes this idempotent
  *   across restarts.
@@ -80,7 +83,19 @@ const LEXICAL_BACKFILL_CHECKPOINT_ID_KEY = "lexical:messages:last_id";
  */
 export function maybeEnqueueLexicalBackfillOnUpgrade(): void {
   try {
-    if (isMemoryIndexingSuppressed()) return;
+    if (isMemoryIndexingSuppressed()) {
+      // Indexing is off, so messages written while suppressed are not in the
+      // index. Clear the completion sentinel (keep the cursor) so that once
+      // indexing resumes, the next boot re-runs the backfill from the cursor and
+      // heals the gap; until then the read paths stay on FTS via the same signal.
+      if (isLexicalBackfillComplete()) {
+        clearLexicalBackfillComplete();
+        log.info(
+          "Memory indexing suppressed — cleared lexical-index backfill completion so it re-runs when indexing resumes",
+        );
+      }
+      return;
+    }
     if (isLexicalBackfillComplete()) return;
     if (hasActiveJobOfType("backfill_lexical_index")) return;
     const jobId = enqueueMemoryJob("backfill_lexical_index", {});
