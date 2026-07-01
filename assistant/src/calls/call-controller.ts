@@ -754,7 +754,7 @@ export class CallController {
       // Do NOT flip to `speaking` here — provider synthesis latency (or the
       // no-audio fallback window) would still be silent. The transition happens
       // inside synthesizeAndStreamAudio when the play URL / first audio chunk
-      // (or native fallback token) is actually emitted. See JARVIS-1232.
+      // (or native fallback token) is actually emitted.
       await this.synthesizeAndStreamAudio(
         provider,
         sanitizedSynthText,
@@ -1251,8 +1251,7 @@ export class CallController {
   /**
    * Transient teardown race: a new voice turn reached the session bridge
    * before the previous turn released the conversation processing lock.
-   * This is not a real error and must never be spoken to the caller. See
-   * JARVIS-1232.
+   * This is not a real error and must never be spoken to the caller.
    */
   private isLockContentionError(err: unknown): boolean {
     return (
@@ -1266,7 +1265,7 @@ export class CallController {
    * first real outbound audio/token is emitted. Guarded so a superseded or
    * aborted (idle) turn never (re)enters `speaking`, and so barge-in
    * (handleBargeIn, gated on `speaking`) can't abort a turn that is still
-   * waiting for the processing lock or generating with no audio yet. See JARVIS-1232.
+   * waiting for the processing lock or generating with no audio yet.
    */
   private beginSpeaking(runVersion: number): void {
     if (!this.isCurrentRun(runVersion)) return;

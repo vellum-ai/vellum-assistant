@@ -42,7 +42,7 @@ const PROCESSING_WAIT_MARGIN_MS = 1000;
  * lock before giving up. The prior turn can hold the lock for the abort
  * unwind budget PLUS the awaited turn-boundary commit window, so the wait
  * must cover both (+ margin) or a barge-in can still surface
- * "Conversation is already processing a message". See JARVIS-1232.
+ * "Conversation is already processing a message".
  */
 export function resolveProcessingWaitMs(
   turnCommitMaxWaitMs: number,
@@ -397,7 +397,7 @@ export async function startVoiceTurn(
       // Waited the full budget (see resolveProcessingWaitMs) without the lock
       // releasing, so the prior turn is genuinely wedged. The controller
       // catches this terminal error and speaks a brief non-technical
-      // re-prompt rather than staying silent. See JARVIS-1232.
+      // re-prompt rather than staying silent.
       throw new Error("Conversation is already processing a message");
     }
   }
