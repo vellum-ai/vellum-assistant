@@ -64,6 +64,13 @@ import {
   type PluginSearchMatch,
 } from "../../cli/lib/search-plugins.js";
 import {
+  disablePlugin,
+  enablePlugin,
+  InvalidPluginNameError as InvalidTogglePluginNameError,
+  PluginAlreadyInStateException,
+  PluginDirectoryNotFoundError,
+} from "../../cli/lib/toggle-plugin.js";
+import {
   PluginNotInstalledError,
   uninstallPlugin,
 } from "../../cli/lib/uninstall-plugin.js";
@@ -73,8 +80,13 @@ import {
   type PluginUpgradeStrategy,
   upgradePlugin,
 } from "../../cli/lib/upgrade-plugin.js";
+import {
+  buildSyncChangedMessage,
+  SYNC_TAGS,
+} from "../../daemon/message-types/sync.js";
 import { isPluginDisabled } from "../../plugins/disabled-state.js";
 import { getLocalCategorySlugs } from "../../skills/categories-cache.js";
+import { broadcastMessage } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   BadRequestError,
@@ -1250,6 +1262,58 @@ async function handleUpgradePlugin({
 }
 
 // ---------------------------------------------------------------------------
+// Handler — enable / disable
+// ---------------------------------------------------------------------------
+
+/**
+ * Map a `toggle-plugin` lib error onto the transport-agnostic route error.
+ * `enablePlugin` / `disablePlugin` throw their own taxonomy (distinct from the
+ * install/uninstall libs): a malformed name → 400, no plugin directory → 404,
+ * and a no-op toggle (already in the requested state) → 409. Anything else
+ * (e.g. a filesystem failure) surfaces as an unexpected 500.
+ */
+function mapTogglePluginError(err: unknown): RouteError {
+  if (err instanceof InvalidTogglePluginNameError) {
+    return new BadRequestError(err.message);
+  }
+  if (err instanceof PluginDirectoryNotFoundError) {
+    return new NotFoundError(err.message);
+  }
+  if (err instanceof PluginAlreadyInStateException) {
+    return new ConflictError(err.message);
+  }
+  return new InternalError(
+    err instanceof Error ? err.message : "plugin toggle failed",
+  );
+}
+
+/**
+ * Toggle a plugin's `.disabled` sentinel through the shared toggle-plugin lib,
+ * then broadcast a generic `sync_changed(plugins:list)` so every client
+ * refetches `GET /v1/plugins`. Enable and disable emit the SAME invalidation —
+ * the tag names WHICH resource is stale, not the new value.
+ */
+function handleEnablePlugin({ pathParams = {} }: RouteHandlerArgs) {
+  try {
+    enablePlugin(pathParams.name ?? "");
+    broadcastMessage(buildSyncChangedMessage([SYNC_TAGS.pluginsList]));
+    return { ok: true };
+  } catch (err) {
+    throw mapTogglePluginError(err);
+  }
+}
+
+function handleDisablePlugin({ pathParams = {} }: RouteHandlerArgs) {
+  try {
+    disablePlugin(pathParams.name ?? "");
+    broadcastMessage(buildSyncChangedMessage([SYNC_TAGS.pluginsList]));
+    return { ok: true };
+  } catch (err) {
+    throw mapTogglePluginError(err);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
@@ -1570,5 +1634,76 @@ export const ROUTES: RouteDefinition[] = [
       },
     },
     handler: handleUpgradePlugin,
+  },
+  {
+    operationId: "plugins_enable",
+    endpoint: "plugins/:name/enable",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Enable a plugin",
+    description:
+      "Enable a plugin in this workspace by removing its `.disabled` sentinel, mirroring the CLI's `assistant plugins enable <name>`. The change is honored live at read time by every tool / injector / hook gate — no restart required. Broadcasts a `sync_changed` invalidation carrying the `plugins:list` tag so other clients refetch `GET /v1/plugins`. An already-enabled plugin returns 409; a name with no plugin directory returns 404 (prefix a default plugin with `default-`); a malformed name returns 400.",
+    tags: ["plugins"],
+    pathParams: [
+      {
+        name: "name",
+        type: "string",
+        description:
+          "Directory name under `<workspaceDir>/plugins/`. Prefix a default plugin with `default-`. Must be kebab-case alphanumerics.",
+      },
+    ],
+    responseBody: z.object({ ok: z.boolean() }),
+    additionalResponses: {
+      "400": {
+        description:
+          "The plugin name failed validation (not kebab-case alphanumerics).",
+      },
+      "404": {
+        description: "No plugin directory exists with the given name.",
+      },
+      "409": {
+        description: "The plugin is already enabled.",
+      },
+    },
+    handler: handleEnablePlugin,
+  },
+  {
+    operationId: "plugins_disable",
+    endpoint: "plugins/:name/disable",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Disable a plugin",
+    description:
+      "Disable a plugin in this workspace by dropping a `.disabled` sentinel, mirroring the CLI's `assistant plugins disable <name>`. The change is honored live at read time by every tool / injector / hook gate — no restart required. Broadcasts a `sync_changed` invalidation carrying the `plugins:list` tag so other clients refetch `GET /v1/plugins`. An already-disabled plugin returns 409; a user plugin with no directory returns 404 (default plugins are stubbed on demand via the `default-` prefix); a malformed name returns 400.",
+    tags: ["plugins"],
+    pathParams: [
+      {
+        name: "name",
+        type: "string",
+        description:
+          "Directory name under `<workspaceDir>/plugins/`. Prefix a default plugin with `default-`. Must be kebab-case alphanumerics.",
+      },
+    ],
+    responseBody: z.object({ ok: z.boolean() }),
+    additionalResponses: {
+      "400": {
+        description:
+          "The plugin name failed validation (not kebab-case alphanumerics).",
+      },
+      "404": {
+        description:
+          "No plugin directory exists with the given name (user plugins must already be installed).",
+      },
+      "409": {
+        description: "The plugin is already disabled.",
+      },
+    },
+    handler: handleDisablePlugin,
   },
 ];

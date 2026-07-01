@@ -30,6 +30,14 @@
  *   - Maps `PluginNotInstalledError` → NotFoundError (404)
  *   - Maps unknown errors → InternalError (500) with message preserved
  *
+ * POST /v1/plugins/:name/enable | disable (toggle):
+ *   - Forwards `pathParams.name` to the `enablePlugin` / `disablePlugin` lib
+ *   - Returns `{ ok: true }` and broadcasts a `sync_changed` carrying the
+ *     `plugins:list` tag (enable and disable emit the SAME invalidation)
+ *   - Maps `InvalidPluginNameError` → BadRequestError (400)
+ *   - Maps `PluginDirectoryNotFoundError` → NotFoundError (404)
+ *   - Maps `PluginAlreadyInStateException` → ConflictError (409); no broadcast
+ *
  * The library functions themselves are covered by
  * `assistant/src/cli/lib/__tests__/list-installed-plugins.test.ts`,
  * `.../search-plugins.test.ts`, and `.../uninstall-plugin.test.ts`;
@@ -75,6 +83,12 @@ import type {
   SearchPluginsDeps,
 } from "../../../cli/lib/search-plugins.js";
 import { PluginCatalogUnavailableError } from "../../../cli/lib/search-plugins.js";
+import {
+  InvalidPluginNameError as ToggleInvalidPluginNameError,
+  PluginAlreadyInStateException,
+  PluginDirectoryNotFoundError,
+  type TogglePluginResult,
+} from "../../../cli/lib/toggle-plugin.js";
 import {
   PluginNotInstalledError,
   type UninstallPluginOptions,
@@ -242,6 +256,35 @@ mock.module("../../../cli/lib/plugin-pin-history.js", () => ({
   resolvePinToMarketplaceCommit: resolvePinSpy,
 }));
 
+// Mock the toggle-plugin lib. `enablePlugin` / `disablePlugin` flip a
+// `.disabled` sentinel on disk in production; here we spy on them so the
+// route's broadcast + error mapping is the wiring under test. The error
+// classes pass through real so the handler's `instanceof` checks resolve to
+// the same classes the spies throw.
+const enablePluginSpy = mock((_name: string): TogglePluginResult => {
+  throw new Error("enablePluginSpy default impl not configured");
+});
+const disablePluginSpy = mock((_name: string): TogglePluginResult => {
+  throw new Error("disablePluginSpy default impl not configured");
+});
+
+mock.module("../../../cli/lib/toggle-plugin.js", () => ({
+  InvalidPluginNameError: ToggleInvalidPluginNameError,
+  PluginAlreadyInStateException,
+  PluginDirectoryNotFoundError,
+  disablePlugin: disablePluginSpy,
+  enablePlugin: enablePluginSpy,
+}));
+
+// Spy on broadcastMessage so we can assert the sync_changed invalidation the
+// enable/disable handlers emit. `buildSyncChangedMessage` is left real, so the
+// spy receives the actual `{ type: "sync_changed", tags: [...] }` payload.
+const broadcastMessageSpy = mock((_msg: unknown): void => {});
+
+mock.module("../../assistant-event-hub.js", () => ({
+  broadcastMessage: broadcastMessageSpy,
+}));
+
 // Make the valid-slug source deterministic: the real `getLocalCategorySlugs`
 // reads the bundled YAML (absent in the test sandbox), so we pin it to the
 // authoritative Skills taxonomy. This decouples the route's category
@@ -294,6 +337,8 @@ const inspectHandler = findHandler("plugins_inspect");
 const versionsHandler = findHandler("plugins_versions");
 const upgradeHandler = findHandler("plugins_upgrade");
 const diffHandler = findHandler("plugins_diff");
+const enableHandler = findHandler("plugins_enable");
+const disableHandler = findHandler("plugins_disable");
 
 async function invoke(args: RouteHandlerArgs = {}): Promise<{
   plugins: Array<Record<string, unknown>>;
@@ -2023,5 +2068,135 @@ describe("POST /v1/plugins/:name/diff", () => {
     }
     expect(caught).toBeInstanceOf(InternalError);
     expect((caught as Error).message).toContain("ECONNRESET");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /v1/plugins/:name/enable | disable (toggle)
+// ---------------------------------------------------------------------------
+
+function toggleResult(
+  name: string,
+  action: "enable" | "disable",
+): TogglePluginResult {
+  return {
+    name,
+    action,
+    sentinelPath: `/workspace/.vellum/plugins/${name}/.disabled`,
+  };
+}
+
+function invokeEnable(args: RouteHandlerArgs = {}): { ok: boolean } {
+  return enableHandler(args) as { ok: boolean };
+}
+
+function invokeDisable(args: RouteHandlerArgs = {}): { ok: boolean } {
+  return disableHandler(args) as { ok: boolean };
+}
+
+/** Assert the spy received exactly one sync_changed carrying `plugins:list`. */
+function expectPluginsListBroadcast(): void {
+  expect(broadcastMessageSpy.mock.calls).toHaveLength(1);
+  const [msg] = broadcastMessageSpy.mock.calls[0]!;
+  expect(msg).toMatchObject({ type: "sync_changed" });
+  expect((msg as { tags: string[] }).tags).toContain("plugins:list");
+}
+
+describe("POST /v1/plugins/:name/enable", () => {
+  beforeEach(() => {
+    enablePluginSpy.mockReset();
+    broadcastMessageSpy.mockReset();
+  });
+
+  test("enables the plugin and broadcasts sync_changed(plugins:list)", () => {
+    enablePluginSpy.mockImplementation((name) => toggleResult(name, "enable"));
+
+    const result = invokeEnable({ pathParams: { name: "simple-memory" } });
+
+    expect(result).toEqual({ ok: true });
+    expect(enablePluginSpy.mock.calls[0]?.[0]).toBe("simple-memory");
+    expectPluginsListBroadcast();
+  });
+
+  test("PluginAlreadyInStateException → ConflictError (409), no broadcast", () => {
+    enablePluginSpy.mockImplementation((name) => {
+      throw new PluginAlreadyInStateException(name, "enable");
+    });
+
+    expect(() =>
+      invokeEnable({ pathParams: { name: "simple-memory" } }),
+    ).toThrow(ConflictError);
+    // A no-op toggle must not fan out a spurious invalidation.
+    expect(broadcastMessageSpy).not.toHaveBeenCalled();
+  });
+
+  test("PluginDirectoryNotFoundError → NotFoundError (404)", () => {
+    enablePluginSpy.mockImplementation((name) => {
+      throw new PluginDirectoryNotFoundError(name);
+    });
+
+    expect(() => invokeEnable({ pathParams: { name: "ghost" } })).toThrow(
+      NotFoundError,
+    );
+  });
+
+  test("InvalidPluginNameError → BadRequestError (400)", () => {
+    enablePluginSpy.mockImplementation(() => {
+      throw new ToggleInvalidPluginNameError("../escape");
+    });
+
+    expect(() => invokeEnable({ pathParams: { name: "../escape" } })).toThrow(
+      BadRequestError,
+    );
+  });
+});
+
+describe("POST /v1/plugins/:name/disable", () => {
+  beforeEach(() => {
+    disablePluginSpy.mockReset();
+    broadcastMessageSpy.mockReset();
+  });
+
+  test("disables the plugin and broadcasts sync_changed(plugins:list)", () => {
+    disablePluginSpy.mockImplementation((name) => toggleResult(name, "disable"));
+
+    const result = invokeDisable({ pathParams: { name: "simple-memory" } });
+
+    expect(result).toEqual({ ok: true });
+    expect(disablePluginSpy.mock.calls[0]?.[0]).toBe("simple-memory");
+    // Enable and disable emit the SAME invalidation — the tag names the
+    // resource, not the new value.
+    expectPluginsListBroadcast();
+  });
+
+  test("PluginAlreadyInStateException → ConflictError (409), no broadcast", () => {
+    disablePluginSpy.mockImplementation((name) => {
+      throw new PluginAlreadyInStateException(name, "disable");
+    });
+
+    expect(() =>
+      invokeDisable({ pathParams: { name: "simple-memory" } }),
+    ).toThrow(ConflictError);
+    expect(broadcastMessageSpy).not.toHaveBeenCalled();
+  });
+
+  test("PluginDirectoryNotFoundError → NotFoundError (404)", () => {
+    disablePluginSpy.mockImplementation((name) => {
+      throw new PluginDirectoryNotFoundError(name);
+    });
+
+    expect(() => invokeDisable({ pathParams: { name: "ghost" } })).toThrow(
+      NotFoundError,
+    );
+  });
+
+  test("InvalidPluginNameError → BadRequestError (400)", () => {
+    disablePluginSpy.mockImplementation(() => {
+      throw new ToggleInvalidPluginNameError("../escape");
+    });
+
+    expect(() => invokeDisable({ pathParams: { name: "../escape" } })).toThrow(
+      BadRequestError,
+    );
   });
 });
