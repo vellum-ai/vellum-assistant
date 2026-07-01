@@ -26,6 +26,8 @@
  * DELETE /v1/plugins/:name (uninstall):
  *   - Forwards `pathParams.name` to the `uninstallPlugin` lib
  *   - Returns `{ name, target }` mirroring the lib's `UninstallPluginResult`
+ *   - Publishes `sync_changed(plugins:list)` on success (threading the
+ *     `x-vellum-client-id` origin); no broadcast on an error path
  *   - Maps `InvalidPluginNameError` → BadRequestError (400)
  *   - Maps `PluginNotInstalledError` → NotFoundError (404)
  *   - Maps unknown errors → InternalError (500) with message preserved
@@ -1089,6 +1091,7 @@ function invokeUninstall(args: RouteHandlerArgs = {}): {
 describe("DELETE /v1/plugins/:name", () => {
   beforeEach(() => {
     uninstallSpy.mockReset();
+    broadcastMessageSpy.mockReset();
   });
 
   test("forwards pathParams.name to uninstallPlugin and returns its result", () => {
@@ -1104,6 +1107,35 @@ describe("DELETE /v1/plugins/:name", () => {
     expect(result).toEqual({
       name: "simple-memory",
       target: "/workspace/.vellum/plugins/simple-memory",
+    });
+  });
+
+  test("publishes sync_changed(plugins:list) on a successful uninstall", () => {
+    uninstallSpy.mockImplementation((opts) => ({
+      name: opts.name,
+      target: `/workspace/.vellum/plugins/${opts.name}`,
+    }));
+
+    invokeUninstall({ pathParams: { name: "simple-memory" } });
+
+    expectPluginsListBroadcast();
+  });
+
+  test("threads x-vellum-client-id into the published event's originClientId", () => {
+    uninstallSpy.mockImplementation((opts) => ({
+      name: opts.name,
+      target: `/workspace/.vellum/plugins/${opts.name}`,
+    }));
+
+    invokeUninstall({
+      pathParams: { name: "simple-memory" },
+      headers: { "x-vellum-client-id": "client-abc" },
+    });
+
+    const [msg] = broadcastMessageSpy.mock.calls[0]!;
+    expect(msg).toMatchObject({
+      type: "sync_changed",
+      originClientId: "client-abc",
     });
   });
 
@@ -1131,7 +1163,7 @@ describe("DELETE /v1/plugins/:name", () => {
     ).toThrow(BadRequestError);
   });
 
-  test("PluginNotInstalledError → NotFoundError (404)", () => {
+  test("PluginNotInstalledError → NotFoundError (404), no broadcast", () => {
     uninstallSpy.mockImplementation((opts) => {
       throw new PluginNotInstalledError(
         opts.name,
@@ -1142,6 +1174,8 @@ describe("DELETE /v1/plugins/:name", () => {
     expect(() => invokeUninstall({ pathParams: { name: "ghost" } })).toThrow(
       NotFoundError,
     );
+    // A failed uninstall must not fan out a spurious invalidation.
+    expect(broadcastMessageSpy).not.toHaveBeenCalled();
   });
 
   test("unknown errors → InternalError with original message preserved", () => {
@@ -1304,6 +1338,7 @@ describe("POST /v1/plugins/install", () => {
   beforeEach(() => {
     installSpy.mockReset();
     resolvePinSpy.mockReset();
+    broadcastMessageSpy.mockReset();
   });
 
   test("forwards name/force and shapes the result, pinning ref to the default", async () => {
@@ -1331,6 +1366,43 @@ describe("POST /v1/plugins/install", () => {
       name: "caveman",
       ref: "main",
       force: true,
+    });
+  });
+
+  test("publishes sync_changed(plugins:list) on a successful install", async () => {
+    installSpy.mockImplementation(async (opts) => ({
+      name: opts.name,
+      target: `/workspace/.vellum/plugins/${opts.name}`,
+      fileCount: 7,
+      ref: opts.ref ?? "main",
+      commit: null,
+      committedAt: null,
+    }));
+
+    await invokeInstall({ body: { name: "caveman" } });
+
+    expectPluginsListBroadcast();
+  });
+
+  test("threads x-vellum-client-id into the published event's originClientId", async () => {
+    installSpy.mockImplementation(async (opts) => ({
+      name: opts.name,
+      target: `/workspace/.vellum/plugins/${opts.name}`,
+      fileCount: 7,
+      ref: opts.ref ?? "main",
+      commit: null,
+      committedAt: null,
+    }));
+
+    await invokeInstall({
+      body: { name: "caveman" },
+      headers: { "x-vellum-client-id": "client-abc" },
+    });
+
+    const [msg] = broadcastMessageSpy.mock.calls[0]!;
+    expect(msg).toMatchObject({
+      type: "sync_changed",
+      originClientId: "client-abc",
     });
   });
 
@@ -1390,7 +1462,7 @@ describe("POST /v1/plugins/install", () => {
     ).rejects.toBeInstanceOf(ConflictError);
   });
 
-  test("PluginNotFoundError → NotFoundError (404)", async () => {
+  test("PluginNotFoundError → NotFoundError (404), no broadcast", async () => {
     installSpy.mockImplementation(async (opts) => {
       throw new PluginNotFoundError(opts.name, "main", "example-org/ghost");
     });
@@ -1398,6 +1470,8 @@ describe("POST /v1/plugins/install", () => {
     await expect(
       invokeInstall({ body: { name: "ghost" } }),
     ).rejects.toBeInstanceOf(NotFoundError);
+    // A failed install must not fan out a spurious invalidation.
+    expect(broadcastMessageSpy).not.toHaveBeenCalled();
   });
 
   test("PluginSourceUnavailableError → ServiceUnavailableError (503)", async () => {
@@ -1743,6 +1817,30 @@ async function invokeUpgrade(args: RouteHandlerArgs = {}): Promise<{
 describe("POST /v1/plugins/:name/upgrade", () => {
   beforeEach(() => {
     upgradeSpy.mockReset();
+    broadcastMessageSpy.mockReset();
+  });
+
+  test("publishes sync_changed(plugins:list) on a successful upgrade", async () => {
+    upgradeSpy.mockImplementation(async () => upgradeResult());
+
+    await invokeUpgrade({ pathParams: { name: "level-up" } });
+
+    expectPluginsListBroadcast();
+  });
+
+  test("threads x-vellum-client-id into the published event's originClientId", async () => {
+    upgradeSpy.mockImplementation(async () => upgradeResult());
+
+    await invokeUpgrade({
+      pathParams: { name: "level-up" },
+      headers: { "x-vellum-client-id": "client-abc" },
+    });
+
+    const [msg] = broadcastMessageSpy.mock.calls[0]!;
+    expect(msg).toMatchObject({
+      type: "sync_changed",
+      originClientId: "client-abc",
+    });
   });
 
   test("forwards name + dryRun and projects the upgrade result", async () => {
@@ -1878,7 +1976,7 @@ describe("POST /v1/plugins/:name/upgrade", () => {
     ).rejects.toBeInstanceOf(BadRequestError);
   });
 
-  test("PluginNotInstalledError → NotFoundError (404)", async () => {
+  test("PluginNotInstalledError → NotFoundError (404), no broadcast", async () => {
     upgradeSpy.mockImplementation(async () => {
       throw new PluginNotInstalledError(
         "ghost",
@@ -1889,6 +1987,8 @@ describe("POST /v1/plugins/:name/upgrade", () => {
     await expect(
       invokeUpgrade({ pathParams: { name: "ghost" } }),
     ).rejects.toBeInstanceOf(NotFoundError);
+    // A failed upgrade must not fan out a spurious invalidation.
+    expect(broadcastMessageSpy).not.toHaveBeenCalled();
   });
 
   test("PluginNotUpgradableError → ConflictError (409)", async () => {

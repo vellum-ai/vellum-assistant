@@ -941,6 +941,7 @@ interface PluginUninstallResponse {
 
 function handleUninstallPlugin({
   pathParams = {},
+  headers,
 }: RouteHandlerArgs): PluginUninstallResponse {
   // The HTTP router has already URL-decoded `:name` for us; pass it
   // through verbatim — `uninstallPlugin` runs the same
@@ -950,6 +951,7 @@ function handleUninstallPlugin({
 
   try {
     const result = uninstallPlugin({ name: rawName });
+    publishPluginsChanged(getOriginClientId(headers));
     return { name: result.name, target: result.target };
   } catch (err) {
     if (err instanceof InvalidPluginNameError) {
@@ -1021,7 +1023,7 @@ async function resolveInstallMarketplaceRef(
   return entry.marketplaceCommit;
 }
 
-async function handleInstallPlugin({ body = {} }: RouteHandlerArgs) {
+async function handleInstallPlugin({ body = {}, headers }: RouteHandlerArgs) {
   const name = typeof body.name === "string" ? body.name : "";
   if (!name) {
     throw new BadRequestError("`name` is required");
@@ -1045,6 +1047,7 @@ async function handleInstallPlugin({ body = {} }: RouteHandlerArgs) {
       { name, ref: marketplaceRef, force },
       { fetch: globalThis.fetch.bind(globalThis) },
     );
+    publishPluginsChanged(getOriginClientId(headers));
     return {
       ok: true as const,
       name: result.name,
@@ -1195,6 +1198,7 @@ async function handleDiffPlugin({ pathParams = {} }: RouteHandlerArgs) {
 async function handleUpgradePlugin({
   pathParams = {},
   body = {},
+  headers,
 }: RouteHandlerArgs) {
   const rawName = pathParams.name ?? "";
   const dryRun = typeof body.dryRun === "boolean" ? body.dryRun : undefined;
@@ -1212,6 +1216,7 @@ async function handleUpgradePlugin({
       { name: rawName, dryRun, strategy },
       { fetch: globalThis.fetch.bind(globalThis) },
     );
+    publishPluginsChanged(getOriginClientId(headers));
     return {
       name: result.name,
       outcome: result.outcome,
