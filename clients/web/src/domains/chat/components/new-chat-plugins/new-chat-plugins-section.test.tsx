@@ -1,15 +1,14 @@
 /**
- * Tests for `NewChatPluginsSection`, the plugin picker under the new-chat
- * composer. Rendered to static markup (no DOM needed): the installed list is
- * supplied by seeding the `pluginsGet` React Query cache so `useNewChatPlugins`
- * resolves synchronously on the first render, mirroring how `plugins-tab.test`
- * drives the same read. Assertions cover the header, the Manage Plugins link
- * href, one pill per plugin, the collapsed "Show all (+N)" cap, and the
- * nothing-installed null render.
+ * Tests for `NewChatPluginsSection`, the collapsed entry point under the
+ * new-chat composer. Reads the installed list via `useNewChatPlugins` (seeded
+ * through the pluginsGet query cache) and reveals the `NewChatPluginsPicker`
+ * on click. Assertions cover the nothing-installed null render, the collapsed
+ * default button, and the reveal interaction.
  */
 
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 
@@ -27,11 +26,8 @@ function installed(name: string): InstalledPlugin {
   return { id: name, name, description: null, version: null };
 }
 
-/**
- * Render the section to static markup with the installed list pre-seeded in
- * the query cache so the data hook reports it synchronously.
- */
-function renderSection(plugins: InstalledPlugin[]): string {
+/** Query client with the installed list pre-seeded so the hook resolves sync. */
+function makeClient(plugins: InstalledPlugin[]): QueryClient {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -42,13 +38,16 @@ function renderSection(plugins: InstalledPlugin[]): string {
     }),
     { plugins } as PluginsGetResponse,
   );
+  return client;
+}
 
-  return renderToStaticMarkup(
+function ui(client: QueryClient) {
+  return (
     <MemoryRouter>
       <QueryClientProvider client={client}>
         <NewChatPluginsSection assistantId={ASSISTANT_ID} />
       </QueryClientProvider>
-    </MemoryRouter>,
+    </MemoryRouter>
   );
 }
 
@@ -57,44 +56,39 @@ beforeEach(() => {
   useConversationStore.getState().setActiveConversationId("draft-1");
 });
 
-describe("NewChatPluginsSection", () => {
-  test("renders the header, info tooltip, manage link, and one pill per plugin", () => {
-    const html = renderSection([
-      installed("simple-memory"),
-      installed("weather"),
-      installed("calendar"),
-    ]);
+afterEach(() => {
+  cleanup();
+});
 
-    expect(html).toContain("Add plugins for new chat");
-    // The info tooltip trigger renders the lucide Info glyph.
-    expect(html).toContain("lucide-info");
-    // Manage Plugins links to the plugins route.
-    expect(html).toContain("Manage Plugins");
-    expect(html).toContain('href="/assistant/plugins"');
-    // One pill per installed plugin.
-    expect(html).toContain("simple-memory");
-    expect(html).toContain("weather");
-    expect(html).toContain("calendar");
-    // Below the collapse threshold, no expander.
-    expect(html).not.toContain("Show all");
+describe("NewChatPluginsSection", () => {
+  test("renders nothing when no plugins are installed", () => {
+    expect(renderToStaticMarkup(ui(makeClient([])))).toBe("");
   });
 
-  test("caps the collapsed view and shows a Show all (+N) affordance", () => {
-    const plugins = Array.from({ length: 14 }, (_, i) =>
-      installed(`plugin-${String(i + 1).padStart(2, "0")}`),
+  test("collapsed by default: shows the Add Plugins to Chat button, not the picker", () => {
+    const html = renderToStaticMarkup(
+      ui(makeClient([installed("simple-memory")])),
     );
 
-    const html = renderSection(plugins);
-
-    // First 12 pills render; the overflow is hidden behind the expander.
-    expect(html).toContain("plugin-01");
-    expect(html).toContain("plugin-12");
-    expect(html).not.toContain("plugin-13");
-    expect(html).not.toContain("plugin-14");
-    expect(html).toContain("Show all (+2)");
+    expect(html).toContain("Add Plugins to Chat");
+    // The picker header and pills stay hidden until revealed.
+    expect(html).not.toContain("Add plugins for new chat");
+    expect(html).not.toContain("simple-memory");
   });
 
-  test("renders nothing when no plugins are installed", () => {
-    expect(renderSection([])).toBe("");
+  test("clicking Add Plugins to Chat reveals the picker", () => {
+    render(ui(makeClient([installed("simple-memory"), installed("weather")])));
+
+    // Collapsed: the picker is absent.
+    expect(screen.queryByText("Add plugins for new chat")).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add Plugins to Chat" }),
+    );
+
+    // Revealed: the picker header and one pill per plugin now render.
+    expect(screen.getByText("Add plugins for new chat")).toBeTruthy();
+    expect(screen.getByText("simple-memory")).toBeTruthy();
+    expect(screen.getByText("weather")).toBeTruthy();
   });
 });
