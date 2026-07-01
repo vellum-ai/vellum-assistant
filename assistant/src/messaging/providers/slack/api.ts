@@ -6,6 +6,9 @@
  * classification, and payload shapes follow Slack Web API conventions.
  */
 
+import type { KnownBlock } from "@slack/types";
+import type { SlackStreamTask } from "@vellumai/gateway-client";
+
 import { credentialKey } from "../../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../../security/secure-keys.js";
 import { getLogger } from "../../../util/logger.js";
@@ -265,6 +268,108 @@ async function callSlackApiGet(
   throw new Error(
     `Slack ${method} failed after retries: ${lastError ?? "unknown"}`,
   );
+}
+
+// ---------------------------------------------------------------------------
+// Streaming (chat.startStream / chat.appendStream / chat.stopStream)
+// ---------------------------------------------------------------------------
+
+/** Slack caps `markdown_text` at 12,000 characters per stream call. */
+export const SLACK_STREAM_MARKDOWN_LIMIT = 12_000;
+
+/**
+ * A `task_update` streaming chunk. Identical in shape to the Slack task card
+ * block, used to render plan progress while a stream is open.
+ *
+ * @see https://docs.slack.dev/reference/methods/chat.appendStream/
+ */
+function toTaskUpdateChunks(
+  tasks: readonly SlackStreamTask[] | undefined,
+): Record<string, unknown>[] | undefined {
+  if (!tasks || tasks.length === 0) return undefined;
+  return tasks.map((task) => ({
+    type: "task_update",
+    id: task.id,
+    title: task.title,
+    status: task.status,
+    ...(task.details ? { details: task.details } : {}),
+    ...(task.output ? { output: task.output } : {}),
+  }));
+}
+
+/**
+ * Open a streamed reply on a thread, returning its `ts` for subsequent
+ * appends. `task_display_mode: "plan"` renders task chunks as a native plan.
+ *
+ * @see https://docs.slack.dev/reference/methods/chat.startStream/
+ */
+export async function startSlackStream(params: {
+  channel: string;
+  threadTs: string;
+  markdownText?: string;
+  taskDisplayMode?: "plan";
+  tasks?: readonly SlackStreamTask[];
+}): Promise<string | undefined> {
+  const body: Record<string, unknown> = {
+    channel: params.channel,
+    thread_ts: params.threadTs,
+  };
+  if (params.markdownText) body.markdown_text = params.markdownText;
+  if (params.taskDisplayMode) body.task_display_mode = params.taskDisplayMode;
+  const chunks = toTaskUpdateChunks(params.tasks);
+  if (chunks) body.chunks = chunks;
+
+  const data = await callSlackApi("chat.startStream", body);
+  return data.ts;
+}
+
+/**
+ * Append markdown and/or task chunks to an open stream. Slack accepts an append
+ * carrying either `markdown_text` or `chunks`, so a task-only append advances
+ * the plan block without new body text.
+ *
+ * @see https://docs.slack.dev/reference/methods/chat.appendStream/
+ */
+export async function appendSlackStream(params: {
+  channel: string;
+  streamTs: string;
+  markdownText?: string;
+  tasks?: readonly SlackStreamTask[];
+}): Promise<void> {
+  const body: Record<string, unknown> = {
+    channel: params.channel,
+    ts: params.streamTs,
+  };
+  if (params.markdownText) body.markdown_text = params.markdownText;
+  const chunks = toTaskUpdateChunks(params.tasks);
+  if (chunks) body.chunks = chunks;
+
+  await callSlackApi("chat.appendStream", body);
+}
+
+/**
+ * Finalize a stream, optionally rendering rich Block Kit blocks at the bottom
+ * of the message. Blocks are accepted only here, not on append.
+ *
+ * @see https://docs.slack.dev/reference/methods/chat.stopStream/
+ */
+export async function stopSlackStream(params: {
+  channel: string;
+  streamTs: string;
+  markdownText?: string;
+  blocks?: readonly KnownBlock[];
+  tasks?: readonly SlackStreamTask[];
+}): Promise<void> {
+  const body: Record<string, unknown> = {
+    channel: params.channel,
+    ts: params.streamTs,
+  };
+  if (params.markdownText) body.markdown_text = params.markdownText;
+  if (params.blocks && params.blocks.length > 0) body.blocks = params.blocks;
+  const chunks = toTaskUpdateChunks(params.tasks);
+  if (chunks) body.chunks = chunks;
+
+  await callSlackApi("chat.stopStream", body);
 }
 
 function normalizeSlackString(value: unknown): string | undefined {

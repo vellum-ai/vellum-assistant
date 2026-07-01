@@ -10,36 +10,6 @@ import { eq } from "drizzle-orm";
 import { getDb } from "./db-connection.js";
 import { channelInboundEvents } from "./schema.js";
 
-const SLACK_DM_LIVE_DELIVERED_TEXT_RESPONSE_INDEXES =
-  "slackDmLiveDeliveredTextResponseIndexes";
-
-function parseRawPayload(
-  rawPayload: string | null,
-): Record<string, unknown> | undefined {
-  if (!rawPayload) return undefined;
-  try {
-    const parsed = JSON.parse(rawPayload) as unknown;
-    if (
-      parsed === null ||
-      typeof parsed !== "object" ||
-      Array.isArray(parsed)
-    ) {
-      return undefined;
-    }
-    return parsed as Record<string, unknown>;
-  } catch {
-    return undefined;
-  }
-}
-
-function normalizePositiveIntegerIndexes(value: unknown): number[] {
-  if (!Array.isArray(value)) return [];
-  const indexes = value.filter(
-    (item): item is number => Number.isSafeInteger(item) && item > 0,
-  );
-  return [...new Set(indexes)].sort((a, b) => a - b);
-}
-
 // ── Per-segment delivery progress ──────────────────────────────────
 //
 // When a split reply (multiple text segments from tool boundaries) fails
@@ -59,58 +29,6 @@ export function updateDeliveredSegmentCount(
     .set({ deliveredSegmentCount: count, updatedAt: Date.now() })
     .where(eq(channelInboundEvents.id, eventId))
     .run();
-}
-
-export function getSlackDmLiveDeliveredTextResponseIndexes(
-  eventId: string,
-): number[] {
-  const db = getDb();
-  const row = db
-    .select({ rawPayload: channelInboundEvents.rawPayload })
-    .from(channelInboundEvents)
-    .where(eq(channelInboundEvents.id, eventId))
-    .get();
-  const payload = parseRawPayload(row?.rawPayload ?? null);
-  if (!payload) return [];
-  return normalizePositiveIntegerIndexes(
-    payload[SLACK_DM_LIVE_DELIVERED_TEXT_RESPONSE_INDEXES],
-  );
-}
-
-export function addSlackDmLiveDeliveredTextResponseIndex(
-  eventId: string,
-  responseIndex: number,
-): void {
-  if (!Number.isSafeInteger(responseIndex) || responseIndex <= 0) return;
-
-  const db = getDb();
-  db.transaction((tx) => {
-    const row = tx
-      .select({ rawPayload: channelInboundEvents.rawPayload })
-      .from(channelInboundEvents)
-      .where(eq(channelInboundEvents.id, eventId))
-      .get();
-    if (!row?.rawPayload) return;
-
-    const payload = parseRawPayload(row.rawPayload);
-    if (!payload) return;
-    const indexes = normalizePositiveIntegerIndexes(
-      payload[SLACK_DM_LIVE_DELIVERED_TEXT_RESPONSE_INDEXES],
-    );
-    if (!indexes.includes(responseIndex)) indexes.push(responseIndex);
-    indexes.sort((a, b) => a - b);
-
-    tx.update(channelInboundEvents)
-      .set({
-        rawPayload: JSON.stringify({
-          ...payload,
-          [SLACK_DM_LIVE_DELIVERED_TEXT_RESPONSE_INDEXES]: indexes,
-        }),
-        updatedAt: Date.now(),
-      })
-      .where(eq(channelInboundEvents.id, eventId))
-      .run();
-  });
 }
 
 // ── Deliver-once guard for terminal reply idempotency ────────────────
