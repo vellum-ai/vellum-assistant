@@ -41,7 +41,7 @@ export function ConceptGraphLegend({
           </span>
         </div>
       ))}
-      {(hasLinks || hasLearned) && (
+      {nodeKinds.length > 0 && (hasLinks || hasLearned) && (
         <div
           className="mt-0.5 border-t pt-1.5"
           style={{ borderColor: "var(--border-base)" }}
