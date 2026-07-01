@@ -28,5 +28,9 @@ export async function searchMessageIdsLexical(
   opts?: { conversationId?: string },
 ): Promise<MessageLexicalSearchResult[]> {
   const sparse = generateSparseEmbedding(query);
+  // A query that tokenizes to nothing (whitespace/punctuation-only) yields an
+  // empty sparse vector; matching the FTS paths and other sparse callers,
+  // return no candidates without querying Qdrant on an empty vector.
+  if (sparse.indices.length === 0) return [];
   return getMessagesLexicalIndex().searchLexical(sparse, limit, opts);
 }

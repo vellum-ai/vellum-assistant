@@ -4,9 +4,13 @@ import type { SparseEmbedding } from "../embeddings/embedding-types.js";
 import type { MessageLexicalSearchResult } from "../embeddings/messages-lexical-index.js";
 
 const SPARSE: SparseEmbedding = { indices: [1, 2, 3], values: [0.5, 0.5, 0.5] };
+const EMPTY_SPARSE: SparseEmbedding = { indices: [], values: [] };
 
+// Mirror the real encoder: input that tokenizes to nothing (only whitespace
+// or punctuation) yields an empty sparse vector.
 const generateSparseEmbeddingMock = mock(
-  (_text: string): SparseEmbedding => SPARSE,
+  (text: string): SparseEmbedding =>
+    /[\p{L}\p{N}]/u.test(text) ? SPARSE : EMPTY_SPARSE,
 );
 
 const searchLexicalMock = mock(
@@ -73,5 +77,15 @@ describe("searchMessageIdsLexical", () => {
     expect(searchLexicalMock.mock.calls[0]![2]).toEqual({
       conversationId: "conv-xyz",
     });
+  });
+
+  test("returns [] without querying the index for an empty-after-tokenize query", async () => {
+    searchLexicalMock.mockClear();
+
+    const results = await searchMessageIdsLexical("   ... !!! ", 5);
+
+    expect(results).toEqual([]);
+    // The empty sparse vector must never reach Qdrant.
+    expect(searchLexicalMock).not.toHaveBeenCalled();
   });
 });
