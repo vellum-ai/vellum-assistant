@@ -910,7 +910,13 @@ export class CallController {
         // token-based speech on ConversationRelay so the caller still
         // hears a response instead of silence. This fallback is only
         // used for providers whose catalog entry allows native fallback.
-        if (!playUrlSent && !this.transport.requiresWavAudio) {
+        // Skip it entirely for a superseded run so a stale response can't
+        // leak into the next caller turn.
+        if (
+          !playUrlSent &&
+          !this.transport.requiresWavAudio &&
+          this.isCurrentRun(runVersion)
+        ) {
           this.beginSpeaking(runVersion);
           this.transport.sendTextToken(text, false);
         }

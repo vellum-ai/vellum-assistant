@@ -2727,6 +2727,65 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
+  test("synthesized provider: a superseded run does not emit native fallback text", async () => {
+    const cfg = loadConfig();
+    cfg.services.tts.provider = "fish-audio";
+    cfg.services.tts.providers["fish-audio"].referenceId = "fish-ref-123";
+
+    _resetTtsProviderRegistry();
+    // elevenlabs present so native fallback is available for fish-audio.
+    const elevenlabs: TtsProvider = {
+      id: "elevenlabs",
+      capabilities: { supportsStreaming: false, supportedFormats: ["mp3"] },
+      async synthesize() {
+        return { audio: Buffer.from(""), contentType: "audio/mpeg" };
+      },
+    };
+    registerTtsProvider(elevenlabs);
+
+    let releaseSynth: (() => void) | undefined;
+    const synthGate = new Promise<void>((resolve) => {
+      releaseSynth = resolve;
+    });
+    const fishAudioGatedFailing: TtsProvider = {
+      id: "fish-audio",
+      capabilities: {
+        supportsStreaming: true,
+        supportedFormats: ["mp3", "wav", "opus"],
+      },
+      async synthesize() {
+        throw new Error("fish-audio synth failure");
+      },
+      async synthesizeStream() {
+        // Ignore the abort signal, block, then fail with no audio — this would
+        // normally trigger the native fallback text emission.
+        await synthGate;
+        throw new Error("fish-audio stream failure");
+      },
+    };
+    registerTtsProvider(fishAudioGatedFailing);
+
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["Stale synthesized response"]),
+    );
+    const { relay, controller } = setupController();
+
+    const turn = controller.handleCallerUtterance("Hi");
+    await new Promise((r) => setTimeout(r, 20)); // reach synthesis, blocked
+
+    // Supersede the turn mid-synthesis, then let synthesis fail.
+    controller.handleInterrupt();
+    releaseSynth?.();
+    await turn;
+
+    // The stale run must NOT leak its native fallback text into the relay.
+    const emitted = relay.sentTokens.map((t) => t.token).join("");
+    expect(emitted).not.toContain("Stale synthesized response");
+    expect(relay.sentPlayUrls.length).toBe(0);
+
+    controller.destroy();
+  });
+
   test("synthesized provider: play URL uses public base URL", async () => {
     const cfg = loadConfig();
     cfg.ingress.publicBaseUrl = "https://twilio.example.com/";
