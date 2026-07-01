@@ -2,7 +2,6 @@ import { and, count, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 
 import { getMessagesSearchBackend } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
-import memoryPkg from "../plugins/defaults/memory/package.json" with { type: "json" };
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import {
   parseExternalContentEnvelope,
@@ -24,6 +23,17 @@ import { rawAll } from "./raw-query.js";
 import { conversations, messages } from "./schema/index.js";
 
 const log = getLogger("conversation-store");
+
+/**
+ * Package name of the `default-memory` plugin, matched against its `.disabled`
+ * sentinel via {@link isPluginDisabled}. Hardcoded (rather than imported from
+ * the plugin's `package.json`) to keep persistence from importing the memory
+ * *feature* — the one-way memory → persistence boundary enforced by
+ * `persistence-layering-guard.test.ts`. `isPluginDisabled` is a generic plugin
+ * mechanism, not a memory-feature import. Kept in sync with the plugin's
+ * package.json `name`; the same literal is used by migration 116.
+ */
+const MEMORY_PLUGIN_NAME = "default-memory";
 
 /**
  * Max distinct visible conversations {@link searchConversations} collects from
@@ -573,7 +583,7 @@ function likeContentMatchMessages(
  *      partially populated, so older content is missing until it drains.
  */
 function resolveMessageSearchBackend(): "fts5" | "qdrant" {
-  if (!isMemoryEnabled() || isPluginDisabled(memoryPkg.name)) return "fts5";
+  if (!isMemoryEnabled() || isPluginDisabled(MEMORY_PLUGIN_NAME)) return "fts5";
   const flagBackend = getMessagesSearchBackend(getConfig());
   if (flagBackend === "qdrant" && !isLexicalBackfillComplete()) return "fts5";
   return flagBackend;
