@@ -6,7 +6,7 @@ import {
   type ReactNode,
 } from "react";
 
-import { Eye, Paperclip, Square, X } from "lucide-react";
+import { Paperclip, X } from "lucide-react";
 
 import { QuestionPromptSlot } from "@/domains/chat/components/question-prompt-slot";
 import { StagedQuotesStrip } from "@/domains/chat/components/staged-quotes-strip";
@@ -72,15 +72,9 @@ export interface ChatBodyProps {
   /**
    * The composer element to render below the scroll area. The orchestrator
    * builds `<ChatComposer …/>` with explicit props and passes it as a node;
-   * `ChatBody` only positions it (and swaps it for the read-only banner).
+   * `ChatBody` only positions it.
    */
   composerSlot: ReactNode;
-  /**
-   * Stop-generation handler for the read-only banner's cancel control. In
-   * read-only conversations the composer is replaced by the banner, so this is
-   * passed alongside {@link composerSlot} rather than read off it.
-   */
-  onStopGenerating: () => void;
 
   /** Drag handlers attached to the outer container for attachment drag-and-drop. */
   dragHandlers: ChatBodyDragHandlers;
@@ -115,14 +109,6 @@ export interface ChatBodyProps {
    */
   onDismissChatError?: () => void;
 
-  /** When true, a read-only banner replaces the composer entirely. */
-  isChannelReadonly: boolean;
-  /**
-   * True when the read-only banner should expose the active turn
-   * cancellation control.
-   */
-  canStopGenerating?: boolean;
-
   /**
    * Optional pre-rendered banner stack (mobile-app nudge / GitHub / Discord)
    * rendered alongside the scroll-to-latest button in the absolute-positioned
@@ -139,15 +125,9 @@ export interface ChatBodyProps {
 
   /**
    * Optional pre-rendered footer rendered inside the max-width wrapper
-   * immediately above the composer or read-only banner.
+   * immediately above the composer.
    */
   channelFooterSlot?: ReactNode;
-
-  /**
-   * Optional replacement for the generic read-only banner. Used by channel
-   * surfaces that can provide a native "open there" action.
-   */
-  readonlyBannerSlot?: ReactNode;
 
   /**
    * Optional conversation-starter chip grid rendered inside the max-width
@@ -185,42 +165,10 @@ export interface ChatBodyProps {
   activeProcessOverlaysSlot?: ReactNode;
 }
 
-/**
- * Read-only composer replacement shown when the active conversation is
- * bound to an external channel (Slack, Telegram, voice/phone, etc.).
- * Mirrors the macOS read-only banner in `ChatView.swift`.
- */
-function ChatReadonlyBanner({
-  canStopGenerating = false,
-  onStopGenerating,
-}: {
-  canStopGenerating?: boolean;
-  onStopGenerating: () => void;
-}) {
-  return (
-    <div className="flex items-center justify-center gap-3 py-4 text-body-small-default text-[var(--content-tertiary)]">
-      <div className="flex items-center gap-2">
-        <Eye size={14} />
-        <span>Read-only conversation</span>
-      </div>
-      {canStopGenerating && (
-        <Button
-          variant="primary"
-          iconOnly={<Square className="h-3 w-3" fill="currentColor" />}
-          onClick={onStopGenerating}
-          aria-label="Stop generating"
-          title="Stop generation"
-        />
-      )}
-    </div>
-  );
-}
-
 export function ChatBody({
   variant,
   scrollAreaProps,
   composerSlot,
-  onStopGenerating,
   dragHandlers,
   isAttachmentDragOver,
   showScrollToLatest,
@@ -231,12 +179,9 @@ export function ChatBody({
   onRetryRefresh,
   genericChatError,
   onDismissChatError,
-  isChannelReadonly,
-  canStopGenerating,
   bannerSlot,
   queuedDrawerSlot,
   channelFooterSlot,
-  readonlyBannerSlot,
   startersSlot,
   belowFoldSlot,
   dockStartersToBottom = false,
@@ -371,29 +316,7 @@ export function ChatBody({
         <QuestionPromptSlot />
         {channelFooterSlot}
         <StagedQuotesStrip />
-        {isChannelReadonly ? (
-          readonlyBannerSlot ? (
-            <div className="flex items-center gap-2">
-              <div className="min-w-0 flex-1">{readonlyBannerSlot}</div>
-              {canStopGenerating ? (
-                <Button
-                  variant="primary"
-                  iconOnly={<Square className="h-3 w-3" fill="currentColor" />}
-                  onClick={onStopGenerating}
-                  aria-label="Stop generating"
-                  title="Stop generation"
-                />
-              ) : null}
-            </div>
-          ) : (
-            <ChatReadonlyBanner
-              canStopGenerating={canStopGenerating}
-              onStopGenerating={onStopGenerating}
-            />
-          )
-        ) : (
-          composerSlot
-        )}
+        {composerSlot}
         {trailingStarters}
       </div>
     </div>

@@ -3,12 +3,11 @@
  * external messaging channel (Slack, Telegram, WhatsApp, phone, …) is
  * labelled and iconified across the web client.
  *
- * Conversations that originate from an external channel are read-only in
- * the app (see `isChannelConversation`). The chat surface tags them — in
- * the header and in the read-only footer — with the channel's human label
- * and an icon so they read as distinct from native Vellum conversations.
- * This module is the "adapter" layer for that presentation: add a channel
- * here once and every surface picks it up.
+ * The chat surface tags conversations that originate from an external
+ * channel — in the header and channel footer — with the channel's human
+ * label and an icon so they read as distinct from native Vellum
+ * conversations. This module is the "adapter" layer for that presentation:
+ * add a channel here once and every surface picks it up.
  *
  * Channel ids match the daemon's `channelBinding.sourceChannel` /
  * `originChannel` values (see gateway `CHANNEL_IDS`).
@@ -34,19 +33,6 @@ const CHANNEL_LABELS: Record<string, string> = {
   email: "Email",
   a2a: "Assistant",
 };
-
-/**
- * Channels the user can meaningfully reply to from the channel's own app.
- * Drives whether the read-only footer appends a "You can reply in X." hint
- * — omitted for one-way surfaces like `phone` (voice) where "reply there"
- * is not a coherent instruction.
- */
-const REPLYABLE_CHANNELS = new Set([
-  "slack",
-  "telegram",
-  "whatsapp",
-  "email",
-]);
 
 const CHANNEL_ICONS: Record<string, LucideIcon> = {
   // Slack has a brand SVG used in the header; this `#` glyph is its
@@ -100,23 +86,4 @@ export function ChannelIcon({
     className,
     "aria-hidden": true,
   });
-}
-
-/**
- * Copy for the read-only footer of a channel conversation.
- *
- * `message` always states the conversation is read-only, and appends a
- * "You can reply in {label}." hint for channels the user can answer from
- * their own app. `label` is reused for the "Open in {label}" link.
- */
-export function getChannelReadonlyCopy(channelId: string | null | undefined): {
-  label: string;
-  message: string;
-} {
-  const label = getChannelLabel(channelId);
-  const canReply = channelId ? REPLYABLE_CHANNELS.has(channelId) : false;
-  const message = canReply
-    ? `This ${label} conversation is read-only. You can reply in ${label}.`
-    : `This ${label} conversation is read-only.`;
-  return { label, message };
 }

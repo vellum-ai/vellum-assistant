@@ -19,7 +19,7 @@ function cleanLabel(value: string | null | undefined): string | undefined {
  * The raw `externalChatId` (e.g. a Telegram numeric chat id) is treated as
  * a non-label fallback and intentionally omitted: it is not meaningful to
  * a human reader. Returns `undefined` when no friendly name is available,
- * in which case the footer shows only the channel-level read-only copy.
+ * in which case the header label falls back to the channel name alone.
  */
 export function getChannelBindingDisplayText(
   binding: ConversationChannelBinding | null | undefined,
