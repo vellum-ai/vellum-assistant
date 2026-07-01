@@ -5,7 +5,12 @@ import type {
 
 export type PluginStatus = "installed" | "available";
 
-export type PluginFilter = "all" | "installed" | "available";
+/**
+ * User-facing status filter. Orthogonal to `PluginStatus`: `active` and `off`
+ * both narrow the installed set by enablement (Active = installed & enabled,
+ * Off = installed & !enabled), while `available` is the not-installed catalog.
+ */
+export type PluginFilter = "all" | "active" | "off" | "available";
 
 /**
  * Unified row model for the Plugins tab, populated from two independent

@@ -314,7 +314,8 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
       ) : visibleItems.length === 0 ? (
         // Don't flash an "empty" state for available plugins while the
         // catalog is still loading (installed plugins already render above).
-        catalogLoading && filter !== "installed" ? (
+        // Only the filters that surface catalog rows (all/available) wait on it.
+        catalogLoading && (filter === "all" || filter === "available") ? (
           <LoadingState />
         ) : (
           <EmptyState filter={filter} category={effectiveCategory} />
@@ -370,6 +371,7 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
         counts={counts}
         totalCount={totalCount}
         showCounts={!hasActiveSearch}
+        pluginToggleSupported={pluginToggleSupported}
       />
 
       {catalogError && !isLoading && !isError ? (
@@ -443,8 +445,11 @@ function useMergedPluginCounts(
 ): { counts: Record<string, number>; totalCount: number } {
   return useMemo(() => {
     const counts: Record<string, number> = {};
+    // all/active/off all narrow the installed set, so they include installed
+    // rows; only `available` excludes them. Catalog (available) rows count only
+    // for the filters that actually surface them — all and available.
     const includeInstalled = filter !== "available";
-    const includeCatalog = filter !== "installed";
+    const includeCatalog = filter === "all" || filter === "available";
 
     if (includeInstalled) {
       if (
@@ -671,10 +676,16 @@ function getEmptyStateCopy(
     };
   }
   switch (filter) {
-    case "installed":
+    case "active":
       return {
-        title: "No Plugins Installed",
-        subtitle: "Install a plugin from the catalog to extend your assistant.",
+        title: "No Active Plugins",
+        subtitle: "Install a plugin from the catalog, or turn on an installed one.",
+        Icon: Puzzle,
+      };
+    case "off":
+      return {
+        title: "No Plugins Turned Off",
+        subtitle: "Installed plugins you turn off will appear here.",
         Icon: Puzzle,
       };
     case "available":
