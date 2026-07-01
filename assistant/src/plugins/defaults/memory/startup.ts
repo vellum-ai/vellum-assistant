@@ -2,11 +2,15 @@
  * Memory plugin — background startup orchestration.
  *
  * Boots the Qdrant vector store, reconciles the embedding-identity and v2
- * concept-page collections, runs the PKB and BM25 reconciles, seeds the
- * capability graph, and starts the memory jobs worker. Kicked off
- * fire-and-forget from `lifecycle.ts` after the runtime HTTP server is up, so
+ * concept-page collections, runs the PKB and BM25 reconciles, and seeds the
+ * capability graph. Kicked off fire-and-forget from the memory plugin's `init`
+ * hook during daemon plugin bootstrap (after the runtime HTTP server is up), so
  * the daemon accepts requests without waiting on Qdrant. Each step contains its
  * own failure so a memory-subsystem problem never blocks boot.
+ *
+ * The jobs worker itself (and its handler-dispatch registration) is daemon-
+ * owned — started in `lifecycle.ts` after `initializePlugins()`, not here — so
+ * handler registration is guaranteed before the worker's first job claim.
  */
 
 import { join } from "node:path";
@@ -14,7 +18,6 @@ import { join } from "node:path";
 import type { AssistantConfig } from "../../../config/schema.js";
 import { reconcileEmbeddingIdentity } from "../../../daemon/embedding-reconcile.js";
 import { refreshSkillCapabilityMemories } from "../../../daemon/skill-memory-refresh.js";
-import { registerMemoryJobHandlers } from "../../../jobs/register-job-handlers.js";
 import { selectEmbeddingBackend } from "../../../persistence/embeddings/embedding-backend.js";
 import {
   initMessagesLexicalIndex,
@@ -26,7 +29,6 @@ import {
   enqueueMemoryJob,
   isMemoryEnabled,
 } from "../../../persistence/jobs-store.js";
-import { startMemoryJobsWorker } from "../../../persistence/jobs-worker.js";
 import { getLogger } from "../../../util/logger.js";
 import { getWorkspaceDir } from "../../../util/platform.js";
 import { resolveQdrantUrl } from "./embeddings.js";
@@ -197,15 +199,6 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
       );
     }
   }
-
-  // `startMemoryJobsWorker` starts the in-process supervisor (which owns
-  // the synchronous runner and stands down when an out-of-process worker is
-  // live) and spawns the out-of-process worker at boot when
-  // `memory.worker.enabled` is set. Shutdown stops whichever worker is
-  // actually running — see shutdown-handlers.ts.
-  log.info("Daemon startup: starting memory worker");
-  registerMemoryJobHandlers();
-  startMemoryJobsWorker();
 
   // One-time, self-healing backfill of existing messages into the Qdrant
   // lexical index (`messages_lexical`) on upgrade, so a later read-path flip to
