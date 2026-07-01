@@ -15,6 +15,7 @@ import { backfillRelationshipStateIfMissing } from "../home/relationship-state-w
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { startCliIpcServer } from "../ipc/assistant-server.js";
 import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
+import { registerMemoryJobHandlers } from "../jobs/register-job-handlers.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import { clearStaleProcessingFlags } from "../persistence/conversation-crud.js";
@@ -23,7 +24,6 @@ import { initializeDb } from "../persistence/db-init.js";
 import { startEmbeddingRuntimeManager } from "../persistence/embeddings/embedding-runtime-manager.js";
 import { startConsentRefresh } from "../platform/consent-cache.js";
 import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";
-import { runMemoryStartup } from "../plugins/defaults/memory/startup.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
 import { initializeProviders } from "../providers/registry.js";
@@ -564,6 +564,13 @@ export async function runDaemon(): Promise<void> {
   // they can't block daemon startup.
   await initializePlugins();
 
+  // Wire every job handler (plugin-contributed + non-plugin domain handlers)
+  // into the memory worker's dispatch table now that all plugins are
+  // bootstrapped. Owned by the daemon rather than any single plugin: the memory
+  // plugin only starts its worker (in its `init` hook) — the worker's async
+  // job-claiming begins after Qdrant boot, so the table is populated first.
+  registerMemoryJobHandlers();
+
   // Initialize providers before Qdrant so HTTP routes can begin accepting
   // requests while Qdrant initializes, then best-effort sync the workspace
   // identity name to the platform record.
@@ -649,16 +656,6 @@ export async function runDaemon(): Promise<void> {
   }
 
   startScheduler();
-
-  // Fire-and-forget: Qdrant init and memory worker startup run concurrently
-  // with the rest of daemon boot. Must run AFTER `startRuntimeHttpServer()`
-  // so the analyze-deps singleton (populated inside `buildRouteTable()`) is
-  // available before the memory worker can claim leftover
-  // `conversation_analyze` jobs from a prior run. See the daemon-startup
-  // ordering test in `assistant/src/daemon/__tests__/`.
-  void runMemoryStartup(config).catch((err) =>
-    log.warn({ err }, "Background Qdrant init failed"),
-  );
 
   // The runtime HTTP server is up; broadcast the fresh daemon status so
   // connected clients pick up the transition.

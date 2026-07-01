@@ -4,9 +4,10 @@
  * Boots the Qdrant vector store, reconciles the embedding-identity and v2
  * concept-page collections, runs the PKB and BM25 reconciles, seeds the
  * capability graph, and starts the memory jobs worker. Kicked off
- * fire-and-forget from `lifecycle.ts` after the runtime HTTP server is up, so
- * the daemon accepts requests without waiting on Qdrant. Each step contains its
- * own failure so a memory-subsystem problem never blocks boot.
+ * fire-and-forget from the memory plugin's `init` hook during daemon plugin
+ * bootstrap (after the runtime HTTP server is up), so the daemon accepts
+ * requests without waiting on Qdrant. Each step contains its own failure so a
+ * memory-subsystem problem never blocks boot.
  */
 
 import { join } from "node:path";
@@ -14,7 +15,6 @@ import { join } from "node:path";
 import type { AssistantConfig } from "../../../config/schema.js";
 import { reconcileEmbeddingIdentity } from "../../../daemon/embedding-reconcile.js";
 import { refreshSkillCapabilityMemories } from "../../../daemon/skill-memory-refresh.js";
-import { registerMemoryJobHandlers } from "../../../jobs/register-job-handlers.js";
 import { selectEmbeddingBackend } from "../../../persistence/embeddings/embedding-backend.js";
 import {
   initMessagesLexicalIndex,
@@ -204,7 +204,6 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
   // `memory.worker.enabled` is set. Shutdown stops whichever worker is
   // actually running — see shutdown-handlers.ts.
   log.info("Daemon startup: starting memory worker");
-  registerMemoryJobHandlers();
   startMemoryJobsWorker();
 
   // One-time, self-healing backfill of existing messages into the Qdrant
