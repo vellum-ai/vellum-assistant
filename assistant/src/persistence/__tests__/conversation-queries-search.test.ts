@@ -6,8 +6,9 @@
  * candidates are sourced from the Qdrant lexical index (mocked here) instead of
  * `messages_fts`, while the visibility/archived SQL filtering, the title `LIKE`
  * merge, and the result shape stay identical to the FTS path. A Qdrant lookup
- * failure degrades to the `messages.content LIKE` scan, and the default `fts5`
- * backend is verified to still ignore the lexical index entirely.
+ * failure degrades to the `messages.content LIKE` scan, and the `fts5` backend
+ * (forced off the registry default) is verified to still ignore the lexical
+ * index entirely.
  *
  * The lexical index is mocked at the `conversation-search-lexical` seam so no
  * real Qdrant is required; a real SQLite DB backs the visibility/archived SQL.
@@ -335,13 +336,13 @@ describe("searchConversations · qdrant backend", () => {
   });
 });
 
-describe("searchConversations · fts5 backend (default) ignores the lexical index", () => {
+describe("searchConversations · fts5 backend ignores the lexical index", () => {
   beforeEach(() => {
     resetTables();
     searchMessageIdsLexicalMock.mockClear();
     lexicalReturns(["should-not-be-used"]);
-    // Default backend: flag unset ⇒ fts5.
-    setOverridesForTesting({});
+    // Force the fts5 backend explicitly (the registry default is qdrant).
+    setOverridesForTesting({ "messages-search-backend": false });
   });
 
   afterAll(() => {

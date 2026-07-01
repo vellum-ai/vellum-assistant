@@ -7,7 +7,7 @@ import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 // Mutable stand-in for the Qdrant lexical candidate helper. The default
 // throws so any qdrant-path test that forgets to set an implementation fails
 // loudly rather than silently exercising an empty candidate set. FTS-path
-// tests never reach it (the flag defaults to fts5), so its value is irrelevant
+// tests force the flag off and never reach it, so its value is irrelevant
 // there.
 let lexicalMockImpl: (
   query: string,
@@ -65,6 +65,12 @@ describe("searchConversationSource", () => {
   beforeEach(() => {
     getDb().run("DELETE FROM messages");
     getDb().run("DELETE FROM conversations");
+    // Force the fts5 backend explicitly; the registry default is qdrant.
+    setOverridesForTesting({ "messages-search-backend": false });
+  });
+
+  afterEach(() => {
+    setOverridesForTesting({});
   });
 
   test("returns matching message evidence through the FTS path", async () => {

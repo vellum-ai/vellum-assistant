@@ -329,18 +329,18 @@ export function isAssistantFeatureFlagEnabled(
 
 /**
  * Backends that resolve lexical message-content search.
- *   fts5   — SQLite FTS5 full-text index (default)
- *   qdrant — BM25-style sparse Qdrant lexical index (messages_lexical)
+ *   fts5   — SQLite FTS5 full-text index
+ *   qdrant — BM25-style sparse Qdrant lexical index (messages_lexical); registry default
  */
 export type MessagesSearchBackend = "fts5" | "qdrant";
 
 /**
  * Resolve the active messages search backend from the boolean
- * `messages-search-backend` flag. Disabled (default) ⇒ `fts5`; enabled
- * (boolean `true`) ⇒ `qdrant`. The raw comparison also treats a stray
- * string override of `"qdrant"` as enabled; every other value (`false`,
- * `"fts5"`, any other string, undefined) falls back to `fts5` so the safe
- * default always wins for an unexpected override.
+ * `messages-search-backend` flag. Enabled (boolean `true`, the registry
+ * default) ⇒ `qdrant`; disabled (boolean `false`) ⇒ `fts5`. The raw
+ * comparison also treats a stray string override of `"qdrant"` as enabled;
+ * any other string value (`"fts5"`, unknown strings) falls back to `fts5`,
+ * the safe fallback for an unexpected override.
  */
 export function getMessagesSearchBackend(
   config: AssistantConfig,

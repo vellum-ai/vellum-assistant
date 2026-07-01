@@ -558,8 +558,8 @@ function likeContentMatchMessages(
  *
  * The lexical backend is selected by the `messages-search-backend` feature
  * flag (see {@link getMessagesSearchBackend}):
- *   - `fts5` (default): the `messages_fts` virtual table for tokenized matching.
- *   - `qdrant`: the sparse `messages_lexical` Qdrant index (BM25-style).
+ *   - `qdrant` (default): the sparse `messages_lexical` Qdrant index (BM25-style).
+ *   - `fts5`: the `messages_fts` virtual table for tokenized matching.
  * Both apply the same visibility/archived SQL filtering, merge with a `LIKE`
  * match on conversation titles, and return matching conversations with their
  * relevant messages ordered by most recently updated.
