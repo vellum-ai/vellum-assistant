@@ -1043,6 +1043,10 @@ export async function runAgentLoopImpl(
     };
 
     const updatedHistory = await runAgentLoop(runMessages, true);
+    // Generation is done streaming. Anything awaited between here and the
+    // terminal SSE is what the user perceives as the gap between the last
+    // token and the composer re-enabling, so keep that window minimal.
+    const generationCompletedAt = Date.now();
 
     rlog.info(
       { resultMessageCount: updatedHistory.length },
@@ -1302,39 +1306,18 @@ export async function runAgentLoopImpl(
       0,
       updatedHistory.length - lastRunNewMessages.length,
     );
-    let restoredHistory = [...loopBase, ...newMessages];
-
-    // Post-turn tool result truncation: save large results to disk and
-    // replace in-context content with a prefix/suffix stub + file pointer.
-    try {
-      const conv = getConversation(ctx.conversationId);
-      if (conv) {
-        const convDir = getResolvedConversationDirPath(
-          ctx.conversationId,
-          conv.createdAt,
-        );
-        const { messages: derefMessages, dereferencedCount } =
-          derefToolResultReReads(restoredHistory);
-        const { messages: truncatedMessages, truncatedCount } =
-          postTurnTruncateToolResults(derefMessages, {
-            conversationDir: convDir,
-          });
-        if (truncatedCount > 0 || dereferencedCount > 0) {
-          rlog.info(
-            { truncatedCount, dereferencedCount },
-            "Post-turn tool result truncation applied",
-          );
-        }
-        restoredHistory = truncatedMessages;
-      }
-    } catch (err) {
-      rlog.warn({ err }, "Post-turn tool result truncation failed (non-fatal)");
-    }
+    const restoredHistory = [...loopBase, ...newMessages];
 
     // Persist injections in history: runtime-injected context stays on
     // historical user messages so the conversation prefix is stable for
     // Anthropic's prefix caching.  Stripping only happens during
     // compaction/overflow recovery (where a cache miss is expected).
+    //
+    // Post-turn tool-result truncation (spooling large results to disk and
+    // shrinking the next turn's context) is deferred to `runDeferredTurnTail`
+    // below. It only rewrites the in-memory history the NEXT turn is built
+    // from — never the just-delivered reply — so it must not sit on the
+    // critical path to the terminal SSE that re-enables the composer.
     ctx.messages = restoredHistory;
 
     emitUsage(
@@ -1371,11 +1354,75 @@ export async function runAgentLoopImpl(
         convForDisk.createdAt,
       );
     };
+
+    // Non-critical end-of-turn bookkeeping, drained after the terminal SSE has
+    // already re-enabled the composer but before the `finally` starts the next
+    // turn. Ordering with the next turn is preserved (it runs before
+    // `drainQueue`), while the last-token→send-button latency no longer
+    // includes it. Every step is best-effort: a hiccup here must never turn a
+    // delivered reply into a turn-level error.
+    const runDeferredTurnTail = async (): Promise<void> => {
+      const tailStartedAt = Date.now();
+      // Per-message memory/attention finalize side-effects deferred from
+      // `handleMessageComplete` (memory segment indexing, lexical indexing,
+      // attention projection) — one closure per assistant row produced this
+      // turn, in production order.
+      for (const effect of state.deferredFinalizeEffects) {
+        try {
+          await effect();
+        } catch (err) {
+          rlog.warn(
+            { err },
+            "Deferred finalize side-effect failed (non-fatal)",
+          );
+        }
+      }
+      // Post-turn tool-result truncation: spool oversized results to disk and
+      // replace their in-context content with a stub + pointer, shrinking the
+      // next turn's context. Rewrites only the in-memory history, so it has no
+      // bearing on the reply already delivered to the client.
+      try {
+        const conv = getConversation(ctx.conversationId);
+        if (conv) {
+          const convDir = getResolvedConversationDirPath(
+            ctx.conversationId,
+            conv.createdAt,
+          );
+          const { messages: derefMessages, dereferencedCount } =
+            derefToolResultReReads(ctx.messages);
+          const { messages: truncatedMessages, truncatedCount } =
+            postTurnTruncateToolResults(derefMessages, {
+              conversationDir: convDir,
+            });
+          if (truncatedCount > 0 || dereferencedCount > 0) {
+            rlog.info(
+              { truncatedCount, dereferencedCount },
+              "Post-turn tool result truncation applied",
+            );
+          }
+          ctx.messages = truncatedMessages;
+        }
+      } catch (err) {
+        rlog.warn(
+          { err },
+          "Post-turn tool result truncation failed (non-fatal)",
+        );
+      }
+      // Mirror the final assistant row into the JSONL disk view.
+      syncLastAssistantMessageToDisk();
+      rlog.info(
+        {
+          criticalSectionMs: tailStartedAt - generationCompletedAt,
+          deferredTailMs: Date.now() - tailStartedAt,
+        },
+        "End-of-turn work complete",
+      );
+    };
     // Fast-path: when the user cancelled, skip expensive post-loop work
     // (attachment resolution) and emit the cancellation event immediately
-    // so the client can re-enable the UI without delay.
+    // so the client can re-enable the UI without delay. Disk sync and the rest
+    // of the bookkeeping run in `runDeferredTurnTail` after this SSE.
     if (abortController.signal.aborted) {
-      syncLastAssistantMessageToDisk();
       ctx.emitActivityState("idle", "generation_cancelled", {
         anchor: "global",
         requestId: reqId,
@@ -1415,7 +1462,6 @@ export async function runAgentLoopImpl(
 
       ctx.lastAssistantAttachments = assistantAttachments;
       ctx.lastAttachmentWarnings = attachmentResult.directiveWarnings;
-      syncLastAssistantMessageToDisk();
 
       // Re-check: the user may have cancelled during attachment resolution
       if (abortController.signal.aborted) {
@@ -1496,6 +1542,12 @@ export async function runAgentLoopImpl(
         publishLoopMessagesChanged();
       }
     }
+
+    // The terminal SSE for this turn has now been emitted (message_complete,
+    // generation_handoff, or generation_cancelled), so the composer is already
+    // re-enabling. Drain the deferred bookkeeping now — after the SSE, before
+    // the `finally` commits and drains the queue for the next turn.
+    await runDeferredTurnTail();
   } catch (err) {
     clearConversationNotices(ctx.conversationId);
     const errorCtx = {

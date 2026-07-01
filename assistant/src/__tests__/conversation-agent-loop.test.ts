@@ -2409,6 +2409,45 @@ describe("session-agent-loop", () => {
       expect(metadataPublishes).toHaveLength(1);
     });
 
+    test("terminal message_complete is emitted before the deferred indexer runs (LUM-2654)", async () => {
+      // Regression guard for the "long delay between last streaming token and
+      // send-button becoming available" bug. The non-critical finalize
+      // side-effects (memory segment indexing, lexical indexing, attention
+      // projection) were moved off the turn's critical path: the terminal
+      // `message_complete` SSE — which the client uses to flip stop→send — must
+      // fire FIRST, and the indexer must run afterwards (still within the turn,
+      // via the orchestrator's deferred tail). Before the fix the indexer ran
+      // inline in `handleMessageComplete`, so `message_complete` had not yet
+      // been emitted when indexing ran and this assertion would fail.
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+
+      const events: ServerMessage[] = [];
+      let messageCompleteSeenWhenIndexed: boolean | undefined;
+      indexMessageNowMock.mockImplementationOnce(async () => {
+        messageCompleteSeenWhenIndexed = events.some(
+          (event) => event.type === "message_complete",
+        );
+        return { indexedSegments: 0, enqueuedJobs: 0 };
+      });
+
+      const ctx = makeCtx({
+        providerResponses: [textResponse("indexed reply")],
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-1", (msg) => events.push(msg));
+
+      // The deferred indexer still ran exactly once (before the turn resolved)…
+      expect(indexMessageNowMock).toHaveBeenCalledTimes(1);
+      // …but only AFTER the terminal SSE that re-enables the composer.
+      expect(messageCompleteSeenWhenIndexed).toBe(true);
+    });
+
     test("handleMessageComplete skips sync invalidation when attention state unchanged", async () => {
       // Mirror of the previous test but with the default projector return
       // (`false`). The projection still runs every turn, but the sync

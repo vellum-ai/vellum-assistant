@@ -319,6 +319,18 @@ export interface EventHandlerState {
    * latency segment. Advances on every `handleUsage`.
    */
   latencyCursor: number;
+  /**
+   * Non-critical finalize side-effects deferred off the turn's critical path —
+   * one closure per assistant message that completes (memory segment indexing,
+   * lexical indexing, attention projection). `handleMessageComplete` persists
+   * the message content synchronously (so a snapshot/refetch on the terminal
+   * `message_complete` SSE still sees the full reply) and pushes these
+   * follow-ups here; the orchestrator drains them after the terminal SSE has
+   * re-enabled the composer but before the next turn can start. Each closure is
+   * individually best-effort. Accumulates across retries/multi-call turns so
+   * every produced assistant row is indexed.
+   */
+  readonly deferredFinalizeEffects: Array<() => Promise<void>>;
 }
 
 /** Immutable context shared across event handlers within a single agent loop run. */
@@ -407,6 +419,7 @@ export function createEventHandlerState(): EventHandlerState {
     lastPersistedContentSeq: undefined,
     compactionStartMessages: new Map(),
     latencyCursor: 0,
+    deferredFinalizeEffects: [],
   };
 }
 
@@ -2016,22 +2029,27 @@ export async function handleMessageComplete(
   state.currentThinkingTimestamps = [];
   state.lastPersistedContentSeq = undefined;
 
-  // ── Indexing + attention projection ──
+  // ── Indexing + attention projection (deferred off the critical path) ──
   // `reserveMessage` + `updateMessageContent` are CRUD-only: they don't run
   // the memory indexer or the attention-cursor projector (unlike `addMessage`,
   // which runs both as side-effects of the insert). Because the assistant row
   // is reserved empty and finalized via `updateMessageContent`, both must be
-  // invoked explicitly here to keep the assistant row's external state
-  // (Qdrant segments, conversation attention cursor) in lockstep with the
-  // finalized content. Both are non-fatal — a memory hiccup must not
-  // escalate a successful generation into a turn-level throw. Indexing
-  // intentionally fires AFTER `updateContent` succeeds so we never index
-  // the empty reserved placeholder.
-  const finalizedRow = getMessageById(
-    assistantMessageId,
-    deps.ctx.conversationId,
-  );
-  if (finalizedRow) {
+  // invoked explicitly to keep the assistant row's external state (Qdrant
+  // segments, conversation attention cursor) in lockstep with the finalized
+  // content. Neither gates delivery of the reply or the composer re-enabling —
+  // memory/attention only feed the NEXT turn's retrieval and a sidebar
+  // indicator — so they are queued here and drained by the orchestrator after
+  // the terminal `message_complete` SSE fires (but before the next turn), off
+  // the send-button critical path. The content persisted synchronously above,
+  // so a snapshot/refetch on `message_complete` still sees the full reply.
+  // Both remain non-fatal — a memory hiccup must not escalate a successful
+  // generation into a turn-level throw.
+  state.deferredFinalizeEffects.push(async () => {
+    const finalizedRow = getMessageById(
+      assistantMessageId,
+      deps.ctx.conversationId,
+    );
+    if (!finalizedRow) return;
     let provenanceTrustClass:
       | "guardian"
       | "trusted_contact"
@@ -2102,7 +2120,7 @@ export async function handleMessageComplete(
         "Failed to project assistant message for attention tracking (non-fatal)",
       );
     }
-  }
+  });
 
   // Backfill message_id on all LLM request logs from this turn.
   // The agent loop is single-threaded per conversation, so all rows with
