@@ -31,6 +31,7 @@ import {
 } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { startEmbeddingRuntimeManager } from "../persistence/embeddings/embedding-runtime-manager.js";
 import { startConsentRefresh } from "../platform/consent-cache.js";
 import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";
 import { runMemoryStartup } from "../plugins/defaults/memory/startup.js";
@@ -879,30 +880,7 @@ export async function runDaemon(): Promise<void> {
     log.warn({ err }, "Assistant symlink installation failed — continuing");
   }
 
-  // Download embedding runtime in background (non-blocking).
-  // If download fails, local embeddings gracefully fall back to cloud backends.
-  void (async () => {
-    try {
-      const { EmbeddingRuntimeManager } =
-        await import("../persistence/embeddings/embedding-runtime-manager.js");
-      const runtimeManager = new EmbeddingRuntimeManager();
-      if (!runtimeManager.isReady()) {
-        log.info("Downloading embedding runtime in background...");
-        await runtimeManager.ensureInstalled();
-        // Reset the sticky local-backend failure flag so auto mode retries
-        // local embeddings without evicting a worker that may already be live.
-        const { resetLocalEmbeddingFailureState } =
-          await import("../persistence/embeddings/embedding-backend.js");
-        resetLocalEmbeddingFailureState();
-        log.info("Embedding runtime download complete");
-      }
-    } catch (err) {
-      log.warn(
-        { err },
-        "Embedding runtime download failed — local embeddings will use cloud fallback",
-      );
-    }
-  })();
+  startEmbeddingRuntimeManager();
 
   startWorkspaceHeartbeatService();
 
