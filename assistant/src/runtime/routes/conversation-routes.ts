@@ -2661,9 +2661,9 @@ export async function handleGetSuggestion(
  * Full-text search across all conversations (message content + titles).
  * Returns ranked results grouped by conversation, each with matching message excerpts.
  */
-function handleSearchConversations({
+async function handleSearchConversations({
   queryParams,
-}: RouteHandlerArgs): Record<string, unknown> {
+}: RouteHandlerArgs): Promise<Record<string, unknown>> {
   const query = queryParams?.q ?? "";
   if (!query.trim()) {
     throw new BadRequestError("q query parameter is required");
@@ -2674,7 +2674,7 @@ function handleSearchConversations({
     ? Number(queryParams.maxMessagesPerConversation)
     : undefined;
 
-  const results = searchConversations(query, {
+  const results = await searchConversations(query, {
     ...(limit !== undefined && !isNaN(limit) ? { limit } : {}),
     ...(maxMessagesPerConversation !== undefined &&
     !isNaN(maxMessagesPerConversation)
