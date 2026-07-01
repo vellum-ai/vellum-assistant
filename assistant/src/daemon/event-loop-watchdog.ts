@@ -26,6 +26,12 @@
  * handle. For deterministic attribution of a specific subsystem, time that
  * subsystem's synchronous calls at their source.
  *
+ * As a lightweight attribution aid it does surface the SQLite op still in
+ * flight when it fires (`blockedOp` / `blockedOpAgeMs`, from the
+ * `persistence/current-sql-op` registry). Since `bun:sqlite` is synchronous and
+ * these blocks are almost always a long or lock-contended SQLite call, that op
+ * is usually the culprit; it is `null` when the block came from non-SQLite work.
+ *
  * A cumulative event-loop-delay histogram is separately exposed pull-based over
  * SSE diagnostics (`runtime/routes/events-routes.ts`); this watchdog is the
  * push/alert counterpart and runs unconditionally for the daemon's lifetime.
@@ -33,6 +39,7 @@
 
 import * as Sentry from "@sentry/node";
 
+import { snapshotCurrentSqlOp } from "../persistence/current-sql-op.js";
 import { recordWatchdogEvent } from "../telemetry/watchdog-events-store.js";
 import { getLogger } from "../util/logger.js";
 
@@ -83,9 +90,21 @@ export function evaluateTick(
  */
 export const EVENT_LOOP_BLOCKED_CHECK_NAME = "event_loop_blocked";
 
-function reportBlock(blockedMs: number, thresholdMs: number): void {
+export function reportBlock(blockedMs: number, thresholdMs: number): void {
+  // Attribute the freeze to the SQLite op still executing on the loop thread,
+  // if any. `null` when no op is marked — the block came from non-SQLite work,
+  // and we never fabricate an op.
+  const currentOp = snapshotCurrentSqlOp();
+  const blockedOp = currentOp?.op ?? null;
+  const blockedOpAgeMs = currentOp ? Math.round(currentOp.ageMs) : null;
   log.warn(
-    { blockedMs, thresholdMs, tickIntervalMs: TICK_INTERVAL_MS },
+    {
+      blockedMs,
+      thresholdMs,
+      tickIntervalMs: TICK_INTERVAL_MS,
+      blockedOp,
+      blockedOpAgeMs,
+    },
     "event loop blocked",
   );
   // Persist a `watchdog` telemetry event so the platform can surface
@@ -101,6 +120,8 @@ function reportBlock(blockedMs: number, thresholdMs: number): void {
       detail: {
         threshold_ms: thresholdMs,
         tick_interval_ms: TICK_INTERVAL_MS,
+        blocked_op: blockedOp,
+        blocked_op_age_ms: blockedOpAgeMs,
       },
     });
   } catch {
@@ -110,10 +131,13 @@ function reportBlock(blockedMs: number, thresholdMs: number): void {
     Sentry.withScope((scope) => {
       scope.setLevel("warning");
       scope.setTag("event_loop_blocked_ms", String(blockedMs));
+      if (blockedOp !== null) scope.setTag("event_loop_blocked_op", blockedOp);
       scope.setContext("event_loop_block", {
         blocked_ms: blockedMs,
         threshold_ms: thresholdMs,
         tick_interval_ms: TICK_INTERVAL_MS,
+        blocked_op: blockedOp,
+        blocked_op_age_ms: blockedOpAgeMs,
       });
       Sentry.captureMessage(EVENT_LOOP_BLOCKED_CHECK_NAME);
     });

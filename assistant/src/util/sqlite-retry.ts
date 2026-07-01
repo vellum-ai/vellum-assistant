@@ -24,6 +24,7 @@
  * committed — a retry would double-apply them.
  */
 
+import { withCurrentSqlOp } from "../persistence/current-sql-op.js";
 import { getLogger } from "./logger.js";
 import { computeRetryDelay } from "./retry.js";
 
@@ -69,7 +70,12 @@ export async function withSqliteRetry<T>(
   const baseDelayMs = options.baseDelayMs ?? DEFAULT_BASE_DELAY_MS;
   for (let attempt = 0; ; attempt++) {
     try {
-      return await fn();
+      // Mark `op` as the current SQLite op only around the synchronous `fn()`
+      // invocation — `withCurrentSqlOp` clears the mark as soon as `fn` returns
+      // (before any promise it yields settles), so the watchdog can attribute a
+      // freeze to the op whose synchronous work was blocking the loop. Pure
+      // instrumentation: the awaited value and retry/backoff below are unchanged.
+      return await withCurrentSqlOp(options.op, fn);
     } catch (err) {
       if (attempt < maxRetries && isRetryableSqliteError(err)) {
         log.warn(

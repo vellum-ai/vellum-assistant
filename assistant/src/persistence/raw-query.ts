@@ -32,6 +32,7 @@
 
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 
+import { withCurrentSqlOp } from "./current-sql-op.js";
 import { getLogsSqlite, getMemorySqlite, getSqlite } from "./db-connection.js";
 import { timeSyncSection } from "./slow-sync-log.js";
 
@@ -43,25 +44,29 @@ type SqlParam = SQLQueryBindings;
 
 /** Execute a raw SQL query and return a single typed row, or null if no match. */
 export function rawGet<T>(sql: string, ...params: SqlParam[]): T | null {
-  return timeSyncSection(
-    "raw-query:get",
-    () =>
-      (getSqlite()
-        .query(sql)
-        .get(...params) as T) ?? null,
-    () => ({ sql: sql.slice(0, 80) }),
+  return withCurrentSqlOp("raw:get", () =>
+    timeSyncSection(
+      "raw-query:get",
+      () =>
+        (getSqlite()
+          .query(sql)
+          .get(...params) as T) ?? null,
+      () => ({ sql: sql.slice(0, 80) }),
+    ),
   );
 }
 
 /** Execute a raw SQL query and return all matching rows with type safety. */
 export function rawAll<T>(sql: string, ...params: SqlParam[]): T[] {
-  return timeSyncSection(
-    "raw-query:all",
-    () =>
-      getSqlite()
-        .query(sql)
-        .all(...params) as T[],
-    (rows) => ({ sql: sql.slice(0, 80), rowCount: rows.length }),
+  return withCurrentSqlOp("raw:all", () =>
+    timeSyncSection(
+      "raw-query:all",
+      () =>
+        getSqlite()
+          .query(sql)
+          .all(...params) as T[],
+      (rows) => ({ sql: sql.slice(0, 80), rowCount: rows.length }),
+    ),
   );
 }
 
@@ -70,20 +75,22 @@ export function rawAll<T>(sql: string, ...params: SqlParam[]): T[] {
  * of affected rows.
  */
 export function rawRun(sql: string, ...params: SqlParam[]): number {
-  timeSyncSection(
-    "raw-query:run",
-    () =>
-      getSqlite()
-        .query(sql)
-        .run(...params),
-    () => ({ sql: sql.slice(0, 80) }),
+  withCurrentSqlOp("raw:run", () =>
+    timeSyncSection(
+      "raw-query:run",
+      () =>
+        getSqlite()
+          .query(sql)
+          .run(...params),
+      () => ({ sql: sql.slice(0, 80) }),
+    ),
   );
   return rawChanges();
 }
 
 /** Execute batch SQL (multiple statements, no bindings). */
 export function rawExec(sql: string): void {
-  getSqlite().exec(sql);
+  withCurrentSqlOp("raw:exec", () => getSqlite().exec(sql));
 }
 
 /**
@@ -116,23 +123,27 @@ function logsSqlite(): Database {
 
 /** {@link rawAll} against the memory connection. */
 export function rawMemoryAll<T>(sql: string, ...params: SqlParam[]): T[] {
-  return timeSyncSection(
-    "raw-query:memory-all",
-    () =>
-      memorySqlite()
-        .query(sql)
-        .all(...params) as T[],
-    (rows) => ({ sql: sql.slice(0, 80), rowCount: rows.length }),
+  return withCurrentSqlOp("raw:memory-all", () =>
+    timeSyncSection(
+      "raw-query:memory-all",
+      () =>
+        memorySqlite()
+          .query(sql)
+          .all(...params) as T[],
+      (rows) => ({ sql: sql.slice(0, 80), rowCount: rows.length }),
+    ),
   );
 }
 
 /** {@link rawRun} against the memory connection. */
 export function rawMemoryRun(sql: string, ...params: SqlParam[]): number {
   const sqlite = memorySqlite();
-  timeSyncSection(
-    "raw-query:memory-run",
-    () => sqlite.query(sql).run(...params),
-    () => ({ sql: sql.slice(0, 80) }),
+  withCurrentSqlOp("raw:memory-run", () =>
+    timeSyncSection(
+      "raw-query:memory-run",
+      () => sqlite.query(sql).run(...params),
+      () => ({ sql: sql.slice(0, 80) }),
+    ),
   );
   return (sqlite.query("SELECT changes() AS c").get() as { c: number }).c;
 }
@@ -146,10 +157,12 @@ export function rawMemoryChanges(): number {
 /** {@link rawRun} against the logs connection. */
 export function rawLogsRun(sql: string, ...params: SqlParam[]): number {
   const sqlite = logsSqlite();
-  timeSyncSection(
-    "raw-query:logs-run",
-    () => sqlite.query(sql).run(...params),
-    () => ({ sql: sql.slice(0, 80) }),
+  withCurrentSqlOp("raw:logs-run", () =>
+    timeSyncSection(
+      "raw-query:logs-run",
+      () => sqlite.query(sql).run(...params),
+      () => ({ sql: sql.slice(0, 80) }),
+    ),
   );
   return (sqlite.query("SELECT changes() AS c").get() as { c: number }).c;
 }
