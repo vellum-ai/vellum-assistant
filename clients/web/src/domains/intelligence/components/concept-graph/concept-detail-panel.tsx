@@ -63,14 +63,14 @@ export function ConceptDetailPanel({
         onClick={onClose}
       />
       <aside
-        className="relative flex h-full w-full max-w-md flex-col"
+        className="relative flex h-full min-h-0 w-full max-w-md flex-col overflow-hidden"
         style={{
           backgroundColor: "var(--surface-lift)",
           borderLeft: "1px solid var(--border-base)",
         }}
       >
         <header
-          className="flex items-start justify-between gap-3 border-b px-5 py-4"
+          className="flex shrink-0 items-start justify-between gap-3 border-b px-5 py-4"
           style={{ borderColor: "var(--border-base)" }}
         >
           <div className="min-w-0">
