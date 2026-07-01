@@ -20,6 +20,7 @@ mock.module("../config/loader.js", () => ({
 import {
   createConversation,
   getConversation,
+  setConversationEnabledPlugins,
 } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
@@ -150,6 +151,25 @@ describe("PUT /v1/conversations/:id/enabledplugins", () => {
       }),
     ).rejects.toThrow(BadRequestError);
     expect(getConversation(conversation.id)?.enabledPlugins).toBeNull();
+  });
+
+  test("rejects a missing enabledPlugins field without clearing the scope", async () => {
+    const conversation = createConversation("enabledplugins-missing");
+    // Seed an explicit scope, then send a body with no `enabledPlugins`.
+    setConversationEnabledPlugins(conversation.id, ["plugin-a"]);
+
+    await expect(
+      pluginsRoute.handler({
+        pathParams: { id: conversation.id },
+        body: {},
+        headers: {},
+      }),
+    ).rejects.toThrow(BadRequestError);
+    // The existing scope must survive a malformed request (null is the only
+    // explicit clear signal).
+    expect(getConversation(conversation.id)?.enabledPlugins).toEqual([
+      "plugin-a",
+    ]);
   });
 
   test("throws NotFoundError when the conversation does not exist", async () => {

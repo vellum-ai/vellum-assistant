@@ -232,8 +232,15 @@ async function handleUpdateConversationEnabledPlugins({
   headers,
 }: RouteHandlerArgs) {
   const enabledPlugins = body.enabledPlugins as string[] | null | undefined;
+  // The field is required; `null` is the explicit "clear the scope" signal.
+  // A missing field (malformed/empty body) must not silently clear the scope.
+  if (enabledPlugins === undefined) {
+    throw new BadRequestError(
+      "enabledPlugins is required (use null to clear the scope)",
+    );
+  }
   if (
-    enabledPlugins != null &&
+    enabledPlugins !== null &&
     (!Array.isArray(enabledPlugins) ||
       enabledPlugins.some((p) => typeof p !== "string"))
   ) {
@@ -250,7 +257,7 @@ async function handleUpdateConversationEnabledPlugins({
 
   // `null` clears the per-chat scope back to the default (all enabled
   // plugins); a `string[]` scopes the chat to those plugin ids.
-  const nextEnabledPlugins = enabledPlugins ?? null;
+  const nextEnabledPlugins = enabledPlugins;
   setConversationEnabledPlugins(resolvedId, nextEnabledPlugins);
   findConversation(resolvedId)?.setEnabledPlugins(nextEnabledPlugins);
 
