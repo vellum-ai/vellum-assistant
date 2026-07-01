@@ -261,7 +261,7 @@ export const MemoryV3GateSchema = z
       .number({ error: "memory.v3.gate.denseThreshold must be a number" })
       .min(0)
       .max(1)
-      .default(0.52)
+      .default(0.66)
       .describe(
         "Top-1 dense cosine similarity must clear this for a dense pass.",
       ),
@@ -277,7 +277,7 @@ export const MemoryV3GateSchema = z
       .number({ error: "memory.v3.gate.sparseOnlyThreshold must be a number" })
       .min(0)
       .max(1)
-      .default(0.45)
+      .default(0.62)
       .describe(
         "Higher normalized-BM25F bar to pass on sparse signal alone when dense fails.",
       ),
@@ -287,7 +287,7 @@ export const MemoryV3GateSchema = z
       })
       .min(0)
       .max(1)
-      .default(0.47)
+      .default(0.6)
       .describe(
         "Floor every top-3 dense score must clear for a borderline-cluster pass.",
       ),
@@ -295,7 +295,7 @@ export const MemoryV3GateSchema = z
       .number({ error: "memory.v3.gate.denseClusterMaxDelta must be a number" })
       .min(0)
       .max(1)
-      .default(0.04)
+      .default(0.02)
       .describe(
         "Maximum spread (max-min) within the top-3 dense cluster for a cluster pass.",
       ),
