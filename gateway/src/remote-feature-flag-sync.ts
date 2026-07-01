@@ -10,6 +10,27 @@ import { getLogger } from "./logger.js";
 const log = getLogger("remote-feature-flag-sync");
 
 /**
+ * Registry flags that default on (`defaultEnabled: true`) but are exempt from
+ * GA normalization, so a platform-sent `false` is honored rather than rewritten
+ * to `true`.
+ *
+ * A flag belongs here while its default is flipped on for local/self-hosted
+ * installs but its managed rollout is still being staged through LaunchDarkly
+ * targeting. Without the exemption the gateway would rewrite the platform's
+ * blanket-deny `false` back to `true`, opting every managed assistant in at once
+ * and defeating the staged rollout. Remove a key once its managed targeting is
+ * complete and it is safe for the platform to leave it on unconditionally.
+ *
+ * `messages-search-backend`: default flipped to `qdrant` in the registry; the
+ * managed cutover is gated on the companion LaunchDarkly targeting
+ * (`vellum-assistant-platform` #8742) so managed assistants stay on `fts5` until
+ * explicitly targeted on.
+ */
+const GA_NORMALIZATION_EXEMPT_FLAGS: ReadonlySet<string> = new Set([
+  "messages-search-backend",
+]);
+
+/**
  * Steady-state polling interval: 5 minutes.
  *
  * Configurable via `REMOTE_FF_POLL_INTERVAL_MS` env var for testing or
@@ -418,11 +439,20 @@ export class RemoteFeatureFlagSync {
     // blanket-deny posture, sending false for every flag it knows about.
     // GA normalization only applies to boolean false values; string flag
     // values pass through unchanged.
+    //
+    // Flags in GA_NORMALIZATION_EXEMPT_FLAGS are excluded: they default on in
+    // the registry (so local/self-hosted installs get the new default) but must
+    // still honor a platform-sent `false` so managed assistants can be rolled
+    // out gradually via LaunchDarkly targeting instead of switching all at once.
     const registry = loadFeatureFlagDefaults();
     const values: Record<string, boolean | string> = {};
     for (const [key, value] of Object.entries(body.flags)) {
       if (typeof value !== "boolean" && typeof value !== "string") continue;
-      if (value === false && registry[key]?.defaultEnabled === true) {
+      if (
+        value === false &&
+        registry[key]?.defaultEnabled === true &&
+        !GA_NORMALIZATION_EXEMPT_FLAGS.has(key)
+      ) {
         log.debug(
           { key },
           "Normalizing remote false for GA flag to true (defaultEnabled: true)",

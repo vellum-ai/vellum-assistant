@@ -35,9 +35,8 @@ const { readRemoteFeatureFlags, clearRemoteFeatureFlagStoreCache } =
   await import("../feature-flag-remote-store.js");
 const { resetFeatureFlagDefaultsCache, _setRegistryCandidateOverrides } =
   await import("../feature-flag-defaults.js");
-const { resetEnvOverridesCache } = await import(
-  "../feature-flag-env-overrides.js"
-);
+const { resetEnvOverridesCache } =
+  await import("../feature-flag-env-overrides.js");
 
 // ---------------------------------------------------------------------------
 // Test-local registry with a GA flag (defaultEnabled: true) for the
@@ -64,6 +63,17 @@ const TEST_REGISTRY = {
       label: "A2A Channel",
       description: "A2A channel integration",
       defaultEnabled: false,
+    },
+    {
+      // Real GA-normalization-exempt flag (defaultEnabled: true, but listed in
+      // GA_NORMALIZATION_EXEMPT_FLAGS) — a platform-sent false must be honored,
+      // not rewritten to true, so its managed rollout can be staged in LD.
+      id: "messages-search-backend",
+      scope: "assistant",
+      key: "messages-search-backend",
+      label: "Messages Search Backend",
+      description: "Messages search backend (qdrant default; staged rollout)",
+      defaultEnabled: true,
     },
   ],
 };
@@ -627,6 +637,37 @@ describe("RemoteFeatureFlagSync", () => {
     expect(cached["test-ga-flag-true"]).toBe(true);
     // unknown-flag (not in registry, remote false) should be present
     expect(cached["unknown-flag"]).toBe(false);
+  });
+
+  test("preserves remote false for GA-normalization-exempt flags (staged rollout)", async () => {
+    // messages-search-backend defaults on (defaultEnabled: true) but is listed
+    // in GA_NORMALIZATION_EXEMPT_FLAGS. The platform's blanket-deny false must
+    // pass through unchanged so managed assistants stay off until LaunchDarkly
+    // targeting flips them on — unlike a normal GA flag, whose false is rewritten
+    // to true.
+    fetchMock = mock(async () =>
+      Response.json({
+        flags: {
+          // Exempt flag (defaultEnabled: true) — remote false is KEPT.
+          "messages-search-backend": false,
+          // Ordinary GA flag (defaultEnabled: true) — remote false normalized to true.
+          "test-ga-flag": false,
+        },
+      }),
+    );
+
+    const sync = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(defaultCredentials()),
+    });
+    await sync.start();
+    sync.stop();
+
+    clearRemoteFeatureFlagStoreCache();
+    const cached = readRemoteFeatureFlags();
+    // Exempt flag: platform false is honored (not normalized to true).
+    expect(cached["messages-search-backend"]).toBe(false);
+    // Non-exempt GA flag: platform false is still normalized to true.
+    expect(cached["test-ga-flag"]).toBe(true);
   });
 
   test("GA normalization does not affect string flag values", async () => {
