@@ -5,9 +5,10 @@
  * message-content candidates are sourced from the Qdrant lexical index (mocked
  * here) instead of `messages_fts`, while the visibility/archived SQL filtering,
  * the title `LIKE` merge, and the result shape stay identical to the FTS path.
- * A Qdrant lookup failure degrades to the `messages.content LIKE` scan, and the
- * `fts5` fallback (memory disabled / backfill not yet drained) is verified to
- * still ignore the lexical index entirely.
+ * Content matching is index-only (no `messages.content` scan fallback): a
+ * Qdrant lookup failure and a non-tokenizable query both leave title matches
+ * as the only arm. The `fts5` fallback (memory disabled / backfill not yet
+ * drained) is verified to still ignore the lexical index entirely.
  *
  * The lexical index is mocked at the `conversation-search-lexical` seam so no
  * real Qdrant is required; a real SQLite DB backs the visibility/archived SQL.
@@ -286,9 +287,12 @@ describe("searchConversations · qdrant backend", () => {
     expect(results[0]!.matchingMessages).toEqual([]);
   });
 
-  test("degrades to a LIKE content scan when the lexical lookup throws", async () => {
-    const conv = createConversation("Degrade notes");
-    insertMessage("d-1", conv.id, "flux capacitor via like fallback");
+  test("returns title matches only when the lexical lookup throws", async () => {
+    // Content matching is index-only: a lexical failure is logged and the
+    // content arm contributes nothing — no messages.content scan recovers it.
+    const contentOnly = createConversation("Degrade notes");
+    insertMessage("c-1", contentOnly.id, "flux capacitor mentioned in content");
+    const titleMatch = createConversation("Flux capacitor planning");
 
     searchMessageIdsLexicalMock.mockImplementation(async () => {
       throw new Error("qdrant unreachable");
@@ -297,12 +301,10 @@ describe("searchConversations · qdrant backend", () => {
     const results = await searchConversations("flux capacitor");
 
     expect(searchMessageIdsLexicalMock).toHaveBeenCalledTimes(1);
-    // Even though Qdrant failed, the LIKE scan over messages.content recovers
-    // the match — the conversation and its message are still returned.
-    expect(results.map((r) => r.conversationId)).toEqual([conv.id]);
-    expect(results[0]!.matchingMessages.map((m) => m.messageId)).toEqual([
-      "d-1",
-    ]);
+    // The content-only conversation is dropped; the title-matched conversation
+    // still surfaces, without content excerpts.
+    expect(results.map((r) => r.conversationId)).toEqual([titleMatch.id]);
+    expect(results[0]!.matchingMessages).toEqual([]);
   });
 
   test("uses the fts5 path (not qdrant) when memory is disabled", async () => {
@@ -347,16 +349,19 @@ describe("searchConversations · qdrant backend", () => {
     ]);
   });
 
-  test("non-tokenizable queries use the LIKE fallback without hitting the index", async () => {
+  test("non-tokenizable queries return title matches only, without hitting the index", async () => {
     // Single-char / non-ASCII queries produce no tokens, so neither FTS nor the
-    // sparse encoder yields terms — both backends use the LIKE content scan.
-    const conv = createConversation("Symbols");
-    insertMessage("s-1", conv.id, "review the C§ draft");
+    // sparse encoder yields terms. Content matching is index-only, so only the
+    // title LIKE arm can match such queries.
+    const contentOnly = createConversation("Symbols");
+    insertMessage("s-1", contentOnly.id, "review the C§ draft");
+    const titleMatch = createConversation("C§ symbol reference");
 
     const results = await searchConversations("C§");
 
     expect(searchMessageIdsLexicalMock).not.toHaveBeenCalled();
-    expect(results.map((r) => r.conversationId)).toEqual([conv.id]);
+    expect(results.map((r) => r.conversationId)).toEqual([titleMatch.id]);
+    expect(results[0]!.matchingMessages).toEqual([]);
   });
 
   test("returns [] when the index yields no candidates and nothing matches by title", async () => {

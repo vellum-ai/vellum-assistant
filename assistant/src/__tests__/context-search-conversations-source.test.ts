@@ -98,7 +98,10 @@ describe("searchConversationSource", () => {
     });
   });
 
-  test("uses LIKE fallback for short and non-ASCII queries", async () => {
+  test("returns no evidence for short and non-ASCII queries (content matching is index-only)", async () => {
+    // Short/punctuation-only and CJK queries produce no usable ≥2-char match
+    // shape. There is no content-scan fallback, so such queries yield no
+    // conversation evidence even when an exact substring exists.
     await seedConversation({
       title: "C++ notes",
       role: "user",
@@ -116,12 +119,8 @@ describe("searchConversationSource", () => {
       5,
     );
 
-    expect(shortResult.evidence.map((item) => item.title)).toEqual([
-      "C++ notes",
-    ]);
-    expect(unicodeResult.evidence.map((item) => item.title)).toEqual([
-      "Unicode notes",
-    ]);
+    expect(shortResult.evidence).toEqual([]);
+    expect(unicodeResult.evidence).toEqual([]);
   });
 
   test("does not return derived subagent, auto-analysis, or notification conversations", async () => {
@@ -196,27 +195,6 @@ describe("searchConversationSource", () => {
       makeContext(),
       10,
     );
-
-    expect(result.evidence.map((item) => item.locator)).toEqual([
-      `${visible.conversation.id}#${visible.message.id}`,
-    ]);
-  });
-
-  test("excludes legacy private conversations through the LIKE fallback", async () => {
-    const visible = await seedConversation({
-      title: "Visible non-ASCII conversation",
-      content: "東京 appears in a normal conversation.",
-    });
-    const legacyPrivate = await seedConversation({
-      title: "Legacy private non-ASCII conversation",
-      content: "東京 appears in a private conversation.",
-    });
-    rawRun(
-      "UPDATE conversations SET conversation_type = 'private' WHERE id = ?",
-      legacyPrivate.conversation.id,
-    );
-
-    const result = await searchConversationSource("東京", makeContext(), 10);
 
     expect(result.evidence.map((item) => item.locator)).toEqual([
       `${visible.conversation.id}#${visible.message.id}`,
@@ -478,16 +456,17 @@ describe("searchConversationSource with the qdrant backend", () => {
     ]);
   });
 
-  test("routes short/punctuation-only queries to the exact LIKE path, not Qdrant", async () => {
-    const match = await seedConversation({
+  test("short/punctuation-only queries return no evidence and never hit Qdrant", async () => {
+    await seedConversation({
       title: "C++ notes",
       role: "user",
       content: "Use C++ when the example needs deterministic lifetime notes.",
     });
 
-    // `C++` produces no usable ≥2-char FTS match shape, so the source must use
-    // the exact LIKE path rather than the sparse encoder (which would still
-    // emit a noisy 1-char `c` token). The mock throws to prove it never runs.
+    // `C++` produces no usable ≥2-char FTS match shape. The sparse encoder
+    // would still emit a noisy 1-char `c` token, so the source must return no
+    // evidence WITHOUT querying the index. The mock throws to prove it never
+    // runs.
     lexicalMockImpl = async () => {
       throw new Error("searchMessageIdsLexical must not run for a short query");
     };
@@ -495,9 +474,7 @@ describe("searchConversationSource with the qdrant backend", () => {
     const result = await searchConversationSource("C++", makeContext(), 5);
 
     expect(lexicalCalls).toHaveLength(0);
-    expect(result.evidence.map((item) => item.locator)).toEqual([
-      `${match.conversation.id}#${match.message.id}`,
-    ]);
+    expect(result.evidence).toEqual([]);
   });
 
   test("over-fetches a wide candidate pool from Qdrant, not the FTS prefetch window", async () => {
@@ -620,10 +597,10 @@ describe("searchConversationSource with the qdrant backend", () => {
     ]);
   });
 
-  test("falls back to LIKE when the Qdrant lookup throws", async () => {
-    const match = await seedConversation({
-      title: "Fallback notes",
-      content: "The likefallbacktoken decision is recorded here.",
+  test("returns no evidence when the Qdrant lookup throws", async () => {
+    await seedConversation({
+      title: "Failure notes",
+      content: "The qdranterrortoken decision is recorded here.",
     });
 
     lexicalMockImpl = async () => {
@@ -631,18 +608,18 @@ describe("searchConversationSource with the qdrant backend", () => {
     };
 
     const result = await searchConversationSource(
-      "likefallbacktoken",
+      "qdranterrortoken",
       makeContext(),
       5,
     );
 
-    expect(result.evidence.map((item) => item.locator)).toEqual([
-      `${match.conversation.id}#${match.message.id}`,
-    ]);
+    // Content matching is index-only: the failure is logged and the source
+    // yields no conversation evidence — no content-scan recovery.
+    expect(result.evidence).toEqual([]);
   });
 
-  test("falls back to LIKE when Qdrant returns no candidates", async () => {
-    const match = await seedConversation({
+  test("returns no evidence when Qdrant returns no candidates", async () => {
+    await seedConversation({
       title: "Empty candidate notes",
       content: "The emptycandidatetoken decision is recorded here.",
     });
@@ -655,9 +632,9 @@ describe("searchConversationSource with the qdrant backend", () => {
       5,
     );
 
-    expect(result.evidence.map((item) => item.locator)).toEqual([
-      `${match.conversation.id}#${match.message.id}`,
-    ]);
+    // The index is authoritative for content matching — an empty candidate
+    // set is an empty result, not a trigger for a table-scan fallback.
+    expect(result.evidence).toEqual([]);
   });
 });
 

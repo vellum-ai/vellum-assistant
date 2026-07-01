@@ -11,8 +11,11 @@ import {
   parseExternalContentEnvelope,
   wrapUntrustedContent,
 } from "../../../../../security/untrusted-content.js";
+import { getLogger } from "../../../../../util/logger.js";
 import { isMemoryIndexingSuppressed } from "../../job-handlers/index-message-lexical.js";
 import type { RecallSearchContext, RecallSearchResult } from "../types.js";
+
+const log = getLogger("recall-conversations-source");
 
 const SUBAGENT_SOURCE = "subagent";
 const NOTIFICATION_SOURCE = "notification";
@@ -141,18 +144,18 @@ export async function searchConversationSource(
       : "qdrant";
 
   // Tokenize once. Short/punctuation-only queries (`C++`, CJK) produce no
-  // usable ≥2-char match shape, and both backends must route those straight to
-  // the exact `searchWithLike` path — the FTS path already does (an empty match
-  // list yields no rows and falls through to LIKE below). The Qdrant path needs
-  // this guard explicitly: the sparse encoder still emits a 1-char token for
-  // such queries, so it would return noisy hits and wrongly skip the exact-LIKE
-  // fallback. Only query a lexical index when the query genuinely tokenizes.
+  // usable ≥2-char match shape. Content matching is index-only, so such
+  // queries yield no conversation evidence. The early return matters for the
+  // Qdrant path in particular: the sparse encoder still emits a 1-char token
+  // for these queries, so querying the index anyway would return noisy hits.
+  // Only query a lexical index when the query genuinely tokenizes.
   const ftsMatches = buildRecallFtsMatchQueries(trimmedQuery);
+  if (ftsMatches.length === 0) {
+    return { evidence: [] };
+  }
 
   let rows: ConversationEvidenceRow[];
-  if (ftsMatches.length === 0) {
-    rows = searchWithLike(trimmedQuery, queryLimit, context.conversationId);
-  } else if (backend === "qdrant") {
+  if (backend === "qdrant") {
     // A brief post-edit staleness window (an edited message whose re-index job
     // has not yet run, or a just-deleted message still present as a point) is
     // an ACCEPTED consequence of async indexing. Recall is fuzzy evidence
@@ -175,10 +178,6 @@ export async function searchConversationSource(
       normalizedLimit,
       context.conversationId,
     );
-  }
-
-  if (rows.length === 0) {
-    rows = searchWithLike(trimmedQuery, queryLimit, context.conversationId);
   }
 
   const sortedRows = rows
@@ -210,8 +209,7 @@ export async function searchConversationSource(
  * Generate candidate rows via SQLite FTS5 from precomputed match shapes. Walks
  * the shapes (progressively broader), merging matches until enough rows are
  * collected, and swallows a malformed-query error on any single shape so a
- * broader shape can still run. Returns an empty array when no shape matches —
- * the caller then degrades to the LIKE fallback.
+ * broader shape can still run. Returns an empty array when no shape matches.
  */
 function gatherCandidateRowsFromFts(
   ftsMatches: readonly string[],
@@ -251,9 +249,8 @@ function gatherCandidateRowsFromFts(
  * `LIMIT` is a no-op ceiling here; it exists only to bound the returned rows.
  *
  * Returns an empty array when the query tokenizes to no sparse terms (the
- * lexical helper's empty guard) or when the Qdrant call throws — in both cases
- * the caller degrades to the LIKE fallback, mirroring how the FTS path falls
- * back when it matches nothing.
+ * lexical helper's empty guard) or when the Qdrant call throws (logged) — the
+ * source then yields no conversation evidence for the query.
  */
 async function gatherCandidateRowsFromQdrant(
   query: string,
@@ -263,7 +260,11 @@ async function gatherCandidateRowsFromQdrant(
   let candidates: Array<{ messageId: string }>;
   try {
     candidates = await searchMessageIdsLexical(query, candidateLimit);
-  } catch {
+  } catch (err) {
+    log.warn(
+      { err, query: query.slice(0, 80) },
+      "recall conversations source: Qdrant lexical query failed — no conversation evidence for this query",
+    );
     return [];
   }
 
@@ -340,39 +341,6 @@ function searchByIds(
     LIMIT ?
     `,
     ...messageIds,
-    SUBAGENT_SOURCE,
-    AUTO_ANALYSIS_SOURCE,
-    NOTIFICATION_SOURCE,
-    excludedConversationId,
-    limit,
-  );
-}
-
-function searchWithLike(
-  query: string,
-  limit: number,
-  excludedConversationId: string,
-): ConversationEvidenceRow[] {
-  return rawAll<ConversationEvidenceRow>(
-    `
-    SELECT
-      m.id AS message_id,
-      m.conversation_id,
-      m.role,
-      m.content,
-      m.created_at,
-      m.metadata,
-      c.title
-    FROM messages m
-    JOIN conversations c ON c.id = m.conversation_id
-    WHERE m.content LIKE ? ESCAPE '\\'
-      AND (c.source IS NULL OR c.source NOT IN (?, ?, ?))
-      AND c.id != ?
-      AND c.conversation_type != 'private'
-    ORDER BY m.created_at DESC
-    LIMIT ?
-    `,
-    buildLikePattern(query),
     SUBAGENT_SOURCE,
     AUTO_ANALYSIS_SOURCE,
     NOTIFICATION_SOURCE,
@@ -510,11 +478,4 @@ function compareScoredConversationRows(
   const scoreCompare = b.score - a.score;
   if (scoreCompare !== 0) return scoreCompare;
   return b.row.created_at - a.row.created_at;
-}
-
-function buildLikePattern(query: string): string {
-  return `%${query
-    .replace(/\\/g, "\\\\")
-    .replace(/%/g, "\\%")
-    .replace(/_/g, "\\_")}%`;
 }
