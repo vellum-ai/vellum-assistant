@@ -32,11 +32,16 @@ const log = getLogger("messages-lexical-enqueue");
  * the FULL disabled-state check the host applies in
  * `guardPersistenceHooksByDisabledState`, because the index-write call sites
  * (streaming finalize, import, edit, consolidation) call
- * {@link enqueueLexicalIndexForMessage} directly, outside that guard. Applies
- * ONLY to the index/write path — the cleanup paths (purge/delete/clear) must
- * still run while disabled so points written when enabled are not orphaned.
+ * {@link enqueueLexicalIndexForMessage} directly, outside that guard.
+ *
+ * On the write side this suppresses ONLY the index/write path — the cleanup
+ * paths (purge/delete/clear) must still run while disabled so points written
+ * when enabled are not orphaned. It doubles as the read-side population signal:
+ * when suppression is active the lexical index is not being forward-filled, so
+ * lexical-backed reads must fall back to FTS rather than query a stale/empty
+ * `messages_lexical` collection.
  */
-function isMemoryIndexingSuppressed(): boolean {
+export function isMemoryIndexingSuppressed(): boolean {
   return !isMemoryEnabled() || isPluginDisabled(memoryPkg.name);
 }
 
