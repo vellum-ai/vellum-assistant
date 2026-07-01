@@ -43,7 +43,7 @@ export function NewChatPluginsSection({
   return (
     <section className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-body-small-default text-[var(--content-tertiary)]">
+        <div className="flex items-center gap-1.5 text-title-small text-[var(--content-default)]">
           <span>Add plugins for new chat</span>
           <Tooltip content={TOOLTIP_COPY} side="top">
             <span className="inline-flex cursor-help items-center">
@@ -56,7 +56,7 @@ export function NewChatPluginsSection({
         </div>
         <Link
           to={routes.plugins}
-          className="text-body-small-default text-[var(--content-tertiary)] hover:text-[var(--content-secondary)]"
+          className="text-body-medium-default text-[var(--primary-base)] hover:text-[var(--primary-hover)]"
         >
           Manage Plugins
         </Link>

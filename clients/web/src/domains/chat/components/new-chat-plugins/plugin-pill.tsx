@@ -13,7 +13,7 @@ export function PluginPill({ name, selected, onToggle }: PluginPillProps) {
       aria-pressed={selected}
       aria-label={`${selected ? "Disable" : "Enable"} ${name} for this chat`}
       onClick={onToggle}
-      className={`inline-flex items-center gap-1.5 rounded-full border pl-2.5 pr-3 py-2 text-body-medium-default ${
+      className={`inline-flex h-[34px] cursor-pointer items-center gap-1.5 rounded-full border pl-2.5 pr-3 text-body-medium-default ${
         selected
           ? "border-[var(--border-active)] bg-[var(--surface-active)] text-[var(--content-default)]"
           : "border-[var(--border-disabled)] bg-[var(--surface-base)] text-[var(--content-secondary)]"
