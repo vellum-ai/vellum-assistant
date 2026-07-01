@@ -265,12 +265,13 @@ export function seedInferenceProfiles(
   //
   //    A whitelist of user-editable fields survives the reconcile: `label`
   //    (display rename), `status` (active/disabled toggle), and `topP`
-  //    (sampling override) — the only fields a user may override. The managed
-  //    PUT route `/v1/config/llm/profiles/:name` lets users patch these on
-  //    managed profiles without duplicating. We honor every one of these
-  //    overrides across reseeds or they'd silently revert on every boot.
-  //    Carry by key-presence rather than truthiness so an explicit `null` (user
-  //    cleared the field) survives too.
+  //    (sampling override). Non-invariant managed profiles (e.g. os-beta)
+  //    allow all three; invariant profiles (balanced, quality-optimized,
+  //    cost-optimized) only allow `topP` via the API, but the seed still
+  //    preserves label/status from disk so BYOK hatch-time disable survives
+  //    reboots. Route guards enforce the invariant restriction.
+  //    Carry by key-presence rather than truthiness so an explicit `null`
+  //    (user cleared the field) survives too.
   //
   //    BYOK seed defaults (off-platform only):
   //      • label: " (Managed)" suffix disambiguates managed profile labels
@@ -308,30 +309,23 @@ export function seedInferenceProfiles(
       isByokMode &&
       options.isHatch &&
       !previous &&
-      !INVARIANT_PROFILE_NAMES.has(name) &&
       template.connectionName !== hatchSelectedManagedConnection
     ) {
       next.status = "disabled";
     }
     if (previous) {
-      // Invariant profiles (the three defaults) cannot be relabeled or
-      // disabled — skip preserving label/status overrides for them. Any
-      // stale overrides from before this restriction are discarded.
-      const isInvariant = INVARIANT_PROFILE_NAMES.has(name);
-      if (!isInvariant) {
-        // Preserve user overrides on label and status. The label path also
-        // runs the BYOK upgrade migration described above: if the on-disk
-        // label exactly equals the bare template default and we're in BYOK
-        // mode, rewrite to the suffixed effective label so existing installs
-        // get the disambiguation, not just fresh hatches.
-        if ("label" in previous) {
-          next.label =
-            isByokMode && previous.label === template.label
-              ? effectiveTemplate.label
-              : previous.label;
-        }
-        if ("status" in previous) next.status = previous.status;
+      // Preserve user overrides on label and status. The label path also
+      // runs the BYOK upgrade migration described above: if the on-disk
+      // label exactly equals the bare template default and we're in BYOK
+      // mode, rewrite to the suffixed effective label so existing installs
+      // get the disambiguation, not just fresh hatches.
+      if ("label" in previous) {
+        next.label =
+          isByokMode && previous.label === template.label
+            ? effectiveTemplate.label
+            : previous.label;
       }
+      if ("status" in previous) next.status = previous.status;
       // `topP` is user-editable on all managed profiles (see the
       // managed-profile editable allowlist on the PUT route) — preserve a
       // user override across reseeds, including an explicit `null` clear,

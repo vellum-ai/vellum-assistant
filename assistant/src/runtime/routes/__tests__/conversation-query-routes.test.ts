@@ -1111,6 +1111,47 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       });
       expect(result).toBeDefined();
     });
+
+    test("config SET rejects replacing an invariant profile object", async () => {
+      await expect(
+        setConfigRoute.handler({
+          body: { path: "llm.profiles.balanced", value: { topP: 0.8 } },
+        }),
+      ).rejects.toThrow(/Cannot replace invariant profile "balanced"/);
+    });
+
+    test("config SET rejects replacing llm.profiles subtree", async () => {
+      await expect(
+        setConfigRoute.handler({
+          body: { path: "llm.profiles", value: {} },
+        }),
+      ).rejects.toThrow(/Cannot replace `llm\.profiles`/);
+    });
+
+    test("config SET rejects replacing llm subtree", async () => {
+      await expect(
+        setConfigRoute.handler({
+          body: { path: "llm", value: {} },
+        }),
+      ).rejects.toThrow(/Cannot replace `llm`/);
+    });
+
+    test("config SET allows leaf topP write on invariant profile", async () => {
+      const result = await setConfigRoute.handler({
+        body: { path: "llm.profiles.balanced.topP", value: 0.8 },
+      });
+      expect(result).toBeDefined();
+    });
+
+    test("config SET allows replacing a non-invariant profile", async () => {
+      const result = await setConfigRoute.handler({
+        body: {
+          path: "llm.profiles.custom",
+          value: { provider: "openai", model: "gpt-5" },
+        },
+      });
+      expect(result).toBeDefined();
+    });
   });
 
   describe("commitConfigWrite side effects", () => {

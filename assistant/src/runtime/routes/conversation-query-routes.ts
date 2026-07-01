@@ -905,6 +905,44 @@ function rejectInvariantProfileMutation(body: Record<string, unknown>): void {
 }
 
 /**
+ * For `config_set` (direct-replacement semantics), reject paths that would
+ * replace subtrees containing invariant profiles. `config_set` uses
+ * `setNestedValue`, which replaces the value at the target path rather than
+ * merging into it. Allowed leaf writes:
+ *   - `llm.profiles.<invariant>.topP` (the only editable field)
+ * Blocked subtree replacements:
+ *   - `llm` or `llm.profiles` (would destroy invariant profiles)
+ *   - `llm.profiles.<invariant>` (would replace the entire profile object)
+ */
+function rejectInvariantSubtreeReplacement(path: string): void {
+  const segments = path.split(".");
+  if (segments[0] !== "llm") return;
+  if (segments.length === 1) {
+    throw new BadRequestError(
+      "Cannot replace `llm` via config set — invariant profiles would be destroyed. " +
+        "Use a more specific path.",
+    );
+  }
+  if (segments.length < 2 || segments[1] !== "profiles") return;
+  if (segments.length === 2) {
+    throw new BadRequestError(
+      "Cannot replace `llm.profiles` via config set — invariant profiles would be destroyed. " +
+        "Use a more specific path.",
+    );
+  }
+  const profileName = segments[2];
+  if (!INVARIANT_PROFILE_NAMES.has(profileName)) return;
+  if (segments.length === 3) {
+    throw new BadRequestError(
+      `Cannot replace invariant profile "${profileName}" via config set. ` +
+        `Only leaf edits (e.g. llm.profiles.${profileName}.topP) are allowed.`,
+    );
+  }
+  // segments.length >= 4: leaf field write — validated by
+  // rejectInvariantProfileMutation via the patchShape.
+}
+
+/**
  * Persist a mutated raw config object to disk and synchronize the running
  * daemon (file-watcher, embedding cache, provider registry).
  *
@@ -1016,6 +1054,11 @@ async function handleSetConfig({ body }: RouteHandlerArgs) {
       "`value` is required (use `null` to clear a key)",
     );
   }
+  // config_set replaces the value at the target path (no merge). Guard
+  // against subtree replacements that would destroy invariant profiles
+  // before checking the field-level guards on the expanded patchShape.
+  rejectInvariantSubtreeReplacement(path);
+
   // Build the equivalent patch shape so the managed-profile guard can
   // inspect the touched subtree.
   const patchShape: Record<string, unknown> = {};
