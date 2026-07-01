@@ -33,10 +33,17 @@ const AVAILABLE_FILTER: FilterOption = {
 /**
  * Status options for the filter. Active/Off narrow installed rows by
  * enablement, so they only make sense when the daemon supports toggling —
- * without it there's no active/off distinction, so fall back to All / Available.
+ * without it there's no active/off distinction, so offer a plain Installed
+ * option instead (All / Installed / Available).
  */
 function statusFilters(pluginToggleSupported: boolean): FilterOption[] {
-  if (!pluginToggleSupported) return [ALL_FILTER, AVAILABLE_FILTER];
+  if (!pluginToggleSupported) {
+    return [
+      ALL_FILTER,
+      { value: "installed", label: "Installed", icon: CheckCircle },
+      AVAILABLE_FILTER,
+    ];
+  }
   return [
     ALL_FILTER,
     { value: "active", label: "Active", icon: Power },

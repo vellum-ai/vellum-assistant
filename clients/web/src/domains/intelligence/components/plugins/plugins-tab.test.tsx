@@ -330,20 +330,26 @@ describe("PluginsTab", () => {
     expect(queryByText("apollo-bot-brain")).toBeTruthy();
   });
 
-  test("hides Active/Off when the daemon lacks enable/disable support", async () => {
+  test("offers Installed (not Active/Off) and filters to installed rows when the daemon lacks enable/disable support", async () => {
     // `installed()` omits `enabled` (older-daemon shape) → toggle unsupported.
     installedPlugins = [installed()];
     catalogMatches = [catalog()];
 
-    const { findByText, getByLabelText } = renderTab();
+    const { findByText, queryByText, getByLabelText } = renderTab();
     await findByText("apollo-bot-brain");
 
     fireEvent.click(getByLabelText("Filter plugins"));
 
+    // Active/Off are replaced by a plain Installed option.
     const labels = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
     ).map((o) => o.textContent?.trim());
-    expect(labels).toEqual(["All", "Available"]);
+    expect(labels).toEqual(["All", "Installed", "Available"]);
+
+    // Installed narrows to installed rows; the catalog (available) row drops.
+    clickStatusOption("Installed");
+    await waitFor(() => expect(queryByText("apollo-bot-brain")).toBeNull());
+    expect(queryByText("simple-memory")).toBeTruthy();
   });
 
   test("search filters the list in memory", async () => {

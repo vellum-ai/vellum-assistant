@@ -132,15 +132,18 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
   // supports it (see `pluginToggleSupported`).
   const { toggle, togglingName } = usePluginToggle(assistantId);
 
-  // Active/Off are only offered when the daemon supports enable/disable. If a
-  // prior Active/Off selection carries into an assistant that doesn't support
-  // it, coerce it to All so installed rows don't silently vanish (the picker
-  // only offers All/Available there). Everything that drives display reads this,
-  // not the raw `filter`; `setFilter` still records the raw user choice.
-  const effectiveFilter: PluginFilter =
-    !pluginToggleSupported && (filter === "active" || filter === "off")
-      ? "all"
-      : filter;
+  // The picker offers different status options per daemon capability
+  // (All/Active/Off/Available when it can toggle, All/Installed/Available when
+  // it can't). If a prior selection carries into an assistant whose picker no
+  // longer offers it, coerce to All so rows don't silently vanish under an
+  // unreachable filter. Everything that drives display reads this, not the raw
+  // `filter`; `setFilter` still records the raw user choice.
+  const offeredFilters: PluginFilter[] = pluginToggleSupported
+    ? ["all", "active", "off", "available"]
+    : ["all", "installed", "available"];
+  const effectiveFilter: PluginFilter = offeredFilters.includes(filter)
+    ? filter
+    : "all";
 
   const { counts, totalCount } = useMergedPluginCounts(
     installedCategoryCounts,
@@ -325,7 +328,8 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
         // Don't flash an "empty" state for available plugins while the
         // catalog is still loading (installed plugins already render above).
         // Only the filters that surface catalog rows (all/available) wait on it.
-        catalogLoading && (filter === "all" || filter === "available") ? (
+        catalogLoading &&
+          (effectiveFilter === "all" || effectiveFilter === "available") ? (
           <LoadingState />
         ) : (
           <EmptyState filter={effectiveFilter} category={effectiveCategory} />
@@ -700,6 +704,13 @@ function getEmptyStateCopy(
     };
   }
   switch (filter) {
+    case "installed":
+      return {
+        title: "No Plugins Installed",
+        subtitle:
+          "Browse the catalog to install plugins that extend your assistant.",
+        Icon: Puzzle,
+      };
     case "active":
       return {
         title: "No Active Plugins",
