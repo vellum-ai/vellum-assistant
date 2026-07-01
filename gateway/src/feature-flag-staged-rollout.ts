@@ -28,8 +28,8 @@
  * targeting is complete and it is safe for the platform to leave it on
  * unconditionally.
  *
- * `messages-search-backend`: default flipped to `qdrant` in the registry; the
- * managed cutover is gated on the companion LaunchDarkly targeting
+ * `messages-search-backend`: the registry default is `qdrant`; the managed
+ * cutover is gated on the companion LaunchDarkly targeting
  * (`vellum-assistant-platform` #8742) so managed assistants stay on `fts5` until
  * explicitly targeted on.
  */
