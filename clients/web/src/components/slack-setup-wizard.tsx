@@ -176,10 +176,10 @@ function CreateAppStep({ slackAppName, onSlackAppNameChange, onCreateApp, onNext
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-body-medium-lighter text-[var(--content-default)]">
+      <Typography as="p" variant="body-medium-lighter" className="text-[color:var(--content-default)]">
         Name your Slack app, then click below to create it. All permissions and
         settings will be pre-configured automatically.
-      </p>
+      </Typography>
       <Input
         label="App Name"
         value={slackAppName}
@@ -201,16 +201,17 @@ function CreateAppStep({ slackAppName, onSlackAppNameChange, onCreateApp, onNext
           Create Slack App
         </Button>
       </div>
-      <p className="text-body-small-default text-[var(--content-faint)]">
+      <Typography as="p" variant="body-small-default" className="text-[color:var(--content-faint)]">
         Already have a Slack app?{" "}
-        <button
-          type="button"
-          className="text-[var(--content-link)] hover:underline"
+        <Button
+          variant="ghost"
+          size="compact"
+          className="inline px-0 h-auto text-[color:var(--content-link)] hover:underline"
           onClick={onNext}
         >
           Skip to next step
-        </button>
-      </p>
+        </Button>
+      </Typography>
     </div>
   );
 }
@@ -242,24 +243,25 @@ function AppTokenStep({
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-body-medium-lighter text-[var(--content-default)]">
+      <Typography as="p" variant="body-medium-lighter" className="text-[color:var(--content-default)]">
         On your app&apos;s settings page in Slack:
-      </p>
+      </Typography>
       <ol className="list-decimal list-inside space-y-1 text-body-medium-lighter text-[var(--content-default)]">
         <li>Go to <strong>Basic Information</strong> &rarr; <strong>App-Level Tokens</strong></li>
         <li>Click <strong>Generate Token and Scopes</strong></li>
         <li>
           Name it{" "}
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="compact"
             onClick={handleCopy}
-            className="inline-flex items-center gap-1 rounded bg-[var(--surface-base)] px-1.5 py-0.5 font-mono text-body-small-default text-[var(--content-strong)] hover:bg-[var(--surface-hover)]"
-            title="Click to copy"
+            className="inline-flex gap-1 rounded bg-[var(--surface-base)] px-1.5 py-0.5 font-mono text-body-small-default text-[color:var(--content-strong)] hover:bg-[var(--surface-hover)] h-auto"
+            tooltip="Click to copy"
           >
             {tokenName}
             <ClipboardCopy aria-hidden className="size-3" />
-          </button>
-          {copied && <span className="ml-1 text-body-small-default text-[var(--content-positive)]">Copied!</span>}
+          </Button>
+          {copied && <Typography as="span" variant="body-small-default" className="ml-1 text-[color:var(--content-positive)]">Copied!</Typography>}
           {" "}and add the <strong>connections:write</strong> scope
         </li>
         <li>Click <strong>Generate</strong> and copy the token</li>
@@ -314,10 +316,10 @@ function InstallAndConnectStep({
         <li>Click <strong>Install to Workspace</strong> and approve the permissions</li>
         <li>Copy the <strong>Bot User OAuth Token</strong> shown on the page</li>
       </ol>
-      <p className="text-body-small-default text-[var(--content-faint)]">
+      <Typography as="p" variant="body-small-default" className="text-[color:var(--content-faint)]">
         If Slack shows &ldquo;Request approval&rdquo; instead, a workspace admin
         needs to approve the app first.
-      </p>
+      </Typography>
       <div className="flex items-end gap-3">
         <div className="flex-1">
           <Input
@@ -339,14 +341,14 @@ function InstallAndConnectStep({
         </Button>
       </div>
       {saveStatus === "success" && (
-        <p className="text-body-small-default text-[var(--content-positive)]">
+        <Typography as="p" variant="body-small-default" className="text-[color:var(--content-positive)]">
           Credentials saved.
-        </p>
+        </Typography>
       )}
       {saveStatus === "error" && saveError && (
-        <p className="text-body-small-default text-[var(--system-negative-strong)]">
+        <Typography as="p" variant="body-small-default" className="text-[color:var(--system-negative-strong)]">
           {saveError}
-        </p>
+        </Typography>
       )}
     </div>
   );
