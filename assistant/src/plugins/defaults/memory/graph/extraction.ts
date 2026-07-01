@@ -10,7 +10,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { ContentBlock, ImageContent, Message } from "@vellumai/plugin-api";
-import { getConfiguredProvider } from "@vellumai/plugin-api";
+import {
+  buildCoreIdentityContext,
+  getConfiguredProvider,
+} from "@vellumai/plugin-api";
 import { and, asc, desc, eq, gt } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../../../config/types.js";
@@ -20,7 +23,6 @@ import {
   conversations,
   messages,
 } from "../../../../persistence/schema/index.js";
-import { buildCoreIdentityContext } from "../../../../prompts/system-prompt.js";
 import { BackendUnavailableError } from "../../../../util/errors.js";
 import { getLogger } from "../../../../util/logger.js";
 import { extractToolUse, userMessage } from "../llm-helpers.js";
