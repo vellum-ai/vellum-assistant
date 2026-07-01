@@ -566,6 +566,9 @@ export class CallController {
           { callSessionId: this.callSessionId },
           "Swallowing transient processing-lock contention race",
         );
+        // Send an empty end-of-turn marker so the relay transitions back to
+        // listening, without speaking any technical-issue text.
+        this.transport.sendTextToken("", true);
         this.state = "idle";
         this.resetSilenceTimer();
         this.flushPendingInstructions();

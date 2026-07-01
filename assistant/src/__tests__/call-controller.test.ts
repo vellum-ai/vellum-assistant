@@ -1040,6 +1040,13 @@ describe("call-controller", () => {
     );
     expect(errorTokens.length).toBe(0);
 
+    // An empty end-of-turn marker (last=true) must still be sent so the relay
+    // transitions back to listening despite swallowing the error.
+    const endOfTurnMarkers = relay.sentTokens.filter(
+      (t) => t.token === "" && t.last === true,
+    );
+    expect(endOfTurnMarkers.length).toBeGreaterThan(0);
+
     // Controller goes idle and re-arms the silence watchdog.
     expect(controller.getState()).toBe("idle");
 
