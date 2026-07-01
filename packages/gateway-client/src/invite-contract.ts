@@ -22,16 +22,16 @@ function sha256Hex(input: string): string {
 }
 
 /**
- * SHA-256 hash an invite token for storage comparison. Ported verbatim from
- * the assistant's `invite-store.ts` `hashToken`.
+ * SHA-256 hash an invite token for storage comparison. Must remain stable:
+ * stored invite rows hold hashes produced by this function.
  */
 export function hashInviteToken(rawToken: string): string {
   return sha256Hex(rawToken);
 }
 
 /**
- * SHA-256 hash a numeric invite/voice code for storage comparison. Ported
- * verbatim from the assistant's `voice-code.ts` `hashVoiceCode`.
+ * SHA-256 hash a numeric invite/voice code for storage comparison. Must
+ * remain stable: stored invite rows hold hashes produced by this function.
  */
 export function hashInviteCode(code: string): string {
   return sha256Hex(code);
@@ -47,8 +47,7 @@ export function generateInviteToken(): string {
 
 /**
  * Generate a cryptographically random numeric code of the given length.
- * Uses node:crypto randomInt for uniform distribution. Ported verbatim from
- * the assistant's `voice-code.ts` `generateVoiceCode`.
+ * Uses node:crypto randomInt for uniform distribution.
  */
 export function generateInviteCode(digits: number = 6): string {
   if (digits < 4 || digits > 10) {
