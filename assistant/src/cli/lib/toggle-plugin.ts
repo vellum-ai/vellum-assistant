@@ -16,7 +16,13 @@
  * it was the sentinel).
  */
 
-import { existsSync, mkdirSync, readdirSync, rmSync, unlinkSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  unlinkSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import { getWorkspacePluginsDir } from "../../util/platform.js";
@@ -125,6 +131,14 @@ export function enablePlugin(name: string): TogglePluginResult {
   const pluginsDir = getWorkspacePluginsDir();
   const pluginDir = join(pluginsDir, validated);
   const sentinelPath = join(pluginDir, DISABLED_FILE);
+
+  // A missing user plugin is a 404, not a no-op: without this, a typo/deleted
+  // name has no sentinel and would fall through to "already enabled" (409),
+  // indistinguishable from a genuinely-enabled plugin. Default plugins have no
+  // directory when enabled, so they skip this check (their no-op stays 409).
+  if (!validated.startsWith("default-") && !existsSync(pluginDir)) {
+    throw new PluginDirectoryNotFoundError(validated);
+  }
 
   if (!existsSync(sentinelPath)) {
     throw new PluginAlreadyInStateException(validated, "enable");
