@@ -229,10 +229,10 @@ describe("POST /schedules — workflow mode does not require a message", () => {
         workflowName: "triage-inbox",
         // no `message`
       },
-    })) as { schedules: Array<{ mode: string; workflowName: string | null }> };
+    })) as { schedule: { mode: string; workflowName: string | null } };
 
-    const created = result.schedules.find((s) => s.mode === "workflow");
-    expect(created?.workflowName).toBe("triage-inbox");
+    expect(result.schedule.mode).toBe("workflow");
+    expect(result.schedule.workflowName).toBe("triage-inbox");
   });
 
   test("still rejects a workflow schedule with no workflowName", async () => {
