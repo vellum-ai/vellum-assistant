@@ -324,6 +324,116 @@ describe("scaffold_managed_skill tool", () => {
     expect(content).not.toContain("includes");
   });
 
+  test("writes activation_hints and avoid_when metadata that round-trips into the catalog", async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "hinted-skill",
+        name: "Hinted",
+        description: "Has trigger phrases",
+        body_markdown: "Body.",
+        activation_hints: [
+          "user asks to deploy staging",
+          "needs a release cut",
+        ],
+        avoid_when: ["local-only changes"],
+      },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    const content = readFileSync(
+      join(TEST_DIR, "skills", "hinted-skill", "SKILL.md"),
+      "utf-8",
+    );
+    // Kebab-case keys are what parseFrontmatter reads back.
+    expect(content).toContain("    activation-hints:");
+    expect(content).toContain("    avoid-when:");
+
+    const skill = loadSkillCatalog().find((s) => s.id === "hinted-skill");
+    expect(skill!.activationHints).toEqual([
+      "user asks to deploy staging",
+      "needs a release cut",
+    ]);
+    expect(skill!.avoidWhen).toEqual(["local-only changes"]);
+  });
+
+  test("normalizes activation_hints — trims and deduplicates", async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "norm-hints",
+        name: "Normalized Hints",
+        description: "Tests normalization",
+        body_markdown: "Body.",
+        activation_hints: [
+          "  deploy staging  ",
+          "cut a release",
+          "deploy staging",
+        ],
+      },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    const skill = loadSkillCatalog().find((s) => s.id === "norm-hints");
+    expect(skill!.activationHints).toEqual(["deploy staging", "cut a release"]);
+  });
+
+  test("rejects activation_hints with non-string or empty elements", async () => {
+    for (const activation_hints of [
+      ["ok", 42],
+      ["ok", ""],
+      ["ok", "  "],
+    ]) {
+      const result = await executeScaffoldManagedSkill(
+        {
+          skill_id: "bad-hints",
+          name: "Bad Hints",
+          description: "Invalid hints",
+          body_markdown: "Body.",
+          activation_hints,
+        },
+        makeContext(),
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("non-empty string");
+    }
+  });
+
+  test("rejects non-array activation_hints", async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "bad-hints-type",
+        name: "Bad Hints Type",
+        description: "Non-array hints",
+        body_markdown: "Body.",
+        activation_hints: "deploy",
+      },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("must be an array");
+  });
+
+  test("omits activation-hints / avoid-when when not provided", async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "no-hints",
+        name: "No Hints",
+        description: "No triggers",
+        body_markdown: "Body.",
+      },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    const content = readFileSync(
+      join(TEST_DIR, "skills", "no-hints", "SKILL.md"),
+      "utf-8",
+    );
+    expect(content).not.toContain("activation-hints");
+    expect(content).not.toContain("avoid-when");
+  });
+
   test("passes category through to the written skill, lowercased and trimmed", async () => {
     const result = await executeScaffoldManagedSkill(
       {

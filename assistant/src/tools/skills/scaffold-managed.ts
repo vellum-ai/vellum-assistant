@@ -18,6 +18,36 @@ function sanitizeFrontmatterValue(value: string): string {
 }
 
 /**
+ * Validate + normalize an optional string-array input (trim, drop blanks,
+ * dedupe). Returns `{ error }` on the first invalid element, or `{ value }`
+ * holding the normalized array (undefined when empty). Shared by the
+ * includes / activation_hints / avoid_when inputs so they behave identically.
+ * The arrays land in frontmatter via stringifyYaml, which handles escaping, so
+ * no per-element sanitizeFrontmatterValue pass is needed.
+ */
+function normalizeOptionalStringArray(
+  raw: unknown,
+  field: string,
+): { value?: string[]; error?: string } {
+  if (raw === undefined) return {};
+  if (!Array.isArray(raw)) {
+    return { error: `${field} must be an array of strings` };
+  }
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    if (typeof item !== "string" || !item.trim()) {
+      return { error: `each element in ${field} must be a non-empty string` };
+    }
+    const trimmed = item.trim();
+    if (seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    normalized.push(trimmed);
+  }
+  return { value: normalized.length > 0 ? normalized : undefined };
+}
+
+/**
  * Core execution logic for scaffold_managed_skill.
  * Exported so bundled-skill executors and tests can call it directly.
  *
@@ -63,41 +93,35 @@ export async function executeScaffoldManagedSkill(
     };
   }
 
-  // Validate and normalize includes
-  let includes: string[] | undefined;
-  if (input.includes !== undefined) {
-    if (!Array.isArray(input.includes)) {
-      return {
-        content: "Error: includes must be an array of strings",
-        isError: true,
-      };
-    }
-    for (const item of input.includes) {
-      if (typeof item !== "string") {
-        return {
-          content: "Error: each element in includes must be a non-empty string",
-          isError: true,
-        };
-      }
-      if (!item.trim()) {
-        return {
-          content: "Error: each element in includes must be a non-empty string",
-          isError: true,
-        };
-      }
-    }
-    const normalized: string[] = [];
-    const seen = new Set<string>();
-    for (const item of input.includes as string[]) {
-      const trimmed = item.trim();
-      if (seen.has(trimmed)) continue;
-      seen.add(trimmed);
-      normalized.push(trimmed);
-    }
-    if (normalized.length > 0) {
-      includes = normalized;
-    }
+  // Validate and normalize the optional string-array inputs. `includes` lists
+  // child skill IDs; activation_hints / avoid_when become the skill's
+  // "Use when:" / "Avoid when:" retrieval signal in memory.
+  const includesResult = normalizeOptionalStringArray(
+    input.includes,
+    "includes",
+  );
+  if (includesResult.error) {
+    return { content: `Error: ${includesResult.error}`, isError: true };
   }
+  const includes = includesResult.value;
+
+  const activationHintsResult = normalizeOptionalStringArray(
+    input.activation_hints,
+    "activation_hints",
+  );
+  if (activationHintsResult.error) {
+    return { content: `Error: ${activationHintsResult.error}`, isError: true };
+  }
+  const activationHints = activationHintsResult.value;
+
+  const avoidWhenResult = normalizeOptionalStringArray(
+    input.avoid_when,
+    "avoid_when",
+  );
+  if (avoidWhenResult.error) {
+    return { content: `Error: ${avoidWhenResult.error}`, isError: true };
+  }
+  const avoidWhen = avoidWhenResult.value;
 
   // Validate and normalize companion files
   let files: Array<{ path: string; content: string }> | undefined;
@@ -211,6 +235,8 @@ export async function executeScaffoldManagedSkill(
         : undefined,
     overwrite: input.overwrite === true,
     includes,
+    activationHints,
+    avoidWhen,
     category,
     files,
     author,
