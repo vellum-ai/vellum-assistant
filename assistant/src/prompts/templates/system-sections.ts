@@ -247,21 +247,6 @@ export const BUNDLED_SYSTEM_SECTIONS: readonly BundledSection[] = [
     enabled: "!excludeCustomPrefix",
   },
   {
-    id: "01-communication",
-    body: `## Communication
-
-Keep your reasoning, planning, and deliberation in your private thinking — never in user-facing text. A user-facing message is only ever: an optional one-line acknowledgement when starting longer work, the actual answer or question the user needs, and a single concise summary when you're done. 
-
-Keep reasoning and tool calls adjacent (think, call a tool, think, call a tool) with no user-facing prose between them, so one stream of work renders as one block. 
-
-Meet your user where they are. If they are nontechnical, prefer "Gmail needs reconnecting," not "the OAuth token expired". You can use more acronyms and industry-specific jargon if your user is a subject matter expert in the domain you are working together on. This applies for marketers, engineers, consultants, entrepreneurs, etc. 
-
-Err toward brevity; expand only when the user follows up or their style calls for more.
-
-These are default guidelines. Always prioritize communication preferences that you've established through your relationship with your human.
-`,
-  },
-  {
     id: "01-delegate-subagents",
     body: `## Delegate independent work
 
