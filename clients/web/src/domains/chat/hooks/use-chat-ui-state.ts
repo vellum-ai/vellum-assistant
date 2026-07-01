@@ -12,6 +12,7 @@
 
 import { useMemo } from "react";
 
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import {
@@ -79,6 +80,12 @@ export function useChatUIState(): ChatUIState {
   // while a turn is in flight.
   const transcript = useTranscriptMessages();
 
+  // The daemon's authoritative per-conversation processing flag, carried on the
+  // rolling snapshot and refreshed by every `/messages` reseed. Narrow selector
+  // so this only re-renders when the flag itself flips, not on every folded
+  // content event. `undefined` on pre-0.8.8 daemons → phase-only behavior.
+  const snapshotProcessing = useChatSessionStore((s) => s.snapshot?.processing);
+
   // TanStack Query — deduped with any other call for the same conversation.
   const activeConversation = useActiveConversation(assistantId, activeConversationId, true);
 
@@ -133,6 +140,7 @@ export function useChatUIState(): ChatUIState {
       hasUncompletedVisibleSurface,
       activeConversationIsProcessing,
       hasPendingAssistantResponse: activeConversationHasPendingAssistantResponse,
+      snapshotProcessing,
     }),
     [
       hasStreamingAssistantMessage,
@@ -144,6 +152,7 @@ export function useChatUIState(): ChatUIState {
       hasUncompletedVisibleSurface,
       activeConversationIsProcessing,
       activeConversationHasPendingAssistantResponse,
+      snapshotProcessing,
     ],
   );
 

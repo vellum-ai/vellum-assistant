@@ -72,6 +72,10 @@ function parsePaginatedResponse(
   const oldestTimestamp = body?.oldestTimestamp ?? null;
   const oldestMessageId = body?.oldestMessageId || null;
   const seq = body?.seq ?? null;
+  // Authoritative "is a turn in flight?" flag. Kept as-is (including
+  // `undefined`) rather than coerced to a boolean: `undefined` is the version
+  // sentinel that leaves turn-phase behavior untouched for pre-0.8.8 daemons.
+  const processing = body?.processing;
 
   return {
     messages,
@@ -80,6 +84,7 @@ function parsePaginatedResponse(
     oldestMessageId,
     seq,
     backgroundToolCompletions,
+    ...(processing !== undefined ? { processing } : {}),
     ...(subagentNotifications.length > 0 ? { subagentNotifications } : {}),
   };
 }

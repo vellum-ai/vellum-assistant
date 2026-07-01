@@ -31,6 +31,13 @@ export interface UIContext {
    * message yet. Used with `activeConversationIsProcessing` to restore the
    * thinking indicator after switching back to an in-flight conversation. */
   hasPendingAssistantResponse?: boolean;
+  /** The daemon's authoritative per-conversation `processing` flag, carried on
+   * the rolling snapshot (`PaginatedHistoryResult.processing`) and refreshed by
+   * every `/messages` reseed. Consumed as an authoritative CLOSE-gate: `false`
+   * means the server considers the turn over, so a `phase` left stuck by a
+   * dropped terminal SSE event stops driving the indicator. `undefined` (older
+   * daemons, or a cold snapshot) leaves phase-only behavior untouched. */
+  snapshotProcessing?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -72,6 +79,17 @@ export function shouldShowThinkingIndicator(
   activeToolCallCount: number,
   ctx: UIContext,
 ): boolean {
+  // Authoritative close: when the daemon reports this conversation idle
+  // (`snapshotProcessing === false`, 0.8.8+) the turn is over — even if the
+  // local `phase` never saw the terminal SSE event (dropped while the stream
+  // was disconnected). Guarded by `hasPendingAssistantResponse` so the window
+  // right after a send — before the first token, where the snapshot still
+  // legitimately reads the prior idle — keeps showing the dots. `undefined`
+  // (older daemons / cold snapshot) leaves the phase-driven behavior untouched.
+  if (ctx.snapshotProcessing === false && !ctx.hasPendingAssistantResponse) {
+    return false;
+  }
+
   const restoredProcessing =
     ctx.activeConversationIsProcessing === true &&
     ctx.hasPendingAssistantResponse === true;
@@ -103,6 +121,14 @@ export function canStopGeneration(
   phase: TurnPhase,
   ctx: UIContext,
 ): boolean {
+  // Same authoritative close as the thinking indicator: nothing to stop once
+  // the server reports the turn done, even if `phase` is stuck. The
+  // `hasPendingAssistantResponse` guard keeps Stop available in the
+  // just-sent-waiting-for-first-token window.
+  if (ctx.snapshotProcessing === false && !ctx.hasPendingAssistantResponse) {
+    return false;
+  }
+
   if (
     phase === "awaiting_user_input" ||
     ctx.hasPendingSecret ||

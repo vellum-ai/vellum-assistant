@@ -115,6 +115,14 @@ export interface PaginatedHistoryResult {
    *  that omits the field). Used to align the snapshot with the `/events`
    *  stream. */
   seq?: number | null;
+  /** The daemon's authoritative "is a turn in flight?" flag for this
+   *  conversation, sourced from the persisted `processing_started_at` column
+   *  and folded forward by the turn-lifecycle events in `rolling-snapshot.ts`.
+   *  `undefined` is the version sentinel — daemons before 0.8.8 omit it on
+   *  `/messages`, and the fold never manufactures a value, so `undefined`
+   *  means "no authoritative signal; fall back to the turn phase." Consumed as
+   *  a close-gate: `false` idles a turn whose terminal SSE event was dropped. */
+  processing?: boolean;
 }
 
 /** Snapshot of the transcript pagination state held by the scroll
