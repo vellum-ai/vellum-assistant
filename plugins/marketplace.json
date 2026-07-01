@@ -70,7 +70,7 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/marketing-expert",
-        "ref": "15d1f38c2e3c82b8f206ea8009fb158c5ba4746f"
+        "ref": "e0457d8c8b5874255a04ef6361c076d5abfec303"
       },
       "description": "Acts as a full-stack marketing expert for any business (B2B or B2C): an on-demand persona plus playbook skills (positioning, demand planning, launches, content & copywriting, brand voice, email sequences, SEO & GEO, competitive teardown, board reporting) and deterministic funnel/positioning/GTM/competitive tools.",
       "category": "marketing",
