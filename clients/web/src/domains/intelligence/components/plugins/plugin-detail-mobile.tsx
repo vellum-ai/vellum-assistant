@@ -14,6 +14,7 @@ import {
 import { PluginOriginBadge } from "@/domains/intelligence/components/plugins/plugin-origin-badge";
 import { UpdateAvailableBadge } from "@/domains/intelligence/components/plugins/update-available-badge";
 import { usePluginDetail } from "@/domains/intelligence/plugins/use-plugin-detail";
+import { usePluginToggle } from "@/domains/intelligence/plugins/use-plugin-toggle";
 import { Button, Card } from "@vellumai/design-library";
 
 interface PluginDetailMobileProps {
@@ -26,6 +27,12 @@ interface PluginDetailMobileProps {
    * glyph immediately. `undefined` for deep-links with no matching row.
    */
   externalHint?: boolean;
+  /**
+   * Active/Off state from the selected list row (the per-plugin detail response
+   * doesn't carry `enabled`). `undefined` hides the toggle (older daemon /
+   * deep-link with no matching row).
+   */
+  enabled?: boolean;
 }
 
 /**
@@ -52,6 +59,7 @@ export function PluginDetailMobile({
   name,
   onBack,
   externalHint,
+  enabled,
 }: PluginDetailMobileProps) {
   const {
     plugin,
@@ -69,6 +77,7 @@ export function PluginDetailMobile({
     isUpgradeError,
     hasLocalEdits,
   } = usePluginDetail(assistantId, name, { onRemoved: onBack });
+  const { toggle, togglingName } = usePluginToggle(assistantId);
 
   // Resolve the full-screen portal target after commit (SSR-safe; the element
   // is mounted by RootLayout). Falls back to inline when absent (tests, first
@@ -161,6 +170,9 @@ export function PluginDetailMobile({
           <PluginDetailActions
             plugin={plugin}
             drift={drift}
+            enabled={enabled}
+            onToggle={() => toggle(name, !enabled)}
+            isToggling={togglingName === name}
             onInstall={install}
             onRemove={remove}
             onUpgrade={upgrade}
