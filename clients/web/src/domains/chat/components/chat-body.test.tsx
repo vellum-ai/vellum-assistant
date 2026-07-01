@@ -384,8 +384,7 @@ describe("ChatBody — active-process overlays slot", () => {
 
 describe("ChatBody — composer always renders", () => {
   // Channel-origin (Slack/Email/etc.) conversations render the standard
-  // composer regardless of conversation origin, with no read-only banner
-  // replacing it.
+  // composer, with no read-only banner replacing it.
   test("renders the composer and no read-only banner", () => {
     const html = renderToStaticMarkup(<ChatBody {...baseProps()} />);
 
