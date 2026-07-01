@@ -142,7 +142,6 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../../runtime/routes/types.js",
     "../../../../security/secret-scanner.js",
     "../../../../skills/catalog-cache.js",
-    "../../../../skills/frontmatter.js",
     "../../../../skills/install-meta.js",
     "../../../../skills/skill-memory.js",
     "../../../../tools/skills/delete-managed.js",
