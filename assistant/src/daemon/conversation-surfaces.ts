@@ -2926,16 +2926,16 @@ export async function surfaceProxyResolver(
     const title = typeof input.title === "string" ? input.title : undefined;
     const rawData = isPlainObject(input.data) ? input.data : {};
 
-    // channel_setup is a side-effect-only surface: it opens the channel setup
-    // drawer on the client. No inline rendering, no persistence, no history.
+    // channel_setup is a side-effect-only command: it opens the channel setup
+    // drawer on the client. Emitted as `open_panel` (not `ui_surface_show`)
+    // so the rolling-snapshot reducer never folds it into the transcript.
     if (surfaceType === "channel_setup") {
       ctx.sendToClient({
-        type: "ui_surface_show",
+        type: "open_panel",
+        panelType: "channel_setup",
+        data: rawData as Record<string, unknown>,
         conversationId: ctx.conversationId,
-        surfaceId,
-        surfaceType,
-        data: rawData as SurfaceData,
-      } as unknown as UiSurfaceShow);
+      });
       return {
         content: JSON.stringify({ surfaceId, status: "displayed" }),
         isError: false,

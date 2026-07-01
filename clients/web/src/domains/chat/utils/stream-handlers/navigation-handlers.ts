@@ -5,9 +5,13 @@ import {
 } from "@/domains/chat/utils/oauth-popup-links";
 import { getSettingsRouteForClientTab } from "@/utils/settings-navigation";
 import { openUrl } from "@/runtime/browser";
+import { isSetupChannelId } from "@/types/channel-types";
+import { useViewerStore } from "@/stores/viewer-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import type {
   NavigateSettingsEvent,
+  OpenPanelEvent,
   OpenUrlEvent,
 } from "@vellumai/assistant-api";
 
@@ -59,4 +63,23 @@ export function handleNavigateSettings(
     return;
   }
   ctx.router.push(route);
+}
+
+export function handleOpenPanel(event: OpenPanelEvent): void {
+  if (event.panelType === "channel_setup") {
+    const rawChannel =
+      typeof event.data?.channel === "string" ? event.data.channel : undefined;
+    const channel =
+      rawChannel && isSetupChannelId(rawChannel) ? rawChannel : "slack";
+    const { assistants, activeAssistantId } =
+      useResolvedAssistantsStore.getState();
+    if (!activeAssistantId) return;
+    const assistantName =
+      assistants.find((a) => a.id === activeAssistantId)?.name ?? "Assistant";
+    useViewerStore.getState().openChannelSetup({
+      channel,
+      assistantId: activeAssistantId,
+      assistantName,
+    });
+  }
 }

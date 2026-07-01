@@ -14,6 +14,7 @@ import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat";
 import {
   handleOpenUrl,
   handleNavigateSettings,
+  handleOpenPanel,
 } from "@/domains/chat/utils/stream-handlers/navigation-handlers";
 import {
   handleAssistantTextDelta,
@@ -262,6 +263,9 @@ export function useStreamEventHandler(
           break;
         case "navigate_settings":
           handleNavigateSettings(event, ctx);
+          break;
+        case "open_panel":
+          handleOpenPanel(event);
           break;
         case "assistant_turn_start":
           handleAssistantTurnStart(event, ctx);
