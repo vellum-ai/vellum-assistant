@@ -885,7 +885,7 @@ export function LetsChatReadyStep({
 
       <div
         ref={columnRef}
-        className="absolute left-1/2 top-[14%] sm:top-[26%] z-10 flex w-full max-w-xl -translate-x-1/2 flex-col px-6"
+        className="absolute left-1/2 top-1/2 z-10 flex w-full max-w-xl -translate-x-1/2 -translate-y-1/2 flex-col px-6"
       >
         <div className="flex items-center">
           {/*
