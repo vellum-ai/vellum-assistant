@@ -140,13 +140,15 @@ const { PluginsTab } = await import("./plugins-tab");
 // ---------------------------------------------------------------------------
 
 function installed(overrides: Partial<InstalledPlugin> = {}): InstalledPlugin {
+  // `enabled` is omitted by default (older-daemon shape); the cast is needed
+  // because the generated element type marks it required.
   return {
     id: "simple-memory",
     name: "simple-memory",
     description: "Memory plugin",
     version: "0.1.0",
     ...overrides,
-  };
+  } as InstalledPlugin;
 }
 
 /** Minimal schema-valid inspect result reporting no drift (the row reads

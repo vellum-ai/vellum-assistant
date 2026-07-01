@@ -27,6 +27,8 @@ export function mergePlugins(
     version: p.version ?? undefined,
     path: p.path,
     issues: p.issues,
+    // Installed rows carry enablement; older daemons omit it (undefined).
+    enabled: p.enabled,
   }));
 
   const installedNames = new Set(installedItems.map((i) => i.name));

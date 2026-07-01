@@ -14,13 +14,15 @@ import {
 } from "./utils";
 
 function installed(overrides: Partial<InstalledPlugin> = {}): InstalledPlugin {
+  // `enabled` is omitted by default (older-daemon shape); the cast is needed
+  // because the generated element type marks it required.
   return {
     id: "alpha",
     name: "alpha",
     description: null,
     version: null,
     ...overrides,
-  };
+  } as InstalledPlugin;
 }
 
 function catalog(overrides: Partial<PluginCatalogMatch> = {}): PluginCatalogMatch {
