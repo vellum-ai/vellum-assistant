@@ -51,6 +51,7 @@ export function ConceptDetailPanel({
 
   return (
     <div
+      data-graph-panel
       className="absolute inset-0 z-20 flex justify-end"
       // Keep pointer interactions off the rotating canvas behind the panel.
       onPointerDown={(e) => e.stopPropagation()}
@@ -99,7 +100,10 @@ export function ConceptDetailPanel({
           />
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+        <div
+          className="min-h-0 flex-1 overflow-y-auto px-5 py-4"
+          style={{ touchAction: "pan-y" }}
+        >
           {query.isLoading ? (
             <div className="flex justify-center py-8">
               <div

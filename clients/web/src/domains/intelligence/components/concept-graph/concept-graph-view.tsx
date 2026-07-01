@@ -448,6 +448,8 @@ export function ConceptGraphView({
     const el = containerRef.current;
     if (!el || !ready) return;
     const onWheel = (e: WheelEvent) => {
+      // Let the detail drawer scroll natively instead of zooming the graph.
+      if ((e.target as HTMLElement).closest?.("[data-graph-panel]")) return;
       e.preventDefault();
       const v = view.current;
       v.zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, v.zoom * (1 - e.deltaY / 500)));
