@@ -22,6 +22,7 @@ import { clearStaleProcessingFlags } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { startEmbeddingRuntimeManager } from "../persistence/embeddings/embedding-runtime-manager.js";
+import { startMemoryJobsWorker } from "../persistence/jobs-worker.js";
 import { startConsentRefresh } from "../platform/consent-cache.js";
 import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
@@ -564,12 +565,14 @@ export async function runDaemon(): Promise<void> {
   // they can't block daemon startup.
   await initializePlugins();
 
-  // Wire every job handler (plugin-contributed + non-plugin domain handlers)
-  // into the memory worker's dispatch table now that all plugins are
-  // bootstrapped. Owned by the daemon rather than any single plugin: the memory
-  // plugin only starts its worker (in its `init` hook) — the worker's async
-  // job-claiming begins after Qdrant boot, so the table is populated first.
+  // Wire the job-handler dispatch table and start the jobs worker here until
+  // scheduling/job-handling becomes a pluggable surface each plugin owns. Both
+  // live on this path, in order: registration must happen-before the worker's
+  // first claim, or a queued job is dispatched against an empty table and
+  // failed as an unknown type. Runs after initializePlugins() so every plugin's
+  // handlers are present.
   registerMemoryJobHandlers();
+  startMemoryJobsWorker();
 
   // Initialize providers before Qdrant so HTTP routes can begin accepting
   // requests while Qdrant initializes, then best-effort sync the workspace
