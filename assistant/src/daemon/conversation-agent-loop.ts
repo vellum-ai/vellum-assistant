@@ -34,10 +34,6 @@ import {
 } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import {
-  derefToolResultReReads,
-  postTurnTruncateToolResults,
-} from "../context/post-turn-tool-result-truncation.js";
 import { writeRelationshipState } from "../home/relationship-state-writer.js";
 import {
   clearSentryConversationContext,
@@ -56,8 +52,6 @@ import {
   updateConversationContextWindow,
   updateConversationSlackContextWatermark,
 } from "../persistence/conversation-crud.js";
-import { getResolvedConversationDirPath } from "../persistence/conversation-directories.js";
-import { syncMessageToDisk } from "../persistence/conversation-disk-view.js";
 import { isReplaceableTitle } from "../persistence/conversation-title-service.js";
 import {
   backfillMessageIdOnLogs,
@@ -114,6 +108,7 @@ import {
   type SlackChronologicalContext,
 } from "./conversation-runtime-assembly.js";
 import { markSurfaceCompleted } from "./conversation-surfaces.js";
+import { runDeferredTurnTail } from "./conversation-turn-finalize.js";
 import { recordUsage } from "./conversation-usage.js";
 import { resolveTurnTimezoneContext } from "./date-context.js";
 import { getDiskPressureStatus } from "./disk-pressure-guard.js";
@@ -1043,6 +1038,10 @@ export async function runAgentLoopImpl(
     };
 
     const updatedHistory = await runAgentLoop(runMessages, true);
+    // Generation is done streaming. Anything awaited between here and the
+    // terminal SSE is what the user perceives as the gap between the last
+    // token and the composer re-enabling, so keep that window minimal.
+    const generationCompletedAt = Date.now();
 
     rlog.info(
       { resultMessageCount: updatedHistory.length },
@@ -1302,39 +1301,18 @@ export async function runAgentLoopImpl(
       0,
       updatedHistory.length - lastRunNewMessages.length,
     );
-    let restoredHistory = [...loopBase, ...newMessages];
-
-    // Post-turn tool result truncation: save large results to disk and
-    // replace in-context content with a prefix/suffix stub + file pointer.
-    try {
-      const conv = getConversation(ctx.conversationId);
-      if (conv) {
-        const convDir = getResolvedConversationDirPath(
-          ctx.conversationId,
-          conv.createdAt,
-        );
-        const { messages: derefMessages, dereferencedCount } =
-          derefToolResultReReads(restoredHistory);
-        const { messages: truncatedMessages, truncatedCount } =
-          postTurnTruncateToolResults(derefMessages, {
-            conversationDir: convDir,
-          });
-        if (truncatedCount > 0 || dereferencedCount > 0) {
-          rlog.info(
-            { truncatedCount, dereferencedCount },
-            "Post-turn tool result truncation applied",
-          );
-        }
-        restoredHistory = truncatedMessages;
-      }
-    } catch (err) {
-      rlog.warn({ err }, "Post-turn tool result truncation failed (non-fatal)");
-    }
+    const restoredHistory = [...loopBase, ...newMessages];
 
     // Persist injections in history: runtime-injected context stays on
     // historical user messages so the conversation prefix is stable for
     // Anthropic's prefix caching.  Stripping only happens during
     // compaction/overflow recovery (where a cache miss is expected).
+    //
+    // Post-turn tool-result truncation (spooling large results to disk and
+    // shrinking the next turn's context) is deferred to `runDeferredTurnTail`
+    // below. It only rewrites the in-memory history the NEXT turn is built
+    // from — never the just-delivered reply — so it must not sit on the
+    // critical path to the terminal SSE that re-enables the composer.
     ctx.messages = restoredHistory;
 
     emitUsage(
@@ -1361,21 +1339,11 @@ export async function runAgentLoopImpl(
       turnCronRunId,
     );
 
-    const syncLastAssistantMessageToDisk = (): void => {
-      if (!state.lastAssistantMessageId) return;
-      const convForDisk = getConversation(ctx.conversationId);
-      if (!convForDisk) return;
-      syncMessageToDisk(
-        ctx.conversationId,
-        state.lastAssistantMessageId,
-        convForDisk.createdAt,
-      );
-    };
     // Fast-path: when the user cancelled, skip expensive post-loop work
     // (attachment resolution) and emit the cancellation event immediately
-    // so the client can re-enable the UI without delay.
+    // so the client can re-enable the UI without delay. Disk sync and the rest
+    // of the bookkeeping run in `runDeferredTurnTail` after this SSE.
     if (abortController.signal.aborted) {
-      syncLastAssistantMessageToDisk();
       ctx.emitActivityState("idle", "generation_cancelled", {
         anchor: "global",
         requestId: reqId,
@@ -1415,7 +1383,6 @@ export async function runAgentLoopImpl(
 
       ctx.lastAssistantAttachments = assistantAttachments;
       ctx.lastAttachmentWarnings = attachmentResult.directiveWarnings;
-      syncLastAssistantMessageToDisk();
 
       // Re-check: the user may have cancelled during attachment resolution
       if (abortController.signal.aborted) {
@@ -1496,6 +1463,12 @@ export async function runAgentLoopImpl(
         publishLoopMessagesChanged();
       }
     }
+
+    // The terminal SSE for this turn has now been emitted (message_complete,
+    // generation_handoff, or generation_cancelled), so the composer is already
+    // re-enabling. Drain the deferred bookkeeping now — after the SSE, before
+    // the `finally` commits and drains the queue for the next turn.
+    await runDeferredTurnTail({ ctx, state, rlog, generationCompletedAt });
   } catch (err) {
     clearConversationNotices(ctx.conversationId);
     const errorCtx = {
