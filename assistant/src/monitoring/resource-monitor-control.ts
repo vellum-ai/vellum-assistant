@@ -1,8 +1,8 @@
 /**
  * Shared control surface for the resource monitor *process* — the background OS
- * process whose entry point is `resource-monitor.ts`.
+ * process whose entry point is `worker.ts`.
  *
- * Both the `assistant resource-monitor` CLI and the daemon lifecycle (when
+ * Both the `assistant monitor` CLI and the daemon lifecycle (when
  * `resourceMonitor.enabled` is set) need to probe, spawn, and stop this process,
  * so the PID-file bookkeeping lives here in one place. Mirrors the memory
  * worker's `persistence/worker-control.ts`.
@@ -18,8 +18,11 @@ import {
 } from "node:fs";
 import { dirname } from "node:path";
 
-import { getCurrentLogFilePath } from "../util/logger.js";
+import { getConfig } from "../config/loader.js";
+import { getCurrentLogFilePath, getLogger } from "../util/logger.js";
 import { getResourceMonitorPidPath } from "../util/platform.js";
+
+const log = getLogger("resource-monitor-control");
 
 export interface ResourceMonitorStatus {
   status: "running" | "not_running";
@@ -142,7 +145,7 @@ export async function spawnResourceMonitorProcess(
   }
 
   const pidPath = getResourceMonitorPidPath();
-  const entry = new URL("./resource-monitor.ts", import.meta.url);
+  const entry = new URL("./worker.ts", import.meta.url);
 
   // Pipe the monitor's stderr into the same daily log file the daemon writes
   // to, so crash traces that bypass the in-process logger aren't lost.
@@ -206,4 +209,40 @@ export function stopResourceMonitorProcess(): ResourceMonitorStatus {
     process.kill(current.pid, "SIGTERM");
   }
   return current;
+}
+
+/**
+ * Daemon-lifecycle entry point: spawn the monitor as a child of the daemon
+ * (`detached: false`, so it appears in `assistant ps` and is torn down on
+ * shutdown) when `resourceMonitor.enabled` is set. Fire-and-forget — a monitor
+ * failure must never block boot.
+ */
+export function startResourceMonitor(): void {
+  if (!getConfig().resourceMonitor.enabled) return;
+  void spawnResourceMonitorProcess({ detached: false })
+    .then((r) =>
+      log.info(
+        { pid: r.pid, alreadyRunning: r.alreadyRunning },
+        "Resource monitor started at boot",
+      ),
+    )
+    .catch((err) =>
+      log.warn({ err }, "Failed to start resource monitor at boot"),
+    );
+}
+
+/**
+ * Daemon-lifecycle entry point: SIGTERM the monitor process if it is running.
+ * Keyed off live state rather than config: it may have been spawned at startup
+ * or out of band via `assistant monitor start`. Never throws.
+ */
+export function stopResourceMonitor(): void {
+  try {
+    const status = stopResourceMonitorProcess();
+    if (status.status === "running") {
+      log.info({ pid: status.pid }, "Sent SIGTERM to resource monitor process");
+    }
+  } catch (err) {
+    log.warn({ err }, "Failed to stop resource monitor process (non-fatal)");
+  }
 }

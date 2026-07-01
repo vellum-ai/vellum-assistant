@@ -1,5 +1,5 @@
 /**
- * `assistant resource-monitor` CLI command.
+ * `assistant monitor` CLI command.
  *
  * Manages the resource monitor as its own OS process — separate from the
  * assistant's main event loop — so it keeps sampling memory/disk during a
@@ -66,9 +66,9 @@ function formatMib(bytes: number): string {
   return `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MiB`;
 }
 
-export function registerResourceMonitorCommand(program: Command): void {
+export function registerMonitorCommand(program: Command): void {
   registerCommand(program, {
-    name: "resource-monitor",
+    name: "monitor",
     transport: "ipc",
     description: "Manage the resource monitor process (start/stop/status)",
     build: (monitor) => {
@@ -86,9 +86,9 @@ and \`stop\` disables it. Samples and high-memory snapshots are written under th
 data directory reported by \`status\`.
 
 Examples:
-  $ assistant resource-monitor start
-  $ assistant resource-monitor status
-  $ assistant resource-monitor stop`,
+  $ assistant monitor start
+  $ assistant monitor status
+  $ assistant monitor stop`,
       );
 
       monitor

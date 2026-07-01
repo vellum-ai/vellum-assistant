@@ -13,7 +13,13 @@
  * frozen mid-allocation and the samples survive an OOM SIGKILL.
  */
 
-import { readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import type { ResourceMonitorConfig } from "../config/schemas/resource-monitor.js";
@@ -141,6 +147,9 @@ export async function writeHighMemSnapshot(
   sample: ResourceSample,
 ): Promise<void> {
   const snapshotsDir = join(dataDir, SNAPSHOTS_DIR);
+  // The ring buffer only creates the data dir for samples.jsonl; the nested
+  // snapshots dir may not exist yet on the first threshold crossing.
+  mkdirSync(snapshotsDir, { recursive: true });
 
   let tree: unknown = null;
   try {

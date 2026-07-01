@@ -6,7 +6,7 @@ import { stopHeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { stopCliIpcServer } from "../ipc/assistant-server.js";
 import { stopGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
 import { stopMcpServerManager } from "../mcp/manager.js";
-import { stopResourceMonitorProcess } from "../monitoring/resource-monitor-control.js";
+import { stopResourceMonitor } from "../monitoring/resource-monitor-control.js";
 import { getSqlite, resetDb } from "../persistence/db-connection.js";
 import { stopQdrantManager } from "../persistence/embeddings/qdrant-manager.js";
 import { stopMemoryJobsWorker } from "../persistence/jobs-worker.js";
@@ -170,21 +170,8 @@ async function shutdown(): Promise<void> {
     log.warn({ err }, "Failed to stop memory worker process (non-fatal)");
   }
 
-  // Stop the resource monitor process if it's actually running. Keyed off live
-  // state rather than config: it may have been spawned at startup
-  // (resourceMonitor.enabled = true) or out of band via
-  // `assistant resource-monitor start`.
-  try {
-    const monitorStatus = stopResourceMonitorProcess();
-    if (monitorStatus.status === "running") {
-      log.info(
-        { pid: monitorStatus.pid },
-        "Sent SIGTERM to resource monitor process",
-      );
-    }
-  } catch (err) {
-    log.warn({ err }, "Failed to stop resource monitor process (non-fatal)");
-  }
+  // Stop the resource monitor process if it's actually running.
+  stopResourceMonitor();
 
   try {
     await stopMcpServerManager();

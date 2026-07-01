@@ -18,7 +18,7 @@ import { backfillRelationshipStateIfMissing } from "../home/relationship-state-w
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { startCliIpcServer } from "../ipc/assistant-server.js";
 import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
-import { spawnResourceMonitorProcess } from "../monitoring/resource-monitor-control.js";
+import { startResourceMonitor } from "../monitoring/resource-monitor-control.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import {
@@ -676,19 +676,8 @@ export async function runDaemon(): Promise<void> {
   );
 
   // Spawn the resource monitor as a child of the daemon when enabled, off the
-  // main event loop. Fire-and-forget: a monitor failure must never block boot.
-  if (config.resourceMonitor.enabled) {
-    void spawnResourceMonitorProcess({ detached: false })
-      .then((r) =>
-        log.info(
-          { pid: r.pid, alreadyRunning: r.alreadyRunning },
-          "Resource monitor started at boot",
-        ),
-      )
-      .catch((err) =>
-        log.warn({ err }, "Failed to start resource monitor at boot"),
-      );
-  }
+  // main event loop.
+  startResourceMonitor();
 
   // Inject voice bridge deps so the relay pipeline can resolve attachments
   // once a call lands. Module-level state, so available even when the HTTP

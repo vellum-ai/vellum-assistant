@@ -1,7 +1,7 @@
 /**
  * Standalone entry point for the resource monitor as its own OS process.
  *
- * Spawned by `assistant resource-monitor start` (and at daemon startup when
+ * Spawned by `assistant monitor start` (and at daemon startup when
  * `resourceMonitor.enabled` is set). Loads config, starts the sampling loop,
  * writes a PID file, and stays alive until SIGTERM/SIGINT.
  *
@@ -10,17 +10,20 @@
  * on-disk ring buffer survives the OOM SIGKILL that resets all in-VM state.
  */
 
-import { existsSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 
 import { getConfig } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
-import { getResourceMonitorPidPath } from "../util/platform.js";
+import {
+  getResourceMonitorDataDir,
+  getResourceMonitorPidPath,
+} from "../util/platform.js";
 import {
   type ResourceSamplerHandle,
   startResourceSampler,
 } from "./resource-sampler.js";
 
-const log = getLogger("resource-monitor-process");
+const log = getLogger("monitoring-worker");
 
 function cleanupPidFile(): void {
   const pidPath = getResourceMonitorPidPath();
@@ -34,6 +37,10 @@ function cleanupPidFile(): void {
 async function main(): Promise<void> {
   const config = getConfig();
   const pidPath = getResourceMonitorPidPath();
+
+  // Ensure the data dir exists before the PID write — the sampler's ring buffer
+  // would otherwise be the first to create it, but the PID file lands here too.
+  mkdirSync(getResourceMonitorDataDir(), { recursive: true });
 
   // Write PID file so `status` and `stop` can find us.
   writeFileSync(pidPath, String(process.pid), { flag: "w" });
