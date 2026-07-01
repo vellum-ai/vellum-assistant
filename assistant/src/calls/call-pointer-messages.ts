@@ -56,8 +56,9 @@ let pointerMessageProcessor: PointerMessageProcessor | undefined;
 
 /**
  * Inject the daemon-provided pointer message processor.
- * Called from daemon/lifecycle.ts at startup, following the same pattern
- * as setRelayBroadcast.
+ * Called from daemon/lifecycle.ts at startup so this low-level module can
+ * drive a full daemon conversation turn without statically importing the
+ * daemon pipeline (which would invert the layering / create an import cycle).
  */
 export function setPointerMessageProcessor(
   processor: PointerMessageProcessor,

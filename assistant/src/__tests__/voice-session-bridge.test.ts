@@ -45,10 +45,7 @@ mock.module("../daemon/conversation-store.js", () => ({
   },
 }));
 
-import {
-  setVoiceBridgeDeps,
-  startVoiceTurn,
-} from "../calls/voice-session-bridge.js";
+import { startVoiceTurn } from "../calls/voice-session-bridge.js";
 import {
   createConversation,
   getMessages,
@@ -180,9 +177,6 @@ function parsePersistedMetadata(
  */
 function injectDeps(conversationFactory: () => Conversation): void {
   voiceConversationFactory = conversationFactory;
-  setVoiceBridgeDeps({
-    resolveAttachments: () => [],
-  });
 }
 
 describe("voice-session-bridge", () => {
@@ -518,9 +512,6 @@ describe("voice-session-bridge", () => {
     };
 
     voiceConversationFactory = () => session;
-    setVoiceBridgeDeps({
-      resolveAttachments: () => [],
-    });
 
     const textDeltaEvents: ServerMessage[] = [];
     const completeEvents: ServerMessage[] = [];
