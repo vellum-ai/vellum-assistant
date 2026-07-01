@@ -454,9 +454,10 @@ interface SourceParityPins {
  * stored on the conversation row — the slugs are omitted so the wake keeps
  * today's persona derivation for them.
  *
- * `hasNoClient` — pinned on BOTH the persona override (the prompt's
- * `05-access-preference` section renders different text under the flag) and
- * the tool-context pin, using the live-turn derivation: interactive
+ * `hasNoClient` — pinned on BOTH the persona override (kept for prompt-build
+ * parity; no system-prompt section branches on the flag, so this pin does not
+ * affect prompt output) and the tool-context pin (the live consumer, gating
+ * tool availability), using the live-turn derivation: interactive
  * interfaces run `updateClient(_, false)` (`hasNoClient = false`), while
  * channel-routed and chrome-extension turns stay clientless (`true`) — the
  * exact `isInteractiveInterface` predicate `conversation-routes.ts` /
