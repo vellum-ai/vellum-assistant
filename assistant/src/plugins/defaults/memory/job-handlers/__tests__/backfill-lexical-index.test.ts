@@ -71,10 +71,19 @@ mock.module(
 // its other named exports that the db-init import graph pulls in.
 import { resetDbForTesting } from "../../../../../__tests__/db-test-helpers.js";
 import { DEFAULT_CONFIG } from "../../../../../config/defaults.js";
+import {
+  invalidateConfigCache,
+  loadRawConfig,
+  saveRawConfig,
+} from "../../../../../config/loader.js";
 import type { AssistantConfig } from "../../../../../config/types.js";
 import {
+  deleteMemoryCheckpoint,
+  isLexicalBackfillComplete,
+  LEXICAL_BACKFILL_COMPLETE_KEY,
   readMessageCursorCheckpoint,
   resetMessageCursorCheckpoint,
+  setMemoryCheckpoint,
   writeMessageCursorCheckpoint,
 } from "../../../../../persistence/checkpoints.js";
 import {
@@ -89,7 +98,10 @@ import {
   memoryJobs,
   messages,
 } from "../../../../../persistence/schema/index.js";
-import { backfillLexicalIndexJob } from "../backfill-lexical-index.js";
+import {
+  backfillLexicalIndexJob,
+  maybeEnqueueLexicalBackfillOnUpgrade,
+} from "../backfill-lexical-index.js";
 
 const TEST_CONFIG: AssistantConfig = DEFAULT_CONFIG;
 
@@ -147,6 +159,22 @@ function pendingBackfillJobCount(): number {
   return rows.length;
 }
 
+/**
+ * Toggle `memory.enabled` in the real workspace config so the startup hook's
+ * `isMemoryEnabled()` (which reads `getConfig()`) sees the change. Driving the
+ * real config instead of mocking `jobs-store` avoids a process-global
+ * `mock.module` leaking `isMemoryEnabled` into sibling test files.
+ */
+function setMemoryEnabled(enabled: boolean): void {
+  const raw = loadRawConfig();
+  const memory =
+    raw.memory && typeof raw.memory === "object"
+      ? (raw.memory as Record<string, unknown>)
+      : {};
+  saveRawConfig({ ...raw, memory: { ...memory, enabled } });
+  invalidateConfigCache();
+}
+
 describe("backfillLexicalIndexJob", () => {
   // initializeDb runs the full migration chain; under parallel CI load it can
   // exceed bun's default 5s hook timeout, so allow more.
@@ -157,6 +185,7 @@ describe("backfillLexicalIndexJob", () => {
   beforeEach(async () => {
     upsertBatchCalls.length = 0;
     resetLexicalSingleton(true);
+    setMemoryEnabled(true);
     resetDbForTesting();
     await initializeDb();
     // The template-restore path leaves stale WAL sidecars, so rows can bleed
@@ -166,6 +195,7 @@ describe("backfillLexicalIndexJob", () => {
     getDb().delete(conversations).run();
     getMemoryDb()!.delete(memoryJobs).run();
     resetMessageCursorCheckpoint(CHECKPOINT_KEY, CHECKPOINT_ID_KEY);
+    deleteMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY);
   }, 30_000);
 
   test("indexes a batch of messages and advances the checkpoint", async () => {
@@ -202,8 +232,9 @@ describe("backfillLexicalIndexJob", () => {
     );
     expect(cursor).toEqual({ createdAt: 2_000, messageId: "msg-b" });
 
-    // A short batch does not re-enqueue.
+    // A short batch does not re-enqueue, and marks the backfill complete.
     expect(pendingBackfillJobCount()).toBe(0);
+    expect(isLexicalBackfillComplete()).toBe(true);
   });
 
   test("resumes from the persisted cursor, skipping already-indexed rows", async () => {
@@ -251,12 +282,18 @@ describe("backfillLexicalIndexJob", () => {
     expect(upsertBatchCalls[0]).toHaveLength(200);
     // Exactly one follow-up job enqueued to process the remaining rows.
     expect(pendingBackfillJobCount()).toBe(1);
+    // A full batch means more rows may remain, so the backfill is NOT yet
+    // complete — the completion marker must stay unset until a short batch.
+    expect(isLexicalBackfillComplete()).toBe(false);
   });
 
-  test("does nothing (no upsert, no re-enqueue) when there are no messages", async () => {
+  test("does nothing (no upsert, no re-enqueue) when there are no messages, and marks complete", async () => {
     await backfillLexicalIndexJob(makeJob({}), TEST_CONFIG);
     expect(upsertBatchCalls).toHaveLength(0);
     expect(pendingBackfillJobCount()).toBe(0);
+    // An empty batch is a drained backfill (an already-empty or fully-indexed
+    // table) — the completion marker is written.
+    expect(isLexicalBackfillComplete()).toBe(true);
   });
 
   test("force resets the cursor and re-indexes from the beginning", async () => {
@@ -268,11 +305,13 @@ describe("backfillLexicalIndexJob", () => {
       createdAt: 5_000,
     });
 
-    // A stale cursor past every row would normally skip everything.
+    // A stale cursor past every row would normally skip everything, and a prior
+    // run had already marked the backfill complete.
     writeMessageCursorCheckpoint(CHECKPOINT_KEY, CHECKPOINT_ID_KEY, {
       createdAt: 9_999,
       messageId: "msg-zzz",
     });
+    setMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY, "1");
 
     await backfillLexicalIndexJob(makeJob({ force: true }), TEST_CONFIG);
 
@@ -286,6 +325,32 @@ describe("backfillLexicalIndexJob", () => {
       CHECKPOINT_ID_KEY,
     );
     expect(cursor).toEqual({ createdAt: 5_000, messageId: "msg-x" });
+
+    // force cleared the completion marker; the short re-index batch then drained
+    // and re-marked it complete.
+    expect(isLexicalBackfillComplete()).toBe(true);
+  });
+
+  test("force clears the completion marker even when the re-run does not drain in one batch", async () => {
+    insertConversation("conv-force-full");
+    // A full batch on the forced run: the marker must be CLEARED (re-armed) and
+    // stay unset because more rows may remain past this batch.
+    for (let i = 0; i < 200; i++) {
+      insertMessage({
+        id: `fm-${String(i).padStart(4, "0")}`,
+        conversationId: "conv-force-full",
+        content: `forced message ${i}`,
+        createdAt: 1_000 + i,
+      });
+    }
+    setMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY, "1");
+
+    await backfillLexicalIndexJob(makeJob({ force: true }), TEST_CONFIG);
+
+    expect(upsertBatchCalls[0]).toHaveLength(200);
+    expect(pendingBackfillJobCount()).toBe(1);
+    // Marker was cleared by force and not re-set (batch was full → more remain).
+    expect(isLexicalBackfillComplete()).toBe(false);
   });
 
   test("lazily initializes the index when not yet initialized (worker process)", async () => {
@@ -306,5 +371,49 @@ describe("backfillLexicalIndexJob", () => {
     // The handler initialized the index from config instead of throwing.
     expect(upsertBatchCalls).toHaveLength(1);
     expect(upsertBatchCalls[0].map((p) => p.messageId)).toEqual(["msg-w"]);
+  });
+
+  // The one-time startup auto-enqueue. Inherits the outer beforeEach, which
+  // resets the DB, clears the memory_jobs table and completion marker, and sets
+  // memoryEnabled = true — so each test starts from a fresh, memory-enabled,
+  // never-backfilled instance.
+  describe("maybeEnqueueLexicalBackfillOnUpgrade", () => {
+    test("enqueues exactly one backfill job when memory is enabled and the checkpoint is unset", () => {
+      maybeEnqueueLexicalBackfillOnUpgrade();
+
+      const rows = getMemoryDb()!
+        .select({ type: memoryJobs.type })
+        .from(memoryJobs)
+        .all();
+      expect(rows).toHaveLength(1);
+      expect(rows[0].type).toBe("backfill_lexical_index");
+    });
+
+    test("does NOT enqueue when the completion checkpoint is already set", () => {
+      setMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY, "1");
+
+      maybeEnqueueLexicalBackfillOnUpgrade();
+
+      expect(pendingBackfillJobCount()).toBe(0);
+    });
+
+    test("does NOT enqueue when memory is disabled", () => {
+      setMemoryEnabled(false);
+
+      maybeEnqueueLexicalBackfillOnUpgrade();
+
+      expect(pendingBackfillJobCount()).toBe(0);
+    });
+
+    test("does NOT enqueue a duplicate when a backfill job is already pending", () => {
+      // First call enqueues the one-time job.
+      maybeEnqueueLexicalBackfillOnUpgrade();
+      expect(pendingBackfillJobCount()).toBe(1);
+
+      // A second call (e.g. a restart mid-backfill) must not pile on a duplicate
+      // while the prior job is still pending.
+      maybeEnqueueLexicalBackfillOnUpgrade();
+      expect(pendingBackfillJobCount()).toBe(1);
+    });
   });
 });

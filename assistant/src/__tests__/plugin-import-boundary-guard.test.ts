@@ -82,6 +82,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../../../config/types.js",
     "../../../../../messaging/providers/slack/message-metadata.js",
     "../../../../../persistence/auto-analysis-constants.js",
+    "../../../../../persistence/checkpoints.js",
     "../../../../../persistence/conversation-queries.js",
     "../../../../../persistence/conversation-search-lexical.js",
     "../../../../../persistence/db-connection.js",

@@ -52,6 +52,11 @@ mock.module(
   }),
 );
 
+import {
+  deleteMemoryCheckpoint,
+  LEXICAL_BACKFILL_COMPLETE_KEY,
+  setMemoryCheckpoint,
+} from "../persistence/checkpoints.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { rawRun } from "../persistence/raw-query.js";
@@ -402,12 +407,16 @@ describe("searchConversationSource with the qdrant backend", () => {
     getDb().run("DELETE FROM conversations");
     lexicalCalls = [];
     suppressIndexing = false;
+    // These tests exercise the populated-index (post-backfill) qdrant path, so
+    // mark the backfill complete. The completion gate is covered by its own test.
+    setMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY, "1");
     setOverridesForTesting({ "messages-search-backend": true });
   });
 
   afterEach(() => {
     setOverridesForTesting({});
     suppressIndexing = false;
+    deleteMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY);
     lexicalMockImpl = () => {
       throw new Error(
         "searchMessageIdsLexical mock not configured for this test",
@@ -436,6 +445,35 @@ describe("searchConversationSource with the qdrant backend", () => {
 
     // FTS path found the row (proves the backend fell back), and the Qdrant
     // candidate helper was never called.
+    expect(lexicalCalls).toHaveLength(0);
+    expect(result.evidence.map((item) => item.locator)).toEqual([
+      `${match.conversation.id}#${match.message.id}`,
+    ]);
+  });
+
+  test("falls back to FTS until the backfill completion checkpoint is set, even with the qdrant flag on", async () => {
+    const match = await seedConversation({
+      title: "Pre-backfill notes",
+      content: "The prebackfilltoken decision is recorded here.",
+    });
+
+    // On an upgraded instance the historical messages are still being indexed
+    // by the background backfill, so the lexical collection is only partially
+    // populated. Until the completion checkpoint is set, the source must use
+    // the FTS path and never query Qdrant.
+    deleteMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY);
+    lexicalMockImpl = async () => {
+      throw new Error(
+        "searchMessageIdsLexical must not run before the backfill completes",
+      );
+    };
+
+    const result = await searchConversationSource(
+      "prebackfilltoken",
+      makeContext(),
+      5,
+    );
+
     expect(lexicalCalls).toHaveLength(0);
     expect(result.evidence.map((item) => item.locator)).toEqual([
       `${match.conversation.id}#${match.message.id}`,

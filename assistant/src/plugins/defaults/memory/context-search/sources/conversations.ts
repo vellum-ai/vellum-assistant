@@ -1,6 +1,7 @@
 import { getMessagesSearchBackend } from "../../../../../config/assistant-feature-flags.js";
 import { readSlackMetadata } from "../../../../../messaging/providers/slack/message-metadata.js";
 import { AUTO_ANALYSIS_SOURCE } from "../../../../../persistence/auto-analysis-constants.js";
+import { isLexicalBackfillComplete } from "../../../../../persistence/checkpoints.js";
 import {
   buildFtsMatchQuery,
   buildRecallEvidenceExcerpt,
@@ -128,9 +129,17 @@ export async function searchConversationSource(
   // (memory disabled or the memory plugin disabled) the collection is never
   // populated, so a qdrant-backed read would silently return nothing while FTS
   // still works — force the FTS path regardless of the flag in that case.
-  const backend = isMemoryIndexingSuppressed()
-    ? "fts5"
-    : getMessagesSearchBackend(context.config);
+  //
+  // Second gate: until the one-time upgrade backfill has fully drained, the
+  // collection holds only messages written since the write path went live —
+  // older history is missing. Reading from Qdrant then silently misses that
+  // history (an empty candidate set, not a throw), so stay on FTS until
+  // `isLexicalBackfillComplete()` confirms the index is whole. Shared with the
+  // persistence read site via the same checkpoint helper.
+  const backend =
+    isMemoryIndexingSuppressed() || !isLexicalBackfillComplete()
+      ? "fts5"
+      : getMessagesSearchBackend(context.config);
 
   // Tokenize once. Short/punctuation-only queries (`C++`, CJK) produce no
   // usable ≥2-char match shape, and both backends must route those straight to

@@ -5,8 +5,10 @@
  * Deliberately NOT gated on `memory.v2.enabled`: the lexical index is a
  * BM25-style full-text replacement for message search that is independent of
  * the v2 concept-page machinery. The backfill runs off the event loop as a
- * cursor-checkpointed memory job and is never triggered at daemon startup — an
- * operator (or the client) enqueues it on demand.
+ * cursor-checkpointed memory job. This route enqueues it on demand (operator or
+ * client); the one-time, checkpoint-guarded startup auto-enqueue in
+ * `runMemoryStartup` (see `maybeEnqueueLexicalBackfillOnUpgrade`) enqueues the
+ * same job once per instance on upgrade.
  */
 
 import { z } from "zod";
@@ -60,7 +62,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleBackfillLexicalIndex,
     summary: "Enqueue a resumable backfill of messages into the lexical index",
     description:
-      "Enqueues the cursor-checkpointed backfill job that indexes existing messages into the Qdrant lexical (BM25-style) collection in batches. Resumable and idempotent — re-running continues from the last checkpoint. Pass `force: true` to reset the cursor and re-index from the beginning. Not run at daemon startup.",
+      "Enqueues the cursor-checkpointed backfill job that indexes existing messages into the Qdrant lexical (BM25-style) collection in batches. Resumable and idempotent — re-running continues from the last checkpoint. Pass `force: true` to reset the cursor and re-index from the beginning. The same backfill is also auto-enqueued once per instance on upgrade at daemon startup.",
     tags: ["memory"],
     requestBody: MessagesLexicalBackfillParams,
   },

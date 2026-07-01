@@ -63,3 +63,33 @@ export function resetMessageCursorCheckpoint(
     messageId: "",
   });
 }
+
+/**
+ * Completion sentinel for the messages lexical-index backfill. Set once the
+ * backfill has drained the entire `messages` table into the Qdrant lexical
+ * index (`messages_lexical`); cleared on a `force` re-run.
+ *
+ * Lives here — in `persistence/` — so it is the single source of truth for the
+ * backfill handler (plugin layer, which writes it) AND the message-search read
+ * sites (persistence + plugin layers, which gate the read backend on it).
+ * Keeping the key and its reader here lets `conversation-queries.ts` (also
+ * `persistence/`) read it without a persistence -> plugin import.
+ */
+export const LEXICAL_BACKFILL_COMPLETE_KEY =
+  "lexical:messages:backfill_complete";
+
+/**
+ * True once the messages lexical-index backfill has fully drained on this
+ * instance.
+ *
+ * Gates two things: the one-time startup auto-enqueue (skip when already
+ * complete) and — critically — the message-search read backend. An upgraded
+ * instance whose backfill has not finished must keep reading from SQLite FTS,
+ * because a `qdrant`-backed read against the still-filling `messages_lexical`
+ * collection returns an empty result (not a throw), so the Qdrant-error degrade
+ * path never fires and content search would silently return nothing. Switch
+ * reads to Qdrant only once this marker confirms the index is fully populated.
+ */
+export function isLexicalBackfillComplete(): boolean {
+  return getMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY) === "1";
+}
