@@ -18,6 +18,7 @@ import { dirname, join } from "node:path";
 
 import { ipcGetFeatureFlags } from "../ipc/gateway-client.js";
 import { getLogger } from "../util/logger.js";
+import { getIsPlatform } from "./env-registry.js";
 import {
   clearCachedOverrides,
   getCachedOverrides,
@@ -347,10 +348,22 @@ export type MessagesSearchBackend = "fts5" | "qdrant";
  * completion check ({@link isLexicalBackfillComplete}), so an upgraded instance
  * keeps reading `fts5` until its Qdrant lexical index is fully populated even
  * though the flag now defaults to `qdrant`.
+ *
+ * Managed staged-rollout guard: on a platform-managed instance the authoritative
+ * value is the gateway's merged map, which fails an absent
+ * `messages-search-backend` safe to `false` so the managed cutover stays gated
+ * on LaunchDarkly targeting. Until that map is loaded into the override cache
+ * ({@link isCachedFromGateway}) — during the non-blocking startup fetch, or if
+ * the IPC fetch fails — a plain read would fall through to the assistant's
+ * bundled registry default (`true`) and select `qdrant` for managed. Fail safe
+ * to `fts5` in that window so the daemon never bypasses the staged rollout. This
+ * does not affect local/self-hosted (`IS_PLATFORM` unset), which gets the new
+ * `qdrant` default.
  */
 export function getMessagesSearchBackend(
   config: AssistantConfig,
 ): MessagesSearchBackend {
+  if (getIsPlatform() && !isCachedFromGateway()) return "fts5";
   const raw = getAssistantFeatureFlagValue("messages-search-backend", config);
   return raw === "qdrant" || raw === true ? "qdrant" : "fts5";
 }
