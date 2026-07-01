@@ -8,34 +8,33 @@ const SKILL_PATH = resolve(REPO_ROOT, "skills", "slack-app-setup", "SKILL.md");
 const skillContent = readFileSync(SKILL_PATH, "utf-8");
 
 describe("slack-app-setup skill regression", () => {
-  test("keeps Slack token collection on the secure credential prompt path", () => {
+  test("uses the channel_setup wizard surface for token entry", () => {
+    expect(skillContent).toContain('surface_type: "channel_setup"');
+    expect(skillContent).toContain("ui_show");
+  });
+
+  test("forbids plaintext token collection in chat", () => {
+    expect(skillContent).toContain("Do NOT collect tokens in chat");
     expect(skillContent).toContain(
-      "assistant credentials prompt --service slack_channel",
-    );
-    expect(skillContent).toContain(
-      "same Slack settings handler used by Settings",
+      "Do NOT ask the user to paste tokens into the conversation",
     );
   });
 
-  test("forbids plaintext forms and chat-pasted secrets", () => {
-    expect(skillContent).toContain("Do NOT use `ui_show`");
-    expect(skillContent).toContain(
-      "Do NOT ask the user to paste tokens in chat",
-    );
-  });
-
-  test("does not instruct the agent to reimplement Slack validation in shell", () => {
+  test("does not instruct the agent to reveal or manually store credentials", () => {
     expect(skillContent).not.toContain(
       "assistant credentials reveal --service slack_channel",
-    );
-    expect(skillContent).not.toContain(
-      'curl -sf -X POST "https://slack.com/api/auth.test"',
     );
     expect(skillContent).not.toContain("assistant config set slack.teamId");
     expect(skillContent).not.toContain("assistant config set slack.teamName");
     expect(skillContent).not.toContain("assistant config set slack.botUserId");
     expect(skillContent).not.toContain(
       "assistant config set slack.botUsername",
+    );
+  });
+
+  test("retains the Settings clearing path", () => {
+    expect(skillContent).toContain(
+      "same Slack settings handler used by Settings",
     );
   });
 });
