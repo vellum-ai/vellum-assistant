@@ -843,6 +843,19 @@ export class AgentLoop {
   }
 
   /**
+   * Replace the system prompt used by subsequent runs. The conversation pushes
+   * a freshly resolved prompt here between turns when its persona context
+   * (trust, channel, persona override) changed, so a conversation that binds
+   * that context after construction (e.g. a voice call resolving the caller's
+   * identity after the loop is built) does not stay pinned to the
+   * construction-time persona. An in-flight `run()` keeps its own snapshot
+   * (`runSystemPrompt`), so this never changes the prompt mid-run.
+   */
+  setSystemPrompt(systemPrompt: string): void {
+    this.systemPrompt = systemPrompt;
+  }
+
+  /**
    * Resolve the tool definitions sent to the provider for the given turn.
    *
    * Mirrors the logic of {@link getToolTokenBudget} but returns the tool

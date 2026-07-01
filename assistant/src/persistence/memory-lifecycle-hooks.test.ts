@@ -23,7 +23,13 @@ const baseHooks: MemoryPersistenceHooks = {
   onConversationWiped() {
     return 0;
   },
+  onConversationDeleted() {},
+  onMessagesDeleted() {},
+  async onAllConversationsCleared() {},
   onWorkerStartup() {},
+  countMemoryBufferLines() {
+    return 0;
+  },
 };
 
 describe("memory persistence-lifecycle seam", () => {
@@ -32,6 +38,18 @@ describe("memory persistence-lifecycle seam", () => {
   test("defaults to a no-op when no implementation is registered", async () => {
     // Resolves without throwing — the "memory not present" path.
     await getMemoryPersistenceHooks().onMessagePersisted(event);
+  });
+
+  test("countMemoryBufferLines defaults to 0 when memory is not present", () => {
+    expect(getMemoryPersistenceHooks().countMemoryBufferLines()).toBe(0);
+  });
+
+  test("countMemoryBufferLines returns the registered implementation's count", () => {
+    registerMemoryPersistenceHooks({
+      ...baseHooks,
+      countMemoryBufferLines: () => 42,
+    });
+    expect(getMemoryPersistenceHooks().countMemoryBufferLines()).toBe(42);
   });
 
   test("getMemoryPersistenceHooks returns the registered implementation", async () => {
@@ -77,5 +95,52 @@ describe("memory persistence-lifecycle seam", () => {
     resetMemoryPersistenceHooksForTests();
     await getMemoryPersistenceHooks().onMessagePersisted(event);
     expect(calls).toBe(0);
+  });
+
+  test("onConversationDeleted defaults to a no-op and forwards the id to the registered impl", () => {
+    // No-op default — the "memory not present" path does not throw.
+    getMemoryPersistenceHooks().onConversationDeleted("conv-1");
+
+    const seen: string[] = [];
+    registerMemoryPersistenceHooks({
+      ...baseHooks,
+      onConversationDeleted(id) {
+        seen.push(id);
+      },
+    });
+    getMemoryPersistenceHooks().onConversationDeleted("conv-1");
+    expect(seen).toEqual(["conv-1"]);
+  });
+
+  test("onMessagesDeleted defaults to a no-op and forwards ids to the registered impl", () => {
+    // No-op default — the "memory not present" path does not throw.
+    getMemoryPersistenceHooks().onMessagesDeleted(["msg-a", "msg-b"]);
+
+    const seen: string[][] = [];
+    registerMemoryPersistenceHooks({
+      ...baseHooks,
+      onMessagesDeleted(ids) {
+        seen.push(ids);
+      },
+    });
+    getMemoryPersistenceHooks().onMessagesDeleted(["msg-a", "msg-b"]);
+    expect(seen).toEqual([["msg-a", "msg-b"]]);
+  });
+
+  test("onAllConversationsCleared defaults to a no-op and awaits the registered impl", async () => {
+    // No-op default resolves without throwing.
+    await getMemoryPersistenceHooks().onAllConversationsCleared();
+
+    let cleared = 0;
+    registerMemoryPersistenceHooks({
+      ...baseHooks,
+      async onAllConversationsCleared() {
+        // Yield so a non-awaiting caller would observe cleared === 0.
+        await Promise.resolve();
+        cleared++;
+      },
+    });
+    await getMemoryPersistenceHooks().onAllConversationsCleared();
+    expect(cleared).toBe(1);
   });
 });

@@ -56,21 +56,17 @@ let mockActive = false;
 
 let providerStub: Provider | null = null;
 
-// Spread the real provider module so unrelated exports (e.g. `createTimeout`,
-// pulled in transitively via the selection-log-store render path) stay present;
-// override only the two entry points the select pool uses, and only while this
-// file is active so the stub cannot leak into sibling tests.
-const realProvider = {
-  ...(await import("../../../../../providers/provider-send-message.js")),
-};
-mock.module("../../../../../providers/provider-send-message.js", () => ({
-  ...realProvider,
+// The select pool imports `getConfiguredProvider` from `@vellumai/plugin-api`.
+// Spread the real contract module so unrelated exports stay present; override
+// only `getConfiguredProvider`, and only while this file is active so the stub
+// cannot leak into sibling tests.
+const realPluginApi = await import("@vellumai/plugin-api");
+mock.module("@vellumai/plugin-api", () => ({
+  ...realPluginApi,
   getConfiguredProvider: async (
-    ...args: Parameters<typeof realProvider.getConfiguredProvider>
+    ...args: Parameters<typeof realPluginApi.getConfiguredProvider>
   ) =>
-    mockActive ? providerStub : realProvider.getConfiguredProvider(...args),
-  extractToolUse: (response: ProviderResponse) =>
-    response.content.find((b) => b.type === "tool_use"),
+    mockActive ? providerStub : realPluginApi.getConfiguredProvider(...args),
 }));
 
 mock.module("../../../../../util/logger.js", () => ({

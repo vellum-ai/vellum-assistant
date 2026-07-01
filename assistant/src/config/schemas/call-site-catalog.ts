@@ -282,18 +282,6 @@ const CATALOG_RECORD: CatalogRecord = {
     description: "Infers the category of a skill from its description.",
     domain: "skills",
   },
-  meetConsentMonitor: {
-    id: "meetConsentMonitor",
-    displayName: "Meet Consent Monitor",
-    description: "Monitors meeting consent signals during live calls.",
-    domain: "skills",
-  },
-  meetChatOpportunity: {
-    id: "meetChatOpportunity",
-    displayName: "Meet Chat Opportunity",
-    description: "Identifies opportunities to engage in meeting chat.",
-    domain: "skills",
-  },
   inference: {
     id: "inference",
     displayName: "Inference",

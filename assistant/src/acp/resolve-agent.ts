@@ -4,7 +4,7 @@
  * `resolveAcpAgent(id)` merges user-provided `config.acp.agents[id]` (wins on
  * overlap) with the bundled `DEFAULT_ACP_AGENT_PROFILES` so common agents like
  * `claude` and `codex` Just Work with no per-user config required. Natural
- * names ("claude code", "Gemini CLI") resolve via `AGENT_ID_ALIASES` when the
+ * names ("claude code", "OpenAI Codex") resolve via `AGENT_ID_ALIASES` when the
  * raw id misses both maps. The result is a discriminated union covering every
  * reason a spawn might fail before we even start the agent process: unknown
  * agent id, or binary missing from PATH. Callers (acp_spawn, acp_list_agents,
@@ -132,8 +132,6 @@ const AGENT_ID_ALIASES: Record<string, string> = {
   claudecode: "claude",
   codexcli: "codex",
   openaicodex: "codex",
-  geminicli: "gemini",
-  googlegemini: "gemini",
 };
 
 /**
@@ -151,7 +149,7 @@ function normalizeAgentId(id: string): string {
  * vs bundled default" without re-deriving it.
  *
  * When the raw id misses both maps, fall back to `AGENT_ID_ALIASES` so
- * natural names like "claude code" or "Gemini CLI" resolve to the canonical
+ * natural names like "claude code" or "OpenAI Codex" resolve to the canonical
  * id. The alias is consulted ONLY after both direct lookups miss, so a user
  * config entry literally keyed "claude code" always wins over the alias.
  */

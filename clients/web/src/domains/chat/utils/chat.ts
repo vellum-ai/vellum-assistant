@@ -59,6 +59,15 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   "acp_session_usage",
   "acp_session_completed",
   "acp_session_error",
+  // Background-tool lifecycle events route by their `id` into the global
+  // background-task store. They carry a top-level `conversationId`, but gating
+  // them on the active conversation would drop a `background_tool_completed`
+  // that fires while the user is viewing a different conversation — leaving the
+  // task to be mis-settled as "cancelled" by rehydration's `retireMissing` on
+  // return. Treat them as global (like subagent/acp) so completions always
+  // reach `handleBackgroundToolCompleted`.
+  "background_tool_started",
+  "background_tool_completed",
 ] as const;
 
 const GLOBAL_STREAM_EVENT_TYPES: ReadonlySet<string> = new Set(

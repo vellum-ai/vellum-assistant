@@ -47,7 +47,8 @@ export interface Conversation {
    * `"phone"`, `"vellum"`, or `"notification:*"`. Sourced from the daemon's
    * `channelBinding.sourceChannel` (when present) and falling back to
    * `conversationOriginChannel`. Used by `isChannelConversation` to gate
-   * read-only behavior for externally-bound conversations.
+   * the native-only edit/undo/recall path on web (and read-only rendering
+   * on macOS/iOS) for externally-bound conversations.
    */
   originChannel?: string;
   /** True for optimistic stubs not yet confirmed by the server. */

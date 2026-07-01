@@ -28,7 +28,6 @@ import { findConversation } from "../daemon/conversation-registry.js";
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
-import { MEMORY_RETROSPECTIVE_SOURCES } from "../plugins/defaults/memory/memory-retrospective-constants.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { UserError } from "../util/errors.js";
@@ -92,6 +91,7 @@ import {
   skillLoadedEvents,
   toolInvocations,
 } from "./schema/index.js";
+import { timeSyncSection } from "./slow-sync-log.js";
 
 const log = getLogger("conversation-store");
 
@@ -134,6 +134,18 @@ const acpNotificationSchema = z.object({
   agent: z.string().optional(),
 });
 
+const backgroundToolCompletionMetadataSchema = z.object({
+  id: z.string(),
+  toolName: z.string(),
+  conversationId: z.string(),
+  command: z.string(),
+  startedAt: z.number(),
+  status: z.enum(["completed", "failed", "cancelled"]),
+  exitCode: z.number().nullable(),
+  output: z.string(),
+  completedAt: z.number(),
+});
+
 export const messageMetadataSchema = z
   .object({
     userMessageChannel: channelIdSchema.optional(),
@@ -165,6 +177,12 @@ export const messageMetadataSchema = z
     provenanceGuardianExternalUserId: z.string().optional(),
     provenanceRequesterIdentifier: z.string().optional(),
     automated: z.boolean().optional(),
+    /**
+     * Structured terminal record stamped onto a `<background_event
+     * source="background-tool">` wake so the web can rebuild the inline
+     * bash/host_bash card from history after a daemon restart.
+     */
+    backgroundToolCompletion: backgroundToolCompletionMetadataSchema.optional(),
     forkSourceMessageId: z.string().optional(),
     /** Image source paths from desktop attachments, keyed by filename. */
     imageSourcePaths: z.record(z.string(), z.string()).optional(),
@@ -697,67 +715,6 @@ export function findAnalysisConversationFor(
 }
 
 /**
- * Find the most recent memory-retrospective background conversation rooted
- * at `parentConversationId`. Used by the memory-retrospective job handler
- * to load the prior retrospective's `remember` calls into the new run's
- * `<already_remembered>` block — bounded source-of-truth for "what the
- * prior pass already saved" that scales as the source conversation grows.
- *
- * Walks up `forkParentConversationId` when no retrospective exists at the
- * current level. This lets a forked conversation inherit dedup context from
- * its source's most recent retro on the fork's *first* retrospective —
- * otherwise the fork would re-save every fact the source already retro'd.
- * Once the fork accumulates its own retros, those are found at the first
- * iteration and we never walk up.
- *
- * The returned `forkParentConversationId` is the conversation the
- * retrospective row is rooted at — `parentConversationId` itself when it has
- * its own retros, or an ancestor when the chain walk found the row higher
- * up. Callers that mutate the prior (e.g. GC of superseded runs) must check
- * it against the source conversation: an ancestor's row is that ancestor's
- * dedup baseline, not the caller's to delete.
- *
- * Returns `null` when no prior retrospective exists anywhere in the fork
- * chain (true first-run case).
- *
- * Hits `idx_conversations_fork_parent_conversation_id` for the
- * `forkParentConversationId` lookup.
- */
-const MAX_FORK_CHAIN_DEPTH = 16;
-
-export function findMostRecentRetrospectiveFor(
-  parentConversationId: string,
-): { id: string; forkParentConversationId: string } | null {
-  const db = getDb();
-  let currentId: string | null = parentConversationId;
-  for (let depth = 0; depth < MAX_FORK_CHAIN_DEPTH && currentId; depth++) {
-    const row = db
-      .select({ id: conversations.id })
-      .from(conversations)
-      .where(
-        and(
-          inArray(conversations.source, MEMORY_RETROSPECTIVE_SOURCES),
-          eq(conversations.forkParentConversationId, currentId),
-        ),
-      )
-      .orderBy(desc(conversations.createdAt))
-      .limit(1)
-      .get();
-    if (row) return { id: row.id, forkParentConversationId: currentId };
-
-    const parent = db
-      .select({
-        forkParentConversationId: conversations.forkParentConversationId,
-      })
-      .from(conversations)
-      .where(eq(conversations.id, currentId))
-      .get();
-    currentId = parent?.forkParentConversationId ?? null;
-  }
-  return null;
-}
-
-/**
  * Returns the `source` column for the given conversation, or null if
  * not found. Tiny convenience used by the recursion guard in the
  * auto-analyze loop.
@@ -957,18 +914,8 @@ export function forkConversation(params: {
       messageAt: number;
     } | null = null;
 
-    for (const message of messagesToCopy) {
+    const forkedMessageValues = messagesToCopy.map((message) => {
       const forkedMessageId = uuid();
-      db.insert(messages)
-        .values({
-          id: forkedMessageId,
-          conversationId: fc.id,
-          role: message.role,
-          content: message.content,
-          createdAt: message.createdAt,
-          metadata: cloneForkMessageMetadata(message.metadata, message.id),
-        })
-        .run();
       forkedMessageIds.set(message.id, forkedMessageId);
 
       if (message.role === "assistant") {
@@ -977,6 +924,27 @@ export function forkConversation(params: {
           messageAt: message.createdAt,
         };
       }
+
+      return {
+        id: forkedMessageId,
+        conversationId: fc.id,
+        role: message.role,
+        content: message.content,
+        createdAt: message.createdAt,
+        metadata: cloneForkMessageMetadata(message.metadata, message.id),
+      };
+    });
+
+    // Insert in chunks of one multi-row statement each so a large fork takes
+    // the SQLite write lock O(messages / chunk) times instead of once per row.
+    const FORK_INSERT_CHUNK_SIZE = 200;
+    for (
+      let i = 0;
+      i < forkedMessageValues.length;
+      i += FORK_INSERT_CHUNK_SIZE
+    ) {
+      const chunk = forkedMessageValues.slice(i, i + FORK_INSERT_CHUNK_SIZE);
+      db.insert(messages).values(chunk).run();
     }
 
     populateForkContentsInProcess({
@@ -1465,6 +1433,13 @@ export function deleteConversation(id: string): DeletedMemoryIds {
     removeConversationDir(id, createdAtForDiskCleanup);
   }
 
+  // Let the memory feature purge the conversation's per-message index (e.g. its
+  // lexical points). Fired from the shared primitive so every delete caller —
+  // route, wipe, retrospective cleanup/GC — cleans up. Routed through the
+  // persistence-hook seam so this layer stays decoupled from the memory plugin;
+  // a no-op when memory is not present.
+  getMemoryPersistenceHooks().onConversationDeleted(id);
+
   return result;
 }
 
@@ -1570,6 +1545,12 @@ export async function deleteConversationGently(
   if (createdAtForDiskCleanup != null) {
     removeConversationDir(id, createdAtForDiskCleanup);
   }
+
+  // Let the memory feature purge the conversation's per-message index — the
+  // gentle path is the retrospective-GC caller, which would otherwise leak the
+  // conversation's lexical points. Routed through the persistence-hook seam;
+  // a no-op when memory is not present.
+  getMemoryPersistenceHooks().onConversationDeleted(id);
 
   return result;
 }
@@ -1721,13 +1702,21 @@ export async function addMessage(
 
 export function getMessages(conversationId: string): MessageRow[] {
   const db = getDb();
-  return db
-    .select()
-    .from(messages)
-    .where(eq(messages.conversationId, conversationId))
-    .orderBy(asc(messages.createdAt))
-    .all()
-    .map(parseMessage);
+  // Synchronous read of every row for the conversation — the dominant
+  // per-turn main-thread cost on large conversations. Timed so a freeze the
+  // event-loop watchdog detects can be attributed here (see slow-sync-log).
+  return timeSyncSection(
+    "conversation-crud:get-messages",
+    () =>
+      db
+        .select()
+        .from(messages)
+        .where(eq(messages.conversationId, conversationId))
+        .orderBy(asc(messages.createdAt))
+        .all()
+        .map(parseMessage),
+    (rows) => ({ conversationId, rowCount: rows.length }),
+  );
 }
 
 /**
@@ -2683,6 +2672,20 @@ export async function clearAll(): Promise<{
     );
   }
 
+  // Let the memory feature drop its bulk per-message index (e.g. the whole
+  // lexical Qdrant collection) — a "delete all" leaves no ids to key
+  // per-message cleanup on. Routed through the persistence-hook seam so this
+  // layer stays decoupled from the memory plugin; a no-op when memory is not
+  // present. AWAITED so the drop completes before clear-all returns and writes
+  // resume — a message created right after must not upsert into a collection
+  // that is about to be dropped. Best-effort — a failure must not fail the
+  // whole clear-all.
+  try {
+    await getMemoryPersistenceHooks().onAllConversationsCleared();
+  } catch (err) {
+    log.warn({ err }, "clearAll: failed to clear memory per-message index");
+  }
+
   // Clear the disk-view conversations directory and recreate it empty
   try {
     rmSync(getConversationsDir(), { recursive: true, force: true });
@@ -2768,6 +2771,12 @@ export function deleteLastExchange(conversationId: string): number {
 
   deleteOrphanAttachments(candidateAttachmentIds);
 
+  // Let the memory feature clean up the undone messages' per-message index
+  // entries. This bulk delete bypasses `deleteMessageById`, so notify the seam
+  // with the collected ids — after the transaction and off the write path. A
+  // no-op when memory is not present.
+  getMemoryPersistenceHooks().onMessagesDeleted(messageIds);
+
   return deleted;
 }
 
@@ -2811,6 +2820,13 @@ export async function reserveMessage(
 /**
  * Update the content of an existing message. Used when consolidating
  * multiple assistant messages into one.
+ *
+ * This is a pure CRUD primitive: it does NOT enqueue a lexical reindex, because
+ * it is also driven by mid-stream partial flushes and high-frequency tool-timing
+ * stamps (`_startedAt`/`_previewStartedAt`) that either don't change searchable
+ * text or would spam reindex jobs. Callers on genuine content-change seams
+ * (streaming finalize, channel edits, consolidation) enqueue the reindex
+ * themselves via `enqueueLexicalIndexForMessage`.
  */
 export function updateMessageContent(
   messageId: string,
@@ -2987,6 +3003,15 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
   });
 
   deleteOrphanAttachments(candidateAttachmentIds);
+
+  // Let the memory feature clean up the deleted message's per-message index
+  // entry. Notified only when the row actually existed (`msgRow` set), after the
+  // transaction and off the write path, via the persistence-hook seam (a no-op
+  // when memory is not present). Covers single-message deletes (consolidation)
+  // that do not go through the conversation-level purge.
+  if (msgRow) {
+    getMemoryPersistenceHooks().onMessagesDeleted([messageId]);
+  }
 
   return result;
 }

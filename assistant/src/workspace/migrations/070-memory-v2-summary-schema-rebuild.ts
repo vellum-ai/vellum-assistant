@@ -5,7 +5,7 @@ import type { WorkspaceMigration } from "./types.js";
  * #29823 (summary_dense / summary_sparse named vectors). The destructive
  * collection rebuild and reembed enqueue both run inside the daemon at
  * Qdrant init time — see `maybeRebuildMemoryV2Concepts` in
- * `assistant/src/daemon/memory-v2-startup.ts`. The "exactly-once" fence is
+ * `assistant/src/plugins/defaults/memory/v2/memory-v2-startup.ts`. The "exactly-once" fence is
  * per-collection schema introspection, not per-workspace checkpoint, so
  * users who wipe Qdrant separately still get re-rebuilt without resetting
  * any workspace flag.

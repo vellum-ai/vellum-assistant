@@ -34,7 +34,6 @@ import type {
   Provider,
   ProviderResponse,
   SendMessageOptions,
-  ToolUseContent,
 } from "@vellumai/plugin-api";
 
 import { ProviderError } from "../../../../../util/errors.js";
@@ -59,10 +58,8 @@ interface ProviderCall {
 const providerCalls: ProviderCall[] = [];
 const warnCalls: Array<{ args: unknown[] }> = [];
 
-mock.module("../../../../../providers/provider-send-message.js", () => ({
+mock.module("@vellumai/plugin-api", () => ({
   getConfiguredProvider: async () => providerStub,
-  extractToolUse: (response: ProviderResponse) =>
-    response.content.find((b): b is ToolUseContent => b.type === "tool_use"),
 }));
 
 mock.module("../../../../../providers/registry.js", () => ({

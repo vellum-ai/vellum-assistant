@@ -285,6 +285,64 @@ describe("closeAcpRunDetail", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Background task detail
+// ---------------------------------------------------------------------------
+
+describe("openBackgroundTaskDetail", () => {
+  it("saves current view and switches to background-task-detail", () => {
+    getState().openBackgroundTaskDetail("bg-x");
+    const state = getState();
+    expect(state.mainView).toBe("background-task-detail");
+    expect(state.activeBackgroundTaskId).toBe("bg-x");
+    expect(state.viewBeforeBackgroundTaskDetail).toBe("chat");
+  });
+
+  it("preserves existing viewBeforeBackgroundTaskDetail when already in background-task-detail", () => {
+    useViewerStore.setState({
+      mainView: "background-task-detail",
+      viewBeforeBackgroundTaskDetail: "app",
+      activeBackgroundTaskId: "bg-1",
+    });
+    getState().openBackgroundTaskDetail("bg-2");
+    const state = getState();
+    expect(state.viewBeforeBackgroundTaskDetail).toBe("app");
+    expect(state.activeBackgroundTaskId).toBe("bg-2");
+  });
+
+  it("saves non-chat view correctly", () => {
+    useViewerStore.setState({ mainView: "app" });
+    getState().openBackgroundTaskDetail("bg-1");
+    expect(getState().viewBeforeBackgroundTaskDetail).toBe("app");
+  });
+});
+
+describe("closeBackgroundTaskDetail", () => {
+  it("restores viewBeforeBackgroundTaskDetail and clears activeBackgroundTaskId", () => {
+    useViewerStore.setState({
+      mainView: "background-task-detail",
+      viewBeforeBackgroundTaskDetail: "chat",
+      activeBackgroundTaskId: "bg-1",
+    });
+    getState().closeBackgroundTaskDetail();
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeBackgroundTaskId).toBeNull();
+  });
+
+  it("restores a non-chat view", () => {
+    useViewerStore.setState({
+      mainView: "background-task-detail",
+      viewBeforeBackgroundTaskDetail: "app",
+      activeBackgroundTaskId: "bg-1",
+    });
+    getState().closeBackgroundTaskDetail();
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.activeBackgroundTaskId).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Workflow detail
 // ---------------------------------------------------------------------------
 
@@ -339,6 +397,91 @@ describe("closeWorkflowDetail", () => {
     const state = getState();
     expect(state.mainView).toBe("app");
     expect(state.activeWorkflowRunId).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Process-detail routing facade
+// ---------------------------------------------------------------------------
+
+describe("openProcessDetail", () => {
+  it("routes 'subagent' to openSubagentDetail", () => {
+    getState().openProcessDetail({ kind: "subagent", id: "sa-1" });
+    const state = getState();
+    expect(state.mainView).toBe("subagent-detail");
+    expect(state.activeSubagentId).toBe("sa-1");
+  });
+
+  it("routes 'workflow' to openWorkflowDetail", () => {
+    getState().openProcessDetail({ kind: "workflow", id: "run-1" });
+    const state = getState();
+    expect(state.mainView).toBe("workflow-detail");
+    expect(state.activeWorkflowRunId).toBe("run-1");
+  });
+
+  it("routes 'acp-run' to openAcpRunDetail", () => {
+    getState().openProcessDetail({ kind: "acp-run", id: "acp-1" });
+    const state = getState();
+    expect(state.mainView).toBe("acp-run-detail");
+    expect(state.activeAcpRunId).toBe("acp-1");
+  });
+
+  it("routes 'background-task' to openBackgroundTaskDetail", () => {
+    getState().openProcessDetail({ kind: "background-task", id: "bg-1" });
+    const state = getState();
+    expect(state.mainView).toBe("background-task-detail");
+    expect(state.activeBackgroundTaskId).toBe("bg-1");
+  });
+});
+
+describe("closeActiveDetail", () => {
+  it("closes an open subagent-detail and restores the prior view", () => {
+    useViewerStore.setState({ mainView: "app" });
+    getState().openProcessDetail({ kind: "subagent", id: "sa-1" });
+    getState().closeActiveDetail();
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.activeSubagentId).toBeNull();
+  });
+
+  it("closes an open workflow-detail and restores the prior view", () => {
+    getState().openProcessDetail({ kind: "workflow", id: "run-1" });
+    getState().closeActiveDetail();
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeWorkflowRunId).toBeNull();
+  });
+
+  it("closes an open acp-run-detail and restores the prior view", () => {
+    getState().openProcessDetail({ kind: "acp-run", id: "acp-1" });
+    getState().closeActiveDetail();
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeAcpRunId).toBeNull();
+  });
+
+  it("closes an open background-task-detail and restores the prior view", () => {
+    getState().openProcessDetail({ kind: "background-task", id: "bg-1" });
+    getState().closeActiveDetail();
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeBackgroundTaskId).toBeNull();
+  });
+
+  it("is a no-op when no process-detail view is open", () => {
+    useViewerStore.setState({ mainView: "app", activeAppId: "app-1" });
+    getState().closeActiveDetail();
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.activeAppId).toBe("app-1");
+  });
+
+  it("does not close tool-detail (out of scope for the process facade)", () => {
+    getState().openToolDetail(SAMPLE_TOOL);
+    getState().closeActiveDetail();
+    const state = getState();
+    expect(state.mainView).toBe("tool-detail");
+    expect(state.activeToolDetail).toBe(SAMPLE_TOOL);
   });
 });
 

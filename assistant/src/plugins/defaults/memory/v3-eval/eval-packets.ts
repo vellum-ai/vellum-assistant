@@ -35,10 +35,7 @@ import {
   conversations,
   messages,
 } from "../../../../persistence/schema/index.js";
-import {
-  FRONTMATTER_REGEX,
-  parseFrontmatterFields,
-} from "../../../../skills/frontmatter.js";
+import { FRONTMATTER_REGEX, parseFrontmatterFields } from "../frontmatter.js";
 import { injectedConceptHeader } from "../v2/injected-block-slugs.js";
 import { slugFromConceptPath } from "../v2/page-store.js";
 import { renderCard } from "../v3/card.js";

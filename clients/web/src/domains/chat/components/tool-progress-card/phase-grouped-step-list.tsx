@@ -29,6 +29,7 @@ import {
   Pen,
   Plug,
   Sparkles,
+  SquareTerminal,
   UserPlus,
   type LucideIcon,
 } from "lucide-react";
@@ -47,6 +48,7 @@ import { cn } from "@/utils/misc";
 /** Concrete lucide icon for each `IconName` produced by `deriveStepLabel`. */
 export const ICON_MAP: Record<IconName, LucideIcon> = {
   code: Code,
+  terminal: SquareTerminal,
   file: FileText,
   globe: Globe,
   pen: Pen,

@@ -1075,6 +1075,15 @@ describe("assistant subcommand classification", () => {
     expect(result.riskLevel).toBe("high");
   });
 
+  test("assistant schedules create --mode script → high (persists a shell payload)", async () => {
+    const result = await classifier.classify({
+      command:
+        "assistant schedules create Watcher --mode script --script 'bun poll.ts' --expression '*/15 * * * *' --description watch",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
   test("assistant bash ls → high", async () => {
     const result = await classifier.classify({
       command: "assistant bash ls",

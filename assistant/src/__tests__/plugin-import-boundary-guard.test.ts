@@ -40,7 +40,7 @@ const DEFAULTS_ABS = join(process.cwd(), DEFAULTS_REL);
  * specifiers it reaches for outside itself. These are host-internal couplings
  * with no `@vellumai/plugin-api` equivalent (memory/daemon/context/config
  * internals, runtime builtins, third-party packages). `providers/types.js`
- * appears only for `ToolDefinition` (a `@vellumai/skill-host-contracts` type
+ * appears only for `ToolDefinition` (a `tools/tool-types.js` type
  * distinct from plugin-api's), which the anti-backslide guard enforces.
  *
  * Regenerate after an intentional change with:
@@ -78,10 +78,13 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../util/logger.js",
   ],
   memory: [
+    "../../../../../config/assistant-feature-flags.js",
     "../../../../../config/types.js",
     "../../../../../messaging/providers/slack/message-metadata.js",
     "../../../../../persistence/auto-analysis-constants.js",
+    "../../../../../persistence/checkpoints.js",
     "../../../../../persistence/conversation-queries.js",
+    "../../../../../persistence/conversation-search-lexical.js",
     "../../../../../persistence/db-connection.js",
     "../../../../../persistence/embeddings/embed.js",
     "../../../../../persistence/embeddings/embedding-backend.js",
@@ -106,6 +109,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../../daemon/conversation-notices.js",
     "../../../../daemon/conversation-registry.js",
     "../../../../daemon/conversation-runtime-assembly.js",
+    "../../../../daemon/embedding-reconcile.js",
     "../../../../daemon/identity-helpers.js",
     "../../../../daemon/message-protocol.js",
     "../../../../daemon/message-types/memory.js",
@@ -121,6 +125,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../../persistence/embeddings/embedding-billing-breaker.js",
     "../../../../persistence/embeddings/embedding-cache.js",
     "../../../../persistence/embeddings/embedding-types.js",
+    "../../../../persistence/embeddings/messages-lexical-index.js",
     "../../../../persistence/embeddings/qdrant-circuit-breaker.js",
     "../../../../persistence/embeddings/qdrant-client.js",
     "../../../../persistence/embeddings/sparse-tokenize.js",
@@ -131,9 +136,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../../persistence/schema/conversations.js",
     "../../../../persistence/schema/index.js",
     "../../../../prompts/system-prompt.js",
-    "../../../../providers/cache-control.js",
-    "../../../../providers/provider-send-message.js",
-    "../../../../providers/types.js",
+    "../../../../providers/platform-proxy/context.js",
     "../../../../runtime/actor-trust-resolver.js",
     "../../../../runtime/assistant-event-hub.js",
     "../../../../runtime/auth/route-policy.js",
@@ -142,7 +145,6 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../../runtime/routes/types.js",
     "../../../../security/secret-scanner.js",
     "../../../../skills/catalog-cache.js",
-    "../../../../skills/frontmatter.js",
     "../../../../skills/install-meta.js",
     "../../../../skills/skill-memory.js",
     "../../../../tools/skills/delete-managed.js",
@@ -159,6 +161,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../config/assistant-feature-flags.js",
     "../../../config/loader.js",
     "../../../config/memory-v3-gate.js",
+    "../../../config/schema.js",
     "../../../config/schemas/memory-v2.js",
     "../../../config/types.js",
     "../../../contacts/guardian-delivery-reader.js",
@@ -167,10 +170,14 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../context/token-estimator.js",
     "../../../daemon/date-context.js",
     "../../../daemon/disk-pressure-background-gate.js",
+    "../../../daemon/embedding-reconcile.js",
     "../../../daemon/pkb-context-tracker.js",
     "../../../daemon/pkb-reminder-builder.js",
+    "../../../daemon/skill-memory-refresh.js",
     "../../../daemon/tool-setup-types.js",
     "../../../daemon/trust-context.js",
+    "../../../disabled-state.js",
+    "../../../jobs/register-job-handlers.js",
     "../../../permissions/types.js",
     "../../../persistence/checkpoints.js",
     "../../../persistence/conversation-crud.js",
@@ -178,7 +185,12 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../persistence/embeddings/embedding-backend.js",
     "../../../persistence/embeddings/embedding-runtime-manager.js",
     "../../../persistence/embeddings/embedding-types.js",
+    "../../../persistence/embeddings/messages-lexical-index.js",
+    "../../../persistence/embeddings/qdrant-client.js",
+    "../../../persistence/embeddings/qdrant-manager.js",
+    "../../../persistence/job-utils.js",
     "../../../persistence/jobs-store.js",
+    "../../../persistence/jobs-worker.js",
     "../../../persistence/memory-lifecycle-hooks.js",
     "../../../persistence/message-content.js",
     "../../../persistence/raw-query.js",
@@ -248,7 +260,7 @@ const BASELINE: Record<string, readonly string[]> = {
  * Symbols that `@vellumai/plugin-api` re-exports from `providers/types.js`. A
  * plugin must import these from the public API, not the host module. NOT
  * listed (and therefore allowed from `providers/types.js`): `ToolDefinition`,
- * which `providers/types.js` re-exports from `@vellumai/skill-host-contracts`
+ * which `providers/types.js` re-exports from `tools/tool-types.js`
  * — a different type than plugin-api's own `ToolDefinition`.
  */
 const PLUGIN_API_PROVIDER_TYPES: ReadonlySet<string> = new Set([
@@ -487,7 +499,7 @@ describe("plugin import boundary", () => {
       ...violations,
       "",
       "(ToolDefinition from providers/types.js is allowed — it is a distinct",
-      "@vellumai/skill-host-contracts type, not plugin-api's ToolDefinition.)",
+      "tools/tool-types.js type, not plugin-api's ToolDefinition.)",
     ].join("\n");
 
     expect(violations, message).toEqual([]);

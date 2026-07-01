@@ -7,10 +7,9 @@ import { Glob } from "bun";
 /**
  * Guard tests for the skill-isolation boundary. See AGENTS.md "Skill
  * Isolation". Both directions are enforced: zero relative imports across
- * `assistant/` ↔ `skills/`. Skills wire into the daemon through the
- * `SkillHost` contract in `@vellumai/skill-host-contracts`; the daemon
- * loads first-party skills as separate processes via the manifest in
- * `meet-host-startup.ts`.
+ * `assistant/` ↔ `skills/`. Skills must not reach into `assistant/`
+ * internals via relative paths, and the assistant must not reach into
+ * `skills/`.
  *
  * Note: `assistant/src/skills/` is the internal skill-catalog loader and
  * is NOT a violation when referenced via `../skills/...` from within

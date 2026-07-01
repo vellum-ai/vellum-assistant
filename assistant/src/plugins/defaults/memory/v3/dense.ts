@@ -16,11 +16,9 @@
 // forward regardless, so a dense outage narrows recall but never breaks a turn.
 
 import type { AssistantConfig } from "../../../../config/types.js";
-import {
-  embedWithBackend,
-  isEmbeddingDimensionAvailable,
-} from "../../../../persistence/embeddings/embedding-backend.js";
+import { isEmbeddingDimensionAvailable } from "../../../../persistence/embeddings/embedding-backend.js";
 import { getLogger } from "../../../../util/logger.js";
+import { embedWithBackend } from "../embeddings.js";
 import {
   getSectionDenseClient,
   SECTION_COLLECTION,
@@ -72,14 +70,11 @@ export async function denseLane(
     const vector = vectors[0];
     if (!vector || vector.length === 0) return [];
 
-    const result = await getSectionDenseClient(config).query(
-      SECTION_COLLECTION,
-      {
-        query: vector,
-        limit: k * OVERSAMPLE,
-        with_payload: true,
-      },
-    );
+    const result = await getSectionDenseClient().query(SECTION_COLLECTION, {
+      query: vector,
+      limit: k * OVERSAMPLE,
+      with_payload: true,
+    });
     points = result.points;
   } catch (err) {
     log.warn({ err }, "memory v3 dense lane failed; degrading to no hits");

@@ -20,8 +20,13 @@ export interface DetailShellProps {
   /** Pre-rendered icon element (e.g. an <img>). Takes precedence over `Glyph`. */
   icon?: ReactNode;
   title: string;
+  /** Inline slot next to the title (e.g. a status badge), before the spacer. */
   headerTrailing?: ReactNode;
+  /** Right-aligned action cluster after the spacer, before close (e.g. a Stop button). */
+  headerActions?: ReactNode;
   closeLabel?: string;
+  /** Close-button style. "outlined" matches the subagent panel's bordered X. */
+  closeVariant?: "ghost" | "outlined";
   onClose: () => void;
   children: ReactNode;
 }
@@ -31,7 +36,9 @@ export function DetailShell({
   icon,
   title,
   headerTrailing,
+  headerActions,
   closeLabel = "Close panel",
+  closeVariant = "ghost",
   onClose,
   children,
 }: DetailShellProps) {
@@ -56,13 +63,14 @@ export function DetailShell({
         </Typography>
         {headerTrailing}
         <span className="flex-1" />
+        {headerActions}
         <Button
-          variant="ghost"
+          variant={closeVariant === "outlined" ? "outlined" : "ghost"}
           iconOnly={<X />}
           onClick={onClose}
           aria-label={closeLabel}
           tooltip="Close"
-          className="shrink-0"
+          className={`shrink-0${closeVariant === "outlined" ? " rounded-lg" : ""}`}
         />
       </div>
 

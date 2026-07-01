@@ -33,6 +33,7 @@
  */
 
 import type { Message } from "@vellumai/plugin-api";
+import { getConfiguredProvider } from "@vellumai/plugin-api";
 import { z } from "zod";
 
 import type { AssistantConfig } from "../../../../config/types.js";
@@ -41,13 +42,12 @@ import {
   resolveUserName,
 } from "../../../../daemon/identity-helpers.js";
 import type { DrizzleDb } from "../../../../persistence/db-connection.js";
-import { cachedTextBlock } from "../../../../providers/cache-control.js";
-import {
-  extractToolUse,
-  getConfiguredProvider,
-} from "../../../../providers/provider-send-message.js";
-import type { ToolDefinition } from "../../../../providers/types.js";
 import { getLogger } from "../../../../util/logger.js";
+import {
+  cachedTextBlock,
+  extractToolUse,
+  type ToolDefinition,
+} from "../llm-helpers.js";
 import { computeInjectionScores } from "./injection-events.js";
 import type { PageIndex } from "./page-index.js";
 import {

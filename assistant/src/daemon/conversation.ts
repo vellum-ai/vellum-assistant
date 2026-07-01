@@ -56,6 +56,7 @@ import {
   setConversationProcessingStartedAt,
 } from "../persistence/conversation-crud.js";
 import { getResolvedConversationDirPath } from "../persistence/conversation-directories.js";
+import { reportSlowSync } from "../persistence/slow-sync-log.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import {
   createContextWindowManager,
@@ -850,6 +851,32 @@ export class Conversation {
         });
   }
 
+  /**
+   * Re-resolve the system prompt for the current turn's persona context and
+   * push it into the agent loop when it changed. The loop snapshots its prompt
+   * at construction and reuses it every turn; flows that bind persona context
+   * after construction — a voice call resolves the caller's trust only after
+   * the conversation is created — would otherwise stay pinned to the
+   * construction-time persona (the guardian, or `users/default.md`) for the
+   * whole conversation.
+   *
+   * Pushing only when the rebuilt prompt actually differs keeps the provider's
+   * prefix cache intact for the common case (a stable-identity conversation
+   * rebuilds to the same bytes, so no update is sent). A system-prompt override
+   * resolves verbatim via {@link buildCurrentSystemPrompt}, so override
+   * conversations (subagent forks, stored overrides) are inherently a no-op.
+   *
+   * Called by the turn runner before `agentLoop.run()`, once the turn's
+   * persona snapshots ({@link currentTurnTrustContext},
+   * {@link currentTurnChannelCapabilities}) are set.
+   */
+  syncLoopSystemPrompt(): void {
+    const next = this.buildCurrentSystemPrompt();
+    if (next === this.systemPrompt) return;
+    this.systemPrompt = next;
+    this.agentLoop.setSystemPrompt(next);
+  }
+
   // ── Prompt Cache Warming ─────────────────────────────────────────
 
   /**
@@ -900,6 +927,7 @@ export class Conversation {
   // ── Lifecycle ────────────────────────────────────────────────────
 
   async loadFromDb(): Promise<void> {
+    const loadStartedAt = performance.now();
     const trustClass = this.trustContext?.trustClass;
     const canAccessMemory = resolveCapabilities(trustClass).canAccessMemory;
     const allDbMessages = getMessages(this.conversationId);
@@ -1234,10 +1262,22 @@ export class Conversation {
     this.loadedHistoryTrustClass = trustClass;
     this.loadedHistoryPersonalMemoryAllowed = personalMemoryAllowed;
 
+    const loadElapsedMs = performance.now() - loadStartedAt;
     log.info(
-      { conversationId: this.conversationId, count: this.messages.length },
+      {
+        conversationId: this.conversationId,
+        count: this.messages.length,
+        elapsedMs: loadElapsedMs,
+      },
       "Loaded messages from DB",
     );
+    // Whole read+parse+repair section — attributes an event-loop freeze to
+    // this conversation load (getMessages times the read alone; the delta is
+    // parse/repair CPU). See slow-sync-log / event-loop-watchdog.
+    reportSlowSync("conversation:load-from-db", loadElapsedMs, {
+      conversationId: this.conversationId,
+      messageCount: this.messages.length,
+    });
 
     this.restoreSurfaceStateFromHistory();
     this.graphMemory.restoreState();

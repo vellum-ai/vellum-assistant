@@ -197,7 +197,7 @@ describe("onboarding funnel events", () => {
     expect(secondEvent?.session_id).toBe(firstEvent?.session_id);
     expect(secondEvent).toMatchObject({
       step_name: "research_suggestions",
-      step_index: 9,
+      step_index: 10,
       funnel_version: RESEARCH_ONBOARDING_FUNNEL_VERSION,
       outcome: "skipped",
     });
@@ -226,7 +226,7 @@ describe("onboarding funnel events", () => {
     expect(event).toMatchObject({
       type: "onboarding",
       step_name: "research_checkin_open",
-      step_index: 10,
+      step_index: 11,
       user_id: "user-123",
       funnel_version: RESEARCH_ONBOARDING_FUNNEL_VERSION,
       ab_variant: "control",

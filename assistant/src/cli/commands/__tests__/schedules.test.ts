@@ -748,6 +748,58 @@ describe("schedules create", () => {
     expect(exitFromIpcResultCalls).toEqual([mockIpcResult]);
     expect(errorLines).toEqual([]);
   });
+
+  test("creates a script-mode schedule with --mode script --script", async () => {
+    mockIpcResult = { ok: true, result: { schedules: [] } };
+
+    const { exitCode } = await runCommand([
+      "schedules",
+      "create",
+      "GitHub watcher",
+      "--mode",
+      "script",
+      "--script",
+      'cd "$VELLUM_WORKSPACE_DIR/schedules/$__SCHEDULE_ID" && bun poll.ts',
+      "--expression",
+      "*/15 * * * *",
+      "--description",
+      "Polls GitHub notifications",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(ipcCalls).toEqual([
+      {
+        method: "createSchedule",
+        params: {
+          body: {
+            name: "GitHub watcher",
+            expression: "*/15 * * * *",
+            description: "Polls GitHub notifications",
+            enabled: true,
+            mode: "script",
+            script:
+              'cd "$VELLUM_WORKSPACE_DIR/schedules/$__SCHEDULE_ID" && bun poll.ts',
+          },
+        },
+      },
+    ]);
+  });
+
+  test("exits 1 when --mode script is missing --script", async () => {
+    const { exitCode } = await runCommand([
+      "schedules",
+      "create",
+      "Broken",
+      "--mode",
+      "script",
+      "--expression",
+      "*/15 * * * *",
+      "--description",
+      "no script",
+    ]);
+
+    expect(exitCode).toBe(1);
+  });
 });
 
 describe("schedules update", () => {

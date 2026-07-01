@@ -511,6 +511,7 @@ export function registerDefaultPluginJobHandlers(): void {
  * read-time disabled-state filtering the injector/hook/job-handler/tool surfaces
  * apply. The sentinel is checked per call, so enable/disable takes effect on the
  * next write without a daemon restart. CLEANUP hooks (`onConversationWiped`,
+ * `onConversationDeleted`, `onMessagesDeleted`, `onAllConversationsCleared`,
  * `onWorkerStartup`) are intentionally NOT gated — they must run even when the
  * plugin is disabled so state created while it was enabled is not orphaned.
  */
@@ -527,11 +528,28 @@ export function guardPersistenceHooksByDisabledState(
       if (isPluginDisabled(pluginName)) return;
       return hooks.onConversationForked(event);
     },
+    // Gated like the active side effects above: a disabled plugin reports an
+    // empty buffer, so the maintenance scheduler treats it as "no buffered
+    // work" and skips consolidation — matching how disabled injectors/hooks go
+    // inert.
+    countMemoryBufferLines() {
+      if (isPluginDisabled(pluginName)) return 0;
+      return hooks.countMemoryBufferLines();
+    },
     // Cleanup hooks are NOT gated on disabled-state: they must run even while
     // the plugin is disabled, or jobs/conversations created while it was
     // enabled would be orphaned.
     onConversationWiped(conversationId) {
       return hooks.onConversationWiped(conversationId);
+    },
+    onConversationDeleted(conversationId) {
+      return hooks.onConversationDeleted(conversationId);
+    },
+    onMessagesDeleted(messageIds) {
+      return hooks.onMessagesDeleted(messageIds);
+    },
+    onAllConversationsCleared() {
+      return hooks.onAllConversationsCleared();
     },
     onWorkerStartup() {
       return hooks.onWorkerStartup();

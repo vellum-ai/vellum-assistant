@@ -4,6 +4,7 @@ import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { DetailCard } from "@/components/detail-card";
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { useAssistantWithHealthz } from "@/domains/settings/components/assistant-status-panel";
+import { MemoryWorkerToggle } from "@/domains/settings/components/memory-worker-toggle";
 import { UpdateWindowPolicy } from "@/domains/settings/components/update-window-policy";
 import { configGetOptions, configGetSetQueryData, useConfigPatchMutation } from "@/generated/daemon/@tanstack/react-query.gen";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
@@ -78,7 +79,9 @@ export function AdvancedPage() {
             />
           }
           compactAccessory
-        />
+        >
+          <MemoryWorkerToggle memoryEnabled={memoryEnabled} />
+        </DetailCard>
       ) : null}
     </div>
   );

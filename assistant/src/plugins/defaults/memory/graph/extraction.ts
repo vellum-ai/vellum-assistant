@@ -10,6 +10,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { ContentBlock, ImageContent, Message } from "@vellumai/plugin-api";
+import { getConfiguredProvider } from "@vellumai/plugin-api";
 import { and, asc, desc, eq, gt } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../../../config/types.js";
@@ -20,13 +21,9 @@ import {
   messages,
 } from "../../../../persistence/schema/index.js";
 import { buildCoreIdentityContext } from "../../../../prompts/system-prompt.js";
-import {
-  extractToolUse,
-  getConfiguredProvider,
-  userMessage,
-} from "../../../../providers/provider-send-message.js";
 import { BackendUnavailableError } from "../../../../util/errors.js";
 import { getLogger } from "../../../../util/logger.js";
+import { extractToolUse, userMessage } from "../llm-helpers.js";
 import {
   enqueueGraphNodeEmbed,
   enqueueGraphTriggerEmbed,
@@ -1160,7 +1157,7 @@ export async function runGraphExtraction(
     const { embedGraphNodeDirect } = await import("./graph-search.js");
     for (const node of createdNodes) {
       try {
-        await embedGraphNodeDirect(node, config);
+        await embedGraphNodeDirect(node);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         log.warn(

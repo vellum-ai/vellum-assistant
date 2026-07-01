@@ -1,15 +1,4 @@
 import type { ApprovalRequired } from "@vellumai/service-contracts/credential-rpc";
-import type {
-  DiffInfo,
-  ExecutionTarget,
-  ProxyApprovalCallback,
-  SensitiveOutputBinding,
-  ToolExecutionErrorEvent as ContractsToolExecutionErrorEvent,
-  ToolExecutionStartEvent,
-  ToolPermissionDeniedEvent,
-  ToolPermissionPromptEvent,
-} from "@vellumai/skill-host-contracts";
-import { RiskLevel } from "@vellumai/skill-host-contracts";
 import { z } from "zod";
 
 import type { InterfaceId } from "../channels/types.js";
@@ -19,6 +8,17 @@ import type { SecretPromptResult } from "../permissions/secret-prompter.js";
 import type { ContentBlock } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import type { UsageAttributionSnapshot } from "../usage/attribution.js";
+import type {
+  DiffInfo,
+  ExecutionTarget,
+  ProxyApprovalCallback,
+  SensitiveOutputBinding,
+  ToolExecutionErrorEvent as ContractsToolExecutionErrorEvent,
+  ToolExecutionStartEvent,
+  ToolPermissionDeniedEvent,
+  ToolPermissionPromptEvent,
+} from "./tool-types.js";
+import { RiskLevel } from "./tool-types.js";
 
 export const DISK_PRESSURE_CLEANUP_TOOL_NAMES: ReadonlySet<string> = new Set([
   "bash",
@@ -37,11 +37,11 @@ export function isDiskPressureCleanupToolName(name: string): boolean {
 
 // ---------------------------------------------------------------------------
 // Re-exports + concrete overlays for types that live in
-// @vellumai/skill-host-contracts.
+// ./tool-types.js.
 //
-// The canonical declarations moved into the neutral contracts package as
-// part of the skill-isolation work. This file preserves existing import
-// paths (`"../tools/types.js"`) so all callers keep resolving.
+// The canonical declarations live in the neutral leaf module
+// `./tool-types.js`. This file preserves existing import paths
+// (`"../tools/types.js"`) so all callers keep resolving.
 //
 // Pure re-exports below cover types the contracts package could declare
 // without any assistant-side references. The remaining interfaces (`Tool`,
@@ -73,8 +73,8 @@ export type {
   ToolExecutionStartEvent,
   ToolPermissionDeniedEvent,
   ToolPermissionPromptEvent,
-} from "@vellumai/skill-host-contracts";
-export { RiskLevel } from "@vellumai/skill-host-contracts";
+} from "./tool-types.js";
+export { RiskLevel } from "./tool-types.js";
 
 // ---------------------------------------------------------------------------
 // Assistant-side concrete overlays

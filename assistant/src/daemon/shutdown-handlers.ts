@@ -10,6 +10,7 @@ import { getSqlite, resetDb } from "../persistence/db-connection.js";
 import { stopQdrantManager } from "../persistence/embeddings/qdrant-manager.js";
 import { stopMemoryJobsWorker } from "../persistence/jobs-worker.js";
 import { stopMemoryWorkerProcess } from "../persistence/worker-control.js";
+import { stopConsentRefresh } from "../platform/consent-cache.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import { runHook } from "../plugins/pipeline.js";
 import { stopRuntimeHttpServer } from "../runtime/http-server.js";
@@ -33,7 +34,6 @@ import { cleanupPidFile } from "./daemon-control.js";
 import { stopEventLoopWatchdog } from "./event-loop-watchdog.js";
 import { stopDiskPressureGuardForLifecycle } from "./lifecycle.js";
 import { stopOrphanReaper } from "./orphan-reaper.js";
-import { runShutdownHooks } from "./shutdown-registry.js";
 
 const log = getLogger("lifecycle");
 
@@ -81,19 +81,13 @@ async function shutdown(): Promise<void> {
   await stopWorkspaceHeartbeatService();
   await stopHeartbeatService();
 
-  // Run registered shutdown-registry hooks (skill teardown like meet-join, plus
-  // daemon singletons such as the consent-cache refresh) before stopping the
-  // server so any HTTP round-trips and SSE emissions still have live transports.
-  try {
-    await runShutdownHooks("daemon-shutdown");
-  } catch (err) {
-    log.warn({ err }, "Skill shutdown hooks failed (non-fatal)");
-  }
+  // Stop the periodic consent-cache refresh (a daemon-owned interval).
+  await stopConsentRefresh();
 
-  // Fire plugin / user / workspace `shutdown` hooks through the unified hook
-  // pipeline — the same dispatch path every other lifecycle hook uses — before
-  // stopping the server so any teardown work still has live transports. We don't
-  // unregister tool/route surfaces here: the daemon is exiting, so that
+  // Fire plugin / user / workspace / skill `shutdown` hooks through the unified
+  // hook pipeline — the same dispatch path every other lifecycle hook uses —
+  // before stopping the server so any teardown work still has live transports.
+  // We don't unregister tool/route surfaces here: the daemon is exiting, so that
   // in-memory registry state is discarded with the process anyway.
   try {
     await runHook(HOOKS.SHUTDOWN, {

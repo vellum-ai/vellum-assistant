@@ -114,27 +114,39 @@
       "license": "MIT"
     },
     {
-      "name": "nightstand",
+      "name": "reading-pal",
       "source": {
         "source": "github",
-        "repo": "vellum-ai/nightstand",
-        "ref": "71890dbcd7c692247fe6af99fe90e13e7cd9908e"
+        "repo": "vellum-ai/reading-pal",
+        "ref": "5226ff8ae6ae3636e695791b07dbae1f34e2217a"
       },
       "description": "Your reading life in one plugin. Track your TBR pile, get guilt-tripped about your backlog, find your next read, and sync from Goodreads.",
       "category": "hobby",
-      "homepage": "https://github.com/vellum-ai/nightstand",
+      "homepage": "https://github.com/vellum-ai/reading-pal",
       "license": "MIT"
     },
     {
-      "name": "red-pen",
+      "name": "writing-coach",
       "source": {
         "source": "github",
-        "repo": "vellum-ai/red-pen",
-        "ref": "9e2c59c443f92d7800cbb33521cc166066226355"
+        "repo": "vellum-ai/writing-coach",
+        "ref": "9cb2289343fed2fd6ad8b0bb5db07616d1c8181c"
       },
       "description": "A writing coach in your pocket. Daily prompts that escalate with your streak, savage-but-constructive draft roasts, query letter critiques, and a word count enforcer that guilt-trips you when you skip.",
       "category": "hobby",
-      "homepage": "https://github.com/vellum-ai/red-pen",
+      "homepage": "https://github.com/vellum-ai/writing-coach",
+      "license": "MIT"
+    },
+    {
+      "name": "fitness-companion",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/fitness-companion",
+        "ref": "e1aae9dd527f30cb897dd4a04c14f35950d263d2"
+      },
+      "description": "Fitness and nutrition companion. Logs meals, workouts, and weight; looks up nutrition data from OpenFoodFacts; calculates macro targets; and injects daily fitness context into every conversation.",
+      "category": "health",
+      "homepage": "https://github.com/vellum-ai/fitness-companion",
       "license": "MIT"
     }
   ]

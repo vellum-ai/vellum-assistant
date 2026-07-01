@@ -2,10 +2,9 @@ import { readFile } from "node:fs/promises";
 
 import { eq } from "drizzle-orm";
 
-import type { AssistantConfig } from "../../../../config/types.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import type { EmbeddingInput } from "../../../../persistence/embeddings/embedding-types.js";
-import { asString, embedAndUpsert } from "../../../../persistence/job-utils.js";
+import { asString } from "../../../../persistence/job-utils.js";
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
 import { extractMediaBlocks } from "../../../../persistence/message-content.js";
 import {
@@ -14,11 +13,9 @@ import {
   memorySummaries,
   messages,
 } from "../../../../persistence/schema/index.js";
+import { embedAndUpsert } from "../embeddings.js";
 
-export async function embedSegmentJob(
-  job: MemoryJob,
-  config: AssistantConfig,
-): Promise<void> {
+export async function embedSegmentJob(job: MemoryJob): Promise<void> {
   const segmentId = asString(job.payload.segmentId);
   if (!segmentId) return;
   const db = getDb();
@@ -28,7 +25,7 @@ export async function embedSegmentJob(
     .where(eq(memorySegments.id, segmentId))
     .get();
   if (!segment) return;
-  await embedAndUpsert(config, "segment", segment.id, segment.text, {
+  await embedAndUpsert("segment", segment.id, segment.text, {
     conversation_id: segment.conversationId,
     message_id: segment.messageId,
     created_at: segment.createdAt,
@@ -36,10 +33,7 @@ export async function embedSegmentJob(
   });
 }
 
-export async function embedSummaryJob(
-  job: MemoryJob,
-  config: AssistantConfig,
-): Promise<void> {
+export async function embedSummaryJob(job: MemoryJob): Promise<void> {
   const summaryId = asString(job.payload.summaryId);
   if (!summaryId) return;
   const db = getDb();
@@ -50,7 +44,6 @@ export async function embedSummaryJob(
     .get();
   if (!summary) return;
   await embedAndUpsert(
-    config,
     "summary",
     summary.id,
     `[${summary.scope}] ${summary.summary}`,
@@ -63,10 +56,7 @@ export async function embedSummaryJob(
   );
 }
 
-export async function embedMediaJob(
-  job: MemoryJob,
-  config: AssistantConfig,
-): Promise<void> {
+export async function embedMediaJob(job: MemoryJob): Promise<void> {
   const assetId = asString(job.payload.assetId);
   if (!assetId) return;
 
@@ -88,7 +78,7 @@ export async function embedMediaJob(
     mimeType: asset.mimeType,
   };
 
-  await embedAndUpsert(config, "media", asset.id, input, {
+  await embedAndUpsert("media", asset.id, input, {
     created_at: asset.createdAt,
     kind: asset.mediaType,
     subject: asset.title,
@@ -96,10 +86,7 @@ export async function embedMediaJob(
   });
 }
 
-export async function embedAttachmentJob(
-  job: MemoryJob,
-  config: AssistantConfig,
-): Promise<void> {
+export async function embedAttachmentJob(job: MemoryJob): Promise<void> {
   const messageId = asString(job.payload.messageId);
   const blockIndex = job.payload.blockIndex as number;
   if (!messageId || typeof blockIndex !== "number") return;
@@ -124,7 +111,7 @@ export async function embedAttachmentJob(
 
   // Use messageId + blockIndex as targetId for uniqueness
   const targetId = `${messageId}:${blockIndex}`;
-  await embedAndUpsert(config, "media", targetId, input, {
+  await embedAndUpsert("media", targetId, input, {
     created_at: message.createdAt,
     message_id: messageId,
     conversation_id: message.conversationId,

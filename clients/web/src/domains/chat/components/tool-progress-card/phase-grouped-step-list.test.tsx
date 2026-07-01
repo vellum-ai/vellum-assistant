@@ -41,7 +41,7 @@ function bash(
     title: "Working",
     info: command,
     activity: "",
-    iconName: "code",
+    iconName: "terminal",
     durationLabel: duration,
     toolCallId,
     status,

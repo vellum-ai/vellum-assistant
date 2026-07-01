@@ -590,19 +590,19 @@ describe("searchConversations · surfaced conversations", () => {
     );
   }
 
-  test("a surfaced background conversation is found by title search", () => {
+  test("a surfaced background conversation is found by title search", async () => {
     const surfaced = createConversation({
       title: "Quarterly metrics rollup",
       conversationType: "background",
     });
     setSurfaced(surfaced.id);
 
-    const results = searchConversations("Quarterly metrics");
+    const results = await searchConversations("Quarterly metrics");
 
     expect(results.map((r) => r.conversationId)).toEqual([surfaced.id]);
   });
 
-  test("a surfaced background conversation is found by content search", () => {
+  test("a surfaced background conversation is found by content search", async () => {
     const surfaced = createConversation({
       title: "bg-run",
       conversationType: "background",
@@ -610,34 +610,34 @@ describe("searchConversations · surfaced conversations", () => {
     setSurfaced(surfaced.id);
     insertMessage(surfaced.id, "the flux capacitor needs recalibration");
 
-    const results = searchConversations("flux capacitor");
+    const results = await searchConversations("flux capacitor");
 
     expect(results.map((r) => r.conversationId)).toEqual([surfaced.id]);
     expect(results[0]!.matchingMessages).toHaveLength(1);
   });
 
-  test("a non-surfaced background conversation stays excluded from search", () => {
+  test("a non-surfaced background conversation stays excluded from search", async () => {
     const background = createConversation({
       title: "Quarterly metrics rollup",
       conversationType: "background",
     });
     insertMessage(background.id, "the flux capacitor needs recalibration");
 
-    expect(searchConversations("Quarterly metrics")).toEqual([]);
-    expect(searchConversations("flux capacitor")).toEqual([]);
+    expect(await searchConversations("Quarterly metrics")).toEqual([]);
+    expect(await searchConversations("flux capacitor")).toEqual([]);
   });
 
-  test("private conversations are never included, even with surfaced_at set", () => {
+  test("private conversations are never included, even with surfaced_at set", async () => {
     const priv = createConversation("Quarterly metrics rollup");
     setConversationType(priv.id, "private");
     setSurfaced(priv.id);
     insertMessage(priv.id, "the flux capacitor needs recalibration");
 
-    expect(searchConversations("Quarterly metrics")).toEqual([]);
-    expect(searchConversations("flux capacitor")).toEqual([]);
+    expect(await searchConversations("Quarterly metrics")).toEqual([]);
+    expect(await searchConversations("flux capacitor")).toEqual([]);
   });
 
-  test("surfaced subagent runs stay excluded from search", () => {
+  test("surfaced subagent runs stay excluded from search", async () => {
     const subagent = createConversation({
       title: "Quarterly metrics rollup",
       conversationType: "background",
@@ -646,11 +646,11 @@ describe("searchConversations · surfaced conversations", () => {
     setSurfaced(subagent.id);
     insertMessage(subagent.id, "the flux capacitor needs recalibration");
 
-    expect(searchConversations("Quarterly metrics")).toEqual([]);
-    expect(searchConversations("flux capacitor")).toEqual([]);
+    expect(await searchConversations("Quarterly metrics")).toEqual([]);
+    expect(await searchConversations("flux capacitor")).toEqual([]);
   });
 
-  test("LIKE content fallback (non-FTS-tokenizable query) honors surfacing", () => {
+  test("LIKE content fallback (non-FTS-tokenizable query) honors surfacing", async () => {
     // Single-char queries produce no FTS tokens, exercising the LIKE fallback.
     const surfaced = createConversation({
       title: "bg-run",
@@ -665,7 +665,7 @@ describe("searchConversations · surfaced conversations", () => {
     });
     insertMessage(hidden.id, "another C§ mention", 2000);
 
-    const results = searchConversations("C§");
+    const results = await searchConversations("C§");
 
     expect(results.map((r) => r.conversationId)).toEqual([surfaced.id]);
   });

@@ -5,6 +5,7 @@ import type { Command } from "commander";
 import { cliIpcCall } from "../../ipc/cli-client.js";
 import { getAssistantSocketPath } from "../../ipc/socket-path.js";
 import { getWorkspaceDirDisplay } from "../../util/platform.js";
+import { APP_VERSION } from "../../version.js";
 import { registerCommand } from "../lib/register-command.js";
 
 interface HealthResponse {
@@ -34,6 +35,9 @@ export function registerStatusCommand(program: Command): void {
             const socketPath = getAssistantSocketPath();
             const socketExists = existsSync(socketPath);
             const workspace = getWorkspaceDirDisplay();
+            // Daemon unreachable, so its runtime version is unknown; show the
+            // installed CLI version so there's always one reliable number.
+            process.stdout.write(`CLI Version: ${APP_VERSION}\n`);
             process.stdout.write(
               (socketExists ? "Assistant: running" : "Assistant: down") + "\n",
             );
@@ -52,8 +56,15 @@ export function registerStatusCommand(program: Command): void {
         const h = result.result;
         const workspace = getWorkspaceDirDisplay();
 
+        // h.version is the running runtime; APP_VERSION is the installed CLI.
+        // They drift mid-upgrade (CLI bumped, daemon not yet restarted).
+        const runtimeVersion =
+          h.version === APP_VERSION
+            ? h.version
+            : `${h.version} (stale — restart to run ${APP_VERSION})`;
+
         const rows: [string, string][] = [
-          ["Version", h.version],
+          ["Assistant Version", runtimeVersion],
           ["Workspace", workspace],
           ["", ""],
           ["Memory", `${fmtMb(h.memory.currentMb)} / ${fmtMb(h.memory.maxMb)}`],

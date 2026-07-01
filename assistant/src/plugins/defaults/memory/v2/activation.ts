@@ -35,11 +35,9 @@
 //     for the next turn and drop below `epsilon` if no longer relevant.
 
 import type { AssistantConfig } from "../../../../config/types.js";
-import {
-  embedWithBackend,
-  isEmbeddingDimensionAvailable,
-} from "../../../../persistence/embeddings/embedding-backend.js";
+import { isEmbeddingDimensionAvailable } from "../../../../persistence/embeddings/embedding-backend.js";
 import { applyCorrectionIfCalibrated } from "../anisotropy.js";
+import { embedWithBackend } from "../embeddings.js";
 import { clampUnitInterval } from "../validation.js";
 import type { EdgeIndex } from "./edge-index.js";
 import { hybridQueryConceptPages } from "./qdrant.js";

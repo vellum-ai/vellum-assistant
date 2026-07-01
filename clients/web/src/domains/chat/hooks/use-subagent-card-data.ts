@@ -1,6 +1,7 @@
 /**
- * Builds the props for `SubagentInlineProgressCard` from a single
- * subagent's store entry. Translates the subagent's timeline events
+ * Builds the `ToolCallCardData` consumed by `InlineProcessCard` via the
+ * subagent descriptor, from a single subagent's store entry. Translates the
+ * subagent's timeline events
  * (`SubagentTimelineEvent[]`) into the unified `ToolCallCardStep[]`
  * shape consumed by the shared tool-progress card chrome.
  *
@@ -318,6 +319,7 @@ function deriveCardState(status: SubagentStatus): ToolCallCardData["state"] {
       return "complete";
     case "failed":
     case "aborted":
+    case "interrupted":
       return "error";
     default:
       return "loading";
@@ -574,14 +576,16 @@ function deriveCurrentStep(
   const isTerminal =
     entry.status === "completed" ||
     entry.status === "failed" ||
-    entry.status === "aborted";
+    entry.status === "aborted" ||
+    entry.status === "interrupted";
 
   if (steps.length === 0) {
-    // Branch on the actual terminal status so a subagent that failed or
-    // aborted before emitting any events doesn't read as "Finished".
+    // Branch on the actual terminal status so a subagent that failed, aborted,
+    // or was interrupted before emitting any events doesn't read as "Finished".
     let title: string;
     if (entry.status === "failed") title = "Failed";
     else if (entry.status === "aborted") title = "Aborted";
+    else if (entry.status === "interrupted") title = "Interrupted";
     else if (entry.status === "completed") title = "Finished";
     else title = "Working";
     return {

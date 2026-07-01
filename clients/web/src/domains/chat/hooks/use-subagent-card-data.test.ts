@@ -165,7 +165,7 @@ describe("computeSubagentCardData — step mapping", () => {
     // Regression guard: before Fix 1, every tool step in the subagent
     // inline card rendered the bolt icon and a generic "Using <Tool>"
     // title. After Fix 1, `mapToolEventToStep` routes through the shared
-    // `deriveStepLabelFromName` so bash → "Working" / code icon.
+    // `deriveStepLabelFromName` so bash → "Working" / terminal icon.
     const data = computeSubagentCardData(
       makeEntry({
         events: [
@@ -182,7 +182,7 @@ describe("computeSubagentCardData — step mapping", () => {
     expect(step.kind).toBe("tool");
     if (step.kind === "tool") {
       expect(step.title).toBe("Working");
-      expect(step.iconName).toBe("code");
+      expect(step.iconName).toBe("terminal");
       expect(step.info).toBe("ls -la");
     }
   });
@@ -1063,7 +1063,7 @@ describe("mapToolEventToStep", () => {
     });
     // host_bash routes through `deriveStepLabelFromName`'s bash branch.
     expect(step.title).toBe("Working");
-    expect(step.iconName).toBe("code");
+    expect(step.iconName).toBe("terminal");
     expect(step.info).toBe("summary");
     expect(step.status).toBe("running");
     expect(step.toolCallId).toBe("tu-1");

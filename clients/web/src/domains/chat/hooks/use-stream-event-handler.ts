@@ -72,6 +72,10 @@ import {
   handleAcpSessionError,
 } from "@/domains/chat/utils/stream-handlers/acp-handlers";
 import {
+  handleBackgroundToolStarted,
+  handleBackgroundToolCompleted,
+} from "@/domains/chat/utils/stream-handlers/background-task-handlers";
+import {
   handleWorkflowStarted,
   handleWorkflowProgress,
   handleWorkflowLeafStarted,
@@ -399,6 +403,13 @@ export function useStreamEventHandler(
           break;
         case "acp_session_error":
           handleAcpSessionError(event);
+          break;
+
+        case "background_tool_started":
+          handleBackgroundToolStarted(event);
+          break;
+        case "background_tool_completed":
+          handleBackgroundToolCompleted(event);
           break;
 
         case "workflow_started":

@@ -21,6 +21,10 @@ const ALLOWED_PREFIXES = {
     // Status command's daemon-down fallback needs socket path + platform.
     "../../ipc/socket-path",
     "../../util/platform",
+    // App version constant (leaf module; reads package.json/env, no daemon
+    // deps) — status prints it to surface CLI-vs-runtime version drift.
+    "../../version",
+    "../../../version",
     // Logger / output at depth-1 and depth-2.
     "../logger",
     "../output",

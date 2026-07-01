@@ -6,9 +6,9 @@
  *
  * `SubagentSpawnGroup` and its collapsed `SubagentAvatarRow` summary render
  * real, so the resting state shows `subagent-avatar-badge`s; the per-subagent
- * `SubagentInlineProgressCard` rows render only after expansion and are stubbed
- * here so we can assert id resolution + callback wiring without depending on the
- * inline card's internal markup (covered by its own test file).
+ * `InlineProcessCardRow` rows render only after expansion and are stubbed here
+ * so we can assert id resolution + callback wiring without depending on the
+ * generic inline card's internal markup (covered by `inline-process-card.test`).
  */
 
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -40,28 +40,32 @@ mock.module(
   }),
 );
 
+// `SubagentSpawnGroup` now renders the generic `InlineProcessCardRow` (wired to
+// `SUBAGENT_DESCRIPTOR`). Stub the row so id resolution + the transcript's
+// `onSubagentClick`/`onStopSubagent` wiring can be asserted without depending on
+// the generic card's internal markup (covered by `inline-process-card.test`).
 mock.module(
-  "@/domains/chat/components/subagent-inline-progress-card/subagent-inline-progress-card",
+  "@/domains/chat/process-registry/inline-process-card-row",
   () => ({
-    SubagentInlineProgressCard: ({
-      subagentId,
-      onSubagentClick,
-      onStopSubagent,
+    InlineProcessCardRow: ({
+      id,
+      onOpen,
+      onStop,
     }: {
-      subagentId: string;
-      onSubagentClick?: (id: string) => void;
-      onStopSubagent?: (id: string) => void;
+      id: string;
+      onOpen?: () => void;
+      onStop?: () => void;
     }) => (
-      <div data-testid="subagent-inline-card" data-subagent-id={subagentId}>
+      <div data-testid="subagent-inline-card" data-subagent-id={id}>
         <button
           type="button"
           data-testid="subagent-inline-card-open"
-          onClick={() => onSubagentClick?.(subagentId)}
+          onClick={() => onOpen?.()}
         />
         <button
           type="button"
           data-testid="subagent-inline-card-stop"
-          onClick={() => onStopSubagent?.(subagentId)}
+          onClick={() => onStop?.()}
         />
       </div>
     ),
@@ -84,7 +88,7 @@ const noop = () => {};
 
 /**
  * Expand every collapsed `SubagentSpawnGroup` in the tree so its per-subagent
- * `SubagentInlineProgressCard` rows mount. The resting state shows the avatar
+ * `InlineProcessCardRow` rows mount. The resting state shows the avatar
  * summary; clicking each "Details" toggle reveals the rows. A group already
  * expanded (e.g. across a rerender that preserves state) has no toggle and is
  * left untouched, so the helper is safe to re-run.

@@ -22,6 +22,7 @@ function deriveBadgeState(status: SubagentStatus): BadgeState {
       return "completed";
     case "failed":
     case "aborted":
+    case "interrupted":
       return "errored";
     default:
       return "in-flight";
@@ -36,6 +37,7 @@ const STATUS_ARIA_LABEL: Record<SubagentStatus, string> = {
   completed: "completed",
   failed: "failed",
   aborted: "canceled",
+  interrupted: "interrupted",
 };
 
 export function SubagentAvatarBadge({

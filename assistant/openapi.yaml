@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.10.3
+  version: 0.10.4
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -2310,8 +2310,49 @@ paths:
                         - command
                         - startedAt
                       additionalProperties: false
+                  completed:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        toolName:
+                          type: string
+                        conversationId:
+                          type: string
+                        command:
+                          type: string
+                        startedAt:
+                          type: number
+                        status:
+                          type: string
+                          enum:
+                            - completed
+                            - failed
+                            - cancelled
+                        exitCode:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        output:
+                          type: string
+                        completedAt:
+                          type: number
+                      required:
+                        - id
+                        - toolName
+                        - conversationId
+                        - command
+                        - startedAt
+                        - status
+                        - exitCode
+                        - output
+                        - completedAt
+                      additionalProperties: false
                 required:
                   - tools
+                  - completed
                 additionalProperties: false
   /v1/background-tools/cancel:
     post:
@@ -4591,6 +4632,162 @@ paths:
           required: true
           schema:
             type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider:
+                  $ref: "#/components/schemas/LLMProvider"
+                model:
+                  type: string
+                  minLength: 1
+                maxTokens:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                effort:
+                  type: string
+                  enum:
+                    - none
+                    - low
+                    - medium
+                    - high
+                    - xhigh
+                    - max
+                speed:
+                  type: string
+                  enum:
+                    - standard
+                    - fast
+                verbosity:
+                  type: string
+                  enum:
+                    - low
+                    - medium
+                    - high
+                temperature:
+                  anyOf:
+                    - type: number
+                      minimum: 0
+                      maximum: 2
+                    - type: "null"
+                topP:
+                  anyOf:
+                    - type: number
+                      minimum: 0
+                      maximum: 1
+                    - type: "null"
+                thinking:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                    streamThinking:
+                      type: boolean
+                    level:
+                      type: string
+                      enum:
+                        - minimal
+                        - low
+                        - medium
+                        - high
+                contextWindow:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                    maxInputTokens:
+                      type: integer
+                      exclusiveMinimum: 0
+                      maximum: 9007199254740991
+                    targetBudgetRatio:
+                      type: number
+                      exclusiveMinimum: 0
+                      maximum: 1
+                    compactThreshold:
+                      type: number
+                      exclusiveMinimum: 0
+                      maximum: 1
+                    summaryBudgetRatio:
+                      type: number
+                      exclusiveMinimum: 0
+                      maximum: 1
+                    overflowRecovery:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                        safetyMarginRatio:
+                          type: number
+                          exclusiveMinimum: 0
+                          exclusiveMaximum: 1
+                        maxAttempts:
+                          type: integer
+                          exclusiveMinimum: 0
+                          maximum: 9007199254740991
+                        interactiveLatestTurnCompression:
+                          type: string
+                          enum:
+                            - truncate
+                            - summarize
+                            - drop
+                        nonInteractiveLatestTurnCompression:
+                          type: string
+                          enum:
+                            - truncate
+                            - summarize
+                            - drop
+                openrouter:
+                  type: object
+                  properties:
+                    only:
+                      type: array
+                      items:
+                        type: string
+                        minLength: 1
+                logitBias:
+                  type: string
+                  enum:
+                    - suppress-cjk
+                disableCache:
+                  type: boolean
+                source:
+                  type: string
+                  enum:
+                    - managed
+                    - user
+                label:
+                  anyOf:
+                    - type: string
+                      minLength: 1
+                    - type: "null"
+                description:
+                  type: string
+                provider_connection:
+                  type: string
+                  minLength: 1
+                status:
+                  anyOf:
+                    - $ref: "#/components/schemas/ProfileStatus"
+                    - type: "null"
+                mix:
+                  minItems: 2
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      profile:
+                        type: string
+                        minLength: 1
+                      weight:
+                        type: number
+                        exclusiveMinimum: 0
+                    required:
+                      - profile
+                      - weight
       responses:
         "200":
           description: Successful response
@@ -17717,6 +17914,46 @@ paths:
                           required:
                             - acpSessionId
                           additionalProperties: false
+                        backgroundToolNotification:
+                          type: boolean
+                        backgroundToolCompletion:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            toolName:
+                              type: string
+                            conversationId:
+                              type: string
+                            command:
+                              type: string
+                            startedAt:
+                              type: number
+                            status:
+                              type: string
+                              enum:
+                                - completed
+                                - failed
+                                - cancelled
+                            exitCode:
+                              anyOf:
+                                - type: number
+                                - type: "null"
+                            output:
+                              type: string
+                            completedAt:
+                              type: number
+                          required:
+                            - id
+                            - toolName
+                            - conversationId
+                            - command
+                            - startedAt
+                            - status
+                            - exitCode
+                            - output
+                            - completedAt
+                          additionalProperties: false
                         slackMessage:
                           type: object
                           properties:
@@ -17911,6 +18148,12 @@ paths:
                     - low
                     - medium
                     - high
+                hidden:
+                  description:
+                    When true, persist the user message but suppress it from the UI transcript (it stays in LLM-side history
+                    and still drives the turn). Used to prime a proactive assistant greeting without showing the
+                    triggering user message. Honored on the standard send path only.
+                  type: boolean
                 onboarding:
                   type: object
                   properties:
@@ -18586,6 +18829,30 @@ paths:
           schema:
             type: string
           description: Conversation that contains the message
+      responses:
+        "200":
+          description: Successful response
+  /v1/messages/lexical/backfill:
+    post:
+      operationId: messages_lexical_backfill_post
+      summary: Enqueue a resumable backfill of messages into the lexical index
+      description:
+        "Enqueues the cursor-checkpointed backfill job that indexes existing messages into the Qdrant lexical
+        (BM25-style) collection in batches. Resumable and idempotent — re-running continues from the last checkpoint.
+        Pass `force: true` to reset the cursor and re-index from the beginning. The same backfill is also auto-enqueued
+        once per instance on upgrade at assistant startup."
+      tags:
+        - memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                force:
+                  type: boolean
+              additionalProperties: false
       responses:
         "200":
           description: Successful response
@@ -20592,7 +20859,10 @@ paths:
       description:
         Return one entry per directory under `<workspaceDir>/plugins/`, sorted alphabetically. Matches the CLI's
         `assistant plugins list`. Supports `?q=<text>` for case-insensitive substring matching across plugin id, name,
-        and description.
+        and description. Each entry carries a `category` (marketplace slug from the Skills taxonomy, or `null` for
+        non-marketplace installs); the response also reports `categoryCounts` (per-category totals, computed before the
+        category filter) and `totalCount`. `?category=<slug>` filters the returned plugins by category server-side while
+        leaving the counts unfiltered. A marketplace outage degrades `category` to `null` without failing the list.
       tags:
         - plugins
       parameters:
@@ -20602,6 +20872,12 @@ paths:
           schema:
             type: string
           description: Optional substring filter applied to plugin id, name, and description.
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter installed plugins by category slug (Skills taxonomy).
       responses:
         "200":
           description: Successful response
@@ -20639,12 +20915,29 @@ paths:
                           type: array
                           items:
                             type: string
+                        category:
+                          description:
+                            Marketplace category slug (Skills taxonomy); null when origin/category is unknown, e.g. non-marketplace
+                            installs.
+                          anyOf:
+                            - type: string
+                            - type: "null"
                       required:
                         - id
                         - name
                         - description
                         - version
                       additionalProperties: false
+                  categoryCounts:
+                    description: Installed plugins per category (before the category filter is applied).
+                    type: object
+                    propertyNames:
+                      type: string
+                    additionalProperties:
+                      type: number
+                  totalCount:
+                    description: Total installed plugins matching non-category filters.
+                    type: number
                 required:
                   - plugins
                 additionalProperties: false
@@ -21505,6 +21798,11 @@ paths:
                         description:
                           description: Short description, when known (external entries only today).
                           type: string
+                        category:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description: Marketplace category slug (Skills taxonomy); null when the entry declares none.
                         source:
                           type: object
                           properties:
@@ -21529,6 +21827,7 @@ paths:
                       required:
                         - name
                         - path
+                        - category
                         - source
                       additionalProperties: false
                     description: Directory matches, sorted alphabetically by name.
@@ -22442,7 +22741,7 @@ paths:
     post:
       operationId: schedules_post
       summary: Create schedule
-      description: Create a new recurring schedule. Currently restricted to mode='execute'.
+      description: Create a new recurring schedule (execute, script, or workflow mode).
       tags:
         - schedules
       requestBody:
@@ -22476,12 +22775,20 @@ paths:
                   description: Whether the schedule starts active (default true)
                 mode:
                   type: string
-                  description: "'execute' (default) or 'workflow' (flag-gated)"
+                  description: "'execute' (default), 'script', or 'workflow' (flag-gated)"
                 workflowName:
                   type: string
                   description: Saved workflow to trigger (required for workflow mode)
                 workflowArgs:
                   description: Args passed to the workflow run (workflow mode)
+                script:
+                  type: string
+                  description: Shell command run on each fire (required for script mode)
+                timeoutMs:
+                  anyOf:
+                    - type: number
+                    - type: "null"
+                  description: Script execution timeout override in ms (script mode)
                 inferenceProfile:
                   anyOf:
                     - type: string
@@ -26786,6 +27093,7 @@ paths:
                       - completed
                       - failed
                       - aborted
+                      - interrupted
                   usage:
                     type: object
                     properties:

@@ -62,13 +62,8 @@ mock.module("./graph-search.js", () => ({
 // Returning `null` from getConfiguredProvider causes rerankAndDedup and
 // dedupCrossCategory to fall back to the candidate list without calling an
 // LLM, keeping these tests fully offline.
-mock.module("../../../../providers/provider-send-message.js", () => ({
+mock.module("@vellumai/plugin-api", () => ({
   getConfiguredProvider: async () => null,
-  userMessage: (text: string) => ({
-    role: "user" as const,
-    content: [{ type: "text" as const, text }],
-  }),
-  extractToolUse: () => null,
 }));
 
 import { resetDbForTesting } from "../../../../__tests__/db-test-helpers.js";

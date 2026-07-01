@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
     CheckCircle,
     CloudOff,
+    LayoutGrid,
     Loader2,
     Puzzle,
     Sparkles,
@@ -15,6 +16,8 @@ import { PluginDetail } from "@/domains/intelligence/components/plugins/plugin-d
 import { PluginDetailMobile } from "@/domains/intelligence/components/plugins/plugin-detail-mobile";
 import { FilterBar } from "@/domains/intelligence/components/plugins/plugin-filters";
 import { PluginListRow } from "@/domains/intelligence/components/plugins/plugin-list-row";
+// The category rail is the same component as Skills (shared taxonomy).
+import { CategorySidebar } from "@/domains/intelligence/components/skills/category-sidebar";
 import {
     PLUGIN_INSTALL_ERROR,
     PLUGIN_REMOVE_ERROR,
@@ -25,15 +28,22 @@ import {
 } from "@/domains/intelligence/plugins/constants";
 import { invalidatePluginQueries } from "@/domains/intelligence/plugins/invalidate-plugin-queries";
 import type {
+    InstalledPlugin,
+    PluginCatalogMatch,
     PluginFilter,
     PluginListItem,
 } from "@/domains/intelligence/plugins/types";
-import { usePluginsList } from "@/domains/intelligence/plugins/use-plugins-list";
+import {
+    SYSTEM_CATEGORY,
+    usePluginsList,
+} from "@/domains/intelligence/plugins/use-plugins-list";
 import {
     filterByStatus,
     matchesQuery,
     shortSha,
 } from "@/domains/intelligence/plugins/utils";
+// Shared with Skills: the category hook + icon map.
+import { useSkillCategories } from "@/domains/intelligence/skills/use-skill-categories";
 import {
     hasLocalEdits,
     type PluginDrift,
@@ -71,6 +81,7 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
 
   const [searchValue, setSearchValue] = useState("");
   const [filter, setFilter] = useState<PluginFilter>("all");
+  const [category, setCategory] = useState<string | null>(null);
   const [installingName, setInstallingName] = useState<string | null>(null);
   const [removingName, setRemovingName] = useState<string | null>(null);
   const [upgradingName, setUpgradingName] = useState<string | null>(null);
@@ -84,8 +95,49 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
     getLocalBool(TIP_STORAGE_KEY, false),
   );
 
-  const { items, isLoading, catalogLoading, isError, isFetching, catalogError } =
-    usePluginsList(assistantId);
+  // Category selection is per-assistant. Reset it synchronously when the active
+  // assistant changes (during render, not in an effect) and read through an
+  // effective category that is already `null` on that render — otherwise the
+  // first render after a switch would pass the previous assistant's slug into
+  // the data hook, issuing `?category=<old>` against the new assistant before an
+  // effect could clear it.
+  const [categoryAssistantId, setCategoryAssistantId] = useState(assistantId);
+  if (assistantId !== categoryAssistantId) {
+    setCategoryAssistantId(assistantId);
+    setCategory(null);
+  }
+  const effectiveCategory =
+    assistantId === categoryAssistantId ? category : null;
+
+  const { data: categories = [] } = useSkillCategories(assistantId);
+
+  const {
+    items,
+    isLoading,
+    catalogLoading,
+    isError,
+    isFetching,
+    catalogError,
+    categorySupported,
+    installedCategoryCounts,
+    installedPlugins,
+    installedTotal,
+    catalogMatches,
+    unfilteredInstalledNames,
+  } = usePluginsList(assistantId, effectiveCategory);
+
+  const { counts, totalCount } = useMergedPluginCounts(
+    installedCategoryCounts,
+    installedPlugins,
+    installedTotal,
+    catalogMatches,
+    unfilteredInstalledNames,
+    filter,
+  );
+
+  // Two-pane rail only when the daemon understands the category taxonomy AND
+  // categories loaded — otherwise fall back to today's single-column layout.
+  const categoryRailEnabled = categorySupported && categories.length > 0;
 
   const invalidate = useCallback(
     (name: string) => invalidatePluginQueries(queryClient, assistantId, name),
@@ -216,7 +268,13 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
     [items, filter, searchValue],
   );
 
+  // Background-fetch state (focus refetch, post-install invalidation); drives
+  // the search spinner only.
   const isSearching = isFetching && !isLoading;
+  // Counts gate on the live term, not isSearching: search is client-side, so
+  // it never trips the background-fetch signal — keying counts off that would
+  // never hide them while filtering.
+  const hasActiveSearch = searchValue.trim().length > 0;
 
   if (selectedPluginName) {
     // Seed the detail header icon from the already-loaded list row: catalog
@@ -239,62 +297,89 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
     );
   }
 
+  const listColumn = (
+    <div className="min-w-0 flex-1 overflow-y-auto">
+      {isLoading ? (
+        <LoadingState />
+      ) : isError ? (
+        <ErrorState />
+      ) : visibleItems.length === 0 ? (
+        // Don't flash an "empty" state for available plugins while the
+        // catalog is still loading (installed plugins already render above).
+        catalogLoading && filter !== "installed" ? (
+          <LoadingState />
+        ) : (
+          <EmptyState filter={filter} category={effectiveCategory} />
+        )
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {visibleItems.map((item) => (
+            <li key={item.name}>
+              {item.status === "installed" ? (
+                <InstalledPluginRow
+                  assistantId={assistantId}
+                  item={item}
+                  onSelect={() => handleSelect(item)}
+                  onRemove={() => setPendingRemoval(item)}
+                  onUpgrade={(drift) => handleUpgrade(item, drift)}
+                  isRemoving={removingName === item.name}
+                  isUpgrading={upgradingName === item.name}
+                />
+              ) : (
+                <PluginListRow
+                  item={item}
+                  onSelect={() => handleSelect(item)}
+                  onInstall={() => handleInstall(item)}
+                  isInstalling={installingName === item.name}
+                />
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col gap-4">
       {!tipDismissed && <TipBanner onDismiss={handleDismissTip} />}
 
       <FilterBar
-        searchValue={searchValue}
+        search={searchValue}
         onSearchChange={setSearchValue}
         filter={filter}
         onFilterChange={setFilter}
         isSearching={isSearching}
+        categories={categoryRailEnabled ? categories : []}
+        category={effectiveCategory}
+        onCategoryChange={setCategory}
+        counts={counts}
+        totalCount={totalCount}
+        showCounts={!hasActiveSearch}
       />
 
       {catalogError && !isLoading && !isError ? (
         <CatalogUnavailableNotice />
       ) : null}
 
-      <div className="min-w-0 flex-1 overflow-y-auto">
-        {isLoading ? (
-          <LoadingState />
-        ) : isError ? (
-          <ErrorState />
-        ) : visibleItems.length === 0 ? (
-          // Don't flash an "empty" state for available plugins while the
-          // catalog is still loading (installed plugins already render above).
-          catalogLoading && filter !== "installed" ? (
-            <LoadingState />
-          ) : (
-            <EmptyState filter={filter} />
-          )
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {visibleItems.map((item) => (
-              <li key={item.name}>
-                {item.status === "installed" ? (
-                  <InstalledPluginRow
-                    assistantId={assistantId}
-                    item={item}
-                    onSelect={() => handleSelect(item)}
-                    onRemove={() => setPendingRemoval(item)}
-                    onUpgrade={(drift) => handleUpgrade(item, drift)}
-                    isRemoving={removingName === item.name}
-                    isUpgrading={upgradingName === item.name}
-                  />
-                ) : (
-                  <PluginListRow
-                    item={item}
-                    onSelect={() => handleSelect(item)}
-                    onInstall={() => handleInstall(item)}
-                    isInstalling={installingName === item.name}
-                  />
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      {categoryRailEnabled ? (
+        <div className="flex min-h-0 flex-1 gap-6">
+          <aside className="hidden w-56 shrink-0 overflow-y-auto md:block">
+            <CategorySidebar
+              ariaLabel="Plugin categories"
+              selected={effectiveCategory}
+              onSelect={setCategory}
+              counts={counts}
+              totalCount={totalCount}
+              showCounts={!hasActiveSearch}
+              categories={categories}
+            />
+          </aside>
+          {listColumn}
+        </div>
+      ) : (
+        listColumn
+      )}
 
       <ConfirmDialog
         open={pendingRemoval !== null}
@@ -323,6 +408,67 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
       />
     </div>
   );
+}
+
+/**
+ * Merge rail counts from the installed `categoryCounts` (server, or a client
+ * bucketing when the server omits them) and a client bucketing of the catalog.
+ * Catalog matches already installed are skipped so an installed marketplace
+ * plugin counts once, not twice; `totalCount` is the deduped union total. Inputs
+ * are unfiltered (badges stay stable while a category is selected), but the
+ * status `filter` is honored so a badge never counts rows that filter hides.
+ * Mirrors skills' `useDerivedCounts`.
+ */
+function useMergedPluginCounts(
+  installedCategoryCounts: Record<string, number> | undefined,
+  installedPlugins: InstalledPlugin[],
+  installedTotal: number | undefined,
+  catalogMatches: PluginCatalogMatch[],
+  unfilteredInstalledNames: Set<string>,
+  filter: PluginFilter,
+): { counts: Record<string, number>; totalCount: number } {
+  return useMemo(() => {
+    const counts: Record<string, number> = {};
+    const includeInstalled = filter !== "available";
+    const includeCatalog = filter !== "installed";
+
+    if (includeInstalled) {
+      if (
+        installedCategoryCounts &&
+        Object.keys(installedCategoryCounts).length > 0
+      ) {
+        Object.assign(counts, installedCategoryCounts);
+      } else {
+        for (const plugin of installedPlugins) {
+          const cat = plugin.category ?? SYSTEM_CATEGORY;
+          counts[cat] = (counts[cat] ?? 0) + 1;
+        }
+      }
+    }
+    let catalogTotal = 0;
+    if (includeCatalog) {
+      for (const match of catalogMatches) {
+        // An installed marketplace plugin also appears in the catalog; counting
+        // it here would double it against the installed counts, so dedup against
+        // the unfiltered installed names — it already counts under installed.
+        if (unfilteredInstalledNames.has(match.name)) continue;
+        const cat = match.category ?? SYSTEM_CATEGORY;
+        counts[cat] = (counts[cat] ?? 0) + 1;
+        catalogTotal += 1;
+      }
+    }
+    const installedTotalResolved = installedTotal ?? installedPlugins.length;
+    const totalCount =
+      (includeInstalled ? installedTotalResolved : 0) + catalogTotal;
+    return { counts, totalCount };
+  }, [
+    installedCategoryCounts,
+    installedPlugins,
+    installedTotal,
+    catalogMatches,
+    unfilteredInstalledNames,
+    filter,
+  ]);
 }
 
 interface InstalledPluginRowProps {
@@ -455,8 +601,14 @@ function ErrorState() {
   );
 }
 
-function EmptyState({ filter }: { filter: PluginFilter }) {
-  const { title, subtitle, Icon } = getEmptyStateCopy(filter);
+function EmptyState({
+  filter,
+  category,
+}: {
+  filter: PluginFilter;
+  category: string | null;
+}) {
+  const { title, subtitle, Icon } = getEmptyStateCopy(filter, category);
   return (
     <Card.Root>
       <Card.Body className="flex flex-col items-center justify-center py-16 text-center">
@@ -482,11 +634,21 @@ function EmptyState({ filter }: { filter: PluginFilter }) {
   );
 }
 
-function getEmptyStateCopy(filter: PluginFilter): {
+function getEmptyStateCopy(
+  filter: PluginFilter,
+  category: string | null,
+): {
   title: string;
   subtitle: string;
   Icon: typeof Puzzle;
 } {
+  if (category) {
+    return {
+      title: "No plugins in this category",
+      subtitle: "Try selecting a different category or clearing the filter.",
+      Icon: LayoutGrid,
+    };
+  }
   switch (filter) {
     case "installed":
       return {

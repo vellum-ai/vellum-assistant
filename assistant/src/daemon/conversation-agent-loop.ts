@@ -318,6 +318,13 @@ export async function runAgentLoopImpl(
   ctx.currentTurnTrustContext = ctx.trustContext;
   ctx.currentTurnChannelCapabilities = ctx.channelCapabilities;
 
+  // Re-resolve the system prompt under the snapshots just set and push it into
+  // the loop when the persona changed. The loop reuses the prompt frozen at
+  // construction otherwise, so a flow that binds trust after construction (a
+  // voice call resolves the caller only after `getOrCreateConversation`) would
+  // run the whole conversation under the construction-time persona.
+  ctx.syncLoopSystemPrompt();
+
   const abortController = ctx.abortController;
   const reqId = ctx.currentRequestId ?? uuid();
   // First-token latency instrumentation for this turn. Stamped here at the

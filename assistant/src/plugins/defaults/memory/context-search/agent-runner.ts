@@ -4,8 +4,8 @@ import type {
   ProviderResponse,
   ToolUseContent,
 } from "@vellumai/plugin-api";
+import { getConfiguredProvider } from "@vellumai/plugin-api";
 
-import { getConfiguredProvider } from "../../../../providers/provider-send-message.js";
 import { redactSecrets } from "../../../../security/secret-scanner.js";
 import {
   buildRecallAgentPromptBundle,

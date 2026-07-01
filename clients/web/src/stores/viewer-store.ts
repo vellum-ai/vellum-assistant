@@ -16,6 +16,7 @@
  * - `activeToolDetail` — tool-call detail drawer payload
  * - `activeWorkflowRunId` — workflow detail panel
  * - `activeAcpRunId` — ACP run detail panel
+ * - `activeBackgroundTaskId` — background-task detail panel
  *
  * App share/deploy lifecycle lives in `domains/chat/deploy-store.ts`.
  *
@@ -26,6 +27,7 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { create } from "zustand";
 
 import type { SetupChannelId } from "@/types/channel-types";
+import type { ProcessKind } from "@/domains/chat/process-registry/types";
 import { appsByIdOpenPost, documentsByIdGet } from "@/generated/daemon/sdk.gen";
 import { primeAppHtmlCache } from "@/utils/app-html-cache";
 
@@ -39,6 +41,7 @@ type OverlayView =
   | "tool-detail"
   | "workflow-detail"
   | "acp-run-detail"
+  | "background-task-detail"
   | "channel-setup";
 
 /**
@@ -101,6 +104,7 @@ function resolveViewBefore(
     | "viewBeforeToolDetail"
     | "viewBeforeWorkflowDetail"
     | "viewBeforeAcpRunDetail"
+    | "viewBeforeBackgroundTaskDetail"
     | "viewBeforeChannelSetup",
 ): Exclude<MainView, OverlayView> {
   const mv = state.mainView;
@@ -110,6 +114,7 @@ function resolveViewBefore(
     mv === "tool-detail" ||
     mv === "workflow-detail" ||
     mv === "acp-run-detail" ||
+    mv === "background-task-detail" ||
     mv === "channel-setup"
   ) {
     return state[field];
@@ -130,6 +135,7 @@ export type MainView =
   | "tool-detail"
   | "workflow-detail"
   | "acp-run-detail"
+  | "background-task-detail"
   | "channel-setup";
 
 export type IntelligenceTab = "identity" | "skills" | "workspace" | "contacts";
@@ -262,6 +268,8 @@ export interface ViewerState {
   viewBeforeWorkflowDetail: Exclude<MainView, OverlayView>;
   activeAcpRunId: string | null;
   viewBeforeAcpRunDetail: Exclude<MainView, OverlayView>;
+  activeBackgroundTaskId: string | null;
+  viewBeforeBackgroundTaskDetail: Exclude<MainView, OverlayView>;
   activeChannelSetup: ChannelSetupPayload | null;
   viewBeforeChannelSetup: Exclude<MainView, OverlayView>;
   /**
@@ -300,6 +308,28 @@ export interface ViewerActions {
   // --- ACP run detail ---
   openAcpRunDetail: (acpSessionId: string) => void;
   closeAcpRunDetail: () => void;
+
+  // --- Background task detail ---
+  openBackgroundTaskDetail: (id: string) => void;
+  closeBackgroundTaskDetail: () => void;
+
+  // --- Process-detail routing facade ---
+  /**
+   * Opens any background-process detail panel by `{ kind, id }`, delegating to
+   * the matching per-kind `openXDetail` action so every process kind routes
+   * through one call site. Handles the four process kinds (subagent, workflow,
+   * acp-run, background-task); `tool-detail`, `document`, and `channel-setup`
+   * keep their own dedicated open actions.
+   */
+  openProcessDetail: (ref: { kind: ProcessKind; id: string }) => void;
+  /**
+   * Close whichever of the four process-detail panels (subagent, workflow,
+   * acp-run, background-task) is currently open, restoring the prior view. A
+   * no-op when none of the four is the active view. Mirrors the existing
+   * Escape behavior for these kinds; does not handle tool-detail, document, or
+   * channel-setup.
+   */
+  closeActiveDetail: () => void;
 
   // --- Tool detail ---
   openToolDetail: (payload: ToolDetailPayload) => void;
@@ -356,6 +386,8 @@ const INITIAL_STATE: ViewerState = {
   viewBeforeWorkflowDetail: "chat",
   activeAcpRunId: null,
   viewBeforeAcpRunDetail: "chat",
+  activeBackgroundTaskId: null,
+  viewBeforeBackgroundTaskDetail: "chat",
   activeChannelSetup: null,
   viewBeforeChannelSetup: "chat",
   ruleEditorRequestSeq: 0,
@@ -515,6 +547,65 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       mainView: get().viewBeforeAcpRunDetail,
       activeAcpRunId: null,
     });
+  },
+
+  // --- Background task detail ---
+
+  openBackgroundTaskDetail: (id) => {
+    set({
+      mainView: "background-task-detail",
+      activeBackgroundTaskId: id,
+      viewBeforeBackgroundTaskDetail: resolveViewBefore(get(), "viewBeforeBackgroundTaskDetail"),
+    });
+  },
+
+  closeBackgroundTaskDetail: () => {
+    set({
+      mainView: get().viewBeforeBackgroundTaskDetail,
+      activeBackgroundTaskId: null,
+    });
+  },
+
+  // --- Process-detail routing facade ---
+
+  openProcessDetail: ({ kind, id }) => {
+    switch (kind) {
+      case "subagent":
+        get().openSubagentDetail(id);
+        return;
+      case "workflow":
+        get().openWorkflowDetail(id);
+        return;
+      case "acp-run":
+        get().openAcpRunDetail(id);
+        return;
+      case "background-task":
+        get().openBackgroundTaskDetail(id);
+        return;
+      default: {
+        const _exhaustive: never = kind;
+        void _exhaustive;
+      }
+    }
+  },
+
+  closeActiveDetail: () => {
+    switch (get().mainView) {
+      case "subagent-detail":
+        get().closeSubagentDetail();
+        return;
+      case "workflow-detail":
+        get().closeWorkflowDetail();
+        return;
+      case "acp-run-detail":
+        get().closeAcpRunDetail();
+        return;
+      case "background-task-detail":
+        get().closeBackgroundTaskDetail();
+        return;
+      default:
+        return;
+    }
   },
 
   // --- Channel setup ---

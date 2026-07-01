@@ -10,6 +10,11 @@ import { FakeChild } from "./test-helpers";
 const userDataPath = "/mock/userData";
 const mockResourcesPath = "/mock/resources";
 
+// Baked from .tool-versions by electron.vite.config.ts in a real build; set here
+// (before the module import below reads it) so the packageManager stamp is live.
+const mockBunVersion = "1.3.11";
+(globalThis as Record<string, unknown>).__VELLUM_BUN_VERSION__ = mockBunVersion;
+
 // `process.resourcesPath` is only defined inside a packaged Electron app.
 // Set a known value so `path.join(process.resourcesPath, "bun")` works.
 Object.defineProperty(process, "resourcesPath", { value: mockResourcesPath, writable: true });
@@ -35,6 +40,10 @@ const existsSyncByPath: Record<string, boolean> = {};
 let readdirSyncReturn: Array<{ name: string; isDirectory: () => boolean }> = [];
 let readdirSyncError: Error | null = null;
 let writeFileSyncError: Error | null = null;
+// Contents returned by readFileSync (the install package.json stampPackageManager reads).
+let readFileSyncReturn = '{"dependencies":{"vellum":"latest"}}';
+let readFileSyncError: Error | null = null;
+let renameSyncError: Error | null = null;
 const chmodSyncCalls: Array<[string, number]> = [];
 const mkdirSyncCalls: Array<[string, object]> = [];
 const rmSyncCalls: Array<[string, object]> = [];
@@ -61,7 +70,12 @@ mock.module("node:fs", () => ({
     if (readdirSyncError) throw readdirSyncError;
     return readdirSyncReturn;
   },
+  readFileSync: (_p: string, _enc?: string) => {
+    if (readFileSyncError) throw readFileSyncError;
+    return readFileSyncReturn;
+  },
   renameSync: (src: string, dst: string) => {
+    if (renameSyncError) throw renameSyncError;
     renameSyncCalls.push([src, dst]);
     fsCallOrder.push(`renameSync:${dst}`);
   },
@@ -99,6 +113,7 @@ const {
   shQuote,
   writeFileAtomicSync,
   writeCliLocator,
+  migrateStaleInstallDir,
   buildInstallEnv,
   isCliInstalled,
   ensureCliInstalled,
@@ -122,6 +137,9 @@ afterEach(() => {
   readdirSyncReturn.length = 0;
   readdirSyncError = null;
   writeFileSyncError = null;
+  readFileSyncReturn = '{"dependencies":{"vellum":"latest"}}';
+  readFileSyncError = null;
+  renameSyncError = null;
   chmodSyncCalls.length = 0;
   mkdirSyncCalls.length = 0;
   rmSyncCalls.length = 0;
@@ -265,6 +283,52 @@ describe("writeCliLocator", () => {
   });
 });
 
+// --- migrateStaleInstallDir ---
+
+describe("migrateStaleInstallDir", () => {
+  test("renames an adopted versioned dir to cli/latest", () => {
+    readdirSyncReturn = [dirEntry("0.9.0")];
+    existsSyncByPath[binPathFor("0.9.0")] = true;
+
+    migrateStaleInstallDir();
+
+    // Clears any partial cli/latest, then renames the stale dir into place.
+    expect(rmSyncCalls.map(([p]) => p)).toContain(latestInstallDir);
+    expect(renameSyncCalls).toContainEqual([
+      `${userDataPath}/cli/0.9.0`,
+      latestInstallDir,
+    ]);
+  });
+
+  test("no-ops when cli/latest already holds the install", () => {
+    readdirSyncReturn = [dirEntry("0.9.0"), dirEntry("latest")];
+    existsSyncByPath[binPathFor("0.9.0")] = true;
+    existsSyncByPath[cliBinPath] = true;
+
+    migrateStaleInstallDir();
+
+    expect(renameSyncCalls).toHaveLength(0);
+    expect(rmSyncCalls).toHaveLength(0);
+  });
+
+  test("no-ops when nothing is installed", () => {
+    readdirSyncReturn = [];
+
+    migrateStaleInstallDir();
+
+    expect(renameSyncCalls).toHaveLength(0);
+    expect(rmSyncCalls).toHaveLength(0);
+  });
+
+  test("swallows rename errors", () => {
+    readdirSyncReturn = [dirEntry("0.9.0")];
+    existsSyncByPath[binPathFor("0.9.0")] = true;
+    renameSyncError = new Error("EXDEV: cross-device link");
+
+    expect(() => migrateStaleInstallDir()).not.toThrow();
+  });
+});
+
 // --- isCliInstalled ---
 
 describe("isCliInstalled", () => {
@@ -288,7 +352,36 @@ describe("ensureCliInstalled", () => {
     await ensureCliInstalled();
 
     expect(spawnCalls).toHaveLength(0);
-    expect(renameSyncCalls).toEqual([[`${locatorPath}.tmp`, locatorPath]]);
+    expect(renameSyncCalls).toContainEqual([`${locatorPath}.tmp`, locatorPath]);
+  });
+
+  test("stamps the package.json of an already-installed CLI on the upgrade path", async () => {
+    // The common upgrade case: a working install is adopted without a
+    // reinstall, so the post-install stamp is never reached — heal it here so
+    // installs predating the field (or on an older bun) don't drift (LUM-2649).
+    existsSyncDefault = true;
+    readFileSyncReturn = '{"dependencies":{"vellum":"latest"}}';
+
+    await ensureCliInstalled();
+
+    expect(spawnCalls).toHaveLength(0);
+    const pkgWrite = writeFileSyncCalls.find(
+      ([p]) => p === `${latestInstallDir}/package.json.tmp`,
+    );
+    expect(pkgWrite).toBeDefined();
+    expect(JSON.parse(pkgWrite![1]).packageManager).toBe(`bun@${mockBunVersion}`);
+  });
+
+  test("does not rewrite an already-stamped install on the upgrade path", async () => {
+    existsSyncDefault = true;
+    readFileSyncReturn = `{"packageManager":"bun@${mockBunVersion}","dependencies":{"vellum":"latest"}}`;
+
+    await ensureCliInstalled();
+
+    const pkgWrite = writeFileSyncCalls.find(
+      ([p]) => p === `${latestInstallDir}/package.json.tmp`,
+    );
+    expect(pkgWrite).toBeUndefined();
   });
 
   test("a throwing locator write does not reject", async () => {
@@ -298,17 +391,23 @@ describe("ensureCliInstalled", () => {
     await expect(ensureCliInstalled()).resolves.toBeUndefined();
   });
 
-  test("adopts an existing install without spawning", async () => {
+  test("adopts an existing install and heals its stale versioned name", async () => {
     existsSyncDefault = false;
     readdirSyncReturn = [dirEntry("0.9.0")];
     existsSyncByPath[binPathFor("0.9.0")] = true;
 
     await ensureCliInstalled();
 
-    // The adopted dir is used as-is — no install, no cleanup.
+    // No reinstall — the contents are already bumped; only the name is stale.
     expect(spawnCalls).toHaveLength(0);
-    expect(rmSyncCalls).toHaveLength(0);
-    expect(renameSyncCalls).toEqual([[`${locatorPath}.tmp`, locatorPath]]);
+    // The stale versioned dir is renamed to the canonical cli/latest so the
+    // locator path stops misleading debugging (LUM-2648)...
+    expect(renameSyncCalls).toContainEqual([
+      `${userDataPath}/cli/0.9.0`,
+      latestInstallDir,
+    ]);
+    // ...and the locator is still refreshed.
+    expect(renameSyncCalls).toContainEqual([`${locatorPath}.tmp`, locatorPath]);
   });
 
   test("fresh unpinned install spawns bun add vellum@latest", async () => {
@@ -502,6 +601,91 @@ describe("ensureCliInstalled", () => {
     existsSyncByPath[cliBinPath] = true;
     lastChild.emit("close", 0);
     await p2;
+  });
+
+  test("wipes a stale node_modules without a bin before reinstalling", async () => {
+    // Upgrade left a partial install: node_modules exists but the bin is gone.
+    // `bun add` would no-op against the satisfied lockfile, so the installer
+    // must clear the tree first to force a clean re-link.
+    existsSyncDefault = false;
+    const nodeModulesDir = `${latestInstallDir}/node_modules`;
+    existsSyncByPath[nodeModulesDir] = true;
+
+    const promise = ensureCliInstalled();
+
+    // The wipe happens before the spawn; the reinstall then links the bin.
+    existsSyncByPath[cliBinPath] = true;
+    lastChild.emit("close", 0);
+    await promise;
+
+    const removedPaths = rmSyncCalls.map(([p]) => p);
+    expect(removedPaths).toContain(nodeModulesDir);
+    expect(removedPaths).toContain(`${latestInstallDir}/bun.lock`);
+    expect(spawnCalls).toHaveLength(1);
+    expect(spawnCalls[0][1]).toEqual(["add", "vellum@latest", "--ignore-scripts"]);
+  });
+
+  test("does not wipe when node_modules is absent (fresh install)", async () => {
+    existsSyncDefault = false;
+
+    const promise = ensureCliInstalled();
+    existsSyncByPath[cliBinPath] = true;
+    lastChild.emit("close", 0);
+    await promise;
+
+    // No stale tree to clear — only cleanupOldVersions may rm sibling dirs,
+    // and there are none here.
+    expect(rmSyncCalls).toHaveLength(0);
+  });
+
+  test("stamps packageManager into the freshly installed package.json", async () => {
+    existsSyncDefault = false;
+    readFileSyncReturn = '{"dependencies":{"vellum":"latest"}}';
+
+    const promise = ensureCliInstalled();
+    existsSyncByPath[cliBinPath] = true;
+    lastChild.emit("close", 0);
+    await promise;
+
+    // Written atomically: temp file first, then renamed into place.
+    const pkgWrite = writeFileSyncCalls.find(
+      ([p]) => p === `${latestInstallDir}/package.json.tmp`,
+    );
+    expect(pkgWrite).toBeDefined();
+    const written = JSON.parse(pkgWrite![1]);
+    expect(written.packageManager).toBe(`bun@${mockBunVersion}`);
+    // Existing fields are preserved.
+    expect(written.dependencies).toEqual({ vellum: "latest" });
+    expect(renameSyncCalls).toContainEqual([
+      `${latestInstallDir}/package.json.tmp`,
+      `${latestInstallDir}/package.json`,
+    ]);
+  });
+
+  test("does not rewrite package.json when packageManager already matches", async () => {
+    existsSyncDefault = false;
+    readFileSyncReturn = `{"packageManager":"bun@${mockBunVersion}","dependencies":{"vellum":"latest"}}`;
+
+    const promise = ensureCliInstalled();
+    existsSyncByPath[cliBinPath] = true;
+    lastChild.emit("close", 0);
+    await promise;
+
+    const pkgWrite = writeFileSyncCalls.find(
+      ([p]) => p === `${latestInstallDir}/package.json.tmp`,
+    );
+    expect(pkgWrite).toBeUndefined();
+  });
+
+  test("a failed packageManager stamp does not reject the install", async () => {
+    existsSyncDefault = false;
+    readFileSyncError = new Error("EACCES: permission denied");
+
+    const promise = ensureCliInstalled();
+    existsSyncByPath[cliBinPath] = true;
+    lastChild.emit("close", 0);
+
+    await expect(promise).resolves.toBeUndefined();
   });
 
   test("throws when the install completes but links no bin", async () => {

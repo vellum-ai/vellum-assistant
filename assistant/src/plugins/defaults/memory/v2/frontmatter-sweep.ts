@@ -24,8 +24,8 @@ import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 
 import type { AssistantConfig } from "../../../../config/schema.js";
-import { FRONTMATTER_REGEX } from "../../../../skills/frontmatter.js";
 import { getLogger } from "../../../../util/logger.js";
+import { FRONTMATTER_REGEX } from "../frontmatter.js";
 import { listPages } from "./page-store.js";
 import { ConceptPageFrontmatterSchema } from "./types.js";
 

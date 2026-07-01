@@ -1,5 +1,6 @@
 import {
   isAcpSpawnCall,
+  isBackgroundBashCall,
   isRunWorkflowCall,
   isSubagentSpawnCall,
 } from "@/domains/chat/transcript/message-content";
@@ -316,6 +317,60 @@ function extractAcpSessionIdFromResult(
   } catch {
     return null;
   }
+}
+
+/**
+ * Extract the `bg-…` id from a backgrounded `bash`/`host_bash` tool call's
+ * synchronous result. The daemon returns `JSON.stringify({ backgrounded: true,
+ * id })` when the command is launched in the background. Returns `undefined`
+ * for a foreground command or a non-JSON/malformed result so callers can anchor
+ * only on real background runs.
+ */
+export function extractBgIdFromResult(
+  toolCall: ChatMessageToolCall,
+): string | undefined {
+  if (!isBackgroundBashCall(toolCall)) return undefined;
+  if (typeof toolCall.result !== "string" || !toolCall.result) return undefined;
+  try {
+    const parsed = JSON.parse(toolCall.result) as {
+      backgrounded?: unknown;
+      id?: unknown;
+    };
+    return parsed.backgrounded === true && typeof parsed.id === "string"
+      ? parsed.id
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Resolve the `bg-…` id for each backgrounded `bash`/`host_bash` tool call in
+ * `toolCalls`. Unlike the subagent/workflow/ACP triad there is no `byToolUseId`
+ * anchor — the id is carried only on the call's synchronous result, so each id
+ * resolves via {@link extractBgIdFromResult}. A foreground command or a call
+ * whose result hasn't landed resolves to nothing and is skipped.
+ *
+ * The caller owns the `claimed` Set so it persists across every invocation
+ * within a single message, stopping two non-consecutive background tool-call
+ * groups from both anchoring the same task id.
+ */
+export function resolveBackgroundTaskIds(
+  toolCalls: ChatMessageToolCall[],
+  claimed: Set<string>,
+): string[] {
+  const ids: string[] = [];
+
+  for (const tc of toolCalls) {
+    if (!isBackgroundBashCall(tc)) continue;
+    const id = extractBgIdFromResult(tc);
+    if (id && !claimed.has(id)) {
+      ids.push(id);
+      claimed.add(id);
+    }
+  }
+
+  return ids;
 }
 
 /**

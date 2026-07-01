@@ -28,6 +28,7 @@ import {
 import { runNarrativeRefinement } from "./graph/narrative.js";
 import { runPatternScan } from "./graph/pattern-scan.js";
 import { backfillJob } from "./job-handlers/backfill.js";
+import { backfillLexicalIndexJob } from "./job-handlers/backfill-lexical-index.js";
 import {
   embedAttachmentJob,
   embedMediaJob,
@@ -38,6 +39,11 @@ import {
   deleteQdrantVectorsJob,
   rebuildIndexJob,
 } from "./job-handlers/index-maintenance.js";
+import {
+  deleteMessageLexicalJob,
+  indexMessageLexicalJob,
+  purgeConversationLexicalJob,
+} from "./job-handlers/index-message-lexical.js";
 import { embedConceptPageJob } from "./jobs/embed-concept-page.js";
 import { embedPkbFileJob } from "./jobs/embed-pkb-file.js";
 import { memoryRetrospectiveJob } from "./memory-retrospective-job.js";
@@ -116,11 +122,11 @@ async function graphNarrativeRefineJob(
 export const memoryJobHandlers: readonly JobHandlerEntry[] = [
   {
     type: "embed_segment",
-    handler: (job, config) => embedSegmentJob(job, config),
+    handler: (job) => embedSegmentJob(job),
   },
   {
     type: "embed_summary",
-    handler: (job, config) => embedSummaryJob(job, config),
+    handler: (job) => embedSummaryJob(job),
   },
   { type: "backfill", handler: (job, config) => backfillJob(job, config) },
   { type: "rebuild_index", handler: () => rebuildIndexJob() },
@@ -128,14 +134,14 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
     type: "delete_qdrant_vectors",
     handler: (job) => deleteQdrantVectorsJob(job),
   },
-  { type: "embed_media", handler: (job, config) => embedMediaJob(job, config) },
+  { type: "embed_media", handler: (job) => embedMediaJob(job) },
   {
     type: "embed_attachment",
-    handler: (job, config) => embedAttachmentJob(job, config),
+    handler: (job) => embedAttachmentJob(job),
   },
   {
     type: "embed_graph_node",
-    handler: (job, config) => embedGraphNodeJob(job, config),
+    handler: (job) => embedGraphNodeJob(job),
   },
   {
     type: "embed_pkb_file",
@@ -199,5 +205,21 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
   {
     type: "memory_retrospective",
     handler: (job, config) => memoryRetrospectiveJob(job, config),
+  },
+  {
+    type: "index_message_lexical",
+    handler: (job, config) => indexMessageLexicalJob(job, config),
+  },
+  {
+    type: "purge_conversation_lexical",
+    handler: (job, config) => purgeConversationLexicalJob(job, config),
+  },
+  {
+    type: "delete_message_lexical",
+    handler: (job, config) => deleteMessageLexicalJob(job, config),
+  },
+  {
+    type: "backfill_lexical_index",
+    handler: (job, config) => backfillLexicalIndexJob(job, config),
   },
 ];

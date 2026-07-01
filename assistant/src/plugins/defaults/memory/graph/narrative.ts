@@ -9,14 +9,12 @@
 // high-significance nodes to re-evaluate arc assignments.
 // ---------------------------------------------------------------------------
 
+import { getConfiguredProvider } from "@vellumai/plugin-api";
+
 import type { AssistantConfig } from "../../../../config/types.js";
-import {
-  extractToolUse,
-  getConfiguredProvider,
-  userMessage,
-} from "../../../../providers/provider-send-message.js";
 import { BackendUnavailableError } from "../../../../util/errors.js";
 import { getLogger } from "../../../../util/logger.js";
+import { extractToolUse, userMessage } from "../llm-helpers.js";
 import { queryNodes, updateNode } from "./store.js";
 import type { MemoryNode } from "./types.js";
 

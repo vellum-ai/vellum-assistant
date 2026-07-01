@@ -1123,6 +1123,7 @@ async function tryInjectPlatformCredentials(
       fetchCurrentVersion(entry.runtimeUrl),
       fetchAssistantIngressUrl(entry.runtimeUrl, entry.bearerToken),
     ]);
+    const platformUrl = getPlatformUrl();
     const registration = await ensureSelfHostedLocalRegistration(
       token,
       orgId,
@@ -1130,9 +1131,15 @@ async function tryInjectPlatformCredentials(
       entry.assistantId,
       "cli",
       assistantVersion,
-      getPlatformUrl(),
+      platformUrl,
       ingressUrl,
     );
+    saveAssistantEntry({
+      ...entry,
+      platformAssistantId: registration.assistant.id,
+      platformBaseUrl: platformUrl,
+      platformOrganizationId: orgId,
+    });
 
     // Resolve the API key: 1) fresh from registration, 2) existing from
     // daemon credential store, 3) reprovision as last resort (revokes old key).
@@ -1164,7 +1171,7 @@ async function tryInjectPlatformCredentials(
       bearerToken: entry.bearerToken,
       assistantApiKey,
       platformAssistantId: registration.assistant.id,
-      platformBaseUrl: getPlatformUrl(),
+      platformBaseUrl: platformUrl,
       organizationId: orgId,
       userId: user.id,
       webhookSecret: registration.webhook_secret,

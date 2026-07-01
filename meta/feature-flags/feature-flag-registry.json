@@ -219,14 +219,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "meet",
-      "scope": "assistant",
-      "key": "meet",
-      "label": "Google Meet",
-      "description": "Enables the Google Meet joining bot and the meet-join skill.",
-      "defaultEnabled": false
-    },
-    {
       "id": "scroll-debug-overlay",
       "scope": "client",
       "key": "scroll-debug-overlay",
@@ -379,6 +371,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "personality-onboarding",
+      "scope": "client",
+      "key": "personality-onboarding",
+      "label": "Personality onboarding step (spike)",
+      "description": "Spike: show the \"Create my personality\" trait-slider step in the research-onboarding flow (between the pitch and the integration step). On continue it applies the sliders to the assistant's persona on a throwaway side conversation. When off, the step is skipped entirely. Off by default; enable locally via the feature-flags panel.",
+      "defaultEnabled": false
+    },
+    {
       "id": "channel-trust-floors",
       "scope": "assistant",
       "key": "channel-trust-floors",
@@ -408,6 +408,14 @@
       "key": "new-thread-suggestions",
       "label": "New-thread suggestions library",
       "description": "Replace the empty-state conversation-starter chips with the scrollable, categorized suggestions library and detail drawer (currently mocked data).",
+      "defaultEnabled": false
+    },
+    {
+      "id": "messages-search-backend",
+      "scope": "assistant",
+      "key": "messages-search-backend",
+      "label": "Messages Search Backend",
+      "description": "When disabled (default), message content search uses SQLite FTS5. When enabled, it uses the sparse Qdrant lexical index.",
       "defaultEnabled": false
     }
   ]

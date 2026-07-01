@@ -33,6 +33,7 @@
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 
 import { getLogsSqlite, getMemorySqlite, getSqlite } from "./db-connection.js";
+import { timeSyncSection } from "./slow-sync-log.js";
 
 type SqlParam = SQLQueryBindings;
 
@@ -42,18 +43,26 @@ type SqlParam = SQLQueryBindings;
 
 /** Execute a raw SQL query and return a single typed row, or null if no match. */
 export function rawGet<T>(sql: string, ...params: SqlParam[]): T | null {
-  return (
-    (getSqlite()
-      .query(sql)
-      .get(...params) as T) ?? null
+  return timeSyncSection(
+    "raw-query:get",
+    () =>
+      (getSqlite()
+        .query(sql)
+        .get(...params) as T) ?? null,
+    () => ({ sql: sql.slice(0, 80) }),
   );
 }
 
 /** Execute a raw SQL query and return all matching rows with type safety. */
 export function rawAll<T>(sql: string, ...params: SqlParam[]): T[] {
-  return getSqlite()
-    .query(sql)
-    .all(...params) as T[];
+  return timeSyncSection(
+    "raw-query:all",
+    () =>
+      getSqlite()
+        .query(sql)
+        .all(...params) as T[],
+    (rows) => ({ sql: sql.slice(0, 80), rowCount: rows.length }),
+  );
 }
 
 /**
@@ -61,9 +70,14 @@ export function rawAll<T>(sql: string, ...params: SqlParam[]): T[] {
  * of affected rows.
  */
 export function rawRun(sql: string, ...params: SqlParam[]): number {
-  getSqlite()
-    .query(sql)
-    .run(...params);
+  timeSyncSection(
+    "raw-query:run",
+    () =>
+      getSqlite()
+        .query(sql)
+        .run(...params),
+    () => ({ sql: sql.slice(0, 80) }),
+  );
   return rawChanges();
 }
 
@@ -102,15 +116,24 @@ function logsSqlite(): Database {
 
 /** {@link rawAll} against the memory connection. */
 export function rawMemoryAll<T>(sql: string, ...params: SqlParam[]): T[] {
-  return memorySqlite()
-    .query(sql)
-    .all(...params) as T[];
+  return timeSyncSection(
+    "raw-query:memory-all",
+    () =>
+      memorySqlite()
+        .query(sql)
+        .all(...params) as T[],
+    (rows) => ({ sql: sql.slice(0, 80), rowCount: rows.length }),
+  );
 }
 
 /** {@link rawRun} against the memory connection. */
 export function rawMemoryRun(sql: string, ...params: SqlParam[]): number {
   const sqlite = memorySqlite();
-  sqlite.query(sql).run(...params);
+  timeSyncSection(
+    "raw-query:memory-run",
+    () => sqlite.query(sql).run(...params),
+    () => ({ sql: sql.slice(0, 80) }),
+  );
   return (sqlite.query("SELECT changes() AS c").get() as { c: number }).c;
 }
 
@@ -123,7 +146,11 @@ export function rawMemoryChanges(): number {
 /** {@link rawRun} against the logs connection. */
 export function rawLogsRun(sql: string, ...params: SqlParam[]): number {
   const sqlite = logsSqlite();
-  sqlite.query(sql).run(...params);
+  timeSyncSection(
+    "raw-query:logs-run",
+    () => sqlite.query(sql).run(...params),
+    () => ({ sql: sql.slice(0, 80) }),
+  );
   return (sqlite.query("SELECT changes() AS c").get() as { c: number }).c;
 }
 

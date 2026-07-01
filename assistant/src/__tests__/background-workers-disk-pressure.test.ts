@@ -122,7 +122,6 @@ mock.module("../persistence/conversation-crud.js", () => ({
   })),
   deleteLastExchange: mock(() => 0),
   findAnalysisConversationFor: mock(() => null),
-  findMostRecentRetrospectiveFor: mock(() => null),
   forkConversation: mock(() => ({ id: "conv-fork" })),
   forkConversationForRetrospective: mock(async () => ({ id: "conv-fork" })),
   getConversationOverrideProfile: () => undefined,

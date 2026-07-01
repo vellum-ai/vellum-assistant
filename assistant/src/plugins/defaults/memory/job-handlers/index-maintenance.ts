@@ -1,8 +1,6 @@
 import { eq, isNotNull, like, ne } from "drizzle-orm";
 
-import { getConfig } from "../../../../config/loader.js";
 import { getDb } from "../../../../persistence/db-connection.js";
-import { selectedBackendSupportsMultimodal } from "../../../../persistence/embeddings/embedding-backend.js";
 import { withQdrantBreaker } from "../../../../persistence/embeddings/qdrant-circuit-breaker.js";
 import { getQdrantClient } from "../../../../persistence/embeddings/qdrant-client.js";
 import {
@@ -24,6 +22,7 @@ import {
   messages,
 } from "../../../../persistence/schema/index.js";
 import { getLogger } from "../../../../util/logger.js";
+import { selectedBackendSupportsMultimodal } from "../embeddings.js";
 
 const log = getLogger("memory-jobs-worker");
 
@@ -50,7 +49,7 @@ export async function rebuildIndexJob(): Promise<void> {
   // Re-enqueue multimodal embedding jobs only when the resolved embedding
   // backend supports multimodal inputs. Without this gate, embed_media and
   // embed_attachment jobs would all fail for text-only backends.
-  if (await selectedBackendSupportsMultimodal(getConfig())) {
+  if (await selectedBackendSupportsMultimodal()) {
     const assets = db
       .select({ id: mediaAssets.id })
       .from(mediaAssets)

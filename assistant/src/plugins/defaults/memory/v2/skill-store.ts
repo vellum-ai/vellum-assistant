@@ -26,10 +26,7 @@ import { isAssistantFeatureFlagEnabled } from "../../../../config/assistant-feat
 import { getConfig } from "../../../../config/loader.js";
 import { resolveSkillStates } from "../../../../config/skill-state.js";
 import { loadSkillCatalog } from "../../../../config/skills.js";
-import {
-  embedWithBackend,
-  generateSparseEmbedding,
-} from "../../../../persistence/embeddings/embedding-backend.js";
+import { generateSparseEmbedding } from "../../../../persistence/embeddings/embedding-backend.js";
 import { getCatalog } from "../../../../skills/catalog-cache.js";
 import {
   fromCatalogSkill,
@@ -37,6 +34,7 @@ import {
 } from "../../../../skills/skill-memory.js";
 import { getLogger } from "../../../../util/logger.js";
 import { applyCorrectionIfCalibrated } from "../anisotropy.js";
+import { embedWithBackend } from "../embeddings.js";
 import { invalidatePageIndex } from "./page-index.js";
 import {
   backfillKindOnPointsWithPrefix,

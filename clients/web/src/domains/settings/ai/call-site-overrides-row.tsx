@@ -12,6 +12,7 @@ import {
     INFERENCE_PROVIDERS,
 } from "@/domains/settings/ai/constants";
 import { CUSTOM_SENTINEL, isDraftActive } from "@/domains/settings/ai/call-site-helpers";
+import { useSelectableInferenceProviders } from "@/domains/settings/ai/provider-availability";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -56,7 +57,9 @@ export function CallSiteOverrideRow({
   })();
 
   const isCustom = profileVal === CUSTOM_SENTINEL;
-  const currentProvider = INFERENCE_PROVIDERS.find((p) => p === draft?.provider) ?? INFERENCE_PROVIDERS[0];
+  const selectableInferenceProviders = useSelectableInferenceProviders();
+  const defaultProvider = selectableInferenceProviders[0] ?? INFERENCE_PROVIDERS[0];
+  const currentProvider = selectableInferenceProviders.find((p) => p === draft?.provider) ?? defaultProvider;
   const availableModels = getModelsForProvider(currentProvider);
   const modelOptions = availableModels.map((m) => ({
     value: m.id,
@@ -66,7 +69,6 @@ export function CallSiteOverrideRow({
 
   function handleProfilePickerChange(val: string) {
     if (val === CUSTOM_SENTINEL) {
-      const defaultProvider = INFERENCE_PROVIDERS[0];
       const defaultModel = getDefaultModelForProvider(defaultProvider) ?? "";
       onDraftChange(id, { profile: null, provider: defaultProvider, model: defaultModel });
     } else if (val === "") {
@@ -134,7 +136,7 @@ export function CallSiteOverrideRow({
               <Dropdown
                 value={currentProvider ?? ""}
                 onChange={handleProviderChange}
-                options={INFERENCE_PROVIDERS.map((p) => ({
+                options={selectableInferenceProviders.map((p) => ({
                   value: p,
                   label: PROVIDER_DISPLAY_NAMES[p] ?? p,
                 }))}

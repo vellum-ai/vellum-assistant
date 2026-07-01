@@ -9,6 +9,7 @@
 
 import { captureError } from "@/lib/sentry/capture-error";
 import type {
+  BackgroundToolCompletion,
   ConversationContentBlock,
   ConversationMessage,
   ConversationMessageToolCall,
@@ -17,6 +18,7 @@ import type {
 import { parseAttachmentSummariesFromContent } from "@/domains/chat/utils/parse-attachment-summaries";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import type { BackgroundTaskEntry } from "@/domains/chat/background-task-store";
 import {
   attachmentsPost,
   messagesGet,
@@ -55,6 +57,28 @@ export interface RuntimeSubagentNotification extends ConversationSubagentNotific
   parentMessageStableId?: string;
   /** Daemon UUID of the parent assistant message. Stable across reloads. */
   parentMessageId?: string;
+}
+
+/**
+ * Project a history message's `backgroundToolCompletion` wire record onto the
+ * `BackgroundTaskEntry` the viewer store seeds from. The `id` is preserved
+ * exactly: web background-card detection keys off the spawning tool result's
+ * `bg-…` id, so the seeded entry's id must equal the completion's id.
+ */
+export function toBackgroundTaskEntryFromCompletion(
+  c: BackgroundToolCompletion,
+): BackgroundTaskEntry {
+  return {
+    id: c.id,
+    toolName: c.toolName,
+    conversationId: c.conversationId,
+    command: c.command,
+    startedAt: c.startedAt,
+    status: c.status,
+    exitCode: c.exitCode,
+    output: c.output,
+    completedAt: c.completedAt,
+  };
 }
 
 export async function pollForResponse(
@@ -455,6 +479,7 @@ export async function postChatMessage(
   clientMessageId?: string,
   inferenceProfile?: string | null,
   enabledPlugins?: string[] | null,
+  isHidden?: boolean,
 ): Promise<PostMessageResult> {
   // Wire-field selection picks exactly one of `conversationId` (0.8.6+
   // strict internal-id lookup) or `conversationKey` (legacy
@@ -521,6 +546,12 @@ export async function postChatMessage(
   // `use-send-message.ts`); an empty array is a valid "no plugins" selection.
   if (enabledPlugins != null) {
     body.enabledPlugins = enabledPlugins;
+  }
+  // Persist the message but suppress it from the transcript (it still drives the
+  // turn LLM-side). Used by the research-onboarding "Let's chat" handoff to
+  // prime a proactive assistant greeting without showing the triggering message.
+  if (isHidden) {
+    body.hidden = true;
   }
   const normalizedOnboarding = onboarding
     ? normalizePreChatOnboardingContext(onboarding)

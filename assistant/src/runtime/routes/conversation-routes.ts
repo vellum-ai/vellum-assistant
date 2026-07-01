@@ -11,7 +11,9 @@ import {
   createUserMessage,
 } from "../../agent/message-types.js";
 import {
+  BackgroundToolCompletionSchema,
   type ConversationContentBlock,
+  type ConversationMessage,
   ConversationMessageSchema,
 } from "../../api/responses/conversation-message.js";
 import {
@@ -840,10 +842,29 @@ export function handleListMessages({
         }
       | undefined;
     let acpNotification: { acpSessionId: string; agent?: string } | undefined;
+    let backgroundToolNotification: boolean | undefined;
+    let backgroundToolCompletion: ConversationMessage["backgroundToolCompletion"];
     if (msg.metadata) {
       try {
         const meta = JSON.parse(msg.metadata);
         if (typeof meta.sentAt === "number") sentAt = meta.sentAt;
+        // The backgrounded bash/host_bash completion wake persists a
+        // `<background_event source="background-tool">` row (see
+        // `persistWakeTriggerMessage`). Flag it so clients hide it from the
+        // transcript like a subagent/ACP notification — the inline card carries
+        // the status.
+        if (meta.backgroundEventSource === "background-tool") {
+          backgroundToolNotification = true;
+        }
+        // `persistWakeTriggerMessage` stamps the structured completion onto the
+        // same wake row, letting the web rebuild a terminal inline card from
+        // history after a restart (the in-memory completed ring does not survive).
+        const completionParse = BackgroundToolCompletionSchema.safeParse(
+          meta.backgroundToolCompletion,
+        );
+        if (completionParse.success) {
+          backgroundToolCompletion = completionParse.data;
+        }
         if (meta.subagentNotification) {
           const n = meta.subagentNotification;
           if (typeof n.subagentId === "string" && typeof n.label === "string") {
@@ -896,6 +917,8 @@ export function handleListMessages({
       sentAt,
       subagentNotification,
       acpNotification,
+      backgroundToolNotification,
+      backgroundToolCompletion,
       slackMessage,
       clientMessageId: msg.clientMessageId ?? undefined,
     };
@@ -1080,6 +1103,12 @@ export function handleListMessages({
         ? { subagentNotification: m.subagentNotification }
         : {}),
       ...(m.acpNotification ? { acpNotification: m.acpNotification } : {}),
+      ...(m.backgroundToolNotification
+        ? { backgroundToolNotification: true }
+        : {}),
+      ...(m.backgroundToolCompletion
+        ? { backgroundToolCompletion: m.backgroundToolCompletion }
+        : {}),
       ...(m.slackMessage ? { slackMessage: m.slackMessage } : {}),
     };
   });
@@ -1247,6 +1276,11 @@ export async function handleSendMessage(
     interface?: string;
     conversationType?: string;
     automated?: boolean;
+    // Persist the user message but suppress it from the UI transcript (kept in
+    // LLM history). Used by flows like research-onboarding's "Let's chat"
+    // handoff to prime a proactive assistant greeting without showing the
+    // triggering user message. Honored on the standard send path only.
+    hidden?: boolean;
     bypassSecretCheck?: boolean;
     hostHomeDir?: string;
     hostUsername?: string;
@@ -2349,7 +2383,13 @@ export async function handleSendMessage(
     content: resolvedContent,
     attachments,
     requestId,
-    metadata: body.automated === true ? { automated: true } : undefined,
+    metadata:
+      body.automated === true || body.hidden === true
+        ? {
+            ...(body.automated === true ? { automated: true } : {}),
+            ...(body.hidden === true ? { hidden: true } : {}),
+          }
+        : undefined,
     clientMessageId,
   });
 
@@ -2363,14 +2403,20 @@ export async function handleSendMessage(
     };
   }
 
-  broadcastMessage({
-    type: "user_message_echo",
-    text: resolvedContent,
-    conversationId: mapping.conversationId,
-    messageId,
-    requestId,
-    clientMessageId,
-  });
+  // A hidden message is suppressed from the UI transcript: don't echo it back
+  // to clients (the echo would render a user bubble the list-messages filter
+  // otherwise hides). The turn still runs below, and the assistant's reply
+  // streams normally — so the chat reads as a proactive greeting.
+  if (body.hidden !== true) {
+    broadcastMessage({
+      type: "user_message_echo",
+      text: resolvedContent,
+      conversationId: mapping.conversationId,
+      messageId,
+      requestId,
+      clientMessageId,
+    });
+  }
   publishConversationMessagesChanged(mapping.conversationId, originClientId);
 
   // Fire-and-forget the agent loop; events flow to the hub via broadcastMessage.
@@ -2654,9 +2700,9 @@ export async function handleGetSuggestion(
  * Full-text search across all conversations (message content + titles).
  * Returns ranked results grouped by conversation, each with matching message excerpts.
  */
-function handleSearchConversations({
+async function handleSearchConversations({
   queryParams,
-}: RouteHandlerArgs): Record<string, unknown> {
+}: RouteHandlerArgs): Promise<Record<string, unknown>> {
   const query = queryParams?.q ?? "";
   if (!query.trim()) {
     throw new BadRequestError("q query parameter is required");
@@ -2667,7 +2713,7 @@ function handleSearchConversations({
     ? Number(queryParams.maxMessagesPerConversation)
     : undefined;
 
-  const results = searchConversations(query, {
+  const results = await searchConversations(query, {
     ...(limit !== undefined && !isNaN(limit) ? { limit } : {}),
     ...(maxMessagesPerConversation !== undefined &&
     !isNaN(maxMessagesPerConversation)
@@ -2890,6 +2936,12 @@ export const ROUTES: RouteDefinition[] = [
           "Plugin ids that scope this conversation to a subset of installed plugins (first-party defaults are always available). When present on a message, it sets/updates the conversation's plugin scope (the web client sends it only on the first message of a new chat). null clears the scope to default (all enabled plugins); omitting the field leaves the existing scope unchanged.",
         ),
       riskThreshold: z.enum(VALID_RISK_THRESHOLDS).optional(),
+      hidden: z
+        .boolean()
+        .optional()
+        .describe(
+          "When true, persist the user message but suppress it from the UI transcript (it stays in LLM-side history and still drives the turn). Used to prime a proactive assistant greeting without showing the triggering user message. Honored on the standard send path only.",
+        ),
       onboarding: z
         .object({
           tools: z.array(z.string()),

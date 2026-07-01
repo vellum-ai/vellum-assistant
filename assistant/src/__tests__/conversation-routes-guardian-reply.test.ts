@@ -323,6 +323,90 @@ describe("handleSendMessage canonical guardian reply interception", () => {
     expect(runAgentLoop).toHaveBeenCalledTimes(1);
   });
 
+  test("hidden:true persists hidden metadata and still runs the turn", async () => {
+    listPendingByDestinationMock.mockReturnValue([]);
+    listCanonicalMock.mockReturnValue([]);
+    routeGuardianReplyMock.mockResolvedValue({
+      consumed: false,
+      decisionApplied: false,
+      type: "not_consumed",
+    });
+
+    const persistUserMessage = mock(async () => ({
+      id: "persisted-user-id",
+      deduplicated: false,
+    }));
+    const runAgentLoop = mock(async () => undefined);
+    const session = {
+      setTrustContext: () => {},
+      updateClient: () => {},
+      emitConfirmationStateChanged: () => {},
+      emitActivityState: () => {},
+      setTurnChannelContext: () => {},
+      setTurnInterfaceContext: () => {},
+      ensureActorScopedHistory: async () => {},
+      usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
+      isProcessing: () => false,
+      hasAnyPendingConfirmation: () => false,
+      denyAllPendingConfirmations: () => {},
+      enqueueMessage: () => ({ queued: true, requestId: "queued-id" }),
+      persistUserMessage,
+      runAgentLoop,
+      getMessages: () => [] as unknown[],
+      assistantId: "self",
+      trustContext: undefined,
+      hasPendingConfirmation: () => false,
+      setHostBrowserProxy: () => {},
+      setHostCuProxy: () => {},
+      setHostAppControlProxy: () => {},
+      restoreBrowserProxyAvailability: () => {},
+      addPreactivatedSkillId: () => {},
+    } as unknown as import("../daemon/conversation.js").Conversation;
+
+    const req = new Request("http://localhost/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-vellum-actor-principal-id": "test-user",
+        "x-vellum-principal-type": "actor",
+      },
+      body: JSON.stringify({
+        conversationKey: "guardian-conversation-key",
+        content: "Hey, how are you? Show me what you can do.",
+        sourceChannel: "vellum",
+        interface: "web",
+        hidden: true,
+      }),
+    });
+
+    const res = await callHandler(
+      (args) =>
+        handleSendMessage(args, {
+          sendMessageDeps: {
+            getOrCreateConversation: async () => session,
+            assistantEventHub: { publish: async () => {} } as any,
+            resolveAttachments: () => [],
+          },
+        }),
+      req,
+      undefined,
+      202,
+    );
+
+    expect(res.status).toBe(202);
+    // The hidden message is persisted with metadata.hidden so the list-messages
+    // filter suppresses it from the UI transcript while keeping it in LLM-side
+    // history (see list-messages-hidden-metadata.test.ts for the filter).
+    expect(persistUserMessage).toHaveBeenCalledTimes(1);
+    const persistArgs = (persistUserMessage as any).mock.calls[0][0] as {
+      metadata?: { hidden?: boolean };
+    };
+    expect(persistArgs.metadata?.hidden).toBe(true);
+    // The turn still runs — the assistant's reply streams normally, so the chat
+    // reads as a proactive greeting.
+    expect(runAgentLoop).toHaveBeenCalledTimes(1);
+  });
+
   test("excludes stale tool_approval hints without a live pending confirmation", async () => {
     listPendingByDestinationMock.mockReturnValue([
       { id: "tool-approval-live", kind: "tool_approval" },

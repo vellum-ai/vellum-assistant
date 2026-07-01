@@ -14,7 +14,6 @@
 
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
-import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
 import { resolveDefaultProvider } from "../providers/connection-resolution.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
@@ -27,6 +26,7 @@ import {
   removeFromEvictor,
   touchConversation,
 } from "./conversation-evictor.js";
+import { resolveInitialSystemPrompt } from "./conversation-initial-prompt.js";
 import {
   allConversations,
   clearConversations,
@@ -145,8 +145,7 @@ export async function getOrCreateConversation(
       }
       const workingDir = getSandboxWorkingDir();
 
-      const systemPrompt =
-        storedOptions?.systemPromptOverride ?? buildSystemPrompt();
+      const systemPrompt = await resolveInitialSystemPrompt(storedOptions);
       const maxTokens = storedOptions?.maxResponseTokens;
 
       const newConversation = new Conversation(

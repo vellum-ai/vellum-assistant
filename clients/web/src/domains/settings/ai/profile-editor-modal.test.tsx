@@ -23,6 +23,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
+import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import type { ProviderConnection } from "@/generated/daemon/types.gen";
 import * as sdkGen from "@/generated/daemon/sdk.gen";
 
@@ -32,6 +33,7 @@ import * as sdkGen from "@/generated/daemon/sdk.gen";
 
 let createdConnection: ProviderConnection;
 let toastSuccessCalls: string[] = [];
+const initialLifecycleState = useAssistantLifecycleStore.getState();
 
 // Spy on the design-library toast so we can assert the shared ProfileEditorModal
 // does NOT fire a profile-create success toast itself — that toast belongs to
@@ -100,7 +102,7 @@ function makeConnection(name: string, provider = "anthropic"): ProviderConnectio
 
 function Wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+    defaultOptions: { queries: { retry: false, enabled: false } },
   });
   return createElement(QueryClientProvider, { client }, children);
 }
@@ -307,6 +309,7 @@ function fillCreateForm(): void {
 beforeEach(() => {
   createdConnection = makeConnection("anthropic-personal");
   toastSuccessCalls = [];
+  useAssistantLifecycleStore.setState(initialLifecycleState, true);
 });
 
 afterEach(() => {
@@ -412,6 +415,41 @@ describe("ProfileEditorModal create mode — provider-first", () => {
       "No models are available for this provider in this app version. " +
         "Update the app, or use an OpenAI-compatible connection to enter a custom model.",
     );
+  });
+
+  test("Ollama connections offer the bundled local models", () => {
+    useAssistantLifecycleStore.setState({
+      assistantState: { kind: "self_hosted" },
+    });
+    renderCreate([makeConnection("ollama", "ollama")]);
+
+    selectProvider("Ollama");
+
+    const triggerLabels = dropdownTriggers().map((t) => t.textContent?.trim());
+    expect(triggerLabels).toContain("Select a model");
+    expect(triggerLabels).not.toContain("No models available");
+
+    selectModel("Llama 3.2");
+    expect(getInputByPlaceholder("e.g. Fast & Cheap").value).toBe("Llama 3.2");
+    expect(getInputByPlaceholder("e.g. fast-cheap").value).toBe("llama-3-2");
+
+    selectModel("Mistral");
+    expect(getInputByPlaceholder("e.g. Fast & Cheap").value).toBe("Mistral");
+    expect(getInputByPlaceholder("e.g. fast-cheap").value).toBe("mistral");
+  });
+
+  test("platform-hosted assistants do not offer Ollama as a new profile provider", () => {
+    useAssistantLifecycleStore.setState({
+      assistantState: { kind: "active", isLocal: false },
+    });
+    renderCreate([makeConnection("ollama", "ollama")]);
+
+    fireEvent.click(providerTrigger());
+
+    const optionLabels = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).map((o) => o.textContent?.trim());
+    expect(optionLabels).toEqual(["+ Create new provider"]);
   });
 
   test("+ Create new provider mounts ProviderCreateForm; successful create selects it and Save enables after a model", async () => {
@@ -564,6 +602,31 @@ describe("ProfileEditorModal create mode — provider-first", () => {
       expect(resolved).toBe(true);
     });
     expect(toastSuccessCalls).toEqual([]);
+  });
+
+  test('saving Fireworks DeepSeek V4 Flash with effort "none" persists the explicit opt-out', async () => {
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const onSave = (name: string, entry: unknown) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown> });
+      return Promise.resolve();
+    };
+
+    renderCreate([makeConnection("fireworks-managed", "fireworks")], onSave);
+
+    selectProvider("Fireworks");
+    selectModel("DeepSeek V4 Flash");
+    fireEvent.click(getButton("Advanced"));
+    fireEvent.click(getButton("none"));
+
+    await waitFor(() => {
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+    fireEvent.click(getSaveBtn());
+
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    expect(saveCalls[0].entry.effort).toBe("none");
   });
 });
 

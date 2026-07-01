@@ -447,10 +447,12 @@ function BannerNotice({
   banner,
   className,
   placement,
+  reserveTopSafeArea,
 }: {
   banner: BannerConfig;
   className?: string;
   placement: StatusBannerPlacement;
+  reserveTopSafeArea?: boolean;
 }) {
   return (
     <div
@@ -458,6 +460,14 @@ function BannerNotice({
         placement === "electron" ? "px-4 pt-2" : "px-0 pt-0",
         className,
       )}
+      style={
+        reserveTopSafeArea
+          ? {
+              paddingTop:
+                "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
+            }
+          : undefined
+      }
     >
       <StatusBannerNotice
         tone={banner.tone}
@@ -836,13 +846,20 @@ function useAssistantBannerConfig(): BannerConfig | null {
 export function StatusBanner({
   className,
   placement = isElectron() ? "electron" : "web",
+  reserveTopSafeArea = false,
 }: {
   className?: string;
   placement?: StatusBannerPlacement;
+  reserveTopSafeArea?: boolean;
 }) {
   const banner = useAssistantBannerConfig();
 
   return banner ? (
-    <BannerNotice banner={banner} className={className} placement={placement} />
+    <BannerNotice
+      banner={banner}
+      className={className}
+      placement={placement}
+      reserveTopSafeArea={reserveTopSafeArea}
+    />
   ) : null;
 }

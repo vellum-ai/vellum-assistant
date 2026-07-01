@@ -61,6 +61,7 @@ import { withErrorHandling } from "./middleware/error-handler.js";
 import {
   extractClientIp,
   ipRateLimiter,
+  isRateLimitExemptEndpoint,
   rateLimitHeaders,
   rateLimitResponse,
   selectAuthenticatedRateLimiter,
@@ -686,8 +687,13 @@ export class RuntimeHttpServer {
         ? selectAuthenticatedRateLimiter(clientIp)
         : ipRateLimiter;
       const limiterKind = token ? "authenticated" : "unauthenticated";
-      const result = limiter.check(clientIp, path);
-      if (!result.allowed) {
+      // Streaming (SSE) and liveness endpoints bypass the per-minute request
+      // limiter — see isRateLimitExemptEndpoint. `result` stays null for them,
+      // so no 429 is returned and no rate-limit headers are attached.
+      const result = isRateLimitExemptEndpoint(endpoint)
+        ? null
+        : limiter.check(clientIp, path);
+      if (result && !result.allowed) {
         return rateLimitResponse(result, {
           clientIp,
           deniedPath: path,
@@ -705,8 +711,10 @@ export class RuntimeHttpServer {
       const response =
         routerResponse ?? httpError("NOT_FOUND", "Not found", 404);
       const headers = new Headers(response.headers);
-      for (const [k, v] of Object.entries(rateLimitHeaders(result))) {
-        headers.set(k, v);
+      if (result) {
+        for (const [k, v] of Object.entries(rateLimitHeaders(result))) {
+          headers.set(k, v);
+        }
       }
       return new Response(response.body, {
         status: response.status,

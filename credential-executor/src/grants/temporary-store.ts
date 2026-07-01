@@ -6,11 +6,29 @@
  * which is the desired behaviour for ephemeral approvals.
  *
  * Keying:
- * - `allow_once`: Keyed by proposal hash. Consumed (deleted) on first use.
+ * - `allow_once`: Keyed by proposal hash. Consumed (deleted) on first use, and
+ *   bounded by a short default TTL so an approval that is never consumed cannot
+ *   linger and be replayed long after the guardian approved the imminent
+ *   operation (see ATL-935).
  * - `allow_10m`: Keyed by proposal hash. Checked for expiry on every read;
  *   expired entries are lazily purged.
  * - `allow_conversation`: Keyed by proposal hash + conversation ID. Scoped to a
- *   single conversation.
+ *   single conversation and bounded by a generous absolute TTL backstop so an
+ *   approval cannot live for the store's entire (process-long) lifetime and be
+ *   replayed by a later connection that presents the same conversation ID
+ *   (see ATL-935).
+ *
+ * Lifetime note: in managed mode this store instance is process-scoped and
+ * deliberately shared across assistant reconnects — and, in the forthcoming
+ * multi-process daemon model, across the multiple connections that each talk to
+ * CES — so a single guardian approval can be used by any connection entitled to
+ * it. Grant lifetime is therefore bounded by per-grant TTLs rather than by
+ * connection teardown: every grant kind carries an expiry, so an unconsumed
+ * approval expires on its own instead of surviving indefinitely. (A future
+ * multi-connection daemon may additionally evict on quiescence — when the count
+ * of live CES connections reaches zero — to scope grants to assistant presence;
+ * that is connection-lifecycle machinery the multi-connection work should own,
+ * and is intentionally not built here.)
  */
 
 // ---------------------------------------------------------------------------
@@ -28,12 +46,40 @@ export interface TemporaryGrant {
   conversationId?: string;
   /** When the grant was created (epoch ms). */
   createdAt: number;
-  /** When the grant expires (epoch ms). Set for `allow_10m`; optionally set for `allow_once`. */
+  /** When the grant expires (epoch ms). Set for every grant kind: a short
+   *  default for `allow_once`, the timed window for `allow_10m`, and a generous
+   *  absolute backstop for `allow_conversation`. */
   expiresAt?: number;
 }
 
 /** Default TTL for timed grants (10 minutes). */
 const DEFAULT_TIMED_DURATION_MS = 10 * 60 * 1000;
+
+/**
+ * Default TTL for single-use (`allow_once`) grants (2 minutes).
+ *
+ * `allow_once` exists to bridge the gap between a guardian approval and the
+ * caller immediately retrying the just-approved operation. Without a TTL, an
+ * approval that is never consumed (e.g. the assistant connection drops before
+ * the retry) would live for the store's entire lifetime and could later be
+ * replayed without a fresh prompt (ATL-935). A short bound keeps the grant
+ * usable for a prompt retry while ensuring a stale, unconsumed approval
+ * expires on its own.
+ */
+const DEFAULT_ONCE_DURATION_MS = 2 * 60 * 1000;
+
+/**
+ * Absolute TTL backstop for `allow_conversation` grants (12 hours).
+ *
+ * `allow_conversation` is scoped to a conversation ID and is meant to persist
+ * for the life of that conversation, so it is not consumed on use and has no
+ * short timeout. But without any bound it would live for the store's entire
+ * process-long lifetime and could be replayed by a later connection that
+ * presents the same conversation ID long after the original approval (ATL-935).
+ * A generous backstop keeps the grant usable across a normal working session
+ * while ensuring a long-stale approval eventually requires a fresh prompt.
+ */
+const DEFAULT_CONVERSATION_DURATION_MS = 12 * 60 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // Store implementation
@@ -102,8 +148,19 @@ export class TemporaryGrantStore {
     if (kind === "allow_10m") {
       grant.expiresAt =
         Date.now() + (options?.durationMs ?? DEFAULT_TIMED_DURATION_MS);
-    } else if (kind === "allow_once" && options?.durationMs !== undefined) {
-      grant.expiresAt = Date.now() + options.durationMs;
+    } else if (kind === "allow_once") {
+      // `allow_once` is always bounded by a TTL — a caller-supplied duration
+      // when present, otherwise a short default — so an unconsumed single-use
+      // approval cannot be replayed indefinitely (ATL-935).
+      grant.expiresAt =
+        Date.now() + (options?.durationMs ?? DEFAULT_ONCE_DURATION_MS);
+    } else if (kind === "allow_conversation") {
+      // `allow_conversation` persists for the conversation and is not consumed
+      // on use, but it still carries a generous absolute TTL backstop so a
+      // conversation-scoped approval cannot linger for the store's entire
+      // process lifetime and be replayed by a later connection (ATL-935).
+      grant.expiresAt =
+        Date.now() + (options?.durationMs ?? DEFAULT_CONVERSATION_DURATION_MS);
     }
 
     this.store.set(key, grant);
@@ -115,8 +172,9 @@ export class TemporaryGrantStore {
    * - `allow_once`: Returns `true` and **consumes** the grant (deletes it).
    * - `allow_10m`: Returns `true` only if the grant has not expired.
    *   Expired grants are lazily purged.
-   * - `allow_conversation`: Returns `true` only if a grant exists for the given
-   *   proposal hash scoped to the specified conversation ID.
+   * - `allow_conversation`: Returns `true` only if a non-expired grant exists
+   *   for the given proposal hash scoped to the specified conversation ID.
+   *   Expired grants (past the absolute TTL backstop) are lazily purged.
    *
    * Returns `false` if no matching grant exists.
    */
@@ -149,7 +207,12 @@ export class TemporaryGrantStore {
       return true;
     }
 
-    // allow_conversation — no expiry, just existence check
+    // allow_conversation — bounded by an absolute TTL backstop; lazily purge an
+    // expired grant and deny, mirroring allow_10m.
+    if (grant.expiresAt !== undefined && Date.now() >= grant.expiresAt) {
+      this.store.delete(key);
+      return false;
+    }
     return true;
   }
 

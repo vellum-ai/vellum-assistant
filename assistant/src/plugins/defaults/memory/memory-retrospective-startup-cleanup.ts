@@ -51,7 +51,6 @@ import {
   sql,
 } from "drizzle-orm";
 
-import { getConfig } from "../../../config/loader.js";
 import { deleteConversation } from "../../../persistence/conversation-crud.js";
 import { getDb, getMemoryDb } from "../../../persistence/db-connection.js";
 import {
@@ -59,6 +58,7 @@ import {
   memoryJobs,
 } from "../../../persistence/schema/index.js";
 import { getLogger } from "../../../util/logger.js";
+import { getMemoryConfig } from "./config.js";
 import { MEMORY_RETROSPECTIVE_SOURCES } from "./memory-retrospective-constants.js";
 import { loadRetrospectiveRunMessages } from "./memory-retrospective-fork-boundary.js";
 
@@ -94,7 +94,7 @@ export function sweepOrphanMemoryRetrospectiveConversations(
   // retained superseded run from a crash orphan. Tradeoff: under this opt-in,
   // genuine crash orphans persist too. That's acceptable — the operator asked
   // for full run history, and an orphan is just one more retained conversation.
-  if (getConfig().memory?.retrospective?.keepSupersededRuns === true) {
+  if (getMemoryConfig()?.retrospective?.keepSupersededRuns === true) {
     return { swept: 0 };
   }
 

@@ -35,10 +35,8 @@ import type { MemoryRoutingTurn, SectionIndex, Slug } from "../types.js";
 
 let providerStub: Provider | null = null;
 
-mock.module("../../../../../providers/provider-send-message.js", () => ({
+mock.module("@vellumai/plugin-api", () => ({
   getConfiguredProvider: async () => providerStub,
-  extractToolUse: (response: ProviderResponse) =>
-    response.content.find((b) => b.type === "tool_use"),
 }));
 
 mock.module("../../../../../util/logger.js", () => ({

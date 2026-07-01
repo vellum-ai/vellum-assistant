@@ -1,5 +1,7 @@
 import { and, count, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 
+import { getMessagesSearchBackend } from "../config/assistant-feature-flags.js";
+import { getConfig } from "../config/loader.js";
 import {
   parseExternalContentEnvelope,
   type UntrustedContentSource,
@@ -7,16 +9,55 @@ import {
   wrapUntrustedContent,
 } from "../security/untrusted-content.js";
 import { getLogger } from "../util/logger.js";
+import { isLexicalBackfillComplete } from "./checkpoints.js";
 import type { ConversationRow } from "./conversation-crud.js";
 import { parseConversation } from "./conversation-crud.js";
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { ensureGroupMigration } from "./conversation-group-migration.js";
+import { searchMessageIdsLexical } from "./conversation-search-lexical.js";
 import type { ConversationType } from "./conversation-types.js";
 import { getDb } from "./db-connection.js";
+import { isMemoryEnabled } from "./jobs-store.js";
 import { rawAll } from "./raw-query.js";
 import { conversations, messages } from "./schema/index.js";
 
 const log = getLogger("conversation-store");
+
+/**
+ * Max distinct visible conversations {@link searchConversations} collects from
+ * content matches before merging with title matches and the final
+ * `updated_at`-ordered `LIMIT`. Both backends cap on distinct conversations (not
+ * matching messages) so one chatty conversation can't crowd others out; the FTS
+ * path enforces this in SQL (`SELECT DISTINCT conversation_id … LIMIT`).
+ */
+const CONVERSATION_SEARCH_DISTINCT_LIMIT = 1000;
+
+/**
+ * Message-candidate over-fetch for the Qdrant lexical backend.
+ *
+ * Qdrant ranks at message grain and has no visibility/archived filtering, so a
+ * naive cap at {@link CONVERSATION_SEARCH_DISTINCT_LIMIT} *messages* could be
+ * consumed entirely by one chatty visible conversation or by private/archived
+ * candidates, starving other matching visible conversations — unlike the FTS
+ * path, which caps on distinct conversations *after* the visibility JOIN.
+ *
+ * To approximate that behavior we over-fetch this many message candidates, then
+ * filter/dedupe to distinct visible conversations in code, so the effective cap
+ * lands on {@link CONVERSATION_SEARCH_DISTINCT_LIMIT} distinct visible
+ * conversations. A few thousand candidates reliably yields far more than the
+ * caller's `limit` (default 20) distinct visible conversations except in
+ * pathological mega-conversation cases.
+ *
+ * This is a proportionate over-fetch, NOT a hard parity guarantee: a query
+ * whose top ~{@link QDRANT_SEARCH_CANDIDATE_LIMIT} candidates all fall in a
+ * handful of conversations can still under-surface. The stronger fix — Qdrant
+ * `search_groups` (group_by `conversation_id`) or true score-ordered
+ * pagination — is deferred to pre-flip hardening if Gate A shows regressions.
+ *
+ * Kept well under bun:sqlite's ~32k bound-parameter ceiling so the
+ * `WHERE m.id IN (…)` visibility query stays a single statement.
+ */
+const QDRANT_SEARCH_CANDIDATE_LIMIT = 5000;
 
 /**
  * Build an FTS5 MATCH query string from natural text by extracting tokens.
@@ -448,42 +489,244 @@ export interface ConversationSearchResult {
   }>;
 }
 
+interface ConversationSearchMsgRow {
+  id: string;
+  role: string;
+  content: string;
+  created_at: number;
+}
+
 /**
- * Full-text search across message content using FTS5.
- * Uses the messages_fts virtual table for fast tokenized matching on message
- * content, with a LIKE fallback on conversation titles. Returns matching
- * conversations with their relevant messages, ordered by most recently updated.
+ * SQL `LIKE` pattern escaping the three wildcard metacharacters (`\`, `%`, `_`)
+ * so a literal user query matches as literal text under `ESCAPE '\\'`. Wrapped
+ * in `%...%` for a substring match.
  */
-export function searchConversations(
+function likeContainsPattern(query: string): string {
+  return `%${query
+    .replace(/\\/g, "\\\\")
+    .replace(/%/g, "\\%")
+    .replace(/_/g, "\\_")}%`;
+}
+
+/**
+ * Collect visible, non-archived conversation ids whose message content matches
+ * `query` via a `messages.content LIKE` substring scan. Shared by the
+ * non-tokenizable-query path (both backends) and the Qdrant error-degrade path.
+ */
+function likeContentMatchConvIds(query: string): string[] {
+  interface ConvIdRow {
+    conversation_id: string;
+  }
+  const rows = rawAll<ConvIdRow>(
+    `
+    SELECT DISTINCT m.conversation_id
+    FROM messages m
+    JOIN conversations c ON c.id = m.conversation_id
+    WHERE m.content LIKE ? ESCAPE '\\' AND ${standardListingVisibilitySql("c")} AND c.archived_at IS NULL
+    LIMIT 1000
+  `,
+    likeContainsPattern(query),
+  );
+  return rows.map((r) => r.conversation_id);
+}
+
+/**
+ * Per-conversation top messages matching `query` by `content LIKE` substring,
+ * ordered oldest-first and capped at `limit`. The `messages.content LIKE`
+ * fallback used when there are no lexical tokens or Qdrant is unavailable.
+ */
+function likeContentMatchMessages(
+  conversationId: string,
+  query: string,
+  limit: number,
+): ConversationSearchMsgRow[] {
+  return rawAll<ConversationSearchMsgRow>(
+    `
+    SELECT id, role, content, created_at
+    FROM messages
+    WHERE conversation_id = ? AND content LIKE ? ESCAPE '\\'
+    ORDER BY created_at ASC
+    LIMIT ?
+  `,
+    conversationId,
+    likeContainsPattern(query),
+    limit,
+  );
+}
+
+/**
+ * Resolve the effective message-search backend for the persistence read site.
+ *
+ * Starts from the `messages-search-backend` feature flag, then downgrades to
+ * `fts5` in two cases where the Qdrant `messages_lexical` collection is not a
+ * safe source (each would return an empty result — not a throw — so the
+ * Qdrant-error degrade never fires):
+ *   1. Memory is disabled — the per-message write path is suppressed, so the
+ *      collection is never forward-filled. `!isMemoryEnabled()` is the
+ *      layer-clean check available from `persistence/`.
+ *   2. The one-time upgrade backfill has not finished — the collection is only
+ *      partially populated, so older content is missing until it drains.
+ *
+ * The recall read site applies the same completion gate (via the shared
+ * {@link isLexicalBackfillComplete}) on top of its own, stricter suppression
+ * check (`isMemoryIndexingSuppressed`, which also covers a disabled plugin).
+ */
+function resolveMessageSearchBackend(): "fts5" | "qdrant" {
+  if (!isMemoryEnabled()) return "fts5";
+  const flagBackend = getMessagesSearchBackend(getConfig());
+  if (flagBackend === "qdrant" && !isLexicalBackfillComplete()) return "fts5";
+  return flagBackend;
+}
+
+/**
+ * Full-text search across message content.
+ *
+ * The lexical backend is selected by the `messages-search-backend` feature
+ * flag (see {@link getMessagesSearchBackend}) and gated by
+ * {@link resolveMessageSearchBackend}:
+ *   - `fts5` (default): the `messages_fts` virtual table for tokenized matching.
+ *   - `qdrant`: the sparse `messages_lexical` Qdrant index (BM25-style).
+ * Both apply the same visibility/archived SQL filtering, merge with a `LIKE`
+ * match on conversation titles, and return matching conversations with their
+ * relevant messages ordered by most recently updated.
+ *
+ * A query that tokenizes to nothing under the shared tokenizer (non-ASCII or
+ * single-char input like "你", "é", "C++") falls back to a `messages.content
+ * LIKE` scan for both backends. If the Qdrant lexical lookup throws, the search
+ * degrades to that same `LIKE` scan.
+ *
+ * Both backends cap on distinct conversations, not matching messages. Qdrant
+ * ranks at message grain, so its path over-fetches a candidate pool
+ * ({@link QDRANT_SEARCH_CANDIDATE_LIMIT}) and dedupes to
+ * {@link CONVERSATION_SEARCH_DISTINCT_LIMIT} distinct visible conversations in
+ * score order — a proportionate approximation of the FTS distinct-conversation
+ * cap, not a hard parity guarantee (see the constant's docstring).
+ */
+export async function searchConversations(
   query: string,
   opts?: { limit?: number; maxMessagesPerConversation?: number },
-): ConversationSearchResult[] {
+): Promise<ConversationSearchResult[]> {
   if (!query.trim()) return [];
 
   ensureGroupMigration();
   const db = getDb();
+  const trimmed = query.trim();
   const limit = opts?.limit ?? 20;
   const maxMsgsPerConv = opts?.maxMessagesPerConversation ?? 3;
 
-  const ftsMatch = buildFtsMatchQuery(query.trim());
+  const ftsMatch = buildFtsMatchQuery(trimmed);
+  // The Qdrant lexical index is populated by the memory plugin's per-message
+  // write path, which is suppressed while memory is disabled — so with memory
+  // off the index stays empty and a `qdrant` lookup silently returns no content
+  // matches (an empty result, not a throw, so the Qdrant-error degrade never
+  // fires). Fall back to `fts5` — which is always populated — regardless of the
+  // flag when the index isn't being written. `!isMemoryEnabled()` is the
+  // layer-clean check available from `persistence/`; the rarer
+  // memory-enabled-but-plugin-disabled case (part of the plugin's full
+  // `isMemoryIndexingSuppressed` predicate) can't be reached from here without a
+  // persistence -> plugin import, and is covered at flip time by requiring the
+  // backfill/population check before enabling the flag.
+  //
+  // The backfill completion gate is the second half of that population guard,
+  // for the common (memory-enabled) case: on an upgraded instance the historical
+  // messages are indexed by a background backfill, so until it has fully drained
+  // the `messages_lexical` collection is only partially populated and a `qdrant`
+  // read would silently miss older content. Stay on `fts5` until
+  // `isLexicalBackfillComplete()` confirms the index is whole, then switch.
+  const backend = resolveMessageSearchBackend();
 
-  // LIKE pattern for title matching (FTS only covers message content).
-  const titlePattern = `%${query
-    .replace(/\\/g, "\\\\")
-    .replace(/%/g, "\\%")
-    .replace(/_/g, "\\_")}%`;
+  // LIKE pattern for title matching (message-content indexes don't cover titles).
+  const titlePattern = likeContainsPattern(query);
 
-  interface ConvIdRow {
-    conversation_id: string;
-  }
+  // Collect conversation IDs from message-content matches and title LIKE
+  // matches, then merge them to produce the final set of matching
+  // conversations. Content paths LIMIT on distinct conversation_id to prevent a
+  // single conversation with many matching messages from crowding out others.
+  const contentConvIds = new Set<string>();
 
-  // Collect conversation IDs from FTS message matches and title LIKE matches,
-  // then merge them to produce the final set of matching conversations.
-  // Both paths LIMIT on distinct conversation_id to prevent a single
-  // conversation with many matching messages from crowding out others.
-  const ftsConvIds = new Set<string>();
-  if (ftsMatch) {
+  // When the Qdrant backend answers, `qdrantCandidatesByConv` maps each
+  // conversation to its candidate message ids so the per-conversation message
+  // fetch reuses the single lexical round-trip instead of issuing a second one.
+  // `qdrantDegraded` records a lexical-lookup failure so the per-conversation
+  // fetch mirrors the conv-id collection and falls back to the LIKE scan.
+  let qdrantCandidatesByConv: Map<string, string[]> | null = null;
+  let qdrantDegraded = false;
+
+  if (ftsMatch && backend === "qdrant") {
+    // The lexical index is written asynchronously by the memory job queue, so
+    // for a brief window after an edit it can lag SQLite: a search for a term
+    // just removed from a message may still return that message id (or miss one
+    // just added). This is an accepted async-indexing tradeoff — transient, and
+    // results are re-sorted by `updated_at` — not re-verified against live
+    // content here.
+    let candidates: Awaited<ReturnType<typeof searchMessageIdsLexical>> = [];
     try {
+      candidates = await searchMessageIdsLexical(
+        trimmed,
+        QDRANT_SEARCH_CANDIDATE_LIMIT,
+      );
+    } catch (err) {
+      qdrantDegraded = true;
+      log.warn(
+        { err, query: query.slice(0, 80) },
+        "searchConversations: Qdrant lexical query failed — falling back to LIKE content match",
+      );
+    }
+
+    if (qdrantDegraded) {
+      for (const id of likeContentMatchConvIds(query)) contentConvIds.add(id);
+    } else if (candidates.length > 0) {
+      const candidateIds = candidates.map((c) => c.messageId);
+      // Filter the lexical candidates down to visible, non-archived
+      // conversations in SQL (Qdrant has no visibility filtering). No SQL
+      // LIMIT here: the row count is already bounded by the candidate pool
+      // (≤ QDRANT_SEARCH_CANDIDATE_LIMIT), and capping in SQL would cap on
+      // messages, not distinct conversations. The distinct-conversation cap is
+      // applied below in Qdrant score order.
+      interface CandidateRow {
+        id: string;
+        conversation_id: string;
+      }
+      const placeholders = candidateIds.map(() => "?").join(",");
+      const visibleRows = rawAll<CandidateRow>(
+        `
+        SELECT m.id, m.conversation_id
+        FROM messages m
+        JOIN conversations c ON c.id = m.conversation_id
+        WHERE m.id IN (${placeholders}) AND ${standardListingVisibilitySql("c")} AND c.archived_at IS NULL
+      `,
+        ...candidateIds,
+      );
+      const visibleConvByMessageId = new Map<string, string>();
+      for (const row of visibleRows) {
+        visibleConvByMessageId.set(row.id, row.conversation_id);
+      }
+
+      // Walk candidates in Qdrant score order (highest first). Bucket each
+      // visible candidate's message id under its conversation and stop
+      // collecting NEW conversations once CONVERSATION_SEARCH_DISTINCT_LIMIT
+      // distinct visible conversations are seen — so one chatty conversation
+      // can't starve others, matching the FTS distinct-conversation cap.
+      qdrantCandidatesByConv = new Map();
+      for (const candidate of candidates) {
+        const convId = visibleConvByMessageId.get(candidate.messageId);
+        if (!convId) continue;
+        const bucket = qdrantCandidatesByConv.get(convId);
+        if (bucket) {
+          bucket.push(candidate.messageId);
+        } else {
+          if (qdrantCandidatesByConv.size >= CONVERSATION_SEARCH_DISTINCT_LIMIT)
+            continue;
+          qdrantCandidatesByConv.set(convId, [candidate.messageId]);
+          contentConvIds.add(convId);
+        }
+      }
+    }
+  } else if (ftsMatch) {
+    try {
+      interface ConvIdRow {
+        conversation_id: string;
+      }
       const ftsRows = rawAll<ConvIdRow>(
         `
         SELECT DISTINCT m.conversation_id
@@ -495,35 +738,21 @@ export function searchConversations(
       `,
         ftsMatch,
       );
-      for (const row of ftsRows) ftsConvIds.add(row.conversation_id);
+      for (const row of ftsRows) contentConvIds.add(row.conversation_id);
     } catch (err) {
       log.warn(
         { err, query: query.slice(0, 80) },
         "searchConversations: FTS query failed — falling through to title matches",
       );
     }
-  } else if (query.trim()) {
-    // FTS tokens were all dropped (non-ASCII, single-char, etc.) — fall back to
-    // LIKE-based message content search so queries like "你", "é", or "C++" still
-    // match message text.
-    const likePattern = `%${query
-      .replace(/\\/g, "\\\\")
-      .replace(/%/g, "\\%")
-      .replace(/_/g, "\\_")}%`;
-    const likeRows = rawAll<ConvIdRow>(
-      `
-      SELECT DISTINCT m.conversation_id
-      FROM messages m
-      JOIN conversations c ON c.id = m.conversation_id
-      WHERE m.content LIKE ? ESCAPE '\\' AND ${standardListingVisibilitySql("c")} AND c.archived_at IS NULL
-      LIMIT 1000
-    `,
-      likePattern,
-    );
-    for (const row of likeRows) ftsConvIds.add(row.conversation_id);
+  } else {
+    // The query tokenized to nothing (non-ASCII, single-char, etc.) — fall back
+    // to a LIKE-based message content search so queries like "你", "é", or
+    // "C++" still match message text.
+    for (const id of likeContentMatchConvIds(query)) contentConvIds.add(id);
   }
 
-  // Title-only matches (FTS doesn't index conversation titles).
+  // Title-only matches (message-content indexes don't cover conversation titles).
   const titleMatchConvs = db
     .select({ id: conversations.id })
     .from(conversations)
@@ -535,12 +764,12 @@ export function searchConversations(
       ),
     )
     .all();
-  for (const row of titleMatchConvs) ftsConvIds.add(row.id);
+  for (const row of titleMatchConvs) contentConvIds.add(row.id);
 
-  if (ftsConvIds.size === 0) return [];
+  if (contentConvIds.size === 0) return [];
 
   // Fetch the matching conversation rows, ordered by updatedAt, capped at limit.
-  const convIds = [...ftsConvIds];
+  const convIds = [...contentConvIds];
   const placeholders = convIds.map(() => "?").join(",");
   interface ConvRow {
     id: string;
@@ -561,16 +790,30 @@ export function searchConversations(
   const results: ConversationSearchResult[] = [];
 
   for (const conv of matchingConversations) {
-    interface MsgRow {
-      id: string;
-      role: string;
-      content: string;
-      created_at: number;
-    }
-    let matchingMsgs: MsgRow[] = [];
-    if (ftsMatch) {
+    let matchingMsgs: ConversationSearchMsgRow[] = [];
+    if (ftsMatch && backend === "qdrant" && !qdrantDegraded) {
+      // Reuse the lexical candidates already fetched above — no second Qdrant
+      // round-trip. Select this conversation's candidate message rows by id,
+      // ordered oldest-first to match the FTS path.
+      const candidateIds = qdrantCandidatesByConv?.get(conv.id) ?? [];
+      if (candidateIds.length > 0) {
+        const msgPlaceholders = candidateIds.map(() => "?").join(",");
+        matchingMsgs = rawAll<ConversationSearchMsgRow>(
+          `
+          SELECT id, role, content, created_at
+          FROM messages
+          WHERE conversation_id = ? AND id IN (${msgPlaceholders})
+          ORDER BY created_at ASC
+          LIMIT ?
+        `,
+          conv.id,
+          ...candidateIds,
+          maxMsgsPerConv,
+        );
+      }
+    } else if (ftsMatch && backend !== "qdrant") {
       try {
-        matchingMsgs = rawAll<MsgRow>(
+        matchingMsgs = rawAll<ConversationSearchMsgRow>(
           `
           SELECT m.id, m.role, m.content, m.created_at
           FROM messages_fts f
@@ -589,24 +832,10 @@ export function searchConversations(
           "searchConversations: FTS per-conversation query failed",
         );
       }
-    } else if (query.trim()) {
-      // LIKE fallback for non-ASCII / short-token queries.
-      const msgLikePattern = `%${query
-        .replace(/\\/g, "\\\\")
-        .replace(/%/g, "\\%")
-        .replace(/_/g, "\\_")}%`;
-      matchingMsgs = rawAll<MsgRow>(
-        `
-        SELECT id, role, content, created_at
-        FROM messages
-        WHERE conversation_id = ? AND content LIKE ? ESCAPE '\\'
-        ORDER BY created_at ASC
-        LIMIT ?
-      `,
-        conv.id,
-        msgLikePattern,
-        maxMsgsPerConv,
-      );
+    } else {
+      // No lexical tokens, or the Qdrant lookup degraded — LIKE fallback for
+      // non-ASCII / short-token queries and the Qdrant-error path.
+      matchingMsgs = likeContentMatchMessages(conv.id, query, maxMsgsPerConv);
     }
 
     results.push({

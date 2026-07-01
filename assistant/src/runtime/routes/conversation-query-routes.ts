@@ -1208,7 +1208,9 @@ function patchManagedProfileFields(
   profiles[name] = nextProfile;
 }
 
-function handleSearchConversations({ queryParams = {} }: RouteHandlerArgs) {
+async function handleSearchConversations({
+  queryParams = {},
+}: RouteHandlerArgs) {
   const q = queryParams.q;
   if (!q) {
     throw new BadRequestError("Missing required query parameter: q");
@@ -1217,7 +1219,7 @@ function handleSearchConversations({ queryParams = {} }: RouteHandlerArgs) {
   const maxMessages = queryParams.maxMessagesPerConversation
     ? Number(queryParams.maxMessagesPerConversation)
     : undefined;
-  const results = performConversationSearch({
+  const results = await performConversationSearch({
     query: q,
     limit,
     maxMessagesPerConversation: maxMessages,
@@ -1619,6 +1621,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Replace the settings-UI-managed leaves of a single llm.profiles entry while preserving non-UI leaves.",
     tags: ["config"],
+    requestBody: ProfileEntry,
     handler: handleReplaceInferenceProfile,
   },
   {

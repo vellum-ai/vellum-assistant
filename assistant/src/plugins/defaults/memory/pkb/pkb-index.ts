@@ -15,10 +15,9 @@ import { createHash } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
 
-import { getConfig } from "../../../../config/loader.js";
 import { withQdrantBreaker } from "../../../../persistence/embeddings/qdrant-circuit-breaker.js";
 import { getQdrantClient } from "../../../../persistence/embeddings/qdrant-client.js";
-import { embedAndUpsert } from "../../../../persistence/job-utils.js";
+import { embedAndUpsert } from "../embeddings.js";
 import type { PkbIndexEntry } from "./types.js";
 import { PKB_TARGET_TYPE } from "./types.js";
 
@@ -189,8 +188,6 @@ export async function indexPkbFile(
   const relPath = relative(pkbRoot, absPath);
   const chunks = chunkPkbFile(content);
 
-  const config = getConfig();
-
   const qdrant = getQdrantClient();
   const existing = await withQdrantBreaker(() =>
     qdrant.scrollByTargetType(PKB_TARGET_TYPE, {
@@ -209,7 +206,6 @@ export async function indexPkbFile(
     const targetId = `${memoryScopeId}:${relPath}#${chunkIndex}`;
     newTargetIds.add(targetId);
     await embedAndUpsert(
-      config,
       PKB_TARGET_TYPE,
       targetId,
       { type: "text", text: chunk },

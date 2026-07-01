@@ -261,6 +261,7 @@ describe("per-surface disabled-state filtering", () => {
 
   test("persistence hooks no-op while the memory plugin is disabled", async () => {
     let calls = 0;
+    const bufferLines = 25;
     const guarded = guardPersistenceHooksByDisabledState("default-memory", {
       onMessagePersisted() {
         calls++;
@@ -269,7 +270,13 @@ describe("per-surface disabled-state filtering", () => {
       onConversationWiped() {
         return 0;
       },
+      onConversationDeleted() {},
+      onMessagesDeleted() {},
+      async onAllConversationsCleared() {},
       onWorkerStartup() {},
+      countMemoryBufferLines() {
+        return bufferLines;
+      },
     });
     const event: MessagePersistedEvent = {
       messageId: "msg-1",
@@ -282,21 +289,29 @@ describe("per-surface disabled-state filtering", () => {
     // Enabled: the wrapped handler runs.
     await guarded.onMessagePersisted(event);
     expect(calls).toBe(1);
+    // The gated query returns the real buffer count while enabled.
+    expect(guarded.countMemoryBufferLines()).toBe(25);
 
     // Disable via sentinel — checked at call time, no restart needed.
     await createSentinel("default-memory");
     await guarded.onMessagePersisted(event);
     expect(calls).toBe(1);
+    // Gated: reports an empty buffer while disabled, so consolidation stays inert.
+    expect(guarded.countMemoryBufferLines()).toBe(0);
 
     // Re-enable.
     await removeSentinel("default-memory");
     await guarded.onMessagePersisted(event);
     expect(calls).toBe(2);
+    expect(guarded.countMemoryBufferLines()).toBe(25);
   });
 
   test("cleanup persistence hooks run even while the memory plugin is disabled", async () => {
     let wiped = 0;
     let swept = 0;
+    const deleted: string[][] = [];
+    const convDeleted: string[] = [];
+    let cleared = 0;
     const guarded = guardPersistenceHooksByDisabledState("default-memory", {
       onMessagePersisted() {},
       onConversationForked() {},
@@ -304,8 +319,20 @@ describe("per-surface disabled-state filtering", () => {
         wiped++;
         return 7;
       },
+      onConversationDeleted(id) {
+        convDeleted.push(id);
+      },
+      onMessagesDeleted(ids) {
+        deleted.push(ids);
+      },
+      async onAllConversationsCleared() {
+        cleared++;
+      },
       onWorkerStartup() {
         swept++;
+      },
+      countMemoryBufferLines() {
+        return 0;
       },
     });
 
@@ -314,8 +341,14 @@ describe("per-surface disabled-state filtering", () => {
     // Cleanup hooks are NOT gated: they must still run (and return real values)
     // while disabled, or state created while enabled would be orphaned.
     expect(guarded.onConversationWiped("conv-1")).toBe(7);
+    guarded.onConversationDeleted("conv-9");
+    guarded.onMessagesDeleted(["msg-1", "msg-2"]);
+    await guarded.onAllConversationsCleared();
     guarded.onWorkerStartup();
     expect(wiped).toBe(1);
+    expect(convDeleted).toEqual(["conv-9"]);
+    expect(deleted).toEqual([["msg-1", "msg-2"]]);
+    expect(cleared).toBe(1);
     expect(swept).toBe(1);
 
     await removeSentinel("default-memory");

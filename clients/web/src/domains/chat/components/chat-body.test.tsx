@@ -147,7 +147,6 @@ function baseProps(
       transcriptProps: { messages: [], onScrollToMessage: noop } as never,
     },
     composerSlot: <div data-testid="composer">COMPOSER</div>,
-    onStopGenerating: noop,
     dragHandlers: {
       onDragEnter: noopDrag,
       onDragOver: noopDrag,
@@ -161,7 +160,6 @@ function baseProps(
     onDismissRefreshFeedback: noop,
     onRetryRefresh: noop,
     genericChatError: null,
-    isChannelReadonly: false,
     ...overrides,
   };
 }
@@ -346,9 +344,13 @@ describe("ChatBody — pluginPillsSlot rendering", () => {
   });
 });
 
-describe("ChatBody — active subagents overlay slot", () => {
-  const activeSubagentsSlot = (
-    <div data-testid="active-subagents-slot">ACTIVE_SUBAGENTS</div>
+describe("ChatBody — active-process overlays slot", () => {
+  // The orchestrator builds the registry-driven row (subagents → acp runs →
+  // workflows → background tasks) and passes it as a single node; ChatBody
+  // only positions it in the top-center overlay (and gates it on the empty
+  // state). Ordering across kinds is owned by the registry, not ChatBody.
+  const activeProcessOverlaysSlot = (
+    <div data-testid="active-process-overlays">ACTIVE_PROCESSES</div>
   );
 
   test("renders the slot top-center when scrolled up and slot is provided", () => {
@@ -356,11 +358,11 @@ describe("ChatBody — active subagents overlay slot", () => {
       <ChatBody
         {...baseProps({
           showScrollToLatest: true,
-          activeSubagentsSlot,
+          activeProcessOverlaysSlot,
         })}
       />,
     );
-    expect(html).toContain("ACTIVE_SUBAGENTS");
+    expect(html).toContain("ACTIVE_PROCESSES");
   });
 
   test("renders the slot even when pinned (showScrollToLatest false) — always-on while running", () => {
@@ -368,11 +370,11 @@ describe("ChatBody — active subagents overlay slot", () => {
       <ChatBody
         {...baseProps({
           showScrollToLatest: false,
-          activeSubagentsSlot,
+          activeProcessOverlaysSlot,
         })}
       />,
     );
-    expect(html).toContain("ACTIVE_SUBAGENTS");
+    expect(html).toContain("ACTIVE_PROCESSES");
   });
 
   test("does NOT render the slot on the empty state", () => {
@@ -380,11 +382,18 @@ describe("ChatBody — active subagents overlay slot", () => {
       <ChatBody
         {...withEmptyState({
           showScrollToLatest: true,
-          activeSubagentsSlot,
+          activeProcessOverlaysSlot,
         })}
       />,
     );
-    expect(html).not.toContain("ACTIVE_SUBAGENTS");
+    expect(html).not.toContain("ACTIVE_PROCESSES");
+  });
+
+  test("does NOT render the overlay row when the slot is undefined", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody {...baseProps({ showScrollToLatest: true })} />,
+    );
+    expect(html).not.toContain("ACTIVE_PROCESSES");
   });
 
   test("Go-to-Newest bottom overlay still renders alongside the slot (no regression)", () => {
@@ -392,119 +401,23 @@ describe("ChatBody — active subagents overlay slot", () => {
       <ChatBody
         {...baseProps({
           showScrollToLatest: true,
-          activeSubagentsSlot,
+          activeProcessOverlaysSlot,
         })}
       />,
     );
     expect(html).toContain("SCROLL_TO_LATEST");
-    expect(html).toContain("ACTIVE_SUBAGENTS");
+    expect(html).toContain("ACTIVE_PROCESSES");
   });
 });
 
-describe("ChatBody — active workflows overlay slot", () => {
-  const activeSubagentsSlot = (
-    <div data-testid="active-subagents-slot">ACTIVE_SUBAGENTS</div>
-  );
-  const activeWorkflowsSlot = (
-    <div data-testid="active-workflows-slot">ACTIVE_WORKFLOWS</div>
-  );
+describe("ChatBody — composer always renders", () => {
+  // Channel-origin (Slack/Email/etc.) conversations render the standard
+  // composer, with no read-only banner replacing it.
+  test("renders the composer and no read-only banner", () => {
+    const html = renderToStaticMarkup(<ChatBody {...baseProps()} />);
 
-  test("renders the slot top-center when scrolled up and slot is provided", () => {
-    const html = renderToStaticMarkup(
-      <ChatBody
-        {...baseProps({
-          showScrollToLatest: true,
-          activeWorkflowsSlot,
-        })}
-      />,
-    );
-    expect(html).toContain("ACTIVE_WORKFLOWS");
-  });
-
-  test("renders the slot even when pinned (showScrollToLatest false) — always-on while running", () => {
-    const html = renderToStaticMarkup(
-      <ChatBody
-        {...baseProps({
-          showScrollToLatest: false,
-          activeWorkflowsSlot,
-        })}
-      />,
-    );
-    expect(html).toContain("ACTIVE_WORKFLOWS");
-  });
-
-  test("does NOT render the slot on the empty state", () => {
-    const html = renderToStaticMarkup(
-      <ChatBody
-        {...withEmptyState({
-          showScrollToLatest: true,
-          activeWorkflowsSlot,
-        })}
-      />,
-    );
-    expect(html).not.toContain("ACTIVE_WORKFLOWS");
-  });
-
-  test("renders BOTH slots simultaneously when both are provided", () => {
-    const html = renderToStaticMarkup(
-      <ChatBody
-        {...baseProps({
-          showScrollToLatest: true,
-          activeSubagentsSlot,
-          activeWorkflowsSlot,
-        })}
-      />,
-    );
-    expect(html).toContain("ACTIVE_SUBAGENTS");
-    expect(html).toContain("ACTIVE_WORKFLOWS");
-  });
-
-  test("renders the subagent pill to the LEFT of the workflow pill", () => {
-    const html = renderToStaticMarkup(
-      <ChatBody
-        {...baseProps({
-          showScrollToLatest: true,
-          activeSubagentsSlot,
-          activeWorkflowsSlot,
-        })}
-      />,
-    );
-    // DOM order: subagents must precede workflows in the centered row.
-    expect(html.indexOf("ACTIVE_SUBAGENTS")).toBeLessThan(
-      html.indexOf("ACTIVE_WORKFLOWS"),
-    );
-  });
-});
-
-describe("ChatBody — read-only cancellation", () => {
-  test("renders the read-only banner without a stop control while idle", () => {
-    const html = renderToStaticMarkup(
-      <ChatBody
-        {...baseProps({
-          isChannelReadonly: true,
-        })}
-      />,
-    );
-
-    expect(html).toContain("Read-only conversation");
-    expect(html).not.toContain('aria-label="Stop generating"');
-    expect(html).not.toContain("COMPOSER");
-  });
-
-  test("renders the stop control for an active read-only turn", () => {
-    const html = renderToStaticMarkup(
-      <ChatBody
-        {...baseProps({
-          isChannelReadonly: true,
-          canStopGenerating: true,
-        })}
-      />,
-    );
-
-    expect(html).toContain("Read-only conversation");
-    expect(html).toContain('aria-label="Stop generating"');
-    expect(html).toContain('title="Stop generation"');
-    expect(html).not.toContain("COMPOSER");
+    expect(html).toContain("COMPOSER");
+    expect(html).not.toContain("Read-only conversation");
   });
 });
 

@@ -2,7 +2,8 @@ import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import type { DrizzleDb } from "./db-connection.js";
 
 /**
- * Seam for the memory feature to react to persistence-layer lifecycle events.
+ * Seam for the memory feature to react to persistence-layer lifecycle events
+ * and to answer memory-domain queries the persistence layer needs.
  *
  * Persistence is a layer below the memory plugin, so it cannot import memory
  * internals directly. Instead it calls into this registered-handler seam: the
@@ -80,8 +81,46 @@ export interface MemoryPersistenceHooks {
    * present). Runs before the conversation's message rows are deleted, since
    * the cancellation queries join on `messages`. Cleanup — runs even while the
    * plugin is disabled, so jobs created while it was enabled are not orphaned.
+   *
+   * Does NOT purge the conversation's per-message index — that is
+   * {@link onConversationDeleted}, fired from the shared delete primitive that
+   * `wipeConversation` delegates to (so the purge lands after this cancellation
+   * pass and cannot be swept by it).
    */
   onConversationWiped(conversationId: string): number;
+
+  /**
+   * A conversation and its messages were deleted via the shared delete
+   * primitive (`deleteConversation`/`deleteConversationGently`), which covers
+   * every caller — the HTTP route, `wipeConversation`, retrospective startup
+   * cleanup, superseded-retrospective GC, and future ones. The memory feature
+   * purges the conversation's per-message index (e.g. its lexical points, by
+   * `conversationId`). Runs after the delete commits and off the write path.
+   * Cleanup — runs even while the plugin is disabled, so points written while it
+   * was enabled are not orphaned.
+   */
+  onConversationDeleted(conversationId: string): void;
+
+  /**
+   * One or more message rows were deleted (single-message delete, undo, or
+   * assistant-message consolidation) WITHOUT wiping the whole conversation. The
+   * memory feature removes each message's per-message index entry (e.g. its
+   * lexical point). Runs after the delete transaction commits and off the write
+   * path. Cleanup — runs even while the plugin is disabled, so entries written
+   * while it was enabled are not orphaned. Empty arrays are a no-op.
+   */
+  onMessagesDeleted(messageIds: string[]): void;
+
+  /**
+   * Every conversation and its messages are being cleared ("delete all"). The
+   * memory feature drops the bulk per-message index (e.g. the whole lexical
+   * collection) — a bulk wipe leaves no ids to key per-message cleanup on.
+   * Cleanup — runs even while the plugin is disabled. Best-effort; the caller
+   * wraps it in try/catch and AWAITS it, so the drop completes before writes
+   * resume (a message created right after clear-all must not upsert into a
+   * collection that is about to be dropped).
+   */
+  onAllConversationsCleared(): Promise<void>;
 
   /**
    * The background-job worker is starting. The memory feature sweeps orphan
@@ -89,6 +128,15 @@ export interface MemoryPersistenceHooks {
    * wraps it in try/catch. Cleanup — runs even while the plugin is disabled.
    */
   onWorkerStartup(): void;
+
+  /**
+   * Current line count of the memory buffer (`memory/buffer.md`). The
+   * maintenance scheduler reads it to gate scheduled consolidation — skip a
+   * scheduled run below a floor, force one above a ceiling. Returns 0 when
+   * memory is not present, which the scheduler reads as "no buffered work" and
+   * therefore no consolidation.
+   */
+  countMemoryBufferLines(): number;
 }
 
 const NOOP: MemoryPersistenceHooks = {
@@ -97,7 +145,13 @@ const NOOP: MemoryPersistenceHooks = {
   onConversationWiped() {
     return 0;
   },
+  onConversationDeleted() {},
+  onMessagesDeleted() {},
+  async onAllConversationsCleared() {},
   onWorkerStartup() {},
+  countMemoryBufferLines() {
+    return 0;
+  },
 };
 
 let current: MemoryPersistenceHooks = NOOP;

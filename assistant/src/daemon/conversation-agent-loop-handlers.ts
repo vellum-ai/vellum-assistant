@@ -50,6 +50,7 @@ import {
 } from "../persistence/llm-request-log-store.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
+import { enqueueLexicalIndexForMessage } from "../plugins/defaults/memory/job-handlers/index-message-lexical.js";
 import { backfillMemoryRecallLogMessageId } from "../plugins/defaults/memory/memory-recall-log-store.js";
 import { backfillMemoryV2ActivationMessageId } from "../plugins/defaults/memory/memory-v2-activation-log-store.js";
 import { backfillMemoryV3SelectionMessageId } from "../plugins/defaults/memory/v3/shadow-plugin.js";
@@ -74,6 +75,7 @@ import {
 import { ProviderError } from "../util/errors.js";
 import { faviconUrlForDomain } from "../util/favicon.js";
 import { getLogger } from "../util/logger.js";
+import { withSqliteRetry } from "../util/sqlite-retry.js";
 import type { DirectiveRequest } from "./assistant-attachments.js";
 import {
   cleanAssistantContent,
@@ -538,6 +540,39 @@ function resetPartialPersistAccumulator(state: EventHandlerState): void {
   state.pendingPartialFlushPromise = undefined;
 }
 
+/**
+ * Persist an in-loop message-content write, retrying transient SQLite write
+ * contention (`SQLITE_BUSY`/`SQLITE_IOERR`) and swallowing a final failure so a
+ * lock held by another writer cannot abort the turn. Every in-loop write
+ * rewrites the full content snapshot of its assistant/tool-result row, so a
+ * dropped write is overwritten by a later write in the same turn (the
+ * end-of-turn finalize) or the next turn — missing one is a self-healing
+ * cosmetic gap, not corruption.
+ *
+ * Returns whether the write committed, so callers can gate dependent
+ * bookkeeping (e.g. advancing the persisted seq) on durable content.
+ */
+async function persistLoopMessageContent(
+  messageId: string,
+  contentJson: string,
+  op: string,
+  rlog: pino.Logger,
+): Promise<boolean> {
+  try {
+    await withSqliteRetry(() => updateMessageContent(messageId, contentJson), {
+      op,
+      context: { messageId },
+    });
+    return true;
+  } catch (err) {
+    rlog.error(
+      { err, messageId, op },
+      "in-loop message-content write failed after retries; continuing without interrupting the turn",
+    );
+    return false;
+  }
+}
+
 /** Flush `state.currentMessageContent` to the persisted assistant row. */
 async function flushAccumulatedContent(
   state: EventHandlerState,
@@ -558,18 +593,16 @@ async function flushAccumulatedContent(
   // again, but they are not part of this write.
   const flushedSeq = state.lastPersistedContentSeq;
 
-  try {
-    updateMessageContent(messageId, contentJson);
-    // Record only after the write commits, so the snapshot seq never
-    // claims content that is not yet durable.
-    if (flushedSeq != null) {
-      recordConversationPersistedSeq(deps.ctx.conversationId, flushedSeq);
-    }
-  } catch (err) {
-    deps.rlog.warn(
-      { err, messageId },
-      "partial flush of accumulated assistant content failed; finalize at message_complete will recover",
-    );
+  const persisted = await persistLoopMessageContent(
+    messageId,
+    contentJson,
+    "partial_flush_assistant_content",
+    deps.rlog,
+  );
+  // Record only after the write commits, so the snapshot seq never
+  // claims content that is not yet durable.
+  if (persisted && flushedSeq != null) {
+    recordConversationPersistedSeq(deps.ctx.conversationId, flushedSeq);
   }
 }
 
@@ -1188,11 +1221,15 @@ async function persistPendingToolResultRow(
   );
   // Serialize the content after the reservation resolves so the last of the
   // concurrent writers reflects the fullest batch.
-  updateMessageContent(
+  const persisted = await persistLoopMessageContent(
     rowId,
     JSON.stringify(buildToolResultBlocks(state.pendingToolResults)),
+    "persist_tool_result_row",
+    deps.rlog,
   );
-  recordConversationPersistedSeq(deps.ctx.conversationId, seq);
+  if (persisted) {
+    recordConversationPersistedSeq(deps.ctx.conversationId, seq);
+  }
   const conv = getConversation(deps.ctx.conversationId);
   if (conv != null) {
     syncMessageToDisk(deps.ctx.conversationId, rowId, conv.createdAt);
@@ -1222,7 +1259,12 @@ export async function finalizePendingToolResultRow(
   const contentJson = JSON.stringify(
     buildToolResultBlocks(state.pendingToolResults),
   );
-  updateMessageContent(rowId, contentJson);
+  await persistLoopMessageContent(
+    rowId,
+    contentJson,
+    "finalize_tool_result_row",
+    rlog,
+  );
   // Sync the row to the JSONL disk view so it stays in lockstep with the DB.
   // `getConversation` returns `ConversationRow | null`, so `!= null` gates on a
   // real row (skipping the sync when the conversation was not found rather than
@@ -1277,6 +1319,10 @@ export async function finalizePendingToolResultRow(
         "Failed to index tool-result message for memory (non-fatal)",
       );
     }
+    // Dual-write the finalized tool-result content into the lexical index. The
+    // reserve+finalize path bypasses `onMessagePersisted`, so enqueue here to
+    // keep the lexical index in lockstep with the segment index.
+    enqueueLexicalIndexForMessage(rowId);
   }
   for (const id of state.pendingToolResults.keys()) {
     state.persistedToolUseIds.add(id);
@@ -1520,7 +1566,17 @@ function recordToolStartOnPersistedMessage(
     if (rec.id !== toolUseId) continue;
     if (rec._startedAt === startedAt) return;
     rec._startedAt = startedAt;
-    updateMessageContent(messageId, JSON.stringify(content));
+    // Best-effort early stamp: `annotatePersistedAssistantMessage` re-stamps
+    // once every tool in the turn completes, so a transient `SQLITE_BUSY` here
+    // must not abort the turn — the end-of-turn write recovers it.
+    try {
+      updateMessageContent(messageId, JSON.stringify(content));
+    } catch (err) {
+      log.error(
+        { err, messageId },
+        "stamping tool start time failed; end-of-turn annotation will recover",
+      );
+    }
     return;
   }
 }
@@ -1559,7 +1615,17 @@ function recordToolPreviewStartOnPersistedMessage(
     if (rec.id !== toolUseId) continue;
     if (rec._previewStartedAt === previewStartedAt) return;
     rec._previewStartedAt = previewStartedAt;
-    updateMessageContent(messageId, JSON.stringify(content));
+    // Best-effort early stamp, mirroring `recordToolStartOnPersistedMessage`:
+    // `annotatePersistedAssistantMessage` re-stamps at end of turn, so a
+    // transient `SQLITE_BUSY` here must not abort the turn.
+    try {
+      updateMessageContent(messageId, JSON.stringify(content));
+    } catch (err) {
+      log.error(
+        { err, messageId },
+        "stamping tool preview-start time failed; end-of-turn annotation will recover",
+      );
+    }
     return;
   }
 }
@@ -1680,6 +1746,10 @@ function annotatePersistedAssistantMessage(
   }
 
   if (modified) {
+    // This end-of-turn write is best-effort: the caller wraps it in a
+    // try/catch (and `dispatchAgentEvent` swallows `tool_result` handler
+    // errors), so a transient `SQLITE_BUSY` here is logged and the turn
+    // continues — it never reaches the turn-level catch.
     updateMessageContent(messageId, JSON.stringify(content));
   }
 
@@ -1917,7 +1987,12 @@ export async function handleMessageComplete(
     );
   }
   const contentJson = JSON.stringify(contentForPersistence);
-  updateMessageContent(assistantMessageId, contentJson);
+  const persisted = await persistLoopMessageContent(
+    assistantMessageId,
+    contentJson,
+    "finalize_assistant_message",
+    deps.rlog,
+  );
   state.assistantRowAwaitingFinalization = false;
   // The assistant row now holds the authoritative content (text + thinking +
   // tool_use blocks from `event.message`), and any drained tool-result rows
@@ -1927,8 +2002,9 @@ export async function handleMessageComplete(
   // turn, so this seq already covers it; a call that streams no content (a
   // pure tool call) advances instead via `tool_use_start`.
   // `recordConversationPersistedSeq` clamps monotonically, so a lower value
-  // here never regresses the seq.
-  if (state.lastPersistedContentSeq != null) {
+  // here never regresses the seq. Gate on `persisted` so a swallowed finalize
+  // write never advances the seq past content that is not durable.
+  if (persisted && state.lastPersistedContentSeq != null) {
     recordConversationPersistedSeq(
       deps.ctx.conversationId,
       state.lastPersistedContentSeq,
@@ -2001,6 +2077,10 @@ export async function handleMessageComplete(
         "Failed to index assistant message for memory (non-fatal)",
       );
     }
+    // Dual-write the finalized assistant content into the lexical index. The
+    // reserve+finalize path bypasses `onMessagePersisted`, so enqueue here to
+    // keep the lexical index in lockstep with the segment index.
+    enqueueLexicalIndexForMessage(assistantMessageId);
     try {
       const attentionStateChanged = projectAssistantMessage({
         conversationId: deps.ctx.conversationId,

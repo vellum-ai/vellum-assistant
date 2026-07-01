@@ -16,6 +16,7 @@ import { registerMessagingProvider } from "../messaging/registry.js";
 import { initializeProviders } from "../providers/registry.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
+import { validateSubagentRoleAllowlists } from "../subagent/validate-allowlists.js";
 import { createMcpToolsFromServer } from "../tools/mcp/mcp-tool-factory.js";
 import { initializeTools, registerMcpTools } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
@@ -109,6 +110,21 @@ export async function initializeProvidersAndTools(
   // `<workspaceDir>/tools/` once core tools have settled, so they own
   // their names before the MCP / plugin registrations below run.
   await initializeTools();
+
+  // Validate subagent role tool-allowlists against the now-registered core
+  // tool set (every allowlisted name is an eager core tool, so they are all
+  // present at this point). A renamed tool would otherwise silently strip a
+  // role's access — the stale name just never matches. Warn-and-continue per
+  // the daemon startup philosophy: a stale allowlist is a logic bug, not a
+  // reason to refuse boot.
+  try {
+    validateSubagentRoleAllowlists();
+  } catch (err) {
+    log.warn(
+      { err },
+      "Subagent role allowlist validation failed — continuing startup",
+    );
+  }
 
   // Start MCP servers and register their tools
   if (config.mcp?.servers && Object.keys(config.mcp.servers).length > 0) {

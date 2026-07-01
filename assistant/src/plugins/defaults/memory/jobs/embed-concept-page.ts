@@ -23,7 +23,6 @@ import { and, eq } from "drizzle-orm";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import {
-  embedWithBackend,
   generateSparseEmbedding,
   getMemoryBackendStatus,
 } from "../../../../persistence/embeddings/embedding-backend.js";
@@ -43,6 +42,7 @@ import { BackendUnavailableError } from "../../../../util/errors.js";
 import { getLogger } from "../../../../util/logger.js";
 import { getWorkspaceDir } from "../../../../util/platform.js";
 import { applyCorrectionIfCalibrated } from "../anisotropy.js";
+import { embedWithBackend } from "../embeddings.js";
 import { readPage } from "../v2/page-store.js";
 import {
   deleteConceptPageEmbedding,

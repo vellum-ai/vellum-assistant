@@ -37,17 +37,20 @@ import {
   resolveProfileParamVisibility,
 } from "@/domains/settings/ai/profile-param-visibility";
 import { deriveProfileDefaults } from "@/domains/settings/ai/profile-prefill";
+import { isProviderSelectableForAssistant } from "@/domains/settings/ai/provider-availability";
 import type {
   ConnectionProvider,
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
 import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
 import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
+import { useActiveAssistantIsSelfHosted } from "@/hooks/use-platform-gate";
 
 // Sentinel value for the "+ Create new provider" option in the create-mode
 // Provider dropdown. Picking it mounts the inline ProviderCreateForm instead
 // of selecting a provider.
 const CREATE_NEW_PROVIDER_SENTINEL = "__create_new_provider__";
+type EffortSelection = "inherit" | NonNullable<ProfileEntry["effort"]>;
 
 export interface ProfileEditorModalProps {
   isOpen: boolean;
@@ -167,6 +170,7 @@ function ProfileEditorModalInner({
     "create" | "edit" | "view"
   >(mode);
   const isReadOnly = effectiveMode === "view";
+  const activeAssistantIsSelfHosted = useActiveAssistantIsSelfHosted();
 
   // Managed profiles open the editor in view mode (mode === "view") so they
   // can't be reshaped (provider, model, advanced params) — those are
@@ -218,9 +222,8 @@ function ProfileEditorModalInner({
     );
 
   // Advanced params — segment controls
-  // effort: "none" is the sentinel for "not overridden"
-  const [effort, setEffort] = useState<NonNullable<ProfileEntry["effort"]>>(
-    initialValues?.effort ?? "none",
+  const [effort, setEffort] = useState<EffortSelection>(
+    initialValues?.effort ?? "inherit",
   );
   // speed: "standard" is the sentinel for "not overridden"
   const [speed, setSpeed] = useState<NonNullable<ProfileEntry["speed"]>>(
@@ -373,7 +376,7 @@ function ProfileEditorModalInner({
     // Reset all advanced params when provider changes
     setMaxTokens(null);
     setContextWindowMaxInputTokens(null);
-    setEffort("none");
+    setEffort("inherit");
     setSpeed("standard");
     setVerbosity("medium");
     setTemperatureEnabled(false);
@@ -571,7 +574,7 @@ function ProfileEditorModalInner({
       if (visibility.contextWindow && contextWindowMaxInputTokens !== null) {
         entry.contextWindow = { maxInputTokens: contextWindowMaxInputTokens };
       }
-      if (visibility.effort && effort !== "none") {
+      if (visibility.effort && effort !== "inherit") {
         entry.effort = effort;
       }
       if (visibility.speed && speed !== "standard") {
@@ -766,6 +769,14 @@ function ProfileEditorModalInner({
       label: string;
     }[] = [];
     for (const c of effectiveConnections) {
+      if (
+        !isProviderSelectableForAssistant(
+          c.provider,
+          activeAssistantIsSelfHosted,
+        )
+      ) {
+        continue;
+      }
       if (!seen.has(c.provider)) {
         seen.add(c.provider);
         opts.push({
@@ -779,7 +790,7 @@ function ProfileEditorModalInner({
       label: "+ Create new provider",
     });
     return opts;
-  }, [effectiveConnections]);
+  }, [activeAssistantIsSelfHosted, effectiveConnections]);
 
   const createProviderSection = (
     <div className="space-y-4">

@@ -8,7 +8,6 @@ on:
       - 'assistant/**'
       - 'credential-executor/**'
       - 'packages/**'
-      - 'skills/meet-join/contracts/**'
       - 'meta/feature-flags/**'
       # The daemon LLM catalog parity test reads these files, so hand edits to
       # either catalog JSON must run the assistant tests too.
@@ -47,7 +46,7 @@ jobs:
       - name: Install shared packages
         uses: ./.github/actions/install-shared-packages
         with:
-          packages: packages/service-contracts packages/ces-client packages/gateway-client skills/meet-join gateway
+          packages: packages/service-contracts packages/ces-client packages/gateway-client gateway
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
@@ -85,7 +84,7 @@ jobs:
       - name: Install shared packages
         uses: ./.github/actions/install-shared-packages
         with:
-          packages: packages/service-contracts packages/ces-client packages/gateway-client skills/meet-join gateway
+          packages: packages/service-contracts packages/ces-client packages/gateway-client gateway
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
@@ -123,7 +122,7 @@ jobs:
       - name: Install shared packages
         uses: ./.github/actions/install-shared-packages
         with:
-          packages: packages/service-contracts packages/ces-client packages/gateway-client skills/meet-join gateway
+          packages: packages/service-contracts packages/ces-client packages/gateway-client gateway
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
@@ -149,13 +148,6 @@ jobs:
           path: assistant/.test-durations
           key: test-durations-${{ github.run_id }}
 
-      # Smoke-run the meet-join manifest emitter so an assistant-side
-      # change that breaks the `SkillHost` contract or `register(host)`
-      # fails here instead of only at Docker-build or macOS-packaging
-      # time. Skill-only changes are covered by pr-skills.yaml via
-      # __tests__/emit-manifest.test.ts.
-      - name: Smoke test meet-join manifest emit
-        run: cd .. && bun run skills/meet-join/scripts/emit-manifest.ts --output /tmp/meet-join-manifest.json
 
   openapi-check:
     name: OpenAPI Spec Check
@@ -187,7 +179,7 @@ jobs:
       - name: Install shared packages
         uses: ./.github/actions/install-shared-packages
         with:
-          packages: packages/service-contracts packages/ces-client packages/gateway-client skills/meet-join gateway
+          packages: packages/service-contracts packages/ces-client packages/gateway-client gateway
 
       - name: Check OpenAPI spec is up to date
         run: bun run generate:openapi -- --check

@@ -28,7 +28,6 @@ import type { AssistantConfig } from "../../../../config/types.js";
 import { deleteMemoryCheckpoint } from "../../../../persistence/checkpoints.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import {
-  embedWithBackend,
   geminiCacheExtras,
   getMemoryBackendStatus,
 } from "../../../../persistence/embeddings/embedding-backend.js";
@@ -37,8 +36,8 @@ import {
   writeEmbeddingCache,
 } from "../../../../persistence/embeddings/embedding-cache.js";
 import { embeddingInputContentHash } from "../../../../persistence/embeddings/embedding-types.js";
-import { resolveQdrantUrl } from "../../../../persistence/embeddings/qdrant-client.js";
 import { getLogger } from "../../../../util/logger.js";
+import { embedWithBackend, resolveQdrantUrl } from "../embeddings.js";
 import type { Section } from "./types.js";
 
 const log = getLogger("memory-v3-section-dense-store");
@@ -77,12 +76,10 @@ let _collectionReady = false;
  * Shared by both section-dense lanes (this store and the dense read lane in
  * `dense.ts`) so they reuse one client instance and one reset hook.
  */
-export function getSectionDenseClient(
-  config: AssistantConfig,
-): QdrantRestClient {
+export function getSectionDenseClient(): QdrantRestClient {
   if (_client) return _client;
   _client = new QdrantRestClient({
-    url: resolveQdrantUrl(config),
+    url: resolveQdrantUrl(),
     checkCompatibility: false,
   });
   return _client;
@@ -108,7 +105,7 @@ export async function ensureSectionCollection(
 ): Promise<void> {
   if (_collectionReady) return;
 
-  const client = getSectionDenseClient(config);
+  const client = getSectionDenseClient();
   const vectorSize = config.memory.qdrant.vectorSize;
   const onDisk = config.memory.qdrant.onDisk;
 
@@ -218,7 +215,7 @@ export async function ensureSectionCollection(
 export async function recreateSectionCollection(
   config: AssistantConfig,
 ): Promise<void> {
-  const client = getSectionDenseClient(config);
+  const client = getSectionDenseClient();
   const exists = await client.collectionExists(SECTION_COLLECTION);
   if (exists.exists) {
     await client.deleteCollection(SECTION_COLLECTION);
@@ -296,7 +293,7 @@ export async function upsertSections(
 
   if (points.length === 0) return;
 
-  await getSectionDenseClient(config).upsert(SECTION_COLLECTION, {
+  await getSectionDenseClient().upsert(SECTION_COLLECTION, {
     wait: true,
     points,
   });
@@ -418,7 +415,7 @@ export async function deleteSectionsForArticle(
 ): Promise<void> {
   await ensureSectionCollection(config);
 
-  await getSectionDenseClient(config).delete(SECTION_COLLECTION, {
+  await getSectionDenseClient().delete(SECTION_COLLECTION, {
     wait: true,
     filter: { must: [{ key: "article", match: { value: article } }] },
   });
@@ -440,7 +437,7 @@ export async function listSectionArticles(
 ): Promise<string[]> {
   await ensureSectionCollection(config);
 
-  const client = getSectionDenseClient(config);
+  const client = getSectionDenseClient();
   const articles = new Set<string>();
   let offset: string | number | undefined = undefined;
   const maxIterations = 10_000;

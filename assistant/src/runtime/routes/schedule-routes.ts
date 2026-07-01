@@ -273,7 +273,7 @@ async function handleCreateSchedule(body: Record<string, unknown>) {
   // entirely (see the workflow branch below), so only require a message for the
   // execute path. Requiring it for workflow mode would force API/UI callers to
   // pass an unused dummy string.
-  if (mode !== "workflow" && !message) {
+  if (mode !== "workflow" && mode !== "script" && !message) {
     throw new BadRequestError("message is required");
   }
   if (description === "") {
@@ -283,9 +283,9 @@ async function handleCreateSchedule(body: Record<string, unknown>) {
   // The settings UI only exposes execute mode; `workflow` mode is reachable
   // here (flag-gated) and via the schedule_create LLM tool. All other modes
   // remain tool-only.
-  if (mode !== "execute" && mode !== "workflow") {
+  if (mode !== "execute" && mode !== "workflow" && mode !== "script") {
     throw new BadRequestError(
-      "Only 'execute' and 'workflow' modes are supported by this endpoint",
+      "Only 'execute', 'script', and 'workflow' modes are supported by this endpoint",
     );
   }
 
@@ -321,6 +321,37 @@ async function handleCreateSchedule(body: Record<string, unknown>) {
         { id: job.id, name: job.name, workflowName },
         "Workflow schedule created",
       );
+    } catch (err) {
+      if (err instanceof Error) throw new BadRequestError(err.message);
+      throw err;
+    }
+    return handleListSchedules({});
+  }
+
+  if (mode === "script") {
+    const script = typeof body.script === "string" ? body.script.trim() : "";
+    if (!script) {
+      throw new BadRequestError("script is required for script-mode schedules");
+    }
+    const timeoutMs = body.timeoutMs == null ? null : Number(body.timeoutMs);
+    if (timeoutMs !== null) {
+      const timeoutError = validateScriptTimeoutMs(timeoutMs);
+      if (timeoutError) throw new BadRequestError(timeoutError);
+    }
+    try {
+      const job = await createSchedule({
+        name,
+        description,
+        message,
+        mode: "script",
+        script,
+        enabled,
+        timezone,
+        expression: normalized.expression,
+        syntax: normalized.syntax,
+        timeoutMs,
+      });
+      log.info({ id: job.id, name: job.name }, "Script schedule created");
     } catch (err) {
       if (err instanceof Error) throw new BadRequestError(err.message);
       throw err;
@@ -675,7 +706,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Create schedule",
     description:
-      "Create a new recurring schedule. Currently restricted to mode='execute'.",
+      "Create a new recurring schedule (execute, script, or workflow mode).",
     tags: ["schedules"],
     requestBody: z.object({
       name: z.string().describe("Display name"),
@@ -703,7 +734,7 @@ export const ROUTES: RouteDefinition[] = [
         .optional(),
       mode: z
         .string()
-        .describe("'execute' (default) or 'workflow' (flag-gated)")
+        .describe("'execute' (default), 'script', or 'workflow' (flag-gated)")
         .optional(),
       workflowName: z
         .string()
@@ -712,6 +743,15 @@ export const ROUTES: RouteDefinition[] = [
       workflowArgs: z
         .unknown()
         .describe("Args passed to the workflow run (workflow mode)")
+        .optional(),
+      script: z
+        .string()
+        .describe("Shell command run on each fire (required for script mode)")
+        .optional(),
+      timeoutMs: z
+        .number()
+        .nullable()
+        .describe("Script execution timeout override in ms (script mode)")
         .optional(),
       inferenceProfile: z
         .string()
@@ -903,6 +943,7 @@ async function handleRunScheduleNow(id: string) {
       const result = await runScript(schedule.script, {
         timeoutMs: schedule.timeoutMs ?? undefined,
         scheduleRunId: runId,
+        scheduleId: schedule.id,
       });
       await completeScheduleRun(runId, {
         status: result.exitCode === 0 ? "ok" : "error",

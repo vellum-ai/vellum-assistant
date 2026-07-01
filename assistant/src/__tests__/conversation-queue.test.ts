@@ -827,6 +827,13 @@ describe("Conversation message queue", () => {
       (e) => e.type === "conversation_error",
     );
     expect(conversationErr3).toBeUndefined();
+
+    // Settle the aborted in-flight run so its abort watchdog clears the
+    // real-time timer it armed. A leaked ~5s timer otherwise fires during a
+    // later test and drives this stale turn into commitTurnChanges, inflating
+    // the shared turnCommitCalls counter that other tests assert against.
+    await resolveRun(0);
+    await new Promise((r) => setTimeout(r, 10));
   });
 
   test("conversation-scoped errors emit both conversation_error and generic error", async () => {
@@ -2801,6 +2808,13 @@ describe("Regression: cancel semantics and error channel split", () => {
       );
       expect(conversationErr).toBeUndefined();
     }
+
+    // Settle the aborted in-flight run so its abort watchdog clears the
+    // real-time timer it armed. A leaked ~5s timer otherwise fires during a
+    // later test and drives this stale turn into commitTurnChanges, inflating
+    // the shared turnCommitCalls counter that other tests assert against.
+    await resolveRun(0);
+    await new Promise((r) => setTimeout(r, 10));
   });
 
   test("commitTurnChanges never resolving within budget -> turn still completes and drains queue", async () => {
@@ -3082,6 +3096,50 @@ describe("subagent notification user_message_echo suppression", () => {
     // agent...
     expect(
       capturedAddMessages.some((m) => m.content.includes("ACP agent")),
+    ).toBe(true);
+    expect(pendingRuns.length).toBe(2);
+    // ...but no user_message_echo, so the client never renders a live bubble.
+    expect(eventsNotif.some((e) => e.type === "user_message_echo")).toBe(false);
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("drained background-tool wake message persists and wakes the agent but emits no user_message_echo", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: ServerMessage[] = [];
+    const eventsNotif: ServerMessage[] = [];
+
+    // Occupy the conversation so the injected wake queues.
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    // The backgrounded bash/host_bash completion wake persists a
+    // `<background_event source="background-tool">` row, tagged with the
+    // `backgroundEventSource` metadata `persistWakeTriggerMessage` writes.
+    conversation.enqueueMessage({
+      content:
+        '<background_event source="background-tool">Background command completed (id=bg-1, exit=0):</background_event>',
+      onEvent: (e) => eventsNotif.push(e),
+      requestId: "req-bg-notif",
+      metadata: { backgroundEventSource: "background-tool" },
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // Still persisted (so the orchestrator LLM sees it) and still wakes the
+    // agent...
+    expect(
+      capturedAddMessages.some((m) => m.content.includes("background_event")),
     ).toBe(true);
     expect(pendingRuns.length).toBe(2);
     // ...but no user_message_echo, so the client never renders a live bubble.
