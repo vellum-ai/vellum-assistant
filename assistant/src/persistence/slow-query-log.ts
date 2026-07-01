@@ -18,10 +18,19 @@
  * naming the specific query behind a freeze regardless of whether it came from
  * Drizzle or {@link ./raw-query}.
  *
+ * The same per-statement chokepoint also surfaces *failed* executions: when a
+ * statement throws, the error is handed to an optional {@link StatementErrorObserver}
+ * (registered via {@link setStatementErrorObserver}) before it propagates
+ * unchanged. This is how the SQLite corruption watchdog notices
+ * `SQLITE_CORRUPT` / `SQLITE_NOTADB` on any query or write — read or write,
+ * Drizzle or raw — without a polling `integrity_check` loop that would itself
+ * block the event loop. The wrapper stays decoupled from telemetry: it just
+ * reports the error to whoever registered.
+ *
  * This is pure instrumentation: return values, parameter binding, transactions,
  * savepoints, and error propagation are all preserved exactly. The fast path
- * adds only a `performance.now()` pair and a numeric compare — no allocation or
- * SQL slicing happens unless the threshold is exceeded.
+ * adds only a `performance.now()` pair and a numeric compare — no allocation,
+ * SQL slicing, or observer call happens unless the statement is slow or throws.
  */
 
 import type { Database, Statement } from "bun:sqlite";
@@ -69,11 +78,54 @@ export function reportSlowQuery(event: SlowQueryEvent): void {
   log.warn(event, "Slow SQLite query blocked the event loop");
 }
 
+/** Context handed to a {@link StatementErrorObserver} for a failed execution. */
+export interface StatementErrorContext {
+  /** SQL preview (first {@link SQL_PREVIEW_MAX} chars) of the failing statement. */
+  sql: string;
+  /**
+   * Identifier of the database file the connection targets ("main" / "logs" /
+   * "memory" / "telemetry"), when {@link wrapSqliteForSlowQueryLogging} was
+   * told which one. Absent on connections wrapped without a `database` option.
+   */
+  database?: string;
+  /** Caller-supplied `.label()` attribution tag, when present. */
+  label?: string;
+}
+
+/**
+ * Notified when a wrapped statement execution throws, before the error
+ * propagates unchanged. Registered process-wide via
+ * {@link setStatementErrorObserver}; the wrapper itself stays ignorant of what
+ * the observer does with the error (the corruption watchdog registers one).
+ */
+export type StatementErrorObserver = (
+  err: unknown,
+  context: StatementErrorContext,
+) => void;
+
+let statementErrorObserver: StatementErrorObserver | null = null;
+
+/**
+ * Register (or clear, with `null`) the process-wide {@link StatementErrorObserver}.
+ * Read at execution time, so a connection wrapped before the observer is
+ * registered still reports later failures — the daemon wraps connections at
+ * construction and registers the observer at boot.
+ */
+export function setStatementErrorObserver(
+  observer: StatementErrorObserver | null,
+): void {
+  statementErrorObserver = observer;
+}
+
 /** Injectable seams so the wrapper is unit-testable with a fake clock/sink. */
 export interface SlowQueryWatcherOptions {
   thresholdMs?: number;
   now?: () => number;
   onSlowQuery?: (event: SlowQueryEvent) => void;
+  /** Database-file identifier tagged onto slow-query and error reports. */
+  database?: string;
+  /** Test seam: overrides the module-level {@link StatementErrorObserver}. */
+  onStatementError?: StatementErrorObserver;
 }
 
 /** Fluent handle returned by {@link Database.label}; tags any slow-query log. */
@@ -116,6 +168,28 @@ export function wrapSqliteForSlowQueryLogging(
   const thresholdMs = options.thresholdMs ?? SLOW_QUERY_THRESHOLD_MS;
   const now = options.now ?? (() => performance.now());
   const onSlowQuery = options.onSlowQuery ?? reportSlowQuery;
+  const database = options.database;
+
+  // Slow path only (a statement threw). Resolves the observer at call time so
+  // late module-level registration is honored, and never lets an observer
+  // failure escape into the query path.
+  const notifyError = (
+    err: unknown,
+    sql: string,
+    label: string | undefined,
+  ): void => {
+    const observer = options.onStatementError ?? statementErrorObserver;
+    if (!observer) return;
+    try {
+      observer(err, {
+        sql: sql.slice(0, SQL_PREVIEW_MAX),
+        ...(database === undefined ? {} : { database }),
+        ...(label === undefined ? {} : { label }),
+      });
+    } catch {
+      // An observer must never break the query path.
+    }
+  };
 
   // Re-entrancy guard. `bun:sqlite` implements `db.query(sql).run()` by
   // delegating through the (also-wrapped) `db.prepare(sql)`, so the outer
@@ -175,12 +249,17 @@ export function wrapSqliteForSlowQueryLogging(
               try {
                 result = call(...args);
                 return result;
+              } catch (err) {
+                // The failed op still blocked and still needs timing (below);
+                // surface it to the error observer before it propagates
+                // unchanged. Re-entrant inner calls short-circuit above
+                // (`if (timing)`), so a nested throw is observed once, here.
+                notifyError(err, sql, label);
+                throw err;
               } finally {
                 timing = false;
                 // Fast path: one subtraction + one compare. Nothing is
-                // allocated or sliced unless we cross the threshold. A thrown
-                // error still lands here (the failed op still blocked) and is
-                // reported before `finally` lets it propagate unchanged.
+                // allocated or sliced unless we cross the threshold.
                 const durationMs = now() - start;
                 if (durationMs >= thresholdMs) {
                   emit(sql, label, durationMs, result);
@@ -209,22 +288,47 @@ export function wrapSqliteForSlowQueryLogging(
   const originalPrepare = sqlite.prepare.bind(sqlite);
   const originalRun = sqlite.run.bind(sqlite);
 
+  // `.query()` / `.prepare()` compile the SQL, which reads the schema — on a
+  // file with a corrupt header ("file is not a database") that read throws
+  // *here*, before any execution method runs, so the error is surfaced to the
+  // observer at creation time too. (Malformed-*page* corruption instead
+  // surfaces at step time and is caught in the execution closures above.) A
+  // `query()` that delegates through the wrapped `prepare()` may notify twice;
+  // the observer's per-database debounce collapses that to one report.
+  const createStatement = (
+    create: (...a: unknown[]) => Statement,
+    sql: string,
+    label: string | undefined,
+    rest: unknown[],
+  ): Statement => {
+    let stmt: Statement;
+    try {
+      stmt = create(sql, ...rest);
+    } catch (err) {
+      notifyError(err, sql, label);
+      throw err;
+    }
+    return wrapStatement(stmt, sql, label);
+  };
+
   const makeQuery =
     (label: string | undefined) =>
     (sql: string, ...rest: unknown[]): Statement =>
-      wrapStatement(
-        (originalQuery as (...a: unknown[]) => Statement)(sql, ...rest),
+      createStatement(
+        originalQuery as (...a: unknown[]) => Statement,
         sql,
         label,
+        rest,
       );
 
   const makePrepare =
     (label: string | undefined) =>
     (sql: string, ...rest: unknown[]): Statement =>
-      wrapStatement(
-        (originalPrepare as (...a: unknown[]) => Statement)(sql, ...rest),
+      createStatement(
+        originalPrepare as (...a: unknown[]) => Statement,
         sql,
         label,
+        rest,
       );
 
   // `Database.run(sql, ...params)` is a native shortcut that does not route
@@ -241,6 +345,9 @@ export function wrapSqliteForSlowQueryLogging(
       try {
         result = call(sql, ...params);
         return result;
+      } catch (err) {
+        notifyError(err, sql, label);
+        throw err;
       } finally {
         timing = false;
         const durationMs = now() - start;

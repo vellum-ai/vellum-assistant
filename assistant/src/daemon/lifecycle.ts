@@ -80,6 +80,7 @@ import {
   registerWatcherProviders,
 } from "./providers-setup.js";
 import { installShutdownHandlers } from "./shutdown-handlers.js";
+import { startSqliteCorruptionWatchdog } from "./sqlite-corruption-watchdog.js";
 import { broadcastDaemonStatus } from "./status.js";
 
 const log = getLogger("lifecycle");
@@ -601,6 +602,7 @@ export async function runDaemon(): Promise<void> {
   startDiskPressureGuardForLifecycle();
   startOrphanReaper();
   startEventLoopWatchdog();
+  startSqliteCorruptionWatchdog();
 
   registerWatcherProviders();
   registerMessagingProviders();

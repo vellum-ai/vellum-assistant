@@ -34,6 +34,7 @@ import { cleanupPidFile } from "./daemon-control.js";
 import { stopEventLoopWatchdog } from "./event-loop-watchdog.js";
 import { stopDiskPressureGuardForLifecycle } from "./lifecycle.js";
 import { stopOrphanReaper } from "./orphan-reaper.js";
+import { stopSqliteCorruptionWatchdog } from "./sqlite-corruption-watchdog.js";
 
 const log = getLogger("lifecycle");
 
@@ -47,6 +48,7 @@ function stopBackgroundServicesAndCleanupPidFile(): void {
   stopDiskPressureGuardForLifecycle();
   stopOrphanReaper();
   stopEventLoopWatchdog();
+  stopSqliteCorruptionWatchdog();
   cleanupPidFile();
 }
 

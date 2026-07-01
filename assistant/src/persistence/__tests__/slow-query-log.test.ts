@@ -1,9 +1,13 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 
 import {
   SLOW_QUERY_THRESHOLD_MS,
   type SlowQueryEvent,
+  type StatementErrorContext,
   wrapSqliteForSlowQueryLogging,
 } from "../slow-query-log.js";
 
@@ -186,5 +190,97 @@ describe("slow-query-log", () => {
   test("wraps in place and returns the same Database instance", () => {
     const db = new Database(":memory:");
     expect(wrapSqliteForSlowQueryLogging(db)).toBe(db);
+  });
+
+  test("a failing execution reaches the statement-error observer with context", () => {
+    const seen: { err: unknown; ctx: StatementErrorContext }[] = [];
+    const db = new Database(":memory:");
+    db.exec("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    db.exec("INSERT INTO t (id) VALUES (1)"); // seed via exec (not wrapped)
+    wrapSqliteForSlowQueryLogging(db, {
+      // Never slow — proves the error seam is independent of the timing path.
+      thresholdMs: Number.POSITIVE_INFINITY,
+      database: "main",
+      onStatementError: (err, ctx) => seen.push({ err, ctx }),
+    });
+
+    expect(() =>
+      db.label("dup-insert").query("INSERT INTO t (id) VALUES (1)").run(),
+    ).toThrow();
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0].err).toBeInstanceOf(Error);
+    expect(seen[0].ctx.database).toBe("main");
+    expect(seen[0].ctx.label).toBe("dup-insert");
+    expect(seen[0].ctx.sql).toContain("INSERT INTO t");
+  });
+
+  test("Database.run failures reach the statement-error observer", () => {
+    const seen: StatementErrorContext[] = [];
+    const db = new Database(":memory:");
+    db.exec("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    db.exec("INSERT INTO t (id) VALUES (1)");
+    wrapSqliteForSlowQueryLogging(db, {
+      database: "memory",
+      onStatementError: (_err, ctx) => seen.push(ctx),
+    });
+
+    expect(() => db.run("INSERT INTO t (id) VALUES (1)")).toThrow();
+    expect(seen).toHaveLength(1);
+    expect(seen[0].database).toBe("memory");
+  });
+
+  test("the statement-error observer never fires on success", () => {
+    const seen: unknown[] = [];
+    const db = new Database(":memory:");
+    db.exec("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    wrapSqliteForSlowQueryLogging(db, {
+      onStatementError: (err) => seen.push(err),
+    });
+
+    db.query("INSERT INTO t (id) VALUES (1)").run();
+    db.query("SELECT * FROM t").all();
+
+    expect(seen).toHaveLength(0);
+  });
+
+  test("a corrupt-header file surfaces at prepare time to the observer", () => {
+    // "file is not a database" throws while `.query()` compiles the SQL (it
+    // reads the schema), before any execution method — so the create-time seam
+    // must catch it, not just the execution closures.
+    const dir = mkdtempSync(join(tmpdir(), "slow-query-corrupt-"));
+    const garbagePath = join(dir, "not-a.db");
+    writeFileSync(
+      garbagePath,
+      Buffer.from("this is definitely not a sqlite db"),
+    );
+
+    const seen: { err: unknown; ctx: StatementErrorContext }[] = [];
+    const db = new Database(garbagePath);
+    wrapSqliteForSlowQueryLogging(db, {
+      database: "main",
+      onStatementError: (err, ctx) => seen.push({ err, ctx }),
+    });
+
+    expect(() => db.query("SELECT name FROM sqlite_master").all()).toThrow();
+    expect(seen.length).toBeGreaterThanOrEqual(1);
+    expect((seen[0].err as { code?: string }).code).toBe("SQLITE_NOTADB");
+    expect(seen[0].ctx.database).toBe("main");
+  });
+
+  test("an observer that throws never breaks the query path", () => {
+    const db = new Database(":memory:");
+    db.exec("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    db.exec("INSERT INTO t (id) VALUES (1)");
+    wrapSqliteForSlowQueryLogging(db, {
+      onStatementError: () => {
+        throw new Error("observer blew up");
+      },
+    });
+
+    // The original constraint error must still propagate — not the observer's.
+    expect(() => db.query("INSERT INTO t (id) VALUES (1)").run()).toThrow(
+      /UNIQUE|constraint/i,
+    );
   });
 });

@@ -114,7 +114,7 @@ export function getDb(): DrizzleDb {
   ensureDataDir();
   const sqlite = new Database(getDbPath());
   applyConnectionPragmas(sqlite);
-  wrapSqliteForSlowQueryLogging(sqlite);
+  wrapSqliteForSlowQueryLogging(sqlite, { database: "main" });
   const db = drizzle(sqlite, { schema });
   setStoredDb("main", db, () => sqlite.close());
   return db;
@@ -161,7 +161,7 @@ function openDedicatedDb(
   try {
     const sqlite = new Database(dbPath);
     applyConnectionPragmas(sqlite);
-    wrapSqliteForSlowQueryLogging(sqlite);
+    wrapSqliteForSlowQueryLogging(sqlite, { database: key });
     const db = drizzle(sqlite, { schema });
     setStoredDb(key, db, () => sqlite.close());
     return db;
