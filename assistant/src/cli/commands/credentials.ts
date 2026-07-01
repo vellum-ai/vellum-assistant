@@ -689,6 +689,23 @@ Examples:
             }
 
             if (!ipc.result?.ok) {
+              // An explicit user cancel is a valid outcome, not a failure.
+              // Surface it as an informational message and exit 130 — the
+              // conventional "user interrupt" (SIGINT) code — so callers and
+              // setup skills can tell a deliberate cancel apart from a genuine
+              // error (which stays exit 1). Nothing was stored either way.
+              if (ipc.result?.cancelled) {
+                if (shouldOutputJson(cmd)) {
+                  writeOutput(cmd, ipc.result);
+                } else {
+                  log.info(
+                    ipc.result.error ??
+                      "Credential prompt cancelled by the user",
+                  );
+                }
+                process.exitCode = 130;
+                return;
+              }
               writeError(cmd, ipc.result?.error ?? "Credential prompt failed");
               process.exitCode = 1;
               return;

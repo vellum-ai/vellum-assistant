@@ -9588,6 +9588,8 @@ paths:
                 properties:
                   ok:
                     type: boolean
+                  cancelled:
+                    type: boolean
                   error:
                     type: string
                   service:
