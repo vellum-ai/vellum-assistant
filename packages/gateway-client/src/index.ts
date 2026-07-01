@@ -91,6 +91,36 @@ export type {
   TrustVerdict,
 } from "./trust-verdict-contract.js";
 
+// Invite contract (shared gateway ↔ daemon) — hash/generate helpers,
+// channel gating, redemption outcome + invite IPC schemas
+export {
+  ActiveVoiceInviteSchema,
+  generateInviteCode,
+  generateInviteToken,
+  GetActiveVoiceInviteRequestSchema,
+  hashInviteCode,
+  hashInviteToken,
+  INVITE_CODE_REDEMPTION_CHANNELS,
+  INVITE_REDEMPTION_RESULT_VALUES,
+  InviteRedeemedNotificationSchema,
+  InviteRedemptionOutcomeSchema,
+  isInviteCodeRedemptionEnabled,
+  RedeemInviteByCodeRequestSchema,
+  RedeemInviteByTokenRequestSchema,
+  RedeemVoiceInviteRequestSchema,
+} from "./invite-contract.js";
+
+export type {
+  ActiveVoiceInvite,
+  GetActiveVoiceInviteRequest,
+  InviteRedeemedNotification,
+  InviteRedemptionOutcome,
+  InviteRedemptionResult,
+  RedeemInviteByCodeRequest,
+  RedeemInviteByTokenRequest,
+  RedeemVoiceInviteRequest,
+} from "./invite-contract.js";
+
 // Guardian delivery contract (daemon → gateway pull) — Zod schemas + derived types
 export {
   GuardianDeliverySchema,

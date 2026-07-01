@@ -6,8 +6,9 @@
  * token is returned exactly once at creation time and never stored.
  */
 
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
+import { generateInviteToken, hashInviteToken } from "@vellumai/gateway-client";
 import { and, desc, eq, gt } from "drizzle-orm";
 
 import { getDb } from "./db-connection.js";
@@ -57,14 +58,10 @@ const DEFAULT_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 // Helpers
 // ---------------------------------------------------------------------------
 
-export function hashToken(rawToken: string): string {
-  return createHash("sha256").update(rawToken).digest("hex");
-}
-
-function generateToken(): string {
-  // 32 bytes = 256 bits of entropy, base64url-encoded to a 43-character URL-safe string.
-  return randomBytes(32).toString("base64url");
-}
+// Thin alias over the shared @vellumai/gateway-client invite contract so
+// gateway-computed hashes stay byte-for-byte compatible with daemon-minted
+// ones.
+export const hashToken = hashInviteToken;
 
 function rowToInvite(
   row: typeof assistantIngressInvites.$inferSelect,
@@ -117,7 +114,7 @@ export function createInvite(params: {
   const db = getDb();
   const now = Date.now();
   const id = randomUUID();
-  const rawToken = generateToken();
+  const rawToken = generateInviteToken();
   const tokenH = hashToken(rawToken);
 
   const row = {
