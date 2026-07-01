@@ -6,6 +6,8 @@ const OTHER_PLATFORM_ASSISTANT_ID = "019ed7d1-e995-71cc-9859-c54f422ace3d";
 const ORGANIZATION_ID = "019ed7d1-e995-71cc-9859-c54f422ace3e";
 const GATEWAY_URL = "http://localhost:5173/assistant/__gateway/20101";
 const HOST_INSTALLATION_ID = "host-installation-1";
+const STATUS_PLATFORM_BASE_URL = "https://registered-platform.example.com";
+const CONFIG_PLATFORM_BASE_URL = "http://localhost:8000";
 
 type RecordedRequest = {
   pathname: string;
@@ -49,7 +51,7 @@ mock.module("@/lib/auth/request-headers", () => ({
 mock.module("@/lib/local-mode", () => ({
   getActiveAssistant: () => activeAssistant,
   getLocalGatewayUrl: () => "/assistant/__gateway/20101",
-  getPlatformRuntimeUrl: () => "http://localhost:8000",
+  getPlatformRuntimeUrl: () => CONFIG_PLATFORM_BASE_URL,
   getSelectedAssistant: () => activeAssistant,
   isLocalAssistant: (assistant: { cloud?: string }) =>
     assistant?.cloud === "local",
@@ -132,6 +134,7 @@ beforeEach(() => {
   browserDeviceId = null;
   statusBody = {
     assistant_id: PLATFORM_ASSISTANT_ID,
+    baseUrl: STATUS_PLATFORM_BASE_URL,
     organization_id: ORGANIZATION_ID,
     has_assistant_api_key: true,
     client_installation_id: HOST_INSTALLATION_ID,
@@ -202,7 +205,27 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
     expect(updateLockfileAssistantMock).toHaveBeenCalledWith({
       ...activeAssistant,
       platformAssistantId: PLATFORM_ASSISTANT_ID,
-      platformBaseUrl: "http://localhost:8000",
+      platformBaseUrl: STATUS_PLATFORM_BASE_URL,
+      platformOrganizationId: ORGANIZATION_ID,
+    });
+  });
+
+  test("falls back to the configured platform URL when status omits its base URL", async () => {
+    statusBody = {
+      assistant_id: PLATFORM_ASSISTANT_ID,
+      organization_id: ORGANIZATION_ID,
+      has_assistant_api_key: true,
+      client_installation_id: HOST_INSTALLATION_ID,
+    };
+
+    const platformAssistantId =
+      await resolveLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
+
+    expect(platformAssistantId).toBe(PLATFORM_ASSISTANT_ID);
+    expect(updateLockfileAssistantMock).toHaveBeenCalledWith({
+      ...activeAssistant,
+      platformAssistantId: PLATFORM_ASSISTANT_ID,
+      platformBaseUrl: CONFIG_PLATFORM_BASE_URL,
       platformOrganizationId: ORGANIZATION_ID,
     });
   });
@@ -210,6 +233,7 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
   test("repairs a stored platform id when the local assistant is missing its API key", async () => {
     statusBody = {
       assistant_id: PLATFORM_ASSISTANT_ID,
+      baseUrl: STATUS_PLATFORM_BASE_URL,
       organization_id: ORGANIZATION_ID,
       has_assistant_api_key: false,
       client_installation_id: HOST_INSTALLATION_ID,
@@ -264,10 +288,15 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
       name: "vellum:platform_assistant_id",
       value: PLATFORM_ASSISTANT_ID,
     });
+    expect(injectedSecrets).toContainEqual({
+      type: "credential",
+      name: "vellum:platform_base_url",
+      value: STATUS_PLATFORM_BASE_URL,
+    });
     expect(updateLockfileAssistantMock).toHaveBeenCalledWith({
       ...activeAssistant,
       platformAssistantId: PLATFORM_ASSISTANT_ID,
-      platformBaseUrl: "http://localhost:8000",
+      platformBaseUrl: STATUS_PLATFORM_BASE_URL,
       platformOrganizationId: ORGANIZATION_ID,
     });
   });

@@ -31,6 +31,8 @@ const ELECTRON_RENDERER_ORIGIN_HEADER = "X-Vellum-Electron-Renderer-Origin";
 type PlatformStatusBody = {
   assistantId?: unknown;
   assistant_id?: unknown;
+  baseUrl?: unknown;
+  base_url?: unknown;
   organizationId?: unknown;
   organization_id?: unknown;
   hasAssistantApiKey?: unknown;
@@ -41,6 +43,7 @@ type PlatformStatusBody = {
 
 type LocalPlatformStatus = {
   assistantId: string | null;
+  baseUrl: string | null;
   organizationId: string | null;
   hasAssistantApiKey: boolean | null;
   clientInstallationId: string | null;
@@ -162,7 +165,7 @@ async function ensureLocalAssistantPlatformIdentity(
     if (statusOrganizationId) {
       await persistPlatformRegistrationMetadata(assistant, {
         platformAssistantId: statusPlatformAssistantId,
-        platformBaseUrl: getPlatformRuntimeUrl(),
+        platformBaseUrl: status?.baseUrl ?? getPlatformRuntimeUrl(),
         organizationId: statusOrganizationId,
       });
     }
@@ -214,16 +217,17 @@ async function ensureLocalAssistantPlatformIdentity(
     );
   }
 
+  const platformBaseUrl = status?.baseUrl ?? getPlatformRuntimeUrl();
   await injectPlatformCredentials(gateway, {
     assistantApiKey,
     platformAssistantId,
-    platformBaseUrl: getPlatformRuntimeUrl(),
+    platformBaseUrl,
     organizationId,
     webhookSecret: stringValue(registration.webhook_secret),
   });
   await persistPlatformRegistrationMetadata(assistant, {
     platformAssistantId,
-    platformBaseUrl: getPlatformRuntimeUrl(),
+    platformBaseUrl,
     organizationId,
   });
 
@@ -299,6 +303,7 @@ async function fetchPlatformStatus(
     .catch(() => null)) as PlatformStatusBody | null;
   return {
     assistantId: firstString(body?.assistantId, body?.assistant_id),
+    baseUrl: firstString(body?.baseUrl, body?.base_url),
     organizationId: firstString(body?.organizationId, body?.organization_id),
     hasAssistantApiKey: firstBoolean(
       body?.hasAssistantApiKey,
