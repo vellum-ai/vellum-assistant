@@ -225,6 +225,31 @@ describe("enforceIngressAcl — verdict-sourced member resolution", () => {
     expect(deliverReplyCalls.length).toBe(0);
   });
 
+  test("guardian verdict with an explicit policy-deny member row is denied, not admitted", async () => {
+    // An explicit per-channel policy deny on the guardian's own row is
+    // honored like blocked/revoked — the guardian short-circuit must not
+    // bypass it. Accurate policy_deny reason, no stranger-lane side effects.
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceMetadata: withVerdict(
+          memberVerdict({
+            trustClass: "guardian",
+            policy: "deny",
+            guardianPrincipalId: "p-1",
+          }),
+        ),
+      }),
+    );
+
+    expect(result.earlyResponse).toMatchObject({
+      accepted: true,
+      denied: true,
+      reason: "policy_deny",
+    });
+    expect(accessRequestCalls.length).toBe(0);
+    expect(deliverReplyCalls.length).toBe(0);
+  });
+
   test("contradictory guardian verdict with a blocked member row fails safe", async () => {
     // The gateway never classifies a blocked row as guardian; a verdict
     // claiming both is malformed. Soft-deny with no stranger-lane side

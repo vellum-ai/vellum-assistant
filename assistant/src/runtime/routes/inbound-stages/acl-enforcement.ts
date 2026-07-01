@@ -243,6 +243,26 @@ export async function enforceIngressAcl(
       return failClosedDeny();
     }
 
+    // An explicit per-channel `policy: "deny"` on the guardian's own row is
+    // honored like blocked/revoked: explicit governance wins over
+    // classification. Deny with the accurate policy_deny reason but none of
+    // the stranger-lane side effects — the canned "ask the guardian" reply
+    // would be addressed at the guardian themselves.
+    if (resolvedMember?.policy === "deny") {
+      log.info(
+        { sourceChannel, externalUserId: canonicalSenderId },
+        "Ingress ACL: guardian member row carries policy deny, denying",
+      );
+      return {
+        resolvedMember,
+        earlyResponse: {
+          accepted: true,
+          denied: true,
+          reason: "policy_deny",
+        },
+      };
+    }
+
     log.info(
       { sourceChannel, externalUserId: canonicalSenderId },
       "Ingress ACL: guardian admitted via trust verdict",
