@@ -564,11 +564,13 @@ export class CallController {
       if (this.isLockContentionError(err) && this.isCurrentRun(runVersion)) {
         log.debug(
           { callSessionId: this.callSessionId },
-          "Swallowing transient processing-lock contention race",
+          "Prior voice turn wedged past lock-hold budget; re-prompting caller",
         );
-        // Send an empty end-of-turn marker so the relay transitions back to
-        // listening, without speaking any technical-issue text.
-        this.transport.sendTextToken("", true);
+        // Reaching here means the prior turn is genuinely wedged past the full
+        // lock-hold wait budget, so surface a brief natural re-prompt (never a
+        // technical-error message) and re-arm listening. last=true doubles as
+        // the end-of-turn marker.
+        this.transport.sendTextToken("Sorry, could you say that again?", true);
         this.state = "idle";
         this.resetSilenceTimer();
         this.flushPendingInstructions();
