@@ -7,10 +7,12 @@ export type ConceptNodeKind = "concept" | "skill" | "capability" | "other";
 export type ConceptEdgeKind = "link" | "learned" | "other";
 
 /**
- * A force-laid-out graph node. Satisfies {@link PositionedNode} (id/x/y/radius)
- * so it plugs straight into `useConstellationViewport` and `computeFit`.
+ * A force-laid-out graph node in 3D. Satisfies {@link PositionedNode}
+ * (id/x/y/radius); `z` is the depth axis the renderer rotates/projects through.
  */
 export interface GraphLayoutNode extends PositionedNode {
+  /** Depth coordinate (centered at 0); rotated + projected by the renderer. */
+  z: number;
   label: string;
   kind: ConceptNodeKind;
   summary?: string;

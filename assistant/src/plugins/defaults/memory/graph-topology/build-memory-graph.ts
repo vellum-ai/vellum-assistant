@@ -192,27 +192,29 @@ export async function getMemoryGraph(
     hubDegree: config.memory.v3.edge.hubDegree,
   });
 
+  // Viz-tuned learned edges: deliberately looser than the retrieval lane so the
+  // graph reads as a connected web instead of scattered orphans. This endpoint
+  // is visualization-only, so surfacing weaker co-selection associations (and a
+  // little extra edge noise) is a fair trade. Floors keep the thresholds sane
+  // even when the retrieval config is aggressive or disables the lane.
   const learned = config.memory.v3.learnedEdges;
-  const learnedGraph =
-    learned.maxPerPage > 0
-      ? computeLearnedEdgeGraph(
-          { db: getDb() },
-          {
-            halfLifeMs: learned.halfLifeDays * DAY_MS,
-            minCount: learned.minCount,
-            npmiFloor: learned.npmiFloor,
-            maxPerPage: learned.maxPerPage,
-            now: Date.now(),
-            windowMs: LEARNED_EDGES_WINDOW_DAYS * DAY_MS,
-            knownSlugs: new Set(pageIndex.entries.map((e) => e.slug)),
-          },
-        )
-      : undefined;
+  const learnedGraph = computeLearnedEdgeGraph(
+    { db: getDb() },
+    {
+      halfLifeMs: learned.halfLifeDays * DAY_MS,
+      minCount: Math.max(1, learned.minCount * 0.5),
+      npmiFloor: Math.max(0, learned.npmiFloor * 0.4),
+      maxPerPage: Math.max(learned.maxPerPage, 14),
+      now: Date.now(),
+      windowMs: LEARNED_EDGES_WINDOW_DAYS * DAY_MS,
+      knownSlugs: new Set(pageIndex.entries.map((e) => e.slug)),
+    },
+  );
 
   const assembled = assembleMemoryGraph({
     entries: pageIndex.entries,
     staticAdjacency: staticGraph.adjacency,
-    learnedAdjacency: learnedGraph?.adjacency,
+    learnedAdjacency: learnedGraph.adjacency,
   });
 
   return { backend: BACKEND_MEMORY_V3, supported: true, ...assembled };
