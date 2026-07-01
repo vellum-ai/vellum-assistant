@@ -5,7 +5,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { getSqliteFrom } from "../persistence/db-connection.js";
 import { createMessagesFts } from "../persistence/migrations/116-messages-fts.js";
-import { migrateDropMessagesFts } from "../persistence/migrations/312-drop-messages-fts.js";
+import { migrateDropMessagesFts } from "../persistence/migrations/313-drop-messages-fts.js";
 import * as schema from "../persistence/schema/index.js";
 
 function createTestDb() {

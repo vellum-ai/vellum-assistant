@@ -7,7 +7,7 @@ const logger = getLogger("messages-fts");
  * FTS5 virtual table for full-text search over messages.content.
  *
  * Every object this step creates is dropped again by the later
- * `migrateDropMessagesFts` step (`312-drop-messages-fts.ts`) — message-content
+ * `migrateDropMessagesFts` step (`313-drop-messages-fts.ts`) — message-content
  * search reads the sparse Qdrant `messages_lexical` index. This step stays
  * registered because the migration chain is append-only.
  *
