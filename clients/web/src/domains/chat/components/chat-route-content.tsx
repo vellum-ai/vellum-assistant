@@ -14,7 +14,7 @@
  * - `useComposerSubmit` — submit logic, focus management
  * - `DiskPressureBannerSlot` — localStorage-backed dismiss/suppress
  * - `useRuleEditorBridge` — viewer-store → rule-editor bridge
- * - `useChatBannerSlots` — nudge/queued/slack banner assembly
+ * - `useChatBannerSlots` — nudge/queued banner assembly
  */
 
 import { type Dispatch, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -32,6 +32,7 @@ import { useChatBannerSlots } from "@/domains/chat/hooks/use-chat-banner-slots";
 import { QuoteReplyBubble } from "@/domains/chat/components/quote-reply-bubble";
 import { TextSelectionPopover } from "@/domains/chat/components/text-selection-popover";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
+import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
@@ -83,7 +84,6 @@ import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
 import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
-import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { useViewerStore } from "@/stores/viewer-store";
 import { cmdEnterToSend } from "@/utils/composer-settings";
 import { haptic } from "@/utils/haptics";
@@ -239,7 +239,12 @@ export function ChatMainPanel({
     activeConversationId,
     activeConversation,
   } = useChatUIState();
-  const isChannelReadonly = isChannelConversation(activeConversation);
+
+  // Edit/recall + undo require a PROVEN-native conversation: while the row is
+  // unresolved (activeConversation undefined) or channel-origin, the undo path
+  // would delete imported channel history, so treat those as not-native.
+  const isNativeConversation =
+    activeConversation != null && !isChannelConversation(activeConversation);
 
   // -------------------------------------------------------------------------
   // Composer — `ChatComposer` and `ComposerDraftNotices` self-source every
@@ -454,6 +459,13 @@ export function ChatMainPanel({
     useComposerStore.getState().setInput("");
   }, [cancelEditing]);
 
+  // Clear stale edit-recall state when the active conversation changes: ChatMainPanel
+  // is not keyed by conversation, so an edit started in one thread would otherwise
+  // leak into the next and drive its send down the undo path.
+  useEffect(() => {
+    cancelEditing();
+  }, [activeConversationId, cancelEditing]);
+
   // -------------------------------------------------------------------------
   // Nudges + ghost text
   // -------------------------------------------------------------------------
@@ -508,14 +520,13 @@ export function ChatMainPanel({
   const typingDisabled =
     isLoadingHistory ||
     (assistantState.kind === "active" && !!assistantState.maintenanceMode?.enabled) ||
-    diskPressureInputDisabled ||
-    isChannelReadonly;
+    diskPressureInputDisabled;
 
   const sendDisabled = isSendDisabledFromTurn || typingDisabled;
 
   const handleQuoteReplyNow = useCallback(
     (quotedText: string, replyText: string) => {
-      if (sendDisabled || isChannelReadonly) {
+      if (sendDisabled) {
         return;
       }
       const blockquote = quotedText
@@ -524,7 +535,7 @@ export function ChatMainPanel({
         .join("\n");
       void sendMessage(`${blockquote}\n\n${replyText}`);
     },
-    [sendMessage, sendDisabled, isChannelReadonly],
+    [sendMessage, sendDisabled],
   );
 
   const isEmptyConversation =
@@ -700,6 +711,7 @@ export function ChatMainPanel({
     isEditing,
     editingMessageId,
     cancelEditing,
+    canUndoEdit: isNativeConversation,
     sendDisabled,
     typingDisabled,
     assistantId,
@@ -790,9 +802,9 @@ export function ChatMainPanel({
   });
 
   // -------------------------------------------------------------------------
-  // Banner slots (nudge, queued, slack)
+  // Banner slots (nudge, queued)
   // -------------------------------------------------------------------------
-  const { mainBannerSlot, mainQueuedDrawerSlot, channelReadonlyBannerSlot } = useChatBannerSlots({
+  const { mainBannerSlot, mainQueuedDrawerSlot } = useChatBannerSlots({
     nudges,
     queuedMessages,
     onCancelQueuedMessage: handleCancelQueuedMessage,
@@ -800,9 +812,6 @@ export function ChatMainPanel({
     onSteerMessage: handleSteerMessage,
     onEditQueueTail: handleEditQueueTail,
     queueSteering,
-    activeConversation,
-    sanitizedMessages,
-    assistantId,
   });
 
   // -------------------------------------------------------------------------
@@ -871,7 +880,7 @@ export function ChatMainPanel({
       canStopGenerating={canStopGenerating}
       assistantId={assistantId}
       conversationId={activeConversation?.conversationId}
-      onRecallLastMessage={isIdle ? handleRecallLastMessage : undefined}
+      onRecallLastMessage={isIdle && isNativeConversation ? handleRecallLastMessage : undefined}
       onCancelEdit={isEditing ? handleCancelEdit : undefined}
       textareaMaxHeightPx={isEmptyConversation ? 320 : undefined}
       suggestion={suggestion}
@@ -955,7 +964,6 @@ export function ChatMainPanel({
         showMaintenanceRecoveryCard: isSidePanel ? false : isInMaintenanceWithNoMessages,
       }}
       composerSlot={composerNode}
-      onStopGenerating={handleStopGenerating}
       dragHandlers={attachmentDropHandlers}
       isAttachmentDragOver={isAttachmentDragOver}
       showScrollToLatest={
@@ -968,11 +976,8 @@ export function ChatMainPanel({
       onRetryRefresh={handleRetryRefreshFromPill}
       genericChatError={genericChatBanner}
       onDismissChatError={handleDismissChatError}
-      isChannelReadonly={isChannelReadonly}
-      canStopGenerating={canStopGenerating}
       bannerSlot={isSidePanel ? undefined : mainBannerSlot}
       queuedDrawerSlot={isSidePanel ? undefined : mainQueuedDrawerSlot}
-      readonlyBannerSlot={channelReadonlyBannerSlot}
       startersSlot={startersSlot}
       belowFoldSlot={belowFoldSlot}
       dockStartersToBottom={dockStartersToBottom}
@@ -1057,12 +1062,8 @@ export function ChatMainPanel({
       />
       {sendErrorModalNode}
       {ruleEditorModalNode}
-      {!isChannelReadonly && (
-        <>
-          <TextSelectionPopover containerRef={transcriptContainerRef} />
-          <QuoteReplyBubble onSendNow={handleQuoteReplyNow} />
-        </>
-      )}
+      <TextSelectionPopover containerRef={transcriptContainerRef} />
+      <QuoteReplyBubble onSendNow={handleQuoteReplyNow} />
     </>
   );
 }

@@ -147,7 +147,6 @@ function baseProps(
       transcriptProps: { messages: [], onScrollToMessage: noop } as never,
     },
     composerSlot: <div data-testid="composer">COMPOSER</div>,
-    onStopGenerating: noop,
     dragHandlers: {
       onDragEnter: noopDrag,
       onDragOver: noopDrag,
@@ -161,7 +160,6 @@ function baseProps(
     onDismissRefreshFeedback: noop,
     onRetryRefresh: noop,
     genericChatError: null,
-    isChannelReadonly: false,
     ...overrides,
   };
 }
@@ -384,35 +382,15 @@ describe("ChatBody — active-process overlays slot", () => {
   });
 });
 
-describe("ChatBody — read-only cancellation", () => {
-  test("renders the read-only banner without a stop control while idle", () => {
-    const html = renderToStaticMarkup(
-      <ChatBody
-        {...baseProps({
-          isChannelReadonly: true,
-        })}
-      />,
-    );
+describe("ChatBody — composer always renders", () => {
+  // Channel-origin (Slack/Email/etc.) conversations render the standard
+  // composer regardless of conversation origin, with no read-only banner
+  // replacing it.
+  test("renders the composer and no read-only banner", () => {
+    const html = renderToStaticMarkup(<ChatBody {...baseProps()} />);
 
-    expect(html).toContain("Read-only conversation");
-    expect(html).not.toContain('aria-label="Stop generating"');
-    expect(html).not.toContain("COMPOSER");
-  });
-
-  test("renders the stop control for an active read-only turn", () => {
-    const html = renderToStaticMarkup(
-      <ChatBody
-        {...baseProps({
-          isChannelReadonly: true,
-          canStopGenerating: true,
-        })}
-      />,
-    );
-
-    expect(html).toContain("Read-only conversation");
-    expect(html).toContain('aria-label="Stop generating"');
-    expect(html).toContain('title="Stop generation"');
-    expect(html).not.toContain("COMPOSER");
+    expect(html).toContain("COMPOSER");
+    expect(html).not.toContain("Read-only conversation");
   });
 });
 
