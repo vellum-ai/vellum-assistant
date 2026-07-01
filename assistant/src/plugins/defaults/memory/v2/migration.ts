@@ -22,6 +22,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { Provider } from "@vellumai/plugin-api";
+import { getConfiguredProvider } from "@vellumai/plugin-api";
 
 import type { AssistantConfig } from "../../../../config/types.js";
 import {
@@ -29,12 +30,8 @@ import {
   getSqliteFrom,
 } from "../../../../persistence/db-connection.js";
 import { enqueueMemoryJob } from "../../../../persistence/jobs-store.js";
-import {
-  extractText,
-  getConfiguredProvider,
-  userMessage,
-} from "../../../../providers/provider-send-message.js";
 import { getLogger } from "../../../../util/logger.js";
+import { extractText, userMessage } from "../llm-helpers.js";
 import { deletePage, listPages, slugify, writePage } from "./page-store.js";
 import type { ConceptPage } from "./types.js";
 

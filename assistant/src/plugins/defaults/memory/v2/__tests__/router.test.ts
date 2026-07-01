@@ -30,10 +30,9 @@ import type {
   Provider,
   ProviderResponse,
   SendMessageOptions,
-  ToolUseContent,
 } from "@vellumai/plugin-api";
 
-import type { ToolDefinition } from "../../../../../providers/types.js";
+import type { ToolDefinition } from "../../llm-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Mocks installed BEFORE the router import so the module observes them at
@@ -106,10 +105,10 @@ interface ProviderCall {
 }
 const providerCalls: ProviderCall[] = [];
 
-mock.module("../../../../../providers/provider-send-message.js", () => ({
+// The router imports `getConfiguredProvider` from `@vellumai/plugin-api`; the
+// pure `extractToolUse` helper runs for real from the plugin's `llm-helpers`.
+mock.module("@vellumai/plugin-api", () => ({
   getConfiguredProvider: async () => providerStub,
-  extractToolUse: (response: ProviderResponse) =>
-    response.content.find((b): b is ToolUseContent => b.type === "tool_use"),
 }));
 
 // IDENTITY.md / users/default.md aren't required for these tests — the

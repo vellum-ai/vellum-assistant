@@ -22,6 +22,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { getConfiguredProvider } from "@vellumai/plugin-api";
 import { and, desc, eq, gt, notInArray } from "drizzle-orm";
 import { z } from "zod";
 
@@ -38,18 +39,17 @@ import {
   conversations,
   messages,
 } from "../../../../persistence/schema/index.js";
-import {
-  extractToolUse,
-  getConfiguredProvider,
-  userMessage,
-} from "../../../../providers/provider-send-message.js";
-import type { ToolDefinition } from "../../../../providers/types.js";
 import { getLogger } from "../../../../util/logger.js";
 import { getWorkspaceDir } from "../../../../util/platform.js";
 import {
   appendBufferAndArchive,
   formatRememberEntry,
 } from "../graph/tool-handlers.js";
+import {
+  extractToolUse,
+  type ToolDefinition,
+  userMessage,
+} from "../llm-helpers.js";
 import { renderSweepPrompt } from "./prompts/sweep.js";
 
 const log = getLogger("memory-v2-sweep");
