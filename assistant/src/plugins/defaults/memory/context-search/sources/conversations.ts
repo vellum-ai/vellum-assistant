@@ -2,8 +2,8 @@ import { readSlackMetadata } from "../../../../../messaging/providers/slack/mess
 import { AUTO_ANALYSIS_SOURCE } from "../../../../../persistence/auto-analysis-constants.js";
 import { isLexicalBackfillComplete } from "../../../../../persistence/checkpoints.js";
 import {
-  buildFtsMatchQuery,
   buildRecallEvidenceExcerpt,
+  hasLexicalTokens,
 } from "../../../../../persistence/conversation-queries.js";
 import { searchMessageIdsLexical } from "../../../../../persistence/conversation-search-lexical.js";
 import { rawAll } from "../../../../../persistence/raw-query.js";
@@ -30,25 +30,19 @@ interface ConversationEvidenceRow {
   title: string | null;
 }
 
-const CONVERSATION_SEARCH_PREFETCH_MULTIPLIER = 5;
-
 /**
  * Qdrant candidate over-fetch multiplier for the lexical read path.
  *
- * FTS applies the source/type/excluded-conversation predicates *inside* SQL
- * before its LIMIT, so its post-filter window is already correct. The Qdrant
- * path instead fetches ranked message-id candidates first and filters them in
- * SQL afterwards, so it must over-fetch enough candidates that excluded rows
- * (the active conversation, subagent/auto-analysis/notification sources,
- * private history) don't starve the post-filter pool. This is deliberately
- * larger than the FTS prefetch multiplier — a generous candidate pool is cheap
- * (the final consumer takes top-N after the app-side scorer anyway).
+ * The read fetches ranked message-id candidates first and filters them in SQL
+ * afterwards (Qdrant has no visibility filtering), so it must over-fetch
+ * enough candidates that excluded rows (the active conversation,
+ * subagent/auto-analysis/notification sources, private history) don't starve
+ * the post-filter pool. A generous candidate pool is cheap — the final
+ * consumer takes top-N after the app-side scorer anyway.
  *
- * This is a proportionate over-fetch, NOT a hard parity guarantee: a query
- * whose visible matches all rank beyond the widened window can still be
- * under-filled. True parity would need pagination or Qdrant group-search;
- * that stronger fix is deferred to pre-flip hardening if Gate A shows recall
- * regressions.
+ * This is a proportionate over-fetch, NOT a hard guarantee: a query whose
+ * visible matches all rank beyond the widened window can still be
+ * under-filled. A stronger fix would need pagination or Qdrant group-search.
  */
 const QDRANT_RECALL_CANDIDATE_MULTIPLIER = 20;
 
@@ -121,64 +115,43 @@ export async function searchConversationSource(
     return { evidence: [] };
   }
 
-  const queryLimit = Math.max(
-    normalizedLimit,
-    normalizedLimit * CONVERSATION_SEARCH_PREFETCH_MULTIPLIER,
-  );
-
-  // The Qdrant lexical index is forward-filled by the memory write path, which
-  // is gated on `isMemoryIndexingSuppressed()`. When indexing is suppressed
-  // (memory disabled or the memory plugin disabled) the collection is never
-  // populated, so a qdrant-backed read would silently return nothing while FTS
-  // still works — force the FTS path in that case.
-  //
-  // Second gate: until the one-time upgrade backfill has fully drained, the
-  // collection holds only messages written since the write path went live —
-  // older history is missing. Reading from Qdrant then silently misses that
-  // history (an empty candidate set, not a throw), so stay on FTS until
-  // `isLexicalBackfillComplete()` confirms the index is whole. Shared with the
-  // persistence read site via the same checkpoint helper.
-  const backend =
-    isMemoryIndexingSuppressed() || !isLexicalBackfillComplete()
-      ? "fts5"
-      : "qdrant";
-
-  // Tokenize once. Short/punctuation-only queries (`C++`, CJK) produce no
-  // usable ≥2-char match shape. Content matching is index-only, so such
-  // queries yield no conversation evidence. The early return matters for the
-  // Qdrant path in particular: the sparse encoder still emits a 1-char token
-  // for these queries, so querying the index anyway would return noisy hits.
-  // Only query a lexical index when the query genuinely tokenizes.
-  const ftsMatches = buildRecallFtsMatchQueries(trimmedQuery);
-  if (ftsMatches.length === 0) {
+  // The Qdrant lexical index — the only source of conversation evidence — is
+  // forward-filled by the memory write path, which is gated on
+  // `isMemoryIndexingSuppressed()`: while suppressed (memory disabled or the
+  // memory plugin disabled) the collection is never populated. And until the
+  // one-time upgrade backfill has fully drained, it holds only messages
+  // written since the write path went live. In both cases a qdrant read would
+  // silently miss content (an empty candidate set, not a throw), so the
+  // source yields no evidence instead of serving misleading partial results.
+  // The completion checkpoint is shared with the persistence read site.
+  if (isMemoryIndexingSuppressed() || !isLexicalBackfillComplete()) {
     return { evidence: [] };
   }
 
-  let rows: ConversationEvidenceRow[];
-  if (backend === "qdrant") {
-    // A brief post-edit staleness window (an edited message whose re-index job
-    // has not yet run, or a just-deleted message still present as a point) is
-    // an ACCEPTED consequence of async indexing. Recall is fuzzy evidence
-    // re-ranked by the app-side scorer, and the wide candidate pool dilutes a
-    // single stale hit; we do not re-verify candidate content against the query
-    // (a substring re-check would wrongly drop valid stemmed matches).
-    const qdrantCandidateLimit = Math.max(
-      normalizedLimit * QDRANT_RECALL_CANDIDATE_MULTIPLIER,
-      QDRANT_RECALL_MIN_CANDIDATES,
-    );
-    rows = await gatherCandidateRowsFromQdrant(
-      trimmedQuery,
-      qdrantCandidateLimit,
-      context.conversationId,
-    );
-  } else {
-    rows = gatherCandidateRowsFromFts(
-      ftsMatches,
-      queryLimit,
-      normalizedLimit,
-      context.conversationId,
-    );
+  // Short/punctuation-only queries (`C++`, CJK) produce no usable ≥2-char
+  // token. Content matching is index-only, so such queries yield no
+  // conversation evidence. The early return also keeps the sparse encoder
+  // honest: it still emits a 1-char token for these queries, so querying the
+  // index anyway would return noisy hits.
+  if (!hasLexicalTokens(trimmedQuery)) {
+    return { evidence: [] };
   }
+
+  // A brief post-edit staleness window (an edited message whose re-index job
+  // has not yet run, or a just-deleted message still present as a point) is
+  // an ACCEPTED consequence of async indexing. Recall is fuzzy evidence
+  // re-ranked by the app-side scorer, and the wide candidate pool dilutes a
+  // single stale hit; we do not re-verify candidate content against the query
+  // (a substring re-check would wrongly drop valid stemmed matches).
+  const qdrantCandidateLimit = Math.max(
+    normalizedLimit * QDRANT_RECALL_CANDIDATE_MULTIPLIER,
+    QDRANT_RECALL_MIN_CANDIDATES,
+  );
+  const rows = await gatherCandidateRowsFromQdrant(
+    trimmedQuery,
+    qdrantCandidateLimit,
+    context.conversationId,
+  );
 
   const sortedRows = rows
     .map((row) => ({
@@ -206,41 +179,11 @@ export async function searchConversationSource(
 }
 
 /**
- * Generate candidate rows via SQLite FTS5 from precomputed match shapes. Walks
- * the shapes (progressively broader), merging matches until enough rows are
- * collected, and swallows a malformed-query error on any single shape so a
- * broader shape can still run. Returns an empty array when no shape matches.
- */
-function gatherCandidateRowsFromFts(
-  ftsMatches: readonly string[],
-  queryLimit: number,
-  normalizedLimit: number,
-  excludedConversationId: string,
-): ConversationEvidenceRow[] {
-  let rows: ConversationEvidenceRow[] = [];
-
-  for (const ftsMatch of ftsMatches) {
-    try {
-      rows = mergeConversationRows(
-        rows,
-        searchWithFts(ftsMatch, queryLimit, excludedConversationId),
-      );
-    } catch {
-      // Try the next, broader query shape.
-    }
-
-    if (rows.length >= normalizedLimit) break;
-  }
-
-  return rows;
-}
-
-/**
  * Generate candidate rows via the Qdrant lexical index. Qdrant is
  * candidate-generation only: it supplies over-fetched message-id candidates
- * (ranked by sparse score) whose rows are then re-fetched with the exact same
- * source/type/excluded-conversation predicates FTS applies, so only the
- * candidate *source* differs. Final ordering stays with the app-side scorer.
+ * (ranked by sparse score) whose rows are then re-fetched with the
+ * source/type/excluded-conversation predicates applied in SQL
+ * ({@link searchByIds}). Final ordering stays with the app-side scorer.
  *
  * `candidateLimit` is the widened over-fetch count (see
  * {@link QDRANT_RECALL_CANDIDATE_MULTIPLIER}) — it bounds both the Qdrant fetch
@@ -274,46 +217,11 @@ async function gatherCandidateRowsFromQdrant(
   return searchByIds(candidateIds, candidateLimit, excludedConversationId);
 }
 
-function searchWithFts(
-  ftsMatch: string,
-  limit: number,
-  excludedConversationId: string,
-): ConversationEvidenceRow[] {
-  return rawAll<ConversationEvidenceRow>(
-    `
-    SELECT
-      m.id AS message_id,
-      m.conversation_id,
-      m.role,
-      m.content,
-      m.created_at,
-      m.metadata,
-      c.title
-    FROM messages_fts
-    JOIN messages m ON m.id = messages_fts.message_id
-    JOIN conversations c ON c.id = m.conversation_id
-    WHERE messages_fts MATCH ?
-      AND (c.source IS NULL OR c.source NOT IN (?, ?, ?))
-      AND c.id != ?
-      AND c.conversation_type != 'private'
-    ORDER BY bm25(messages_fts), m.created_at DESC
-    LIMIT ?
-    `,
-    ftsMatch,
-    SUBAGENT_SOURCE,
-    AUTO_ANALYSIS_SOURCE,
-    NOTIFICATION_SOURCE,
-    excludedConversationId,
-    limit,
-  );
-}
-
 /**
  * Fetch evidence rows for an explicit set of candidate message ids, applying
- * the identical source/type/excluded-conversation predicates `searchWithFts`
- * enforces. Only the candidate source differs (`m.id IN (...)` vs
- * `messages_fts MATCH`); the app-side scorer determines final ordering, so the
- * SQL tie-break falls back to recency.
+ * the source/type/excluded-conversation predicates in SQL (Qdrant has no
+ * visibility filtering). The app-side scorer determines final ordering, so
+ * the SQL tie-break falls back to recency.
  */
 function searchByIds(
   messageIds: readonly string[],
@@ -401,56 +309,11 @@ function parseSlackRecallMetadata(rawMetadata: string | null): {
   };
 }
 
-function buildRecallFtsMatchQueries(query: string): string[] {
-  const queries: string[] = [];
-  const exact = buildFtsMatchQuery(query);
-  if (exact) {
-    queries.push(exact);
-  }
-
-  const salientTerms = tokenizeSalientRecallTerms(query);
-  if (salientTerms.length > 0) {
-    const salientAnd = salientTerms.map(quoteFtsToken).join(" ");
-    if (salientAnd && !queries.includes(salientAnd)) {
-      queries.push(salientAnd);
-    }
-
-    if (salientTerms.length > 1) {
-      const salientOr = salientTerms.map(quoteFtsToken).join(" OR ");
-      if (!queries.includes(salientOr)) {
-        queries.push(salientOr);
-      }
-    }
-  }
-
-  return queries;
-}
-
-function quoteFtsToken(token: string): string {
-  return `"${token.replace(/"/g, '""')}"`;
-}
-
 function tokenizeSalientRecallTerms(text: string): string[] {
   const terms = (text.toLowerCase().match(/[a-z0-9_]+/g) ?? []).filter(
     (term) => term.length >= 2 && !NON_SALIENT_RECALL_TERMS.has(term),
   );
   return [...new Set(terms)].slice(0, 12);
-}
-
-function mergeConversationRows(
-  existing: readonly ConversationEvidenceRow[],
-  next: readonly ConversationEvidenceRow[],
-): ConversationEvidenceRow[] {
-  const seen = new Set(existing.map((row) => row.message_id));
-  const merged = [...existing];
-  for (const row of next) {
-    if (seen.has(row.message_id)) {
-      continue;
-    }
-    seen.add(row.message_id);
-    merged.push(row);
-  }
-  return merged;
 }
 
 function scoreConversationRow(

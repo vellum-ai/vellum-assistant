@@ -25,10 +25,11 @@ import {
  * private conversations, non-message sources) live in SQL at the read sites.
  *
  * Callers that apply such post-retrieval SQL filters MUST over-fetch: pass an
- * inflated `limit` (the `CONVERSATION_SEARCH_PREFETCH_MULTIPLIER` prefetch
- * pattern the recall source uses) and re-limit after filtering in SQL.
- * Applying the caller's real limit here first would let excluded rows consume
- * the candidate slots and drop valid visible matches below the fold.
+ * inflated `limit` (the `QDRANT_RECALL_CANDIDATE_MULTIPLIER` /
+ * `QDRANT_SEARCH_CANDIDATE_LIMIT` pattern the read sites use) and re-limit
+ * after filtering in SQL. Applying the caller's real limit here first would
+ * let excluded rows consume the candidate slots and drop valid visible
+ * matches below the fold.
  *
  * @param query          free-text search query
  * @param limit          maximum number of candidates to return

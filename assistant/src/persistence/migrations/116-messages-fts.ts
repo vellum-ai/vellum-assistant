@@ -6,6 +6,11 @@ const logger = getLogger("messages-fts");
 /**
  * FTS5 virtual table for full-text search over messages.content.
  *
+ * Every object this step creates is dropped again by the later
+ * `migrateDropMessagesFts` step (`312-drop-messages-fts.ts`) — message-content
+ * search reads the sparse Qdrant `messages_lexical` index. This step stays
+ * registered because the migration chain is append-only.
+ *
  * Content is stored as raw JSON in the messages table — the FTS tokenizer
  * handles it well enough for keyword search since the structural JSON tokens
  * (type, text, tool_use) are short common words that rarely matter as search
@@ -54,7 +59,9 @@ function isSqliteCorruptionError(err: unknown): boolean {
  * from `sqlite_schema`. Without this fallback, `CREATE VIRTUAL TABLE
  * IF NOT EXISTS` would be a no-op and the crash loop would persist.
  */
-function dropFtsShadowTables(raw: ReturnType<typeof getSqliteFrom>): void {
+export function dropFtsShadowTables(
+  raw: ReturnType<typeof getSqliteFrom>,
+): void {
   const drops = [
     `DROP TRIGGER IF EXISTS messages_fts_ai`,
     `DROP TRIGGER IF EXISTS messages_fts_ad`,
