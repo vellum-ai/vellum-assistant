@@ -54,6 +54,15 @@ body {
   100% { transform: scale(1); opacity: 1; }
 }
 
+/* Reaction chip popping onto a message bubble — a playful scale-up with
+   overshoot and a small settle rotation (tapback-style). Applied only to
+   freshly-placed reactions so virtualized remounts don't replay it. */
+@keyframes reaction-pop {
+  0% { transform: scale(0) rotate(-12deg); opacity: 0; }
+  60% { transform: scale(1.18) rotate(3deg); opacity: 1; }
+  100% { transform: none; opacity: 1; }
+}
+
 /* Home Activity detail drawer (schedule / heartbeat / notification) sliding
    in from the right. Ends at `transform: none` for the same containing-block
    reason as fadeInUp above (the panel hosts fixed Dropdown/tooltip layers). */

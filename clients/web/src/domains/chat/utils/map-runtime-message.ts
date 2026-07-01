@@ -162,6 +162,9 @@ export function mapRuntimeToDisplayMessage(
   if (m.acpNotification) msg.isAcpNotification = true;
   if (m.backgroundToolNotification) msg.isBackgroundToolNotification = true;
   if (m.slackMessage) msg.slackMessage = m.slackMessage;
+  if (m.reactions?.length) {
+    msg.reactions = m.reactions;
+  }
   if (toolCalls) msg.toolCalls = toolCalls;
   if (timestamp != null) msg.timestamp = timestamp;
 

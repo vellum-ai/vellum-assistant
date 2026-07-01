@@ -1,7 +1,14 @@
 
-import { Bookmark, Check, Copy, ExternalLink, FileCode, GitBranch } from "lucide-react";
+import { Bookmark, Check, Copy, ExternalLink, FileCode, GitBranch, SmilePlus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { Popover } from "@vellumai/design-library";
+import {
+  hasUserReaction,
+  QUICK_REACTION_EMOJI,
+  useReactionsSupported,
+  useUserReactionToggle,
+} from "@/domains/chat/hooks/use-message-reactions";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
 import {
@@ -185,6 +192,16 @@ export function MessageHoverActions({
         />
       )}
 
+      {role === "assistant" &&
+        conversationId &&
+        message.id &&
+        !message.isOptimistic && (
+          <MessageReactionButton
+            message={message}
+            conversationId={conversationId}
+          />
+        )}
+
       {openInSlackUrl && (
         <a
           href={openInSlackUrl}
@@ -220,6 +237,64 @@ export function MessageHoverActions({
         </button>
       )}
     </div>
+  );
+}
+
+/**
+ * Quick-reaction picker for a persisted assistant message. Offers a small
+ * curated emoji row in a popover; picking one toggles the user's reaction
+ * on the message (already-placed reactions are highlighted and removed on
+ * a second pick — chips on the bubble also remove on click).
+ */
+function MessageReactionButton({
+  message,
+  conversationId,
+}: {
+  message: DisplayMessage;
+  conversationId: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const toggleReaction = useUserReactionToggle(conversationId);
+  const supported = useReactionsSupported();
+  if (!supported) {
+    return null;
+  }
+
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger asChild>
+        <button
+          type="button"
+          title="React"
+          aria-label="React with an emoji"
+          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
+        >
+          <SmilePlus className="h-3.5 w-3.5" />
+        </button>
+      </Popover.Trigger>
+      <Popover.Content side="top" align="start" className="flex gap-1 p-1.5">
+        {QUICK_REACTION_EMOJI.map((emoji) => {
+          const active = hasUserReaction(message, emoji);
+          return (
+            <button
+              key={emoji}
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                void toggleReaction(message, emoji);
+              }}
+              title={active ? `Remove ${emoji} reaction` : `React with ${emoji}`}
+              aria-pressed={active}
+              className={`flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-lg leading-none transition-colors hover:bg-[var(--surface-active)] ${
+                active ? "bg-[var(--surface-active)]" : ""
+              }`}
+            >
+              {emoji}
+            </button>
+          );
+        })}
+      </Popover.Content>
+    </Popover.Root>
   );
 }
 

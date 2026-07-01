@@ -96,6 +96,7 @@ import { ROUTES as LLM_CALL_SITES_ROUTES } from "./llm-call-sites-routes.js";
 import { ROUTES as LOG_EXPORT_ROUTES } from "./log-export-routes.js";
 import { ROUTES as MCP_AUTH_ROUTES } from "./mcp-auth-routes.js";
 import { ROUTES as MEMORY_WORKER_ROUTES } from "./memory-worker-routes.js";
+import { ROUTES as MESSAGE_REACTION_ROUTES } from "./message-reaction-routes.js";
 import { ROUTES as MIGRATION_ROLLBACK_ROUTES } from "./migration-rollback-routes.js";
 import { ROUTES as MIGRATION_ROUTES } from "./migration-routes.js";
 import { ROUTES as MONITORING_ROUTES } from "./monitoring-routes.js";
@@ -232,6 +233,7 @@ export const ROUTES: RouteDefinition[] = [
   ...MEMORY_V2_ROUTES,
   ...MEMORY_V3_ROUTES,
   ...MEMORY_WORKER_ROUTES,
+  ...MESSAGE_REACTION_ROUTES,
   ...MESSAGES_LEXICAL_ROUTES,
   ...MIGRATION_ROLLBACK_ROUTES,
   ...MIGRATION_ROUTES,

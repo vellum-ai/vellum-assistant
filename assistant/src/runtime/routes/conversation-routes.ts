@@ -14,6 +14,7 @@ import {
   BackgroundToolCompletionSchema,
   type ConversationContentBlock,
   type ConversationMessage,
+  ConversationMessageReactionSchema,
   ConversationMessageSchema,
 } from "../../api/responses/conversation-message.js";
 import {
@@ -843,10 +844,17 @@ export function handleListMessages({
     let acpNotification: { acpSessionId: string; agent?: string } | undefined;
     let backgroundToolNotification: boolean | undefined;
     let backgroundToolCompletion: ConversationMessage["backgroundToolCompletion"];
+    let reactions: ConversationMessage["reactions"];
     if (msg.metadata) {
       try {
         const meta = JSON.parse(msg.metadata);
         if (typeof meta.sentAt === "number") sentAt = meta.sentAt;
+        const reactionsParse = z
+          .array(ConversationMessageReactionSchema)
+          .safeParse(meta.reactions);
+        if (reactionsParse.success && reactionsParse.data.length > 0) {
+          reactions = reactionsParse.data;
+        }
         // The backgrounded bash/host_bash completion wake persists a
         // `<background_event source="background-tool">` row (see
         // `persistWakeTriggerMessage`). Flag it so clients hide it from the
@@ -918,6 +926,7 @@ export function handleListMessages({
       acpNotification,
       backgroundToolNotification,
       backgroundToolCompletion,
+      reactions,
       slackMessage,
       clientMessageId: msg.clientMessageId ?? undefined,
     };
@@ -1108,6 +1117,7 @@ export function handleListMessages({
       ...(m.backgroundToolCompletion
         ? { backgroundToolCompletion: m.backgroundToolCompletion }
         : {}),
+      ...(m.reactions ? { reactions: m.reactions } : {}),
       ...(m.slackMessage ? { slackMessage: m.slackMessage } : {}),
     };
   });

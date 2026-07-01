@@ -11,6 +11,7 @@ import type { MessageCompleteEvent } from "../../api/events/message-complete.js"
 import type { MessageDequeuedEvent } from "../../api/events/message-dequeued.js";
 import type { MessageQueuedEvent } from "../../api/events/message-queued.js";
 import type { MessageQueuedDeletedEvent } from "../../api/events/message-queued-deleted.js";
+import type { MessageReactionUpdatedEvent } from "../../api/events/message-reaction-updated.js";
 import type { MessageRequestCompleteEvent } from "../../api/events/message-request-complete.js";
 import type { QuestionRequestEvent } from "../../api/events/question-request.js";
 import type { SecretRequestEvent } from "../../api/events/secret-request.js";
@@ -170,4 +171,5 @@ export type _MessagesServerMessages =
   | ConfirmationStateChanged
   | AssistantActivityStateEvent
   | ConversationInferenceProfileUpdated
-  | InteractionResolvedEvent;
+  | InteractionResolvedEvent
+  | MessageReactionUpdatedEvent;
