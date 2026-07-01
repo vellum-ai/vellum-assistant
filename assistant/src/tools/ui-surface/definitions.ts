@@ -244,7 +244,7 @@ export const uiShowTool = {
     "- file_upload: { prompt, acceptedTypes?, maxFiles? }\n" +
     "- task_preferences: {} (no data needed — categories are rendered client-side)\n" +
     '- work_result: { eyebrow?, status?: "completed"|"partial"|"failed"|"in_progress", summary?, metrics?: [{ label, value, detail?, tone?: "neutral"|"positive"|"warning"|"negative" }], sections?: [{ id?, title, description?, type?: "items"|"timeline"|"diff"|"artifacts"|"warnings", items?: [{ id?, title, description?, status?, tone?, metadata?: [{ label, value }], href? }], diffs?: [{ label?, before?, after? }] }] }. Shows a structured receipt after real work: what changed, what was skipped, proof points, and next actions. Keep display-only unless explicit follow-up buttons are needed.\n' +
-    '- channel_setup: { channel: "slack" }. Opens the channel setup wizard in a side drawer. Non-blocking — returns immediately, user completes setup at their own pace. Do not use for token collection; the wizard handles credential entry securely.\n\n' +
+    '- channel_setup: { channel: "slack" | "telegram" | "phone" }. Opens the channel setup panel in a side drawer. Non-blocking — returns immediately, user completes credential entry at their own pace. Slack shows a full setup wizard; Telegram and Phone show credential forms (the assistant handles remaining setup steps like webhooks in chat after the user saves credentials).\n\n' +
     "For multi-step or long-running turns (web searches, file operations, research), show a task_progress card early and keep its steps updated as work progresses. Coarse steps are fine, and you can add or revise them as the work takes shape — a rough card beats no signal.",
   category: "ui-surface",
   defaultRiskLevel: RiskLevel.Low,
