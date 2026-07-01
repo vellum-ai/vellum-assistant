@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { ChannelDeliveryResult } from "@vellumai/gateway-client";
 
@@ -95,11 +95,6 @@ const slackStreamOps = (): Array<Record<string, unknown>> =>
 beforeEach(() => {
   deliverCalls.length = 0;
   deliverImpl = async () => ({ ok: true, ts: "stream-ts-1" });
-  delete process.env.VELLUM_SLACK_STREAMING_DISABLED;
-});
-
-afterEach(() => {
-  delete process.env.VELLUM_SLACK_STREAMING_DISABLED;
 });
 
 describe("shouldStreamSlackReply", () => {
@@ -172,17 +167,6 @@ describe("shouldStreamSlackReply", () => {
     expect(
       shouldStreamSlackReply({
         sourceChannel: "telegram",
-        chatType: "im",
-        replyCallbackUrl: CALLBACK_URL,
-      }),
-    ).toBe(false);
-  });
-
-  test("honors the env kill-switch", () => {
-    process.env.VELLUM_SLACK_STREAMING_DISABLED = "1";
-    expect(
-      shouldStreamSlackReply({
-        sourceChannel: "slack",
         chatType: "im",
         replyCallbackUrl: CALLBACK_URL,
       }),

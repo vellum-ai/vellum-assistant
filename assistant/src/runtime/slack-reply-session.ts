@@ -36,9 +36,6 @@ const log = getLogger("slack-reply-session");
  */
 const STREAM_COALESCE_MS = 400;
 
-/** Env kill-switch: when set to any value, Slack reply streaming is disabled. */
-const STREAMING_DISABLED_ENV = "VELLUM_SLACK_STREAMING_DISABLED";
-
 /**
  * How durable finalize should reconcile against the streaming session.
  *
@@ -81,7 +78,6 @@ export function shouldStreamSlackReply(params: {
   recipientUserId?: string;
   recipientTeamId?: string;
 }): boolean {
-  if (process.env[STREAMING_DISABLED_ENV]) return false;
   if (params.sourceChannel !== "slack") return false;
   if (!isSlackDeliveryCallbackUrl(params.replyCallbackUrl)) return false;
   if (extractThreadTsFromCallbackUrl(params.replyCallbackUrl) === null) {
