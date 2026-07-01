@@ -8,15 +8,17 @@ import type {
 } from "@/domains/intelligence/plugins/types";
 import { mergePlugins, sortPlugins } from "@/domains/intelligence/plugins/utils";
 import {
-    pluginsGetQueryKey,
-    pluginsSearchGetOptions,
+  pluginsGetQueryKey,
+  pluginsSearchGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { pluginsGet } from "@/generated/daemon/sdk.gen";
 import type { PluginsGetResponse } from "@/generated/daemon/types.gen";
+import { installedPluginsQueryOptions } from "@/lib/installed-plugins-query";
 
-// The installed list (local filesystem) and the catalog (the daemon's
-// cached, rate-limited GitHub listing) both change rarely, so `staleTime`
-// keeps each warm across tab switches and revisiting doesn't refetch.
+// The catalog (the daemon's cached, rate-limited GitHub listing) changes
+// rarely, so `staleTime` keeps it warm across tab switches and revisiting
+// doesn't refetch. The installed read carries its own staleTime via
+// `installedPluginsQueryOptions`.
 const CATALOG_STALE_TIME_MS = 5 * 60 * 1000; // 5 minutes
 
 // Stable empty references so consumers' `useMemo`s don't recompute while a
@@ -127,14 +129,11 @@ export function usePluginsList(
   // Unfiltered installed read so the rail badges reflect totals across every
   // category while one is selected. Disabled until a category is chosen — when
   // none is, the main read above is already unfiltered (same query key).
+  // Reuses the shared installed-plugins query options so the new-chat composer
+  // (`useNewChatPlugins`) and this rail resolve to the same cache entry.
   const installedCountsQuery = useQuery({
-    queryKey: pluginsGetQueryKey({
-      path: { assistant_id: assistantId },
-      query: { q: undefined },
-    }),
-    queryFn: ({ signal }) => fetchInstalled(assistantId, undefined, signal),
+    ...installedPluginsQueryOptions(assistantId),
     enabled: Boolean(assistantId) && category !== null,
-    staleTime: CATALOG_STALE_TIME_MS,
   });
 
   const catalogQuery = useQuery({

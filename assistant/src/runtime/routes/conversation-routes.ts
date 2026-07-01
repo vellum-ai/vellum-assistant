@@ -108,6 +108,7 @@ import {
   isConversationProcessing,
   type MessageRow,
   provenanceFromTrustContext,
+  setConversationEnabledPlugins,
   setConversationInferenceProfile,
 } from "../../persistence/conversation-crud.js";
 import {
@@ -1288,6 +1289,7 @@ export async function handleSendMessage(
     clientId?: string;
     clientMessageId?: string;
     inferenceProfile?: string | null;
+    enabledPlugins?: string[] | null;
     riskThreshold?: string;
     onboarding?: {
       tools: string[];
@@ -1346,6 +1348,18 @@ export async function handleSendMessage(
         `Profile "${requestedInferenceProfile}" is not defined in llm.profiles`,
       );
     }
+  }
+  // `undefined` leaves the stored scope untouched; `null` clears it to the
+  // default; `[]` scopes the chat to no plugins.
+  const requestedEnabledPlugins = body.enabledPlugins;
+  if (
+    requestedEnabledPlugins != null &&
+    (!Array.isArray(requestedEnabledPlugins) ||
+      requestedEnabledPlugins.some((p) => typeof p !== "string"))
+  ) {
+    throw new BadRequestError(
+      "enabledPlugins must be an array of strings or null",
+    );
   }
   if (
     requestedRiskThreshold !== undefined &&
@@ -1575,6 +1589,14 @@ export async function handleSendMessage(
       sessionId: null,
       expiresAt: null,
     });
+  }
+
+  if (requestedEnabledPlugins !== undefined) {
+    setConversationEnabledPlugins(
+      mapping.conversationId,
+      requestedEnabledPlugins,
+    );
+    conversation.setEnabledPlugins(requestedEnabledPlugins);
   }
 
   // Store pre-chat onboarding context on the conversation when this is the
@@ -2906,6 +2928,13 @@ export const ROUTES: RouteDefinition[] = [
         )
         .optional(),
       inferenceProfile: z.string().nullable().optional(),
+      enabledPlugins: z
+        .array(z.string())
+        .nullable()
+        .optional()
+        .describe(
+          "Plugin ids that scope this conversation to a subset of installed plugins (first-party defaults are always available). When present on a message, it sets/updates the conversation's plugin scope (the web client sends it only on the first message of a new chat). null clears the scope to default (all enabled plugins); omitting the field leaves the existing scope unchanged.",
+        ),
       riskThreshold: z.enum(VALID_RISK_THRESHOLDS).optional(),
       hidden: z
         .boolean()
