@@ -29,7 +29,7 @@ describe("MemoryV3ConfigSchema", () => {
       gate: {
         denseThreshold: 0.66,
         sparseThreshold: 0.35,
-        sparseOnlyThreshold: 0.62,
+        sparseOnlyThreshold: 0.75,
         denseClusterThreshold: 0.6,
         denseClusterMaxDelta: 0.02,
         topK: 5,
@@ -139,7 +139,7 @@ describe("MemoryV3ConfigSchema", () => {
     expect(parsed.gate).toEqual({
       denseThreshold: 0.6,
       sparseThreshold: 0.35,
-      sparseOnlyThreshold: 0.62,
+      sparseOnlyThreshold: 0.75,
       denseClusterThreshold: 0.6,
       denseClusterMaxDelta: 0.02,
       topK: 5,
