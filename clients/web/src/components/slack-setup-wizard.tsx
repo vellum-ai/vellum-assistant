@@ -206,7 +206,7 @@ function CreateAppStep({ slackAppName, onSlackAppNameChange, onCreateApp, onNext
         <Button
           variant="ghost"
           size="compact"
-          className="inline px-0 h-auto text-[color:var(--content-link)] hover:underline"
+          className="inline px-0 h-auto text-body-small-default text-[color:var(--content-link)] hover:underline"
           onClick={onNext}
         >
           Skip to next step
