@@ -81,6 +81,17 @@ mock.module("../../persistence/conversation-crud.js", () => ({
   getMessages: (id: string) =>
     id === "child-conv-1" ? childMessages : parentMessages,
   messageMetadataSchema,
+  parseMessageMetadata: (json: string | null) => {
+    if (!json) {
+      return undefined;
+    }
+    try {
+      const parsed = messageMetadataSchema.safeParse(JSON.parse(json));
+      return parsed.success ? parsed.data : undefined;
+    } catch {
+      return undefined;
+    }
+  },
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
