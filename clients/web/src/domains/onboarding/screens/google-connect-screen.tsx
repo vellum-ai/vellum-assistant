@@ -16,6 +16,7 @@ import {
     oauthCompletionStorageKey,
     type OAuthCompletePayload,
 } from "@/lib/auth/oauth-popup";
+import { resolveManagedOAuthRequestedScopes } from "@/lib/auth/google-oauth-scopes";
 import { resolveLocalAssistantPlatformIdentity } from "@/lib/local-platform-identity";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 import { isElectron } from "@/runtime/is-electron";
@@ -248,7 +249,8 @@ export function GoogleConnectScreen({
               provider: GOOGLE_PROVIDER_KEY,
             },
             body: {
-              requested_scopes: [],
+              requested_scopes:
+                resolveManagedOAuthRequestedScopes(GOOGLE_PROVIDER_KEY),
               redirect_after_connect: `${routes.account.oauth.popupComplete}?requestId=${requestId}&native=1`,
             },
           },
@@ -369,7 +371,8 @@ export function GoogleConnectScreen({
         {
           path: { assistant_id: platformAssistantId, provider: GOOGLE_PROVIDER_KEY },
           body: {
-            requested_scopes: [],
+            requested_scopes:
+              resolveManagedOAuthRequestedScopes(GOOGLE_PROVIDER_KEY),
             redirect_after_connect: `${routes.account.oauth.popupComplete}?requestId=${requestId}`,
           },
         },
