@@ -12,6 +12,7 @@ import { getIsContainerized } from "../config/env-registry.js";
 import type { ChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { markActivationSession } from "../plugins/defaults/memory/activation-session-store.js";
+import { derivePersonaTrustFlags } from "../runtime/trust-class.js";
 import { ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE } from "../telemetry/activation-funnel.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
@@ -393,35 +394,14 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const hasNoClient =
     options?.personaOverride?.hasNoClient ?? options?.hasNoClient;
 
-  // Trust class of the current actor, lifted onto the render context so
+  // Trust flags for the current actor, lifted onto the render context so
   // persona sections — notably `users/default.md`, the persona rendered for
   // non-guardian actors — can gate privacy guardrails on who is being spoken
-  // to. This reads the actor's resolved class straight off the turn's
-  // `trustContext`, defaulting to `unknown` (stranger) when absent, rather than
-  // routing through `resolveTrustClass`. For a *resolved* actor the two agree;
-  // they diverge only on an unresolved turn under the platform auth-bypass,
-  // where `resolveTrustClass` fail-safes to `guardian` so control-plane
-  // capability gates don't block a local/dev turn. A data-disclosure guardrail
-  // needs the opposite default — fail *closed* to `stranger`, so a turn that
-  // never resolved an actor still gets the boundary instead of a guardian
-  // exemption — which is exactly what reading the raw class gives.
-  //
-  // Scope: these booleans gate the *data-disclosure* boundary (never reveal the
-  // guardian's private data) in `users/default.md`. Its complement — the
-  // *identity/verification hygiene* guidance (don't infer guardian status from
-  // tone, don't self-approve, don't explain the verification system) — is the
-  // `promptTrustGuidance` switch in
-  // `plugins/defaults/turn-context/unified-turn-context.ts`; keep the two
-  // distinct. The booleans are precomputed because the mustache renderer only
-  // does truthy gating, not string comparison.
-  const trustClass = options?.trustContext?.trustClass ?? "unknown";
-  const isGuardian = trustClass === "guardian";
-  // `unverified_contact` is treated identically to `trusted_contact` for every
-  // downstream capability decision (see TrustClass docs), so persona-level
-  // framing groups them too.
-  const isTrustedContact =
-    trustClass === "trusted_contact" || trustClass === "unverified_contact";
-  const isStranger = trustClass === "unknown";
+  // to. All classification policy (the fail-closed-to-stranger default for
+  // unresolved actors, the trusted/unverified grouping, why this is not
+  // `resolveTrustClass`) lives on {@link derivePersonaTrustFlags}.
+  const { trustClass, isGuardian, isTrustedContact, isStranger } =
+    derivePersonaTrustFlags(options?.trustContext?.trustClass);
 
   // Section render context.  Workspace section frontmatter `enabled:`
   // predicates, `{{key}}` / `{{#flag}}...{{/flag}}` body interpolation,
