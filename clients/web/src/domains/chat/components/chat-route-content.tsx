@@ -32,6 +32,7 @@ import { useChatBannerSlots } from "@/domains/chat/hooks/use-chat-banner-slots";
 import { QuoteReplyBubble } from "@/domains/chat/components/quote-reply-bubble";
 import { TextSelectionPopover } from "@/domains/chat/components/text-selection-popover";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
+import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
@@ -238,6 +239,9 @@ export function ChatMainPanel({
     activeConversationId,
     activeConversation,
   } = useChatUIState();
+
+  // Channel-origin conversations disable edit/recall: the undo path deletes imported channel history.
+  const editRecallDisabled = isChannelConversation(activeConversation);
 
   // -------------------------------------------------------------------------
   // Composer — `ChatComposer` and `ComposerDraftNotices` self-source every
@@ -865,7 +869,7 @@ export function ChatMainPanel({
       canStopGenerating={canStopGenerating}
       assistantId={assistantId}
       conversationId={activeConversation?.conversationId}
-      onRecallLastMessage={isIdle ? handleRecallLastMessage : undefined}
+      onRecallLastMessage={isIdle && !editRecallDisabled ? handleRecallLastMessage : undefined}
       onCancelEdit={isEditing ? handleCancelEdit : undefined}
       textareaMaxHeightPx={isEmptyConversation ? 320 : undefined}
       suggestion={suggestion}
