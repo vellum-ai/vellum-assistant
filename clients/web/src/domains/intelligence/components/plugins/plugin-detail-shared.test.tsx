@@ -151,7 +151,7 @@ describe("PluginDetailActions auto-include toggle", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  test("keeps Upgrade available and enabled when the plugin is Auto-off and drifted", () => {
+  test("keeps Upgrade available and enabled when the plugin is disabled and drifted", () => {
     render(
       <PluginDetailActions
         {...baseActionsProps}

@@ -143,14 +143,14 @@ export function PluginListRow({
             />
           )
         ) : (
-          // Installed: a read-only auto-include tag beside an always-present
+          // Installed: a read-only Enabled/Disabled tag beside an always-present
           // Remove (Upgrade lives in the version-line chip), so the pair never
           // shifts. The tag is informational — clicking the row opens the detail
           // page, where the setting is changed.
           <div className="flex shrink-0 items-center gap-2">
             {showEnablement ? (
               <Tag tone={item.enabled ? "positive" : "neutral"}>
-                {item.enabled ? "Auto-on" : "Auto-off"}
+                {item.enabled ? "Enabled" : "Disabled"}
               </Tag>
             ) : null}
             <Button

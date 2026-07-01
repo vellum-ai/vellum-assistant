@@ -213,7 +213,7 @@ describe("PluginListRow", () => {
     ).not.toBeNull();
   });
 
-  test("Auto-on installed row shows an Auto-on tag beside Remove (no toggle)", () => {
+  test("Enabled installed row shows an Enabled tag beside Remove (no toggle)", () => {
     const { getByText } = render(
       <PluginListRow
         item={makeItem({ status: "installed", enabled: true })}
@@ -222,7 +222,7 @@ describe("PluginListRow", () => {
       />,
     );
 
-    expect(getByText("Auto-on")).toBeTruthy();
+    expect(getByText("Enabled")).toBeTruthy();
     // The row carries no interactive toggle — changing it happens on detail.
     expect(document.querySelector('button[role="switch"]')).toBeNull();
     expect(
@@ -230,7 +230,7 @@ describe("PluginListRow", () => {
     ).not.toBeNull();
   });
 
-  test("Auto-off row is dimmed and shows an Auto-off tag", () => {
+  test("Disabled row is dimmed and shows a Disabled tag", () => {
     const { getByText } = render(
       <PluginListRow
         item={makeItem({ status: "installed", enabled: false })}
@@ -238,12 +238,12 @@ describe("PluginListRow", () => {
       />,
     );
 
-    expect(getByText("Auto-off")).toBeTruthy();
-    // Off rows dim the name to the tertiary content token.
+    expect(getByText("Disabled")).toBeTruthy();
+    // Disabled rows dim the name to the tertiary content token.
     expect(getByText("Test Plugin").style.color).toContain("content-tertiary");
   });
 
-  test("drift renders the Update chip (Remove stays), even when Auto-off", () => {
+  test("drift renders the Update chip (Remove stays), even when Disabled", () => {
     const { getByText } = render(
       <PluginListRow
         item={makeItem({ status: "installed", enabled: false })}
@@ -261,8 +261,8 @@ describe("PluginListRow", () => {
     expect(
       document.querySelector('button[aria-label="Remove plugin"]'),
     ).not.toBeNull();
-    // The chip shows regardless of the auto-include state — here it's Auto-off.
-    expect(getByText("Auto-off")).toBeTruthy();
+    // The chip shows regardless of the enablement state — here it's Disabled.
+    expect(getByText("Disabled")).toBeTruthy();
   });
 
   test("available row shows only Install (no tag, no Remove)", () => {
@@ -277,8 +277,8 @@ describe("PluginListRow", () => {
     expect(
       document.querySelector('button[aria-label="Install plugin"]'),
     ).not.toBeNull();
-    expect(queryByText("Auto-on")).toBeNull();
-    expect(queryByText("Auto-off")).toBeNull();
+    expect(queryByText("Enabled")).toBeNull();
+    expect(queryByText("Disabled")).toBeNull();
     expect(
       document.querySelector('button[aria-label="Remove plugin"]'),
     ).toBeNull();
@@ -293,8 +293,8 @@ describe("PluginListRow", () => {
       />,
     );
 
-    expect(queryByText("Auto-on")).toBeNull();
-    expect(queryByText("Auto-off")).toBeNull();
+    expect(queryByText("Enabled")).toBeNull();
+    expect(queryByText("Disabled")).toBeNull();
     // Remove is still present for installed rows.
     expect(
       document.querySelector('button[aria-label="Remove plugin"]'),
