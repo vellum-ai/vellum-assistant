@@ -180,7 +180,7 @@ describe("useAssistantResourceSync", () => {
     expect(predicate!({ queryKey: avatarQueryKey("asst-1") })).toBe(false);
   });
 
-  test("invalidates plugin list / catalog queries on plugins:list sync tag", async () => {
+  test("invalidates plugin list / catalog / open-detail queries on plugins:list sync tag", async () => {
     const queryClient = freshQueryClient();
     const calls: unknown[] = [];
     queryClient.invalidateQueries = ((arg: unknown) => {
@@ -200,6 +200,10 @@ describe("useAssistantResourceSync", () => {
         expect.arrayContaining([
           pluginsGetQueryKey(pathOpts),
           pluginsSearchGetQueryKey(pathOpts),
+          // The broad sync carries no name, so every open plugin detail + drift
+          // inspect is invalidated via partial key (see invalidatePluginQueries).
+          [{ _id: "pluginsByNameGet", path: { assistant_id: "asst-1" } }],
+          [{ _id: "pluginsByNameInspectGet", path: { assistant_id: "asst-1" } }],
         ]) as never
       );
     });
@@ -225,6 +229,9 @@ describe("useAssistantResourceSync", () => {
         expect.arrayContaining([
           pluginsGetQueryKey(pathOpts),
           pluginsSearchGetQueryKey(pathOpts),
+          // Reconnect reconcile is name-agnostic too — open details invalidate.
+          [{ _id: "pluginsByNameGet", path: { assistant_id: "asst-1" } }],
+          [{ _id: "pluginsByNameInspectGet", path: { assistant_id: "asst-1" } }],
         ]) as never
       );
     });
