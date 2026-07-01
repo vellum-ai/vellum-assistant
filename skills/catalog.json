@@ -116,7 +116,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-01T10:25:23.000Z"
+      "updatedAt": "2026-07-01T10:52:10.000Z"
     },
     {
       "id": "deploy-fullstack-vercel",
@@ -145,7 +145,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-01T18:11:39.000Z"
     },
     {
       "id": "doordash",
@@ -475,7 +475,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-01T18:11:39.000Z"
     },
     {
       "id": "mcp-setup",
@@ -679,7 +679,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-01T18:11:39.000Z"
     },
     {
       "id": "restaurant-reservation",
@@ -740,7 +740,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-01T18:11:39.000Z"
     },
     {
       "id": "slack",
@@ -822,7 +822,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-01T18:11:39.000Z"
     },
     {
       "id": "stripe-link-wallet",
