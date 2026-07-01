@@ -8,9 +8,16 @@ export type PluginStatus = "installed" | "available";
 /**
  * User-facing status filter. Orthogonal to `PluginStatus`: `active` and `off`
  * both narrow the installed set by enablement (Active = installed & enabled,
- * Off = installed & !enabled), while `available` is the not-installed catalog.
+ * Off = installed & !enabled), `installed` is the whole installed set
+ * regardless of enablement (offered when the daemon can't toggle), and
+ * `available` is the not-installed catalog.
  */
-export type PluginFilter = "all" | "active" | "off" | "available";
+export type PluginFilter =
+  | "all"
+  | "installed"
+  | "active"
+  | "off"
+  | "available";
 
 /**
  * Unified row model for the Plugins tab, populated from two independent

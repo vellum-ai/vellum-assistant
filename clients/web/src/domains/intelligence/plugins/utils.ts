@@ -74,6 +74,10 @@ export function filterByStatus(
       return items;
     case "available":
       return items.filter((i) => i.status === "available");
+    // Every installed plugin, regardless of enablement — offered instead of
+    // Active/Off on daemons that predate enable/disable.
+    case "installed":
+      return items.filter((i) => i.status === "installed");
     // Active = installed & enabled. Enablement `undefined` (older daemons) is
     // treated as active, so a plugin never silently disappears when the daemon
     // predates enable/disable.

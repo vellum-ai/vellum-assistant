@@ -149,6 +149,14 @@ describe("filterByStatus", () => {
     expect(filterByStatus(items, "all")).toHaveLength(4);
   });
 
+  test("installed returns every installed row regardless of enablement", () => {
+    expect(filterByStatus(items, "installed").map((p) => p.name)).toEqual([
+      "on",
+      "off",
+      "legacy",
+    ]);
+  });
+
   test("active returns installed rows that aren't explicitly disabled", () => {
     // `undefined` enablement (older daemons) counts as active — the plugin is
     // installed and not turned off, so it must not vanish.
