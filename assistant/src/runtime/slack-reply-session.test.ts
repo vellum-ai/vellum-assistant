@@ -401,6 +401,40 @@ describe("createSlackReplySession", () => {
     expect(reconciliation).toEqual({ mode: "fallback" });
   });
 
+  test("withholds an in-progress vellum link until it closes, then strips it", async () => {
+    // Slack streams are append-only, so a `[label](vellum://…)` link split
+    // across deltas must not stream its internal path before the closing `)`
+    // arrives — once emitted it could not be retracted.
+    const session = createSlackReplySession({
+      sourceChannel: "slack",
+      chatType: "im",
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+      coalesceMs: 5,
+    })!;
+
+    session.observeEvent(textDelta("Here is your file: [report.pdf]("));
+    await tick(15);
+    session.observeEvent(textDelta("vellum://workspace/scratch/report"));
+    await tick(15);
+
+    // Nothing containing the internal path may have been streamed yet.
+    for (const op of slackStreamOps()) {
+      expect(JSON.stringify(op)).not.toContain("vellum://");
+    }
+
+    session.observeEvent(textDelta(".pdf)"));
+    session.observeEvent(messageComplete("assistant-msg-1"));
+    await session.finish();
+
+    const ops = slackStreamOps();
+    const streamed = ops
+      .map((op) => (op.markdownText as string | undefined) ?? "")
+      .join("");
+    expect(streamed).toBe("Here is your file: report.pdf");
+    expect(streamed).not.toContain("vellum://");
+  });
+
   test("counts deliverable text segments split at tool boundaries", async () => {
     const session = createSlackReplySession({
       sourceChannel: "slack",

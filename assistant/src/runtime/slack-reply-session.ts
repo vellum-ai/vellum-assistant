@@ -5,7 +5,10 @@ import {
   isSlackDeliveryCallbackUrl,
 } from "../channels/slack-thread-store.js";
 import type { ChannelId } from "../channels/types.js";
-import { stripVellumLinks } from "../daemon/assistant-attachments.js";
+import {
+  incompleteVellumLinkSuffixLength,
+  stripVellumLinks,
+} from "../daemon/assistant-attachments.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { SLACK_STREAM_MARKDOWN_LIMIT } from "../messaging/providers/slack/api.js";
 import { renderSlackBlocks } from "../messaging/providers/slack/render.js";
@@ -131,6 +134,18 @@ export function createSlackReplySession(params: {
   const cleanedText = (): string =>
     stripVellumLinks(rawText).replace(NO_RESPONSE_INLINE_RE, "");
 
+  // Text safe to append to Slack's append-only stream: while more deltas may
+  // arrive, a trailing `[label](vellum://…)` link that is still being assembled
+  // is withheld so its internal path is never emitted before the link closes
+  // (and `stripVellumLinks` can remove it). Once `finished`, no delta can
+  // extend the text, so the full cleaned reply is safe to emit.
+  const streamableText = (): string => {
+    if (finished) return cleanedText();
+    const hold = incompleteVellumLinkSuffixLength(rawText);
+    const stable = hold > 0 ? rawText.slice(0, rawText.length - hold) : rawText;
+    return stripVellumLinks(stable).replace(NO_RESPONSE_INLINE_RE, "");
+  };
+
   const planTasks = (): SlackStreamTask[] | undefined =>
     activeProgress ? toSlackStreamTasks(activeProgress) : undefined;
 
@@ -151,7 +166,7 @@ export function createSlackReplySession(params: {
 
   const enqueueStart = (): void => {
     enqueue(async () => {
-      const clean = cleanedText();
+      const clean = streamableText();
       if (clean.trim().length === 0) return;
       const firstChunk = clean.slice(0, SLACK_STREAM_MARKDOWN_LIMIT);
       const planActive = activeProgress !== undefined;
@@ -186,7 +201,7 @@ export function createSlackReplySession(params: {
   const enqueueAppend = (): void => {
     enqueue(async () => {
       if (state !== "streaming" || !streamTs) return;
-      const clean = cleanedText();
+      const clean = streamableText();
       const tasks = planTasks();
       // `chat.appendStream` requires `markdown_text` and caps it per call, so a
       // delta wider than the limit drains across successive append calls. Each
@@ -229,7 +244,7 @@ export function createSlackReplySession(params: {
     }
     if (finished || state === "fallback") return;
     if (!started) {
-      if (!hasDeliverableAssistantText(rawText)) return;
+      if (!hasDeliverableAssistantText(streamableText())) return;
       started = true;
       enqueueStart();
       return;
