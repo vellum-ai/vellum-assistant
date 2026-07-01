@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { useSearchParams } from "react-router";
+import { Link, useSearchParams } from "react-router";
 
 import { NativeSplash } from "@/components/native-splash";
 import { DarkLoginShell, LoginCard, LoginErrorText, LoginHeading } from "@/domains/account/components/login-shell";
 import { PROVIDER_ID, buildProviderCallbackUrl } from "@/domains/account/login-flow";
 import { startAuthFlow, startNativeLogin, useIsNativePlatform } from "@/runtime/native-auth";
+import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library";
 
 const AUTH_ERROR_MESSAGES: Record<string, string> = {
@@ -89,6 +90,9 @@ function WebLoginForm({ returnTo }: { returnTo: string | null }) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const callbackUrl = buildProviderCallbackUrl(returnTo);
+  const signUpHref = returnTo
+    ? `${routes.account.signup}?returnTo=${encodeURIComponent(returnTo)}`
+    : routes.account.signup;
 
   const handleContinue = async () => {
     setErrorMessage(null);
@@ -119,6 +123,17 @@ function WebLoginForm({ returnTo }: { returnTo: string | null }) {
             Continue
           </Button>
         </div>
+        <p className="text-body-small-default flex justify-center gap-1">
+          <span className="text-[var(--content-secondary)]">
+            Don&apos;t have an account?
+          </span>
+          <Link
+            to={signUpHref}
+            className="font-medium text-[var(--content-emphasised)] hover:underline"
+          >
+            Sign up
+          </Link>
+        </p>
       </LoginCard>
     </DarkLoginShell>
   );
