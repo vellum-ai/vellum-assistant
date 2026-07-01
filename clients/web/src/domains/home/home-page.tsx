@@ -17,6 +17,7 @@ import { SystemTaskDetailPanel } from "./components/system-task-detail-panel";
 import { HomeDetailPanel } from "./detail-panel/home-detail-panel";
 import { HomeFeedList } from "./home-feed-list";
 import { HomeTopHeader } from "./home-top-header";
+import { excludeHighUrgency } from "./utils";
 import { useHomeSchedulesData } from "./hooks/use-home-schedules-data";
 import { useHomeFeedQuery } from "./hooks/use-home-feed-query";
 import { useHomeStateQuery } from "./hooks/use-home-state-query";
@@ -221,8 +222,11 @@ export function HomePage({
   );
 
   const feedItems = feedQuery.data?.items ?? [];
-  const newCount = feedItems.filter((i) => i.status === "new").length;
-  const activeCount = feedItems.filter((i) => i.status !== "dismissed").length;
+  const visibleFeedItems = excludeHighUrgency(
+    feedItems.filter((i) => i.status !== "dismissed"),
+  );
+  const newCount = visibleFeedItems.filter((i) => i.status === "new").length;
+  const activeCount = visibleFeedItems.length;
   const supportsBulkStatus = useSupportsBulkFeedStatus();
 
   const handleMarkAllRead = useCallback(() => {
