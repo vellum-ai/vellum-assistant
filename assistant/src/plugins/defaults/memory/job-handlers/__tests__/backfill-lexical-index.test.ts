@@ -507,6 +507,41 @@ describe("backfillLexicalIndexJob", () => {
       ).toEqual({ createdAt: 0, messageId: "" });
     });
 
+    test("resets the cursor when suppressed during a PARTIAL backfill (sentinel still unset)", () => {
+      // Suppression can also land mid-backfill: the completion sentinel is unset
+      // but the cursor is partway through the table. Edits/backdated inserts that
+      // land behind that cursor while suppressed would be skipped by a forward
+      // resume, so the cursor must still reset to the origin.
+      writeMessageCursorCheckpoint(CHECKPOINT_KEY, CHECKPOINT_ID_KEY, {
+        createdAt: 5_000,
+        messageId: "msg-mid",
+      });
+      setMemoryEnabled(false);
+
+      maybeEnqueueLexicalBackfillOnUpgrade();
+
+      expect(pendingBackfillJobCount()).toBe(0);
+      expect(isLexicalBackfillComplete()).toBe(false);
+      expect(
+        readMessageCursorCheckpoint(CHECKPOINT_KEY, CHECKPOINT_ID_KEY),
+      ).toEqual({ createdAt: 0, messageId: "" });
+    });
+
+    test("does not churn the checkpoint when suppressed with nothing to invalidate", () => {
+      // A permanently-suppressed instance (cursor already at origin, sentinel
+      // unset) must not rewrite the checkpoint every boot — the reset is a no-op
+      // here. The cursor stays at the origin and no job is enqueued.
+      setMemoryEnabled(false);
+
+      maybeEnqueueLexicalBackfillOnUpgrade();
+
+      expect(pendingBackfillJobCount()).toBe(0);
+      expect(isLexicalBackfillComplete()).toBe(false);
+      expect(
+        readMessageCursorCheckpoint(CHECKPOINT_KEY, CHECKPOINT_ID_KEY),
+      ).toEqual({ createdAt: 0, messageId: "" });
+    });
+
     test("does NOT enqueue a duplicate when a backfill job is already pending", () => {
       // First call enqueues the one-time job.
       maybeEnqueueLexicalBackfillOnUpgrade();
