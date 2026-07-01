@@ -32,8 +32,12 @@
  *
  * POST /v1/plugins/:name/enable | disable (toggle):
  *   - Forwards `pathParams.name` to the `enablePlugin` / `disablePlugin` lib
- *   - Returns `{ ok: true }` and broadcasts a `sync_changed` carrying the
- *     `plugins:list` tag (enable and disable emit the SAME invalidation)
+ *   - Returns `{ ok: true }` and publishes a `sync_changed` carrying the
+ *     `plugins:list` tag via the canonical resource-sync publisher (enable and
+ *     disable emit the SAME invalidation)
+ *   - Threads `x-vellum-client-id` into the published event's `originClientId`
+ *   - A broadcast failure does not fail a successful toggle (the publisher
+ *     swallows hub errors)
  *   - Maps `InvalidPluginNameError` → BadRequestError (400)
  *   - Maps `PluginDirectoryNotFoundError` → NotFoundError (404)
  *   - Maps `PluginAlreadyInStateException` → ConflictError (409); no broadcast
@@ -277,8 +281,10 @@ mock.module("../../../cli/lib/toggle-plugin.js", () => ({
 }));
 
 // Spy on broadcastMessage so we can assert the sync_changed invalidation the
-// enable/disable handlers emit. `buildSyncChangedMessage` is left real, so the
-// spy receives the actual `{ type: "sync_changed", tags: [...] }` payload.
+// enable/disable handlers emit. The handlers publish through the canonical
+// `publishPluginsChanged` → `publishSyncInvalidation` path (both left real), so
+// the spy receives the actual `{ type: "sync_changed", tags: [...],
+// originClientId? }` payload the publisher builds.
 const broadcastMessageSpy = mock((_msg: unknown): void => {});
 
 mock.module("../../assistant-event-hub.js", () => ({
@@ -2118,6 +2124,35 @@ describe("POST /v1/plugins/:name/enable", () => {
     expectPluginsListBroadcast();
   });
 
+  test("threads x-vellum-client-id into the published event's originClientId", () => {
+    enablePluginSpy.mockImplementation((name) => toggleResult(name, "enable"));
+
+    invokeEnable({
+      pathParams: { name: "simple-memory" },
+      headers: { "x-vellum-client-id": "client-abc" },
+    });
+
+    // The initiating client's id flows through the canonical publisher so it
+    // can self-echo-suppress its own invalidation.
+    const [msg] = broadcastMessageSpy.mock.calls[0]!;
+    expect(msg).toMatchObject({
+      type: "sync_changed",
+      originClientId: "client-abc",
+    });
+  });
+
+  test("a broadcast failure does not fail a successful toggle", () => {
+    enablePluginSpy.mockImplementation((name) => toggleResult(name, "enable"));
+    // The sentinel was already flipped; a hub throw AFTER that must not surface
+    // as a 500 — the canonical publisher swallows broadcast errors.
+    broadcastMessageSpy.mockImplementation(() => {
+      throw new Error("hub unavailable");
+    });
+
+    const result = invokeEnable({ pathParams: { name: "simple-memory" } });
+    expect(result).toEqual({ ok: true });
+  });
+
   test("PluginAlreadyInStateException → ConflictError (409), no broadcast", () => {
     enablePluginSpy.mockImplementation((name) => {
       throw new PluginAlreadyInStateException(name, "enable");
@@ -2158,7 +2193,9 @@ describe("POST /v1/plugins/:name/disable", () => {
   });
 
   test("disables the plugin and broadcasts sync_changed(plugins:list)", () => {
-    disablePluginSpy.mockImplementation((name) => toggleResult(name, "disable"));
+    disablePluginSpy.mockImplementation((name) =>
+      toggleResult(name, "disable"),
+    );
 
     const result = invokeDisable({ pathParams: { name: "simple-memory" } });
 
@@ -2167,6 +2204,23 @@ describe("POST /v1/plugins/:name/disable", () => {
     // Enable and disable emit the SAME invalidation — the tag names the
     // resource, not the new value.
     expectPluginsListBroadcast();
+  });
+
+  test("threads x-vellum-client-id into the published event's originClientId", () => {
+    disablePluginSpy.mockImplementation((name) =>
+      toggleResult(name, "disable"),
+    );
+
+    invokeDisable({
+      pathParams: { name: "simple-memory" },
+      headers: { "x-vellum-client-id": "client-xyz" },
+    });
+
+    const [msg] = broadcastMessageSpy.mock.calls[0]!;
+    expect(msg).toMatchObject({
+      type: "sync_changed",
+      originClientId: "client-xyz",
+    });
   });
 
   test("PluginAlreadyInStateException → ConflictError (409), no broadcast", () => {
