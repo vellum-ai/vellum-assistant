@@ -507,6 +507,45 @@ describe("PluginsTab", () => {
     ).toContain("1");
   });
 
+  test("Active/Off category badges count only matching plugins, not the server total", async () => {
+    // Two installed email plugins — one enabled, one disabled. The server's
+    // categoryCounts is the total for ALL installed (email: 2); Active/Off must
+    // reflect only the matching subset, or a badge over-counts rows the filter
+    // hides (and a category with only hidden rows would show empty under a
+    // nonzero badge).
+    installedPlugins = [
+      installed({ id: "on", name: "on-mailer", category: "email", enabled: true }),
+      installed({ id: "off", name: "off-mailer", category: "email", enabled: false }),
+    ];
+    installedCategoryCounts = { email: 2 };
+
+    const { findByRole, getByLabelText } = renderTab();
+    const nav = await findByRole("navigation", { name: "Plugin categories" });
+
+    // All: the server total (2) shows.
+    expect(
+      within(nav).getByRole("button", { name: /Email/ }).textContent,
+    ).toContain("2");
+
+    // Active: only the enabled email plugin — badge drops to 1, not the server's 2.
+    fireEvent.click(getByLabelText("Filter plugins"));
+    clickStatusOption("Active");
+    await waitFor(() =>
+      expect(
+        within(nav).getByRole("button", { name: /Email/ }).textContent,
+      ).toContain("1"),
+    );
+
+    // Off: only the disabled email plugin — also 1.
+    fireEvent.click(getByLabelText("Filter plugins"));
+    clickStatusOption("Off");
+    await waitFor(() =>
+      expect(
+        within(nav).getByRole("button", { name: /Email/ }).textContent,
+      ).toContain("1"),
+    );
+  });
+
   test("hides the rail counts while a search term is active, restoring them when cleared", async () => {
     // Search is client-side (the term never reaches the data hook), so the
     // count gating must key off the term — not react-query's fetch state.
