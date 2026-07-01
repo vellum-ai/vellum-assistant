@@ -280,18 +280,70 @@ describe("PluginsTab", () => {
     expect(queryByText("Available to install")).toBeNull();
   });
 
-  test("status filter narrows the list to installed only", async () => {
-    installedPlugins = [installed()];
+  test("the Active filter narrows to enabled installed plugins", async () => {
+    installedPlugins = [
+      installed({ id: "on", name: "on-plugin", enabled: true }),
+      installed({ id: "off", name: "off-plugin", enabled: false }),
+    ];
     catalogMatches = [catalog()];
 
     const { findByText, queryByText, getByLabelText } = renderTab();
     await findByText("apollo-bot-brain");
 
     fireEvent.click(getByLabelText("Filter plugins"));
-    clickStatusOption("Installed");
+    clickStatusOption("Active");
 
-    await waitFor(() => expect(queryByText("apollo-bot-brain")).toBeNull());
-    expect(queryByText("simple-memory")).toBeTruthy();
+    await waitFor(() => expect(queryByText("off-plugin")).toBeNull());
+    expect(queryByText("apollo-bot-brain")).toBeNull();
+    expect(queryByText("on-plugin")).toBeTruthy();
+  });
+
+  test("the Off filter narrows to disabled installed plugins", async () => {
+    installedPlugins = [
+      installed({ id: "on", name: "on-plugin", enabled: true }),
+      installed({ id: "off", name: "off-plugin", enabled: false }),
+    ];
+    catalogMatches = [catalog()];
+
+    const { findByText, queryByText, getByLabelText } = renderTab();
+    await findByText("apollo-bot-brain");
+
+    fireEvent.click(getByLabelText("Filter plugins"));
+    clickStatusOption("Off");
+
+    await waitFor(() => expect(queryByText("on-plugin")).toBeNull());
+    expect(queryByText("apollo-bot-brain")).toBeNull();
+    expect(queryByText("off-plugin")).toBeTruthy();
+  });
+
+  test("the Available filter narrows to catalog plugins", async () => {
+    installedPlugins = [installed({ id: "on", name: "on-plugin", enabled: true })];
+    catalogMatches = [catalog()];
+
+    const { findByText, queryByText, getByLabelText } = renderTab();
+    await findByText("on-plugin");
+
+    fireEvent.click(getByLabelText("Filter plugins"));
+    clickStatusOption("Available");
+
+    await waitFor(() => expect(queryByText("on-plugin")).toBeNull());
+    expect(queryByText("apollo-bot-brain")).toBeTruthy();
+  });
+
+  test("hides Active/Off when the daemon lacks enable/disable support", async () => {
+    // `installed()` omits `enabled` (older-daemon shape) → toggle unsupported.
+    installedPlugins = [installed()];
+    catalogMatches = [catalog()];
+
+    const { findByText, getByLabelText } = renderTab();
+    await findByText("apollo-bot-brain");
+
+    fireEvent.click(getByLabelText("Filter plugins"));
+
+    const labels = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).map((o) => o.textContent?.trim());
+    expect(labels).toEqual(["All", "Available"]);
   });
 
   test("search filters the list in memory", async () => {
@@ -422,9 +474,10 @@ describe("PluginsTab", () => {
   });
 
   test("respects the status filter when deriving category badges", async () => {
-    // email is installed-only; system is available-only.
+    // email is installed-only; system is available-only. `enabled` on the
+    // installed row latches toggle support so the Active option is offered.
     installedPlugins = [
-      installed({ id: "mailer", name: "mailer", category: "email" }),
+      installed({ id: "mailer", name: "mailer", category: "email", enabled: true }),
     ];
     installedCategoryCounts = { email: 1 };
     catalogMatches = [catalog({ name: "sys-cat", category: "system" })];
@@ -440,10 +493,10 @@ describe("PluginsTab", () => {
       within(nav).getByRole("button", { name: /System/ }).textContent,
     ).toContain("1");
 
-    // "Installed": the available-only System badge drops so it no longer counts
-    // rows the status filter hides; Email (installed) stays 1.
+    // "Active" is installed-only: the available-only System badge drops so it no
+    // longer counts rows the status filter hides; Email (installed) stays 1.
     fireEvent.click(getByLabelText("Filter plugins"));
-    clickStatusOption("Installed");
+    clickStatusOption("Active");
     await waitFor(() =>
       expect(
         within(nav).getByRole("button", { name: /System/ }).textContent,
@@ -452,6 +505,45 @@ describe("PluginsTab", () => {
     expect(
       within(nav).getByRole("button", { name: /Email/ }).textContent,
     ).toContain("1");
+  });
+
+  test("Active/Off category badges count only matching plugins, not the server total", async () => {
+    // Two installed email plugins — one enabled, one disabled. The server's
+    // categoryCounts is the total for ALL installed (email: 2); Active/Off must
+    // reflect only the matching subset, or a badge over-counts rows the filter
+    // hides (and a category with only hidden rows would show empty under a
+    // nonzero badge).
+    installedPlugins = [
+      installed({ id: "on", name: "on-mailer", category: "email", enabled: true }),
+      installed({ id: "off", name: "off-mailer", category: "email", enabled: false }),
+    ];
+    installedCategoryCounts = { email: 2 };
+
+    const { findByRole, getByLabelText } = renderTab();
+    const nav = await findByRole("navigation", { name: "Plugin categories" });
+
+    // All: the server total (2) shows.
+    expect(
+      within(nav).getByRole("button", { name: /Email/ }).textContent,
+    ).toContain("2");
+
+    // Active: only the enabled email plugin — badge drops to 1, not the server's 2.
+    fireEvent.click(getByLabelText("Filter plugins"));
+    clickStatusOption("Active");
+    await waitFor(() =>
+      expect(
+        within(nav).getByRole("button", { name: /Email/ }).textContent,
+      ).toContain("1"),
+    );
+
+    // Off: only the disabled email plugin — also 1.
+    fireEvent.click(getByLabelText("Filter plugins"));
+    clickStatusOption("Off");
+    await waitFor(() =>
+      expect(
+        within(nav).getByRole("button", { name: /Email/ }).textContent,
+      ).toContain("1"),
+    );
   });
 
   test("hides the rail counts while a search term is active, restoring them when cleared", async () => {
