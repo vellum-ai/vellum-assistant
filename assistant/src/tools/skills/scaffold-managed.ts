@@ -18,12 +18,15 @@ function sanitizeFrontmatterValue(value: string): string {
 }
 
 /**
- * Validate + normalize an optional string-array input (trim, drop blanks,
+ * Validate + normalize an optional string-array input (sanitize, drop blanks,
  * dedupe). Returns `{ error }` on the first invalid element, or `{ value }`
  * holding the normalized array (undefined when empty). Shared by the
  * includes / activation_hints / avoid_when inputs so they behave identically.
- * The arrays land in frontmatter via stringifyYaml, which handles escaping, so
- * no per-element sanitizeFrontmatterValue pass is needed.
+ * Each element goes through sanitizeFrontmatterValue: activation_hints /
+ * avoid_when are concatenated verbatim into capability memory text (see
+ * buildSkillContent), so an embedded newline could otherwise smuggle an extra
+ * prompt line into a future turn — collapse control chars the same way
+ * name/description are.
  */
 function normalizeOptionalStringArray(
   raw: unknown,
@@ -36,13 +39,16 @@ function normalizeOptionalStringArray(
   const normalized: string[] = [];
   const seen = new Set<string>();
   for (const item of raw) {
-    if (typeof item !== "string" || !item.trim()) {
+    if (typeof item !== "string") {
       return { error: `each element in ${field} must be a non-empty string` };
     }
-    const trimmed = item.trim();
-    if (seen.has(trimmed)) continue;
-    seen.add(trimmed);
-    normalized.push(trimmed);
+    const cleaned = sanitizeFrontmatterValue(item);
+    if (!cleaned) {
+      return { error: `each element in ${field} must be a non-empty string` };
+    }
+    if (seen.has(cleaned)) continue;
+    seen.add(cleaned);
+    normalized.push(cleaned);
   }
   return { value: normalized.length > 0 ? normalized : undefined };
 }
