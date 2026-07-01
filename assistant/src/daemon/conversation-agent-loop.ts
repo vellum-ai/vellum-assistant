@@ -34,10 +34,6 @@ import {
 } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import {
-  derefToolResultReReads,
-  postTurnTruncateToolResults,
-} from "../context/post-turn-tool-result-truncation.js";
 import { writeRelationshipState } from "../home/relationship-state-writer.js";
 import {
   clearSentryConversationContext,
@@ -56,8 +52,6 @@ import {
   updateConversationContextWindow,
   updateConversationSlackContextWatermark,
 } from "../persistence/conversation-crud.js";
-import { getResolvedConversationDirPath } from "../persistence/conversation-directories.js";
-import { syncMessageToDisk } from "../persistence/conversation-disk-view.js";
 import { isReplaceableTitle } from "../persistence/conversation-title-service.js";
 import {
   backfillMessageIdOnLogs,
@@ -114,6 +108,7 @@ import {
   type SlackChronologicalContext,
 } from "./conversation-runtime-assembly.js";
 import { markSurfaceCompleted } from "./conversation-surfaces.js";
+import { runDeferredTurnTail } from "./conversation-turn-finalize.js";
 import { recordUsage } from "./conversation-usage.js";
 import { resolveTurnTimezoneContext } from "./date-context.js";
 import { getDiskPressureStatus } from "./disk-pressure-guard.js";
@@ -1344,80 +1339,6 @@ export async function runAgentLoopImpl(
       turnCronRunId,
     );
 
-    const syncLastAssistantMessageToDisk = (): void => {
-      if (!state.lastAssistantMessageId) return;
-      const convForDisk = getConversation(ctx.conversationId);
-      if (!convForDisk) return;
-      syncMessageToDisk(
-        ctx.conversationId,
-        state.lastAssistantMessageId,
-        convForDisk.createdAt,
-      );
-    };
-
-    // Non-critical end-of-turn bookkeeping, drained after the terminal SSE has
-    // already re-enabled the composer but before the `finally` starts the next
-    // turn. Ordering with the next turn is preserved (it runs before
-    // `drainQueue`), while the last-token→send-button latency no longer
-    // includes it. Every step is best-effort: a hiccup here must never turn a
-    // delivered reply into a turn-level error.
-    const runDeferredTurnTail = async (): Promise<void> => {
-      const tailStartedAt = Date.now();
-      // Per-message memory/attention finalize side-effects deferred from
-      // `handleMessageComplete` (memory segment indexing, lexical indexing,
-      // attention projection) — one closure per assistant row produced this
-      // turn, in production order.
-      for (const effect of state.deferredFinalizeEffects) {
-        try {
-          await effect();
-        } catch (err) {
-          rlog.warn(
-            { err },
-            "Deferred finalize side-effect failed (non-fatal)",
-          );
-        }
-      }
-      // Post-turn tool-result truncation: spool oversized results to disk and
-      // replace their in-context content with a stub + pointer, shrinking the
-      // next turn's context. Rewrites only the in-memory history, so it has no
-      // bearing on the reply already delivered to the client.
-      try {
-        const conv = getConversation(ctx.conversationId);
-        if (conv) {
-          const convDir = getResolvedConversationDirPath(
-            ctx.conversationId,
-            conv.createdAt,
-          );
-          const { messages: derefMessages, dereferencedCount } =
-            derefToolResultReReads(ctx.messages);
-          const { messages: truncatedMessages, truncatedCount } =
-            postTurnTruncateToolResults(derefMessages, {
-              conversationDir: convDir,
-            });
-          if (truncatedCount > 0 || dereferencedCount > 0) {
-            rlog.info(
-              { truncatedCount, dereferencedCount },
-              "Post-turn tool result truncation applied",
-            );
-          }
-          ctx.messages = truncatedMessages;
-        }
-      } catch (err) {
-        rlog.warn(
-          { err },
-          "Post-turn tool result truncation failed (non-fatal)",
-        );
-      }
-      // Mirror the final assistant row into the JSONL disk view.
-      syncLastAssistantMessageToDisk();
-      rlog.info(
-        {
-          criticalSectionMs: tailStartedAt - generationCompletedAt,
-          deferredTailMs: Date.now() - tailStartedAt,
-        },
-        "End-of-turn work complete",
-      );
-    };
     // Fast-path: when the user cancelled, skip expensive post-loop work
     // (attachment resolution) and emit the cancellation event immediately
     // so the client can re-enable the UI without delay. Disk sync and the rest
@@ -1547,7 +1468,7 @@ export async function runAgentLoopImpl(
     // generation_handoff, or generation_cancelled), so the composer is already
     // re-enabling. Drain the deferred bookkeeping now — after the SSE, before
     // the `finally` commits and drains the queue for the next turn.
-    await runDeferredTurnTail();
+    await runDeferredTurnTail({ ctx, state, rlog, generationCompletedAt });
   } catch (err) {
     clearConversationNotices(ctx.conversationId);
     const errorCtx = {

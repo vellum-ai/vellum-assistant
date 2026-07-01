@@ -28,7 +28,6 @@ import {
   recordCompactionEndBestEffort,
   recordCompactionStartBestEffort,
 } from "../persistence/compaction-log-store-clickhouse.js";
-import { projectAssistantMessage } from "../persistence/conversation-attention-store.js";
 import {
   deleteMessageById,
   getConversation,
@@ -60,7 +59,6 @@ import type {
   Message,
 } from "../providers/types.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
-import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { extractDomain } from "../tools/network/domain-normalize.js";
 import {
@@ -88,6 +86,7 @@ import {
   classifyConversationError,
   maxTokensReachedClassification,
 } from "./conversation-error.js";
+import { buildDeferredFinalizeEffect } from "./conversation-turn-finalize.js";
 import { resolveTurnTimezoneContext } from "./date-context.js";
 import type {
   CardSurfaceData,
@@ -95,7 +94,6 @@ import type {
   SurfaceAction,
   UiSurfaceShow,
 } from "./message-protocol.js";
-import { conversationMetadataSyncTag } from "./message-types/sync.js";
 import type {
   ToolActivityMetadata,
   WebSearchMetadata,
@@ -2030,97 +2028,23 @@ export async function handleMessageComplete(
   state.lastPersistedContentSeq = undefined;
 
   // ── Indexing + attention projection (deferred off the critical path) ──
-  // `reserveMessage` + `updateMessageContent` are CRUD-only: they don't run
-  // the memory indexer or the attention-cursor projector (unlike `addMessage`,
-  // which runs both as side-effects of the insert). Because the assistant row
-  // is reserved empty and finalized via `updateMessageContent`, both must be
-  // invoked explicitly to keep the assistant row's external state (Qdrant
-  // segments, conversation attention cursor) in lockstep with the finalized
-  // content. Neither gates delivery of the reply or the composer re-enabling —
-  // memory/attention only feed the NEXT turn's retrieval and a sidebar
-  // indicator — so they are queued here and drained by the orchestrator after
-  // the terminal `message_complete` SSE fires (but before the next turn), off
-  // the send-button critical path. The content persisted synchronously above,
-  // so a snapshot/refetch on `message_complete` still sees the full reply.
-  // Both remain non-fatal — a memory hiccup must not escalate a successful
-  // generation into a turn-level throw.
-  state.deferredFinalizeEffects.push(async () => {
-    const finalizedRow = getMessageById(
+  // `reserveMessage` + `updateMessageContent` are CRUD-only — unlike
+  // `addMessage`, they don't run the memory indexer or the attention-cursor
+  // projector as insert side-effects — so the assistant row's external state
+  // must be brought into lockstep explicitly. Neither gates delivery of the
+  // reply or the composer re-enabling, so the work is queued here and drained
+  // by the orchestrator after the terminal `message_complete` SSE fires (but
+  // before the next turn). See `conversation-turn-finalize.ts`. The content
+  // persisted synchronously above, so a snapshot/refetch on `message_complete`
+  // still sees the full reply.
+  state.deferredFinalizeEffects.push(
+    buildDeferredFinalizeEffect({
+      conversationId: deps.ctx.conversationId,
       assistantMessageId,
-      deps.ctx.conversationId,
-    );
-    if (!finalizedRow) return;
-    let provenanceTrustClass:
-      | "guardian"
-      | "trusted_contact"
-      | "unverified_contact"
-      | "unknown"
-      | undefined;
-    let automated: boolean | undefined;
-    if (finalizedRow.metadata) {
-      try {
-        const parsedMeta = messageMetadataSchema.safeParse(
-          JSON.parse(finalizedRow.metadata),
-        );
-        if (parsedMeta.success) {
-          provenanceTrustClass = parsedMeta.data.provenanceTrustClass;
-          automated = parsedMeta.data.automated;
-        }
-      } catch {
-        // Malformed metadata JSON — fall through with undefined fields,
-        // matching the legacy behavior in `addMessage`.
-      }
-    }
-    try {
-      await indexMessageNow(
-        {
-          messageId: assistantMessageId,
-          conversationId: deps.ctx.conversationId,
-          role: "assistant",
-          content: contentJson,
-          createdAt: finalizedRow.createdAt,
-          scopeId: "default",
-          provenanceTrustClass,
-          automated,
-        },
-        getConfig().memory,
-      );
-    } catch (err) {
-      deps.rlog.warn(
-        {
-          err,
-          conversationId: deps.ctx.conversationId,
-          messageId: assistantMessageId,
-        },
-        "Failed to index assistant message for memory (non-fatal)",
-      );
-    }
-    // Dual-write the finalized assistant content into the lexical index. The
-    // reserve+finalize path bypasses `onMessagePersisted`, so enqueue here to
-    // keep the lexical index in lockstep with the segment index.
-    enqueueLexicalIndexForMessage(assistantMessageId);
-    try {
-      const attentionStateChanged = projectAssistantMessage({
-        conversationId: deps.ctx.conversationId,
-        messageId: assistantMessageId,
-        messageAt: finalizedRow.createdAt,
-      });
-      if (attentionStateChanged) {
-        void publishSyncInvalidation([
-          conversationMetadataSyncTag(deps.ctx.conversationId),
-        ]);
-      }
-    } catch (err) {
-      deps.rlog.warn(
-        {
-          err,
-          conversationId: deps.ctx.conversationId,
-          messageId: assistantMessageId,
-        },
-        "Failed to project assistant message for attention tracking (non-fatal)",
-      );
-    }
-  });
+      contentJson,
+      rlog: deps.rlog,
+    }),
+  );
 
   // Backfill message_id on all LLM request logs from this turn.
   // The agent loop is single-threaded per conversation, so all rows with
