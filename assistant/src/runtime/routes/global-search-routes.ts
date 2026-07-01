@@ -223,7 +223,7 @@ async function handleGlobalSearch({
   };
 
   if (categories.has("conversations")) {
-    const convResults = searchConversations(query, {
+    const convResults = await searchConversations(query, {
       limit,
       maxMessagesPerConversation: 1,
     });
