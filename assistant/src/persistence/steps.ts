@@ -419,6 +419,7 @@ import { migrateAcpSessionHistoryTokenColumns } from "./migrations/308-acp-sessi
 import { migrateDropRedundantIndexes } from "./migrations/309-drop-redundant-indexes.js";
 import { migrateLlmRequestLogLatencyBreakdown } from "./migrations/310-llm-request-log-latency-breakdown.js";
 import { migrateCreateSubagentsTable } from "./migrations/311-create-subagents-table.js";
+import { migrateDropInboxConversationStateTable } from "./migrations/312-drop-inbox-conversation-state-table.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1309,4 +1310,5 @@ export const migrationSteps: MigrationStep[] = [
   migrateDropRedundantIndexes,
   migrateLlmRequestLogLatencyBreakdown,
   migrateCreateSubagentsTable,
+  migrateDropInboxConversationStateTable,
 ];
