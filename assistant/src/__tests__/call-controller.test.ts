@@ -2827,6 +2827,55 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
+  test("synthesized provider: a superseded turn does not send a stale play URL", async () => {
+    const cfg = loadConfig();
+    cfg.services.tts.provider = "fish-audio";
+    cfg.services.tts.providers["fish-audio"].referenceId = "fish-ref-123";
+
+    _resetTtsProviderRegistry();
+    let releaseChunk: (() => void) | undefined;
+    const chunkGate = new Promise<void>((resolve) => {
+      releaseChunk = resolve;
+    });
+    const fishAudioStreaming: TtsProvider = {
+      id: "fish-audio",
+      capabilities: {
+        supportsStreaming: true,
+        supportedFormats: ["mp3", "wav", "opus"],
+      },
+      async synthesize() {
+        return { audio: Buffer.from("x"), contentType: "audio/mpeg" };
+      },
+      async synthesizeStream(_request, onChunk) {
+        // Block until released so we can supersede the turn mid-synthesis.
+        await chunkGate;
+        onChunk(Buffer.from("stale-audio"));
+        return { audio: Buffer.from("stale-audio"), contentType: "audio/mpeg" };
+      },
+    };
+    registerTtsProvider(fishAudioStreaming);
+
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["Hello from synthesized path."]),
+    );
+    const { relay, controller } = setupController();
+
+    const turn = controller.handleCallerUtterance("first");
+    // Let the turn generate text and block inside provider synthesis.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(relay.sentPlayUrls.length).toBe(0);
+
+    // Supersede the in-flight synthesized turn (bumps run version + aborts synthesis).
+    controller.handleInterrupt();
+
+    // Releasing the stale synthesis must NOT send a play URL for the old run.
+    releaseChunk?.();
+    await turn;
+    expect(relay.sentPlayUrls.length).toBe(0);
+
+    controller.destroy();
+  });
+
   test("Deepgram selected path resolves useSynthesizedPath to true", () => {
     const cfg = loadConfig();
     cfg.services.tts.provider = "deepgram";

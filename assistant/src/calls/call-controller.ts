@@ -395,11 +395,6 @@ export class CallController {
     const wasSpeaking = this.state === "speaking";
     this.abortCurrentTurn();
     this.llmRunVersion++;
-    // Cancel in-flight synthesized TTS on barge-in
-    if (this.activeSynthesisAbort) {
-      this.activeSynthesisAbort.abort();
-      this.activeSynthesisAbort = null;
-    }
     // Explicitly terminate the in-progress TTS turn so the relay can
     // immediately hand control back to the caller after barge-in.
     if (wasSpeaking) {
@@ -483,6 +478,12 @@ export class CallController {
     }
     this.abortController.abort();
     this.abortController = new AbortController();
+    // Abort any in-flight synthesized-TTS playback too, so a superseded or
+    // torn-down turn's audio isn't streamed to the caller after they move on.
+    if (this.activeSynthesisAbort) {
+      this.activeSynthesisAbort.abort();
+      this.activeSynthesisAbort = null;
+    }
   }
 
   private formatCallerUtterance(
@@ -811,6 +812,9 @@ export class CallController {
       const url = `${baseUrl}/v1/audio/${handle.audioId}`;
       const sendPlayUrlOnce = (): void => {
         if (playUrlSent) return;
+        // Superseded/aborted while synthesis was pending — don't start playing
+        // a stale response after the caller has already moved on.
+        if (!this.isCurrentRun(runVersion)) return;
         // Audio is now actually reaching the caller — flip to `speaking` so
         // barge-in can interrupt (it stays `processing` until this point).
         this.beginSpeaking(runVersion);
