@@ -18,6 +18,7 @@ import type {
   TurnInterfaceContext,
 } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
+import { ABORT_WATCHDOG_MS } from "../daemon/abort-watchdog.js";
 import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
@@ -36,10 +37,6 @@ import {
 const log = getLogger("voice-session-bridge");
 
 const PROCESSING_WAIT_MARGIN_MS = 1000;
-// Must match ABORT_WATCHDOG_MS in conversation-agent-loop.ts. Mirrored here
-// rather than imported to keep this module (and its unit test) free of the
-// agent-loop's heavy dependency graph.
-const ABORT_UNWIND_BUDGET_MS = 5000;
 /**
  * How long startVoiceTurn waits for a prior turn to release the processing
  * lock before giving up. The prior turn can hold the lock for the abort
@@ -382,7 +379,7 @@ export async function startVoiceTurn(
     const config = getConfig();
     const maxWaitMs = resolveProcessingWaitMs(
       config.workspaceGit?.turnCommitMaxWaitMs ?? 4000,
-      ABORT_UNWIND_BUDGET_MS,
+      ABORT_WATCHDOG_MS,
     );
     const pollIntervalMs = 50;
     let waited = 0;
@@ -397,10 +394,10 @@ export async function startVoiceTurn(
       throw new Error("Turn aborted while waiting for conversation");
     }
     if (conversation.isProcessing()) {
-      // maxWaitMs covers the abort unwind budget (ABORT_WATCHDOG_MS) plus the
-      // awaited turn-boundary commit window (turnCommitMaxWaitMs) plus a
-      // margin — the full span a prior turn can hold the lock — so reaching
-      // here means the prior turn is genuinely wedged. See JARVIS-1232.
+      // Waited the full budget (see resolveProcessingWaitMs) without the lock
+      // releasing, so the prior turn is genuinely wedged. The controller
+      // catches this terminal error and speaks a brief non-technical
+      // re-prompt rather than staying silent. See JARVIS-1232.
       throw new Error("Conversation is already processing a message");
     }
   }

@@ -81,6 +81,7 @@ import { timeAgo } from "../util/time.js";
 import { truncate } from "../util/truncate.js";
 import { getWorkspaceGitService } from "../workspace/git-service.js";
 import { commitTurnChanges } from "../workspace/turn-commit.js";
+import { ABORT_WATCHDOG_MS } from "./abort-watchdog.js";
 import { cleanAssistantContent } from "./assistant-attachments.js";
 import { conversationSupportsDynamicUi } from "./channel-ui-capability.js";
 import type { Conversation } from "./conversation.js";
@@ -196,21 +197,19 @@ export interface AssistantSurface {
 
 // ── abort watchdog ───────────────────────────────────────────────────
 
-/**
- * Backstop that drives an aborted turn to its `finally` even if some awaited
- * operation fails to observe the abort signal.
- *
- * Abort is otherwise cooperative and already wired into the slow paths: the
- * provider call forwards the signal to its HTTP/streaming fetch, and tool
- * execution races the signal so a stuck tool can't block cancellation. This
- * watchdog only fires when a future code path silently ignores abort — without
- * it, such a path would hang the loop forever and latch the conversation's
- * `processing` flag true (the wedged "Thinking…" indicator). It is
- * defense-in-depth, not the primary mechanism: in the common case abort settles
- * in-flight work in well under a second, so a few seconds is ample headroom for
- * a cooperative unwind while still releasing a genuinely wedged turn promptly.
+/*
+ * The watchdog is a backstop that drives an aborted turn to its `finally` even
+ * if some awaited operation fails to observe the abort signal. Abort is
+ * otherwise cooperative and already wired into the slow paths: the provider call
+ * forwards the signal to its HTTP/streaming fetch, and tool execution races the
+ * signal so a stuck tool can't block cancellation. The watchdog only fires when
+ * a future code path silently ignores abort — without it, such a path would hang
+ * the loop forever and latch the conversation's `processing` flag true (the
+ * wedged "Thinking…" indicator). It is defense-in-depth, not the primary
+ * mechanism: in the common case abort settles in-flight work in well under a
+ * second, so ABORT_WATCHDOG_MS is ample headroom for a cooperative unwind while
+ * still releasing a genuinely wedged turn promptly.
  */
-const ABORT_WATCHDOG_MS = 5_000;
 
 /**
  * Race `work` against an abort watchdog. The watchdog stays disarmed until the
