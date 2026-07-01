@@ -62,7 +62,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleBackfillLexicalIndex,
     summary: "Enqueue a resumable backfill of messages into the lexical index",
     description:
-      "Enqueues the cursor-checkpointed backfill job that indexes existing messages into the Qdrant lexical (BM25-style) collection in batches. Resumable and idempotent — re-running continues from the last checkpoint. Pass `force: true` to reset the cursor and re-index from the beginning. The same backfill is also auto-enqueued once per instance on upgrade at daemon startup.",
+      "Enqueues the cursor-checkpointed backfill job that indexes existing messages into the Qdrant lexical (BM25-style) collection in batches. Resumable and idempotent — re-running continues from the last checkpoint. Pass `force: true` to reset the cursor and re-index from the beginning. The same backfill is also auto-enqueued once per instance on upgrade at assistant startup.",
     tags: ["memory"],
     requestBody: MessagesLexicalBackfillParams,
   },
