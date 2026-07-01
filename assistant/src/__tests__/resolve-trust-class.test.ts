@@ -38,19 +38,25 @@ describe("resolveTrustClass", () => {
     expect(resolveTrustClass(undefined)).toBe("unknown");
   });
 
-  test("forces guardian when HTTP auth is disabled, regardless of context trust class", () => {
+  test("does not elevate a resolved non-guardian actor when HTTP auth is disabled", () => {
+    // DISABLE_HTTP_AUTH is the standing config in platform-managed deployments,
+    // so a resolved channel actor's class must survive it — otherwise a
+    // non-guardian Slack/phone contact would be treated as the guardian
+    // (LUM-2669). Only an unresolved (local/native) turn is elevated; see below.
     fakeHttpAuthDisabled = true;
-    const ctx: Pick<TrustContext, "trustClass"> = {
-      trustClass: "trusted_contact",
-    };
-    expect(resolveTrustClass(ctx as TrustContext)).toBe("guardian");
+    expect(
+      resolveTrustClass({ trustClass: "trusted_contact" } as TrustContext),
+    ).toBe("trusted_contact");
+    expect(resolveTrustClass({ trustClass: "unknown" } as TrustContext)).toBe(
+      "unknown",
+    );
   });
 
-  test("forces guardian for unknown trust class when HTTP auth is disabled", () => {
+  test("treats an unresolved (local/native) turn as guardian when HTTP auth is disabled", () => {
+    // Local/native turns reach the daemon without a channel-resolved
+    // trustContext; in an auth-disabled (local) deployment that actor is the
+    // guardian, so control-plane gates don't block local development.
     fakeHttpAuthDisabled = true;
-    const ctx: Pick<TrustContext, "trustClass"> = {
-      trustClass: "unknown",
-    };
-    expect(resolveTrustClass(ctx as TrustContext)).toBe("guardian");
+    expect(resolveTrustClass(undefined)).toBe("guardian");
   });
 });
