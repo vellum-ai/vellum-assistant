@@ -925,7 +925,7 @@ export function LetsChatReadyStep({
             {/* The "already set up …" line. No avatar of its own — it reserves a
                 landing slot (`noteSlotRef`) for the single avatar that flies down
                 from the heading, mirroring SuggestionsStep. */}
-            <div className="mt-12 flex items-center gap-3">
+            <div className="flex items-center gap-3">
               <div
                 ref={noteSlotRef}
                 className="shrink-0"
