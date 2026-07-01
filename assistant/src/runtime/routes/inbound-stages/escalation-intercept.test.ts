@@ -3,8 +3,10 @@
  *
  * A guardian binding whose gateway row carries no principal is UNRESOLVED, not
  * present-but-empty: the intercept adopts the principal from the assistant's
- * vellum anchor, and when neither resolves it fails closed instead of creating
- * an undecidable (principal-less) canonical request.
+ * vellum anchor (via `resolveDecidableGuardianPrincipalId`), and when neither
+ * resolves it fails closed instead of creating an undecidable (principal-less)
+ * canonical request. The `""`-is-unresolved contract itself is pinned in
+ * `local-actor-identity.test.ts`.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -13,14 +15,25 @@ mock.module("../../../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
-let mockBinding: Record<string, unknown> | null = null;
+let mockBindingPrincipalId: string | null = null;
+let mockBindingPresent = true;
 mock.module("../../channel-verification-service.js", () => ({
-  getGuardianBinding: async () => mockBinding,
+  getGuardianBinding: async () =>
+    mockBindingPresent
+      ? {
+          guardianExternalUserId: "guardian-1",
+          guardianPrincipalId: mockBindingPrincipalId,
+        }
+      : null,
 }));
 
+// Faithful stand-in for the shared adopt/repair helper: binding principal
+// when present, else the (test-controlled) vellum anchor principal.
 let mockAnchorPrincipal: string | undefined;
 mock.module("../../local-actor-identity.js", () => ({
-  findLocalGuardianPrincipalId: async () => mockAnchorPrincipal,
+  resolveDecidableGuardianPrincipalId: async (
+    bindingPrincipalId: string | null,
+  ) => bindingPrincipalId || mockAnchorPrincipal,
 }));
 
 const createdRequests: Array<Record<string, unknown>> = [];
@@ -40,20 +53,25 @@ mock.module("../../../persistence/delivery-crud.js", () => ({
 }));
 
 const { handleEscalationIntercept } = await import("./escalation-intercept.js");
+type EscalationInterceptParams = Parameters<
+  typeof handleEscalationIntercept
+>[0];
 
-function makeParams() {
+function makeParams(
+  overrides: Partial<EscalationInterceptParams> = {},
+): EscalationInterceptParams {
   return {
     resolvedMember: {
       contactId: "contact-1",
       channelId: "channel-1",
-      status: "active" as const,
-      policy: "escalate" as const,
+      status: "active",
+      policy: "escalate",
       verifiedAt: null,
       displayName: "Member",
     },
     canonicalAssistantId: "self",
-    sourceChannel: "telegram" as const,
-    sourceInterface: "telegram" as const,
+    sourceChannel: "telegram",
+    sourceInterface: "telegram",
     conversationExternalId: "chat-1",
     externalMessageId: "msg-1",
     conversationId: "conv-1",
@@ -67,21 +85,20 @@ function makeParams() {
     replyCallbackUrl: "http://localhost/deliver",
     canonicalSenderId: "member-1",
     rawSenderId: "member-1",
+    ...overrides,
   };
 }
 
 beforeEach(() => {
-  mockBinding = null;
+  mockBindingPresent = true;
+  mockBindingPrincipalId = null;
   mockAnchorPrincipal = undefined;
   createdRequests.length = 0;
 });
 
 describe("handleEscalationIntercept — guardian principal resolution", () => {
   test("binding with a principal creates the request with that principal", async () => {
-    mockBinding = {
-      guardianExternalUserId: "guardian-1",
-      guardianPrincipalId: "principal-1",
-    };
+    mockBindingPrincipalId = "principal-1";
 
     const response = await handleEscalationIntercept(makeParams());
 
@@ -91,10 +108,7 @@ describe("handleEscalationIntercept — guardian principal resolution", () => {
   });
 
   test("null-principal binding adopts the vellum anchor principal (repair path)", async () => {
-    mockBinding = {
-      guardianExternalUserId: "guardian-1",
-      guardianPrincipalId: null,
-    };
+    mockBindingPrincipalId = null;
     mockAnchorPrincipal = "anchor-principal";
 
     const response = await handleEscalationIntercept(makeParams());
@@ -105,10 +119,7 @@ describe("handleEscalationIntercept — guardian principal resolution", () => {
   });
 
   test("unresolvable principal fails closed — no principal-less request is created", async () => {
-    mockBinding = {
-      guardianExternalUserId: "guardian-1",
-      guardianPrincipalId: null,
-    };
+    mockBindingPrincipalId = null;
     mockAnchorPrincipal = undefined;
 
     const response = await handleEscalationIntercept(makeParams());
@@ -121,23 +132,8 @@ describe("handleEscalationIntercept — guardian principal resolution", () => {
     expect(createdRequests).toHaveLength(0);
   });
 
-  test("empty-string principal is never written downstream", async () => {
-    // Even a malformed binding carrying "" must not flow into the canonical
-    // store — "" is falsy, so the adopt path runs instead.
-    mockBinding = {
-      guardianExternalUserId: "guardian-1",
-      guardianPrincipalId: "",
-    };
-    mockAnchorPrincipal = "anchor-principal";
-
-    await handleEscalationIntercept(makeParams());
-
-    expect(createdRequests).toHaveLength(1);
-    expect(createdRequests[0].guardianPrincipalId).toBe("anchor-principal");
-  });
-
   test("no binding at all still denies fail-closed", async () => {
-    mockBinding = null;
+    mockBindingPresent = false;
 
     const response = await handleEscalationIntercept(makeParams());
 
@@ -151,11 +147,12 @@ describe("handleEscalationIntercept — guardian principal resolution", () => {
 
   test("non-escalate member policy is a pass-through", async () => {
     const params = makeParams();
-    params.resolvedMember = {
-      ...params.resolvedMember,
-      policy: "allow" as never,
-    };
+    const response = await handleEscalationIntercept(
+      makeParams({
+        resolvedMember: { ...params.resolvedMember!, policy: "allow" },
+      }),
+    );
 
-    expect(await handleEscalationIntercept(params)).toBeNull();
+    expect(response).toBeNull();
   });
 });

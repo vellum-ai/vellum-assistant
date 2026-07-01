@@ -251,6 +251,8 @@ describe("enforceIngressAcl — verdict-sourced member resolution", () => {
     const result = await enforceIngressAcl(
       makeParams({
         sourceMetadata: withVerdict({
+          // Deliberately out-of-contract wire data (version skew / malformed
+          // payload) — the cast is the point of the test.
           trustClass: "totally_new_class" as TrustVerdict["trustClass"],
           canonicalSenderId: "sender-1",
         }),

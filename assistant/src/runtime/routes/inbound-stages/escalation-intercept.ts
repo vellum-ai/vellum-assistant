@@ -13,7 +13,7 @@ import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
 import { storePayload } from "../../../persistence/delivery-crud.js";
 import { getLogger } from "../../../util/logger.js";
 import { getGuardianBinding } from "../../channel-verification-service.js";
-import { findLocalGuardianPrincipalId } from "../../local-actor-identity.js";
+import { resolveDecidableGuardianPrincipalId } from "../../local-actor-identity.js";
 import type { VerdictMember } from "../../trust-verdict-consumer.js";
 import { GUARDIAN_APPROVAL_TTL_MS } from "../channel-route-shared.js";
 
@@ -91,14 +91,14 @@ export async function handleEscalationIntercept(
     };
   }
 
-  // A binding with no principal is unresolved, not empty: adopt the principal
-  // from the assistant's vellum anchor so the resulting request is decidable
-  // by the guardian. When neither resolves, fail closed — a principal-less
-  // tool_approval request can never be authorized by anyone (it would sit
-  // pending with dead Approve/Reject buttons until expiry). `||` (not `??`)
-  // so an empty-string principal is also treated as unresolved.
-  const guardianPrincipalId =
-    binding.guardianPrincipalId || (await findLocalGuardianPrincipalId());
+  // A binding with no principal is unresolved, not empty: adopt the vellum
+  // anchor principal so the resulting request is decidable by the guardian.
+  // When neither resolves, fail closed — a principal-less tool_approval
+  // request can never be authorized by anyone (it would sit pending with
+  // dead Approve/Reject buttons until expiry).
+  const guardianPrincipalId = await resolveDecidableGuardianPrincipalId(
+    binding.guardianPrincipalId,
+  );
   if (!guardianPrincipalId) {
     log.warn(
       { sourceChannel, channelId: resolvedMember.channelId },

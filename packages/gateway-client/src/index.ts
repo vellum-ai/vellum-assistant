@@ -77,6 +77,7 @@ export type { AdmissionPolicy } from "./admission-policy-contract.js";
 
 // Trust verdict contract (gateway → daemon) — Zod schemas + derived types
 export {
+  isTrustClass,
   makeResolutionFailedVerdict,
   ResolveInboundTrustRequestSchema,
   TRUST_CLASS_VALUES,

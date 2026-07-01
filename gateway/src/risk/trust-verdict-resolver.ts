@@ -129,38 +129,24 @@ export async function resolveTrustVerdict(
   // The same-channel address match above fails for a guardian speaking on a
   // channel where they hold no active guardian binding. Never route the
   // guardian through the stranger lane: when the sender's identity maps to
-  // the guardian contact — via this channel's member row, or via an ACTIVE
-  // guardian channel with this address on any channel type — classify
-  // `guardian`. The guardian contact must still hold at least one active
-  // channel, so a fully revoked guardian never re-acquires the class.
-  let guardianByPrincipal: {
-    principalId: string | null;
-    displayName: string | null;
-  } | null = null;
-  if (!isGuardian && canonicalSenderId && !memberDeniedByStatus) {
-    if (memberRow) {
-      if (memberRow.memberRole === "guardian") {
-        const activeGuardianChannel = db
-          .select({ id: gwContactChannels.id })
-          .from(gwContactChannels)
-          .where(
-            and(
-              eq(gwContactChannels.contactId, memberRow.contactId),
-              eq(gwContactChannels.status, "active"),
-            ),
-          )
-          .limit(1)
-          .get();
-        if (activeGuardianChannel) {
-          guardianByPrincipal = {
-            principalId: memberRow.memberPrincipalId,
-            displayName: memberRow.memberDisplayName,
-          };
-        }
-      }
-    } else {
-      guardianByPrincipal =
-        db
+  // the guardian contact — via this channel's member row, or (with no member
+  // row) via the sender's address on any channel type — and that contact
+  // still holds an ACTIVE channel, classify `guardian`. Requiring an active
+  // channel means a fully revoked guardian never re-acquires the class. A
+  // non-guardian member row wins over any cross-channel address collision,
+  // so no identity filter is built for it.
+  const guardianIdentityFilter = memberRow
+    ? memberRow.memberRole === "guardian"
+      ? eq(gwContacts.id, memberRow.contactId)
+      : null
+    : sql`${gwContactChannels.address} = ${canonicalSenderId} COLLATE NOCASE`;
+
+  const guardianByPrincipal =
+    !isGuardian &&
+    canonicalSenderId &&
+    !memberDeniedByStatus &&
+    guardianIdentityFilter
+      ? (db
           .select({
             principalId: gwContacts.principalId,
             displayName: gwContacts.displayName,
@@ -171,13 +157,12 @@ export async function resolveTrustVerdict(
             and(
               eq(gwContacts.role, "guardian"),
               eq(gwContactChannels.status, "active"),
-              sql`${gwContactChannels.address} = ${canonicalSenderId} COLLATE NOCASE`,
+              guardianIdentityFilter,
             ),
           )
           .limit(1)
-          .get() ?? null;
-    }
-  }
+          .get() ?? null)
+      : null;
 
   let trustClass: TrustClass;
   if (isGuardian || guardianByPrincipal) {

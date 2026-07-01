@@ -203,14 +203,16 @@ export async function handleApprovalInterception(
         "Blocking guardian-class approval decision: acting principal missing or does not match the bound guardian principal",
       );
       if (replyCallbackUrl) {
+        const ephemeralUser = slackEphemeralUserId(
+          sourceChannel,
+          actorExternalId,
+        );
         try {
           await deliverChannelReply(replyCallbackUrl, {
             chatId: conversationExternalId,
             text: "Sorry, I couldn't process that. Please try again.",
             assistantId,
-            ...(sourceChannel === "slack" && actorExternalId
-              ? { ephemeral: true, user: actorExternalId }
-              : {}),
+            ...(ephemeralUser ? { ephemeral: true, user: ephemeralUser } : {}),
           });
         } catch (err) {
           log.error(

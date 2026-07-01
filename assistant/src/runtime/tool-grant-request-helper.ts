@@ -23,7 +23,7 @@ import {
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { getLogger } from "../util/logger.js";
 import { getGuardianBinding } from "./channel-verification-service.js";
-import { findLocalGuardianPrincipalId } from "./local-actor-identity.js";
+import { resolveDecidableGuardianPrincipalId } from "./local-actor-identity.js";
 import { GUARDIAN_APPROVAL_TTL_MS } from "./routes/channel-route-shared.js";
 
 const log = getLogger("tool-grant-request-helper");
@@ -88,13 +88,13 @@ export async function createOrReuseToolGrantRequest(
     return { failed: true, reason: "no_guardian_binding" };
   }
 
-  // A binding with no principal is unresolved, not empty: adopt the principal
-  // from the assistant's vellum anchor so the resulting request is decidable
-  // by the guardian. When neither resolves, fail closed — a principal-less
-  // tool_grant_request can never be authorized by anyone. `||` (not `??`) so
-  // an empty-string principal is also treated as unresolved.
-  const guardianPrincipalId =
-    binding.guardianPrincipalId || (await findLocalGuardianPrincipalId());
+  // A binding with no principal is unresolved, not empty: adopt the vellum
+  // anchor principal so the resulting request is decidable by the guardian.
+  // When neither resolves, fail closed — a principal-less tool_grant_request
+  // can never be authorized by anyone.
+  const guardianPrincipalId = await resolveDecidableGuardianPrincipalId(
+    binding.guardianPrincipalId,
+  );
   if (!guardianPrincipalId) {
     log.warn(
       { sourceChannel, assistantId },

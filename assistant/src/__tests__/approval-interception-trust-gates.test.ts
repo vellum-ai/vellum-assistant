@@ -32,7 +32,6 @@ mock.module("../runtime/local-actor-identity.js", () => ({
 }));
 
 import type { Conversation } from "../daemon/conversation.js";
-import type { TrustContext } from "../daemon/trust-context.js";
 import { initializeDb } from "../persistence/db-init.js";
 import * as approvalMessageComposer from "../runtime/approval-message-composer.js";
 import * as gatewayClient from "../runtime/gateway-client.js";
@@ -113,7 +112,7 @@ describe("approval interception trust-class gates", () => {
         trustClass: "unknown",
         requesterExternalUserId: "intruder-user-1",
         guardianExternalUserId: "guardian-1",
-      } as TrustContext,
+      },
       assistantId: ASSISTANT_ID,
     });
 
@@ -148,7 +147,7 @@ describe("approval interception trust-class gates", () => {
         requesterExternalUserId: "guardian-user-1",
         guardianExternalUserId: "guardian-user-1",
         guardianPrincipalId: "guardian-principal-1",
-      } as TrustContext,
+      },
       assistantId: ASSISTANT_ID,
     });
 
@@ -180,7 +179,7 @@ describe("approval interception trust-class gates", () => {
         requesterExternalUserId: "stale-guardian-user",
         guardianExternalUserId: "stale-guardian-user",
         guardianPrincipalId: "some-other-principal",
-      } as TrustContext,
+      },
       assistantId: ASSISTANT_ID,
     });
 
@@ -188,10 +187,12 @@ describe("approval interception trust-class gates", () => {
     expect(result.type).toBe("stale_ignored");
     expect(sessionMock).not.toHaveBeenCalled();
     // Generic failure copy — no oracle about pending requests or permission.
-    const replyText = (
-      deliverSpy.mock.calls[0]?.[1] as { text?: string } | undefined
-    )?.text;
-    expect(replyText).toBe("Sorry, I couldn't process that. Please try again.");
+    expect(deliverSpy).toHaveBeenCalledWith(
+      "https://gateway.test/deliver",
+      expect.objectContaining({
+        text: "Sorry, I couldn't process that. Please try again.",
+      }),
+    );
   });
 
   test("guardian without a resolved acting principal is rejected before any decision", async () => {
@@ -218,7 +219,7 @@ describe("approval interception trust-class gates", () => {
         trustClass: "guardian",
         requesterExternalUserId: "guardian-user-1",
         guardianExternalUserId: "guardian-user-1",
-      } as TrustContext,
+      },
       assistantId: ASSISTANT_ID,
     });
 
@@ -252,7 +253,7 @@ describe("approval interception trust-class gates", () => {
         requesterExternalUserId: "guardian-user-1",
         guardianExternalUserId: "guardian-user-1",
         guardianPrincipalId: "guardian-principal-1",
-      } as TrustContext,
+      },
       assistantId: ASSISTANT_ID,
     });
 
@@ -279,7 +280,7 @@ describe("approval interception trust-class gates", () => {
       trustCtx: {
         sourceChannel: "telegram",
         trustClass: "unknown",
-      } as TrustContext,
+      },
       assistantId: ASSISTANT_ID,
     });
 

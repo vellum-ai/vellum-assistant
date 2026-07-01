@@ -32,6 +32,18 @@ export const TrustClassSchema = z.enum(TRUST_CLASS_VALUES);
 
 export type TrustClass = (typeof TRUST_CLASS_VALUES)[number];
 
+const TRUST_CLASS_SET: ReadonlySet<string> = new Set(TRUST_CLASS_VALUES);
+
+/**
+ * Type guard for wire-sourced trust classes. Consumers receive verdicts over
+ * IPC/HTTP, so a field statically typed {@link TrustClass} can still carry an
+ * out-of-contract value (version skew, malformed payload); this narrows it
+ * safely without casting.
+ */
+export function isTrustClass(value: string): value is TrustClass {
+  return TRUST_CLASS_SET.has(value);
+}
+
 /**
  * Per-actor trust verdict resolved by the gateway from its ACL DB. ACL +
  * identity keys + minimal labels only. Guardian binding and member

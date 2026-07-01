@@ -4,7 +4,7 @@
  * intercepts, and notifies the guardian of denied access requests.
  */
 import type { AdmissionPolicy, SourceMetadata } from "@vellumai/gateway-client";
-import { TRUST_CLASS_VALUES } from "@vellumai/gateway-client";
+import { isTrustClass } from "@vellumai/gateway-client";
 
 import { isInviteCodeRedemptionEnabled } from "../../../channels/config.js";
 import type { ChannelId } from "../../../channels/types.js";
@@ -96,6 +96,23 @@ export interface AclEnforcementParams {
   effectiveAdmissionPolicy?: AdmissionPolicy;
 }
 
+/**
+ * Fail-closed / fail-safe deny result: soft-deny with NO stranger-lane side
+ * effects (no access-request card, no verification challenge, no canned
+ * reply). Used for unresolvable verdicts, where the sender must not be
+ * treated as a stranger.
+ */
+function failClosedDeny(): AclResult {
+  return {
+    resolvedMember: null,
+    earlyResponse: {
+      accepted: true,
+      denied: true,
+      reason: "not_a_member",
+    },
+  };
+}
+
 export interface AclResult {
   resolvedMember: VerdictMember | null;
   /** When set, the caller must return this response immediately. */
@@ -151,14 +168,7 @@ export async function enforceIngressAcl(
       { sourceChannel, externalUserId: canonicalSenderId },
       "Ingress ACL: absent trust verdict, denying fail-closed",
     );
-    return {
-      resolvedMember: null,
-      earlyResponse: {
-        accepted: true,
-        denied: true,
-        reason: "not_a_member",
-      },
-    };
+    return failClosedDeny();
   }
 
   // Gateway attempted resolution but failed (DB error) → fail-closed deny,
@@ -169,14 +179,7 @@ export async function enforceIngressAcl(
       { sourceChannel, externalUserId: canonicalSenderId },
       "Ingress ACL: gateway trust resolution failed, denying fail-closed",
     );
-    return {
-      resolvedMember: null,
-      earlyResponse: {
-        accepted: true,
-        denied: true,
-        reason: "not_a_member",
-      },
-    };
+    return failClosedDeny();
   }
 
   // Member resolved from the gateway verdict (ACL + identity only); null for a
@@ -191,21 +194,14 @@ export async function enforceIngressAcl(
       { sourceChannel, externalUserId: canonicalSenderId },
       "Ingress ACL: member verdict with unresolvable ACL, denying fail-closed",
     );
-    return {
-      resolvedMember: null,
-      earlyResponse: {
-        accepted: true,
-        denied: true,
-        reason: "not_a_member",
-      },
-    };
+    return failClosedDeny();
   }
 
   // An unrecognized trust class is an unresolvable verdict (version skew,
   // malformed payload), not a stranger. Fail safe: soft-deny with no
   // stranger-lane side effects (no access-request card, no verification
   // challenge, no canned reply) — never fail-stranger.
-  if (!(TRUST_CLASS_VALUES as readonly string[]).includes(verdict.trustClass)) {
+  if (!isTrustClass(verdict.trustClass)) {
     log.warn(
       {
         sourceChannel,
@@ -214,14 +210,7 @@ export async function enforceIngressAcl(
       },
       "Ingress ACL: unrecognized trust class on verdict, denying fail-safe",
     );
-    return {
-      resolvedMember: null,
-      earlyResponse: {
-        accepted: true,
-        denied: true,
-        reason: "not_a_member",
-      },
-    };
+    return failClosedDeny();
   }
 
   // ── Guardian short-circuit ──
@@ -248,14 +237,7 @@ export async function enforceIngressAcl(
         },
         "Ingress ACL: contradictory guardian verdict with blocked/revoked member row, denying fail-safe",
       );
-      return {
-        resolvedMember: null,
-        earlyResponse: {
-          accepted: true,
-          denied: true,
-          reason: "not_a_member",
-        },
-      };
+      return failClosedDeny();
     }
 
     log.info(
