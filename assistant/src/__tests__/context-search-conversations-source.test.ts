@@ -2,13 +2,12 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { writeSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import type { MessageLexicalSearchResult } from "../persistence/embeddings/messages-lexical-index.js";
-import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 // Mutable stand-in for the Qdrant lexical candidate helper. The default
 // throws so any qdrant-path test that forgets to set an implementation fails
 // loudly rather than silently exercising an empty candidate set. FTS-path
-// tests never reach it (the flag defaults to fts5), so its value is irrelevant
-// there.
+// tests never reach it (fts5 is used until the backfill completes), so its
+// value is irrelevant there.
 let lexicalMockImpl: (
   query: string,
   limit: number,
@@ -407,14 +406,13 @@ describe("searchConversationSource with the qdrant backend", () => {
     getDb().run("DELETE FROM conversations");
     lexicalCalls = [];
     suppressIndexing = false;
-    // These tests exercise the populated-index (post-backfill) qdrant path, so
-    // mark the backfill complete. The completion gate is covered by its own test.
+    // The qdrant backend is selected once the index is populated: not suppressed
+    // + backfill complete. These tests exercise that post-backfill path, so mark
+    // the backfill complete. The completion gate is covered by its own test.
     setMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY, "1");
-    setOverridesForTesting({ "messages-search-backend": true });
   });
 
   afterEach(() => {
-    setOverridesForTesting({});
     suppressIndexing = false;
     deleteMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY);
     lexicalMockImpl = () => {
@@ -424,7 +422,7 @@ describe("searchConversationSource with the qdrant backend", () => {
     };
   });
 
-  test("falls back to FTS when memory indexing is suppressed, even with the qdrant flag on", async () => {
+  test("falls back to FTS when memory indexing is suppressed", async () => {
     const match = await seedConversation({
       title: "Suppressed indexing notes",
       content: "The suppressedtoken decision is recorded here.",
@@ -451,7 +449,7 @@ describe("searchConversationSource with the qdrant backend", () => {
     ]);
   });
 
-  test("falls back to FTS until the backfill completion checkpoint is set, even with the qdrant flag on", async () => {
+  test("falls back to FTS until the backfill completion checkpoint is set", async () => {
     const match = await seedConversation({
       title: "Pre-backfill notes",
       content: "The prebackfilltoken decision is recorded here.",

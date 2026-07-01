@@ -1,7 +1,5 @@
 import { and, count, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 
-import { getMessagesSearchBackend } from "../config/assistant-feature-flags.js";
-import { getConfig } from "../config/loader.js";
 import {
   parseExternalContentEnvelope,
   type UntrustedContentSource,
@@ -557,10 +555,10 @@ function likeContentMatchMessages(
 /**
  * Resolve the effective message-search backend for the persistence read site.
  *
- * Starts from the `messages-search-backend` feature flag, then downgrades to
- * `fts5` in two cases where the Qdrant `messages_lexical` collection is not a
- * safe source (each would return an empty result — not a throw — so the
- * Qdrant-error degrade never fires):
+ * The sparse Qdrant `messages_lexical` index is the backend, downgraded to
+ * `fts5` in two cases where the Qdrant collection is not a safe source (each
+ * would return an empty result — not a throw — so the Qdrant-error degrade
+ * never fires):
  *   1. Memory is disabled — the per-message write path is suppressed, so the
  *      collection is never forward-filled. `!isMemoryEnabled()` is the
  *      layer-clean check available from `persistence/`.
@@ -573,19 +571,17 @@ function likeContentMatchMessages(
  */
 function resolveMessageSearchBackend(): "fts5" | "qdrant" {
   if (!isMemoryEnabled()) return "fts5";
-  const flagBackend = getMessagesSearchBackend(getConfig());
-  if (flagBackend === "qdrant" && !isLexicalBackfillComplete()) return "fts5";
-  return flagBackend;
+  if (!isLexicalBackfillComplete()) return "fts5";
+  return "qdrant";
 }
 
 /**
  * Full-text search across message content.
  *
- * The lexical backend is selected by the `messages-search-backend` feature
- * flag (see {@link getMessagesSearchBackend}) and gated by
- * {@link resolveMessageSearchBackend}:
- *   - `fts5` (default): the `messages_fts` virtual table for tokenized matching.
- *   - `qdrant`: the sparse `messages_lexical` Qdrant index (BM25-style).
+ * The lexical backend is selected by {@link resolveMessageSearchBackend}:
+ *   - `qdrant` (default): the sparse `messages_lexical` Qdrant index (BM25-style).
+ *   - `fts5`: the `messages_fts` virtual table, used while the Qdrant index is
+ *     not a safe source (memory disabled or the upgrade backfill not yet drained).
  * Both apply the same visibility/archived SQL filtering, merge with a `LIKE`
  * match on conversation titles, and return matching conversations with their
  * relevant messages ordered by most recently updated.
@@ -619,13 +615,13 @@ export async function searchConversations(
   // write path, which is suppressed while memory is disabled — so with memory
   // off the index stays empty and a `qdrant` lookup silently returns no content
   // matches (an empty result, not a throw, so the Qdrant-error degrade never
-  // fires). Fall back to `fts5` — which is always populated — regardless of the
-  // flag when the index isn't being written. `!isMemoryEnabled()` is the
+  // fires). Fall back to `fts5` — which is always populated — when the index
+  // isn't being written. `!isMemoryEnabled()` is the
   // layer-clean check available from `persistence/`; the rarer
   // memory-enabled-but-plugin-disabled case (part of the plugin's full
   // `isMemoryIndexingSuppressed` predicate) can't be reached from here without a
-  // persistence -> plugin import, and is covered at flip time by requiring the
-  // backfill/population check before enabling the flag.
+  // persistence -> plugin import, and is covered by the backfill/population
+  // check (the completion gate below) before Qdrant becomes the read source.
   //
   // The backfill completion gate is the second half of that population guard,
   // for the common (memory-enabled) case: on an upgraded instance the historical

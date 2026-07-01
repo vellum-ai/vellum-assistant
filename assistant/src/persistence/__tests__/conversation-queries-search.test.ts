@@ -1,13 +1,13 @@
 /**
- * Read-path cutover tests for {@link searchConversations} under the
- * `messages-search-backend` = `qdrant` feature flag.
+ * Read-path tests for {@link searchConversations} on the `qdrant` backend.
  *
- * These assert that with the flag forced to `qdrant`, message-content
- * candidates are sourced from the Qdrant lexical index (mocked here) instead of
- * `messages_fts`, while the visibility/archived SQL filtering, the title `LIKE`
- * merge, and the result shape stay identical to the FTS path. A Qdrant lookup
- * failure degrades to the `messages.content LIKE` scan, and the default `fts5`
- * backend is verified to still ignore the lexical index entirely.
+ * These assert that once the lexical index is populated (backfill complete),
+ * message-content candidates are sourced from the Qdrant lexical index (mocked
+ * here) instead of `messages_fts`, while the visibility/archived SQL filtering,
+ * the title `LIKE` merge, and the result shape stay identical to the FTS path.
+ * A Qdrant lookup failure degrades to the `messages.content LIKE` scan, and the
+ * `fts5` fallback (memory disabled / backfill not yet drained) is verified to
+ * still ignore the lexical index entirely.
  *
  * The lexical index is mocked at the `conversation-search-lexical` seam so no
  * real Qdrant is required; a real SQLite DB backs the visibility/archived SQL.
@@ -52,7 +52,6 @@ mock.module("../jobs-store.js", () => ({
   isMemoryEnabled: () => memoryEnabled,
 }));
 
-import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
 import {
   deleteMemoryCheckpoint,
   LEXICAL_BACKFILL_COMPLETE_KEY,
@@ -134,15 +133,11 @@ describe("searchConversations · qdrant backend", () => {
   beforeEach(() => {
     resetTables();
     memoryEnabled = true;
-    // These tests exercise the populated-index (post-backfill) qdrant path.
+    // The qdrant backend is selected once the index is populated: memory
+    // enabled + backfill complete. These tests exercise that post-backfill path.
     markBackfillComplete();
     searchMessageIdsLexicalMock.mockClear();
     searchMessageIdsLexicalMock.mockImplementation(async () => []);
-    setOverridesForTesting({ "messages-search-backend": "qdrant" });
-  });
-
-  afterAll(() => {
-    setOverridesForTesting({});
   });
 
   test("sources candidates from the lexical index, not messages_fts", async () => {
@@ -310,7 +305,7 @@ describe("searchConversations · qdrant backend", () => {
     ]);
   });
 
-  test("uses the fts5 path (not qdrant) when memory is disabled, even with the flag on", async () => {
+  test("uses the fts5 path (not qdrant) when memory is disabled", async () => {
     // The lexical index is only written while memory is enabled, so with memory
     // off it is empty and a qdrant lookup would silently return no content
     // matches. `searchConversations` must fall back to the always-populated
@@ -335,8 +330,8 @@ describe("searchConversations · qdrant backend", () => {
     // On an upgraded instance the historical messages are indexed by a
     // background backfill. Until it drains, the lexical collection is only
     // partially populated, so a qdrant read would silently miss older content.
-    // With the flag on but the completion checkpoint UNSET, the read must stay
-    // on the always-populated fts5 path and never query the lexical index.
+    // With the completion checkpoint UNSET, the read must stay on the
+    // always-populated fts5 path and never query the lexical index.
     deleteMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY);
     const conv = createConversation("Notes");
     insertMessage("m-1", conv.id, "the flux capacitor needs recalibration");
@@ -374,20 +369,16 @@ describe("searchConversations · qdrant backend", () => {
   });
 });
 
-describe("searchConversations · fts5 backend (default) ignores the lexical index", () => {
+describe("searchConversations · fts5 fallback (backfill incomplete) ignores the lexical index", () => {
   beforeEach(() => {
     resetTables();
-    // Backfill completion is irrelevant on the default backend, but clear it so
-    // this suite does not depend on the qdrant suite's marker leaking across.
+    memoryEnabled = true;
+    // Backfill incomplete (checkpoint unset) selects the fts5 fallback even with
+    // memory enabled; clear it so this suite does not depend on the qdrant
+    // suite's marker leaking across.
     deleteMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY);
     searchMessageIdsLexicalMock.mockClear();
     lexicalReturns(["should-not-be-used"]);
-    // Default backend: flag unset ⇒ fts5.
-    setOverridesForTesting({});
-  });
-
-  afterAll(() => {
-    setOverridesForTesting({});
   });
 
   test("content search uses messages_fts and never calls the lexical index", async () => {
