@@ -222,6 +222,10 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "schedules cancel",
   "schedules delete",
   "schedules execute",
+  "schedules worker",
+  "schedules worker start",
+  "schedules worker stop",
+  "schedules worker status",
   "sequence",
   "sequence list",
   "sequence get",
@@ -632,6 +636,21 @@ const riskOverrides: AssistantRiskOverride[] = [
       "Triggers immediate schedule execution. Script-mode schedules shell out " +
       "via sh -c on the host, and the schedule ID arg is opaque to the " +
       "classifier — must conservatively assume host shell execution",
+  },
+  {
+    path: "schedules worker start",
+    risk: "medium",
+    reason: "Spawns a background process that runs script-mode schedules",
+  },
+  {
+    path: "schedules worker stop",
+    risk: "low",
+    reason: "Sends SIGTERM to the schedule worker process",
+  },
+  {
+    path: "schedules worker status",
+    risk: "low",
+    reason: "Read-only liveness probe via PID file",
   },
   { path: "sequence pause", risk: "medium" },
   { path: "sequence resume", risk: "medium" },

@@ -16,6 +16,7 @@ import { HOOKS } from "../plugin-api/constants.js";
 import { runHook } from "../plugins/pipeline.js";
 import { stopRuntimeHttpServer } from "../runtime/http-server.js";
 import { stopScheduler } from "../schedule/scheduler.js";
+import { stopScheduleWorker } from "../schedule/worker-control.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { stopUsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { browserManager } from "../tools/browser/browser-manager.js";
@@ -149,6 +150,9 @@ async function shutdown(): Promise<void> {
   await browserManager.closeAllPages();
   cleanupShellOutputTempFiles();
   stopScheduler();
+
+  // Stop the schedule worker process if it's actually running.
+  stopScheduleWorker();
 
   // Stop the in-process memory worker supervisor if it was started on the
   // daemon's event loop (memory.worker.enabled = false).
