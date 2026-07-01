@@ -7206,6 +7206,56 @@ paths:
           description: Returned when the callId is missing or refers to a call in a different conversation.
         "404":
           description: Returned when the conversation or the referenced LLM call does not exist.
+  /v1/conversations/{id}/enabledplugins:
+    put:
+      operationId: conversations_by_id_enabledplugins_put
+      summary: Set conversation enabled plugins
+      description:
+        Scope a single conversation to a subset of installed plugins (first-party defaults are always available).
+        Pass null to clear the scope back to the default (all enabled plugins).
+      tags:
+        - conversations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabledPlugins:
+                  anyOf:
+                    - type: array
+                      items:
+                        type: string
+                    - type: "null"
+              required:
+                - enabledPlugins
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversationId:
+                    type: string
+                  enabledPlugins:
+                    anyOf:
+                      - type: array
+                        items:
+                          type: string
+                      - type: "null"
+                required:
+                  - conversationId
+                  - enabledPlugins
+                additionalProperties: false
   /v1/conversations/{id}/inference-profile:
     put:
       operationId: conversations_by_id_inferenceprofile_put
