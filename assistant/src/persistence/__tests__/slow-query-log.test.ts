@@ -2,7 +2,6 @@ import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 
 import {
-  SLOW_QUERY_CHECK_NAME,
   SLOW_QUERY_THRESHOLD_MS,
   type SlowQueryEvent,
   wrapSqliteForSlowQueryLogging,
@@ -19,9 +18,8 @@ function fakeClock(...readings: number[]): () => number {
 }
 
 describe("slow-query-log", () => {
-  test("threshold default is a positive number and check name is stable", () => {
+  test("threshold default is a positive number", () => {
     expect(SLOW_QUERY_THRESHOLD_MS).toBeGreaterThan(0);
-    expect(SLOW_QUERY_CHECK_NAME).toBe("slow_sqlite_query");
   });
 
   test("a slow query logs exactly one event; a fast query logs none", () => {
@@ -141,6 +139,48 @@ describe("slow-query-log", () => {
       "id",
       "v",
     ]);
+  });
+
+  test("times the Database.run shortcut, which bypasses query/prepare", () => {
+    const events: SlowQueryEvent[] = [];
+    const db = new Database(":memory:");
+    db.exec("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)");
+    wrapSqliteForSlowQueryLogging(db, {
+      thresholdMs: 250,
+      now: fakeClock(0, 400),
+      onSlowQuery: (e) => events.push(e),
+    });
+
+    const result = db.run("INSERT INTO t (v) VALUES (?)", ["a"]);
+
+    expect(result.changes).toBe(1);
+    expect(events).toHaveLength(1);
+    expect(events[0].durationMs).toBe(400);
+    expect(events[0].sql).toContain("INSERT INTO t");
+  });
+
+  test("label() tags the slow-query event", () => {
+    const events: SlowQueryEvent[] = [];
+    const db = new Database(":memory:");
+    db.exec("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)");
+    wrapSqliteForSlowQueryLogging(db, {
+      thresholdMs: 100,
+      now: fakeClock(0, 500, 1000, 1600),
+      onSlowQuery: (e) => events.push(e),
+    });
+
+    db.label("schedule::claimDue")
+      .query("INSERT INTO t (v) VALUES (?)")
+      .run("a");
+    db.label("schedule::complete").run("UPDATE t SET v = ? WHERE id = 1", [
+      "b",
+    ]);
+
+    expect(events).toHaveLength(2);
+    expect(events[0].label).toBe("schedule::claimDue");
+    expect(events[1].label).toBe("schedule::complete");
+    // Unlabeled queries carry no label field.
+    expect(events[0].sql).toContain("INSERT INTO t");
   });
 
   test("wraps in place and returns the same Database instance", () => {

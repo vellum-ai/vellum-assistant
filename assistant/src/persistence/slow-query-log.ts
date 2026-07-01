@@ -10,12 +10,13 @@
  * the section-level {@link ./slow-sync-log timeSyncSection} only covers the few
  * call sites that opt in — notably not the Drizzle ORM hot writers.
  *
- * {@link wrapSqliteForSlowQueryLogging} closes that gap by wrapping the two
- * statement factories on a `Database` — `.query()` and `.prepare()` — so that
- * every execution (`.run()/.get()/.all()/.values()`) is timed with
- * `performance.now()`. Executions slower than {@link SLOW_QUERY_THRESHOLD_MS}
- * are logged at WARN with the offending SQL, naming the specific query behind a
- * freeze regardless of whether it came from Drizzle or {@link ./raw-query}.
+ * {@link wrapSqliteForSlowQueryLogging} closes that gap by wrapping the three
+ * statement-execution entry points on a `Database` — `.query()`, `.prepare()`,
+ * and the `.run()` shortcut — so that every execution (`.run()/.get()/.all()/
+ * .values()`) is timed with `performance.now()`. Executions slower than
+ * {@link SLOW_QUERY_THRESHOLD_MS} are logged at WARN with the offending SQL,
+ * naming the specific query behind a freeze regardless of whether it came from
+ * Drizzle or {@link ./raw-query}.
  *
  * This is pure instrumentation: return values, parameter binding, transactions,
  * savepoints, and error propagation are all preserved exactly. The fast path
@@ -29,27 +30,27 @@ import { getLogger } from "../util/logger.js";
 
 const log = getLogger("slow-query");
 
+// Parsed once at module load; falls back below for any non-positive or
+// unparseable value.
+const configuredThresholdMs = Number(
+  process.env.VELLUM_SLOW_QUERY_THRESHOLD_MS,
+);
+
 /**
  * Statement executions that block the event loop at least this long are logged.
  * Deliberately conservative (300ms) so it names sub-watchdog contributors
  * without logging every fast query. Env-overridable for tuning on a busy host
- * without a rebuild; falls back to 300ms for any non-positive/unparseable value.
+ * without a rebuild.
  */
-export const SLOW_QUERY_THRESHOLD_MS = ((): number => {
-  const raw = Number(process.env.VELLUM_SLOW_QUERY_THRESHOLD_MS);
-  return Number.isFinite(raw) && raw > 0 ? raw : 300;
-})();
+export const SLOW_QUERY_THRESHOLD_MS =
+  Number.isFinite(configuredThresholdMs) && configuredThresholdMs > 0
+    ? configuredThresholdMs
+    : 300;
 
-/**
- * `check_name` for slow-query telemetry events. Stable so downstream grouping
- * stays consistent; keep it in sync with any admin query.
- */
-export const SLOW_QUERY_CHECK_NAME = "slow_sqlite_query";
-
-/** Max SQL characters retained in the log/telemetry preview. */
+/** Max SQL characters retained in the log preview. */
 const SQL_PREVIEW_MAX = 120;
 
-/** The three statement methods that actually execute SQL and can block. */
+/** The statement methods that actually execute SQL and can block. */
 const TIMED_METHODS = new Set(["run", "get", "all", "values"]);
 
 /** A slow statement execution, as handed to {@link reportSlowQuery}. */
@@ -59,35 +60,13 @@ export interface SlowQueryEvent {
   sql: string;
   /** Number of rows returned, when the execution produced an array result. */
   rowCount?: number;
+  /** Caller-supplied attribution tag, when the query was issued via `.label()`. */
+  label?: string;
 }
 
-/**
- * Log a slow statement execution at WARN and record a `watchdog` telemetry
- * event so the next freeze is attributable to a specific query. Only ever
- * called on the slow path, so building the structured payload here is fine.
- */
+/** Log a slow statement execution at WARN with its SQL and duration. */
 export function reportSlowQuery(event: SlowQueryEvent): void {
   log.warn(event, "Slow SQLite query blocked the event loop");
-  // Record telemetry via a lazy dynamic import, mirroring slow-sync-log.ts: a
-  // static import would pull the telemetry → consent-cache → config/loader
-  // chain into the module graph of every DB caller, where a test's
-  // `mock.module` of the loader leaks across the shared test process. Loading
-  // it only on the rare slow path keeps that chain off the hot static graph;
-  // best-effort, so a failure never escapes the timed section.
-  void import("../telemetry/watchdog-events-store.js")
-    .then(({ recordWatchdogEvent }) => {
-      recordWatchdogEvent({
-        checkName: SLOW_QUERY_CHECK_NAME,
-        value: event.durationMs,
-        detail:
-          event.rowCount === undefined
-            ? { sql: event.sql }
-            : { sql: event.sql, rowCount: event.rowCount },
-      });
-    })
-    .catch(() => {
-      // Telemetry is best-effort — never let it escape the timed section.
-    });
 }
 
 /** Injectable seams so the wrapper is unit-testable with a fake clock/sink. */
@@ -97,42 +76,89 @@ export interface SlowQueryWatcherOptions {
   onSlowQuery?: (event: SlowQueryEvent) => void;
 }
 
-// A wrapped statement is cached against its native statement so repeated
-// executions of a `.query()`-cached prepared statement don't re-allocate the
-// proxy or its timed method closures on the hot path. Keyed weakly so finalized
-// statements can be collected.
-type Wrapper = (stmt: Statement, sql: string) => Statement;
+/** Fluent handle returned by {@link Database.label}; tags any slow-query log. */
+export interface LabeledQueries {
+  query(sql: string, ...rest: unknown[]): Statement;
+  prepare(sql: string, ...rest: unknown[]): Statement;
+  run(sql: string, ...params: unknown[]): ReturnType<Database["run"]>;
+}
+
+declare module "bun:sqlite" {
+  interface Database {
+    /**
+     * Return `query`/`prepare`/`run` bound to `label`, so any slow-query log
+     * emitted for statements created through the returned handle carries it —
+     * e.g. `getSqlite().label("schedule::claimDue").query(sql).run(...)`.
+     * Only present on connections wrapped by
+     * {@link wrapSqliteForSlowQueryLogging} (all accessor connections).
+     */
+    label(label: string): LabeledQueries;
+  }
+}
 
 /**
- * Build the statement-wrapping function that times executions. Separated from
- * {@link wrapSqliteForSlowQueryLogging} so tests can drive it with a fake clock
- * and a capturing sink instead of the real logger/telemetry.
+ * Wrap a `bun:sqlite` {@link Database} in place so every statement execution is
+ * timed and the slow ones are logged. The Drizzle path (`.prepare(sql)` then
+ * `.run()/.all()/.values()`), {@link ./raw-query} (`.query(sql).get()/.all()/
+ * .run()`), and the `Database.run(sql, params)` shortcut (used by migration
+ * code via `getSqliteFrom(db).run(...)`) all route through the entry points
+ * wrapped here, so a single call covers every path.
+ *
+ * Returns the same instance (mutated), so callers can wrap inline at
+ * construction. `.exec()` — batch DDL, PRAGMAs, and transaction `BEGIN`/`COMMIT`
+ * — is intentionally left unwrapped: it takes no bindings and isn't a
+ * statement-execution path. `options` exists only for tests.
  */
-function makeStatementWrapper(options: SlowQueryWatcherOptions): Wrapper {
+export function wrapSqliteForSlowQueryLogging(
+  sqlite: Database,
+  options: SlowQueryWatcherOptions = {},
+): Database {
   const thresholdMs = options.thresholdMs ?? SLOW_QUERY_THRESHOLD_MS;
   const now = options.now ?? (() => performance.now());
   const onSlowQuery = options.onSlowQuery ?? reportSlowQuery;
 
-  const wrapped = new WeakMap<Statement, Statement>();
-
-  // A single user-initiated execution can re-enter this wrapper: `bun:sqlite`
-  // implements `db.query(sql).run()` by delegating through `db.prepare(sql)`,
-  // which we also wrap, so the outer `.run()` would time the inner `.run()` a
-  // second time. Because `bun:sqlite` is fully synchronous, a per-connection
-  // flag safely collapses that nesting: only the outermost execution is timed
-  // (its duration already includes any inner re-prepare), inner ones pass
-  // straight through. Not shared across connections so tests stay isolated.
+  // Re-entrancy guard. `bun:sqlite` implements `db.query(sql).run()` by
+  // delegating through the (also-wrapped) `db.prepare(sql)`, so the outer
+  // `.run()` would time the inner `.run()` a second time. Because `bun:sqlite`
+  // is fully synchronous, a per-connection flag safely collapses that nesting:
+  // only the outermost execution is timed (its duration already includes any
+  // inner re-prepare), inner ones pass straight through. Not shared across
+  // connections so tests stay isolated.
   let timing = false;
 
-  return function wrapStatement(stmt: Statement, sql: string): Statement {
-    const cached = wrapped.get(stmt);
-    if (cached) return cached;
+  const emit = (
+    sql: string,
+    label: string | undefined,
+    durationMs: number,
+    result: unknown,
+  ): void => {
+    // Only ever called on the slow path, so building the payload here is fine.
+    onSlowQuery({
+      durationMs,
+      sql: sql.slice(0, SQL_PREVIEW_MAX),
+      ...(Array.isArray(result) ? { rowCount: result.length } : {}),
+      ...(label === undefined ? {} : { label }),
+    });
+  };
 
-    // Per-statement cache of the timed method closures, so accessing e.g.
-    // `.all` repeatedly on a hot prepared statement reuses one closure rather
-    // than allocating on each execution.
+  // Unlabeled statement proxies are cached against their native statement so
+  // repeated executions of a `.query()`-cached prepared statement reuse one
+  // proxy and its timed closures — nothing allocates on the hot path. Labeled
+  // statements are opt-in attribution created fresh (a native statement shared
+  // across labels must not leak the first label), so they skip this cache.
+  const unlabeledProxies = new WeakMap<Statement, Statement>();
+
+  const wrapStatement = (
+    stmt: Statement,
+    sql: string,
+    label: string | undefined,
+  ): Statement => {
+    if (label === undefined) {
+      const cached = unlabeledProxies.get(stmt);
+      if (cached) return cached;
+    }
+
     const timed = new Map<string, (...args: unknown[]) => unknown>();
-
     const proxy = new Proxy(stmt, {
       get(target, prop) {
         if (typeof prop === "string" && TIMED_METHODS.has(prop)) {
@@ -157,11 +183,7 @@ function makeStatementWrapper(options: SlowQueryWatcherOptions): Wrapper {
                 // reported before `finally` lets it propagate unchanged.
                 const durationMs = now() - start;
                 if (durationMs >= thresholdMs) {
-                  onSlowQuery({
-                    durationMs,
-                    sql: sql.slice(0, SQL_PREVIEW_MAX),
-                    rowCount: Array.isArray(result) ? result.length : undefined,
-                  });
+                  emit(sql, label, durationMs, result);
                 }
               }
             };
@@ -179,43 +201,61 @@ function makeStatementWrapper(options: SlowQueryWatcherOptions): Wrapper {
       },
     });
 
-    wrapped.set(stmt, proxy);
+    if (label === undefined) unlabeledProxies.set(stmt, proxy);
     return proxy;
   };
-}
-
-/**
- * Wrap a `bun:sqlite` {@link Database} in place so every statement produced by
- * `.query()` / `.prepare()` times its executions and logs the slow ones. Both
- * the Drizzle ORM path (which calls `.prepare(sql)` then `.run()/.all()/
- * .values()`) and {@link ./raw-query} (which calls `.query(sql).get()/.all()/
- * .run()`) route through these two factories, so a single wrap covers both.
- *
- * Returns the same instance (mutated), so callers can wrap inline at
- * construction. `.exec()` — used for batch DDL, PRAGMAs, and transaction
- * `BEGIN`/`COMMIT` — is intentionally left unwrapped: it takes no bindings and
- * isn't a statement-execution path. `options` exists only for tests.
- */
-export function wrapSqliteForSlowQueryLogging(
-  sqlite: Database,
-  options: SlowQueryWatcherOptions = {},
-): Database {
-  const wrapStatement = makeStatementWrapper(options);
 
   const originalQuery = sqlite.query.bind(sqlite);
   const originalPrepare = sqlite.prepare.bind(sqlite);
+  const originalRun = sqlite.run.bind(sqlite);
 
-  sqlite.query = ((sql: string, ...rest: unknown[]) =>
-    wrapStatement(
-      (originalQuery as (...a: unknown[]) => Statement)(sql, ...rest),
-      sql,
-    )) as typeof sqlite.query;
+  const makeQuery =
+    (label: string | undefined) =>
+    (sql: string, ...rest: unknown[]): Statement =>
+      wrapStatement(
+        (originalQuery as (...a: unknown[]) => Statement)(sql, ...rest),
+        sql,
+        label,
+      );
 
-  sqlite.prepare = ((sql: string, ...rest: unknown[]) =>
-    wrapStatement(
-      (originalPrepare as (...a: unknown[]) => Statement)(sql, ...rest),
-      sql,
-    )) as typeof sqlite.prepare;
+  const makePrepare =
+    (label: string | undefined) =>
+    (sql: string, ...rest: unknown[]): Statement =>
+      wrapStatement(
+        (originalPrepare as (...a: unknown[]) => Statement)(sql, ...rest),
+        sql,
+        label,
+      );
+
+  // `Database.run(sql, ...params)` is a native shortcut that does not route
+  // through `.prepare()`, so it is timed directly here. `sql` is an argument
+  // (not fixed per closure), so one closure per label reads it from the call.
+  const makeRun =
+    (label: string | undefined) =>
+    (sql: string, ...params: unknown[]): unknown => {
+      const call = originalRun as (...a: unknown[]) => unknown;
+      if (timing) return call(sql, ...params);
+      timing = true;
+      const start = now();
+      let result: unknown;
+      try {
+        result = call(sql, ...params);
+        return result;
+      } finally {
+        timing = false;
+        const durationMs = now() - start;
+        if (durationMs >= thresholdMs) emit(sql, label, durationMs, result);
+      }
+    };
+
+  sqlite.query = makeQuery(undefined) as typeof sqlite.query;
+  sqlite.prepare = makePrepare(undefined) as typeof sqlite.prepare;
+  sqlite.run = makeRun(undefined) as typeof sqlite.run;
+  sqlite.label = (label: string): LabeledQueries => ({
+    query: makeQuery(label),
+    prepare: makePrepare(label),
+    run: makeRun(label) as LabeledQueries["run"],
+  });
 
   return sqlite;
 }
