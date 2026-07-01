@@ -103,8 +103,8 @@ const baseActionsProps = {
   hasLocalEdits: false,
 };
 
-describe("PluginDetailActions Active/Off control", () => {
-  test("renders the Active segment checked for an enabled plugin", () => {
+describe("PluginDetailActions auto-include toggle", () => {
+  test("renders a checked toggle labelled Auto-include for an enabled plugin", () => {
     render(
       <PluginDetailActions
         {...baseActionsProps}
@@ -114,15 +114,11 @@ describe("PluginDetailActions Active/Off control", () => {
       />,
     );
 
-    expect(
-      screen.getByRole("radio", { name: "Active" }).getAttribute("aria-checked"),
-    ).toBe("true");
-    expect(
-      screen.getByRole("radio", { name: "Off" }).getAttribute("aria-checked"),
-    ).toBe("false");
+    expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByText("Auto-include in chat")).toBeTruthy();
   });
 
-  test("renders the Off segment checked for a disabled plugin", () => {
+  test("renders an unchecked toggle for a disabled plugin", () => {
     render(
       <PluginDetailActions
         {...baseActionsProps}
@@ -132,15 +128,12 @@ describe("PluginDetailActions Active/Off control", () => {
       />,
     );
 
-    expect(
-      screen.getByRole("radio", { name: "Off" }).getAttribute("aria-checked"),
-    ).toBe("true");
-    expect(
-      screen.getByRole("radio", { name: "Active" }).getAttribute("aria-checked"),
-    ).toBe("false");
+    expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe(
+      "false",
+    );
   });
 
-  test("calls onToggle when the other segment is clicked (no confirm)", () => {
+  test("calls onToggle when the switch is clicked (no confirm)", () => {
     const onToggle = mock(noop);
     render(
       <PluginDetailActions
@@ -151,14 +144,14 @@ describe("PluginDetailActions Active/Off control", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("radio", { name: "Off" }));
+    fireEvent.click(screen.getByRole("switch"));
 
     expect(onToggle).toHaveBeenCalledTimes(1);
     // Optimistic: the state flips without opening any dialog.
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  test("keeps Upgrade available and enabled when the plugin is Off and drifted", () => {
+  test("keeps Upgrade available and enabled when the plugin is Auto-off and drifted", () => {
     render(
       <PluginDetailActions
         {...baseActionsProps}
@@ -190,11 +183,10 @@ describe("PluginDetailActions Active/Off control", () => {
     ).toBeTruthy();
   });
 
-  test("hides the control when enablement is unknown", () => {
+  test("hides the toggle when enablement is unknown", () => {
     render(<PluginDetailActions {...baseActionsProps} />);
 
-    expect(screen.queryByRole("radiogroup")).toBeNull();
-    expect(screen.queryByText("Active")).toBeNull();
-    expect(screen.queryByText("Off")).toBeNull();
+    expect(screen.queryByRole("switch")).toBeNull();
+    expect(screen.queryByText("Auto-include in chat")).toBeNull();
   });
 });

@@ -3,10 +3,9 @@ import type { KeyboardEvent } from "react";
 
 import { PluginIcon } from "@/domains/intelligence/components/plugins/plugin-icon";
 import { UpdateAvailableBadge } from "@/domains/intelligence/components/plugins/update-available-badge";
-import { PLUGIN_TOGGLE_SEGMENTS } from "@/domains/intelligence/plugins/constants";
 import type { PluginListItem } from "@/domains/intelligence/plugins/types";
 import type { PluginDrift } from "@/domains/intelligence/use-plugin-drift";
-import { Button, Card, SegmentControl } from "@vellumai/design-library";
+import { Button, Card, Tag } from "@vellumai/design-library";
 
 interface PluginListRowProps {
   item: PluginListItem;
@@ -17,13 +16,9 @@ interface PluginListRowProps {
   onInstall?: () => void;
   onRemove?: () => void;
   onUpgrade?: () => void;
-  /** Enable/disable the installed plugin. Wired only when the daemon supports
-   *  toggling (older daemons omit `enabled`, so no switch renders). */
-  onToggle?: (nextEnabled: boolean) => void;
   isInstalling?: boolean;
   isRemoving?: boolean;
   isUpgrading?: boolean;
-  isToggling?: boolean;
 }
 
 /**
@@ -38,15 +33,15 @@ export function PluginListRow({
   onInstall,
   onRemove,
   onUpgrade,
-  onToggle,
   isInstalling = false,
   isRemoving = false,
   isUpgrading = false,
-  isToggling = false,
 }: PluginListRowProps) {
   const available = item.status === "available";
   const updateAvailable = drift?.status === "update-available";
-  const showToggle = onToggle !== undefined && item.enabled !== undefined;
+  // Read-only auto-include state. Rendered when the daemon reports it; changing
+  // it happens on the detail page (the row is not interactive).
+  const showEnablement = item.enabled !== undefined;
   const dimmed = item.enabled === false;
 
   const handleRowKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -97,7 +92,7 @@ export function PluginListRow({
                 source, so a list row can't tell Local from External. The detail
                 view derives origin from the plugin's own `source` instead. */}
             {/* The chip is the Upgrade control; it shows on any drift,
-                regardless of Active/Off. */}
+                regardless of the auto-include state. */}
             {updateAvailable ? (
               <UpdateAvailableBadge
                 onClick={onUpgrade}
@@ -148,27 +143,15 @@ export function PluginListRow({
             />
           )
         ) : (
-          // Installed: Active/Off control beside an always-present Remove (Upgrade
-          // lives in the version-line chip), so the pair never shifts.
+          // Installed: a read-only auto-include tag beside an always-present
+          // Remove (Upgrade lives in the version-line chip), so the pair never
+          // shifts. The tag is informational — clicking the row opens the detail
+          // page, where the setting is changed.
           <div className="flex shrink-0 items-center gap-2">
-            {showToggle ? (
-              // Wrap to stopPropagation: the row is a role="button" and would
-              // otherwise select when a segment is clicked.
-              <span
-                className="inline-flex items-center"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <SegmentControl
-                  className="w-auto [&_[role=radio]]:flex-none [&_[role=radio]]:text-body-large-default"
-                  items={PLUGIN_TOGGLE_SEGMENTS.map((s) => ({
-                    ...s,
-                    disabled: isToggling,
-                  }))}
-                  value={item.enabled ? "active" : "off"}
-                  onChange={(next) => onToggle?.(next === "active")}
-                  ariaLabel={`Turn ${item.name} on or off`}
-                />
-              </span>
+            {showEnablement ? (
+              <Tag tone={item.enabled ? "positive" : "neutral"}>
+                {item.enabled ? "Auto-on" : "Auto-off"}
+              </Tag>
             ) : null}
             <Button
               type="button"

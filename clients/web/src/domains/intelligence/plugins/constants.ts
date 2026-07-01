@@ -3,7 +3,6 @@
  * detail, and the Plugins tab), kept in one place so the confirm dialogs and
  * failure messages stay in lockstep across them.
  */
-import type { SegmentControlItem } from "@vellumai/design-library";
 
 /** Confirm-dialog body for removing an installed plugin. */
 export const pluginRemoveConfirmMessage = (name: string): string =>
@@ -24,9 +23,3 @@ export const PLUGIN_UPGRADE_ERROR =
   "Failed to upgrade plugin. Please try again.";
 export const PLUGIN_TOGGLE_ERROR =
   "Failed to update plugin. Please try again.";
-
-/** Active/Off segments for the plugin enablement control (list row + detail). */
-export const PLUGIN_TOGGLE_SEGMENTS: SegmentControlItem<"active" | "off">[] = [
-  { value: "active", label: "Active" },
-  { value: "off", label: "Off" },
-];

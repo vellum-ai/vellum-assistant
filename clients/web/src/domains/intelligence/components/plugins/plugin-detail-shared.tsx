@@ -12,7 +12,6 @@ import { useState } from "react";
 import {
     PLUGIN_INSTALL_ERROR,
     PLUGIN_REMOVE_ERROR,
-    PLUGIN_TOGGLE_SEGMENTS,
     PLUGIN_UPGRADE_ERROR,
     pluginRemoveConfirmMessage,
     pluginRiskyUpgradeConfirmLabel,
@@ -22,7 +21,7 @@ import { shortSha } from "@/domains/intelligence/plugins/utils";
 import type { PluginDrift } from "@/domains/intelligence/use-plugin-drift";
 import type { PluginsByNameGetResponse } from "@/generated/daemon/types.gen";
 import { cn } from "@/utils/misc";
-import { Button, ConfirmDialog, SegmentControl } from "@vellumai/design-library";
+import { Button, ConfirmDialog, Toggle } from "@vellumai/design-library";
 
 /**
  * Presentational building blocks shared by the plugin detail surfaces so the
@@ -153,9 +152,9 @@ interface PluginDetailActionsProps {
   isUpgrading: boolean;
   /** Gates whether an upgrade prompts before overwriting local edits. */
   hasLocalEdits: boolean;
-  /** Active state of the installed copy; `undefined` hides the Active/Off toggle (see `PluginListItem.enabled`). */
+  /** Auto-include state of the installed copy; `undefined` hides the toggle (see `PluginListItem.enabled`). */
   enabled?: boolean;
-  /** Flip the plugin's active state (optimistic, no confirm dialog). */
+  /** Flip the auto-include state (optimistic, no confirm dialog). */
   onToggle?: () => void;
   isToggling?: boolean;
 }
@@ -219,21 +218,15 @@ export function PluginDetailActions({
         // Wrap on narrow (mobile overlay) widths so a Download + Upgrade +
         // Remove set can't push actions off-screen; single row on desktop.
         <div className="flex flex-wrap items-center gap-2 md:flex-nowrap md:shrink-0">
-          {/* Active/Off control leads the cluster (mirrors the MCP card). Hidden
-              when enablement is unknown — an older daemon or a deep-link with no
-              list row to source it from. Optimistic, so no confirm dialog. */}
+          {/* Auto-include toggle leads the cluster (mirrors the MCP card).
+              Hidden when enablement is unknown — an older daemon or a deep-link
+              with no list row to source it from. Optimistic, no confirm. */}
           {enabled !== undefined && onToggle ? (
-            <SegmentControl
-              className="w-auto [&_[role=radio]]:flex-none [&_[role=radio]]:text-body-large-default"
-              items={PLUGIN_TOGGLE_SEGMENTS.map((s) => ({
-                ...s,
-                disabled: isToggling,
-              }))}
-              value={enabled ? "active" : "off"}
-              // Two states, so any change is a flip; SegmentControl already
-              // suppresses same-segment (no-op) clicks.
+            <Toggle
+              label="Auto-include in chat"
+              checked={enabled}
               onChange={() => onToggle()}
-              ariaLabel={`Turn ${plugin.name} on or off`}
+              disabled={isToggling}
             />
           ) : null}
           {artifact ? (

@@ -27,7 +27,6 @@ import {
     pluginRiskyUpgradeConfirmMessage,
 } from "@/domains/intelligence/plugins/constants";
 import { invalidatePluginQueries } from "@/domains/intelligence/plugins/invalidate-plugin-queries";
-import { usePluginToggle } from "@/domains/intelligence/plugins/use-plugin-toggle";
 import type {
     InstalledPlugin,
     PluginCatalogMatch,
@@ -127,10 +126,6 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
     catalogMatches,
     unfilteredInstalledNames,
   } = usePluginsList(assistantId, effectiveCategory);
-
-  // Optimistic enable/disable. Wired into installed rows only when the daemon
-  // supports it (see `pluginToggleSupported`).
-  const { toggle, togglingName } = usePluginToggle(assistantId);
 
   // The picker offers different status options per daemon capability
   // (All/Active/Off/Available when it can toggle, All/Installed/Available when
@@ -296,7 +291,7 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
   const hasActiveSearch = searchValue.trim().length > 0;
 
   if (selectedPluginName) {
-    // Seed the detail header icon + Active/Off toggle from the already-loaded
+    // Seed the detail header icon + auto-include toggle from the already-loaded
     // list row: catalog rows are known-external (📦 immediately, no load-time
     // flash). Installed rows and unmatched deep-links are `undefined` (origin
     // unknown), so the header shows a glyph-less placeholder until the detail
@@ -345,14 +340,8 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
                   onSelect={() => handleSelect(item)}
                   onRemove={() => setPendingRemoval(item)}
                   onUpgrade={(drift) => handleUpgrade(item, drift)}
-                  onToggle={
-                    pluginToggleSupported
-                      ? (next) => toggle(item.name, next)
-                      : undefined
-                  }
                   isRemoving={removingName === item.name}
                   isUpgrading={upgradingName === item.name}
-                  isToggling={togglingName === item.name}
                 />
               ) : (
                 <PluginListRow
@@ -524,11 +513,8 @@ interface InstalledPluginRowProps {
   onSelect: () => void;
   onRemove: () => void;
   onUpgrade: (drift: PluginDrift | undefined) => void;
-  /** `undefined` when the daemon doesn't support toggling (no switch). */
-  onToggle: ((nextEnabled: boolean) => void) | undefined;
   isRemoving: boolean;
   isUpgrading: boolean;
-  isToggling: boolean;
 }
 
 /**
@@ -543,10 +529,8 @@ function InstalledPluginRow({
   onSelect,
   onRemove,
   onUpgrade,
-  onToggle,
   isRemoving,
   isUpgrading,
-  isToggling,
 }: InstalledPluginRowProps) {
   const driftQuery = usePluginDrift({ assistantId, name: item.name });
   const drift = driftQuery.data;
@@ -558,10 +542,8 @@ function InstalledPluginRow({
       onSelect={onSelect}
       onRemove={onRemove}
       onUpgrade={() => onUpgrade(drift)}
-      onToggle={onToggle}
       isRemoving={isRemoving}
       isUpgrading={isUpgrading}
-      isToggling={isToggling}
     />
   );
 }

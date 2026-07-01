@@ -57,18 +57,6 @@ function getButton(label: string): HTMLButtonElement {
   return match;
 }
 
-/** Find an Active/Off segment by its visible label (the SegmentControl's
- *  segments are `role="radio"` buttons whose accessible name is their text). */
-function getSegment(label: "Active" | "Off"): HTMLButtonElement {
-  const match = Array.from(
-    document.querySelectorAll<HTMLButtonElement>('button[role="radio"]'),
-  ).find((b) => b.textContent?.trim() === label);
-  if (!match) {
-    throw new Error(`expected an Active/Off segment labelled "${label}"`);
-  }
-  return match;
-}
-
 describe("PluginListRow", () => {
   test("clicking the row fires onSelect", () => {
     const onSelect = mock(() => {});
@@ -225,63 +213,42 @@ describe("PluginListRow", () => {
     ).not.toBeNull();
   });
 
-  test("Active installed row shows the Active segment checked beside Remove", () => {
-    render(
+  test("Auto-on installed row shows an Auto-on tag beside Remove (no toggle)", () => {
+    const { getByText } = render(
       <PluginListRow
         item={makeItem({ status: "installed", enabled: true })}
         onSelect={mock(() => {})}
-        onToggle={mock(() => {})}
         onRemove={mock(() => {})}
       />,
     );
 
-    expect(getSegment("Active").getAttribute("aria-checked")).toBe("true");
+    expect(getByText("Auto-on")).toBeTruthy();
+    // The row carries no interactive toggle — changing it happens on detail.
+    expect(document.querySelector('button[role="switch"]')).toBeNull();
     expect(
       document.querySelector('button[aria-label="Remove plugin"]'),
     ).not.toBeNull();
   });
 
-  test("clicking Off on an Active row fires onToggle(false) without selecting", () => {
-    const onSelect = mock(() => {});
-    const onToggle = mock((_next: boolean) => {});
-
-    render(
-      <PluginListRow
-        item={makeItem({ status: "installed", enabled: true })}
-        onSelect={onSelect}
-        onToggle={onToggle}
-      />,
-    );
-
-    fireEvent.click(getSegment("Off"));
-
-    expect(onToggle).toHaveBeenCalledTimes(1);
-    expect(onToggle).toHaveBeenCalledWith(false);
-    expect(onSelect).not.toHaveBeenCalled();
-  });
-
-  test("Off row is dimmed and its Off segment reads checked", () => {
+  test("Auto-off row is dimmed and shows an Auto-off tag", () => {
     const { getByText } = render(
       <PluginListRow
         item={makeItem({ status: "installed", enabled: false })}
         onSelect={mock(() => {})}
-        onToggle={mock(() => {})}
       />,
     );
 
-    expect(getSegment("Off").getAttribute("aria-checked")).toBe("true");
-    expect(getSegment("Active").getAttribute("aria-checked")).toBe("false");
+    expect(getByText("Auto-off")).toBeTruthy();
     // Off rows dim the name to the tertiary content token.
     expect(getByText("Test Plugin").style.color).toContain("content-tertiary");
   });
 
-  test("drift renders the Update chip (Remove stays), even when Off", () => {
-    render(
+  test("drift renders the Update chip (Remove stays), even when Auto-off", () => {
+    const { getByText } = render(
       <PluginListRow
         item={makeItem({ status: "installed", enabled: false })}
         drift={makeDrift("update-available")}
         onSelect={mock(() => {})}
-        onToggle={mock(() => {})}
         onRemove={mock(() => {})}
         onUpgrade={mock(() => {})}
       />,
@@ -294,12 +261,12 @@ describe("PluginListRow", () => {
     expect(
       document.querySelector('button[aria-label="Remove plugin"]'),
     ).not.toBeNull();
-    // The chip shows regardless of Active/Off — the row here is Off.
-    expect(getSegment("Active").getAttribute("aria-checked")).toBe("false");
+    // The chip shows regardless of the auto-include state — here it's Auto-off.
+    expect(getByText("Auto-off")).toBeTruthy();
   });
 
-  test("available row shows only Install (no toggle, no Remove)", () => {
-    render(
+  test("available row shows only Install (no tag, no Remove)", () => {
+    const { queryByText } = render(
       <PluginListRow
         item={makeItem({ status: "available" })}
         onSelect={mock(() => {})}
@@ -310,23 +277,24 @@ describe("PluginListRow", () => {
     expect(
       document.querySelector('button[aria-label="Install plugin"]'),
     ).not.toBeNull();
-    expect(document.querySelector('[role="radiogroup"]')).toBeNull();
+    expect(queryByText("Auto-on")).toBeNull();
+    expect(queryByText("Auto-off")).toBeNull();
     expect(
       document.querySelector('button[aria-label="Remove plugin"]'),
     ).toBeNull();
   });
 
-  test("installed row without `enabled` (older daemon) renders no toggle", () => {
-    render(
+  test("installed row without `enabled` (older daemon) renders no tag", () => {
+    const { queryByText } = render(
       <PluginListRow
         item={makeItem({ status: "installed" })}
         onSelect={mock(() => {})}
-        onToggle={mock(() => {})}
         onRemove={mock(() => {})}
       />,
     );
 
-    expect(document.querySelector('[role="radiogroup"]')).toBeNull();
+    expect(queryByText("Auto-on")).toBeNull();
+    expect(queryByText("Auto-off")).toBeNull();
     // Remove is still present for installed rows.
     expect(
       document.querySelector('button[aria-label="Remove plugin"]'),
