@@ -561,6 +561,16 @@ export class CallController {
         );
         return;
       }
+      if (this.isLockContentionError(err) && this.isCurrentRun(runVersion)) {
+        log.debug(
+          { callSessionId: this.callSessionId },
+          "Swallowing transient processing-lock contention race",
+        );
+        this.state = "idle";
+        this.resetSilenceTimer();
+        this.flushPendingInstructions();
+        return;
+      }
       log.error({ err, callSessionId: this.callSessionId }, "Voice turn error");
       this.transport.sendTextToken(
         "I'm sorry, I encountered a technical issue. Could you repeat that?",
@@ -1219,6 +1229,19 @@ export class CallController {
   private isExpectedAbortError(err: unknown): boolean {
     if (!(err instanceof Error)) return false;
     return err.name === "AbortError" || err.name === "APIUserAbortError";
+  }
+
+  /**
+   * Transient teardown race: a new voice turn reached the session bridge
+   * before the previous turn released the conversation processing lock.
+   * This is not a real error and must never be spoken to the caller. See
+   * JARVIS-1232.
+   */
+  private isLockContentionError(err: unknown): boolean {
+    return (
+      err instanceof Error &&
+      err.message.includes("already processing a message")
+    );
   }
 
   private isCurrentRun(runVersion: number): boolean {

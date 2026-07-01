@@ -1025,6 +1025,45 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
+  test("lock-contention rejection: swallowed, no technical-issue speech, returns to idle", async () => {
+    mockStartVoiceTurn.mockImplementation(async () => {
+      throw new Error("Conversation is already processing a message");
+    });
+
+    const { relay, controller } = setupController();
+
+    await controller.handleCallerUtterance("Hello");
+
+    // The transient lock-contention race must never be spoken to the caller.
+    const errorTokens = relay.sentTokens.filter((t) =>
+      t.token.includes("technical issue"),
+    );
+    expect(errorTokens.length).toBe(0);
+
+    // Controller goes idle and re-arms the silence watchdog.
+    expect(controller.getState()).toBe("idle");
+
+    controller.destroy();
+  });
+
+  test("genuine non-lock-contention error still speaks the technical-issue fallback", async () => {
+    mockStartVoiceTurn.mockImplementation(async () => {
+      throw new Error("boom");
+    });
+
+    const { relay, controller } = setupController();
+
+    await controller.handleCallerUtterance("Hello");
+
+    const errorTokens = relay.sentTokens.filter((t) =>
+      t.token.includes("technical issue"),
+    );
+    expect(errorTokens.length).toBeGreaterThan(0);
+    expect(controller.getState()).toBe("idle");
+
+    controller.destroy();
+  });
+
   test("handleUserAnswer: returns false when no pending consultation exists", async () => {
     const { controller } = setupController();
 
