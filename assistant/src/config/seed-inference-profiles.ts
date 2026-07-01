@@ -191,6 +191,16 @@ export const MANAGED_PROFILE_NAMES = new Set([
   OS_BETA_PROFILE_KEY,
 ]);
 
+// Canonicals that migration 052 seeded without `source` metadata: a
+// source-less profile under one of these names is legacy managed. Any other
+// managed-name profile without `source` predates its template and is the
+// user's (e.g. a `frontier` created before this template existed).
+const LEGACY_SOURCELESS_MANAGED_NAMES = new Set([
+  "balanced",
+  "quality-optimized",
+  "cost-optimized",
+]);
+
 const MIX_MIN_ARMS = 2;
 
 export type SeedInferenceProfilesOptions = {
@@ -306,15 +316,15 @@ export function seedInferenceProfiles(
     const previous = readObject(profiles[name]);
     // Never clobber a user-owned profile that shares a managed name (e.g. a
     // user-owned `frontier` that migration 115 deliberately preserved). A
-    // source-less profile is legacy managed (migration 052 seeded canonicals
-    // without `source`), so only an explicit non-managed source is skipped.
-    if (
-      previous !== null &&
-      previous.source !== undefined &&
-      previous.source !== "managed"
-    ) {
-      continue;
-    }
+    // source-less profile counts as user-owned — matching migration 115 and
+    // the flag-gated reconcile — except for the canonicals migration 052
+    // seeded without `source`, which are legacy managed.
+    const isOursToManage =
+      previous === null ||
+      previous.source === "managed" ||
+      (previous.source === undefined &&
+        LEGACY_SOURCELESS_MANAGED_NAMES.has(name));
+    if (!isOursToManage) continue;
     const effectiveTemplate: ManagedProfileTemplate = isByokMode
       ? { ...template, label: `${template.label} (Managed)` }
       : template;
