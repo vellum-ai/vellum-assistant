@@ -16,12 +16,14 @@ import { withQdrantBreaker } from "../../../../persistence/embeddings/qdrant-cir
 import {
   enqueueMemoryJob,
   hasActiveJobOfType,
-  isMemoryEnabled,
   type MemoryJob,
 } from "../../../../persistence/jobs-store.js";
 import { messages } from "../../../../persistence/schema/index.js";
 import { getLogger } from "../../../../util/logger.js";
-import { resolveLexicalIndex } from "./index-message-lexical.js";
+import {
+  isMemoryIndexingSuppressed,
+  resolveLexicalIndex,
+} from "./index-message-lexical.js";
 
 const log = getLogger("lexical-backfill");
 
@@ -51,11 +53,16 @@ const LEXICAL_BACKFILL_CHECKPOINT_ID_KEY = "lexical:messages:last_id";
  * philosophy of never blocking or doing expensive work at boot.
  *
  * Guards (all must pass to enqueue):
- * - Memory must be enabled. When `memory.enabled === false` the memory job
- *   worker drains nothing (`runMemoryJobsOnce` returns early), so an enqueued
- *   backfill would sit pending forever and those instances stay on the FTS/LIKE
- *   read path — enqueuing would only accumulate dead rows. Kept consistent with
- *   the worker's own gate.
+ * - Memory indexing must not be suppressed — memory enabled AND the memory
+ *   plugin not disabled — using the same {@link isMemoryIndexingSuppressed}
+ *   signal as the write/recall paths. When `memory.enabled === false` the memory
+ *   job worker drains nothing (`runMemoryJobsOnce` returns early), so an enqueued
+ *   backfill would sit pending forever and only accumulate dead rows. When the
+ *   memory plugin is disabled via its `.disabled` sentinel, per-message index
+ *   writes are suppressed, so completing a backfill would leave a stale index
+ *   that a lexical-backed read could serve; gating on the same signal keeps the
+ *   completion marker unset while writes are suppressed, so every read path stays
+ *   on FTS in that state (the marker unifies them).
  * - The completion sentinel must be unset. Once the backfill has fully drained
  *   on this instance there is nothing to do; the marker makes this idempotent
  *   across restarts.
@@ -73,7 +80,7 @@ const LEXICAL_BACKFILL_CHECKPOINT_ID_KEY = "lexical:messages:last_id";
  */
 export function maybeEnqueueLexicalBackfillOnUpgrade(): void {
   try {
-    if (!isMemoryEnabled()) return;
+    if (isMemoryIndexingSuppressed()) return;
     if (isLexicalBackfillComplete()) return;
     if (hasActiveJobOfType("backfill_lexical_index")) return;
     const jobId = enqueueMemoryJob("backfill_lexical_index", {});

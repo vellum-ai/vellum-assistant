@@ -69,6 +69,9 @@ mock.module(
 // `generateSparseEmbedding` is a pure local TF-IDF encoder (no provider call),
 // so it runs unmocked — mocking `embedding-backend.js` wholesale would starve
 // its other named exports that the db-init import graph pulls in.
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { resetDbForTesting } from "../../../../../__tests__/db-test-helpers.js";
 import { DEFAULT_CONFIG } from "../../../../../config/defaults.js";
 import {
@@ -98,6 +101,8 @@ import {
   memoryJobs,
   messages,
 } from "../../../../../persistence/schema/index.js";
+import { getWorkspacePluginsDir } from "../../../../../util/platform.js";
+import memoryPkg from "../../package.json" with { type: "json" };
 import {
   backfillLexicalIndexJob,
   maybeEnqueueLexicalBackfillOnUpgrade,
@@ -175,6 +180,23 @@ function setMemoryEnabled(enabled: boolean): void {
   invalidateConfigCache();
 }
 
+/**
+ * Toggle the memory plugin's `.disabled` sentinel in the real workspace plugins
+ * dir so `isMemoryIndexingSuppressed()` (via `isPluginDisabled(memoryPkg.name)`)
+ * sees the change. Driving the real sentinel — not a process-global mock —
+ * exercises the same suppression path the write/recall gates use and avoids
+ * leaking a mock into sibling test files.
+ */
+function setMemoryPluginDisabled(disabled: boolean): void {
+  const dir = join(getWorkspacePluginsDir(), memoryPkg.name);
+  if (disabled) {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, ".disabled"), "");
+  } else {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 describe("backfillLexicalIndexJob", () => {
   // initializeDb runs the full migration chain; under parallel CI load it can
   // exceed bun's default 5s hook timeout, so allow more.
@@ -186,6 +208,7 @@ describe("backfillLexicalIndexJob", () => {
     upsertBatchCalls.length = 0;
     resetLexicalSingleton(true);
     setMemoryEnabled(true);
+    setMemoryPluginDisabled(false);
     resetDbForTesting();
     await initializeDb();
     // The template-restore path leaves stale WAL sidecars, so rows can bleed
@@ -403,6 +426,23 @@ describe("backfillLexicalIndexJob", () => {
       maybeEnqueueLexicalBackfillOnUpgrade();
 
       expect(pendingBackfillJobCount()).toBe(0);
+    });
+
+    // Indexing is suppressed by the memory plugin's `.disabled` sentinel even
+    // while `memory.enabled` is true. The hook gates on the same
+    // `isMemoryIndexingSuppressed` signal as the write/recall paths, so it must
+    // skip: enqueuing (and later setting the completion marker) would leave a
+    // stale index that a lexical-backed read could serve while per-message writes
+    // stay suppressed.
+    test("does NOT enqueue when the memory plugin is disabled but memory.enabled is true", () => {
+      setMemoryEnabled(true);
+      setMemoryPluginDisabled(true);
+
+      maybeEnqueueLexicalBackfillOnUpgrade();
+
+      expect(pendingBackfillJobCount()).toBe(0);
+      // The completion marker must stay unset so reads stay on FTS.
+      expect(isLexicalBackfillComplete()).toBe(false);
     });
 
     test("does NOT enqueue a duplicate when a backfill job is already pending", () => {
