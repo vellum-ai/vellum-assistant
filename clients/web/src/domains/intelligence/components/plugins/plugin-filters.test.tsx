@@ -114,7 +114,9 @@ describe("Plugins FilterBar", () => {
     const labels = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
     ).map((o) => o.textContent?.trim());
-    expect(labels).toEqual(["All", "Available"]);
+    // No enable/disable support → Active/Off are omitted, but Installed is
+    // restored (older daemons keep the installed/available distinction).
+    expect(labels).toEqual(["All", "Installed", "Available"]);
   });
 
   test("the mobile sheet exposes category rows that report the selected slug", async () => {
