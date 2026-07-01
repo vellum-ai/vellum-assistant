@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { CheckCircle } from "lucide-react";
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 
 import { Button } from "@vellumai/design-library";
 
@@ -35,13 +35,6 @@ export function ChannelSetupPanel({ payload, onClose }: ChannelSetupPanelProps) 
   });
   const isConnected = readinessQuery.data === true;
 
-  const handleSave = useCallback(
-    async (botToken: string, appToken: string) => {
-      await saveSlack.mutateAsync({ botToken, appToken });
-    },
-    [saveSlack],
-  );
-
   const slackIcon = (
     <img
       src={publicAsset("/images/integrations/slack.svg")}
@@ -74,7 +67,9 @@ export function ChannelSetupPanel({ payload, onClose }: ChannelSetupPanelProps) 
         <SlackSetupWizard
           assistantName={payload.assistantName}
           compact
-          onSave={handleSave}
+          onSave={(bot, app) => saveSlack.mutate({ botToken: bot, appToken: app })}
+          saveStatus={saveSlack.status}
+          saveError={saveSlack.error?.message ?? null}
         />
       ) : null}
     </DetailShell>

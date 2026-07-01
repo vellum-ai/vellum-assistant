@@ -6,6 +6,8 @@ import { buildSlackManifestUrl } from "@/utils/slack-manifest";
 
 export type SlackThreadMode = "mention_only" | "mention_then_thread";
 
+export type MutationStatus = "idle" | "pending" | "success" | "error";
+
 const WIZARD_STEP_IDS = ["create-app", "app-token", "install-and-connect"] as const;
 type WizardStepId = (typeof WIZARD_STEP_IDS)[number];
 
@@ -24,7 +26,9 @@ export interface SlackSetupWizardProps {
   threadMode?: SlackThreadMode;
   threadModePending?: boolean;
   onThreadModeChange?: (mode: SlackThreadMode) => void;
-  onSave?: (botToken: string, appToken: string) => Promise<void>;
+  onSave?: (botToken: string, appToken: string) => void;
+  saveStatus?: MutationStatus;
+  saveError?: string | null;
 }
 
 export function SlackSetupWizard({
@@ -36,6 +40,8 @@ export function SlackSetupWizard({
   threadModePending = false,
   onThreadModeChange,
   onSave,
+  saveStatus = "idle",
+  saveError = null,
 }: SlackSetupWizardProps) {
   const [stepId, setStepId] = useState<WizardStepId>(initialStepId);
   const [slackAppName, setSlackAppName] = useState(assistantName);
@@ -47,8 +53,6 @@ export function SlackSetupWizard({
 
   const [appToken, setAppToken] = useState("");
   const [botToken, setBotToken] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const stepIndex = WIZARD_STEP_IDS.indexOf(stepId);
 
@@ -58,17 +62,8 @@ export function SlackSetupWizard({
     window.open(url, "_blank", "noopener,noreferrer");
   }, [slackAppName]);
 
-  const handleSave = useCallback(async () => {
-    if (!onSave || !botToken.trim() || !appToken.trim()) return;
-    setSaving(true);
-    setError(null);
-    try {
-      await onSave(botToken.trim(), appToken.trim());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save");
-    } finally {
-      setSaving(false);
-    }
+  const handleSave = useCallback(() => {
+    onSave?.(botToken.trim(), appToken.trim());
   }, [onSave, botToken, appToken]);
 
   const handleStepSelect = useCallback(
@@ -127,7 +122,7 @@ export function SlackSetupWizard({
           steps={WIZARD_STEPS}
           current={stepIndex}
           onStepSelect={handleStepSelect}
-          disabled={saving}
+          disabled={saveStatus === "pending"}
           compact={compact}
         />
 
@@ -153,8 +148,8 @@ export function SlackSetupWizard({
           {stepId === "install-and-connect" && (
             <InstallAndConnectStep
               botToken={botToken}
-              saving={saving}
-              error={error}
+              saveStatus={saveStatus}
+              saveError={saveError}
               onBotTokenChange={setBotToken}
               onSave={handleSave}
             />
@@ -299,16 +294,16 @@ function AppTokenStep({
 
 interface InstallAndConnectStepProps {
   botToken: string;
-  saving: boolean;
-  error: string | null;
+  saveStatus: MutationStatus;
+  saveError: string | null;
   onBotTokenChange: (value: string) => void;
   onSave: () => void;
 }
 
 function InstallAndConnectStep({
   botToken,
-  saving,
-  error,
+  saveStatus,
+  saveError,
   onBotTokenChange,
   onSave,
 }: InstallAndConnectStepProps) {
@@ -338,16 +333,21 @@ function InstallAndConnectStep({
           type="button"
           variant="primary"
           onClick={onSave}
-          disabled={!botToken.trim() || saving}
+          disabled={!botToken.trim() || saveStatus === "pending"}
         >
-          {saving ? "Saving\u2026" : "Save"}
+          {saveStatus === "pending" ? "Saving\u2026" : "Save"}
         </Button>
       </div>
-      {error ? (
-        <p className="text-body-small-default text-[var(--system-negative-strong)]">
-          {error}
+      {saveStatus === "success" && (
+        <p className="text-body-small-default text-[var(--content-positive)]">
+          Credentials saved.
         </p>
-      ) : null}
+      )}
+      {saveStatus === "error" && saveError && (
+        <p className="text-body-small-default text-[var(--system-negative-strong)]">
+          {saveError}
+        </p>
+      )}
     </div>
   );
 }
