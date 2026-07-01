@@ -35,7 +35,9 @@ function extractProseField(line: string, field: "name" | "role" | "personality" 
   const boldMatch = trimmed.match(/^\*\*(.+?)\*\*\s*(.*)$/);
   if (boldMatch) {
     const label = boldMatch[1]!.replace(/:+\s*$/, "").trim().toLowerCase();
-    const value = boldMatch[2]!.trim();
+    // Strip leading colon from the value (present when colon is outside bold, e.g. `**Name**: Jophiel`)
+    let value = boldMatch[2]!.trim();
+    value = value.replace(/^:\s*/, "");
     if (
       label === fieldKey ||
       label === fieldKey.toLowerCase() ||
@@ -65,6 +67,11 @@ export function parseIdentityFields(content: string): IdentityFields {
   const fields: Partial<Record<"name" | "role" | "personality" | "emoji" | "home", string>> = {};
   const allFields = ["name", "role", "personality", "emoji", "home"] as const;
   const seenFields = new Set<string>();
+
+  // Pre-collect all prose matches so generic "I am" patterns don't block later
+  // explicit bold-label matches.
+  const boldProseMatches = new Map<string, string[]>();
+  const proseMatches = new Map<string, string[]>();
 
   for (const line of content.split("\n")) {
     const trimmed = line.trim();
@@ -96,24 +103,48 @@ export function parseIdentityFields(content: string): IdentityFields {
       seenFields.add("personality");
     }
 
-    // If no bullet match, try prose fallbacks for unsolved fields
+    // Accumulate prose fallbacks for unsolved fields (deferred to second pass)
     if (seenFields.size < allFields.length) {
       for (const field of allFields) {
         if (seenFields.has(field)) continue;
         const proseValue = extractProseField(trimmed, field);
         if (proseValue) {
-          fields[field] = proseValue;
-          seenFields.add(field);
+          // Distinguish bold-label prose (e.g. `**Name:** Jophiel` without dash)
+          // from generic prose (e.g. "I am here to help with coding.")
+          const hasBoldLabel = /^\*\*.+?\*\*/.test(trimmed);
+          const target = hasBoldLabel ? boldProseMatches : proseMatches;
+          const matches = target.get(field) ?? [];
+          matches.push(proseValue);
+          target.set(field, matches);
         }
       }
       // Check vibe→personality in prose too
       if (!seenFields.has("personality")) {
         const proseVibe = extractProseField(trimmed, "vibe");
         if (proseVibe) {
-          fields.personality = proseVibe;
-          seenFields.add("personality");
+          const hasBoldLabel = /^\*\*.+?\*\*/.test(trimmed);
+          const target = hasBoldLabel ? boldProseMatches : proseMatches;
+          const matches = target.get("personality") ?? [];
+          matches.push(proseVibe);
+          target.set("personality", matches);
         }
       }
+    }
+  }
+
+  // Second pass: apply prose fallbacks — bold-label prose wins over generic.
+  for (const field of allFields) {
+    if (seenFields.has(field)) continue;
+    const boldCandidates = boldProseMatches.get(field);
+    if (boldCandidates && boldCandidates.length > 0) {
+      fields[field] = boldCandidates[0]!;
+      seenFields.add(field);
+      continue;
+    }
+    const genericCandidates = proseMatches.get(field);
+    if (genericCandidates && genericCandidates.length > 0) {
+      fields[field] = genericCandidates[0]!;
+      seenFields.add(field);
     }
   }
 
