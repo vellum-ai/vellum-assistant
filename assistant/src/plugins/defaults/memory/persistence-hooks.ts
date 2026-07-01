@@ -7,6 +7,8 @@ import type {
 import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
 import {
+  clearMessagesLexicalIndex,
+  enqueueDeleteMessageLexical,
   enqueueLexicalIndexForMessage,
   enqueuePurgeConversationLexical,
 } from "./job-handlers/index-message-lexical.js";
@@ -126,6 +128,22 @@ export const memoryPersistenceHooks: MemoryPersistenceHooks = {
     // very purge (and inflate the returned cancelled count).
     enqueuePurgeConversationLexical(conversationId);
     return cancelledJobCount;
+  },
+
+  onMessagesDeleted(messageIds: string[]): void {
+    // Remove each deleted message's point from the lexical index. The enqueue
+    // helper self-selects: enqueue a job when memory is enabled, run the delete
+    // inline (best-effort, breaker-wrapped) when it is disabled.
+    for (const messageId of messageIds) {
+      enqueueDeleteMessageLexical(messageId);
+    }
+  },
+
+  onAllConversationsCleared(): void {
+    // Drop the whole lexical (Qdrant) collection — a "delete all" leaves no ids
+    // to key per-message cleanup on. Best-effort; runs inline (the memory job
+    // queue is wiped by the same clear-all).
+    void clearMessagesLexicalIndex(getConfig());
   },
 
   onWorkerStartup(): void {

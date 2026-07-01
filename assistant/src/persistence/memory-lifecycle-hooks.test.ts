@@ -23,6 +23,8 @@ const baseHooks: MemoryPersistenceHooks = {
   onConversationWiped() {
     return 0;
   },
+  onMessagesDeleted() {},
+  onAllConversationsCleared() {},
   onWorkerStartup() {},
 };
 
@@ -77,5 +79,34 @@ describe("memory persistence-lifecycle seam", () => {
     resetMemoryPersistenceHooksForTests();
     await getMemoryPersistenceHooks().onMessagePersisted(event);
     expect(calls).toBe(0);
+  });
+
+  test("onMessagesDeleted defaults to a no-op and forwards ids to the registered impl", () => {
+    // No-op default — the "memory not present" path does not throw.
+    getMemoryPersistenceHooks().onMessagesDeleted(["msg-a", "msg-b"]);
+
+    const seen: string[][] = [];
+    registerMemoryPersistenceHooks({
+      ...baseHooks,
+      onMessagesDeleted(ids) {
+        seen.push(ids);
+      },
+    });
+    getMemoryPersistenceHooks().onMessagesDeleted(["msg-a", "msg-b"]);
+    expect(seen).toEqual([["msg-a", "msg-b"]]);
+  });
+
+  test("onAllConversationsCleared defaults to a no-op and calls the registered impl", () => {
+    getMemoryPersistenceHooks().onAllConversationsCleared();
+
+    let cleared = 0;
+    registerMemoryPersistenceHooks({
+      ...baseHooks,
+      onAllConversationsCleared() {
+        cleared++;
+      },
+    });
+    getMemoryPersistenceHooks().onAllConversationsCleared();
+    expect(cleared).toBe(1);
   });
 });

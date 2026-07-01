@@ -23,16 +23,11 @@ import { z } from "zod";
 import type { ChannelId, InterfaceId } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { CHANNEL_IDS, isChannelId } from "../channels/types.js";
-import { getConfig } from "../config/loader.js";
 import { findDisplayTurnEndIndex } from "../conversations/message-consolidation.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
-import {
-  clearMessagesLexicalIndex,
-  enqueueDeleteMessageLexical,
-} from "../plugins/defaults/memory/job-handlers/index-message-lexical.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { UserError } from "../util/errors.js";
@@ -2600,14 +2595,15 @@ export async function clearAll(): Promise<{
     );
   }
 
-  // Drop every point from the messages lexical (Qdrant) index. Bulk wipe with
-  // no conversation ids left to key per-conversation purge jobs on, so clear it
-  // inline. Best-effort — a Qdrant failure must not fail the whole clear-all,
-  // matching the other cleanup steps here.
+  // Let the memory feature drop its bulk per-message index (e.g. the whole
+  // lexical Qdrant collection) — a "delete all" leaves no ids to key
+  // per-message cleanup on. Routed through the persistence-hook seam so this
+  // layer stays decoupled from the memory plugin; a no-op when memory is not
+  // present. Best-effort — a failure must not fail the whole clear-all.
   try {
-    await clearMessagesLexicalIndex(getConfig());
+    getMemoryPersistenceHooks().onAllConversationsCleared();
   } catch (err) {
-    log.warn({ err }, "clearAll: failed to clear messages lexical index");
+    log.warn({ err }, "clearAll: failed to clear memory per-message index");
   }
 
   // Clear the disk-view conversations directory and recreate it empty
@@ -2695,12 +2691,11 @@ export function deleteLastExchange(conversationId: string): number {
 
   deleteOrphanAttachments(candidateAttachmentIds);
 
-  // Remove the undone messages' points from the lexical index. This bulk delete
-  // bypasses `deleteMessageById` (which centralizes that cleanup), so enqueue
-  // per removed id here, after the transaction and off the write path.
-  for (const id of messageIds) {
-    enqueueDeleteMessageLexical(id);
-  }
+  // Let the memory feature clean up the undone messages' per-message index
+  // entries. This bulk delete bypasses `deleteMessageById`, so notify the seam
+  // with the collected ids — after the transaction and off the write path. A
+  // no-op when memory is not present.
+  getMemoryPersistenceHooks().onMessagesDeleted(messageIds);
 
   return deleted;
 }
@@ -2929,12 +2924,13 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
 
   deleteOrphanAttachments(candidateAttachmentIds);
 
-  // Remove the message's point from the lexical index. Enqueued only when the
-  // row actually existed (`msgRow` set), after the transaction, and off the
-  // main-DB write path. Covers single-message deletes (consolidation, undo)
+  // Let the memory feature clean up the deleted message's per-message index
+  // entry. Notified only when the row actually existed (`msgRow` set), after the
+  // transaction and off the write path, via the persistence-hook seam (a no-op
+  // when memory is not present). Covers single-message deletes (consolidation)
   // that do not go through the conversation-level purge.
   if (msgRow) {
-    enqueueDeleteMessageLexical(messageId);
+    getMemoryPersistenceHooks().onMessagesDeleted([messageId]);
   }
 
   return result;

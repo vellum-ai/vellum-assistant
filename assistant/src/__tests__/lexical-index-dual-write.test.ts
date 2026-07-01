@@ -51,6 +51,11 @@ import {
 import { getMemoryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import type { MemoryJobType } from "../persistence/jobs-store.js";
+import {
+  getMemoryPersistenceHooks,
+  type MemoryPersistenceHooks,
+  registerMemoryPersistenceHooks,
+} from "../persistence/memory-lifecycle-hooks.js";
 import { memoryJobs } from "../persistence/schema/index.js";
 import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/index.js";
 import { enqueueLexicalIndexForMessage } from "../plugins/defaults/memory/job-handlers/index-message-lexical.js";
@@ -272,5 +277,65 @@ describe("messages lexical-index dual-write", () => {
     expect(deletedIds).toContain(mergedAway.id);
     // The retained row is not itself scheduled for deletion.
     expect(deletedIds).not.toContain(retained.id);
+  });
+});
+
+// The delete paths must route their per-message cleanup through the
+// `MemoryPersistenceHooks.onMessagesDeleted` seam rather than importing memory
+// internals directly, so persistence stays decoupled from the plugin.
+describe("delete paths route through the onMessagesDeleted seam", () => {
+  const deletedBatches: string[][] = [];
+  const spyHooks: MemoryPersistenceHooks = {
+    onMessagePersisted() {},
+    onConversationForked() {},
+    onConversationWiped() {
+      return 0;
+    },
+    onMessagesDeleted(ids) {
+      deletedBatches.push(ids);
+    },
+    onAllConversationsCleared() {},
+    onWorkerStartup() {},
+  };
+
+  beforeEach(() => {
+    resetMemoryJobs();
+    deletedBatches.length = 0;
+    registerMemoryPersistenceHooks(spyHooks);
+  });
+
+  afterEach(() => {
+    // Restore the real memory hooks so later tests are unaffected.
+    registerDefaultPluginPersistenceHooks();
+  });
+
+  test("the spy hook is installed", () => {
+    expect(getMemoryPersistenceHooks()).toBe(spyHooks);
+  });
+
+  test("deleteMessageById fires onMessagesDeleted with the single id", async () => {
+    const conv = createConversation("Seam single delete");
+    const message = await addMessage(conv.id, "user", "delete me via seam");
+
+    deletedBatches.length = 0;
+    deleteMessageById(message.id);
+
+    expect(deletedBatches).toEqual([[message.id]]);
+  });
+
+  test("deleteLastExchange fires onMessagesDeleted with every removed id", async () => {
+    const conv = createConversation("Seam undo");
+    await addMessage(conv.id, "user", "first turn");
+    await addMessage(conv.id, "assistant", "first reply");
+    const lastUser = await addMessage(conv.id, "user", "undo this");
+    const lastAssistant = await addMessage(conv.id, "assistant", "and this");
+
+    deletedBatches.length = 0;
+    deleteLastExchange(conv.id);
+
+    expect(deletedBatches).toHaveLength(1);
+    expect(new Set(deletedBatches[0])).toEqual(
+      new Set([lastUser.id, lastAssistant.id]),
+    );
   });
 });

@@ -84,6 +84,25 @@ export interface MemoryPersistenceHooks {
   onConversationWiped(conversationId: string): number;
 
   /**
+   * One or more message rows were deleted (single-message delete, undo, or
+   * assistant-message consolidation) WITHOUT wiping the whole conversation. The
+   * memory feature removes each message's per-message index entry (e.g. its
+   * lexical point). Runs after the delete transaction commits and off the write
+   * path. Cleanup — runs even while the plugin is disabled, so entries written
+   * while it was enabled are not orphaned. Empty arrays are a no-op.
+   */
+  onMessagesDeleted(messageIds: string[]): void;
+
+  /**
+   * Every conversation and its messages are being cleared ("delete all"). The
+   * memory feature drops the bulk per-message index (e.g. the whole lexical
+   * collection) — a bulk wipe leaves no ids to key per-message cleanup on.
+   * Cleanup — runs even while the plugin is disabled. Best-effort; the caller
+   * wraps it in try/catch.
+   */
+  onAllConversationsCleared(): void;
+
+  /**
    * The background-job worker is starting. The memory feature sweeps orphan
    * retrospective conversations left by a crash mid-job. Best-effort; the caller
    * wraps it in try/catch. Cleanup — runs even while the plugin is disabled.
@@ -97,6 +116,8 @@ const NOOP: MemoryPersistenceHooks = {
   onConversationWiped() {
     return 0;
   },
+  onMessagesDeleted() {},
+  onAllConversationsCleared() {},
   onWorkerStartup() {},
 };
 

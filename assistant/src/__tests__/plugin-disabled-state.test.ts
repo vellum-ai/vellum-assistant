@@ -269,6 +269,8 @@ describe("per-surface disabled-state filtering", () => {
       onConversationWiped() {
         return 0;
       },
+      onMessagesDeleted() {},
+      onAllConversationsCleared() {},
       onWorkerStartup() {},
     });
     const event: MessagePersistedEvent = {
@@ -297,12 +299,20 @@ describe("per-surface disabled-state filtering", () => {
   test("cleanup persistence hooks run even while the memory plugin is disabled", async () => {
     let wiped = 0;
     let swept = 0;
+    const deleted: string[][] = [];
+    let cleared = 0;
     const guarded = guardPersistenceHooksByDisabledState("default-memory", {
       onMessagePersisted() {},
       onConversationForked() {},
       onConversationWiped() {
         wiped++;
         return 7;
+      },
+      onMessagesDeleted(ids) {
+        deleted.push(ids);
+      },
+      onAllConversationsCleared() {
+        cleared++;
       },
       onWorkerStartup() {
         swept++;
@@ -314,8 +324,12 @@ describe("per-surface disabled-state filtering", () => {
     // Cleanup hooks are NOT gated: they must still run (and return real values)
     // while disabled, or state created while enabled would be orphaned.
     expect(guarded.onConversationWiped("conv-1")).toBe(7);
+    guarded.onMessagesDeleted(["msg-1", "msg-2"]);
+    guarded.onAllConversationsCleared();
     guarded.onWorkerStartup();
     expect(wiped).toBe(1);
+    expect(deleted).toEqual([["msg-1", "msg-2"]]);
+    expect(cleared).toBe(1);
     expect(swept).toBe(1);
 
     await removeSentinel("default-memory");
