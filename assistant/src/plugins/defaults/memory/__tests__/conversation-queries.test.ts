@@ -649,26 +649,6 @@ describe("searchConversations · surfaced conversations", () => {
     expect(await searchConversations("Quarterly metrics")).toEqual([]);
     expect(await searchConversations("flux capacitor")).toEqual([]);
   });
-
-  test("LIKE content fallback (non-FTS-tokenizable query) honors surfacing", async () => {
-    // Single-char queries produce no FTS tokens, exercising the LIKE fallback.
-    const surfaced = createConversation({
-      title: "bg-run",
-      conversationType: "background",
-    });
-    setSurfaced(surfaced.id);
-    insertMessage(surfaced.id, "review the C§ draft");
-
-    const hidden = createConversation({
-      title: "bg-hidden",
-      conversationType: "background",
-    });
-    insertMessage(hidden.id, "another C§ mention", 2000);
-
-    const results = await searchConversations("C§");
-
-    expect(results.map((r) => r.conversationId)).toEqual([surfaced.id]);
-  });
 });
 
 describe("listPinnedConversations · surfaced conversations", () => {
