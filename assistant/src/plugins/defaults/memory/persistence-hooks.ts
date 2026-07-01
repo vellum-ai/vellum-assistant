@@ -7,6 +7,7 @@ import type {
   MessagePersistedEvent,
 } from "../../../persistence/memory-lifecycle-hooks.js";
 import { getWorkspaceDir } from "../../../util/platform.js";
+import { getMemoryConfig } from "./config.js";
 import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
 import {
@@ -44,7 +45,7 @@ export const memoryPersistenceHooks: MemoryPersistenceHooks = {
     try {
       await indexMessageNow(
         { ...event, scopeId: "default" },
-        getConfig().memory,
+        getMemoryConfig(),
       );
     } finally {
       // Dual-write into the lexical (Qdrant) index off the write path. The

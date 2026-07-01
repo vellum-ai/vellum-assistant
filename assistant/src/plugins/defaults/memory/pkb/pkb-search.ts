@@ -2,7 +2,6 @@
 // PKB — Qdrant hybrid search for indexed PKB markdown files
 // ---------------------------------------------------------------------------
 
-import { getConfig } from "../../../../config/loader.js";
 import {
   isQdrantBreakerOpen,
   withQdrantBreaker,
@@ -13,6 +12,7 @@ import type {
 } from "../../../../persistence/embeddings/qdrant-client.js";
 import { getQdrantClient } from "../../../../persistence/embeddings/qdrant-client.js";
 import { getLogger } from "../../../../util/logger.js";
+import { getMemoryConfig } from "../config.js";
 import type { PkbSearchResult } from "./types.js";
 import { PKB_TARGET_TYPE } from "./types.js";
 
@@ -44,7 +44,7 @@ export async function searchPkbFiles(
   // v2 owns the read path when enabled; v2 absorbs PKB as a read source,
   // so PKB hint search short-circuits to keep traffic off the v1 collection
   // (avoiding OOM-crash risk from a corrupted sparse segment).
-  if (getConfig().memory.v2.enabled) return [];
+  if (getMemoryConfig().v2.enabled) return [];
 
   if (isQdrantBreakerOpen()) {
     log.warn("Qdrant circuit breaker open, skipping PKB search");

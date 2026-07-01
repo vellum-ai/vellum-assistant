@@ -7,14 +7,14 @@
 
 import type { HookFunction, InitContext } from "@vellumai/plugin-api";
 
-import { getConfig } from "../../../../config/loader.js";
 import { getLogger } from "../../../../util/logger.js";
+import { getMemoryConfig } from "../config.js";
 import { FilingService } from "../filing-service.js";
 
 const log = getLogger("filing-service");
 
 const init: HookFunction<InitContext> = async () => {
-  if (getConfig().memory.v2.enabled) {
+  if (getMemoryConfig().v2.enabled) {
     log.info(
       "Filing service skipped — memory v2 consolidation is the active background memory job",
     );
