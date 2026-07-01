@@ -417,14 +417,6 @@
       "label": "New-thread suggestions library",
       "description": "Replace the empty-state conversation-starter chips with the scrollable, categorized suggestions library and detail drawer (currently mocked data).",
       "defaultEnabled": false
-    },
-    {
-      "id": "messages-search-backend",
-      "scope": "assistant",
-      "key": "messages-search-backend",
-      "label": "Messages Search Backend",
-      "description": "When disabled (default), message content search uses SQLite FTS5. When enabled, it uses the sparse Qdrant lexical index.",
-      "defaultEnabled": false
     }
   ]
 }

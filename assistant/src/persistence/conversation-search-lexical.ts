@@ -4,7 +4,7 @@
  * Encodes a free-text query with the local TF-IDF sparse encoder and queries
  * the BM25-style sparse Qdrant lexical index (`messages_lexical`) for matching
  * message ids. This is the single entry point the message-search read sites use
- * when the `messages-search-backend` flag selects `qdrant`, mirroring the
+ * when they select the `qdrant` backend, mirroring the
  * candidate set SQLite FTS5 would return.
  */
 

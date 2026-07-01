@@ -78,7 +78,6 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../util/logger.js",
   ],
   memory: [
-    "../../../../../config/assistant-feature-flags.js",
     "../../../../../config/types.js",
     "../../../../../messaging/providers/slack/message-metadata.js",
     "../../../../../persistence/auto-analysis-constants.js",
