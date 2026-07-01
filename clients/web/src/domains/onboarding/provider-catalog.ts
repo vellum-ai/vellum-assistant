@@ -95,6 +95,38 @@ export const ONBOARDING_PROVIDERS: readonly OnboardingProvider[] = [
     docsUrl: "https://openrouter.ai/keys",
     requiresKey: true,
     defaultModel: "anthropic/claude-sonnet-4.6",
+    models: [
+      {
+        id: "anthropic/claude-sonnet-4.6",
+        displayName: "Claude Sonnet 4.6",
+        contextWindowTokens: 200_000,
+        maxOutputTokens: 64_000,
+      },
+      {
+        id: "anthropic/claude-opus-4.8",
+        displayName: "Claude Opus 4.8",
+        contextWindowTokens: 200_000,
+        maxOutputTokens: 128_000,
+      },
+      {
+        id: "x-ai/grok-4.20-beta",
+        displayName: "Grok 4.20 Beta",
+        contextWindowTokens: 200_000,
+        maxOutputTokens: 16_000,
+      },
+      {
+        id: "deepseek/deepseek-r1-0528",
+        displayName: "DeepSeek R1",
+        contextWindowTokens: 163_840,
+        maxOutputTokens: 32_000,
+      },
+      {
+        id: "meta-llama/llama-4-maverick",
+        displayName: "Llama 4 Maverick",
+        contextWindowTokens: 200_000,
+        maxOutputTokens: 16_000,
+      },
+    ],
   },
   {
     id: "openai-compatible",
