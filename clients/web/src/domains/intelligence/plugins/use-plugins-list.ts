@@ -7,7 +7,12 @@ import type {
     PluginListItem,
 } from "@/domains/intelligence/plugins/types";
 import { mergePlugins, sortPlugins } from "@/domains/intelligence/plugins/utils";
-import { pluginsSearchGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import {
+  pluginsGetQueryKey,
+  pluginsSearchGetOptions,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import { pluginsGet } from "@/generated/daemon/sdk.gen";
+import type { PluginsGetResponse } from "@/generated/daemon/types.gen";
 import { installedPluginsQueryOptions } from "@/lib/installed-plugins-query";
 
 // The catalog (the daemon's cached, rate-limited GitHub listing) changes
