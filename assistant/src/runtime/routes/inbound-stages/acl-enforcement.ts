@@ -24,7 +24,10 @@ import { resolveGuardianName } from "../../../prompts/user-reference.js";
 import { getLogger } from "../../../util/logger.js";
 import { truncate } from "../../../util/truncate.js";
 import { hashVoiceCode } from "../../../util/voice-code.js";
-import { notifyGuardianOfAccessRequest } from "../../access-request-helper.js";
+import {
+  isAccessRequestDenied,
+  notifyGuardianOfAccessRequest,
+} from "../../access-request-helper.js";
 import { resolveAnchoredGuardian } from "../../anchored-guardian.js";
 import { getInviteAdapterRegistry } from "../../channel-invite-transport.js";
 import {
@@ -370,10 +373,28 @@ export async function enforceIngressAcl(
           "Ingress ACL: no member record, denying",
         );
 
+        // Terminal deny: if the guardian already rejected this sender, skip all
+        // re-engagement (self-verify challenge + guardian notify) and deliver
+        // only the canned reply. Otherwise a denied sender whose first
+        // verification session expired would be handed a fresh, unusable
+        // challenge the guardian was never told about.
+        const nonMemberSenderId = canonicalSenderId ?? rawSenderId;
+        const terminallyDenied =
+          !!nonMemberSenderId &&
+          isAccessRequestDenied({
+            canonicalAssistantId,
+            sourceChannel,
+            actorExternalId: nonMemberSenderId,
+          });
+
         // Slack-specific: send a verification challenge directly to the
         // user's DM instead of requiring guardian-mediated approval. The
         // user can reply with the code in the DM to self-verify.
-        if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
+        if (
+          sourceChannel === "slack" &&
+          (canonicalSenderId ?? rawSenderId) &&
+          !terminallyDenied
+        ) {
           const slackVerifyResult = initiateSlackVerificationChallenge({
             sourceChannel,
             senderUserId: (canonicalSenderId ?? rawSenderId)!,
@@ -449,7 +470,11 @@ export async function enforceIngressAcl(
         // pipeline. Unlike Slack, we cannot DM the requester directly — the
         // verification code is delivered to the guardian, who decides whether
         // to share it with the email sender out-of-band.
-        if (sourceChannel === "email" && (canonicalSenderId ?? rawSenderId)) {
+        if (
+          sourceChannel === "email" &&
+          (canonicalSenderId ?? rawSenderId) &&
+          !terminallyDenied
+        ) {
           const emailVerifyResult = initiateEmailVerificationChallenge({
             sourceChannel,
             senderUserId: (canonicalSenderId ?? rawSenderId)!,
@@ -664,6 +689,12 @@ export async function enforceIngressAcl(
         //   the challenge legitimately upgrades the sender into access.
         // In every case skip the deny gate so the admission stage decides.
         // Runs AFTER invite intercepts so valid tokens redeem first.
+        //
+        // A guardian-denied sender is persisted as an unverified contact and is
+        // admitted here on the same rank-vs-floor terms as any other unverified
+        // contact (admitted under `any_contact`/`strangers`, denied under
+        // stricter floors). The deny suppresses re-prompting, not admission;
+        // holding a denied contact out of every floor is the block action's job.
         if (!isBlockedMember && denyInactiveMember) {
           if (
             (effectiveAdmissionPolicy === "strangers" &&
@@ -687,13 +718,28 @@ export async function enforceIngressAcl(
             "Ingress ACL: member not active, denying",
           );
 
+          // Terminal deny: a sender the guardian already rejected must not be
+          // handed a fresh self-verify challenge on re-contact (the guardian is
+          // no longer notified, so the code would go nowhere). Skip the
+          // challenge and fall through to the canned reply.
+          const inactiveSenderId = canonicalSenderId ?? rawSenderId;
+          const terminallyDenied =
+            !isBlockedMember &&
+            !!inactiveSenderId &&
+            isAccessRequestDenied({
+              canonicalAssistantId,
+              sourceChannel,
+              actorExternalId: inactiveSenderId,
+            });
+
           // Slack-specific: re-verify inactive members via DM challenge
           // (same as non-member path). Blocked members are excluded —
           // the guardian made an explicit decision to block them.
           if (
             sourceChannel === "slack" &&
             resolvedMember.status !== "blocked" &&
-            (canonicalSenderId ?? rawSenderId)
+            (canonicalSenderId ?? rawSenderId) &&
+            !terminallyDenied
           ) {
             const slackVerifyResult = initiateSlackVerificationChallenge({
               sourceChannel,

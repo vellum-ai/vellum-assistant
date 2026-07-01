@@ -11,6 +11,7 @@ import { ensureDataDir, getDbPath } from "../util/platform.js";
 import { getTelemetryDbPath } from "../util/telemetry-db-path.js";
 import { clearStoredDb, getStoredDb, setStoredDb } from "./db-singleton.js";
 import * as schema from "./schema/index.js";
+import { wrapSqliteForSlowQueryLogging } from "./slow-query-log.js";
 
 export type DrizzleDb = ReturnType<typeof drizzle<typeof schema>>;
 
@@ -113,6 +114,7 @@ export function getDb(): DrizzleDb {
   ensureDataDir();
   const sqlite = new Database(getDbPath());
   applyConnectionPragmas(sqlite);
+  wrapSqliteForSlowQueryLogging(sqlite);
   const db = drizzle(sqlite, { schema });
   setStoredDb("main", db, () => sqlite.close());
   return db;
@@ -159,6 +161,7 @@ function openDedicatedDb(
   try {
     const sqlite = new Database(dbPath);
     applyConnectionPragmas(sqlite);
+    wrapSqliteForSlowQueryLogging(sqlite);
     const db = drizzle(sqlite, { schema });
     setStoredDb(key, db, () => sqlite.close());
     return db;

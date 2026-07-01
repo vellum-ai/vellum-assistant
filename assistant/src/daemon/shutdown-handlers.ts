@@ -6,6 +6,7 @@ import { stopHeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { stopCliIpcServer } from "../ipc/assistant-server.js";
 import { stopGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
 import { stopMcpServerManager } from "../mcp/manager.js";
+import { stopMonitoring } from "../monitoring/control.js";
 import { getSqlite, resetDb } from "../persistence/db-connection.js";
 import { stopQdrantManager } from "../persistence/embeddings/qdrant-manager.js";
 import { stopMemoryJobsWorker } from "../persistence/jobs-worker.js";
@@ -168,6 +169,9 @@ async function shutdown(): Promise<void> {
   } catch (err) {
     log.warn({ err }, "Failed to stop memory worker process (non-fatal)");
   }
+
+  // Stop the resource monitor process if it's actually running.
+  stopMonitoring();
 
   try {
     await stopMcpServerManager();

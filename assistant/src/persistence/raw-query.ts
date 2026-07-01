@@ -33,36 +33,33 @@
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 
 import { getLogsSqlite, getMemorySqlite, getSqlite } from "./db-connection.js";
-import { timeSyncSection } from "./slow-sync-log.js";
 
 type SqlParam = SQLQueryBindings;
 
 // ---------------------------------------------------------------------------
 // Typed query helpers (global Drizzle instance)
 // ---------------------------------------------------------------------------
+//
+// Slow-query attribution is handled centrally: every connection returned by the
+// db-connection accessor is wrapped by `wrapSqliteForSlowQueryLogging`, which
+// times each `.get()/.all()/.run()` execution below. These helpers therefore
+// stay pure passthroughs — wrapping them again here would double-log the same
+// slow statement.
 
 /** Execute a raw SQL query and return a single typed row, or null if no match. */
 export function rawGet<T>(sql: string, ...params: SqlParam[]): T | null {
-  return timeSyncSection(
-    "raw-query:get",
-    () =>
-      (getSqlite()
-        .query(sql)
-        .get(...params) as T) ?? null,
-    () => ({ sql: sql.slice(0, 80) }),
+  return (
+    (getSqlite()
+      .query(sql)
+      .get(...params) as T) ?? null
   );
 }
 
 /** Execute a raw SQL query and return all matching rows with type safety. */
 export function rawAll<T>(sql: string, ...params: SqlParam[]): T[] {
-  return timeSyncSection(
-    "raw-query:all",
-    () =>
-      getSqlite()
-        .query(sql)
-        .all(...params) as T[],
-    (rows) => ({ sql: sql.slice(0, 80), rowCount: rows.length }),
-  );
+  return getSqlite()
+    .query(sql)
+    .all(...params) as T[];
 }
 
 /**
@@ -70,14 +67,9 @@ export function rawAll<T>(sql: string, ...params: SqlParam[]): T[] {
  * of affected rows.
  */
 export function rawRun(sql: string, ...params: SqlParam[]): number {
-  timeSyncSection(
-    "raw-query:run",
-    () =>
-      getSqlite()
-        .query(sql)
-        .run(...params),
-    () => ({ sql: sql.slice(0, 80) }),
-  );
+  getSqlite()
+    .query(sql)
+    .run(...params);
   return rawChanges();
 }
 
@@ -116,24 +108,15 @@ function logsSqlite(): Database {
 
 /** {@link rawAll} against the memory connection. */
 export function rawMemoryAll<T>(sql: string, ...params: SqlParam[]): T[] {
-  return timeSyncSection(
-    "raw-query:memory-all",
-    () =>
-      memorySqlite()
-        .query(sql)
-        .all(...params) as T[],
-    (rows) => ({ sql: sql.slice(0, 80), rowCount: rows.length }),
-  );
+  return memorySqlite()
+    .query(sql)
+    .all(...params) as T[];
 }
 
 /** {@link rawRun} against the memory connection. */
 export function rawMemoryRun(sql: string, ...params: SqlParam[]): number {
   const sqlite = memorySqlite();
-  timeSyncSection(
-    "raw-query:memory-run",
-    () => sqlite.query(sql).run(...params),
-    () => ({ sql: sql.slice(0, 80) }),
-  );
+  sqlite.query(sql).run(...params);
   return (sqlite.query("SELECT changes() AS c").get() as { c: number }).c;
 }
 
@@ -146,11 +129,7 @@ export function rawMemoryChanges(): number {
 /** {@link rawRun} against the logs connection. */
 export function rawLogsRun(sql: string, ...params: SqlParam[]): number {
   const sqlite = logsSqlite();
-  timeSyncSection(
-    "raw-query:logs-run",
-    () => sqlite.query(sql).run(...params),
-    () => ({ sql: sql.slice(0, 80) }),
-  );
+  sqlite.query(sql).run(...params);
   return (sqlite.query("SELECT changes() AS c").get() as { c: number }).c;
 }
 

@@ -8,28 +8,26 @@
  * actor filters the history down to rows whose provenance is itself
  * non-guardian.
  *
- * This lives in its own low-dependency module (types only) so both the
- * conversation lifecycle (history load) and the context compactor (image
- * manifest) can apply the identical filter without creating an import
- * cycle through `conversation-lifecycle` ↔ `window-manager` ↔ `compactor`.
+ * This lives in its own low-dependency module (types plus the zod-only
+ * trust-class leaf) so both the conversation lifecycle (history load) and the
+ * context compactor (image manifest) can apply the identical filter without
+ * creating an import cycle through `conversation-lifecycle` ↔
+ * `window-manager` ↔ `compactor`.
  */
 import type { MessageRow } from "../persistence/conversation-crud.js";
-import type { TrustClass } from "../runtime/actor-trust-resolver.js";
+import { type TrustClass, trustClassSchema } from "../runtime/trust-class.js";
 
 export function parseProvenanceTrustClass(
   metadata: string | null,
 ): TrustClass | undefined {
-  if (!metadata) return undefined;
+  if (!metadata) {
+    return undefined;
+  }
   try {
     const parsed = JSON.parse(metadata) as { provenanceTrustClass?: unknown };
-    const trustClass = parsed?.provenanceTrustClass;
-    if (
-      trustClass === "guardian" ||
-      trustClass === "trusted_contact" ||
-      trustClass === "unverified_contact" ||
-      trustClass === "unknown"
-    ) {
-      return trustClass;
+    const result = trustClassSchema.safeParse(parsed?.provenanceTrustClass);
+    if (result.success) {
+      return result.data;
     }
   } catch {
     // Ignore malformed metadata and treat as unknown provenance.
