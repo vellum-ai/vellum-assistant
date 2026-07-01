@@ -9,6 +9,8 @@ import {
   configGetQueryKey,
   homeFeedGetQueryKey,
   homeStateGetQueryKey,
+  pluginsGetQueryKey,
+  pluginsSearchGetQueryKey,
   schedulesGetQueryKey,
   soundsConfigGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
@@ -176,6 +178,67 @@ describe("useAssistantResourceSync", () => {
       })
     ).toBe(true);
     expect(predicate!({ queryKey: avatarQueryKey("asst-1") })).toBe(false);
+  });
+
+  test("invalidates plugin list / catalog queries on plugins:list sync tag", async () => {
+    const queryClient = freshQueryClient();
+    const calls: unknown[] = [];
+    queryClient.invalidateQueries = ((arg: unknown) => {
+      calls.push(arg);
+      return Promise.resolve();
+    }) as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emit((syncEvent([SYNC_TAGS.pluginsList]) as unknown) as AssistantEvent);
+    await waitFor(() => {
+      const queryKeys = calls.map(
+        (arg) => (arg as { queryKey: readonly unknown[] }).queryKey
+      );
+      const pathOpts = { path: { assistant_id: "asst-1" } };
+      expect(queryKeys).toEqual(
+        expect.arrayContaining([
+          pluginsGetQueryKey(pathOpts),
+          pluginsSearchGetQueryKey(pathOpts),
+        ]) as never
+      );
+    });
+  });
+
+  test("reconciles plugin queries on non-fresh sse.opened reconnect", async () => {
+    const queryClient = freshQueryClient();
+    const calls: unknown[] = [];
+    queryClient.invalidateQueries = ((arg: unknown) => {
+      calls.push(arg);
+      return Promise.resolve();
+    }) as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+    await waitFor(() => {
+      const queryKeys = calls.map(
+        (arg) => (arg as { queryKey: readonly unknown[] }).queryKey
+      );
+      const pathOpts = { path: { assistant_id: "asst-1" } };
+      expect(queryKeys).toEqual(
+        expect.arrayContaining([
+          pluginsGetQueryKey(pathOpts),
+          pluginsSearchGetQueryKey(pathOpts),
+        ]) as never
+      );
+    });
+  });
+
+  test("does not reconcile on fresh sse.opened", () => {
+    const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    publish("sse.opened", { assistantId: "asst-1", cause: "fresh" });
+    expect(spy).not.toHaveBeenCalled();
   });
 
   test("invalidates home-feed query on home_feed_updated", async () => {
