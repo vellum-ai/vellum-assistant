@@ -57,6 +57,7 @@ afterAll(() => {
     process.env.VELLUM_WORKSPACE_DIR = previousWorkspaceEnv;
   }
   rmSync(tmpWorkspace, { recursive: true, force: true });
+  resetMemoryPersistenceHooksForTests();
 });
 
 const { getMemoryDb } =
@@ -70,6 +71,14 @@ const { getMemoryCheckpoint, setMemoryCheckpoint, deleteMemoryCheckpoint } =
   await import("../../../../persistence/checkpoints.js");
 const { maybeEnqueueGraphMaintenanceJobs } =
   await import("../../../../persistence/jobs-worker.js");
+const { registerMemoryPersistenceHooks, resetMemoryPersistenceHooksForTests } =
+  await import("../../../../persistence/memory-lifecycle-hooks.js");
+const { memoryPersistenceHooks } = await import("../persistence-hooks.js");
+
+// The scheduler reads the memory buffer's line count through the persistence
+// seam; register the real memory implementation so `countMemoryBufferLines`
+// reflects the buffer files these tests write.
+registerMemoryPersistenceHooks(memoryPersistenceHooks);
 
 const CONSOLIDATE_CHECKPOINT_KEY = "memory_v2_consolidate_last_run";
 

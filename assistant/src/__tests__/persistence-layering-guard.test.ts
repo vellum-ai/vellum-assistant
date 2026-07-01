@@ -37,22 +37,16 @@ const MEMORY_DIR = join(ASSISTANT_SRC, "plugins", "defaults", "memory");
  * TECH DEBT — residual `persistence/` → `memory/` feature back-imports.
  *
  * A genuine coupling to the memory *feature* that violates the one-way
- * memory → persistence direction, pinned here so the guard fails the moment a
- * NEW back-import is introduced.
- *
- * The lone remaining entry is the in-worker memory consolidation /
- * graph-maintenance SCHEDULER (`jobs-worker.ts` → `v2/consolidation-job` for
- * `countBufferLines`). Inverting it means memory deciding what to enqueue on
- * each worker tick — that is roadmap bullet #4 (memory-jobs → schedule-jobs),
- * deferred until the Schedules worker + `/workspace/schedules` API land.
- * Decouple it then; do not add to this list without a decoupling plan.
+ * memory → persistence direction would be pinned here so the guard fails the
+ * moment a NEW back-import is introduced. It is currently EMPTY: persistence
+ * reaches the memory feature only through the `memory-lifecycle-hooks` seam
+ * (persistence calls registered handlers; memory never gets imported), never by
+ * importing memory internals. Do not add an entry without a decoupling plan.
  *
  * Keyed by the importing persistence file (relative to repo root); the value
  * is the set of allowed `memory/<specifier>` module paths it may import.
  */
-const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
-  "assistant/src/persistence/jobs-worker.ts": new Set(["v2/consolidation-job"]),
-};
+const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {};
 
 /**
  * PERMANENT exception — the migration registry, NOT tech debt.

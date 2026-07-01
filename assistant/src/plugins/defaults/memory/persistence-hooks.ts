@@ -1,9 +1,12 @@
+import { join } from "node:path";
+
 import { getConfig } from "../../../config/loader.js";
 import type {
   ConversationForkedEvent,
   MemoryPersistenceHooks,
   MessagePersistedEvent,
 } from "../../../persistence/memory-lifecycle-hooks.js";
+import { getWorkspaceDir } from "../../../util/platform.js";
 import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
 import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
@@ -13,6 +16,7 @@ import {
   forkActivationState,
   seedForkActivationState,
 } from "./v2/activation-store.js";
+import { countBufferLines } from "./v2/consolidation-job.js";
 import {
   extractInjectedConceptSlugs,
   readInjectedBlock,
@@ -115,5 +119,9 @@ export const memoryPersistenceHooks: MemoryPersistenceHooks = {
 
   onWorkerStartup(): void {
     sweepOrphanMemoryRetrospectiveConversations();
+  },
+
+  countMemoryBufferLines(): number {
+    return countBufferLines(join(getWorkspaceDir(), "memory", "buffer.md"));
   },
 };

@@ -2,7 +2,8 @@ import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import type { DrizzleDb } from "./db-connection.js";
 
 /**
- * Seam for the memory feature to react to persistence-layer lifecycle events.
+ * Seam for the memory feature to react to persistence-layer lifecycle events
+ * and to answer memory-domain queries the persistence layer needs.
  *
  * Persistence is a layer below the memory plugin, so it cannot import memory
  * internals directly. Instead it calls into this registered-handler seam: the
@@ -89,6 +90,15 @@ export interface MemoryPersistenceHooks {
    * wraps it in try/catch. Cleanup — runs even while the plugin is disabled.
    */
   onWorkerStartup(): void;
+
+  /**
+   * Current line count of the memory buffer (`memory/buffer.md`). The
+   * maintenance scheduler reads it to gate scheduled consolidation — skip a
+   * scheduled run below a floor, force one above a ceiling. Returns 0 when
+   * memory is not present, which the scheduler reads as "no buffered work" and
+   * therefore no consolidation.
+   */
+  countMemoryBufferLines(): number;
 }
 
 const NOOP: MemoryPersistenceHooks = {
@@ -98,6 +108,9 @@ const NOOP: MemoryPersistenceHooks = {
     return 0;
   },
   onWorkerStartup() {},
+  countMemoryBufferLines() {
+    return 0;
+  },
 };
 
 let current: MemoryPersistenceHooks = NOOP;
