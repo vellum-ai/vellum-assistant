@@ -27,6 +27,7 @@ import {
     pluginRiskyUpgradeConfirmMessage,
 } from "@/domains/intelligence/plugins/constants";
 import { invalidatePluginQueries } from "@/domains/intelligence/plugins/invalidate-plugin-queries";
+import { usePluginToggle } from "@/domains/intelligence/plugins/use-plugin-toggle";
 import type {
     InstalledPlugin,
     PluginCatalogMatch,
@@ -119,12 +120,17 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
     isFetching,
     catalogError,
     categorySupported,
+    pluginToggleSupported,
     installedCategoryCounts,
     installedPlugins,
     installedTotal,
     catalogMatches,
     unfilteredInstalledNames,
   } = usePluginsList(assistantId, effectiveCategory);
+
+  // Optimistic enable/disable. Wired into installed rows only when the daemon
+  // supports it (see `pluginToggleSupported`).
+  const { toggle, togglingName } = usePluginToggle(assistantId);
 
   const { counts, totalCount } = useMergedPluginCounts(
     installedCategoryCounts,
@@ -322,8 +328,14 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
                   onSelect={() => handleSelect(item)}
                   onRemove={() => setPendingRemoval(item)}
                   onUpgrade={(drift) => handleUpgrade(item, drift)}
+                  onToggle={
+                    pluginToggleSupported
+                      ? (next) => toggle(item.name, next)
+                      : undefined
+                  }
                   isRemoving={removingName === item.name}
                   isUpgrading={upgradingName === item.name}
+                  isToggling={togglingName === item.name}
                 />
               ) : (
                 <PluginListRow
@@ -477,8 +489,11 @@ interface InstalledPluginRowProps {
   onSelect: () => void;
   onRemove: () => void;
   onUpgrade: (drift: PluginDrift | undefined) => void;
+  /** `undefined` when the daemon doesn't support toggling (no switch). */
+  onToggle: ((nextEnabled: boolean) => void) | undefined;
   isRemoving: boolean;
   isUpgrading: boolean;
+  isToggling: boolean;
 }
 
 /**
@@ -493,8 +508,10 @@ function InstalledPluginRow({
   onSelect,
   onRemove,
   onUpgrade,
+  onToggle,
   isRemoving,
   isUpgrading,
+  isToggling,
 }: InstalledPluginRowProps) {
   const driftQuery = usePluginDrift({ assistantId, name: item.name });
   const drift = driftQuery.data;
@@ -506,8 +523,10 @@ function InstalledPluginRow({
       onSelect={onSelect}
       onRemove={onRemove}
       onUpgrade={() => onUpgrade(drift)}
+      onToggle={onToggle}
       isRemoving={isRemoving}
       isUpgrading={isUpgrading}
+      isToggling={isToggling}
     />
   );
 }
