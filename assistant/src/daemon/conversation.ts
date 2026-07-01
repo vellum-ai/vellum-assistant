@@ -56,6 +56,7 @@ import {
   setConversationProcessingStartedAt,
 } from "../persistence/conversation-crud.js";
 import { getResolvedConversationDirPath } from "../persistence/conversation-directories.js";
+import { reportSlowSync } from "../persistence/slow-sync-log.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import {
   createContextWindowManager,
@@ -913,6 +914,7 @@ export class Conversation {
   // ── Lifecycle ────────────────────────────────────────────────────
 
   async loadFromDb(): Promise<void> {
+    const loadStartedAt = performance.now();
     const trustClass = this.trustContext?.trustClass;
     const canAccessMemory = resolveCapabilities(trustClass).canAccessMemory;
     const allDbMessages = getMessages(this.conversationId);
@@ -1246,10 +1248,22 @@ export class Conversation {
     this.loadedHistoryTrustClass = trustClass;
     this.loadedHistoryPersonalMemoryAllowed = personalMemoryAllowed;
 
+    const loadElapsedMs = performance.now() - loadStartedAt;
     log.info(
-      { conversationId: this.conversationId, count: this.messages.length },
+      {
+        conversationId: this.conversationId,
+        count: this.messages.length,
+        elapsedMs: loadElapsedMs,
+      },
       "Loaded messages from DB",
     );
+    // Whole read+parse+repair section — attributes an event-loop freeze to
+    // this conversation load (getMessages times the read alone; the delta is
+    // parse/repair CPU). See slow-sync-log / event-loop-watchdog.
+    reportSlowSync("conversation:load-from-db", loadElapsedMs, {
+      conversationId: this.conversationId,
+      messageCount: this.messages.length,
+    });
 
     this.restoreSurfaceStateFromHistory();
     this.graphMemory.restoreState();
