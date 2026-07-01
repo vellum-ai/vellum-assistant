@@ -144,6 +144,21 @@ describe("PluginListRow", () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
+  test("Remove is disabled while an upgrade is in flight (no concurrent delete)", () => {
+    render(
+      <PluginListRow
+        item={makeItem({ status: "installed" })}
+        drift={makeDrift("update-available")}
+        onSelect={() => {}}
+        onRemove={() => {}}
+        onUpgrade={() => {}}
+        isUpgrading
+      />,
+    );
+
+    expect(getButton("Remove plugin").disabled).toBe(true);
+  });
+
   test("does not render an origin badge (origin is unknowable from the list)", () => {
     const onSelect = mock(() => {});
 

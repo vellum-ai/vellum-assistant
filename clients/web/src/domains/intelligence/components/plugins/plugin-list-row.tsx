@@ -180,7 +180,7 @@ export function PluginListRow({
                 e.stopPropagation();
                 onRemove?.();
               }}
-              disabled={isRemoving || !onRemove}
+              disabled={isRemoving || isUpgrading || !onRemove}
               aria-label="Remove plugin"
               expandOnMobile={false}
             />
