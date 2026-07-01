@@ -398,6 +398,68 @@ describe("resolveTrustVerdict", () => {
     expect(verdict.status).toBe("blocked");
   });
 
+  test("guardian identity with a NULL principal is unresolved → resolutionFailed, not guardian", async () => {
+    // Pre-cutover artifact: an active guardian row whose contact has no
+    // principal. Classifying `guardian` would confer self-approving
+    // capabilities with nothing to authorize decisions against; classifying
+    // plain `unknown` would route the guardian through the stranger lane.
+    // The verdict is could-not-vouch instead: the consumer soft-denies with
+    // no stranger-lane side effects.
+    insertContact({
+      id: "c-guardian",
+      displayName: "Principal-less Guardian",
+      role: "guardian",
+      // principalId intentionally absent (NULL).
+    });
+    insertChannel({
+      id: "ch-guardian-vellum",
+      contactId: "c-guardian",
+      type: "vellum",
+      address: "GUARDIAN_ID",
+      status: "active",
+    });
+
+    const verdict = await resolveTrustVerdict({
+      channelType: CHANNEL,
+      actorExternalId: "GUARDIAN_ID",
+    });
+
+    expect(verdict.trustClass).toBe("unknown");
+    expect(verdict.resolutionFailed).toBe(true);
+    expect(verdict.guardianPrincipalId).toBeUndefined();
+  });
+
+  test("guardian identity via a pending member row with a NULL principal is also unresolved", async () => {
+    insertContact({
+      id: "c-guardian",
+      displayName: "Principal-less Guardian",
+      role: "guardian",
+    });
+    insertChannel({
+      id: "ch-guardian-vellum",
+      contactId: "c-guardian",
+      type: "vellum",
+      address: "GUARDIAN_ANCHOR",
+      status: "active",
+    });
+    insertChannel({
+      id: "ch-guardian-telegram",
+      contactId: "c-guardian",
+      address: "U_GUARDIAN_TG",
+      status: "pending",
+      verifiedAt: null,
+      verifiedVia: null,
+    });
+
+    const verdict = await resolveTrustVerdict({
+      channelType: CHANNEL,
+      actorExternalId: "U_GUARDIAN_TG",
+    });
+
+    expect(verdict.trustClass).toBe("unknown");
+    expect(verdict.resolutionFailed).toBe(true);
+  });
+
   test("guardian whose only channel is revoked does not re-acquire guardian via the principal check", async () => {
     insertContact({
       id: "c-old-guardian",

@@ -38,9 +38,11 @@ export interface ResolveTrustVerdictInput {
  * a sender whose identity maps to the guardian contact (via this channel's
  * member row, or via an active guardian channel on any channel type) is
  * classified `guardian` even without a same-channel guardian binding. A
- * blocked/revoked same-channel row always wins (stays `unknown`), and a
- * guardian contact with no active channel anywhere never re-acquires the
- * class.
+ * blocked/revoked same-channel row always wins (stays `unknown`), a guardian
+ * contact with no active channel anywhere never re-acquires the class, and a
+ * matched guardian identity whose contact has NO principal is unresolved —
+ * it yields a `resolutionFailed` verdict (consumer soft-denies, no
+ * stranger-lane side effects) rather than `guardian` or `unknown`.
  */
 export async function resolveTrustVerdict(
   input: ResolveTrustVerdictInput,
@@ -141,7 +143,7 @@ export async function resolveTrustVerdict(
       : null
     : sql`${gwContactChannels.address} = ${canonicalSenderId} COLLATE NOCASE`;
 
-  const guardianByPrincipal =
+  const guardianIdentityMatch =
     !isGuardian &&
     canonicalSenderId &&
     !memberDeniedByStatus &&
@@ -163,6 +165,18 @@ export async function resolveTrustVerdict(
           .limit(1)
           .get() ?? null)
       : null;
+
+  // Guardian-by-principal requires a principal: without one there is nothing
+  // to authorize decisions against, and `guardian` class alone confers
+  // self-approving capabilities. A sender who maps to a guardian contact
+  // whose principal is NULL (pre-cutover row) is UNRESOLVED — fail safe, not
+  // fail-stranger: surface a could-not-vouch verdict so the consumer
+  // soft-denies with no stranger-lane side effects. The durable fix is the
+  // principal backfill / vellum re-link, not classification.
+  if (guardianIdentityMatch && !guardianIdentityMatch.principalId) {
+    return { trustClass: "unknown", canonicalSenderId, resolutionFailed: true };
+  }
+  const guardianByPrincipal = guardianIdentityMatch;
 
   let trustClass: TrustClass;
   if (isGuardian || guardianByPrincipal) {
