@@ -33,6 +33,24 @@ export const trustClassSchema = z.enum([
 export type TrustClass = z.infer<typeof trustClassSchema>;
 
 /**
+ * Whether a trust class names a known non-guardian contact — the
+ * `trusted_contact` / `unverified_contact` pair whose admission-only
+ * equivalence is documented on {@link trustClassSchema}.
+ *
+ * Accepts a raw string (not just `TrustClass`) because several call sites
+ * classify trust classes read back from persisted turn metadata, which may
+ * carry legacy or foreign values; anything outside the pair — including
+ * `undefined` — is not a contact.
+ */
+export function isContactTrustClass(
+  trustClass: string | undefined,
+): trustClass is "trusted_contact" | "unverified_contact" {
+  return (
+    trustClass === "trusted_contact" || trustClass === "unverified_contact"
+  );
+}
+
+/**
  * Persona-facing view of a trust class, precomputed as booleans because the
  * system-prompt mustache renderer only does truthy section gating, not string
  * comparison. Exactly one flag is true per class; `trustClass` is the resolved
@@ -47,8 +65,8 @@ export interface PersonaTrustFlags {
 
 /**
  * Derive the persona/prompt-gating flags for an actor's trust class — the one
- * home for how persona sections (notably `users/default.md`, which carries the
- * non-guardian privacy guardrail) classify who is being spoken to.
+ * home for how persona/prompt surfaces (notably `users/default.md`, the
+ * persona rendered for non-guardian actors) classify who is being spoken to.
  *
  * - An absent class (unresolved actor) derives as `stranger`. This is
  *   deliberately NOT `resolveTrustClass()`: that helper fail-safes an

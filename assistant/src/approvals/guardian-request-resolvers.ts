@@ -17,7 +17,10 @@ import {
   getCanonicalGuardianRequest,
 } from "../contacts/canonical-guardian-store.js";
 import { findContactChannel } from "../contacts/contact-store.js";
-import { activateMemberChannel } from "../contacts/member-write-relay.js";
+import {
+  activateMemberChannel,
+  seedUnverifiedMemberChannel,
+} from "../contacts/member-write-relay.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import {
@@ -498,6 +501,23 @@ const accessRequestResolver: GuardianRequestResolver = {
         { event: "resolver_access_request_denied", requestId: request.id },
         "Access request resolver: deny",
       );
+
+      // Persist the denied sender as an unverified_contact (gateway-first).
+      // Denial is a terminal decision: the sender becomes a known, unverified
+      // contact so future inbound resolves as unverified_contact rather than
+      // re-triggering discovery. Paired with the denied-request suppression in
+      // notifyGuardianOfAccessRequest, this stops the prompt from re-firing on
+      // every subsequent DM. The guardian can still verify them later. Skipped
+      // for desktop-origin (vellum) requests, which carry no channel identity.
+      if (requesterExternalUserId && channel !== "vellum") {
+        await seedUnverifiedMemberChannel({
+          sourceChannel: channel,
+          externalUserId: requesterExternalUserId,
+          ...(requesterDisplayName
+            ? { displayName: requesterDisplayName }
+            : {}),
+        });
+      }
 
       // Deliver denial notification and lifecycle signals when channel context is available
       if (channelDeliveryContext) {

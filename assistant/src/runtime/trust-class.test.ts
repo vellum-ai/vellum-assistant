@@ -3,9 +3,37 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { resolveCapabilities } from "./capabilities.js";
 import {
   derivePersonaTrustFlags,
+  isContactTrustClass,
   type PersonaTrustFlags,
   trustClassSchema,
 } from "./trust-class.js";
+
+describe("isContactTrustClass", () => {
+  test("matches exactly the trusted/unverified contact pair", () => {
+    expect(isContactTrustClass("trusted_contact")).toBe(true);
+    expect(isContactTrustClass("unverified_contact")).toBe(true);
+    expect(isContactTrustClass("guardian")).toBe(false);
+    expect(isContactTrustClass("unknown")).toBe(false);
+  });
+
+  test("rejects undefined and legacy/foreign metadata strings", () => {
+    expect(isContactTrustClass(undefined)).toBe(false);
+    // Values that appear in persisted turn metadata from older builds.
+    expect(isContactTrustClass("non_guardian")).toBe(false);
+    expect(isContactTrustClass("non-guardian")).toBe(false);
+    expect(isContactTrustClass("")).toBe(false);
+  });
+
+  test("agrees with derivePersonaTrustFlags for every trust class", () => {
+    // The predicate and the persona flags encode the same grouping; pin them
+    // together so neither can drift without failing here.
+    for (const trustClass of trustClassSchema.options) {
+      expect(isContactTrustClass(trustClass)).toBe(
+        derivePersonaTrustFlags(trustClass).isTrustedContact,
+      );
+    }
+  });
+});
 
 describe("derivePersonaTrustFlags", () => {
   test("guardian derives the guardian flag only", () => {
