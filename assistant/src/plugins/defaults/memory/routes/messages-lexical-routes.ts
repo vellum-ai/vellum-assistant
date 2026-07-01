@@ -13,6 +13,7 @@
 
 import { z } from "zod";
 
+import { clearLexicalBackfillComplete } from "../../../../persistence/checkpoints.js";
 import {
   enqueueMemoryJob,
   type MemoryJobType,
@@ -44,6 +45,14 @@ async function handleBackfillLexicalIndex({
   body = {},
 }: RouteHandlerArgs): Promise<MessagesLexicalBackfillResult> {
   const { force } = MessagesLexicalBackfillParams.parse(body);
+  if (force === true) {
+    // Clear the completion sentinel at enqueue time so `isLexicalBackfillComplete()`
+    // flips false immediately — the read paths fall back to SQLite FTS in the window
+    // between enqueue and the worker claiming the job, instead of serving from the
+    // stale/emptying `messages_lexical` collection the forced rebuild is about to
+    // reset. The handler clears it again when it runs (idempotent).
+    clearLexicalBackfillComplete();
+  }
   const payload: Record<string, unknown> =
     force === true ? { force: true } : {};
   const jobId = enqueueMemoryJob(BACKFILL_LEXICAL_INDEX_JOB, payload);

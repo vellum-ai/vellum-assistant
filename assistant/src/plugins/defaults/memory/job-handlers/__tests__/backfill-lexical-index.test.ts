@@ -101,8 +101,13 @@ import {
   memoryJobs,
   messages,
 } from "../../../../../persistence/schema/index.js";
+import type {
+  RouteDefinition,
+  RouteHandlerArgs,
+} from "../../../../../runtime/routes/types.js";
 import { getWorkspacePluginsDir } from "../../../../../util/platform.js";
 import memoryPkg from "../../package.json" with { type: "json" };
+import { ROUTES as MESSAGES_LEXICAL_ROUTES } from "../../routes/messages-lexical-routes.js";
 import {
   backfillLexicalIndexJob,
   maybeEnqueueLexicalBackfillOnUpgrade,
@@ -162,6 +167,22 @@ function pendingBackfillJobCount(): number {
     .from(memoryJobs)
     .all();
   return rows.length;
+}
+
+/**
+ * Invoke the `messages_lexical_backfill` route handler directly through its
+ * shared `ROUTES` entry (transport-agnostic), the same way the HTTP/IPC adapters
+ * call it. Returns the handler result (`{ jobId }`).
+ */
+async function callBackfillRoute(
+  body: Record<string, unknown>,
+): Promise<{ jobId: string }> {
+  const route = MESSAGES_LEXICAL_ROUTES.find(
+    (r: RouteDefinition) => r.operationId === "messages_lexical_backfill",
+  );
+  if (!route) throw new Error("messages_lexical_backfill route not found");
+  const args: RouteHandlerArgs = { body };
+  return (await route.handler(args)) as { jobId: string };
 }
 
 /**
@@ -454,6 +475,49 @@ describe("backfillLexicalIndexJob", () => {
       // while the prior job is still pending.
       maybeEnqueueLexicalBackfillOnUpgrade();
       expect(pendingBackfillJobCount()).toBe(1);
+    });
+  });
+
+  // The manual backfill route (`handleBackfillLexicalIndex`). Inherits the outer
+  // beforeEach, which resets the DB, clears the memory_jobs table and completion
+  // marker, and enables memory — so each test starts from a fresh instance.
+  describe("handleBackfillLexicalIndex route", () => {
+    test("force: true clears the completion marker synchronously at enqueue, before the job runs", async () => {
+      // Pretend a prior backfill already fully drained on this instance, so
+      // reads would be serving from the lexical index.
+      setMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY, "1");
+      expect(isLexicalBackfillComplete()).toBe(true);
+
+      const { jobId } = await callBackfillRoute({ force: true });
+      expect(jobId).toBeTruthy();
+
+      // The marker is cleared the instant the forced rebuild is enqueued —
+      // before the worker claims the job — so reads immediately fall back to
+      // FTS instead of serving from the stale/emptying lexical index.
+      expect(isLexicalBackfillComplete()).toBe(false);
+      // The job was enqueued with the force payload for the worker to process.
+      expect(pendingBackfillJobCount()).toBe(1);
+    });
+
+    test("non-force enqueue does NOT clear the completion marker", async () => {
+      // A completed instance stays on the lexical read path for a resume-style
+      // (non-force) enqueue — only a forced rebuild re-arms the FTS fallback.
+      setMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY, "1");
+      expect(isLexicalBackfillComplete()).toBe(true);
+
+      const { jobId } = await callBackfillRoute({});
+      expect(jobId).toBeTruthy();
+
+      expect(isLexicalBackfillComplete()).toBe(true);
+      expect(pendingBackfillJobCount()).toBe(1);
+    });
+
+    test("force: false is treated as non-force and leaves the marker set", async () => {
+      setMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY, "1");
+
+      await callBackfillRoute({ force: false });
+
+      expect(isLexicalBackfillComplete()).toBe(true);
     });
   });
 });

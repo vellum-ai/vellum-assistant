@@ -93,3 +93,18 @@ export const LEXICAL_BACKFILL_COMPLETE_KEY =
 export function isLexicalBackfillComplete(): boolean {
   return getMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY) === "1";
 }
+
+/**
+ * Clear the lexical-backfill completion sentinel so {@link
+ * isLexicalBackfillComplete} reads false until a run re-marks it.
+ *
+ * Called when a `force` re-index is requested — both at enqueue time (so reads
+ * fall back to SQLite FTS the instant the rebuild is queued, rather than serving
+ * from a stale/emptying `messages_lexical` collection in the window before the
+ * worker claims the job) and again inside the backfill handler (idempotent).
+ * Co-located with the key and its reader here so callers clear it without
+ * re-declaring the key string.
+ */
+export function clearLexicalBackfillComplete(): void {
+  deleteMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY);
+}

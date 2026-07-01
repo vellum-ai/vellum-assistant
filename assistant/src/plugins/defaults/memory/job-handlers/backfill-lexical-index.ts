@@ -2,7 +2,7 @@ import { and, asc, eq, gt, or } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../../../config/types.js";
 import {
-  deleteMemoryCheckpoint,
+  clearLexicalBackfillComplete,
   isLexicalBackfillComplete,
   LEXICAL_BACKFILL_COMPLETE_KEY,
   readMessageCursorCheckpoint,
@@ -124,7 +124,10 @@ export async function backfillLexicalIndexJob(
     );
     // Clearing the completion sentinel lets a forced re-run drain and re-mark
     // as complete, and re-arms the one-time startup auto-enqueue for this run.
-    deleteMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY);
+    // The route also clears this at enqueue time (so reads fall back to FTS
+    // before the worker claims the job); clearing again here is idempotent and
+    // keeps the forced-run semantics self-contained in the handler.
+    clearLexicalBackfillComplete();
   }
 
   const cursor = readMessageCursorCheckpoint(
