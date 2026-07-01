@@ -23,11 +23,16 @@ import { z } from "zod";
 import type { ChannelId, InterfaceId } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { CHANNEL_IDS, isChannelId } from "../channels/types.js";
+import { getConfig } from "../config/loader.js";
 import { findDisplayTurnEndIndex } from "../conversations/message-consolidation.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
+import {
+  clearMessagesLexicalIndex,
+  enqueueDeleteMessageLexical,
+} from "../plugins/defaults/memory/job-handlers/index-message-lexical.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { UserError } from "../util/errors.js";
@@ -2595,6 +2600,16 @@ export async function clearAll(): Promise<{
     );
   }
 
+  // Drop every point from the messages lexical (Qdrant) index. Bulk wipe with
+  // no conversation ids left to key per-conversation purge jobs on, so clear it
+  // inline. Best-effort — a Qdrant failure must not fail the whole clear-all,
+  // matching the other cleanup steps here.
+  try {
+    await clearMessagesLexicalIndex(getConfig());
+  } catch (err) {
+    log.warn({ err }, "clearAll: failed to clear messages lexical index");
+  }
+
   // Clear the disk-view conversations directory and recreate it empty
   try {
     rmSync(getConversationsDir(), { recursive: true, force: true });
@@ -2723,6 +2738,13 @@ export async function reserveMessage(
 /**
  * Update the content of an existing message. Used when consolidating
  * multiple assistant messages into one.
+ *
+ * This is a pure CRUD primitive: it does NOT enqueue a lexical reindex, because
+ * it is also driven by mid-stream partial flushes and high-frequency tool-timing
+ * stamps (`_startedAt`/`_previewStartedAt`) that either don't change searchable
+ * text or would spam reindex jobs. Callers on genuine content-change seams
+ * (streaming finalize, channel edits, consolidation) enqueue the reindex
+ * themselves via `enqueueLexicalIndexForMessage`.
  */
 export function updateMessageContent(
   messageId: string,
@@ -2899,6 +2921,14 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
   });
 
   deleteOrphanAttachments(candidateAttachmentIds);
+
+  // Remove the message's point from the lexical index. Enqueued only when the
+  // row actually existed (`msgRow` set), after the transaction, and off the
+  // main-DB write path. Covers single-message deletes (consolidation, undo)
+  // that do not go through the conversation-level purge.
+  if (msgRow) {
+    enqueueDeleteMessageLexical(messageId);
+  }
 
   return result;
 }

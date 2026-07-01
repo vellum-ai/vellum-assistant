@@ -37,11 +37,14 @@ import {
   loadRawConfig,
   saveRawConfig,
 } from "../config/loader.js";
+import { consolidateAssistantMessages } from "../daemon/conversation-history.js";
 import {
   addMessage,
   createConversation,
+  deleteMessageById,
   forkConversation,
   getMessages,
+  updateMessageContent,
   wipeConversation,
 } from "../persistence/conversation-crud.js";
 import { getMemoryDb } from "../persistence/db-connection.js";
@@ -169,5 +172,75 @@ describe("messages lexical-index dual-write", () => {
     wipeConversation(conv.id);
 
     expect(countJobs("purge_conversation_lexical", conv.id)).toBe(1);
+  });
+
+  test("deleteMessageById enqueues a delete_message_lexical job for the removed message", async () => {
+    const conv = createConversation("Single delete thread");
+    const message = await addMessage(conv.id, "user", "delete just me");
+
+    resetMemoryJobs();
+    deleteMessageById(message.id);
+
+    const ids = getMemoryDb()!
+      .select({ payload: memoryJobs.payload })
+      .from(memoryJobs)
+      .where(eq(memoryJobs.type, "delete_message_lexical"))
+      .all()
+      .map((r) => (JSON.parse(r.payload) as { messageId?: string }).messageId);
+    expect(ids).toEqual([message.id]);
+  });
+
+  test("deleteMessageById for a nonexistent message enqueues nothing", () => {
+    resetMemoryJobs();
+    deleteMessageById("does-not-exist");
+    expect(countJobs("delete_message_lexical")).toBe(0);
+  });
+
+  test("updateMessageContent (CRUD primitive) does not enqueue a reindex on its own", async () => {
+    // The reindex is owned by the semantic seams (streaming finalize, edits,
+    // consolidation), NOT the low-level primitive — this keeps mid-stream
+    // partial flushes and tool-timing stamps from spamming reindex jobs.
+    const conv = createConversation("Raw update thread");
+    const message = await addMessage(conv.id, "user", "original text");
+
+    resetMemoryJobs();
+    updateMessageContent(
+      message.id,
+      JSON.stringify([{ type: "text", text: "edited text" }]),
+    );
+
+    expect(countJobs("index_message_lexical")).toBe(0);
+  });
+
+  test("consolidation reindexes the retained message and purges the merged-away rows", async () => {
+    const conv = createConversation("Consolidation thread");
+    const userMsg = await addMessage(conv.id, "user", "do a multi-step task");
+    const retained = await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: "first assistant segment" }]),
+    );
+    const mergedAway = await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: "second assistant segment" }]),
+    );
+
+    resetMemoryJobs();
+    const didConsolidate = consolidateAssistantMessages(conv.id, userMsg.id);
+    expect(didConsolidate).toBe(true);
+
+    // The retained (first) assistant row is reindexed with the merged content.
+    expect(lexicalJobMessageIds()).toContain(retained.id);
+    // The merged-away row's point is removed via delete_message_lexical.
+    const deletedIds = getMemoryDb()!
+      .select({ payload: memoryJobs.payload })
+      .from(memoryJobs)
+      .where(eq(memoryJobs.type, "delete_message_lexical"))
+      .all()
+      .map((r) => (JSON.parse(r.payload) as { messageId?: string }).messageId);
+    expect(deletedIds).toContain(mergedAway.id);
+    // The retained row is not itself scheduled for deletion.
+    expect(deletedIds).not.toContain(retained.id);
   });
 });

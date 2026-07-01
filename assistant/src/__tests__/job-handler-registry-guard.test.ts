@@ -45,6 +45,7 @@ const MEMORY_JOB_TYPES = [
   "memory_retrospective",
   "index_message_lexical",
   "purge_conversation_lexical",
+  "delete_message_lexical",
 ].sort();
 
 /**

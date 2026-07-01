@@ -39,6 +39,7 @@ import {
   rebuildIndexJob,
 } from "./job-handlers/index-maintenance.js";
 import {
+  deleteMessageLexicalJob,
   indexMessageLexicalJob,
   purgeConversationLexicalJob,
 } from "./job-handlers/index-message-lexical.js";
@@ -211,5 +212,9 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
   {
     type: "purge_conversation_lexical",
     handler: (job, config) => purgeConversationLexicalJob(job, config),
+  },
+  {
+    type: "delete_message_lexical",
+    handler: (job, config) => deleteMessageLexicalJob(job, config),
   },
 ];

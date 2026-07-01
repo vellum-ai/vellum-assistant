@@ -110,6 +110,17 @@ export async function purgeConversationLexicalJob(
   await withQdrantBreaker(() => index.deleteByConversation(conversationId));
 }
 
+export async function deleteMessageLexicalJob(
+  job: MemoryJob,
+  config: AssistantConfig,
+): Promise<void> {
+  const messageId = asString(job.payload.messageId);
+  if (!messageId) return;
+
+  const index = resolveLexicalIndex(config);
+  await withQdrantBreaker(() => index.deleteByMessageId(messageId));
+}
+
 /**
  * Enqueue an `index_message_lexical` job for a single message so its content is
  * (re)indexed into the lexical (Qdrant) index off the SQLite write path. Called
@@ -171,5 +182,42 @@ export function enqueuePurgeConversationLexical(conversationId: string): void {
       { err, conversationId },
       "Failed to enqueue lexical purge job for conversation (non-fatal)",
     );
+  }
+}
+
+/**
+ * Enqueue a `delete_message_lexical` job so a deleted message's point is removed
+ * from the lexical index. Used by single-message delete paths (assistant-message
+ * consolidation, undo) that remove a row without wiping the whole conversation.
+ * Like the purge, NOT gated on {@link isMemoryEnabled} (cleanup path) and
+ * best-effort so message deletion never fails on a memory hiccup.
+ */
+export function enqueueDeleteMessageLexical(messageId: string): void {
+  if (!messageId) return;
+  try {
+    enqueueMemoryJob("delete_message_lexical", { messageId });
+  } catch (err) {
+    log.warn(
+      { err, messageId },
+      "Failed to enqueue lexical delete job for message (non-fatal)",
+    );
+  }
+}
+
+/**
+ * Drop every point from the messages lexical index. Called inline (not via a
+ * job) by "clear all conversations": that path deletes all rows and the
+ * `memory_jobs` table itself, so there is nothing left to key a per-conversation
+ * purge job on. Best-effort — a Qdrant failure is swallowed, matching the other
+ * `clearAll` cleanup steps that tolerate failures.
+ */
+export async function clearMessagesLexicalIndex(
+  config: AssistantConfig,
+): Promise<void> {
+  try {
+    const index = resolveLexicalIndex(config);
+    await withQdrantBreaker(() => index.clear());
+  } catch (err) {
+    log.warn({ err }, "Failed to clear messages lexical index (non-fatal)");
   }
 }

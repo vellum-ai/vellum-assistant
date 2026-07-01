@@ -34,6 +34,7 @@ let createCollectionCalls: CreateCollectionCall[];
 let upsertCalls: UpsertCall[];
 let queryCalls: QueryCall[];
 let deleteCalls: DeleteCall[];
+let deleteCollectionCalls: string[];
 let payloadIndexCalls: Array<Record<string, unknown>>;
 let mockQueryPoints: Array<{
   id: string | number;
@@ -47,6 +48,7 @@ function resetMockState() {
   upsertCalls = [];
   queryCalls = [];
   deleteCalls = [];
+  deleteCollectionCalls = [];
   payloadIndexCalls = [];
   mockQueryPoints = [];
 }
@@ -80,6 +82,11 @@ mock.module("@qdrant/js-client-rest", () => ({
 
     async delete(name: string, opts: DeleteCall["opts"]) {
       deleteCalls.push({ name, opts });
+    }
+
+    async deleteCollection(name: string) {
+      deleteCollectionCalls.push(name);
+      mockCollectionExists = false;
     }
 
     async count(_name: string, _opts: unknown) {
@@ -275,6 +282,26 @@ describe("MessagesLexicalIndex", () => {
   test("count returns the collection count", async () => {
     const index = makeIndex();
     expect(await index.count()).toBe(7);
+  });
+
+  test("clear drops the whole collection when it exists", async () => {
+    mockCollectionExists = true;
+    const index = makeIndex();
+
+    const dropped = await index.clear();
+
+    expect(dropped).toBe(true);
+    expect(deleteCollectionCalls).toEqual(["messages_lexical"]);
+  });
+
+  test("clear returns false (no throw) when the collection is absent", async () => {
+    mockCollectionExists = false;
+    const index = makeIndex();
+
+    const dropped = await index.clear();
+
+    expect(dropped).toBe(false);
+    expect(deleteCollectionCalls).toEqual([]);
   });
 
   test("no dense vector is ever written or queried across operations", async () => {
