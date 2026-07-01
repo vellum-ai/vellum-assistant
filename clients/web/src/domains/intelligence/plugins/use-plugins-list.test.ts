@@ -70,13 +70,16 @@ const { usePluginsList } = await import(
 );
 
 function installed(overrides: Partial<InstalledPlugin> = {}): InstalledPlugin {
+  // `enabled` is omitted by default to model an older daemon that predates the
+  // enable/disable surface; tests opt in via `installed({ enabled })`. The cast
+  // is needed because the generated element type marks `enabled` as required.
   return {
     id: "alpha",
     name: "alpha",
     description: null,
     version: null,
     ...overrides,
-  };
+  } as InstalledPlugin;
 }
 
 function match(overrides: Partial<CatalogMatch> = {}): CatalogMatch {
@@ -330,6 +333,65 @@ describe("usePluginsList", () => {
 
     await waitFor(() =>
       expect(result.current.categorySupported).toBe(false),
+    );
+  });
+
+  test("exposes enabled on installed items and latches pluginToggleSupported", async () => {
+    installedResult = installedOk([
+      installed({ id: "alpha", name: "alpha", enabled: true }),
+      installed({ id: "bravo", name: "bravo", enabled: false }),
+    ]);
+
+    const { result } = renderPluginsList();
+
+    await waitFor(() => expect(result.current.items).toHaveLength(2));
+
+    // Installed rows carry the daemon's enablement (alphabetical: alpha, bravo).
+    expect(result.current.items.map((p) => p.enabled)).toEqual([true, false]);
+    expect(result.current.pluginToggleSupported).toBe(true);
+  });
+
+  test("pluginToggleSupported stays false when the daemon omits enabled", async () => {
+    // Older daemon: installed items carry no `enabled` field.
+    installedResult = installedOk([installed({ id: "alpha", name: "alpha" })]);
+
+    const { result } = renderPluginsList();
+
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+    expect(result.current.items[0]?.enabled).toBeUndefined();
+    expect(result.current.pluginToggleSupported).toBe(false);
+  });
+
+  test("pluginToggleSupported resets when the active assistant changes", async () => {
+    // Assistant A's daemon reports enablement, so support latches true.
+    installedResult = installedOk([
+      installed({ id: "alpha", name: "alpha", enabled: true }),
+    ]);
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    function wrapper({ children }: { children: ReactNode }) {
+      return createElement(QueryClientProvider, { client }, children);
+    }
+    const { result, rerender } = renderHook(
+      ({ assistantId }: { assistantId: string }) =>
+        usePluginsList(assistantId, null),
+      { wrapper, initialProps: { assistantId: "asst-a" } },
+    );
+
+    await waitFor(() =>
+      expect(result.current.pluginToggleSupported).toBe(true),
+    );
+
+    // Switching to an assistant whose daemon omits `enabled` must drop the
+    // sticky latch — otherwise the toggle would render for an assistant whose
+    // daemon has no enable/disable surface.
+    installedResult = installedOk([installed({ id: "beta", name: "beta" })]);
+    rerender({ assistantId: "asst-b" });
+
+    await waitFor(() =>
+      expect(result.current.pluginToggleSupported).toBe(false),
     );
   });
 

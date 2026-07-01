@@ -53,6 +53,12 @@ export interface UsePluginsListResult {
    */
   categorySupported: boolean;
   /**
+   * True once any installed item carries `enabled` — the daemon understands
+   * the plugin enable/disable surface. Older daemons omit it; the toggle gates
+   * on this (version-skew safeguard). Sticky, reset per assistant.
+   */
+  pluginToggleSupported: boolean;
+  /**
    * Unfiltered installed category counts from the server (before the category
    * filter is applied). Undefined on daemons without taxonomy support.
    */
@@ -209,6 +215,25 @@ export function usePluginsList(
   }, [categoryCountsObserved]);
   const categorySupported = categorySupportedLatched || categoryCountsObserved;
 
+  // Latch plugin enable/disable support the same way: it's observed once any
+  // installed item carries `enabled` (a stable per-assistant daemon capability),
+  // and stays sticky across a category switch while the unfiltered source is
+  // momentarily pending. Reset on assistant change so a prior assistant's `true`
+  // can't gate the toggle for a next assistant whose daemon omits `enabled`.
+  const pluginToggleObserved = (
+    unfilteredInstalledData?.plugins ?? EMPTY_INSTALLED
+  ).some((p) => p.enabled !== undefined);
+  const [pluginToggleSupportedLatched, setPluginToggleSupportedLatched] =
+    useState(false);
+  useEffect(() => {
+    setPluginToggleSupportedLatched(false);
+  }, [assistantId]);
+  useEffect(() => {
+    if (pluginToggleObserved) setPluginToggleSupportedLatched(true);
+  }, [pluginToggleObserved]);
+  const pluginToggleSupported =
+    pluginToggleSupportedLatched || pluginToggleObserved;
+
   // Self-heal timeout-degraded category counts. A cold catalog can make the
   // daemon's bounded category lookup time out, so the installed read buckets
   // every plugin under `system` and the client caches those counts as fresh. The
@@ -267,6 +292,7 @@ export function usePluginsList(
     isFetching: installedQuery.isFetching || catalogQuery.isFetching,
     catalogError: catalogQuery.isError,
     categorySupported,
+    pluginToggleSupported,
     installedCategoryCounts: unfilteredInstalledData?.categoryCounts,
     installedPlugins: unfilteredInstalledData?.plugins ?? EMPTY_INSTALLED,
     installedTotal: unfilteredInstalledData?.totalCount,

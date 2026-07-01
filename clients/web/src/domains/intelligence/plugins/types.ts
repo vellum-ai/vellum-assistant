@@ -25,6 +25,12 @@ export interface PluginListItem {
   version?: string;
   path?: string;
   issues?: string[];
+  /**
+   * Whether the plugin is active in this workspace. Installed rows only —
+   * catalog/available rows carry no enablement. `undefined` on daemons that
+   * predate the enable/disable surface (version-skew safeguard).
+   */
+  enabled?: boolean;
 }
 
 /** Generated element type for an installed plugin (`pluginsGet`). */
@@ -49,6 +55,7 @@ interface InstalledPluginSource {
   version: string | null;
   path?: string;
   issues?: string[];
+  enabled?: boolean;
 }
 
 interface CatalogPluginSource {
