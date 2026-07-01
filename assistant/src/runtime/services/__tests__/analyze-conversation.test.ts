@@ -29,7 +29,18 @@ const mockGetMessages = mock(
 const mockCreateConversation = mock((_opts?: Record<string, unknown>) => ({
   id: "analysis-new",
 }));
-const mockAddMessage = mock(async () => ({ id: "msg-1" }));
+// Echo back the caller-supplied row id (the request id, under the
+// requestId-as-row-id invariant) so tests can assert the persisted message
+// row id matches the turn's request id. Falls back to "msg-1" when no id is
+// passed.
+const mockAddMessage = mock(
+  async (
+    _conversationId: string,
+    _role: string,
+    _content: string,
+    opts?: { id?: string },
+  ) => ({ id: opts?.id ?? "msg-1" }),
+);
 const mockFindAnalysisConversationFor = mock(
   (_parent: string) => null as { id: string } | null,
 );
@@ -106,7 +117,14 @@ beforeEach(() => {
   mockCreateConversation.mockReset();
   mockCreateConversation.mockImplementation(() => ({ id: "analysis-new" }));
   mockAddMessage.mockReset();
-  mockAddMessage.mockImplementation(async () => ({ id: "msg-1" }));
+  mockAddMessage.mockImplementation(
+    async (
+      _conversationId: string,
+      _role: string,
+      _content: string,
+      opts?: { id?: string },
+    ) => ({ id: opts?.id ?? "msg-1" }),
+  );
   mockFindAnalysisConversationFor.mockReset();
   mockFindAnalysisConversationFor.mockImplementation(() => null);
   mockGetConversationSource.mockReset();
@@ -168,12 +186,13 @@ describe("analyzeConversation", () => {
     if ("error" in result) throw new Error("expected success");
     expect(result.analysisConversationId).toBe("analysis-new");
 
-    // Persists the prompt as a user message with unknown trust.
+    // Persists the prompt as a user message with unknown trust, under a
+    // caller-minted row id (the turn's request id).
     expect(mockAddMessage).toHaveBeenCalledWith(
       "analysis-new",
       "user",
       expect.any(String),
-      { metadata: { provenanceTrustClass: "unknown" } },
+      { id: expect.any(String), metadata: { provenanceTrustClass: "unknown" } },
     );
 
     // Sets trust context to unknown.
@@ -193,11 +212,23 @@ describe("analyzeConversation", () => {
     expect(allowedTools).toBeInstanceOf(Set);
     expect(allowedTools?.size).toBe(0);
 
+    // requestId === userMessageId invariant: the id the prompt row was
+    // persisted under, the turn's currentRequestId, and the userMessageId
+    // handed to the agent loop are all the same value.
+    const persistedId = (
+      mockAddMessage.mock.calls as unknown as Array<
+        [string, string, string, { id?: string } | undefined]
+      >
+    )[0]?.[3]?.id;
+    expect(typeof persistedId).toBe("string");
+    expect(currentConversation.currentRequestId).toBe(persistedId);
+
     // Fires the agent loop with the analyzeConversation call-site so the
-    // per-call provider config flows through `resolveCallSiteConfig`.
+    // per-call provider config flows through `resolveCallSiteConfig`, keying
+    // the loop off the same id as userMessageId.
     expect(currentConversation.runAgentLoop).toHaveBeenCalledWith(
       expect.any(String),
-      "msg-1",
+      persistedId,
       expect.objectContaining({
         isInteractive: false,
         isUserMessage: true,
@@ -287,12 +318,16 @@ describe("analyzeConversation", () => {
     // No new conversation row is created on reuse.
     expect(mockCreateConversation).not.toHaveBeenCalled();
 
-    // The new user message is appended to the existing analysis conversation.
+    // The new user message is appended to the existing analysis conversation,
+    // persisted under the turn's request id.
     expect(mockAddMessage).toHaveBeenCalledWith(
       "analysis-existing",
       "user",
       expect.any(String),
-      { metadata: { provenanceTrustClass: "guardian" } },
+      {
+        id: expect.any(String),
+        metadata: { provenanceTrustClass: "guardian" },
+      },
     );
   });
 
@@ -406,9 +441,19 @@ describe("analyzeConversation", () => {
   test("auto: routes the agent loop through callSite: 'analyzeConversation'", async () => {
     await analyzeConversation("conv-1", { trigger: "auto" });
 
+    // Same requestId === userMessageId invariant on the auto path: the row
+    // id the prompt was persisted under, currentRequestId, and the loop's
+    // userMessageId are the same value.
+    const persistedId = (
+      mockAddMessage.mock.calls as unknown as Array<
+        [string, string, string, { id?: string } | undefined]
+      >
+    )[0]?.[3]?.id;
+    expect(typeof persistedId).toBe("string");
+    expect(currentConversation.currentRequestId).toBe(persistedId);
     expect(currentConversation.runAgentLoop).toHaveBeenCalledWith(
       expect.any(String),
-      "msg-1",
+      persistedId,
       expect.objectContaining({ callSite: "analyzeConversation" }),
     );
   });

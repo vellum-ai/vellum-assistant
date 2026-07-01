@@ -183,10 +183,13 @@ export interface UserPromptSubmitContext {
    * injected memory block so it survives a conversation reload) key off this
    * row id rather than the in-memory message arrays, whose entries carry no id.
    *
-   * @deprecated This field is identical to {@link requestId}. Use
-   *   `requestId` instead. The two values are now the same UUID — the
-   *   message row is persisted with the request's correlation ID — and
-   *   this field will be removed in a future API version.
+   * @deprecated This field is always identical to {@link requestId}; use
+   *   `requestId` instead. Every path that starts an agent loop persists the
+   *   triggering user message under the turn's request ID before running, so
+   *   the message row id and the request's correlation ID are the same UUID.
+   *   This holds for the standard submit, queue-drain, subagent, voice, wake,
+   *   and conversation-analysis paths alike. This field will be removed in a
+   *   future API version.
    */
   readonly userMessageId: string;
   /**
