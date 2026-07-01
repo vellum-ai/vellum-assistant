@@ -16,6 +16,7 @@ import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { searchMessageIdsLexical } from "./conversation-search-lexical.js";
 import type { ConversationType } from "./conversation-types.js";
 import { getDb } from "./db-connection.js";
+import { isMemoryEnabled } from "./jobs-store.js";
 import { rawAll } from "./raw-query.js";
 import { conversations, messages } from "./schema/index.js";
 
@@ -588,7 +589,20 @@ export async function searchConversations(
   const maxMsgsPerConv = opts?.maxMessagesPerConversation ?? 3;
 
   const ftsMatch = buildFtsMatchQuery(trimmed);
-  const backend = getMessagesSearchBackend(getConfig());
+  // The Qdrant lexical index is populated by the memory plugin's per-message
+  // write path, which is suppressed while memory is disabled — so with memory
+  // off the index stays empty and a `qdrant` lookup silently returns no content
+  // matches (an empty result, not a throw, so the Qdrant-error degrade never
+  // fires). Fall back to `fts5` — which is always populated — regardless of the
+  // flag when the index isn't being written. `!isMemoryEnabled()` is the
+  // layer-clean check available from `persistence/`; the rarer
+  // memory-enabled-but-plugin-disabled case (part of the plugin's full
+  // `isMemoryIndexingSuppressed` predicate) can't be reached from here without a
+  // persistence -> plugin import, and is covered at flip time by requiring the
+  // backfill/population check before enabling the flag.
+  const backend = !isMemoryEnabled()
+    ? "fts5"
+    : getMessagesSearchBackend(getConfig());
 
   // LIKE pattern for title matching (message-content indexes don't cover titles).
   const titlePattern = likeContainsPattern(query);
@@ -608,6 +622,12 @@ export async function searchConversations(
   let qdrantDegraded = false;
 
   if (ftsMatch && backend === "qdrant") {
+    // The lexical index is written asynchronously by the memory job queue, so
+    // for a brief window after an edit it can lag SQLite: a search for a term
+    // just removed from a message may still return that message id (or miss one
+    // just added). This is an accepted async-indexing tradeoff — transient, and
+    // results are re-sorted by `updated_at` — not re-verified against live
+    // content here.
     let candidates: Awaited<ReturnType<typeof searchMessageIdsLexical>> = [];
     try {
       candidates = await searchMessageIdsLexical(

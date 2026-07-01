@@ -40,6 +40,18 @@ mock.module("../conversation-search-lexical.js", () => ({
   searchMessageIdsLexical: searchMessageIdsLexicalMock,
 }));
 
+// `searchConversations` falls back to the fts5 path when memory is disabled
+// (the lexical index is only written while memory is enabled). Control
+// `isMemoryEnabled` so the qdrant tests below run with it `true`, and one test
+// flips it `false` to assert the fallback. Spread the real module to preserve
+// its other exports (many modules import from `jobs-store`).
+let memoryEnabled = true;
+const actualJobsStore = await import("../jobs-store.js");
+mock.module("../jobs-store.js", () => ({
+  ...actualJobsStore,
+  isMemoryEnabled: () => memoryEnabled,
+}));
+
 import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
 import { createConversation } from "../conversation-crud.js";
 import { searchConversations } from "../conversation-queries.js";
@@ -105,6 +117,7 @@ afterAll(() => {
 describe("searchConversations · qdrant backend", () => {
   beforeEach(() => {
     resetTables();
+    memoryEnabled = true;
     searchMessageIdsLexicalMock.mockClear();
     searchMessageIdsLexicalMock.mockImplementation(async () => []);
     setOverridesForTesting({ "messages-search-backend": "qdrant" });
@@ -276,6 +289,27 @@ describe("searchConversations · qdrant backend", () => {
     expect(results.map((r) => r.conversationId)).toEqual([conv.id]);
     expect(results[0]!.matchingMessages.map((m) => m.messageId)).toEqual([
       "d-1",
+    ]);
+  });
+
+  test("uses the fts5 path (not qdrant) when memory is disabled, even with the flag on", async () => {
+    // The lexical index is only written while memory is enabled, so with memory
+    // off it is empty and a qdrant lookup would silently return no content
+    // matches. `searchConversations` must fall back to the always-populated
+    // fts5 path and never query the (empty) lexical index.
+    memoryEnabled = false;
+    const conv = createConversation("Notes");
+    insertMessage("m-1", conv.id, "the flux capacitor needs recalibration");
+    // Even if the index somehow returned a candidate, it must not be consulted.
+    lexicalReturns(["m-1"]);
+
+    const results = await searchConversations("flux capacitor");
+
+    expect(searchMessageIdsLexicalMock).not.toHaveBeenCalled();
+    // The fts5 content match still finds the conversation and its message.
+    expect(results.map((r) => r.conversationId)).toEqual([conv.id]);
+    expect(results[0]!.matchingMessages.map((m) => m.messageId)).toEqual([
+      "m-1",
     ]);
   });
 
