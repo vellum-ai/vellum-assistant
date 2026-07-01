@@ -126,4 +126,75 @@ describe("parseIdentityFields", () => {
     expect(fields.emoji).toBe("");
     expect(fields.home).toBe("");
   });
+
+  // ---------------------------------------------------------------------------
+  // parseIdentityFields — prose-style fallbacks
+  // ---------------------------------------------------------------------------
+
+  describe("prose-style fallbacks", () => {
+    test("parses **Name:** without bullet", () => {
+      const fields = parseIdentityFields("**Name:** Jophiel\n**Role:** Assistant\n**Home:** ~/data");
+      expect(fields.name).toBe("Jophiel");
+      expect(fields.role).toBe("Assistant");
+      expect(fields.home).toBe("~/data");
+    });
+
+    test('parses "I\'m [Name]" pattern', () => {
+      const fields = parseIdentityFields("I'm Jophiel.\n\n## Purpose\nHelp people.");
+      expect(fields.name).toBe("Jophiel");
+    });
+
+    test('parses "My name is [Name]" pattern', () => {
+      const fields = parseIdentityFields("My name is Credence");
+      expect(fields.name).toBe("Credence");
+    });
+
+    test('parses "I am [Name]" pattern', () => {
+      const fields = parseIdentityFields("I am Vel.");
+      expect(fields.name).toBe("Vel");
+    });
+
+    test("bullet format takes priority over prose on same field", () => {
+      const fields = parseIdentityFields([
+        "- **Name:** Jarvis",
+        "I'm Jophiel.",
+      ].join("\n"));
+      expect(fields.name).toBe("Jarvis");
+    });
+
+    test("extracts **Personality:** without bullet", () => {
+      const fields = parseIdentityFields("**Personality:** Snarky and helpful");
+      expect(fields.personality).toBe("Snarky and helpful");
+    });
+
+    test("extracts **Emoji:** without bullet", () => {
+      const fields = parseIdentityFields("**Emoji:** 🔥");
+      expect(fields.emoji).toBe("🔥");
+    });
+
+    test("handles mixed bullet and prose fields", () => {
+      const fields = parseIdentityFields([
+        "- **Name:** Jarvis",
+        "**Role:** Coding assistant",
+        "**Personality:** Friendly",
+        "- **Emoji:** 🤖",
+        "**Home:** ~/dev",
+      ].join("\n"));
+      expect(fields.name).toBe("Jarvis");
+      expect(fields.role).toBe("Coding assistant");
+      expect(fields.personality).toBe("Friendly");
+      expect(fields.emoji).toBe("🤖");
+      expect(fields.home).toBe("~/dev");
+    });
+
+    test("filters template placeholders in prose format", () => {
+      const fields = parseIdentityFields("**Name:** _(not yet chosen)_");
+      expect(fields.name).toBe("");
+    });
+
+    test("extracts **Vibe:** without bullet maps to personality", () => {
+      const fields = parseIdentityFields("**Vibe:** Chill and focused");
+      expect(fields.personality).toBe("Chill and focused");
+    });
+  });
 });
