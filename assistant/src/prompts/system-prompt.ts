@@ -397,14 +397,23 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // persona sections — notably `users/default.md`, the persona rendered for
   // non-guardian actors — can gate privacy guardrails on who is being spoken
   // to. This reads the actor's resolved class straight off the turn's
-  // `trustContext` (fail-closed to `unknown` when absent) rather than
-  // `resolveTrustClass`: that helper collapses to `guardian` whenever
-  // `DISABLE_HTTP_AUTH` is set, which is the standing config for
-  // platform-managed deployments. Using it here would flip `isGuardian` true
-  // for genuine non-guardian channel actors and silently disable the privacy
-  // guardrail in exactly the cloud/Slack scenario it exists to cover. The
-  // booleans are precomputed because the mustache renderer only does truthy
-  // gating, not string comparison.
+  // `trustContext`, defaulting to `unknown` (stranger) when absent, rather than
+  // routing through `resolveTrustClass`. For a *resolved* actor the two agree;
+  // they diverge only on an unresolved turn under the platform auth-bypass,
+  // where `resolveTrustClass` fail-safes to `guardian` so control-plane
+  // capability gates don't block a local/dev turn. A data-disclosure guardrail
+  // needs the opposite default — fail *closed* to `stranger`, so a turn that
+  // never resolved an actor still gets the boundary instead of a guardian
+  // exemption — which is exactly what reading the raw class gives.
+  //
+  // Scope: these booleans gate the *data-disclosure* boundary (never reveal the
+  // guardian's private data) in `users/default.md`. Its complement — the
+  // *identity/verification hygiene* guidance (don't infer guardian status from
+  // tone, don't self-approve, don't explain the verification system) — is the
+  // `promptTrustGuidance` switch in
+  // `plugins/defaults/turn-context/unified-turn-context.ts`; keep the two
+  // distinct. The booleans are precomputed because the mustache renderer only
+  // does truthy gating, not string comparison.
   const trustClass = options?.trustContext?.trustClass ?? "unknown";
   const isGuardian = trustClass === "guardian";
   // `unverified_contact` is treated identically to `trusted_contact` for every
