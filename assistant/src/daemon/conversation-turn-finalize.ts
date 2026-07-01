@@ -26,7 +26,7 @@ import { projectAssistantMessage } from "../persistence/conversation-attention-s
 import {
   getConversation,
   getMessageById,
-  messageMetadataSchema,
+  parseMessageMetadata,
 } from "../persistence/conversation-crud.js";
 import { getResolvedConversationDirPath } from "../persistence/conversation-directories.js";
 import { syncMessageToDisk } from "../persistence/conversation-disk-view.js";
@@ -46,23 +46,6 @@ interface TurnTailContext {
 interface TurnTailState {
   readonly deferredFinalizeEffects: ReadonlyArray<() => Promise<void>>;
   readonly lastAssistantMessageId: string | undefined;
-}
-
-/**
- * Parse a persisted message's metadata against `messageMetadataSchema` — the
- * single source of truth for its shape (including the actor trust class) —
- * returning the validated fields, or `undefined` when the column is absent or
- * malformed. Keeps callers off a hand-copied metadata/trust-class union.
- */
-function parseFinalizedRowMetadata(metadataJson: string | null) {
-  if (!metadataJson) return undefined;
-  try {
-    const parsed = messageMetadataSchema.safeParse(JSON.parse(metadataJson));
-    return parsed.success ? parsed.data : undefined;
-  } catch {
-    // Malformed metadata JSON — index without provenance, matching `addMessage`.
-    return undefined;
-  }
 }
 
 /**
@@ -87,11 +70,13 @@ export function buildDeferredFinalizeEffect(params: {
   const { conversationId, assistantMessageId, contentJson, rlog } = params;
   return async () => {
     const finalizedRow = getMessageById(assistantMessageId, conversationId);
-    if (!finalizedRow) return;
+    if (!finalizedRow) {
+      return;
+    }
     // Provenance/automation flags for the memory write-gate come off the
-    // persisted metadata; `messageMetadataSchema` types their shape, so read
-    // them from the parse rather than re-declaring the trust-class union.
-    const metadata = parseFinalizedRowMetadata(finalizedRow.metadata);
+    // persisted metadata via the shared `parseMessageMetadata` (the single
+    // source of truth for its shape) rather than a hand-copied union.
+    const metadata = parseMessageMetadata(finalizedRow.metadata);
     try {
       await indexMessageNow(
         {
