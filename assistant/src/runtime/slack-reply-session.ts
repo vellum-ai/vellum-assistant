@@ -11,6 +11,10 @@ import { SLACK_STREAM_MARKDOWN_LIMIT } from "../messaging/providers/slack/api.js
 import { renderSlackBlocks } from "../messaging/providers/slack/render.js";
 import { getLogger } from "../util/logger.js";
 import { deliverChannelReply } from "./gateway-client.js";
+import {
+  hasDeliverableAssistantText,
+  NO_RESPONSE_INLINE_RE,
+} from "./slack-no-response.js";
 import type { TaskProgressData } from "./slack-task-progress.js";
 import {
   getTaskProgressDataFromSurfaceData,
@@ -19,8 +23,6 @@ import {
 } from "./slack-task-progress.js";
 
 const log = getLogger("slack-reply-session");
-
-const NO_RESPONSE_INLINE_RE = /<no_response\s*\/?>/gi;
 
 /**
  * Minimum gap between coalesced `appendStream` calls. `chat.appendStream` is a
@@ -120,8 +122,6 @@ export function createSlackReplySession(params: {
   let segmentBuffer = "";
   let deliveredSegmentCount = 0;
 
-  let confirmedTasksKey: string | undefined;
-
   const taskProgressBySurfaceId = new Map<string, TaskProgressData>();
   let activeProgress: TaskProgressData | undefined;
 
@@ -171,7 +171,6 @@ export function createSlackReplySession(params: {
         if (result.ok && result.ts) {
           streamTs = result.ts;
           confirmedLength = firstChunk.length;
-          confirmedTasksKey = tasks ? JSON.stringify(tasks) : undefined;
           state = "streaming";
         } else {
           state = "fallback";
@@ -189,10 +188,12 @@ export function createSlackReplySession(params: {
       if (state !== "streaming" || !streamTs) return;
       const clean = cleanedText();
       const tasks = planTasks();
-      const tasksKey = tasks ? JSON.stringify(tasks) : undefined;
-      // `chat.appendStream` caps `markdown_text` per call, so a delta wider
-      // than the limit drains across successive append calls. Each append
-      // carries the current task state, advancing the plan alongside text.
+      // `chat.appendStream` requires `markdown_text` and caps it per call, so a
+      // delta wider than the limit drains across successive append calls. Each
+      // append carries the current task state, advancing the plan alongside
+      // text. Progress that advances without new text is not appended on its
+      // own (an append with no text is rejected); it lands on the next text
+      // append or on `stopStream`.
       while (confirmedLength < clean.length) {
         const chunk = clean.slice(
           confirmedLength,
@@ -210,30 +211,12 @@ export function createSlackReplySession(params: {
             },
           });
           confirmedLength += chunk.length;
-          confirmedTasksKey = tasksKey;
         } catch (err) {
           log.warn(
             { err, chatId },
             "Slack appendStream failed; deferring delta",
           );
           return;
-        }
-      }
-      // Task progress can advance during long tool work without new text; a
-      // task-only append keeps the native plan block live.
-      if (tasks && tasksKey !== confirmedTasksKey) {
-        try {
-          await deliverChannelReply(replyCallbackUrl, {
-            chatId,
-            assistantId,
-            slackStream: { action: "append", streamTs, tasks },
-          });
-          confirmedTasksKey = tasksKey;
-        } catch (err) {
-          log.warn(
-            { err, chatId },
-            "Slack appendStream (plan) failed; deferring update",
-          );
         }
       }
     });
@@ -246,7 +229,7 @@ export function createSlackReplySession(params: {
     }
     if (finished || state === "fallback") return;
     if (!started) {
-      if (cleanedText().trim().length === 0) return;
+      if (!hasDeliverableAssistantText(rawText)) return;
       started = true;
       enqueueStart();
       return;
@@ -316,7 +299,7 @@ export function createSlackReplySession(params: {
 
       // A reply that completed before the first coalesced flush still streams
       // as a single start→stop so the transcript holds one streamed message.
-      if (!started && cleanedText().trim().length > 0) {
+      if (!started && hasDeliverableAssistantText(rawText)) {
         started = true;
         enqueueStart();
       }

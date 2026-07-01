@@ -794,6 +794,60 @@ describe("channel-retry-sweep", () => {
     expect(row?.retryAfter).toBeNull();
   });
 
+  test("delivery retry edits a prior streamed message in place instead of posting a duplicate", async () => {
+    const inbound = deliveryCrud.recordInbound(
+      "slack",
+      "D-DELIVERY-ONLY-STREAM",
+      "msg-delivery-only-stream",
+    );
+    deliveryCrud.storePayload(inbound.eventId, {
+      content: "already processed",
+      sourceChannel: "slack",
+      interface: "slack",
+      externalChatId: "D-DELIVERY-ONLY-STREAM",
+      replyCallbackUrl: "https://example.test/deliver/slack",
+      assistantId: "assistant-1",
+      replyMessageId: "assistant-delivery-only-stream",
+      // A prior attempt streamed a message, then delivery failed before any
+      // durable segment landed.
+      slackStreamMessageTs: "1700000000.000077",
+    });
+
+    const db = getDb();
+    db.update(channelInboundEvents)
+      .set({
+        processingStatus: "processed",
+        deliveryStatus: "failed",
+        processingAttempts: 1,
+        retryAfter: Date.now() - 1,
+        deliveredSegmentCount: 0,
+      })
+      .where(eq(channelInboundEvents.id, inbound.eventId))
+      .run();
+
+    await sweepFailedEvents(async () => {
+      throw new Error("processMessage should not be called");
+    });
+
+    const row = db
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, inbound.eventId))
+      .get();
+    expect(deliveryCalls).toEqual([
+      {
+        conversationId: inbound.conversationId,
+        externalChatId: "D-DELIVERY-ONLY-STREAM",
+        callbackUrl: "https://example.test/deliver/slack",
+        assistantId: "assistant-1",
+        messageId: "assistant-delivery-only-stream",
+        startFromSegment: 0,
+        messageTs: "1700000000.000077",
+      },
+    ]);
+    expect(row?.deliveryStatus).toBe("delivered");
+  });
+
   test("delivery retry resolves missing reply id from the linked user turn", async () => {
     const inbound = deliveryCrud.recordInbound(
       "telegram",

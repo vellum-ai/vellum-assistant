@@ -307,7 +307,11 @@ describe("createSlackReplySession", () => {
     expect(reconciliation).toEqual({ mode: "fallback" });
   });
 
-  test("appends task progress that advances without new body text", async () => {
+  test("defers task progress that advances without new body text to stop", async () => {
+    // `chat.appendStream` requires `markdown_text`, so a plan that advances
+    // during tool work without new text is not appended on its own; the
+    // updated task state lands on the final `stopStream`.
+    // @see https://docs.slack.dev/reference/methods/chat.appendStream/
     const session = createSlackReplySession({
       sourceChannel: "slack",
       chatType: "im",
@@ -332,17 +336,26 @@ describe("createSlackReplySession", () => {
     );
     await tick(15);
 
-    const append = slackStreamOps().find((op) => op.action === "append");
-    expect(append).toEqual({
-      action: "append",
+    const ops = slackStreamOps();
+    // No append is emitted for a task-only update, and no append ever omits
+    // its required markdown text.
+    for (const op of ops) {
+      if (op.action === "append") {
+        expect(typeof op.markdownText).toBe("string");
+      }
+    }
+    expect(ops.some((op) => op.action === "append")).toBe(false);
+
+    await session.finish();
+
+    expect(slackStreamOps().at(-1)).toEqual({
+      action: "stop",
       streamTs: "stream-ts-1",
       tasks: [
         { id: "task-0", title: "Search docs", status: "complete" },
         { id: "task-1", title: "Summarize", status: "in_progress" },
       ],
     });
-
-    await session.finish();
   });
 
   test("never opens a stream for a no_response-only turn", async () => {
@@ -354,6 +367,33 @@ describe("createSlackReplySession", () => {
     })!;
 
     session.observeEvent(textDelta("<no_response/>"));
+    session.observeEvent(messageComplete("assistant-msg-1"));
+    const reconciliation = await session.finish();
+
+    expect(deliverCalls).toEqual([]);
+    expect(reconciliation).toEqual({ mode: "fallback" });
+  });
+
+  test("holds the stream while a no_response sentinel arrives in pieces", async () => {
+    // A coalesce timer must not open a stream on the leading `<` of a slowly
+    // streamed `<no_response/>`, which would leak a stray partial message.
+    const session = createSlackReplySession({
+      sourceChannel: "slack",
+      chatType: "im",
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+      coalesceMs: 5,
+    })!;
+
+    session.observeEvent(textDelta("<"));
+    await tick(15);
+    expect(deliverCalls).toEqual([]);
+
+    session.observeEvent(textDelta("no_response"));
+    await tick(15);
+    expect(deliverCalls).toEqual([]);
+
+    session.observeEvent(textDelta("/>"));
     session.observeEvent(messageComplete("assistant-msg-1"));
     const reconciliation = await session.finish();
 

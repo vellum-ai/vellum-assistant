@@ -46,6 +46,7 @@ import type {
   MessageProcessor,
   SlackInboundMessageMetadata,
 } from "../../http-types.js";
+import { hasDeliverableAssistantText } from "../../slack-no-response.js";
 import { createSlackReplySession } from "../../slack-reply-session.js";
 import type { TaskProgressData } from "../../slack-task-progress.js";
 import {
@@ -417,28 +418,8 @@ type SlackThinkingStatusHandle = {
   clear: () => void;
 };
 
-const NO_RESPONSE_RE = /^\s*<no_response\s*\/?>\s*$/i;
-const NO_RESPONSE_INLINE_RE = /<no_response\s*\/?>/gi;
-const NO_RESPONSE_SENTINEL_FORMS = [
-  "<no_response/>",
-  "<no_response />",
-  "<no_response>",
-] as const;
-
-function isPotentialNoResponsePrefix(text: string): boolean {
-  const lower = text.toLowerCase();
-  return NO_RESPONSE_SENTINEL_FORMS.some((sentinel) =>
-    sentinel.startsWith(lower),
-  );
-}
-
 export function shouldStartSlackThinkingStatusForText(text: string): boolean {
-  const trimmed = text.trim();
-  if (trimmed.length === 0) return false;
-  if (NO_RESPONSE_RE.test(trimmed)) return false;
-  if (isPotentialNoResponsePrefix(trimmed)) return false;
-
-  return trimmed.replace(NO_RESPONSE_INLINE_RE, "").trim().length > 0;
+  return hasDeliverableAssistantText(text);
 }
 
 function shouldEmitSlackThinkingStatus(

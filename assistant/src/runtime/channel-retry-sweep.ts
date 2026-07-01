@@ -397,6 +397,13 @@ export async function sweepFailedEvents(
         : undefined;
     const assistantId =
       typeof payload.assistantId === "string" ? payload.assistantId : undefined;
+    // A prior attempt may already have streamed a message; its first
+    // undelivered segment edits that message in place rather than posting a
+    // duplicate reply beside it.
+    const priorStreamMessageTs =
+      typeof payload.slackStreamMessageTs === "string"
+        ? payload.slackStreamMessageTs
+        : undefined;
     if (!replyCallbackUrl || !externalChatId) {
       recordDeliveryFailure(
         event.id,
@@ -430,6 +437,7 @@ export async function sweepFailedEvents(
         {
           messageId: replyMessageId,
           startFromSegment: event.deliveredSegmentCount,
+          ...(priorStreamMessageTs ? { messageTs: priorStreamMessageTs } : {}),
           onSegmentDelivered: (count) =>
             updateDeliveredSegmentCount(event.id, count),
         },
