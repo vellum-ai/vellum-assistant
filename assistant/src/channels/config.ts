@@ -6,6 +6,8 @@
  * to compile until a policy is added below.
  */
 
+import { isInviteCodeRedemptionEnabled as sharedIsInviteCodeRedemptionEnabled } from "@vellumai/gateway-client";
+
 import type { ChannelId } from "./types.js";
 
 export type ConversationStrategy =
@@ -24,7 +26,6 @@ export interface ChannelNotificationPolicy {
     deliveryEnabled: boolean;
     conversationStrategy: ConversationStrategy;
   };
-  invite: ChannelInvitePolicy;
 }
 
 const CHANNEL_POLICIES = {
@@ -33,17 +34,11 @@ const CHANNEL_POLICIES = {
       deliveryEnabled: true,
       conversationStrategy: "start_new_conversation",
     },
-    invite: {
-      codeRedemptionEnabled: false,
-    },
   },
   telegram: {
     notification: {
       deliveryEnabled: true,
       conversationStrategy: "continue_existing_conversation",
-    },
-    invite: {
-      codeRedemptionEnabled: true,
     },
   },
   whatsapp: {
@@ -51,26 +46,17 @@ const CHANNEL_POLICIES = {
       deliveryEnabled: false,
       conversationStrategy: "continue_existing_conversation",
     },
-    invite: {
-      codeRedemptionEnabled: true,
-    },
   },
   slack: {
     notification: {
       deliveryEnabled: true,
       conversationStrategy: "continue_existing_conversation",
     },
-    invite: {
-      codeRedemptionEnabled: true,
-    },
   },
   email: {
     notification: {
       deliveryEnabled: false,
       conversationStrategy: "continue_existing_conversation",
-    },
-    invite: {
-      codeRedemptionEnabled: true,
     },
   },
   platform: {
@@ -81,26 +67,17 @@ const CHANNEL_POLICIES = {
       // the channel is non-deliverable (which not_deliverable would).
       conversationStrategy: "push_only",
     },
-    invite: {
-      codeRedemptionEnabled: false,
-    },
   },
   phone: {
     notification: {
       deliveryEnabled: false,
       conversationStrategy: "not_deliverable",
     },
-    invite: {
-      codeRedemptionEnabled: false,
-    },
   },
   a2a: {
     notification: {
       deliveryEnabled: false,
       conversationStrategy: "continue_existing_conversation",
-    },
-    invite: {
-      codeRedemptionEnabled: false,
     },
   },
 } as const satisfies Record<ChannelId, ChannelNotificationPolicy>;
@@ -138,14 +115,20 @@ export function getConversationStrategy(
   return CHANNEL_POLICIES[channelId].notification.conversationStrategy;
 }
 
-/** Returns the invite policy for the given channel. */
+/**
+ * Returns the invite policy for the given channel. Delegates to the shared
+ * @vellumai/gateway-client allowlist so gateway and daemon share one source
+ * of truth.
+ */
 export function getChannelInvitePolicy(
   channelId: ChannelId,
 ): ChannelInvitePolicy {
-  return CHANNEL_POLICIES[channelId].invite;
+  return {
+    codeRedemptionEnabled: sharedIsInviteCodeRedemptionEnabled(channelId),
+  };
 }
 
 /** Whether invite code redemption is enabled for the given channel. */
 export function isInviteCodeRedemptionEnabled(channelId: ChannelId): boolean {
-  return CHANNEL_POLICIES[channelId].invite.codeRedemptionEnabled;
+  return sharedIsInviteCodeRedemptionEnabled(channelId);
 }
