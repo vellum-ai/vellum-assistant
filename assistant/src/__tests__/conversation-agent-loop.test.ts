@@ -2410,15 +2410,14 @@ describe("session-agent-loop", () => {
     });
 
     test("terminal message_complete is emitted before the deferred indexer runs (LUM-2654)", async () => {
-      // Regression guard for the "long delay between last streaming token and
-      // send-button becoming available" bug. The non-critical finalize
-      // side-effects (memory segment indexing, lexical indexing, attention
-      // projection) were moved off the turn's critical path: the terminal
-      // `message_complete` SSE — which the client uses to flip stop→send — must
-      // fire FIRST, and the indexer must run afterwards (still within the turn,
-      // via the orchestrator's deferred tail). Before the fix the indexer ran
-      // inline in `handleMessageComplete`, so `message_complete` had not yet
-      // been emitted when indexing ran and this assertion would fail.
+      // Regression guard for LUM-2654 ("long delay between last streaming token
+      // and send-button becoming available"). The terminal `message_complete`
+      // SSE — which the client uses to flip stop→send — is emitted before the
+      // non-critical finalize side-effects (memory segment indexing, lexical
+      // indexing, attention projection), which the orchestrator drains from its
+      // end-of-turn tail. The tail runs within the turn, so the indexer still
+      // fires exactly once; this test pins the ordering by asserting
+      // `message_complete` is already in the client stream when it does.
       mockMessageById = {
         id: "msg-reserve",
         conversationId: "test-conv",
@@ -2442,9 +2441,9 @@ describe("session-agent-loop", () => {
       });
       await runAgentLoopImpl(ctx, "hi", "msg-1", (msg) => events.push(msg));
 
-      // The deferred indexer still ran exactly once (before the turn resolved)…
+      // The deferred indexer runs exactly once, within the turn…
       expect(indexMessageNowMock).toHaveBeenCalledTimes(1);
-      // …but only AFTER the terminal SSE that re-enables the composer.
+      // …and only after the terminal SSE that re-enables the composer.
       expect(messageCompleteSeenWhenIndexed).toBe(true);
     });
 
