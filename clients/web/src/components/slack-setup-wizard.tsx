@@ -2,6 +2,7 @@ import { ClipboardCopy, ExternalLink, Plus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button, Input, Radio, RadioGroup, Stepper, type StepperStep, Typography } from "@vellumai/design-library";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { buildSlackManifestUrl } from "@/utils/slack-manifest";
 
 export type SlackThreadMode = "mention_only" | "mention_then_thread";
@@ -203,12 +204,7 @@ function CreateAppStep({ slackAppName, onSlackAppNameChange, onCreateApp, onNext
       </div>
       <Typography as="p" variant="body-small-default" className="text-[color:var(--content-faint)]">
         Already have a Slack app?{" "}
-        <Button
-          variant="ghost"
-          size="compact"
-          className="inline px-0 h-auto text-body-small-default text-[color:var(--content-link)] hover:underline"
-          onClick={onNext}
-        >
+        <Button variant="link" onClick={onNext}>
           Skip to next step
         </Button>
       </Typography>
@@ -233,13 +229,7 @@ function AppTokenStep({
   onAppTokenChange,
   onNext,
 }: AppTokenStepProps) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = useCallback(() => {
-    void navigator.clipboard.writeText(tokenName);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  }, [tokenName]);
+  const { copy, copied } = useCopyToClipboard();
 
   return (
     <div className="flex flex-col gap-4">
@@ -254,7 +244,7 @@ function AppTokenStep({
           <Button
             variant="ghost"
             size="compact"
-            onClick={handleCopy}
+            onClick={() => copy(tokenName)}
             className="inline-flex gap-1 rounded bg-[var(--surface-base)] px-1.5 py-0.5 font-mono text-body-small-default text-[color:var(--content-strong)] hover:bg-[var(--surface-hover)] h-auto"
             tooltip="Click to copy"
           >
