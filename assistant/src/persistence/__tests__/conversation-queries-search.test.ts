@@ -1,14 +1,13 @@
 /**
- * Read-path tests for {@link searchConversations} on the `qdrant` backend.
+ * Read-path tests for {@link searchConversations}.
  *
- * These assert that once the lexical index is populated (backfill complete),
- * message-content candidates are sourced from the Qdrant lexical index (mocked
- * here) instead of `messages_fts`, while the visibility/archived SQL filtering,
- * the title `LIKE` merge, and the result shape stay identical to the FTS path.
- * Content matching is index-only (no `messages.content` scan fallback): a
- * Qdrant lookup failure and a non-tokenizable query both leave title matches
- * as the only arm. The `fts5` fallback (memory disabled / backfill not yet
- * drained) is verified to still ignore the lexical index entirely.
+ * Message-content candidates come exclusively from the Qdrant lexical index
+ * (mocked here), filtered by the visibility/archived SQL and merged with the
+ * title `LIKE` arm. Content matching is index-only (no `messages.content`
+ * scan fallback): a Qdrant lookup failure and a non-tokenizable query both
+ * leave title matches as the only arm, and while content search is
+ * unavailable (memory disabled / backfill not yet drained) the lexical index
+ * is never consulted and only titles can match.
  *
  * The lexical index is mocked at the `conversation-search-lexical` seam so no
  * real Qdrant is required; a real SQLite DB backs the visibility/archived SQL.
@@ -41,11 +40,11 @@ mock.module("../conversation-search-lexical.js", () => ({
   searchMessageIdsLexical: searchMessageIdsLexicalMock,
 }));
 
-// `searchConversations` falls back to the fts5 path when memory is disabled
-// (the lexical index is only written while memory is enabled). Control
-// `isMemoryEnabled` so the qdrant tests below run with it `true`, and one test
-// flips it `false` to assert the fallback. Spread the real module to preserve
-// its other exports (many modules import from `jobs-store`).
+// Content search is unavailable when memory is disabled (the lexical index is
+// only written while memory is enabled). Control `isMemoryEnabled` so most
+// tests run with it `true`, and one test flips it `false` to assert the
+// title-only behavior. Spread the real module to preserve its other exports
+// (many modules import from `jobs-store`).
 let memoryEnabled = true;
 const actualJobsStore = await import("../jobs-store.js");
 mock.module("../jobs-store.js", () => ({
@@ -67,11 +66,11 @@ import { rawRun } from "../raw-query.js";
 await initializeDb();
 
 /**
- * Mark the messages lexical-index backfill complete. The qdrant read path is
- * gated on this: an upgraded instance whose backfill has not finished stays on
- * fts5 so it never reads from a partially-populated `messages_lexical`. The
- * qdrant-path tests below index candidates as if the backfill has drained, so
- * they set this marker; the gate itself is covered by its own test.
+ * Mark the messages lexical-index backfill complete. Content search is gated
+ * on this: an upgraded instance whose backfill has not finished never reads
+ * from a partially-populated `messages_lexical` (title matches only). The
+ * tests below index candidates as if the backfill has drained, so they set
+ * this marker; the gate itself is covered by its own test.
  */
 function markBackfillComplete(): void {
   setMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY, "1");
@@ -130,22 +129,23 @@ afterAll(() => {
   mock.restore();
 });
 
-describe("searchConversations · qdrant backend", () => {
+describe("searchConversations · qdrant lexical index", () => {
   beforeEach(() => {
     resetTables();
     memoryEnabled = true;
-    // The qdrant backend is selected once the index is populated: memory
-    // enabled + backfill complete. These tests exercise that post-backfill path.
+    // Content search is available once the index is populated: memory enabled
+    // + backfill complete. These tests exercise that post-backfill path.
     markBackfillComplete();
     searchMessageIdsLexicalMock.mockClear();
     searchMessageIdsLexicalMock.mockImplementation(async () => []);
   });
 
-  test("sources candidates from the lexical index, not messages_fts", async () => {
+  test("sources content candidates exclusively from the lexical index", async () => {
     const conv = createConversation("Notes");
     insertMessage("m-1", conv.id, "the flux capacitor needs recalibration");
-    // A message that FTS would match but the lexical index does NOT return:
-    // if the query still finds it, candidates are coming from FTS not Qdrant.
+    // A message matching the query text that the lexical index does NOT
+    // return: if the query still surfaces it, candidates are coming from
+    // somewhere other than the index.
     insertMessage("m-2", conv.id, "flux capacitor decoy", 2000);
 
     lexicalReturns(["m-1"]);
@@ -307,45 +307,64 @@ describe("searchConversations · qdrant backend", () => {
     expect(results[0]!.matchingMessages).toEqual([]);
   });
 
-  test("uses the fts5 path (not qdrant) when memory is disabled", async () => {
-    // The lexical index is only written while memory is enabled, so with memory
-    // off it is empty and a qdrant lookup would silently return no content
-    // matches. `searchConversations` must fall back to the always-populated
-    // fts5 path and never query the (empty) lexical index.
+  test("returns title matches only when memory is disabled (content search unavailable)", async () => {
+    // The lexical index is only written while memory is enabled, so with
+    // memory off it is empty and a lookup would silently return no content
+    // matches. The index must not be consulted at all; only titles can match.
     memoryEnabled = false;
-    const conv = createConversation("Notes");
-    insertMessage("m-1", conv.id, "the flux capacitor needs recalibration");
+    const contentOnly = createConversation("Notes");
+    insertMessage("m-1", contentOnly.id, "flux capacitor in content only");
+    const titleMatch = createConversation("Flux capacitor planning");
     // Even if the index somehow returned a candidate, it must not be consulted.
     lexicalReturns(["m-1"]);
 
     const results = await searchConversations("flux capacitor");
 
     expect(searchMessageIdsLexicalMock).not.toHaveBeenCalled();
-    // The fts5 content match still finds the conversation and its message.
-    expect(results.map((r) => r.conversationId)).toEqual([conv.id]);
-    expect(results[0]!.matchingMessages.map((m) => m.messageId)).toEqual([
-      "m-1",
-    ]);
+    expect(results.map((r) => r.conversationId)).toEqual([titleMatch.id]);
+    expect(results[0]!.matchingMessages).toEqual([]);
   });
 
-  test("uses the fts5 path (not qdrant) until the backfill completion checkpoint is set", async () => {
+  test("returns title matches only until the backfill completion checkpoint is set", async () => {
     // On an upgraded instance the historical messages are indexed by a
     // background backfill. Until it drains, the lexical collection is only
-    // partially populated, so a qdrant read would silently miss older content.
-    // With the completion checkpoint UNSET, the read must stay on the
-    // always-populated fts5 path and never query the lexical index.
+    // partially populated and a read would silently miss older content. With
+    // the completion checkpoint UNSET, the index must not be consulted at
+    // all; only titles can match.
     deleteMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY);
-    const conv = createConversation("Notes");
-    insertMessage("m-1", conv.id, "the flux capacitor needs recalibration");
+    const contentOnly = createConversation("Notes");
+    insertMessage("m-1", contentOnly.id, "flux capacitor in content only");
+    const titleMatch = createConversation("Flux capacitor planning");
     lexicalReturns(["m-1"]);
 
     const results = await searchConversations("flux capacitor");
 
     expect(searchMessageIdsLexicalMock).not.toHaveBeenCalled();
-    // The fts5 content match still finds the conversation and its message.
-    expect(results.map((r) => r.conversationId)).toEqual([conv.id]);
+    expect(results.map((r) => r.conversationId)).toEqual([titleMatch.id]);
+    expect(results[0]!.matchingMessages).toEqual([]);
+  });
+
+  test("includes a surfaced background conversation via lexical candidates", async () => {
+    // Surfacing flips a background conversation into the visible listing set,
+    // so its content matches must surface like any standard conversation's.
+    const surfaced = createConversation({
+      title: "bg-run",
+      conversationType: "background",
+    });
+    rawRun(
+      "UPDATE conversations SET surfaced_at = ? WHERE id = ?",
+      Date.now(),
+      surfaced.id,
+    );
+    insertMessage("sb-1", surfaced.id, "flux capacitor surfaced background");
+
+    lexicalReturns(["sb-1"]);
+
+    const results = await searchConversations("flux capacitor");
+
+    expect(results.map((r) => r.conversationId)).toEqual([surfaced.id]);
     expect(results[0]!.matchingMessages.map((m) => m.messageId)).toEqual([
-      "m-1",
+      "sb-1",
     ]);
   });
 
@@ -371,30 +390,5 @@ describe("searchConversations · qdrant backend", () => {
     lexicalReturns([]);
 
     expect(await searchConversations("flux capacitor")).toEqual([]);
-  });
-});
-
-describe("searchConversations · fts5 fallback (backfill incomplete) ignores the lexical index", () => {
-  beforeEach(() => {
-    resetTables();
-    memoryEnabled = true;
-    // Backfill incomplete (checkpoint unset) selects the fts5 fallback even with
-    // memory enabled; clear it so this suite does not depend on the qdrant
-    // suite's marker leaking across.
-    deleteMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY);
-    searchMessageIdsLexicalMock.mockClear();
-    lexicalReturns(["should-not-be-used"]);
-  });
-
-  test("content search uses messages_fts and never calls the lexical index", async () => {
-    const conv = createConversation("Notes");
-    insertMessage("m-1", conv.id, "the flux capacitor needs recalibration");
-
-    const results = await searchConversations("flux capacitor");
-
-    // The lexical index must not be consulted on the fts5 path.
-    expect(searchMessageIdsLexicalMock).not.toHaveBeenCalled();
-    expect(results.map((r) => r.conversationId)).toEqual([conv.id]);
-    expect(results[0]!.matchingMessages).toHaveLength(1);
   });
 });

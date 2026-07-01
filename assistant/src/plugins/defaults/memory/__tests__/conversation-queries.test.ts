@@ -562,25 +562,13 @@ describe("listConversationsBySource", () => {
   });
 });
 
+// Content-arm (lexical candidate) surfacing behavior is covered in
+// `persistence/__tests__/conversation-queries-search.test.ts`, which mocks the
+// lexical index; this suite covers the title arm's surfacing rules.
 describe("searchConversations · surfaced conversations", () => {
   beforeEach(() => {
     resetTables();
   });
-
-  function insertMessage(
-    conversationId: string,
-    content: string,
-    createdAt = 1000,
-  ): void {
-    rawRun(
-      "INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)",
-      `msg-${conversationId}-${createdAt}`,
-      conversationId,
-      "user",
-      content,
-      createdAt,
-    );
-  }
 
   function setSurfaced(conversationId: string): void {
     rawRun(
@@ -602,52 +590,32 @@ describe("searchConversations · surfaced conversations", () => {
     expect(results.map((r) => r.conversationId)).toEqual([surfaced.id]);
   });
 
-  test("a surfaced background conversation is found by content search", async () => {
-    const surfaced = createConversation({
-      title: "bg-run",
-      conversationType: "background",
-    });
-    setSurfaced(surfaced.id);
-    insertMessage(surfaced.id, "the flux capacitor needs recalibration");
-
-    const results = await searchConversations("flux capacitor");
-
-    expect(results.map((r) => r.conversationId)).toEqual([surfaced.id]);
-    expect(results[0]!.matchingMessages).toHaveLength(1);
-  });
-
-  test("a non-surfaced background conversation stays excluded from search", async () => {
-    const background = createConversation({
+  test("a non-surfaced background conversation stays excluded from title search", async () => {
+    createConversation({
       title: "Quarterly metrics rollup",
       conversationType: "background",
     });
-    insertMessage(background.id, "the flux capacitor needs recalibration");
 
     expect(await searchConversations("Quarterly metrics")).toEqual([]);
-    expect(await searchConversations("flux capacitor")).toEqual([]);
   });
 
   test("private conversations are never included, even with surfaced_at set", async () => {
     const priv = createConversation("Quarterly metrics rollup");
     setConversationType(priv.id, "private");
     setSurfaced(priv.id);
-    insertMessage(priv.id, "the flux capacitor needs recalibration");
 
     expect(await searchConversations("Quarterly metrics")).toEqual([]);
-    expect(await searchConversations("flux capacitor")).toEqual([]);
   });
 
-  test("surfaced subagent runs stay excluded from search", async () => {
+  test("surfaced subagent runs stay excluded from title search", async () => {
     const subagent = createConversation({
       title: "Quarterly metrics rollup",
       conversationType: "background",
       source: "subagent",
     });
     setSurfaced(subagent.id);
-    insertMessage(subagent.id, "the flux capacitor needs recalibration");
 
     expect(await searchConversations("Quarterly metrics")).toEqual([]);
-    expect(await searchConversations("flux capacitor")).toEqual([]);
   });
 });
 
