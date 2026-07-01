@@ -1,4 +1,4 @@
-import type { ToolDefinition } from "@vellumai/skill-host-contracts";
+import type { ToolDefinition } from "../tools/tool-types.js";
 export type { ToolDefinition };
 
 import type { LLMCallSite } from "../config/schemas/llm.js";

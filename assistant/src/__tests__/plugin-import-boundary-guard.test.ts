@@ -40,7 +40,7 @@ const DEFAULTS_ABS = join(process.cwd(), DEFAULTS_REL);
  * specifiers it reaches for outside itself. These are host-internal couplings
  * with no `@vellumai/plugin-api` equivalent (memory/daemon/context/config
  * internals, runtime builtins, third-party packages). `providers/types.js`
- * appears only for `ToolDefinition` (a `@vellumai/skill-host-contracts` type
+ * appears only for `ToolDefinition` (a `tools/tool-types.js` type
  * distinct from plugin-api's), which the anti-backslide guard enforces.
  *
  * Regenerate after an intentional change with:
@@ -259,7 +259,7 @@ const BASELINE: Record<string, readonly string[]> = {
  * Symbols that `@vellumai/plugin-api` re-exports from `providers/types.js`. A
  * plugin must import these from the public API, not the host module. NOT
  * listed (and therefore allowed from `providers/types.js`): `ToolDefinition`,
- * which `providers/types.js` re-exports from `@vellumai/skill-host-contracts`
+ * which `providers/types.js` re-exports from `tools/tool-types.js`
  * — a different type than plugin-api's own `ToolDefinition`.
  */
 const PLUGIN_API_PROVIDER_TYPES: ReadonlySet<string> = new Set([
@@ -498,7 +498,7 @@ describe("plugin import boundary", () => {
       ...violations,
       "",
       "(ToolDefinition from providers/types.js is allowed — it is a distinct",
-      "@vellumai/skill-host-contracts type, not plugin-api's ToolDefinition.)",
+      "tools/tool-types.js type, not plugin-api's ToolDefinition.)",
     ].join("\n");
 
     expect(violations, message).toEqual([]);
