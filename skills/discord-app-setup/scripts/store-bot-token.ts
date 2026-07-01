@@ -43,14 +43,10 @@ async function storeVellum(): Promise<void> {
     stderr: "inherit",
   });
 
-  const exitCode = await proc.exited;
-  // Exit 130 is the CLI's "user cancelled the secure prompt" signal (SIGINT
-  // convention) — a valid choice, not a failure, and nothing was stored.
-  // Propagate it verbatim so the caller can distinguish it from a real error
-  // (any other non-zero exit).
-  if (exitCode !== 0) {
-    process.exitCode = exitCode === 130 ? 130 : 1;
-  }
+  // Propagate the CLI's exit code verbatim: 0 = stored, 130 = user cancelled
+  // the secure prompt (a valid choice — nothing stored), any other non-zero =
+  // a real error.
+  process.exitCode = await proc.exited;
 }
 
 async function main(): Promise<void> {
