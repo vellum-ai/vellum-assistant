@@ -2771,6 +2771,62 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
+  test("synthesized provider: stays 'processing' during synthesis latency, so barge-in cannot abort an inaudible turn", async () => {
+    const cfg = loadConfig();
+    cfg.services.tts.provider = "fish-audio";
+    cfg.services.tts.providers["fish-audio"].referenceId = "fish-ref-123";
+
+    _resetTtsProviderRegistry();
+    let releaseChunk: (() => void) | undefined;
+    const chunkGate = new Promise<void>((resolve) => {
+      releaseChunk = resolve;
+    });
+    const fishAudioStreaming: TtsProvider = {
+      id: "fish-audio",
+      capabilities: {
+        supportsStreaming: true,
+        supportedFormats: ["mp3", "wav", "opus"],
+      },
+      async synthesize() {
+        return { audio: Buffer.from("x"), contentType: "audio/mpeg" };
+      },
+      async synthesizeStream(_request, onChunk) {
+        // Simulate provider latency: emit no audio until the gate releases.
+        await chunkGate;
+        onChunk(Buffer.from("fish-audio-stream"));
+        return {
+          audio: Buffer.from("fish-audio-stream"),
+          contentType: "audio/mpeg",
+        };
+      },
+    };
+    registerTtsProvider(fishAudioStreaming);
+
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["Hello from synthesized path."]),
+    );
+    const { relay, controller } = setupController();
+
+    const turn = controller.handleCallerUtterance("Hi");
+    // Let the turn generate its text and reach synthesis, blocked on the gate.
+    await new Promise((r) => setTimeout(r, 20));
+
+    // No audio has reached the caller yet (play URL not sent), so the controller
+    // must stay in `processing` — a barge-in here would abort a turn the caller
+    // cannot hear. See JARVIS-1232.
+    expect(relay.sentPlayUrls.length).toBe(0);
+    expect(controller.getState()).toBe("processing");
+    expect(controller.handleBargeIn()).toBe(false);
+
+    // Release audio → play URL sent → turn finishes and returns to idle.
+    releaseChunk?.();
+    await turn;
+    expect(relay.sentPlayUrls.length).toBeGreaterThan(0);
+    expect(controller.getState()).toBe("idle");
+
+    controller.destroy();
+  });
+
   test("Deepgram selected path resolves useSynthesizedPath to true", () => {
     const cfg = loadConfig();
     cfg.services.tts.provider = "deepgram";

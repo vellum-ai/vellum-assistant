@@ -751,7 +751,10 @@ export class CallController {
     const sanitizedSynthText = sanitizeForTts(synthesizedTextBuffer.trim());
     if (useSynthesizedPath && provider && sanitizedSynthText.length > 0) {
       if (!this.isCurrentRun(runVersion)) return fullResponseText;
-      this.beginSpeaking(runVersion);
+      // Do NOT flip to `speaking` here — provider synthesis latency (or the
+      // no-audio fallback window) would still be silent. The transition happens
+      // inside synthesizeAndStreamAudio when the play URL / first audio chunk
+      // (or native fallback token) is actually emitted. See JARVIS-1232.
       await this.synthesizeAndStreamAudio(
         provider,
         sanitizedSynthText,
@@ -784,7 +787,7 @@ export class CallController {
   private async synthesizeAndStreamAudio(
     provider: TtsProvider,
     text: string,
-    _runVersion: number,
+    runVersion: number,
     format: "mp3" | "wav" | "opus" = "mp3",
   ): Promise<void> {
     let handle: ReturnType<typeof createStreamingEntry> | null = null;
@@ -808,6 +811,9 @@ export class CallController {
       const url = `${baseUrl}/v1/audio/${handle.audioId}`;
       const sendPlayUrlOnce = (): void => {
         if (playUrlSent) return;
+        // Audio is now actually reaching the caller — flip to `speaking` so
+        // barge-in can interrupt (it stays `processing` until this point).
+        this.beginSpeaking(runVersion);
         this.transport.sendPlayUrl(url);
         playUrlSent = true;
       };
@@ -895,6 +901,7 @@ export class CallController {
         // hears a response instead of silence. This fallback is only
         // used for providers whose catalog entry allows native fallback.
         if (!playUrlSent && !this.transport.requiresWavAudio) {
+          this.beginSpeaking(runVersion);
           this.transport.sendTextToken(text, false);
         }
       }
