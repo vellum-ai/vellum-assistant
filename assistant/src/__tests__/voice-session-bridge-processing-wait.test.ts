@@ -19,14 +19,17 @@ mock.module("../config/loader.js", () => ({
 import { resolveProcessingWaitMs } from "../calls/voice-session-bridge.js";
 
 describe("resolveProcessingWaitMs", () => {
-  test("adds a fixed margin to the default commit window", () => {
-    expect(resolveProcessingWaitMs(4000)).toBe(5000);
-    expect(resolveProcessingWaitMs(4000)).toBeGreaterThan(4000);
+  test("covers the default commit window plus abort unwind budget", () => {
+    expect(resolveProcessingWaitMs(4000, 5000)).toBe(10000);
   });
 
-  test("always returns strictly greater than the commit window", () => {
-    for (const n of [1, 100, 4000, 10000]) {
-      expect(resolveProcessingWaitMs(n)).toBeGreaterThan(n);
+  test("always returns strictly greater than the max lock-hold", () => {
+    for (const commit of [1, 100, 4000, 10000]) {
+      for (const abort of [1, 5000, 8000]) {
+        expect(resolveProcessingWaitMs(commit, abort)).toBeGreaterThan(
+          commit + abort,
+        );
+      }
     }
   });
 });

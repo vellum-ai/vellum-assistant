@@ -35,16 +35,23 @@ import {
 
 const log = getLogger("voice-session-bridge");
 
+const PROCESSING_WAIT_MARGIN_MS = 1000;
+// Must match ABORT_WATCHDOG_MS in conversation-agent-loop.ts. Mirrored here
+// rather than imported to keep this module (and its unit test) free of the
+// agent-loop's heavy dependency graph.
+const ABORT_UNWIND_BUDGET_MS = 5000;
 /**
  * How long startVoiceTurn waits for a prior turn to release the processing
- * lock before giving up. Must stay strictly greater than the agent loop's
- * turn-boundary commit window (workspaceGit.turnCommitMaxWaitMs) so the
- * bridge never gives up before the agent-loop `finally` can clear the lock.
- * See JARVIS-1232.
+ * lock before giving up. The prior turn can hold the lock for the abort
+ * unwind budget PLUS the awaited turn-boundary commit window, so the wait
+ * must cover both (+ margin) or a barge-in can still surface
+ * "Conversation is already processing a message". See JARVIS-1232.
  */
-const PROCESSING_WAIT_MARGIN_MS = 1000;
-export function resolveProcessingWaitMs(turnCommitMaxWaitMs: number): number {
-  return turnCommitMaxWaitMs + PROCESSING_WAIT_MARGIN_MS;
+export function resolveProcessingWaitMs(
+  turnCommitMaxWaitMs: number,
+  abortUnwindMs: number,
+): number {
+  return turnCommitMaxWaitMs + abortUnwindMs + PROCESSING_WAIT_MARGIN_MS;
 }
 
 // ---------------------------------------------------------------------------
@@ -375,6 +382,7 @@ export async function startVoiceTurn(
     const config = getConfig();
     const maxWaitMs = resolveProcessingWaitMs(
       config.workspaceGit?.turnCommitMaxWaitMs ?? 4000,
+      ABORT_UNWIND_BUDGET_MS,
     );
     const pollIntervalMs = 50;
     let waited = 0;
@@ -389,9 +397,10 @@ export async function startVoiceTurn(
       throw new Error("Turn aborted while waiting for conversation");
     }
     if (conversation.isProcessing()) {
-      // maxWaitMs is sized to exceed the agent loop's commit window so this
-      // bound is only a guardrail; decoupling the lock from the commit
-      // (see JARVIS-1232 PR 1) is the primary fix for the underlying race.
+      // maxWaitMs covers the abort unwind budget (ABORT_WATCHDOG_MS) plus the
+      // awaited turn-boundary commit window (turnCommitMaxWaitMs) plus a
+      // margin — the full span a prior turn can hold the lock — so reaching
+      // here means the prior turn is genuinely wedged. See JARVIS-1232.
       throw new Error("Conversation is already processing a message");
     }
   }
