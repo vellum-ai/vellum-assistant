@@ -913,7 +913,7 @@ export function LetsChatReadyStep({
         {/* One card per installed plugin (name + description), themed to match
             the "facts about you" cards. Directly under the title. */}
         {hasPlugins && (
-          <div className="mt-7 flex flex-col gap-3">
+          <div className="mt-4 flex flex-col gap-3">
             {plugins.map((p, i) => (
               <motion.div
                 key={p.name}
@@ -959,7 +959,7 @@ export function LetsChatReadyStep({
             animate={{ opacity: landed ? 1 : 0, x: landed ? 0 : -6 }}
             transition={reduce ? { duration: 0 } : { duration: 0.35 }}
           >
-            I&rsquo;ve set myself up around who you are.
+            I&rsquo;ve set myself up with plugins around who you are.
           </motion.p>
         </div>
 
