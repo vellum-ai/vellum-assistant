@@ -41,6 +41,7 @@ export type ResearchStep =
   | "intro"
   | "different"
   | "personality"
+  | "persona"
   | "integration"
   | "letschat"
   | "meeting"

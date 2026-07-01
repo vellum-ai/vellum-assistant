@@ -67,6 +67,7 @@ import { IntroductionScreen } from "@/domains/onboarding/screens/introduction-sc
 import { PitchStep } from "@/domains/onboarding/screens/intro-pitch-steps";
 import { IntegrationStep } from "@/domains/onboarding/screens/integration-step";
 import { CreatePersonalityStep } from "@/domains/onboarding/screens/create-personality-step";
+import { PersonaStep } from "@/domains/onboarding/screens/persona-step";
 import { LetsChatTomorrowStep } from "@/domains/onboarding/screens/lets-chat-tomorrow-step";
 import {
   MeetingCreatedStep,
@@ -192,6 +193,10 @@ export function ResearchOnboardingRoute() {
   const [personalityValues, setPersonalityValues] = useState<
     Record<string, number>
   >({});
+  // Free-text persona ("who do you want me to be?"), collected on the step after
+  // the sliders. Lives here alongside the slider values so it survives a
+  // step-back and is applied together with them on the persona step's continue.
+  const [persona, setPersona] = useState("");
   const [personalityLocked, setPersonalityLocked] = useState(false);
   // Id of the behind-the-scenes "research me" conversation. Captured the moment
   // it's minted (and restored from the snapshot on refresh) so a mid-search
@@ -552,6 +557,7 @@ export function ResearchOnboardingRoute() {
   const tonedSteps = [
     "different",
     "personality",
+    "persona",
     "integration",
     "letschat",
     "meeting",
@@ -600,25 +606,39 @@ export function ResearchOnboardingRoute() {
               setPersonalityValues((prev) => ({ ...prev, [axisId]: value }))
             }
             locked={personalityLocked}
+            // The sliders + persona are applied together on the persona step's
+            // continue, so this just advances (nothing is sent yet — a step-back
+            // can still adjust the sliders until then).
+            onContinue={() => goForwardTo("persona")}
+            onBack={() => goBackTo("different")}
+            onForward={onForward}
+          />
+        )}
+        {step === "persona" && (
+          <PersonaStep
+            persona={persona}
+            onPersonaChange={setPersona}
+            locked={personalityLocked}
             onContinue={() => {
-              // First continue applies the sliders to the assistant's persona on
-              // a throwaway side thread (awaits hatch readiness internally, then
-              // archives) and locks them — the prompt has been sent, so a later
-              // step-back can't silently diverge. Fire-and-forget: the rewrite
-              // turn finishes during the later steps, well before the chat
-              // handoff. Best-effort; never blocks the flow. A continue while
-              // already locked just advances.
+              // First continue applies the sliders + persona to the assistant's
+              // identity on a throwaway side thread (awaits hatch readiness
+              // internally, then archives) and locks them — the prompt has been
+              // sent, so a later step-back can't silently diverge. Fire-and-
+              // forget: the rewrite turn finishes during the later steps, well
+              // before the chat handoff. Best-effort; never blocks the flow. A
+              // continue while already locked just advances.
               if (!personalityLocked) {
                 void applyPersonality({
                   awaitAssistantId: awaitHatchReady,
                   values: personalityValues,
+                  persona: persona.trim() || undefined,
                   userName: formValues?.firstName?.trim() || undefined,
                 });
                 setPersonalityLocked(true);
               }
               goForwardTo("integration");
             }}
-            onBack={() => goBackTo("different")}
+            onBack={() => goBackTo("personality")}
             onForward={onForward}
           />
         )}
@@ -627,7 +647,7 @@ export function ResearchOnboardingRoute() {
             onClaim={() => goForwardTo("letschat")}
             onBumpEyes={() => setEyesBump((n) => n + 1)}
             onBack={() =>
-              goBackTo(personalityEnabled ? "personality" : "different")
+              goBackTo(personalityEnabled ? "persona" : "different")
             }
             onForward={onForward}
           />
