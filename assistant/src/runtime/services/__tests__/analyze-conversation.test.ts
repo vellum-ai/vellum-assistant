@@ -221,7 +221,7 @@ describe("analyzeConversation", () => {
       >
     )[0]?.[3]?.id;
     expect(typeof persistedId).toBe("string");
-    expect(currentConversation.currentRequestId).toBe(persistedId);
+    expect(currentConversation.currentRequestId).toBe(persistedId ?? null);
 
     // Fires the agent loop with the analyzeConversation call-site so the
     // per-call provider config flows through `resolveCallSiteConfig`, keying
@@ -450,7 +450,7 @@ describe("analyzeConversation", () => {
       >
     )[0]?.[3]?.id;
     expect(typeof persistedId).toBe("string");
-    expect(currentConversation.currentRequestId).toBe(persistedId);
+    expect(currentConversation.currentRequestId).toBe(persistedId ?? null);
     expect(currentConversation.runAgentLoop).toHaveBeenCalledWith(
       expect.any(String),
       persistedId,
