@@ -22,6 +22,7 @@ import {
   readdirSync,
   rmSync,
   unlinkSync,
+  writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
 
@@ -117,7 +118,11 @@ export function disablePlugin(name: string): TogglePluginResult {
   }
 
   // Write empty sentinel file — content is irrelevant, existence is the signal.
-  Bun.write(sentinelPath, "");
+  // Synchronous (like `enablePlugin`'s `unlinkSync`) so the sentinel is durable
+  // before the caller publishes `sync_changed`/returns 200, and a write failure
+  // throws synchronously into the route's try/catch instead of an unawaited
+  // `Bun.write` promise that could resolve/reject after the response.
+  writeFileSync(sentinelPath, "");
   return { name: validated, action: "disable", sentinelPath };
 }
 
