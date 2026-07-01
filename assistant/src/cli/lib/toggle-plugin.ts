@@ -119,9 +119,9 @@ export function disablePlugin(name: string): TogglePluginResult {
 
   // Write empty sentinel file — content is irrelevant, existence is the signal.
   // Synchronous (like `enablePlugin`'s `unlinkSync`) so the sentinel is durable
-  // before the caller publishes `sync_changed`/returns 200, and a write failure
-  // throws synchronously into the route's try/catch instead of an unawaited
-  // `Bun.write` promise that could resolve/reject after the response.
+  // before the caller returns, and a write failure throws synchronously into the
+  // caller's try/catch instead of an unawaited `Bun.write` promise that could
+  // resolve/reject after the response.
   writeFileSync(sentinelPath, "");
   return { name: validated, action: "disable", sentinelPath };
 }

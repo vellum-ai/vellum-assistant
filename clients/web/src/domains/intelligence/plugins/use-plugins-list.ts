@@ -229,12 +229,9 @@ export function usePluginsList(
   const unfilteredInstalledData =
     category !== null ? installedCountsQuery.data : installedQuery.data;
 
-  // Category-rail and plugin-toggle support are both sticky per-assistant daemon
-  // capabilities: observed live from the unfiltered read, latched so the UI
-  // doesn't flicker off while that read is momentarily pending mid category
-  // switch, and reset SYNCHRONOUSLY on assistant change (see the helper) so a
-  // prior assistant's `true` can't gate one render for a next assistant whose
-  // daemon omits the capability.
+  // Both are sticky per-assistant capabilities (see useStickyAssistantCapability),
+  // observed live from the unfiltered read: category support = counts present,
+  // toggle support = any installed plugin carries `enabled`.
   const categorySupported = useStickyAssistantCapability(
     assistantId,
     unfilteredInstalledData?.categoryCounts !== undefined,

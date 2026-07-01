@@ -26,13 +26,9 @@ interface PluginListRowProps {
 }
 
 /**
- * Unified row for the Plugins tab, mirroring `SkillRow`: an emoji icon, the
- * name with version + update badge, a description, and trailing inline
- * actions. Catalog entries show only Install; installed rows show an
- * Active/Off `Toggle` beside an always-present Remove, plus an "Update" chip
- * on the version line when the installed copy is behind the marketplace pin.
- * The whole row is a `role="button"` that fires `onSelect`; every trailing
- * control `stopPropagation`s so it never also selects the row.
+ * Unified row for the Plugins tab, mirroring `SkillRow`. The whole row is a
+ * `role="button"` that fires `onSelect`; every trailing control
+ * `stopPropagation`s so it never also selects the row.
  */
 export function PluginListRow({
   item,

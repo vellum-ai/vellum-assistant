@@ -27,11 +27,7 @@ interface PluginDetailMobileProps {
    * glyph immediately. `undefined` for deep-links with no matching row.
    */
   externalHint?: boolean;
-  /**
-   * Active/Off state from the selected list row (the per-plugin detail response
-   * doesn't carry `enabled`). `undefined` hides the toggle (older daemon /
-   * deep-link with no matching row).
-   */
+  /** Active/Off state seeded from the selected list row (see `PluginListItem.enabled`); `undefined` hides the toggle. */
   enabled?: boolean;
 }
 

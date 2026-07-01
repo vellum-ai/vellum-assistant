@@ -1272,9 +1272,8 @@ async function handleUpgradePlugin({
 /**
  * Map a `toggle-plugin` lib error onto the transport-agnostic route error.
  * `enablePlugin` / `disablePlugin` throw their own taxonomy (distinct from the
- * install/uninstall libs): a malformed name → 400, no plugin directory → 404,
- * and a no-op toggle (already in the requested state) → 409. Anything else
- * (e.g. a filesystem failure) surfaces as an unexpected 500.
+ * install/uninstall libs), which the branches below narrow to 400 / 404 / 409;
+ * anything unrecognized surfaces as an unexpected 500.
  */
 function mapTogglePluginError(err: unknown): RouteError {
   if (err instanceof InvalidTogglePluginNameError) {
@@ -1293,13 +1292,10 @@ function mapTogglePluginError(err: unknown): RouteError {
 
 /**
  * Toggle a plugin's `.disabled` sentinel through the shared toggle-plugin lib,
- * then publish a generic `sync_changed(plugins:list)` via the canonical
- * resource-sync publisher so every client refetches `GET /v1/plugins`. Enable
- * and disable emit the SAME invalidation — the tag names WHICH resource is
- * stale, not the new value. The origin client id is threaded through so the
- * initiating client can self-echo-suppress; `publishPluginsChanged` swallows
- * broadcast failures, so a hub error never fails a toggle that already
- * succeeded.
+ * then publish a generic `sync_changed(plugins:list)` so every client refetches
+ * `GET /v1/plugins`. Enable and disable emit the SAME invalidation — the tag
+ * names WHICH resource is stale, not the new value. The origin client id is
+ * threaded through for self-echo suppression.
  */
 function handleEnablePlugin({ pathParams = {}, headers }: RouteHandlerArgs) {
   try {

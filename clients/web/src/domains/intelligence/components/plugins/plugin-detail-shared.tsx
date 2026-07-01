@@ -152,18 +152,10 @@ interface PluginDetailActionsProps {
   isUpgrading: boolean;
   /** Gates whether an upgrade prompts before overwriting local edits. */
   hasLocalEdits: boolean;
-  /**
-   * Whether the installed copy is active in this workspace. `undefined` when the
-   * enablement isn't known (older daemon, or a deep-link with no list row) — the
-   * Active/Off toggle is hidden in that case. Only meaningful when installed.
-   */
+  /** Active state of the installed copy; `undefined` hides the Active/Off toggle (see `PluginListItem.enabled`). */
   enabled?: boolean;
-  /**
-   * Flip the plugin's active state (optimistic, no confirm). Paired with
-   * `enabled`; when either is absent the toggle is hidden.
-   */
+  /** Flip the plugin's active state (optimistic, no confirm dialog). */
   onToggle?: () => void;
-  /** True while this plugin's enable/disable request is in flight. */
   isToggling?: boolean;
 }
 
