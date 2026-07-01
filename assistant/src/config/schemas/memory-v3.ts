@@ -277,7 +277,7 @@ export const MemoryV3GateSchema = z
       .number({ error: "memory.v3.gate.sparseOnlyThreshold must be a number" })
       .min(0)
       .max(1)
-      .default(0.62)
+      .default(0.75)
       .describe(
         "Higher normalized-BM25F bar to pass on sparse signal alone when dense fails.",
       ),
