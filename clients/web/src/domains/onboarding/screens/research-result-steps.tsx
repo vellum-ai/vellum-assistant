@@ -945,8 +945,10 @@ export function LetsChatReadyStep({
 
         {/* The avatar line below the cards. No avatar of its own — it reserves a
             landing slot (`noteSlotRef`) for the single avatar that flies down
-            from the heading, mirroring SuggestionsStep. */}
-        <div className="mt-7 flex items-center gap-3">
+            from the heading, mirroring SuggestionsStep. The margin is generous
+            because the flown 64px avatar overflows this collapsed row (~22px),
+            so the visual gap above/below it matches the title→first-card gap. */}
+        <div className="mt-16 flex items-center gap-3">
           {/* Reserves the avatar's horizontal room but not its full height, so
               the row is only as tall as the text and the flown avatar lands
               vertically centered on the line (not within a 64px box). */}
@@ -970,7 +972,7 @@ export function LetsChatReadyStep({
           type="button"
           onClick={handleStart}
           disabled={starting}
-          className="mt-10 flex cursor-pointer h-11 w-[200px] items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition duration-150 enabled:active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60"
+          className="mt-16 flex cursor-pointer h-11 w-[200px] items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition duration-150 enabled:active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60"
           style={{
             backgroundColor: tone.isLight ? "#1A1A1A" : "#FFFFFF",
             color: tone.isLight ? "#FFFFFF" : "#1A1A1A",
