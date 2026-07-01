@@ -450,105 +450,117 @@ async function insertMessageCore(
   // The timestamp is recomputed each attempt so a late retry doesn't persist a
   // stale `updatedAt`.
   return withSqliteRetry(
-    (): InsertedMessage => {
-      const now = monotonicNow();
-      const values = {
-        id: messageId,
-        conversationId,
-        role,
-        content,
-        createdAt: now,
-        ...(metadataStr ? { metadata: metadataStr } : {}),
-        ...(clientMessageId ? { clientMessageId } : {}),
-      };
+    (): InsertedMessage =>
+      timeSyncSection(
+        "messages:insert",
+        (): InsertedMessage => {
+          const now = monotonicNow();
+          const values = {
+            id: messageId,
+            conversationId,
+            role,
+            content,
+            createdAt: now,
+            ...(metadataStr ? { metadata: metadataStr } : {}),
+            ...(clientMessageId ? { clientMessageId } : {}),
+          };
 
-      if (clientMessageId) {
-        // Idempotent insert: skip silently if this clientMessageId was
-        // already persisted for the conversation.
-        const raw = getSqliteFrom(db);
-        raw.exec("SAVEPOINT insert_msg");
-        try {
-          db.insert(messages).values(values).run();
-          if (originChannelCandidate) {
-            db.update(conversations)
-              .set({ originChannel: originChannelCandidate })
-              .where(
-                and(
-                  eq(conversations.id, conversationId),
-                  isNull(conversations.originChannel),
-                ),
-              )
-              .run();
-          }
-          db.update(conversations)
-            .set({ updatedAt: now, lastMessageAt: now })
-            .where(eq(conversations.id, conversationId))
-            .run();
-          raw.exec("RELEASE insert_msg");
-        } catch (insertErr) {
-          raw.exec("ROLLBACK TO insert_msg");
-          raw.exec("RELEASE insert_msg");
-          const code = (insertErr as { code?: string }).code ?? "";
-          if (code === "SQLITE_CONSTRAINT_UNIQUE") {
-            // Duplicate clientMessageId — return the existing row.
-            const existing = db
-              .select()
-              .from(messages)
-              .where(
-                and(
-                  eq(messages.conversationId, conversationId),
-                  eq(messages.clientMessageId, clientMessageId),
-                ),
-              )
-              .get();
-            if (existing) {
-              return {
-                id: existing.id,
-                conversationId: existing.conversationId,
-                role: existing.role as MessageRole,
-                content: existing.content,
-                createdAt: existing.createdAt,
-                ...(existing.metadata ? { metadata: existing.metadata } : {}),
-                clientMessageId: existing.clientMessageId ?? undefined,
-                deduplicated: true,
-              };
+          if (clientMessageId) {
+            // Idempotent insert: skip silently if this clientMessageId was
+            // already persisted for the conversation.
+            const raw = getSqliteFrom(db);
+            raw.exec("SAVEPOINT insert_msg");
+            try {
+              db.insert(messages).values(values).run();
+              if (originChannelCandidate) {
+                db.update(conversations)
+                  .set({ originChannel: originChannelCandidate })
+                  .where(
+                    and(
+                      eq(conversations.id, conversationId),
+                      isNull(conversations.originChannel),
+                    ),
+                  )
+                  .run();
+              }
+              db.update(conversations)
+                .set({ updatedAt: now, lastMessageAt: now })
+                .where(eq(conversations.id, conversationId))
+                .run();
+              raw.exec("RELEASE insert_msg");
+            } catch (insertErr) {
+              raw.exec("ROLLBACK TO insert_msg");
+              raw.exec("RELEASE insert_msg");
+              const code = (insertErr as { code?: string }).code ?? "";
+              if (code === "SQLITE_CONSTRAINT_UNIQUE") {
+                // Duplicate clientMessageId — return the existing row.
+                const existing = db
+                  .select()
+                  .from(messages)
+                  .where(
+                    and(
+                      eq(messages.conversationId, conversationId),
+                      eq(messages.clientMessageId, clientMessageId),
+                    ),
+                  )
+                  .get();
+                if (existing) {
+                  return {
+                    id: existing.id,
+                    conversationId: existing.conversationId,
+                    role: existing.role as MessageRole,
+                    content: existing.content,
+                    createdAt: existing.createdAt,
+                    ...(existing.metadata
+                      ? { metadata: existing.metadata }
+                      : {}),
+                    clientMessageId: existing.clientMessageId ?? undefined,
+                    deduplicated: true,
+                  };
+                }
+              }
+              throw insertErr;
             }
+          } else {
+            // No clientMessageId — standard insert inside a transaction.
+            db.transaction((tx) => {
+              tx.insert(messages).values(values).run();
+              if (originChannelCandidate) {
+                tx.update(conversations)
+                  .set({ originChannel: originChannelCandidate })
+                  .where(
+                    and(
+                      eq(conversations.id, conversationId),
+                      isNull(conversations.originChannel),
+                    ),
+                  )
+                  .run();
+              }
+              tx.update(conversations)
+                .set({ updatedAt: now, lastMessageAt: now })
+                .where(eq(conversations.id, conversationId))
+                .run();
+            });
           }
-          throw insertErr;
-        }
-      } else {
-        // No clientMessageId — standard insert inside a transaction.
-        db.transaction((tx) => {
-          tx.insert(messages).values(values).run();
-          if (originChannelCandidate) {
-            tx.update(conversations)
-              .set({ originChannel: originChannelCandidate })
-              .where(
-                and(
-                  eq(conversations.id, conversationId),
-                  isNull(conversations.originChannel),
-                ),
-              )
-              .run();
-          }
-          tx.update(conversations)
-            .set({ updatedAt: now, lastMessageAt: now })
-            .where(eq(conversations.id, conversationId))
-            .run();
-        });
-      }
 
-      return {
-        id: messageId,
-        conversationId,
-        role,
-        content,
-        createdAt: now,
-        ...(metadataStr ? { metadata: metadataStr } : {}),
-        ...(clientMessageId ? { clientMessageId } : {}),
-        deduplicated: false,
-      };
-    },
+          return {
+            id: messageId,
+            conversationId,
+            role,
+            content,
+            createdAt: now,
+            ...(metadataStr ? { metadata: metadataStr } : {}),
+            ...(clientMessageId ? { clientMessageId } : {}),
+            deduplicated: false,
+          };
+        },
+        () => ({
+          conversationId,
+          role,
+          contentBytes:
+            typeof content === "string" ? content.length : undefined,
+        }),
+      ),
     { op: "insertMessageCore", context: { conversationId } },
   );
 }
