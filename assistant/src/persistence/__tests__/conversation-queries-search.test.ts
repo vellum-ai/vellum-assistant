@@ -374,16 +374,17 @@ describe("searchConversations · qdrant backend", () => {
   });
 });
 
-describe("searchConversations · fts5 backend (default) ignores the lexical index", () => {
+describe("searchConversations · fts5 backend ignores the lexical index", () => {
   beforeEach(() => {
     resetTables();
-    // Backfill completion is irrelevant on the default backend, but clear it so
+    // Backfill completion is irrelevant on the fts5 backend, but clear it so
     // this suite does not depend on the qdrant suite's marker leaking across.
     deleteMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY);
     searchMessageIdsLexicalMock.mockClear();
     lexicalReturns(["should-not-be-used"]);
-    // Default backend: flag unset ⇒ fts5.
-    setOverridesForTesting({});
+    // Force fts5 explicitly: the flag now defaults to qdrant, so an unset flag
+    // would resolve to qdrant. An explicit `false` override pins the fts5 path.
+    setOverridesForTesting({ "messages-search-backend": false });
   });
 
   afterAll(() => {

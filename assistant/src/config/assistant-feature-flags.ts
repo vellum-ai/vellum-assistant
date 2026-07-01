@@ -329,18 +329,24 @@ export function isAssistantFeatureFlagEnabled(
 
 /**
  * Backends that resolve lexical message-content search.
- *   fts5   — SQLite FTS5 full-text index (default)
- *   qdrant — BM25-style sparse Qdrant lexical index (messages_lexical)
+ *   fts5   — SQLite FTS5 full-text index
+ *   qdrant — BM25-style sparse Qdrant lexical index (messages_lexical), the
+ *            registry default
  */
 export type MessagesSearchBackend = "fts5" | "qdrant";
 
 /**
  * Resolve the active messages search backend from the boolean
- * `messages-search-backend` flag. Disabled (default) ⇒ `fts5`; enabled
- * (boolean `true`) ⇒ `qdrant`. The raw comparison also treats a stray
- * string override of `"qdrant"` as enabled; every other value (`false`,
- * `"fts5"`, any other string, undefined) falls back to `fts5` so the safe
- * default always wins for an unexpected override.
+ * `messages-search-backend` flag. Enabled (the registry default, boolean
+ * `true`) ⇒ `qdrant`; disabled (boolean `false`) ⇒ `fts5`. The raw comparison
+ * also treats a stray string override of `"qdrant"` as enabled; every other
+ * value (`"fts5"`, any other string, undefined) falls back to `fts5` so the
+ * safe fallback always wins for an unexpected override.
+ *
+ * This resolves the flag only. The read sites gate it behind a lexical-backfill
+ * completion check ({@link isLexicalBackfillComplete}), so an upgraded instance
+ * keeps reading `fts5` until its Qdrant lexical index is fully populated even
+ * though the flag now defaults to `qdrant`.
  */
 export function getMessagesSearchBackend(
   config: AssistantConfig,

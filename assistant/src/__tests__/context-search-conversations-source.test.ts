@@ -7,7 +7,7 @@ import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 // Mutable stand-in for the Qdrant lexical candidate helper. The default
 // throws so any qdrant-path test that forgets to set an implementation fails
 // loudly rather than silently exercising an empty candidate set. FTS-path
-// tests never reach it (the flag defaults to fts5), so its value is irrelevant
+// tests never reach it (they pin the flag to fts5), so its value is irrelevant
 // there.
 let lexicalMockImpl: (
   query: string,
@@ -70,6 +70,15 @@ describe("searchConversationSource", () => {
   beforeEach(() => {
     getDb().run("DELETE FROM messages");
     getDb().run("DELETE FROM conversations");
+    // The flag now defaults to qdrant, so pin fts5 explicitly for this suite —
+    // an unset flag would otherwise resolve to qdrant. (The backfill gate would
+    // still keep these on fts5 since the checkpoint is unset here, but pinning
+    // the flag states the intent and isolates the suite from override leakage.)
+    setOverridesForTesting({ "messages-search-backend": false });
+  });
+
+  afterEach(() => {
+    setOverridesForTesting({});
   });
 
   test("returns matching message evidence through the FTS path", async () => {

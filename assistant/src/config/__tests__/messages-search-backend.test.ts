@@ -39,15 +39,16 @@ describe("getMessagesSearchBackend", () => {
   });
 
   // Each case seeds the override cache so the value flows through the real
-  // `getAssistantFeatureFlagValue` plumbing. The flag is boolean, so enabled
-  // (`true`) selects qdrant and disabled/unset falls back to fts5. The string
+  // `getAssistantFeatureFlagValue` plumbing. The flag is boolean and defaults
+  // to enabled in the registry, so an unset flag resolves to the registry
+  // default (qdrant); an explicit `false` override selects fts5. The string
   // cases are defensive: the override plumbing is typed `boolean | string`, so
   // a stray string could still arrive — only the exact `"qdrant"` selects
-  // qdrant; every other value falls back to the safe fts5 default.
+  // qdrant; every other value falls back to the safe fts5 fallback.
 
-  test("defaults to fts5 when the flag is unset", () => {
+  test("defaults to qdrant when the flag is unset (registry default)", () => {
     setOverridesForTesting({});
-    expect(getMessagesSearchBackend(CONFIG)).toBe("fts5");
+    expect(getMessagesSearchBackend(CONFIG)).toBe("qdrant");
   });
 
   test("returns qdrant when the flag is enabled (boolean true)", () => {

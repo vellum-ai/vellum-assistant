@@ -584,8 +584,11 @@ function resolveMessageSearchBackend(): "fts5" | "qdrant" {
  * The lexical backend is selected by the `messages-search-backend` feature
  * flag (see {@link getMessagesSearchBackend}) and gated by
  * {@link resolveMessageSearchBackend}:
- *   - `fts5` (default): the `messages_fts` virtual table for tokenized matching.
- *   - `qdrant`: the sparse `messages_lexical` Qdrant index (BM25-style).
+ *   - `qdrant` (flag default): the sparse `messages_lexical` Qdrant index
+ *     (BM25-style).
+ *   - `fts5`: the `messages_fts` virtual table for tokenized matching; the
+ *     fallback while memory is disabled or the lexical backfill has not yet
+ *     completed on an upgraded instance.
  * Both apply the same visibility/archived SQL filtering, merge with a `LIKE`
  * match on conversation titles, and return matching conversations with their
  * relevant messages ordered by most recently updated.
