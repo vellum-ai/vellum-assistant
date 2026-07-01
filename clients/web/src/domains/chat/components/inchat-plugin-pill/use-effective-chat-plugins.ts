@@ -15,13 +15,9 @@ type InstalledPlugin = PluginsGetResponse["plugins"][number];
 type ConversationDetail = ConversationsByIdGetResponse["conversation"];
 
 /**
- * The persisted per-conversation plugin scope (`enabled_plugins` column,
- * migration 312) is exposed on the conversation GET response by the sibling
- * daemon PR that adds the standalone edit route. Widen the generated
- * conversation shape locally so this read-only hook compiles and behaves
- * standalone (`null`/absent = default, all installed selected); once the
- * generated type declares the field this intersection is a no-op and surfaces
- * any wire-shape drift.
+ * Conversation detail shape widened with the per-chat plugin scope:
+ * `enabledPlugins` is `null`/absent when the chat has no restriction (every
+ * installed plugin selected), or a `string[]` scoping it to a subset.
  */
 type ConversationWithEnabledPlugins = ConversationDetail & {
   enabledPlugins?: string[] | null;
