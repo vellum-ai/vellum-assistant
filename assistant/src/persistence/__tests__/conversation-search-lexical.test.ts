@@ -28,15 +28,27 @@ const getMessagesLexicalIndexMock = mock(() => ({
   searchLexical: searchLexicalMock,
 }));
 
-// Mock both dependencies fully (no real-module spread): the helper imports
-// only `generateSparseEmbedding` and `getMessagesLexicalIndex`, and importing
-// the real `embedding-backend.js` would transitively pull provider/security
-// modules into the test for no benefit.
+// `embedding-backend` is mocked WITHOUT spreading the real module: importing
+// it transitively pulls provider/security modules (and `packages/service-
+// contracts` → `zod`) into the test for no benefit. The helper only imports
+// `generateSparseEmbedding`, so a targeted replacement is complete for this
+// file's needs.
 mock.module("../embeddings/embedding-backend.js", () => ({
   generateSparseEmbedding: generateSparseEmbeddingMock,
 }));
 
+// `messages-lexical-index` IS spread from the real module. Bun's
+// `mock.module` is process-global and is not undone by `mock.restore()`, so a
+// partial replacement would drop the module's other real exports
+// (`messagePointId`, `initMessagesLexicalIndex`, `MessagesLexicalIndex`, …)
+// for any test that runs later in the same process (e.g.
+// `embeddings/__tests__/messages-lexical-index.test.ts`, which imports
+// `messagePointId`). Spreading keeps those intact; its deps
+// (`@qdrant/js-client-rest`, `uuid`) are installed, so importing it is safe.
+const actualLexicalIndex =
+  await import("../embeddings/messages-lexical-index.js");
 mock.module("../embeddings/messages-lexical-index.js", () => ({
+  ...actualLexicalIndex,
   getMessagesLexicalIndex: getMessagesLexicalIndexMock,
 }));
 
