@@ -26,20 +26,34 @@ mock.module("../fetch.js", () => ({
 }));
 
 // ── Assistant DB proxy mocks ──────────────────────────────────────────────────
-type DbQueryFn = (sql: string, bind?: unknown[]) => Promise<Record<string, unknown>[]>;
-let assistantDbQueryMock: ReturnType<typeof mock<DbQueryFn>> = mock(async () => []);
+type DbQueryFn = (
+  sql: string,
+  bind?: unknown[],
+) => Promise<Record<string, unknown>[]>;
+let assistantDbQueryMock: ReturnType<typeof mock<DbQueryFn>> = mock(
+  async () => [],
+);
 
-type DbRunFn = (sql: string, bind?: unknown[]) => Promise<{ changes: number; lastInsertRowid: number }>;
-let assistantDbRunMock: ReturnType<typeof mock<DbRunFn>> = mock(async () => ({ changes: 1, lastInsertRowid: 0 }));
+type DbRunFn = (
+  sql: string,
+  bind?: unknown[],
+) => Promise<{ changes: number; lastInsertRowid: number }>;
+let assistantDbRunMock: ReturnType<typeof mock<DbRunFn>> = mock(async () => ({
+  changes: 1,
+  lastInsertRowid: 0,
+}));
 
 mock.module("../db/assistant-db-proxy.js", () => ({
-  assistantDbQuery: (...args: Parameters<DbQueryFn>) => assistantDbQueryMock(...args),
+  assistantDbQuery: (...args: Parameters<DbQueryFn>) =>
+    assistantDbQueryMock(...args),
   assistantDbRun: (...args: Parameters<DbRunFn>) => assistantDbRunMock(...args),
 }));
 
 // ── IPC assistant client mock ─────────────────────────────────────────────────
 type IpcCallFn = (method: string, params: unknown) => Promise<unknown>;
-let ipcCallAssistantMock: ReturnType<typeof mock<IpcCallFn>> = mock(async () => ({}));
+let ipcCallAssistantMock: ReturnType<typeof mock<IpcCallFn>> = mock(
+  async () => ({}),
+);
 
 class IpcHandlerError extends Error {
   readonly statusCode: number;
@@ -59,7 +73,8 @@ class IpcTransportError extends Error {
 }
 
 mock.module("../ipc/assistant-client.js", () => ({
-  ipcCallAssistant: (...args: Parameters<IpcCallFn>) => ipcCallAssistantMock(...args),
+  ipcCallAssistant: (...args: Parameters<IpcCallFn>) =>
+    ipcCallAssistantMock(...args),
   IpcHandlerError,
   IpcTransportError,
 }));
@@ -86,19 +101,25 @@ const DEFAULT_MOCK_CONTACT = {
 
 type UpsertResult = { contact: typeof DEFAULT_MOCK_CONTACT; created: boolean };
 type UpsertFn = (params: unknown) => Promise<UpsertResult>;
-let contactStoreUpsertMock: ReturnType<typeof mock<UpsertFn>> = mock(async () => ({
-  contact: DEFAULT_MOCK_CONTACT,
-  created: false,
-}));
+let contactStoreUpsertMock: ReturnType<typeof mock<UpsertFn>> = mock(
+  async () => ({
+    contact: DEFAULT_MOCK_CONTACT,
+    created: false,
+  }),
+);
 
 type ListFn = (opts?: {
   limit?: number;
   role?: string;
-}) => Promise<typeof DEFAULT_MOCK_CONTACT[]>;
-let contactStoreListMock: ReturnType<typeof mock<ListFn>> = mock(async () => []);
+}) => Promise<(typeof DEFAULT_MOCK_CONTACT)[]>;
+let contactStoreListMock: ReturnType<typeof mock<ListFn>> = mock(
+  async () => [],
+);
 
 type GetFn = (contactId: string) => Promise<typeof DEFAULT_MOCK_CONTACT | null>;
-let contactStoreGetMock: ReturnType<typeof mock<GetFn>> = mock(async () => null);
+let contactStoreGetMock: ReturnType<typeof mock<GetFn>> = mock(
+  async () => null,
+);
 
 // getAclByContactIds returns the gateway ACL source of truth keyed by contact
 // id; the overlay path on filtered/search list reads uses it. Default: empty
@@ -121,15 +142,24 @@ let contactStoreGetAclMock: ReturnType<typeof mock<GetAclFn>> = mock(
   async () => new Map<string, ContactAcl>(),
 );
 
-type UpdateChannelFn = (channelId: string, params: {
-  status?: string;
-  policy?: string;
-  reason?: string | null;
-}) => { id: string; contactId: string; status: string; policy: string } | null;
-let contactStoreUpdateChannelMock: ReturnType<typeof mock<UpdateChannelFn>> = mock(() => null);
+type UpdateChannelFn = (
+  channelId: string,
+  params: {
+    status?: string;
+    policy?: string;
+    reason?: string | null;
+  },
+) => { id: string; contactId: string; status: string; policy: string } | null;
+let contactStoreUpdateChannelMock: ReturnType<typeof mock<UpdateChannelFn>> =
+  mock(() => null);
 
-type MergeFn = (keepId: string, mergeId: string) => Promise<typeof DEFAULT_MOCK_CONTACT | null>;
-let contactStoreMergeMock: ReturnType<typeof mock<MergeFn>> = mock(async () => null);
+type MergeFn = (
+  keepId: string,
+  mergeId: string,
+) => Promise<typeof DEFAULT_MOCK_CONTACT | null>;
+let contactStoreMergeMock: ReturnType<typeof mock<MergeFn>> = mock(
+  async () => null,
+);
 
 // ── Invite method mocks ───────────────────────────────────────────────────────
 type InviteRow = {
@@ -171,14 +201,12 @@ let contactStoreListInvitesMock: ReturnType<typeof mock<ListInvitesFn>> = mock(
 );
 
 type CreateInviteFn = (params: unknown) => InviteRow;
-let contactStoreCreateInviteMock: ReturnType<typeof mock<CreateInviteFn>> = mock(
-  () => DEFAULT_INVITE,
-);
+let contactStoreCreateInviteMock: ReturnType<typeof mock<CreateInviteFn>> =
+  mock(() => DEFAULT_INVITE);
 
 type RevokeInviteFn = (inviteId: string) => InviteRow | null;
-let contactStoreRevokeInviteMock: ReturnType<typeof mock<RevokeInviteFn>> = mock(
-  () => DEFAULT_INVITE,
-);
+let contactStoreRevokeInviteMock: ReturnType<typeof mock<RevokeInviteFn>> =
+  mock(() => DEFAULT_INVITE);
 
 type RecordRedemptionFn = (params: unknown) => {
   updated: boolean;
@@ -228,11 +256,14 @@ mock.module("../db/contact-store.js", () => ({
     async getAclByContactIds(ids: string[]) {
       return contactStoreGetAclMock(ids);
     }
-    async updateChannelStatus(channelId: string, params: {
-      status?: string;
-      policy?: string;
-      reason?: string | null;
-    }) {
+    async updateChannelStatus(
+      channelId: string,
+      params: {
+        status?: string;
+        policy?: string;
+        reason?: string | null;
+      },
+    ) {
       return contactStoreUpdateChannelMock(channelId, params);
     }
     async mergeContacts(keepId: string, mergeId: string) {
@@ -242,7 +273,9 @@ mock.module("../db/contact-store.js", () => ({
   CannotRevokeBlockedError: class CannotRevokeBlockedError extends Error {
     readonly channelId: string;
     constructor(channelId: string) {
-      super("Cannot revoke a blocked channel. Unblock it first or leave it blocked.");
+      super(
+        "Cannot revoke a blocked channel. Unblock it first or leave it blocked.",
+      );
       this.name = "CannotRevokeBlockedError";
       this.channelId = channelId;
     }
@@ -261,9 +294,8 @@ const { createContactsControlPlaneProxyHandler } =
 // The delete-contact guard reads the guardian role from the gateway DB (source
 // of truth), so the delete tests below run against a real in-memory gateway DB.
 // ContactStore is fully mocked, so other tests never touch it.
-const { initGatewayDb, getGatewayDb, resetGatewayDb } = await import(
-  "../db/connection.js"
-);
+const { initGatewayDb, getGatewayDb, resetGatewayDb } =
+  await import("../db/connection.js");
 const { contacts: gwContacts } = await import("../db/schema.js");
 
 beforeAll(async () => {
@@ -724,7 +756,12 @@ describe("handleUpsertContact (gateway-native)", () => {
     expect(res.status).toBe(200);
     expect(contactStoreUpsertMock).toHaveBeenCalledTimes(1);
     const [params] = contactStoreUpsertMock.mock.calls[0] as [
-      { assistantMetadata?: { species: string; metadata?: Record<string, unknown> } },
+      {
+        assistantMetadata?: {
+          species: string;
+          metadata?: Record<string, unknown>;
+        };
+      },
     ];
     expect(params.assistantMetadata?.species).toBe("vellum");
     expect(params.assistantMetadata?.metadata?.assistantId).toBe("asst_123");
@@ -1179,9 +1216,7 @@ describe("handleListContacts ACL overlay (filtered/search path)", () => {
         },
       ],
     });
-    fetchMock = mock(async () =>
-      daemonResponse([daemonContact(), c2]),
-    );
+    fetchMock = mock(async () => daemonResponse([daemonContact(), c2]));
     // Only c1 is in the gateway ACL map; c2 is the dual-write-gap survivor.
     contactStoreGetAclMock = mock(
       async () =>
@@ -1269,7 +1304,10 @@ describe("handleListContacts ACL overlay (filtered/search path)", () => {
     // Daemon sends a content-length matching its NEUTRAL body. The overlay
     // grows the body (role + ACL fields), so reusing that length would
     // truncate the response. We must drop it and let the runtime recompute.
-    const neutralBody = JSON.stringify({ ok: true, contacts: [daemonContact()] });
+    const neutralBody = JSON.stringify({
+      ok: true,
+      contacts: [daemonContact()],
+    });
     fetchMock = mock(
       async () =>
         new Response(neutralBody, {
@@ -1364,7 +1402,10 @@ describe("handleGetContact (gateway-native)", () => {
       ...DEFAULT_MOCK_CONTACT,
       id: "c1",
       contactType: "assistant",
-      assistantMetadata: { species: "vellum", metadata: { assistantId: "asst_1" } },
+      assistantMetadata: {
+        species: "vellum",
+        metadata: { assistantId: "asst_1" },
+      },
     };
     contactStoreGetMock = mock(async () => mockContact);
 
@@ -1803,29 +1844,29 @@ describe("handleMergeContacts (gateway-native)", () => {
   });
 });
 
-  test("returns 400 when merging away a guardian contact", async () => {
-    const { MergeContactsError } = await import("../db/contact-store.js");
-    contactStoreMergeMock = mock(async () => {
-      throw new MergeContactsError(
-        "Cannot merge away a guardian contact. Keep the guardian as the survivor instead.",
-      );
-    });
-
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleMergeContacts(
-      new Request("http://localhost:7830/v1/contacts/merge", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ keepId: "ct_regular", mergeId: "ct_guardian" }),
-      }),
+test("returns 400 when merging away a guardian contact", async () => {
+  const { MergeContactsError } = await import("../db/contact-store.js");
+  contactStoreMergeMock = mock(async () => {
+    throw new MergeContactsError(
+      "Cannot merge away a guardian contact. Keep the guardian as the survivor instead.",
     );
-
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error.code).toBe("BAD_REQUEST");
-    expect(body.error.message).toMatch(/guardian/);
-    expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  const handler = createContactsControlPlaneProxyHandler(makeConfig());
+  const res = await handler.handleMergeContacts(
+    new Request("http://localhost:7830/v1/contacts/merge", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ keepId: "ct_regular", mergeId: "ct_guardian" }),
+    }),
+  );
+
+  expect(res.status).toBe(400);
+  const body = await res.json();
+  expect(body.error.code).toBe("BAD_REQUEST");
+  expect(body.error.message).toMatch(/guardian/);
+  expect(fetchMock).not.toHaveBeenCalled();
+});
 
 describe("handleDeleteContact (gateway-native)", () => {
   function seedGatewayContact(id: string, role: "guardian" | "contact") {
@@ -1861,12 +1902,7 @@ describe("handleDeleteContact (gateway-native)", () => {
     expect(body.error.code).toBe("FORBIDDEN");
     // Neither DB was deleted from.
     expect(assistantDbRunMock).not.toHaveBeenCalled();
-    expect(
-      getGatewayDb()
-        .select()
-        .from(gwContacts)
-        .all(),
-    ).toHaveLength(1);
+    expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(1);
   });
 
   test("deletes a non-guardian contact from both DBs", async () => {
@@ -1877,15 +1913,27 @@ describe("handleDeleteContact (gateway-native)", () => {
 
     expect(res.status).toBe(204);
     expect(assistantDbRunMock).toHaveBeenCalledTimes(1);
-    expect(
-      getGatewayDb()
-        .select()
-        .from(gwContacts)
-        .all(),
-    ).toHaveLength(0);
+    expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(0);
   });
 
-  test("returns 404 when the contact is absent from the gateway DB", async () => {
+  test("deletes an assistant-mirror-only orphan the gateway DB never recorded", async () => {
+    // No gateway row (a dual-write gap on inbound seeding), but the assistant
+    // mirror holds the contact — the list can surface it, so delete must clean
+    // it up instead of 404ing and leaving it stuck in the UI.
+    assistantDbQueryMock = mock(async () => [{ id: "ct_orphan" }]);
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleDeleteContact("ct_orphan");
+
+    expect(res.status).toBe(204);
+    // The mirror delete ran; the gateway delete is a harmless no-op.
+    expect(assistantDbRunMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("returns 404 only when the contact is absent from both DBs", async () => {
+    // Absent from the gateway DB (not seeded) and from the assistant mirror.
+    assistantDbQueryMock = mock(async () => []);
+
     const handler = createContactsControlPlaneProxyHandler(makeConfig());
     const res = await handler.handleDeleteContact("ct_missing");
 
@@ -2057,7 +2105,10 @@ describe("handleCreateInvite (gateway-native)", () => {
       new Request("http://localhost:7830/v1/contacts/invites", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ contactId: "ct_missing", sourceChannel: "telegram" }),
+        body: JSON.stringify({
+          contactId: "ct_missing",
+          sourceChannel: "telegram",
+        }),
       }),
     );
 

@@ -404,7 +404,10 @@ export async function listInvitesNative(
     );
   }
 
-  log.info({ count: invites.length, ...query }, "list_invites: handled natively");
+  log.info(
+    { count: invites.length, ...query },
+    "list_invites: handled natively",
+  );
   return { invites };
 }
 
@@ -453,7 +456,10 @@ export async function createInviteNative(
       // Propagate the assistant's status/code unchanged.
       throw err;
     }
-    log.error({ err, contactId: input.contactId }, "create_invite: mint failed");
+    log.error(
+      { err, contactId: input.contactId },
+      "create_invite: mint failed",
+    );
     throw new InviteNativeError("Failed to mint invite", 500, "INTERNAL_ERROR");
   }
 
@@ -580,7 +586,10 @@ export async function triggerInviteCallNative(
     const result = (await ipcCallAssistant("invites_trigger_call", {
       pathParams: { id: inviteId },
     } as unknown as Record<string, unknown>)) as { callSid: string };
-    log.info({ inviteId, callSid: result.callSid }, "call_invite: handled natively");
+    log.info(
+      { inviteId, callSid: result.callSid },
+      "call_invite: handled natively",
+    );
     return { callSid: result.callSid };
   } catch (err) {
     if (err instanceof IpcHandlerError) {
@@ -857,8 +866,7 @@ function overlayAclOntoContacts(
       if (typeof ch !== "object" || ch === null) continue;
       const channel = ch as Record<string, unknown>;
       const chId = channel.id;
-      let match =
-        typeof chId === "string" ? acl.channels.get(chId) : undefined;
+      let match = typeof chId === "string" ? acl.channels.get(chId) : undefined;
       if (!match) {
         const type = channel.type;
         const address = channel.address;
@@ -999,7 +1007,8 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       const role = url.searchParams.get("role") ?? undefined;
       const contactType = url.searchParams.get("contactType") ?? undefined;
       const query = url.searchParams.get("query") ?? undefined;
-      const channelAddress = url.searchParams.get("channelAddress") ?? undefined;
+      const channelAddress =
+        url.searchParams.get("channelAddress") ?? undefined;
       const channelType = url.searchParams.get("channelType") ?? undefined;
 
       // Validate contactType before any proxy fallback.
@@ -1038,7 +1047,10 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
           contacts: contacts.map(toContactPayload),
         });
       } catch (err) {
-        log.error({ err }, "list_contacts: gateway-native read failed, falling back to proxy");
+        log.error(
+          { err },
+          "list_contacts: gateway-native read failed, falling back to proxy",
+        );
         return forward(req, "/v1/contacts", url.search);
       }
     },
@@ -1325,21 +1337,40 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
           assistantMetadata: assistantMetadata ?? undefined,
         });
       } catch (err) {
-        log.error({ err, contactId }, "get_contact: gateway-native read failed, falling back to proxy");
+        log.error(
+          { err, contactId },
+          "get_contact: gateway-native read failed, falling back to proxy",
+        );
         return forward(req, `/v1/contacts/${contactId}`);
       }
     },
 
     async handleDeleteContact(contactId: string): Promise<Response> {
-      // Guardian role is gateway-DB source of truth: a dual-write-gap survivor
-      // whose assistant row is missing/defaulted must not bypass this guard.
-      const row = getGatewayDb()
+      // The gateway DB is the source of truth for role + ACL, but the assistant
+      // DB is a best-effort mirror that can hold a contact the gateway never
+      // recorded (a dual-write gap on inbound seeding: the mirror row lands, then
+      // the gateway write is swallowed on error or a (type,address) conflict).
+      // The contacts list can surface such an orphan (search/filter reads fall
+      // back to the daemon), so resolve the contact in BOTH stores and delete it
+      // from whichever holds it; 404 only when it exists in neither. Channels
+      // cascade on delete in each DB.
+      const gatewayRow = getGatewayDb()
         .select({ role: contacts.role })
         .from(contacts)
         .where(eq(contacts.id, contactId))
         .get();
-      if (!row) {
-        log.warn({ contactId }, "delete_contact: not found");
+
+      const mirrorRows = await assistantDbQuery<{ id: string }>(
+        "SELECT id FROM contacts WHERE id = ? LIMIT 1",
+        [contactId],
+      );
+      const inMirror = mirrorRows.length > 0;
+
+      if (!gatewayRow && !inMirror) {
+        log.warn(
+          { contactId },
+          "delete_contact: not found in gateway or assistant DB",
+        );
         return Response.json(
           {
             error: {
@@ -1350,7 +1381,11 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
           { status: 404 },
         );
       }
-      if (row.role === "guardian") {
+
+      // Guardian role is gateway-DB source of truth. Guardians are always
+      // created gateway-first, so an absent gateway row is never a guardian; a
+      // gateway guardian row is protected regardless of the mirror state.
+      if (gatewayRow?.role === "guardian") {
         log.warn({ contactId }, "delete_contact: attempted to delete guardian");
         return Response.json(
           {
@@ -1362,12 +1397,19 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
           { status: 403 },
         );
       }
+
+      // Delete from both stores (a delete against the store lacking the row is a
+      // harmless no-op), so an assistant-only orphan is cleaned up and stops
+      // showing in the UI.
       await assistantDbRun("DELETE FROM contacts WHERE id = ?", [contactId]);
       getGatewayDb().delete(contacts).where(eq(contacts.id, contactId)).run();
       void ipcCallAssistant("emit_event", {
         body: { kind: "contacts_changed" },
       } as unknown as Record<string, unknown>).catch(() => {});
-      log.info({ contactId }, "delete_contact: deleted");
+      log.info(
+        { contactId, gateway: !!gatewayRow, mirror: inMirror },
+        "delete_contact: deleted",
+      );
       return new Response(null, { status: 204 });
     },
 
