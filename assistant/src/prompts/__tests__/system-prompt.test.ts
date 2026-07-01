@@ -8,7 +8,7 @@
 
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
@@ -122,6 +122,133 @@ describe("buildSystemPrompt — persona override", () => {
     });
 
     expect(result).toContain(DEFAULT_SENTINEL);
+  });
+});
+
+describe("buildSystemPrompt — default persona trust-class guardrail", () => {
+  // Marker strings from the bundled users/default.md template.
+  const GUARDRAIL = "Protect your guardian's privacy";
+  const TRUSTED_GREETING = "You're talking with a trusted contact";
+  const STRANGER_GREETING = "You're talking with someone you don't recognize";
+
+  const templatesDir = join(import.meta.dirname!, "..", "templates");
+  let priorAuthEnv: string | undefined;
+
+  beforeEach(() => {
+    // Captured so the DISABLE_HTTP_AUTH regression test below can restore it.
+    priorAuthEnv = process.env.DISABLE_HTTP_AUTH;
+
+    mkdirSync(join(TEST_DIR, "users"), { recursive: true });
+    // Render the real shipped template, not a sentinel.
+    copyFileSync(
+      join(templatesDir, "users", "default.md"),
+      join(TEST_DIR, "users", "default.md"),
+    );
+  });
+
+  afterEach(() => {
+    if (priorAuthEnv === undefined) delete process.env.DISABLE_HTTP_AUTH;
+    else process.env.DISABLE_HTTP_AUTH = priorAuthEnv;
+  });
+
+  test("stranger (unknown) sees the guardrail and the stranger greeting", () => {
+    const result = buildSystemPrompt({
+      trustContext: { sourceChannel: "slack", trustClass: "unknown" },
+    });
+
+    expect(result).toContain(GUARDRAIL);
+    expect(result).toContain(STRANGER_GREETING);
+    expect(result).not.toContain(TRUSTED_GREETING);
+  });
+
+  test("trusted contact sees the guardrail and the trusted greeting", () => {
+    const result = buildSystemPrompt({
+      trustContext: { sourceChannel: "slack", trustClass: "trusted_contact" },
+    });
+
+    expect(result).toContain(GUARDRAIL);
+    expect(result).toContain(TRUSTED_GREETING);
+    expect(result).not.toContain(STRANGER_GREETING);
+  });
+
+  test("unverified contact is framed like a trusted contact", () => {
+    const result = buildSystemPrompt({
+      trustContext: {
+        sourceChannel: "slack",
+        trustClass: "unverified_contact",
+      },
+    });
+
+    expect(result).toContain(GUARDRAIL);
+    expect(result).toContain(TRUSTED_GREETING);
+    expect(result).not.toContain(STRANGER_GREETING);
+  });
+
+  test("guardian trust class gates the whole default persona off", () => {
+    // A guardian normally renders their own users/<slug>.md; if they ever fall
+    // back to default.md, every section is gated off and nothing leaks.
+    const result = buildSystemPrompt({
+      trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
+    });
+
+    expect(result).not.toContain(GUARDRAIL);
+    expect(result).not.toContain(TRUSTED_GREETING);
+    expect(result).not.toContain(STRANGER_GREETING);
+  });
+
+  test("renders for a non-guardian even when HTTP auth is disabled", () => {
+    // Platform-managed deployments run with DISABLE_HTTP_AUTH=true. A *present*
+    // trustContext must keep the actor's real class under that posture
+    // (resolveTrustClass only fail-safes *unresolved* actors), or the guardrail
+    // would silently switch off for the non-guardian channel actors it exists
+    // to protect.
+    process.env.DISABLE_HTTP_AUTH = "true";
+    const result = buildSystemPrompt({
+      trustContext: { sourceChannel: "slack", trustClass: "unknown" },
+    });
+
+    expect(result).toContain(GUARDRAIL);
+    expect(result).toContain(STRANGER_GREETING);
+  });
+
+  test("gates off for an unresolved local build when HTTP auth is disabled", () => {
+    // Initial-prompt warming, home generation, and btw sidechains build
+    // prompts with NO trustContext on behalf of the owner. In an auth-disabled
+    // (local / platform-managed) deployment that unresolved actor is the
+    // guardian, so the guardrail must not render into those guardian-facing
+    // prompts (fail-stranger would stonewall the owner about their own data).
+    process.env.DISABLE_HTTP_AUTH = "true";
+    const result = buildSystemPrompt({});
+
+    expect(result).not.toContain(GUARDRAIL);
+    expect(result).not.toContain(TRUSTED_GREETING);
+    expect(result).not.toContain(STRANGER_GREETING);
+  });
+
+  test("fails closed to the guardrail for an unresolved build when auth is enabled", () => {
+    // With auth enabled there is no basis to assume the unresolved actor is
+    // the guardian, so an unclassifiable build keeps the boundary.
+    delete process.env.DISABLE_HTTP_AUTH;
+    const result = buildSystemPrompt({});
+
+    expect(result).toContain(GUARDRAIL);
+    expect(result).toContain(STRANGER_GREETING);
+  });
+
+  test("never leaks literal mustache tags or comment lines", () => {
+    for (const trustClass of [
+      "unknown",
+      "trusted_contact",
+      "unverified_contact",
+      "guardian",
+    ] as const) {
+      const result = buildSystemPrompt({
+        trustContext: { sourceChannel: "slack", trustClass },
+      });
+      expect(result).not.toContain("{{");
+      expect(result).not.toContain("}}");
+      expect(result).not.toContain("Lines starting with");
+    }
   });
 });
 

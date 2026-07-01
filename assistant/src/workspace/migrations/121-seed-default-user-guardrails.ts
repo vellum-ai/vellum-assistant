@@ -1,4 +1,16 @@
-_ Lines starting with _ are comments — they won't appear in the system prompt.
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+import type { WorkspaceMigration } from "./types.js";
+
+// Inlined snapshot of the bundled `users/default.md` persona template so this
+// migration is self-contained even if the template later changes or moves.
+// This is the persona rendered for non-guardian actors (Slack and other
+// channel contacts); the mustache gates resolve against the trust class lifted
+// onto the system-prompt render context. The privacy guardrail keeps the
+// assistant from disclosing the guardian's personal information to anyone who
+// is not the guardian.
+const DEFAULT_USER_PERSONA_TEMPLATE = `_ Lines starting with _ are comments — they won't appear in the system prompt.
 _ This file shapes how you behave when the person you're talking to is NOT your guardian:
 _ a trusted contact your guardian has added, or someone you don't recognize. Your guardian
 _ has their own users/<name>.md profile, so editing this file never changes how you treat
@@ -34,3 +46,37 @@ If you're asked for any of this, don't share it. Offer to pass along a message, 
 
 You can still be genuinely helpful — answer general questions, do research, and help with the person's own request — as long as doing so doesn't reveal your guardian's private information. When something is borderline, don't disclose; check with your guardian first.
 {{/isGuardian}}
+`;
+
+export const seedDefaultUserGuardrailsMigration: WorkspaceMigration = {
+  id: "121-seed-default-user-guardrails",
+  description:
+    "Seed users/default.md with the non-guardian privacy guardrail for existing installs",
+
+  down(_workspaceDir: string): void {
+    // No-op: we don't delete or revert user-editable persona files on rollback.
+  },
+
+  run(workspaceDir: string): void {
+    const usersDir = join(workspaceDir, "users");
+    const defaultPath = join(usersDir, "default.md");
+
+    // Existing installs seeded an empty users/default.md before the guardrail
+    // existed. Populate it only when it is absent or blank so we backfill the
+    // guardrail without clobbering any customization the guardian has written.
+    // Fresh installs already receive the guardrail from the bundled template
+    // via ensurePromptFiles() (which runs before workspace migrations), so this
+    // is a no-op there.
+    if (existsSync(defaultPath)) {
+      try {
+        if (readFileSync(defaultPath, "utf-8").trim().length > 0) return;
+      } catch {
+        // Unreadable file: leave it untouched rather than risk overwriting.
+        return;
+      }
+    }
+
+    mkdirSync(usersDir, { recursive: true });
+    writeFileSync(defaultPath, DEFAULT_USER_PERSONA_TEMPLATE, "utf-8");
+  },
+};
