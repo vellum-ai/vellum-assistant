@@ -96,7 +96,7 @@ const PERSONA_EXAMPLES: PersonaExample[] = [
 ];
 
 /** Cadence for the showcase / example rotation. */
-const ROTATE_INTERVAL_MS = 3000;
+const ROTATE_INTERVAL_MS = 1600;
 
 /** Mini-avatar size in the rotating showcase. */
 const SHOWCASE_AVATAR = 52;
@@ -178,7 +178,7 @@ export function PersonaStep({
               initial={reduce ? false : { opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               exit={reduce ? { opacity: 0 } : { opacity: 0, y: -12 }}
-              transition={{ duration: 0.3, ease: "easeOut" }}
+              transition={{ duration: 0.22, ease: "easeOut" }}
             >
               <div
                 className="shrink-0"
