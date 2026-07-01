@@ -9,6 +9,7 @@ import {
   getModelsForProvider,
   PROVIDER_DISPLAY_NAMES,
 } from "@/assistant/llm-model-catalog";
+import { INVARIANT_PROFILE_NAMES } from "@/domains/settings/ai/constants";
 import type { ProfileWithName } from "@/domains/settings/ai/utils";
 
 // ---------------------------------------------------------------------------
@@ -98,6 +99,7 @@ export function ProfileListItem({
   onStatusToggle,
 }: ProfileListItemProps) {
   const isManaged = profile.source === "managed";
+  const isInvariant = isManaged && INVARIANT_PROFILE_NAMES.has(profile.name);
   const isActive = profile.status !== "disabled";
 
   return (
@@ -132,7 +134,11 @@ export function ProfileListItem({
             {isManaged && (
               <Tag
                 tone="positive"
-                title="Managed by Platform — auth is locked, but you can rename or disable this profile."
+                title={
+                  isInvariant
+                    ? "Managed by Platform — this default profile cannot be disabled or renamed."
+                    : "Managed by Platform — auth is locked, but you can rename or disable this profile."
+                }
               >
                 Platform
               </Tag>
@@ -151,21 +157,23 @@ export function ProfileListItem({
 
         {/* Actions */}
         <div className="flex shrink-0 items-center gap-2">
-          <div
-            className="flex shrink-0 items-center"
-            title={
-              isActive
-                ? "Active — toggle to hide from pickers"
-                : "Disabled — toggle to show in pickers"
-            }
-          >
-            <Toggle
-              checked={isActive}
-              onChange={(next) => onStatusToggle(next)}
-              disabled={isToggling}
-              aria-label={`${isActive ? "Disable" : "Enable"} ${profile.label ?? profile.name}`}
-            />
-          </div>
+          {isInvariant ? null : (
+            <div
+              className="flex shrink-0 items-center"
+              title={
+                isActive
+                  ? "Active — toggle to hide from pickers"
+                  : "Disabled — toggle to show in pickers"
+              }
+            >
+              <Toggle
+                checked={isActive}
+                onChange={(next) => onStatusToggle(next)}
+                disabled={isToggling}
+                aria-label={`${isActive ? "Disable" : "Enable"} ${profile.label ?? profile.name}`}
+              />
+            </div>
+          )}
           <div className="flex w-[92px] items-center justify-end gap-2">
             <Button variant="ghost" size="compact" onClick={onEditClick}>
               {isManaged ? "View" : "Edit"}

@@ -22,3 +22,14 @@ export const INFERENCE_PROVIDERS = [
 export const TOKEN_SLIDER_MIN_TOKENS = 1_000;
 export const TOKEN_SLIDER_STEP_TOKENS = 1_000;
 export const DEFAULT_CONTEXT_WINDOW_BUDGET_TOKENS = 200_000;
+
+/**
+ * Default managed profiles that are invariant: they cannot be disabled or
+ * relabeled because many internal call sites depend on them always existing
+ * with stable identities.
+ */
+export const INVARIANT_PROFILE_NAMES = new Set([
+  "balanced",
+  "quality-optimized",
+  "cost-optimized",
+]);

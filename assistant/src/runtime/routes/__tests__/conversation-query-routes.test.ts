@@ -940,22 +940,63 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
 
   describe("managed profile guard", () => {
     beforeEach(() => {
-      // Seed a managed profile alongside the existing custom one.
-      (rawConfigFixture.llm as { profiles: Record<string, unknown> }).profiles[
-        "balanced"
-      ] = {
+      // Seed managed profiles alongside the existing custom one.
+      const profiles = (
+        rawConfigFixture.llm as { profiles: Record<string, unknown> }
+      ).profiles;
+      profiles["balanced"] = {
         source: "managed",
         provider: "anthropic",
         model: "claude-sonnet-4-6",
         label: "Balanced",
         status: "active",
       };
+      profiles["os-beta"] = {
+        source: "managed",
+        provider: "fireworks",
+        model: "accounts/fireworks/models/test",
+        label: "OS Beta",
+        status: "active",
+      };
     });
 
-    test("allows label edit on managed profile, preserving seed fields", async () => {
+    test("rejects label edit on invariant profile", async () => {
+      await expect(
+        replaceProfileRoute.handler({
+          pathParams: { name: "balanced" },
+          body: { label: "My Balanced" },
+        }),
+      ).rejects.toThrow(
+        /Cannot edit invariant profile "balanced" fields \[label\]/,
+      );
+    });
+
+    test("rejects status edit on invariant profile", async () => {
+      await expect(
+        replaceProfileRoute.handler({
+          pathParams: { name: "balanced" },
+          body: { status: "disabled" },
+        }),
+      ).rejects.toThrow(
+        /Cannot edit invariant profile "balanced" fields \[status\]/,
+      );
+    });
+
+    test("rejects label+status edit on invariant profile", async () => {
+      await expect(
+        replaceProfileRoute.handler({
+          pathParams: { name: "balanced" },
+          body: { label: "Renamed", status: "disabled" },
+        }),
+      ).rejects.toThrow(
+        /Cannot edit invariant profile "balanced" fields \[label, status\]/,
+      );
+    });
+
+    test("allows topP edit on invariant profile, preserving seed fields", async () => {
       const result = await replaceProfileRoute.handler({
         pathParams: { name: "balanced" },
-        body: { label: "My Balanced" },
+        body: { topP: 0.8 },
       });
 
       expect(result).toEqual({ ok: true });
@@ -965,16 +1006,32 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
         }
       ).profiles.balanced;
 
-      expect(savedProfile.label).toBe("My Balanced");
-      // Seed fields preserved.
+      expect(savedProfile.topP).toBe(0.8);
       expect(savedProfile.provider).toBe("anthropic");
       expect(savedProfile.model).toBe("claude-sonnet-4-6");
       expect(savedProfile.source).toBe("managed");
     });
 
-    test("allows status edit on managed profile", async () => {
+    test("allows label edit on non-invariant managed profile", async () => {
       const result = await replaceProfileRoute.handler({
-        pathParams: { name: "balanced" },
+        pathParams: { name: "os-beta" },
+        body: { label: "Renamed Beta" },
+      });
+
+      expect(result).toEqual({ ok: true });
+      const savedProfile = (
+        savedRawConfig?.llm as {
+          profiles: Record<string, Record<string, unknown>>;
+        }
+      ).profiles["os-beta"];
+
+      expect(savedProfile.label).toBe("Renamed Beta");
+      expect(savedProfile.provider).toBe("fireworks");
+    });
+
+    test("allows status edit on non-invariant managed profile", async () => {
+      const result = await replaceProfileRoute.handler({
+        pathParams: { name: "os-beta" },
         body: { status: "disabled" },
       });
 
@@ -983,56 +1040,32 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
         savedRawConfig?.llm as {
           profiles: Record<string, Record<string, unknown>>;
         }
-      ).profiles.balanced;
+      ).profiles["os-beta"];
 
-      expect(savedProfile.status).toBe("disabled");
-      expect(savedProfile.provider).toBe("anthropic");
-    });
-
-    test("allows label+status edit together", async () => {
-      const result = await replaceProfileRoute.handler({
-        pathParams: { name: "balanced" },
-        body: { label: "Renamed", status: "disabled" },
-      });
-
-      expect(result).toEqual({ ok: true });
-      const savedProfile = (
-        savedRawConfig?.llm as {
-          profiles: Record<string, Record<string, unknown>>;
-        }
-      ).profiles.balanced;
-
-      expect(savedProfile.label).toBe("Renamed");
       expect(savedProfile.status).toBe("disabled");
     });
 
     test("rejects provider edit on managed profile with disallowed-keys error", async () => {
-      // The handler is `async`, so synchronous BadRequest throws still
-      // surface as a rejected promise; assert via `.rejects.toThrow`.
       await expect(
         replaceProfileRoute.handler({
-          pathParams: { name: "balanced" },
+          pathParams: { name: "os-beta" },
           body: { provider: "openai", model: "gpt-5" },
         }),
       ).rejects.toThrow(
-        /Cannot edit managed profile "balanced" fields \[provider, model\]/,
+        /Cannot edit managed profile "os-beta" fields \[provider, model\]/,
       );
     });
 
-    test("rejects mixed allowed+disallowed fields", async () => {
-      // label is allowed but maxTokens is not — must reject without partially
-      // applying label, so saver should never be invoked.
+    test("rejects mixed allowed+disallowed fields on non-invariant managed profile", async () => {
       await expect(
         replaceProfileRoute.handler({
-          pathParams: { name: "balanced" },
+          pathParams: { name: "os-beta" },
           body: { label: "Try", maxTokens: 999 },
         }),
       ).rejects.toThrow(
-        /Cannot edit managed profile "balanced" fields \[maxTokens\]/,
+        /Cannot edit managed profile "os-beta" fields \[maxTokens\]/,
       );
       expect(savedRawConfig).toBeNull();
-      // Reject path skips commitConfigWrite entirely — no provider reinit
-      // or cache invalidation should fire on a guard rejection.
       expect(initializeProvidersCalls).toBe(0);
       expect(invalidateConfigCacheCalls).toBe(0);
       expect(clearEmbeddingBackendCacheCalls).toBe(0);
@@ -1041,21 +1074,22 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
 
   describe("commitConfigWrite side effects", () => {
     test("status flip on managed profile triggers provider reinit + cache invalidation", async () => {
-      // Seed a managed profile that the user will disable. commitConfigWrite
-      // must reinit the provider registry so the status change is reflected
-      // in the running daemon immediately, not at the next watcher tick.
+      // Seed a non-invariant managed profile that the user will disable.
+      // commitConfigWrite must reinit the provider registry so the status
+      // change is reflected in the running daemon immediately, not at the
+      // next watcher tick.
       (rawConfigFixture.llm as { profiles: Record<string, unknown> }).profiles[
-        "balanced"
+        "os-beta"
       ] = {
         source: "managed",
         provider: "anthropic",
         model: "claude-sonnet-4-6",
-        label: "Balanced",
+        label: "OS Beta",
         status: "active",
       };
 
       const result = await replaceProfileRoute.handler({
-        pathParams: { name: "balanced" },
+        pathParams: { name: "os-beta" },
         body: { status: "disabled" },
       });
 

@@ -967,9 +967,10 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.activeProfile).toBe("balanced");
   });
 
-  test("on-platform reseed preserves user-edited label and status on managed profiles", () => {
-    // The only two fields a user may override on a managed profile — label and
-    // status — survive the on-platform reconcile, exactly as off-platform.
+  test("on-platform reseed discards stale label and status overrides on invariant profiles", () => {
+    // Invariant profiles (balanced, quality-optimized, cost-optimized) cannot
+    // be relabeled or disabled. Any stale on-disk overrides from before this
+    // restriction are discarded on reseed.
     process.env.IS_PLATFORM = "true";
 
     writeConfig({
@@ -995,14 +996,14 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles.balanced.model).toBe(
       "accounts/fireworks/models/glm-5p2",
     );
-    // ...but the user's label and status overrides are preserved.
-    expect(raw.llm.profiles.balanced.label).toBe("My Default");
-    expect(raw.llm.profiles.balanced.status).toBe("disabled");
+    // ...and label/status are reset to template values (invariant).
+    expect(raw.llm.profiles.balanced.label).toBe("Balanced");
+    expect(raw.llm.profiles.balanced.status).toBeUndefined();
   });
 
-  test("off-platform reseed preserves user-edited label on managed profiles (Codex P1 on PR #30362)", () => {
-    // Simulate a user who renamed the managed "balanced" profile via
-    // PUT /v1/config/llm/profiles/balanced { label: "My Default" }.
+  test("off-platform reseed discards stale label override on invariant profiles", () => {
+    // Invariant profiles cannot be relabeled. Any stale on-disk label override
+    // from before this restriction is discarded on reseed.
     writeConfig({
       llm: {
         profiles: {
@@ -1025,13 +1026,13 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles.balanced.model).toBe(
       "accounts/fireworks/models/glm-5p2",
     );
-    // But the user's label override is preserved across the reseed.
-    expect(raw.llm.profiles.balanced.label).toBe("My Default");
+    // Label is reset to the BYOK effective template (invariant — cannot be relabeled).
+    expect(raw.llm.profiles.balanced.label).toBe("Balanced (Managed)");
   });
 
-  test("off-platform reseed preserves user-toggled status on managed profiles", () => {
-    // Simulate a user who disabled the managed "balanced" profile via
-    // PUT /v1/config/llm/profiles/balanced { status: "disabled" }.
+  test("off-platform reseed discards stale status override on invariant profiles", () => {
+    // Invariant profiles cannot be disabled. Any stale on-disk status override
+    // from before this restriction is discarded on reseed.
     writeConfig({
       llm: {
         profiles: {
@@ -1050,8 +1051,9 @@ describe("loadConfig startup behavior", () => {
     mergeDefaultConfigAndSeedInferenceProfiles();
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
-    expect(raw.llm.profiles.balanced.status).toBe("disabled");
-    // Model still refreshes — only label/status are user-owned.
+    // Status override is discarded (invariant — cannot be disabled).
+    expect(raw.llm.profiles.balanced.status).toBeUndefined();
+    // Model still refreshes from template.
     expect(raw.llm.profiles.balanced.model).toBe(
       "accounts/fireworks/models/glm-5p2",
     );
@@ -1100,10 +1102,9 @@ describe("loadConfig startup behavior", () => {
     expect("topP" in raw.llm.profiles.balanced).toBe(false);
   });
 
-  test("off-platform reseed preserves an explicit null label (user cleared it)", () => {
-    // Setting label to null is the "clear" intent — must survive too,
-    // otherwise the next boot would re-stamp the template's default
-    // label and ignore the user's clear action.
+  test("off-platform reseed discards stale explicit null label on invariant profiles", () => {
+    // Even an explicit null label (from before the invariance restriction) is
+    // discarded — invariant profiles always use the template label.
     writeConfig({
       llm: {
         profiles: {
@@ -1122,7 +1123,8 @@ describe("loadConfig startup behavior", () => {
     mergeDefaultConfigAndSeedInferenceProfiles();
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
-    expect(raw.llm.profiles.balanced.label).toBeNull();
+    // Template label is restored via BYOK effective template (invariant).
+    expect(raw.llm.profiles.balanced.label).toBe("Balanced (Managed)");
   });
 
   test("off-platform reseed materializes template defaults with the BYOK label suffix when no user overrides exist", () => {
@@ -1145,13 +1147,13 @@ describe("loadConfig startup behavior", () => {
     expect("status" in raw.llm.profiles.balanced).toBe(false);
   });
 
-  test("platform overlay fragment wins its hatch boot, then content reconciles to the code template (label preserved)", () => {
+  test("platform overlay fragment wins its hatch boot, then content reconciles to the code template (label reset for invariant)", () => {
     // The overlay is authoritative for the boot it is supplied: its `balanced`
     // fragment lands verbatim and is never polluted by template fields it omits
     // (no maxTokens/thinking leak in). On the next boot — overlay archived —
     // managed profile *content* reconciles to the code template, since the
-    // templates are the single source of truth for content. Only the
-    // user/overlay-set `label` survives the reconcile.
+    // templates are the single source of truth for content. Because balanced is
+    // invariant, the overlay-set label is discarded and the template label wins.
     process.env.IS_PLATFORM = "true";
 
     writeConfig({
@@ -1244,8 +1246,8 @@ describe("loadConfig startup behavior", () => {
       enabled: true,
       streamThinking: true,
     });
-    // The user/overlay-set label is the one field that survives the reconcile.
-    expect(afterRestart.llm.profiles.balanced.label).toBe("Platform Balanced");
+    // Invariant profile: overlay-set label is discarded; template label wins.
+    expect(afterRestart.llm.profiles.balanced.label).toBe("Balanced");
   });
 
   test("quarantines corrupt config before merging hatch overlay", () => {
@@ -1385,12 +1387,10 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     expect(config.llm.profiles["custom-balanced"]?.label).toBe("Balanced");
   });
 
-  test("off-platform hatch initializes managed profile status to 'disabled'", () => {
-    // On a fresh BYOK hatch the user has no platform auth, so managed
-    // profiles must not surface as enabled in the picker on day one. We
-    // flip the three canonical managed profiles to status="disabled"
-    // ONCE at hatch time. (The complementary "user re-enable persists
-    // across restarts" guarantee is covered by the test further down.)
+  test("off-platform hatch does not disable invariant managed profiles", () => {
+    // Invariant profiles (balanced, quality-optimized, cost-optimized) cannot
+    // be disabled even at hatch time. They always remain active because many
+    // internal call sites depend on them.
     const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
     writeFileSync(
       overlayPath,
@@ -1402,9 +1402,9 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     mergeDefaultConfigAndSeedInferenceProfiles();
     const config = loadConfig();
 
-    expect(config.llm.profiles.balanced?.status).toBe("disabled");
-    expect(config.llm.profiles["quality-optimized"]?.status).toBe("disabled");
-    expect(config.llm.profiles["cost-optimized"]?.status).toBe("disabled");
+    expect(config.llm.profiles.balanced?.status).toBeUndefined();
+    expect(config.llm.profiles["quality-optimized"]?.status).toBeUndefined();
+    expect(config.llm.profiles["cost-optimized"]?.status).toBeUndefined();
   });
 
   test("off-platform BYOK hatch defaults advisor to the personal quality profile", () => {
@@ -1429,7 +1429,9 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     ).toBe("anthropic-personal");
   });
 
-  test("off-platform boot repairs a disabled managed advisor to a personal profile when no active managed replacement exists", () => {
+  test("off-platform boot repairs a disabled managed advisor to an active invariant profile", () => {
+    // When "frontier" is disabled and invariant profiles can't be disabled,
+    // the repair finds the first active managed profile (quality-optimized).
     writeConfig({
       llm: {
         advisorProfile: "frontier",
@@ -1476,7 +1478,9 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     mergeDefaultConfigAndSeedInferenceProfiles();
     const config = loadConfig();
 
-    expect(config.llm.advisorProfile).toBe("custom-quality-optimized");
+    // Invariant profiles have their disabled status discarded on reseed, so
+    // quality-optimized becomes active and wins the advisor selection.
+    expect(config.llm.advisorProfile).toBe("quality-optimized");
   });
 
   test("platform boot repairs a disabled managed advisor to an active managed profile", () => {
@@ -1509,7 +1513,9 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     expect(config.llm.advisorProfile).toBe("quality-optimized");
   });
 
-  test("off-platform boot clears a disabled managed advisor when no active replacement exists", () => {
+  test("off-platform boot repairs a disabled managed advisor to an invariant profile (no personal profiles)", () => {
+    // Even when the config has all managed profiles disabled, invariant
+    // profiles have their status discarded. The repair finds quality-optimized.
     writeConfig({
       llm: {
         advisorProfile: "frontier",
@@ -1549,10 +1555,10 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     mergeDefaultConfigAndSeedInferenceProfiles();
     const config = loadConfig();
 
-    expect(config.llm.advisorProfile).toBeUndefined();
+    expect(config.llm.advisorProfile).toBe("quality-optimized");
   });
 
-  test("off-platform managed-inference hatch keeps selected managed connection active", () => {
+  test("off-platform managed-inference hatch keeps all invariant profiles active", () => {
     const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
     writeFileSync(
       overlayPath,
@@ -1574,15 +1580,14 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
     expect(raw.llm.activeProfile).toBe("balanced");
-    // Balanced lives on `fireworks-managed`; `quality-optimized` (Opus on
-    // `anthropic-managed`) is on a different connection, so selecting balanced at
-    // hatch disables it. The default advisor falls to the only active managed
-    // profile, `balanced`.
-    expect(raw.llm.advisorProfile).toBe("balanced");
+    // All invariant profiles stay active regardless of connection selection.
+    // quality-optimized is first in the advisor selection list and is active.
+    expect(raw.llm.advisorProfile).toBe("quality-optimized");
     expect(raw.llm.profiles.balanced.provider_connection).toBe(
       "fireworks-managed",
     );
     expect("status" in raw.llm.profiles.balanced).toBe(false);
+    expect("status" in raw.llm.profiles["quality-optimized"]).toBe(false);
     // Connections exist (status is no longer a connection-level concept).
     expect(getConnection(db, "anthropic-managed")).not.toBeNull();
     expect(getConnection(db, "openai-managed")).not.toBeNull();
@@ -1723,10 +1728,9 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     );
   });
 
-  test("upgrade boot preserves user-customized labels and explicit null on off-platform", () => {
-    // A user-set string that differs from the bare default must survive;
-    // an explicit null (user cleared the label) must also survive. Only
-    // exact matches against the bare template label trigger the upgrade.
+  test("upgrade boot resets invariant profile labels to BYOK effective template on off-platform", () => {
+    // Invariant profiles discard stale user-customized labels; the effective
+    // BYOK template label (with " (Managed)" suffix) is always applied.
     writeConfig({
       llm: {
         default: { provider: "anthropic", model: "claude-opus-4-7" },
@@ -1744,7 +1748,6 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
             provider_connection: "anthropic-managed",
             label: null,
           },
-          // Already-suffixed labels are also preserved (idempotency).
           "cost-optimized": {
             source: "managed",
             provider: "anthropic",
@@ -1759,8 +1762,11 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     mergeDefaultConfigAndSeedInferenceProfiles();
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
-    expect(raw.llm.profiles.balanced.label).toBe("My Balanced");
-    expect(raw.llm.profiles["quality-optimized"].label).toBeNull();
+    // Invariant profiles always get the effective BYOK template label.
+    expect(raw.llm.profiles.balanced.label).toBe("Balanced (Managed)");
+    expect(raw.llm.profiles["quality-optimized"].label).toBe(
+      "Quality (Managed)",
+    );
     expect(raw.llm.profiles["cost-optimized"].label).toBe("Speed (Managed)");
   });
 
@@ -1790,9 +1796,9 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     expect(config.llm.profiles.balanced?.label).toBe("Balanced");
   });
 
-  test("subsequent off-platform boot preserves user-set status on managed profiles", () => {
-    // Simulate a user who hatched yesterday, then re-enabled the managed
-    // Balanced profile (they have platform auth via a separate route).
+  test("subsequent off-platform boot resets invariant profile status to template default", () => {
+    // Invariant profiles cannot be disabled. Even if an on-disk status
+    // override exists from before the restriction, it is discarded.
     writeConfig({
       llm: {
         default: { provider: "anthropic", model: "claude-opus-4-7" },
@@ -1821,9 +1827,9 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     mergeDefaultConfigAndSeedInferenceProfiles();
     const config = loadConfig();
 
-    // User's "active" decision survives the boot upsert.
-    expect(config.llm.profiles.balanced?.status).toBe("active");
-    // Label is still suffixed (Vellum can push label updates).
+    // Status override is discarded (invariant — always active from template).
+    expect(config.llm.profiles.balanced?.status).toBeUndefined();
+    // Label comes from the BYOK effective template.
     expect(config.llm.profiles.balanced?.label).toBe("Balanced (Managed)");
   });
 });

@@ -118,7 +118,10 @@ type LlmContextRouteResult = Omit<LlmContextNormalizationResult, "summary"> & {
   summary?: LlmContextSummaryResponse;
 };
 
-import { MANAGED_PROFILE_NAMES } from "../../config/seed-inference-profiles.js";
+import {
+  INVARIANT_PROFILE_NAMES,
+  MANAGED_PROFILE_NAMES,
+} from "../../config/seed-inference-profiles.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 
 const RESERVED_PROFILE_NAMES = new Set([
@@ -145,6 +148,11 @@ const INFERENCE_PROFILE_UI_KEYS = new Set([
 // owns provider/model/connection, but top_p is a per-profile sampling knob
 // the UI exposes on the managed Balanced profile.
 const MANAGED_PROFILE_EDITABLE_KEYS = new Set(["label", "status", "topP"]);
+
+// Invariant profiles (balanced, quality-optimized, cost-optimized) are stricter
+// than other managed profiles: they cannot be disabled or relabeled because
+// many internal call sites depend on them always existing with stable identities.
+const INVARIANT_PROFILE_EDITABLE_KEYS = new Set(["topP"]);
 
 function asMutablePlainObject(value: unknown): Record<string, unknown> | null {
   if (value == null || typeof value !== "object" || Array.isArray(value)) {
@@ -1061,18 +1069,22 @@ async function handleReplaceInferenceProfile({
   if (isManaged) {
     // Managed profiles are daemon-seeded — provider, model, and the
     // connection binding all belong to the seed contract and can't be
-    // reshaped by the user. The fields that ARE user policy (display label,
-    // enabled status, and the topP sampling knob) are allowed through so
-    // users can rename a managed profile, temporarily disable it, or tune
-    // top_p without duplicating it.
+    // reshaped by the user. Invariant profiles (the three defaults) are
+    // even stricter: they cannot be disabled or relabeled.
+    const isInvariant = INVARIANT_PROFILE_NAMES.has(name);
+    const allowedKeys = isInvariant
+      ? INVARIANT_PROFILE_EDITABLE_KEYS
+      : MANAGED_PROFILE_EDITABLE_KEYS;
     const requestedKeys = Object.keys(parsed.data);
-    const disallowed = requestedKeys.filter(
-      (k) => !MANAGED_PROFILE_EDITABLE_KEYS.has(k),
-    );
+    const disallowed = requestedKeys.filter((k) => !allowedKeys.has(k));
     if (disallowed.length > 0) {
+      const allowed = [...allowedKeys].join(", ");
       throw new BadRequestError(
-        `Cannot edit managed profile "${name}" fields [${disallowed.join(", ")}]. ` +
-          `Only label, status, and topP may be edited; duplicate to a custom profile to change other fields.`,
+        isInvariant
+          ? `Cannot edit invariant profile "${name}" fields [${disallowed.join(", ")}]. ` +
+              `Default profiles cannot be disabled or relabeled; only topP may be edited.`
+          : `Cannot edit managed profile "${name}" fields [${disallowed.join(", ")}]. ` +
+              `Only ${allowed} may be edited; duplicate to a custom profile to change other fields.`,
       );
     }
   }

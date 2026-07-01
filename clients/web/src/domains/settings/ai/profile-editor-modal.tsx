@@ -25,6 +25,7 @@ import type {
   ProfileStatus,
 } from "@/generated/daemon/types.gen";
 
+import { INVARIANT_PROFILE_NAMES } from "@/domains/settings/ai/constants";
 import type { ProfileWithName } from "@/domains/settings/ai/utils";
 import {
   ProfileAdvancedParams,
@@ -174,11 +175,13 @@ function ProfileEditorModalInner({
 
   // Managed profiles open the editor in view mode (mode === "view") so they
   // can't be reshaped (provider, model, advanced params) — those are
-  // daemon-seeded. But the user is still allowed to rename them (label)
-  // and disable them (status) without leaving view mode, since those two
-  // fields are user policy, not daemon contract. The Save button at the
-  // footer is gated by `hasViewModeChanges` below so unchanged view-mode
-  // sessions stay close-only.
+  // daemon-seeded. Non-invariant managed profiles allow renaming (label)
+  // and disabling (status). Invariant profiles (balanced, quality-optimized,
+  // cost-optimized) only allow topP edits.
+  const isInvariant =
+    mode === "view" &&
+    profileName != null &&
+    INVARIANT_PROFILE_NAMES.has(profileName);
   const initialLabel = initialValues?.label ?? "";
   const initialStatus: ProfileStatus = initialValues?.status ?? "active";
 
@@ -254,14 +257,14 @@ function ProfileEditorModalInner({
   const [topP, setTopP] = useState<number>(initialTopP);
 
   // True when in view mode and the user has touched one of the fields that
-  // view mode permits editing (label, status, Top P). Drives the view-mode
-  // Save button's enabled state and the partial-update save path. Top P is
-  // compared on both the enabled flag and the value so flipping the toggle or
-  // dragging the slider both arm Save.
+  // view mode permits editing. Invariant profiles only allow topP; other
+  // managed profiles also allow label and status. Top P is compared on both
+  // the enabled flag and the value so flipping the toggle or dragging the
+  // slider both arm Save.
   const hasViewModeChanges =
     isReadOnly &&
-    (label !== initialLabel ||
-      status !== initialStatus ||
+    ((!isInvariant && label !== initialLabel) ||
+      (!isInvariant && status !== initialStatus) ||
       topPEnabled !== initialTopPEnabled ||
       (topPEnabled && topP !== initialTopP));
 
@@ -498,26 +501,24 @@ function ProfileEditorModalInner({
 
   async function handleSave() {
     if (isInvalid && !isReadOnly) return;
-    // View mode is reserved for managed profiles. The user can rename them
-    // (label) and disable them (status) without leaving view mode, but
-    // everything else (provider, model, advanced params, binding) belongs
-    // to the daemon seed and must NOT be in the request body — the daemon
-    // would reject the request as a managed-profile mutation otherwise.
+    // View mode is reserved for managed profiles. For invariant profiles
+    // (balanced, quality-optimized, cost-optimized) only topP may be edited.
+    // Other managed profiles also allow label and status.
     //
     // `mode: "merge"` tells the parent to skip its delete-then-recreate
     // cycle and send a single deep-merge PATCH. Without this, the seed
     // fields (provider, model, advanced params) would be destroyed by
-    // the recreate step that only writes back the partial `{label, status}`
-    // entry.
+    // the recreate step that only writes back the partial entry.
     if (isReadOnly) {
       if (!hasViewModeChanges) return;
       setSaving(true);
       setSaveError(null);
       try {
-        const entry: ProfileEntry = {
-          label: label.trim() || null,
-          status,
-        };
+        const entry: ProfileEntry = {};
+        if (!isInvariant) {
+          entry.label = label.trim() || null;
+          entry.status = status;
+        }
         // Top P is the one advanced param managed profiles may override.
         // Mirror the create/edit build-entry logic: enabled → number,
         // cleared → null. Only when the selected provider/model surfaces the
@@ -654,6 +655,7 @@ function ProfileEditorModalInner({
         value={label}
         onChange={(e) => handleLabelChange(e.target.value)}
         placeholder="e.g. Fast & Cheap"
+        disabled={isInvariant}
         fullWidth
       />
     </div>
@@ -702,7 +704,7 @@ function ProfileEditorModalInner({
     </div>
   );
 
-  const activeToggle = (
+  const activeToggle = isInvariant ? null : (
     <Toggle
       checked={status === "active"}
       onChange={(v) => setStatus(v ? "active" : "disabled")}
@@ -967,10 +969,10 @@ function ProfileEditorModalInner({
             >
               Save As New
             </Button>
-            {/* Save in view mode persists ONLY label and status changes
-                (managed profile policy fields). The button is gated by
-                `hasViewModeChanges` so an unchanged view session can't
-                round-trip a no-op write. */}
+            {/* Save in view mode persists editable policy fields (topP for
+                invariant profiles; label, status, topP for other managed
+                profiles). Gated by `hasViewModeChanges` so an unchanged
+                view session can't round-trip a no-op write. */}
             <Button
               variant="primary"
               onClick={() => void handleSave()}
