@@ -247,6 +247,21 @@ export function getMemoryWorkerPidPath(): string {
   return join(getWorkspaceDir(), "memory-worker.pid");
 }
 
+/** Returns the path to the resource-monitor PID file ($VELLUM_WORKSPACE_DIR/resource-monitor.pid). */
+export function getResourceMonitorPidPath(): string {
+  return join(getWorkspaceDir(), "resource-monitor.pid");
+}
+
+/**
+ * Returns the directory where the resource monitor persists its forensics
+ * ($VELLUM_WORKSPACE_DIR/resource-monitor). Lives on the workspace volume (the
+ * PVC) so the sample ring buffer and high-memory snapshots survive an OOM
+ * SIGKILL that resets all in-process state.
+ */
+export function getResourceMonitorDataDir(): string {
+  return join(getWorkspaceDir(), "resource-monitor");
+}
+
 /**
  * Returns the workspace root for user-facing state.
  *

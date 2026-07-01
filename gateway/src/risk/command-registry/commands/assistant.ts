@@ -203,6 +203,10 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "platform callback-routes register",
   "platform callback-routes list",
   "ps",
+  "resource-monitor",
+  "resource-monitor start",
+  "resource-monitor stop",
+  "resource-monitor status",
   "routes",
   "routes list",
   "routes inspect",
@@ -547,6 +551,21 @@ const riskOverrides: AssistantRiskOverride[] = [
   },
   {
     path: "memory worker status",
+    risk: "low",
+    reason: "Read-only liveness probe via PID file",
+  },
+  {
+    path: "resource-monitor start",
+    risk: "medium",
+    reason: "Spawns a background process that samples memory and disk",
+  },
+  {
+    path: "resource-monitor stop",
+    risk: "low",
+    reason: "Sends SIGTERM to the resource monitor process",
+  },
+  {
+    path: "resource-monitor status",
     risk: "low",
     reason: "Read-only liveness probe via PID file",
   },

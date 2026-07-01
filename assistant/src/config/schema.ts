@@ -49,6 +49,7 @@ import {
   PlatformConfigSchema,
   UiConfigSchema,
 } from "./schemas/platform.js";
+import { ResourceMonitorConfigSchema } from "./schemas/resource-monitor.js";
 import { SecretDetectionConfigSchema } from "./schemas/security.js";
 import { ServicesSchema } from "./schemas/services.js";
 import { SkillsConfigSchema } from "./schemas/skills.js";
@@ -64,7 +65,12 @@ export const AssistantConfigSchema = z
   .object({
     services: ServicesSchema.default(ServicesSchema.parse({})),
     memory: MemoryConfigSchema.default(MemoryConfigSchema.parse({})),
-    migrations: MigrationsConfigSchema.default(MigrationsConfigSchema.parse({})),
+    resourceMonitor: ResourceMonitorConfigSchema.default(
+      ResourceMonitorConfigSchema.parse({}),
+    ),
+    migrations: MigrationsConfigSchema.default(
+      MigrationsConfigSchema.parse({}),
+    ),
     dataDir: z
       .string({ error: "dataDir must be a string" })
       .default(getDataDir())
