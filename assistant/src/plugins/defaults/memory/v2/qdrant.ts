@@ -27,9 +27,9 @@ import { v5 as uuidv5 } from "uuid";
 
 import { getConfig } from "../../../../config/loader.js";
 import type { SparseEmbedding } from "../../../../persistence/embeddings/embedding-types.js";
-import { resolveQdrantUrl } from "../../../../persistence/embeddings/qdrant-client.js";
 import { getLogger } from "../../../../util/logger.js";
 import { getDataDir } from "../../../../util/platform.js";
+import { resolveQdrantUrl } from "../embeddings.js";
 
 const log = getLogger("memory-v2-qdrant");
 
@@ -137,9 +137,8 @@ export async function clearReembedSentinel(): Promise<void> {
 /** Lazily create a Qdrant REST client bound to the resolved URL. */
 function getClient(): QdrantRestClient {
   if (_client) return _client;
-  const config = getConfig();
   _client = new QdrantRestClient({
-    url: resolveQdrantUrl(config),
+    url: resolveQdrantUrl(),
     checkCompatibility: false,
   });
   return _client;

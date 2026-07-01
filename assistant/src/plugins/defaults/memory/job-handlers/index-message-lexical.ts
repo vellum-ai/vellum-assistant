@@ -11,7 +11,6 @@ import {
   type MessagesLexicalIndex,
 } from "../../../../persistence/embeddings/messages-lexical-index.js";
 import { withQdrantBreaker } from "../../../../persistence/embeddings/qdrant-circuit-breaker.js";
-import { resolveQdrantUrl } from "../../../../persistence/embeddings/qdrant-client.js";
 import { asString } from "../../../../persistence/job-utils.js";
 import {
   enqueueMemoryJob,
@@ -21,6 +20,7 @@ import {
 import { messages } from "../../../../persistence/schema/index.js";
 import { getLogger } from "../../../../util/logger.js";
 import { isPluginDisabled } from "../../../disabled-state.js";
+import { resolveQdrantUrl } from "../embeddings.js";
 import memoryPkg from "../package.json" with { type: "json" };
 
 const log = getLogger("messages-lexical-enqueue");
@@ -57,7 +57,7 @@ export function resolveLexicalIndex(
     return getMessagesLexicalIndex();
   } catch {
     return initMessagesLexicalIndex({
-      url: resolveQdrantUrl(config),
+      url: resolveQdrantUrl(),
       collection: MESSAGES_LEXICAL_COLLECTION,
       onDisk: config.memory.qdrant.onDisk,
     });

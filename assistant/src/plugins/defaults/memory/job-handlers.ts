@@ -122,11 +122,11 @@ async function graphNarrativeRefineJob(
 export const memoryJobHandlers: readonly JobHandlerEntry[] = [
   {
     type: "embed_segment",
-    handler: (job, config) => embedSegmentJob(job, config),
+    handler: (job) => embedSegmentJob(job),
   },
   {
     type: "embed_summary",
-    handler: (job, config) => embedSummaryJob(job, config),
+    handler: (job) => embedSummaryJob(job),
   },
   { type: "backfill", handler: (job, config) => backfillJob(job, config) },
   { type: "rebuild_index", handler: () => rebuildIndexJob() },
@@ -134,14 +134,14 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
     type: "delete_qdrant_vectors",
     handler: (job) => deleteQdrantVectorsJob(job),
   },
-  { type: "embed_media", handler: (job, config) => embedMediaJob(job, config) },
+  { type: "embed_media", handler: (job) => embedMediaJob(job) },
   {
     type: "embed_attachment",
-    handler: (job, config) => embedAttachmentJob(job, config),
+    handler: (job) => embedAttachmentJob(job),
   },
   {
     type: "embed_graph_node",
-    handler: (job, config) => embedGraphNodeJob(job, config),
+    handler: (job) => embedGraphNodeJob(job),
   },
   {
     type: "embed_pkb_file",
@@ -149,7 +149,7 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
   },
   {
     type: "graph_trigger_embed",
-    handler: (job, config) => embedGraphTriggerJob(job, config),
+    handler: (job) => embedGraphTriggerJob(job),
   },
   {
     type: "graph_extract",

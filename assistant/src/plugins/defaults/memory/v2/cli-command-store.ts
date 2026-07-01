@@ -21,12 +21,10 @@
 //     summary.
 
 import { getConfig } from "../../../../config/loader.js";
-import {
-  embedWithBackend,
-  generateSparseEmbedding,
-} from "../../../../persistence/embeddings/embedding-backend.js";
+import { generateSparseEmbedding } from "../../../../persistence/embeddings/embedding-backend.js";
 import { getLogger } from "../../../../util/logger.js";
 import { applyCorrectionIfCalibrated } from "../anisotropy.js";
+import { embedWithBackend } from "../embeddings.js";
 import { buildCliCommandContent } from "./cli-command-content.js";
 import { invalidatePageIndex } from "./page-index.js";
 import {
@@ -192,10 +190,7 @@ async function runSeedV2CliCommandEntries(generation: number): Promise<void> {
             })
           : generateSparseEmbedding(input);
       try {
-        const embedded = await embedWithBackend(
-          config,
-          seeds.map((s) => s.content),
-        );
+        const embedded = await embedWithBackend(seeds.map((s) => s.content));
         denseVectors = await Promise.all(
           embedded.vectors.map((v) =>
             applyCorrectionIfCalibrated(v, embedded.provider, embedded.model),

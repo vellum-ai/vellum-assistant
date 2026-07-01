@@ -9,7 +9,6 @@ import {
   setMemoryCheckpoint,
 } from "../../../persistence/checkpoints.js";
 import { getDb } from "../../../persistence/db-connection.js";
-import { selectedBackendSupportsMultimodal } from "../../../persistence/embeddings/embedding-backend.js";
 import {
   enqueueMemoryJob,
   isMemoryEnabled,
@@ -24,6 +23,7 @@ import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
 import { enqueueAutoAnalysisIfEnabled } from "../../../runtime/services/auto-analysis-enqueue.js";
 import { isAutoAnalysisConversation } from "../../../runtime/services/auto-analysis-guard.js";
 import { getLogger } from "../../../util/logger.js";
+import { selectedBackendSupportsMultimodal } from "./embeddings.js";
 import { isMemoryRetrospectiveConversation } from "./memory-retrospective-enqueue.js";
 import { maybeEnqueueRetrospective } from "./memory-retrospective-trigger-check.js";
 import { segmentText } from "./segmenter.js";
@@ -93,8 +93,7 @@ export async function indexMessageNow(
     (b) => b.type === "image",
   );
   const mediaBlocks =
-    candidateMediaMeta.length > 0 &&
-    (await selectedBackendSupportsMultimodal(getConfig()))
+    candidateMediaMeta.length > 0 && (await selectedBackendSupportsMultimodal())
       ? candidateMediaMeta
       : [];
 

@@ -20,10 +20,7 @@ import {
   initMessagesLexicalIndex,
   MESSAGES_LEXICAL_COLLECTION,
 } from "../../../persistence/embeddings/messages-lexical-index.js";
-import {
-  initQdrantClient,
-  resolveQdrantUrl,
-} from "../../../persistence/embeddings/qdrant-client.js";
+import { initQdrantClient } from "../../../persistence/embeddings/qdrant-client.js";
 import { createQdrantManager } from "../../../persistence/embeddings/qdrant-manager.js";
 import {
   enqueueMemoryJob,
@@ -32,6 +29,7 @@ import {
 import { startMemoryJobsWorker } from "../../../persistence/jobs-worker.js";
 import { getLogger } from "../../../util/logger.js";
 import { getWorkspaceDir } from "../../../util/platform.js";
+import { resolveQdrantUrl } from "./embeddings.js";
 import { sweepConceptPageFrontmatter } from "./v2/frontmatter-sweep.js";
 import {
   maybeRebuildMemoryV2Concepts,
@@ -41,7 +39,7 @@ import {
 const log = getLogger("memory-startup");
 
 export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
-  const qdrantUrl = resolveQdrantUrl(config);
+  const qdrantUrl = resolveQdrantUrl();
   log.info({ qdrantUrl }, "Daemon startup: initializing Qdrant");
   const manager = createQdrantManager({ url: qdrantUrl });
   const QDRANT_START_MAX_ATTEMPTS = 3;

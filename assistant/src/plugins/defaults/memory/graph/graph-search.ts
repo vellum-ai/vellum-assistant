@@ -3,8 +3,6 @@
 // ---------------------------------------------------------------------------
 
 import { getConfig } from "../../../../config/loader.js";
-import type { AssistantConfig } from "../../../../config/types.js";
-import { selectedBackendSupportsMultimodal } from "../../../../persistence/embeddings/embedding-backend.js";
 import type { EmbeddingInput } from "../../../../persistence/embeddings/embedding-types.js";
 import { isQdrantBreakerOpen } from "../../../../persistence/embeddings/qdrant-circuit-breaker.js";
 import { withQdrantBreaker } from "../../../../persistence/embeddings/qdrant-circuit-breaker.js";
@@ -13,7 +11,6 @@ import {
   type QdrantSearchResult,
   type QdrantSparseVector,
 } from "../../../../persistence/embeddings/qdrant-client.js";
-import { embedAndUpsert } from "../../../../persistence/job-utils.js";
 import { asString } from "../../../../persistence/job-utils.js";
 import {
   enqueueMemoryJob,
@@ -21,6 +18,10 @@ import {
   type MemoryJob,
 } from "../../../../persistence/jobs-store.js";
 import { getLogger } from "../../../../util/logger.js";
+import {
+  embedAndUpsert,
+  selectedBackendSupportsMultimodal,
+} from "../embeddings.js";
 import { loadImageRefData } from "./image-ref-utils.js";
 import { getNode } from "./store.js";
 import type { MemoryNode } from "./types.js";
@@ -165,10 +166,7 @@ function formatNodeForEmbedding(node: MemoryNode): string {
  * (text queries match image memories in the same vector space). Falls back
  * to text embedding with image description suffixes otherwise.
  */
-export async function embedGraphNodeDirect(
-  node: MemoryNode,
-  config: AssistantConfig,
-): Promise<void> {
+export async function embedGraphNodeDirect(node: MemoryNode): Promise<void> {
   if (node.fidelity === "gone") return;
 
   const text = formatNodeForEmbedding(node);
@@ -181,7 +179,7 @@ export async function embedGraphNodeDirect(
   };
 
   if (node.imageRefs && node.imageRefs.length > 0) {
-    const multimodalAvailable = await selectedBackendSupportsMultimodal(config);
+    const multimodalAvailable = await selectedBackendSupportsMultimodal();
     if (multimodalAvailable) {
       const imageData = await loadImageRefData(node.imageRefs[0]);
       if (imageData) {
@@ -191,7 +189,7 @@ export async function embedGraphNodeDirect(
             data: imageData.data,
             mimeType: imageData.mimeType,
           };
-          await embedAndUpsert(config, "graph_node", node.id, input, {
+          await embedAndUpsert("graph_node", node.id, input, {
             ...extraPayload,
             has_image: true,
           });
@@ -209,33 +207,24 @@ export async function embedGraphNodeDirect(
     // Fallback: text embedding with image description suffix
     const descSuffix = node.imageRefs.map((r) => r.description).join("; ");
     const textWithImages = `${text}\n[images: ${descSuffix}]`;
-    await embedAndUpsert(
-      config,
-      "graph_node",
-      node.id,
-      textWithImages,
-      extraPayload,
-    );
+    await embedAndUpsert("graph_node", node.id, textWithImages, extraPayload);
     return;
   }
 
-  await embedAndUpsert(config, "graph_node", node.id, text, extraPayload);
+  await embedAndUpsert("graph_node", node.id, text, extraPayload);
 }
 
 /**
  * Job handler: embed a graph node and upsert to Qdrant.
  */
-export async function embedGraphNodeJob(
-  job: MemoryJob,
-  config: AssistantConfig,
-): Promise<void> {
+export async function embedGraphNodeJob(job: MemoryJob): Promise<void> {
   const nodeId = asString(job.payload.nodeId);
   if (!nodeId) return;
 
   const node = getNode(nodeId);
   if (!node) return;
 
-  await embedGraphNodeDirect(node, config);
+  await embedGraphNodeDirect(node);
 }
 
 /**
@@ -250,10 +239,7 @@ export function enqueueGraphNodeEmbed(nodeId: string): void {
  * Job handler: embed a trigger's condition text and store the
  * embedding on the trigger row.
  */
-export async function embedGraphTriggerJob(
-  job: MemoryJob,
-  config: AssistantConfig,
-): Promise<void> {
+export async function embedGraphTriggerJob(job: MemoryJob): Promise<void> {
   const triggerId = asString(job.payload.triggerId);
   if (!triggerId) return;
 
@@ -262,8 +248,7 @@ export async function embedGraphTriggerJob(
   const { eq } = await import("drizzle-orm");
   const { memoryGraphTriggers } =
     await import("../../../../persistence/schema/index.js");
-  const { embedWithBackend } =
-    await import("../../../../persistence/embeddings/embedding-backend.js");
+  const { embedWithBackend } = await import("../embeddings.js");
 
   const db = getDb();
   const row = db
@@ -274,7 +259,7 @@ export async function embedGraphTriggerJob(
 
   if (!row || !row.condition) return;
 
-  const result = await embedWithBackend(config, [row.condition]);
+  const result = await embedWithBackend([row.condition]);
   const vector = result.vectors[0];
   if (!vector) return;
 

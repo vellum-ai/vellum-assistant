@@ -68,10 +68,7 @@ import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
 } from "../../../../persistence/checkpoints.js";
-import {
-  EmbeddingBackendUnavailableError,
-  embedWithBackend,
-} from "../../../../persistence/embeddings/embedding-backend.js";
+import { EmbeddingBackendUnavailableError } from "../../../../persistence/embeddings/embedding-backend.js";
 import { EmbeddingBillingBlockError } from "../../../../persistence/embeddings/embedding-billing-breaker.js";
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
 import {
@@ -81,6 +78,7 @@ import {
 import { executeDeleteManagedSkill } from "../../../../tools/skills/delete-managed.js";
 import { getLogger } from "../../../../util/logger.js";
 import { getWorkspaceDir } from "../../../../util/platform.js";
+import { embedWithBackend } from "../embeddings.js";
 import { getPageIndex } from "../v2/page-index.js";
 import { readPage } from "../v2/page-store.js";
 import { skillSlugFor } from "../v2/skill-store.js";
@@ -427,7 +425,7 @@ function defaultBackfillDeps(config: AssistantConfig): BackfillJobDeps {
     nowMs: () => Date.now(),
     config,
     embedProbe: async () => {
-      await embedWithBackend(config, ["memory-v3 backfill preflight"]);
+      await embedWithBackend(["memory-v3 backfill preflight"]);
     },
   };
 }

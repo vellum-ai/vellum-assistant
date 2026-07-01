@@ -27,7 +27,6 @@ import { z } from "zod";
 import { getConfig } from "../../../../config/loader.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import {
-  embedWithBackend,
   generateSparseEmbedding,
   getMemoryBackendStatus,
 } from "../../../../persistence/embeddings/embedding-backend.js";
@@ -46,6 +45,7 @@ import {
 } from "../../../../runtime/routes/errors.js";
 import type { RouteDefinition } from "../../../../runtime/routes/types.js";
 import { getLogger } from "../../../../util/logger.js";
+import { embedWithBackend } from "../embeddings.js";
 import { createNode, deleteNode, getNode, updateNode } from "../graph/store.js";
 import type {
   Fidelity,
@@ -186,7 +186,7 @@ async function searchNodesSemantic(
     const backendStatus = await getMemoryBackendStatus(config);
     if (!backendStatus.provider) return null;
 
-    const embedded = await embedWithBackend(config, [query]);
+    const embedded = await embedWithBackend([query]);
     const queryVector = embedded.vectors[0];
     if (!queryVector) return null;
 

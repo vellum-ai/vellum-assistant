@@ -1157,7 +1157,7 @@ export async function runGraphExtraction(
     const { embedGraphNodeDirect } = await import("./graph-search.js");
     for (const node of createdNodes) {
       try {
-        await embedGraphNodeDirect(node, config);
+        await embedGraphNodeDirect(node);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         log.warn(

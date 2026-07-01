@@ -21,10 +21,7 @@ import {
   setMemoryCheckpoint,
 } from "../../../../persistence/checkpoints.js";
 import { getDb } from "../../../../persistence/db-connection.js";
-import {
-  initQdrantClient,
-  resolveQdrantUrl,
-} from "../../../../persistence/embeddings/qdrant-client.js";
+import { initQdrantClient } from "../../../../persistence/embeddings/qdrant-client.js";
 import {
   enqueueMemoryJob,
   hasActiveJobOfType,
@@ -38,6 +35,7 @@ import {
 } from "../../../../persistence/schema/index.js";
 import { getLogger } from "../../../../util/logger.js";
 import { getWorkspaceDir } from "../../../../util/platform.js";
+import { resolveQdrantUrl } from "../embeddings.js";
 import { runGraphExtraction } from "./extraction.js";
 import { countNodes } from "./store.js";
 
@@ -86,7 +84,7 @@ export async function bootstrapFromHistory(
   // Initialize Qdrant client for inline embedding
   try {
     initQdrantClient({
-      url: resolveQdrantUrl(config),
+      url: resolveQdrantUrl(),
       collection: config.memory.qdrant.collection,
       vectorSize: config.memory.qdrant.vectorSize,
       onDisk: config.memory.qdrant.onDisk ?? true,
