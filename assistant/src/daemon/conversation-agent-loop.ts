@@ -1555,6 +1555,7 @@ export async function runAgentLoopImpl(
   } finally {
     if (turnStarted) {
       ctx.turnCount++;
+      const turnNumber = ctx.turnCount;
       const config = getConfig();
       const maxWait = config.workspaceGit?.turnCommitMaxWaitMs ?? 4000;
       const deadlineMs = Date.now() + maxWait;
@@ -1562,24 +1563,31 @@ export async function runAgentLoopImpl(
       const commitPromise = commitTurnChangesFn(
         ctx.workingDir,
         ctx.conversationId,
-        ctx.turnCount,
+        turnNumber,
         undefined,
         deadlineMs,
       );
-      const outcome = await raceWithTimeout(commitPromise, maxWait);
-      if (outcome === "timed_out") {
-        rlog.warn(
-          {
-            turnNumber: ctx.turnCount,
-            maxWaitMs: maxWait,
-            conversationId: ctx.conversationId,
-          },
-          "Turn-boundary commit timed out — continuing without waiting (commit still runs in background)",
-        );
-      }
+      // Fire-and-forget: the processing lock must NOT be held across the
+      // turn-boundary commit. A barge-in / rapid follow-up turn needs the
+      // conversation freed as soon as this turn stops producing output, not
+      // after post-turn git bookkeeping (which can take seconds when the
+      // workspace git commit is slow or failing). See JARVIS-1232.
+      void raceWithTimeout(commitPromise, maxWait)
+        .then((outcome) => {
+          if (outcome === "timed_out") {
+            rlog.warn(
+              { turnNumber, maxWaitMs: maxWait, conversationId: ctx.conversationId },
+              "Turn-boundary commit slow — still running in background",
+            );
+          }
+        })
+        .catch(() => {});
+      // Guard against an unhandled rejection if the commit rejects AFTER the
+      // race already settled to "timed_out".
+      void commitPromise.catch(() => {});
 
       // Commit app changes (fire-and-forget — apps repo is separate from workspace)
-      void commitAppTurnChanges(ctx.conversationId, ctx.turnCount);
+      void commitAppTurnChanges(ctx.conversationId, turnNumber);
 
       // Recompute relationship-state.json at turn boundary (fire-and-forget).
       // The writer swallows its own errors, but we still guard with catch()
@@ -1590,12 +1598,15 @@ export async function runAgentLoopImpl(
 
     ctx.profiler.emitSummary(ctx.traceEmitter, reqId);
 
-    // Tear down this turn's per-turn state. Abort reliably drives the loop to
-    // this `finally` within a bounded time — cooperative signal propagation
-    // (provider fetch + tool race) backed by the abort watchdog — so a
-    // cancelled turn always unwinds before any resend can start a new one.
-    // There is therefore only ever one turn alive, and clearing the shared
-    // state below cannot clobber a concurrent turn.
+    // Tear down this turn's per-turn state. The processing lock is released
+    // synchronously here at turn end; the turn-boundary commit runs in the
+    // background and never touches per-turn state, so it cannot clobber a
+    // subsequent turn. Abort reliably drives the loop to this `finally` within
+    // a bounded time — cooperative signal propagation (provider fetch + tool
+    // race) backed by the abort watchdog — so a cancelled turn always unwinds
+    // before any resend can start a new one. There is therefore only ever one
+    // turn alive, and clearing the shared state below cannot clobber a
+    // concurrent turn.
     ctx.abortController = null;
     ctx.setProcessing(false);
     ctx.onConfirmationOutcome = undefined;

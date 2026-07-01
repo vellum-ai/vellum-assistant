@@ -1995,6 +1995,28 @@ describe("session-agent-loop", () => {
         await new Promise((resolve) => setTimeout(resolve, 0));
       }
     });
+
+    test("releases processing lock without awaiting the turn-boundary commit", async () => {
+      // GIVEN a turn-boundary commit that never resolves (a slow/wedged
+      // workspace git commit — the exact condition that latched the processing
+      // lock true long enough for a voice barge-in to fail; see JARVIS-1232).
+      let commitCalled = false;
+      const ctx = makeCtx({
+        providerResponses: [textResponse("hi")],
+        commitTurnChanges: () => {
+          commitCalled = true;
+          return new Promise<void>(() => {});
+        },
+      } as unknown as Partial<Conversation>);
+
+      // WHEN the orchestrator runs the turn to public completion
+      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+
+      // THEN the lock is released even though the commit is still pending, and
+      // the commit was still kicked (fire-and-forget, just not awaited).
+      expect(ctx.isProcessing()).toBe(false);
+      expect(commitCalled).toBe(true);
+    });
   });
 
   describe("stale pending surface cleanup", () => {
