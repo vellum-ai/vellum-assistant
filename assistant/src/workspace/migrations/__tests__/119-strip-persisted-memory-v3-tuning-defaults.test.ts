@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { stripPersistedMemoryV3TuningDefaultsMigration as MIG } from "../118-strip-persisted-memory-v3-tuning-defaults.js";
+import { stripPersistedMemoryV3TuningDefaultsMigration as MIG } from "../119-strip-persisted-memory-v3-tuning-defaults.js";
 
 let workspaceDir: string;
 let configPath: string;
@@ -34,9 +34,31 @@ afterEach(() => {
   rmSync(workspaceDir, { recursive: true, force: true });
 });
 
-describe("118-strip-persisted-memory-v3-tuning-defaults", () => {
+describe("119-strip-persisted-memory-v3-tuning-defaults", () => {
   test("has the expected id", () => {
-    expect(MIG.id).toBe("118-strip-persisted-memory-v3-tuning-defaults");
+    expect(MIG.id).toBe("119-strip-persisted-memory-v3-tuning-defaults");
+  });
+
+  test("strips retired lean-profile defaults left by a mixed lean-era config", () => {
+    // A lean-seeded config that migration 117 skipped (one leaf later edited to
+    // a non-lean value), so the remaining lean defaults are still pinned here.
+    write({
+      memory: {
+        v3: {
+          live: true,
+          needleK: 12, // lean -> stripped
+          denseK: 0, // lean -> stripped
+          replyQueryK: 0, // lean -> stripped
+          selectorEnabled: false, // lean -> stripped
+          hotSet: { k: 20 }, // deliberate edit (broke 117's signature) -> kept
+          edge: { seedCount: 6, perSeed: 1, cap: 6 }, // lean -> stripped (edge emptied)
+        },
+      },
+    });
+
+    MIG.run(workspaceDir);
+
+    expect(v3()).toEqual({ live: true, hotSet: { k: 20 } });
   });
 
   test("strips a fully-defaulted memory.v3 block, keeping only live", () => {

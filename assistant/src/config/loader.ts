@@ -784,8 +784,9 @@ export function loadConfig(): AssistantConfig {
         // workspaces predate the v3 migration and must not be flipped on) and let
         // every tuning knob resolve from the schema on load. This way a shipped
         // schema-default change reaches all assistants (mirrors the
-        // embedding-provider strip above); see migration
-        // 118-strip-persisted-memory-v3-tuning-defaults for already-seeded configs.
+        // embedding-provider strip above); migration
+        // 119-strip-persisted-memory-v3-tuning-defaults handles already-seeded
+        // configs.
         seed.memory.v3 = {
           live: seed.memory.v3.live,
         } as (typeof seed.memory)["v3"];

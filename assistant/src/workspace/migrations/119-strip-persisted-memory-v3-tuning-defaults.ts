@@ -29,7 +29,13 @@ const log = getLogger("workspace-migration-118");
  * (mirrors 117). Values matching no shipped default are preserved.
  *
  * Gate thresholds that were retuned carry their superseded defaults too, so
- * assistants seeded at the earlier values also normalize.
+ * assistants seeded at the earlier values also normalize. Likewise the retired
+ * LEAN-profile defaults (needleK 12, denseK 0, replyQueryK 0, selectorEnabled
+ * false, hotSet.k / freshSet.k 8, learnedEdges.cap 0, edge.seedCount 6,
+ * edge.perSeed 1, edge.cap 6) are included: migration 117 only un-pins them on
+ * an exact full lean signature, so a mixed lean-era config (one lean leaf later
+ * edited) reaches this per-leaf pass with the rest still lean-pinned — listing
+ * the lean values here strips those too.
  *
  * Inlined per the migrations self-containment rule.
  */
@@ -38,28 +44,28 @@ const TUNING_LEAVES: ReadonlyArray<{
   key: string;
   defaults: ReadonlyArray<number | boolean | string | null>;
 }> = [
-  { parent: null, key: "needleK", defaults: [100] },
-  { parent: null, key: "denseK", defaults: [100] },
-  { parent: null, key: "replyQueryK", defaults: [12] },
-  { parent: null, key: "selectorEnabled", defaults: [true] },
+  { parent: null, key: "needleK", defaults: [100, 12] },
+  { parent: null, key: "denseK", defaults: [100, 0] },
+  { parent: null, key: "replyQueryK", defaults: [12, 0] },
+  { parent: null, key: "selectorEnabled", defaults: [true, false] },
   { parent: null, key: "selectorPromptPath", defaults: [null] },
   { parent: "prune", key: "maxResidentBytes", defaults: [393216] },
   { parent: "prune", key: "targetResidentBytes", defaults: [262144] },
-  { parent: "hotSet", key: "k", defaults: [40] },
+  { parent: "hotSet", key: "k", defaults: [40, 8] },
   { parent: "hotSet", key: "halfLifeDays", defaults: [14] },
-  { parent: "freshSet", key: "k", defaults: [100] },
+  { parent: "freshSet", key: "k", defaults: [100, 8] },
   { parent: "learnedEdges", key: "halfLifeDays", defaults: [30] },
   { parent: "learnedEdges", key: "minCount", defaults: [3] },
   { parent: "learnedEdges", key: "npmiFloor", defaults: [0.2] },
   { parent: "learnedEdges", key: "maxPerPage", defaults: [6] },
   { parent: "learnedEdges", key: "perSeed", defaults: [3] },
-  { parent: "learnedEdges", key: "cap", defaults: [20] },
+  { parent: "learnedEdges", key: "cap", defaults: [20, 0] },
   { parent: "spotlight", key: "n", defaults: [6] },
   { parent: "spotlight", key: "windowTurns", defaults: [2] },
   { parent: "edge", key: "hubDegree", defaults: [30] },
-  { parent: "edge", key: "seedCount", defaults: [18] },
-  { parent: "edge", key: "perSeed", defaults: [6] },
-  { parent: "edge", key: "cap", defaults: [45] },
+  { parent: "edge", key: "seedCount", defaults: [18, 6] },
+  { parent: "edge", key: "perSeed", defaults: [6, 1] },
+  { parent: "edge", key: "cap", defaults: [45, 6] },
   { parent: "entity", key: "enabled", defaults: [true] },
   { parent: "entity", key: "idfFloor", defaults: [4] },
   { parent: "entity", key: "cap", defaults: [8] },
@@ -92,7 +98,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 export const stripPersistedMemoryV3TuningDefaultsMigration: WorkspaceMigration =
   {
-    id: "118-strip-persisted-memory-v3-tuning-defaults",
+    id: "119-strip-persisted-memory-v3-tuning-defaults",
     description:
       "Strip persisted memory.v3 tuning knobs whose values match a shipped schema default so future default changes propagate to already-seeded assistants; preserves memory.v3.live and deliberate non-default overrides",
 
