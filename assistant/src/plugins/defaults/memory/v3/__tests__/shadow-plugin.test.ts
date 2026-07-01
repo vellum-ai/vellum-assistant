@@ -25,6 +25,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
+import { MemoryV3GateSchema } from "../../../../../config/schemas/memory-v3.js";
 import { migrateAddMemoryV3Selections } from "../../../../../persistence/migrations/268-add-memory-v3-selections.js";
 import { migrateAddMemoryV3EverInjected } from "../../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
 import { migrateMemoryV3SelectionsMessageIdAndSections } from "../../../../../persistence/migrations/283-memory-v3-selections-message-id-and-sections.js";
@@ -88,7 +89,15 @@ let extraRealConceptPages = 0;
 // Mutable mocked config knob (orchestrate-only) for asserting per-turn tuning
 // re-resolution from a live config edit.
 let selectorEnabledCfg = false;
+// Drives the `memory-v3-injection-gate` feature flag through the shared
+// assistant-feature-flags mock below (default off).
+let gateFlagEnabled = false;
 let messages: Array<{ role: string; content: string }> = [];
+
+// Schema defaults for `memory.v3.gate` (the tuning the mocked config carries and
+// the gate-config threading test asserts against). No `enabled` field — that is
+// the feature flag, threaded in by `observeTurn`.
+const GATE_DEFAULTS = MemoryV3GateSchema.parse({});
 
 // A synthetic skill capability slug the page index carries. Its rendered
 // content holds a distinctive term ("kumquat") so the real needle, built over
@@ -185,7 +194,11 @@ const FAKE_SECTION_INDEX: SectionIndex = {
 
 mock.module("../../../../../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: (key: string) =>
-    key === "memory-v3-live" ? liveEnabled : false,
+    key === "memory-v3-live"
+      ? liveEnabled
+      : key === "memory-v3-injection-gate"
+        ? gateFlagEnabled
+        : false,
 }));
 
 mock.module("../../../../../config/loader.js", () => ({
@@ -211,6 +224,9 @@ mock.module("../../../../../config/loader.js", () => ({
         },
         edge: { hubDegree: 30, seedCount: 6, perSeed: 1, cap: 6 },
         entity: { enabled: true, idfFloor: 4, cap: 8 },
+        // Gate TUNING only (schema defaults, no `enabled`); `observeTurn` spreads
+        // this and adds the flag-derived `enabled` before passing to orchestrate.
+        gate: GATE_DEFAULTS,
       },
       qdrant: { vectorSize: 8, onDisk: false },
     },
@@ -438,6 +454,7 @@ beforeEach(() => {
   learnedEdgesCap = 0;
   extraRealConceptPages = 0;
   selectorEnabledCfg = false;
+  gateFlagEnabled = false;
   messages = [
     {
       role: "user",
@@ -660,6 +677,31 @@ describe("memory-v3 engine", () => {
       orchestrateSpy.mock.calls as unknown as unknown[][]
     )[1]![1] as { selectorEnabled?: boolean };
     expect(secondDeps.selectorEnabled).toBe(true);
+  });
+
+  test("flag on → threads the gate tuning plus enabled:true into orchestrate", async () => {
+    gateFlagEnabled = true;
+    await observeTurn("conv-1", 0);
+
+    const deps = (
+      orchestrateSpy.mock.calls as unknown as unknown[][]
+    )[0]![1] as { gateConfig?: unknown };
+    // The spread is the live gate config: the `memory.v3.gate` tuning with the
+    // flag-derived `enabled` folded in.
+    expect(deps.gateConfig).toEqual({ ...GATE_DEFAULTS, enabled: true });
+  });
+
+  test("flag off (default) → gate config threads inert (enabled:false, schema-default tuning)", async () => {
+    // gateFlagEnabled defaults to false in beforeEach.
+    await observeTurn("conv-1", 0);
+
+    const deps = (
+      orchestrateSpy.mock.calls as unknown as unknown[][]
+    )[0]![1] as { gateConfig?: { enabled?: boolean } };
+    // Flag off → the gate is wired in but inert, and the tuning fields are the
+    // schema defaults the config carries.
+    expect(deps.gateConfig?.enabled).toBe(false);
+    expect(deps.gateConfig).toEqual({ ...GATE_DEFAULTS, enabled: false });
   });
 
   test("initLanes filters core to existing pages and excludes core from the hot set", async () => {
