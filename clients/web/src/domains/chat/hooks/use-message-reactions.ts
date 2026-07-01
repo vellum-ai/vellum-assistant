@@ -8,7 +8,7 @@
  * every client, including this one.
  */
 
-import { useCallback } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 
 import type { ConversationMessageReaction } from "@vellumai/assistant-api";
 import { toast } from "@vellumai/design-library";
@@ -23,6 +23,38 @@ export const USER_REACTION_ACTOR = "user";
 
 /** Quick-reaction emoji offered in the hover popover. */
 export const QUICK_REACTION_EMOJI = ["👍", "❤️", "🎉", "😂", "😮", "🙏"];
+
+// Daemons that predate `POST /v1/message-reactions` return 404. The first
+// such failure flips this session-scoped flag so the reaction affordance
+// hides instead of repeatedly offering an action the connected assistant
+// can't perform — the same 404-tolerant handling the inspector applies to
+// older daemons.
+let reactionsUnsupported = false;
+const supportListeners = new Set<() => void>();
+
+function markReactionsUnsupported(): void {
+  if (reactionsUnsupported) {
+    return;
+  }
+  reactionsUnsupported = true;
+  for (const listener of supportListeners) {
+    listener();
+  }
+}
+
+function subscribeToSupport(listener: () => void): () => void {
+  supportListeners.add(listener);
+  return () => supportListeners.delete(listener);
+}
+
+/** False once the connected assistant has answered 404 to a reaction write. */
+export function useReactionsSupported(): boolean {
+  return useSyncExternalStore(
+    subscribeToSupport,
+    () => !reactionsUnsupported,
+    () => true,
+  );
+}
 
 /** Whether the user has already placed `emoji` on `message`. */
 export function hasUserReaction(
@@ -84,11 +116,37 @@ export function useUserReactionToggle(
       );
 
       try {
-        await messagereactionsPost({
+        const { response, error } = await messagereactionsPost({
           path: { assistant_id: assistantId },
           body: { conversationId, messageId: message.id, emoji, op },
-          throwOnError: true,
         });
+        if (error === undefined) {
+          return;
+        }
+        patchMessageReactions(message.id, () => previous);
+        // The reactions route itself answers 404 for a missing *message*
+        // (its NotFoundError bodies name the message) — only a 404 without
+        // that marker indicates the endpoint doesn't exist on this daemon.
+        const errorText =
+          typeof error === "object" && error !== null
+            ? JSON.stringify(error)
+            : String(error);
+        const isMessageLevel404 =
+          errorText.includes("not found in conversation") ||
+          errorText.includes("no longer exists");
+        if (response?.status === 404 && !isMessageLevel404) {
+          markReactionsUnsupported();
+          toast.error(
+            "Your assistant doesn't support reactions yet — update it to react to messages.",
+          );
+          return;
+        }
+        captureError(error, { context: "message_reaction_toggle" });
+        toast.error(
+          op === "add"
+            ? "Failed to add reaction."
+            : "Failed to remove reaction.",
+        );
       } catch (error) {
         patchMessageReactions(message.id, () => previous);
         captureError(error, { context: "message_reaction_toggle" });

@@ -6,6 +6,7 @@ import { Popover } from "@vellumai/design-library";
 import {
   hasUserReaction,
   QUICK_REACTION_EMOJI,
+  useReactionsSupported,
   useUserReactionToggle,
 } from "@/domains/chat/hooks/use-message-reactions";
 import type { DisplayMessage } from "@/domains/chat/types/types";
@@ -254,6 +255,10 @@ function MessageReactionButton({
 }) {
   const [open, setOpen] = useState(false);
   const toggleReaction = useUserReactionToggle(conversationId);
+  const supported = useReactionsSupported();
+  if (!supported) {
+    return null;
+  }
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
