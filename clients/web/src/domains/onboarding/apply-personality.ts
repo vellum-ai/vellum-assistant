@@ -64,6 +64,7 @@ const clamp = (n: number): number => Math.max(0, Math.min(100, Math.round(n)));
 export function buildPersonalityMessage(
   values: Record<string, number>,
   userName?: string,
+  persona?: string,
 ): string {
   const v = (id: string): number => clamp(values[id] ?? 50);
   const companionCoworker = v(AXIS.companionCoworker); // 100 = Coworker
@@ -72,6 +73,12 @@ export function buildPersonalityMessage(
   const politeUnfiltered = v(AXIS.politeUnfiltered); // 100 = Unfiltered
 
   const who = userName?.trim() || "The user";
+  // Collapse whitespace so a multi-line answer can't break the system-message
+  // framing the assistant parses; a blank answer omits the persona block.
+  const character = persona?.trim().replace(/\s+/g, " ");
+  const personaBlock = character
+    ? `\nThey also described the character they want you to embody: "${character}". Take on this persona — let it shape your voice, tone, and how you behave — while still honoring the trait scores above.\n`
+    : "";
   return `<system-message>
 ${who} wants to customize your personality.
 This is what they want you to be:
@@ -84,7 +91,7 @@ Playfulness (0 - 100): ${100 - playfulSerious}
 Seriousness (0 - 100): ${playfulSerious}
 Politeness (0 - 100): ${100 - politeUnfiltered}
 Unfiltered Rawness/Crassness (0 - 100): ${politeUnfiltered}
-
+${personaBlock}
 Rewrite your identity files (IDENTITY.md, SOUL.md, users/guardian.md) to reflect your new personality. Write them in first person in a voice and style that matches your new personality.
 </system-message>`;
 }
@@ -115,6 +122,8 @@ export interface ApplyPersonalityOptions {
   awaitAssistantId: () => Promise<string>;
   /** The five slider values, keyed by axis id (see `AXIS`). */
   values: Record<string, number>;
+  /** Free-text character to embody ("who do you want me to be?"). */
+  persona?: string;
   /** The user's name, woven into the system-message. */
   userName?: string;
 }
@@ -126,6 +135,7 @@ export interface ApplyPersonalityOptions {
 export async function applyPersonality({
   awaitAssistantId,
   values,
+  persona,
   userName,
 }: ApplyPersonalityOptions): Promise<void> {
   let assistantId: string | undefined;
@@ -143,7 +153,7 @@ export async function applyPersonality({
 
     const body: MessagesPostData["body"] = {
       conversationId,
-      content: buildPersonalityMessage(values, userName),
+      content: buildPersonalityMessage(values, userName, persona),
       sourceChannel: "vellum",
       interface: "vellum",
       clientMessageId: crypto.randomUUID(),

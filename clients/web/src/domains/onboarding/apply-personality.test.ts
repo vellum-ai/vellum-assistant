@@ -53,4 +53,32 @@ describe("buildPersonalityMessage", () => {
     expect(msg).toContain("Coworker (0-100): 100");
     expect(msg).toContain("Companion (0-100): 0");
   });
+
+  test("weaves the persona into the message when provided", () => {
+    const msg = buildPersonalityMessage(
+      {},
+      "Akash",
+      "a noir detective on the case",
+    );
+    expect(msg).toContain(
+      'They also described the character they want you to embody: "a noir detective on the case".',
+    );
+    // Trait scores and the rewrite instruction still survive the insertion.
+    expect(msg).toContain("Companion (0-100): 50");
+    expect(msg).toContain(
+      "Rewrite your identity files (IDENTITY.md, SOUL.md, users/guardian.md)",
+    );
+  });
+
+  test("collapses whitespace and omits the persona block when blank", () => {
+    const multiline = buildPersonalityMessage(
+      {},
+      undefined,
+      "a sassy\n  goth   girl",
+    );
+    expect(multiline).toContain('"a sassy goth girl"');
+
+    const blank = buildPersonalityMessage({}, undefined, "   ");
+    expect(blank).not.toContain("described the character");
+  });
 });

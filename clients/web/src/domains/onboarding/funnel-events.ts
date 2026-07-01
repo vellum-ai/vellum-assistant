@@ -54,7 +54,7 @@ export interface OnboardingFunnelStepDescriptor {
  * and ingest path. The backend stores step_name/funnel_version as open strings, so
  * these new values need no backend/terraform change.
  */
-export const RESEARCH_ONBOARDING_FUNNEL_VERSION = "research_onboarding_v1_2026_06";
+export const RESEARCH_ONBOARDING_FUNNEL_VERSION = "research_onboarding_v1_2026_07";
 
 export const RESEARCH_ONBOARDING_FUNNEL_STEPS = {
   form: { stepName: "research_form", stepIndex: 0 },
@@ -62,12 +62,13 @@ export const RESEARCH_ONBOARDING_FUNNEL_STEPS = {
   intro: { stepName: "research_intro", stepIndex: 2 },
   different: { stepName: "research_pitch", stepIndex: 3 },
   personality: { stepName: "research_personality", stepIndex: 4 },
-  integration: { stepName: "research_integration", stepIndex: 5 },
-  letschat: { stepName: "research_calendar", stepIndex: 6 },
-  meeting: { stepName: "research_meeting", stepIndex: 7 },
-  looking: { stepName: "research_looking", stepIndex: 8 },
-  results: { stepName: "research_results", stepIndex: 9 },
-  suggestions: { stepName: "research_suggestions", stepIndex: 10 },
+  persona: { stepName: "research_persona", stepIndex: 5 },
+  integration: { stepName: "research_integration", stepIndex: 6 },
+  letschat: { stepName: "research_calendar", stepIndex: 7 },
+  meeting: { stepName: "research_meeting", stepIndex: 8 },
+  looking: { stepName: "research_looking", stepIndex: 9 },
+  results: { stepName: "research_results", stepIndex: 10 },
+  suggestions: { stepName: "research_suggestions", stepIndex: 11 },
 } as const satisfies Record<ResearchStep, OnboardingFunnelStepDescriptor>;
 
 export type ResearchOnboardingFunnelStep =
@@ -97,7 +98,7 @@ export const RESEARCH_CHECKIN_CALENDAR_ATTRIBUTION = "research_checkin";
  */
 export const RESEARCH_ONBOARDING_CHECKIN_STEP = {
   stepName: "research_checkin_open",
-  stepIndex: 11,
+  stepIndex: 12,
 } as const satisfies OnboardingFunnelStepDescriptor;
 
 /**
