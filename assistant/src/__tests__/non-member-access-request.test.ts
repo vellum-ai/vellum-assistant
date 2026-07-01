@@ -101,7 +101,10 @@ import {
 } from "../contacts/canonical-guardian-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { notifyGuardianOfAccessRequest } from "../runtime/access-request-helper.js";
+import {
+  isAccessRequestDenied,
+  notifyGuardianOfAccessRequest,
+} from "../runtime/access-request-helper.js";
 import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
@@ -306,12 +309,11 @@ describe("non-member access request notification", () => {
     expect(pending.length).toBe(1);
   });
 
-  // End-to-end regression for the reported bug: after the guardian DENIES an
-  // access request, subsequent DMs from the same sender must not re-prompt.
-  // Drives the real inbound path for both messages so the deny-dedup matches
-  // the exact assistant-scoped conversationId the notify path derives — a
-  // hand-crafted fixture could mask a mismatch. This FAILS on the pre-fix code
-  // (second inbound would emit a second signal).
+  // After the guardian denies an access request, subsequent DMs from the same
+  // sender do not re-prompt the guardian. Drives the real inbound path for both
+  // messages so the deny-dedup matches the exact assistant-scoped
+  // conversationId the notify path derives — a hand-crafted fixture could mask
+  // a mismatch.
   test("a denied sender's subsequent DM does not re-prompt the guardian", async () => {
     seedGatewayGuardian({
       channelType: "telegram",
@@ -1001,5 +1003,50 @@ describe("access-request-helper unit tests", () => {
       kind: "access_request",
     });
     expect(pending.length).toBe(1);
+  });
+
+  test("isAccessRequestDenied is true only for the denied (assistant, channel, sender)", () => {
+    const key = {
+      canonicalAssistantId: "self",
+      sourceChannel: "telegram",
+      actorExternalId: "denied-user",
+    };
+    expect(isAccessRequestDenied(key)).toBe(false);
+
+    createCanonicalGuardianRequest({
+      id: `denied-${Date.now()}`,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "access-req-self-telegram-denied-user",
+      requesterExternalUserId: "denied-user",
+      guardianPrincipalId: anchorPrincipalId,
+      toolName: "ingress_access_request",
+      status: "denied",
+    });
+
+    expect(isAccessRequestDenied(key)).toBe(true);
+    // Scoped: a different channel or sender is not treated as denied.
+    expect(isAccessRequestDenied({ ...key, sourceChannel: "slack" })).toBe(
+      false,
+    );
+    expect(isAccessRequestDenied({ ...key, actorExternalId: "other" })).toBe(
+      false,
+    );
+    // A still-pending request is not a terminal deny.
+    createCanonicalGuardianRequest({
+      id: `pending-${Date.now()}`,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "access-req-self-telegram-pending-user",
+      requesterExternalUserId: "pending-user",
+      guardianPrincipalId: anchorPrincipalId,
+      toolName: "ingress_access_request",
+      status: "pending",
+    });
+    expect(
+      isAccessRequestDenied({ ...key, actorExternalId: "pending-user" }),
+    ).toBe(false);
   });
 });

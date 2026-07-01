@@ -53,11 +53,13 @@ mock.module("../../gateway-client.js", () => ({
 }));
 
 const accessRequestCalls: unknown[] = [];
+let accessRequestDeniedForTest = false;
 mock.module("../../access-request-helper.js", () => ({
   notifyGuardianOfAccessRequest: (params: unknown) => {
     accessRequestCalls.push(params);
     return { notified: true };
   },
+  isAccessRequestDenied: () => accessRequestDeniedForTest,
 }));
 
 // Invite transport: by default no adapter (no token). Per-test override below.
@@ -141,6 +143,7 @@ beforeEach(() => {
   findContactChannelCalls.length = 0;
   deliverReplyCalls.length = 0;
   accessRequestCalls.length = 0;
+  accessRequestDeniedForTest = false;
   inviteTokenForTest = undefined;
   guardianDeliveryList = [];
 });
