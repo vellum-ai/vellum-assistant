@@ -14,7 +14,7 @@
  * - `useComposerSubmit` — submit logic, focus management
  * - `DiskPressureBannerSlot` — localStorage-backed dismiss/suppress
  * - `useRuleEditorBridge` — viewer-store → rule-editor bridge
- * - `useChatBannerSlots` — nudge/queued/slack banner assembly
+ * - `useChatBannerSlots` — nudge/queued banner assembly
  */
 
 import { type Dispatch, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -83,7 +83,6 @@ import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
 import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
-import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { useViewerStore } from "@/stores/viewer-store";
 import { cmdEnterToSend } from "@/utils/composer-settings";
 import { haptic } from "@/utils/haptics";
@@ -239,7 +238,6 @@ export function ChatMainPanel({
     activeConversationId,
     activeConversation,
   } = useChatUIState();
-  const isChannelReadonly = isChannelConversation(activeConversation);
 
   // -------------------------------------------------------------------------
   // Composer — `ChatComposer` and `ComposerDraftNotices` self-source every
@@ -508,14 +506,13 @@ export function ChatMainPanel({
   const typingDisabled =
     isLoadingHistory ||
     (assistantState.kind === "active" && !!assistantState.maintenanceMode?.enabled) ||
-    diskPressureInputDisabled ||
-    isChannelReadonly;
+    diskPressureInputDisabled;
 
   const sendDisabled = isSendDisabledFromTurn || typingDisabled;
 
   const handleQuoteReplyNow = useCallback(
     (quotedText: string, replyText: string) => {
-      if (sendDisabled || isChannelReadonly) {
+      if (sendDisabled) {
         return;
       }
       const blockquote = quotedText
@@ -524,7 +521,7 @@ export function ChatMainPanel({
         .join("\n");
       void sendMessage(`${blockquote}\n\n${replyText}`);
     },
-    [sendMessage, sendDisabled, isChannelReadonly],
+    [sendMessage, sendDisabled],
   );
 
   const isEmptyConversation =
@@ -790,9 +787,9 @@ export function ChatMainPanel({
   });
 
   // -------------------------------------------------------------------------
-  // Banner slots (nudge, queued, slack)
+  // Banner slots (nudge, queued)
   // -------------------------------------------------------------------------
-  const { mainBannerSlot, mainQueuedDrawerSlot, channelReadonlyBannerSlot } = useChatBannerSlots({
+  const { mainBannerSlot, mainQueuedDrawerSlot } = useChatBannerSlots({
     nudges,
     queuedMessages,
     onCancelQueuedMessage: handleCancelQueuedMessage,
@@ -800,9 +797,6 @@ export function ChatMainPanel({
     onSteerMessage: handleSteerMessage,
     onEditQueueTail: handleEditQueueTail,
     queueSteering,
-    activeConversation,
-    sanitizedMessages,
-    assistantId,
   });
 
   // -------------------------------------------------------------------------
@@ -955,7 +949,6 @@ export function ChatMainPanel({
         showMaintenanceRecoveryCard: isSidePanel ? false : isInMaintenanceWithNoMessages,
       }}
       composerSlot={composerNode}
-      onStopGenerating={handleStopGenerating}
       dragHandlers={attachmentDropHandlers}
       isAttachmentDragOver={isAttachmentDragOver}
       showScrollToLatest={
@@ -968,11 +961,8 @@ export function ChatMainPanel({
       onRetryRefresh={handleRetryRefreshFromPill}
       genericChatError={genericChatBanner}
       onDismissChatError={handleDismissChatError}
-      isChannelReadonly={isChannelReadonly}
-      canStopGenerating={canStopGenerating}
       bannerSlot={isSidePanel ? undefined : mainBannerSlot}
       queuedDrawerSlot={isSidePanel ? undefined : mainQueuedDrawerSlot}
-      readonlyBannerSlot={channelReadonlyBannerSlot}
       startersSlot={startersSlot}
       belowFoldSlot={belowFoldSlot}
       dockStartersToBottom={dockStartersToBottom}
@@ -1057,12 +1047,8 @@ export function ChatMainPanel({
       />
       {sendErrorModalNode}
       {ruleEditorModalNode}
-      {!isChannelReadonly && (
-        <>
-          <TextSelectionPopover containerRef={transcriptContainerRef} />
-          <QuoteReplyBubble onSendNow={handleQuoteReplyNow} />
-        </>
-      )}
+      <TextSelectionPopover containerRef={transcriptContainerRef} />
+      <QuoteReplyBubble onSendNow={handleQuoteReplyNow} />
     </>
   );
 }
