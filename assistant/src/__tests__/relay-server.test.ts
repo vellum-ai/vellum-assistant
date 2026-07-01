@@ -421,7 +421,6 @@ import {
   activeRelayConnections,
   RelayConnection,
 } from "../calls/relay-server.js";
-import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
 import {
   createInboundSession,
   createVerificationSession,
@@ -733,9 +732,6 @@ describe("relay-server", () => {
       };
       return session as unknown as import("../daemon/conversation.js").Conversation;
     };
-    setVoiceBridgeDeps({
-      resolveAttachments: () => [],
-    });
   });
 
   // ── Setup message handling ──────────────────────────────────────

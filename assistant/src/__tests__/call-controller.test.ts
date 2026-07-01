@@ -191,7 +191,6 @@ mock.module("../calls/voice-session-bridge.js", () => {
   mockStartVoiceTurn = mock(createMockVoiceTurn(["Hello", " there"]));
   return {
     startVoiceTurn: (...args: unknown[]) => mockStartVoiceTurn(...args),
-    setVoiceBridgeDeps: () => {},
   };
 });
 

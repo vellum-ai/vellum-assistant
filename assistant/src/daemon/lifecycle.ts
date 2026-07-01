@@ -2,9 +2,7 @@ import { config as dotenvConfig } from "dotenv";
 
 import { setPointerMessageProcessor } from "../calls/call-pointer-messages.js";
 import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
-import { setRelayBroadcast } from "../calls/relay-server.js";
 import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
-import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import { setIngressPublicBaseUrl, validateEnv } from "../config/env.js";
 import { loadConfig, mergeDefaultWorkspaceConfig } from "../config/loader.js";
@@ -21,10 +19,6 @@ import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import {
-  getAttachmentsByIds,
-  getSourcePathsForAttachments,
-} from "../persistence/attachments-store.js";
-import {
   clearStaleProcessingFlags,
   deleteMessageById,
   getMessages,
@@ -38,7 +32,6 @@ import { runMemoryStartup } from "../plugins/defaults/memory/startup.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
 import { initializeProviders } from "../providers/registry.js";
-import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import {
   initAuthSigningKey,
   resolveSigningKey,
@@ -674,26 +667,7 @@ export async function runDaemon(): Promise<void> {
     log.warn({ err }, "Background Qdrant init failed"),
   );
 
-  // Inject voice bridge deps so the relay pipeline can resolve attachments
-  // once a call lands. Module-level state, so available even when the HTTP
-  // server failed to bind.
-  setVoiceBridgeDeps({
-    resolveAttachments: (attachmentIds) => {
-      const resolved = getAttachmentsByIds(attachmentIds, {
-        hydrateFileData: true,
-      });
-      const sourcePaths = getSourcePathsForAttachments(attachmentIds);
-      return resolved.map((a) => ({
-        id: a.id,
-        filename: a.originalFilename,
-        mimeType: a.mimeType,
-        data: a.dataBase64,
-        ...(sourcePaths.has(a.id) ? { filePath: sourcePaths.get(a.id) } : {}),
-      }));
-    },
-  });
   try {
-    setRelayBroadcast((msg) => broadcastMessage(msg));
     setPointerMessageProcessor(
       async (conversationId, instruction, requiredFacts) => {
         const conversation = await getOrCreateConversation(conversationId);
