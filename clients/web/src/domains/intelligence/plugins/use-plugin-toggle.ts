@@ -24,56 +24,69 @@ export interface UsePluginToggleResult {
 
 /**
  * Optimistic enable/disable mutation for the Plugins tab. Flips the installed
- * row's `enabled` in the cached list immediately, rolls the snapshot back and
- * toasts on failure, and invalidates the plugin queries on settle so the cache
- * re-syncs with the daemon (which also broadcasts `sync_changed`). Mirrors the
- * optimistic pattern in `settings/pages/sounds-page.tsx`.
+ * row's `enabled` in every cached `pluginsGet` variant immediately (the
+ * unfiltered list plus every `?category=` filtered read `usePluginsList`
+ * mounts), rolls back only that row's field and toasts on failure, and
+ * invalidates the plugin queries on settle so the cache re-syncs with the
+ * daemon (which also broadcasts `sync_changed`). Mirrors the optimistic
+ * pattern in `settings/pages/sounds-page.tsx`.
  *
  * No confirm dialog — the action is reversible.
  */
 export function usePluginToggle(assistantId: string): UsePluginToggleResult {
   const queryClient = useQueryClient();
 
-  // The unfiltered installed-list key `usePluginsList` reads for the default
-  // (no category) view; also the key `invalidatePluginQueries` staleness-marks.
-  const listQueryKey = pluginsGetQueryKey({
-    path: { assistant_id: assistantId },
-    query: { q: undefined },
-  });
+  // Partial key matching every `pluginsGet` cache for this assistant — the
+  // unfiltered list AND each server-side `?category=` filtered read. Omitting
+  // `query` makes TanStack partial-match all variants (same idiom as
+  // `invalidatePluginQueries`); patching only the unfiltered key would leave a
+  // category-filtered view stale until the settle refetch.
+  const listQueryFilter = {
+    queryKey: pluginsGetQueryKey({ path: { assistant_id: assistantId } }),
+  };
+
+  // Set `name`'s `enabled` across every matching cache variant, leaving other
+  // rows (and other caches) untouched.
+  const setRowEnabled = (name: string, enabled: boolean) => {
+    queryClient.setQueriesData<PluginsGetResponse>(listQueryFilter, (prev) =>
+      prev
+        ? {
+            ...prev,
+            plugins: prev.plugins.map((plugin) =>
+              plugin.name === name ? { ...plugin, enabled } : plugin,
+            ),
+          }
+        : prev,
+    );
+  };
 
   const mutation = useMutation({
-    mutationFn: ({ name, nextEnabled }: TogglePluginVariables) =>
-      nextEnabled
+    mutationFn: async ({ name, nextEnabled }: TogglePluginVariables) => {
+      const result = await (nextEnabled
         ? pluginsByNameEnablePost({
             path: { assistant_id: assistantId, name },
-            throwOnError: true,
+            throwOnError: false,
           })
         : pluginsByNameDisablePost({
             path: { assistant_id: assistantId, name },
-            throwOnError: true,
-          }),
-    onMutate: async ({ name, nextEnabled }) => {
-      await queryClient.cancelQueries({ queryKey: listQueryKey });
-      const previous =
-        queryClient.getQueryData<PluginsGetResponse>(listQueryKey);
-      queryClient.setQueryData<PluginsGetResponse>(listQueryKey, (prev) =>
-        prev
-          ? {
-              ...prev,
-              plugins: prev.plugins.map((plugin) =>
-                plugin.name === name
-                  ? { ...plugin, enabled: nextEnabled }
-                  : plugin,
-              ),
-            }
-          : prev,
-      );
-      return { previous };
+            throwOnError: false,
+          }));
+      // 409 means the plugin is already in the desired state — a no-op from a
+      // stale cache or a second client. The end state holds, so treat it as
+      // success and let `onSettled` refetch the truth; only other non-ok
+      // statuses are real failures.
+      const status = result.response?.status;
+      if (result.response?.ok || status === 409) return result;
+      throw new Error(`Plugin toggle failed (${status ?? "network error"})`);
     },
-    onError: (_error, _variables, context) => {
-      if (context?.previous !== undefined) {
-        queryClient.setQueryData(listQueryKey, context.previous);
-      }
+    onMutate: async ({ name, nextEnabled }) => {
+      await queryClient.cancelQueries(listQueryFilter);
+      setRowEnabled(name, nextEnabled);
+    },
+    onError: (_error, { name, nextEnabled }) => {
+      // Roll back only this row's `enabled` — a full-snapshot restore would
+      // clobber a concurrent toggle's newer value on a different row.
+      setRowEnabled(name, !nextEnabled);
       toast.error(PLUGIN_TOGGLE_ERROR);
     },
     onSettled: (_data, _error, variables) => {
