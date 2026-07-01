@@ -1109,9 +1109,9 @@ describe("YAML metadata round-trip", () => {
   });
 
   test("activation hints and avoid-when round-trip into SkillSummary", () => {
-    // This is the gap the change closes: an assistant-authored (retrospective)
-    // skill written via createManagedSkill must carry activation hints so the
-    // memory seeder emits a "Use when:" clause for it, just like bundled skills.
+    // An assistant-authored (retrospective) skill written via createManagedSkill
+    // carries activation hints so the memory seeder emits a "Use when:" clause
+    // for it, just like bundled skills.
     createManagedSkill({
       id: "hints-roundtrip",
       name: "Hints Roundtrip",
