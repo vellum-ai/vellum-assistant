@@ -14,6 +14,7 @@ import {
   parseOAuthCompletePayload,
   type OAuthCompletePayload,
 } from "@/lib/auth/oauth-popup";
+import { resolveManagedOAuthRequestedScopes } from "@/lib/auth/google-oauth-scopes";
 import { resolveLocalAssistantPlatformIdentity } from "@/lib/local-platform-identity";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 import { useIsNativePlatform } from "@/runtime/native-auth";
@@ -40,8 +41,9 @@ interface UseOAuthConnectOptions {
 interface UseOAuthConnectResult {
   /**
    * Start the managed OAuth flow. Pass `requestedScopes` to ask the provider
-   * for a specific subset of scopes (e.g. Calendar-only for Google); omit it
-   * to request the provider's full default scope set.
+   * for a specific subset of scopes (e.g. Calendar-only for Google). Omitted
+   * scopes use the provider default, except Google full-connects explicitly
+   * request the managed granular scope set.
    */
   handleConnect: (requestedScopes?: string[]) => void;
   oauthInProgress: boolean;
@@ -320,7 +322,10 @@ export function useOAuthConnect({
         {
           path: { assistant_id: platformAssistantId, provider: providerKey },
           body: {
-            requested_scopes: requestedScopes,
+            requested_scopes: resolveManagedOAuthRequestedScopes(
+              providerKey,
+              requestedScopes,
+            ),
             redirect_after_connect: `${routes.account.oauth.popupComplete}?requestId=${requestId}${isNative ? "&native=1" : ""}`,
           },
         },
