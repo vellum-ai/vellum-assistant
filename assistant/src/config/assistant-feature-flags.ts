@@ -335,15 +335,15 @@ export function isAssistantFeatureFlagEnabled(
 export type MessagesSearchBackend = "fts5" | "qdrant";
 
 /**
- * Resolve the active messages search backend from the
- * `messages-search-backend` flag. Selects `qdrant` only when the raw flag
- * value is boolean `true` or the exact string `"qdrant"`; every other value
- * (`false`, `"fts5"`, any other string, undefined) falls back to `fts5` so
- * the safe default always wins for an unexpected override.
+ * Resolve the active messages search backend from the string-valued
+ * `messages-search-backend` flag. Selects `qdrant` only for the exact value
+ * `"qdrant"` (or a boolean `true` override, treated as enabled); every other
+ * value (`"fts5"`, any other string, `false`, undefined) falls back to `fts5`
+ * so the safe default always wins for an unexpected override.
  */
 export function getMessagesSearchBackend(
   config: AssistantConfig,
 ): MessagesSearchBackend {
   const raw = getAssistantFeatureFlagValue("messages-search-backend", config);
-  return raw === true || raw === "qdrant" ? "qdrant" : "fts5";
+  return raw === "qdrant" || raw === true ? "qdrant" : "fts5";
 }

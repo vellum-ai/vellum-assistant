@@ -39,9 +39,10 @@ describe("getMessagesSearchBackend", () => {
   });
 
   // Each case seeds the override cache so the value flows through the real
-  // `getAssistantFeatureFlagValue` plumbing — the path that can deliver this
-  // flag as a string. Only boolean `true` or the exact string `"qdrant"`
-  // selects qdrant; everything else must fall back to the safe fts5 default.
+  // `getAssistantFeatureFlagValue` plumbing — the path that delivers this
+  // string flag's value. Only the exact string `"qdrant"` (or a boolean
+  // `true` override, treated as enabled) selects qdrant; everything else
+  // must fall back to the safe fts5 default.
 
   test("defaults to fts5 when the flag is unset", () => {
     setOverridesForTesting({});
