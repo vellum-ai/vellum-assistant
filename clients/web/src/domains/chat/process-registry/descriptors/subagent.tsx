@@ -69,7 +69,7 @@ export const SUBAGENT_DESCRIPTOR: BackgroundProcessDescriptor = {
         key={id}
         subagentId={id}
         size={16}
-        className="[&:not(:first-child)]:-ml-1 [&:not(:first-child)]:rounded-full [&:not(:first-child)]:ring-2 [&:not(:first-child)]:ring-[var(--surface-lift)]"
+        className="[&:not(:first-child)]:-ml-1 [&:not(:first-child)]:rounded-full [&:not(:first-child)]:bg-[var(--surface-lift)] [&:not(:first-child)]:ring-2 [&:not(:first-child)]:ring-[var(--surface-lift)]"
       />
     ),
     max: MAX_VISIBLE_SUBAGENT_AVATARS,
