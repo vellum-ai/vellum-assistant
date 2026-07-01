@@ -120,12 +120,6 @@ export const ONBOARDING_PROVIDERS: readonly OnboardingProvider[] = [
         contextWindowTokens: 163_840,
         maxOutputTokens: 32_000,
       },
-      {
-        id: "meta-llama/llama-4-maverick",
-        displayName: "Llama 4 Maverick",
-        contextWindowTokens: 200_000,
-        maxOutputTokens: 16_000,
-      },
     ],
   },
   {
