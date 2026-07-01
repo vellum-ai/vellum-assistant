@@ -839,6 +839,23 @@ describe("handleBulkSetFeedItemStatus", () => {
     expect(result.updatedCount).toBe(0);
   });
 
+  test("ids scope limits update to specified items only", async () => {
+    await appendFeedItem(makeItem({ id: "n1", status: "new" }) as never);
+    await appendFeedItem(
+      makeItem({
+        id: "n2",
+        status: "new",
+        createdAt: "2026-04-14T12:00:01.000Z",
+      }) as never,
+    );
+
+    const result = (await _handleBulkSetFeedItemStatus({
+      body: { from: ["new"], to: "seen", ids: ["n1"] },
+    })) as BulkResult;
+
+    expect(result.updatedCount).toBe(1);
+  });
+
   test("400 on empty from array", async () => {
     let caught: unknown;
     try {

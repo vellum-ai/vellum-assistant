@@ -237,12 +237,13 @@ export async function clearAllConversationIds(): Promise<number> {
 export async function bulkSetFeedItemStatus(
   from: readonly FeedItemStatus[],
   to: FeedItemStatus,
+  ids?: readonly string[],
 ): Promise<number> {
   let resolveResult!: (count: number) => void;
   const resultPromise = new Promise<number>((resolve) => {
     resolveResult = resolve;
   });
-  pendingBulkStatus.push({ from, to, resolve: resolveResult });
+  pendingBulkStatus.push({ from, to, ids, resolve: resolveResult });
   void scheduleWrite();
   return resultPromise;
 }
@@ -272,6 +273,7 @@ const pendingStrips: Array<{
 const pendingBulkStatus: Array<{
   from: readonly FeedItemStatus[];
   to: FeedItemStatus;
+  ids?: readonly string[];
   resolve: (count: number) => void;
 }> = [];
 
@@ -408,11 +410,13 @@ async function runWrite(): Promise<void> {
   }> = [];
   for (const op of bulkStatusToApply) {
     const fromSet = new Set(op.from);
+    const idSet = op.ids ? new Set(op.ids) : null;
     let count = 0;
     for (let i = 0; i < items.length; i++) {
       const current = items[i]!;
       if (current.status === op.to) continue;
       if (!fromSet.has(current.status)) continue;
+      if (idSet && !idSet.has(current.id)) continue;
       items[i] = { ...current, status: op.to };
       count++;
     }

@@ -86,6 +86,7 @@ const listHomeFeedResponseSchema = z.object({
 const bulkStatusRequestSchema = z.object({
   from: z.array(z.enum(["new", "seen", "acted_on", "dismissed"])).min(1),
   to: z.enum(["new", "seen", "acted_on", "dismissed"]),
+  ids: z.array(z.string()).optional(),
 });
 
 const bulkStatusResponseSchema = z.object({
@@ -330,8 +331,8 @@ export async function handleBulkSetFeedItemStatus({
     );
   }
 
-  const { from, to } = parsed.data;
-  const updatedCount = await bulkSetFeedItemStatus(from, to);
+  const { from, to, ids } = parsed.data;
+  const updatedCount = await bulkSetFeedItemStatus(from, to, ids);
   if (updatedCount === -1) {
     throw new InternalError("Failed to persist bulk feed item status update");
   }

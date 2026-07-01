@@ -230,16 +230,21 @@ export function HomePage({
   const supportsBulkStatus = useSupportsBulkFeedStatus();
 
   const handleMarkAllRead = useCallback(() => {
-    feedQuery.markAll.mutate({ from: ["new"], to: "seen" });
-  }, [feedQuery.markAll]);
+    feedQuery.markAll.mutate({
+      from: ["new"],
+      to: "seen",
+      ids: visibleFeedItems.filter((i) => i.status === "new").map((i) => i.id),
+    });
+  }, [feedQuery.markAll, visibleFeedItems]);
 
   const handleClearAll = useCallback(() => {
     feedQuery.markAll.mutate({
       from: ["new", "seen", "acted_on"],
       to: "dismissed",
+      ids: visibleFeedItems.map((i) => i.id),
     });
     setSelectedItem(null);
-  }, [feedQuery.markAll]);
+  }, [feedQuery.markAll, visibleFeedItems]);
 
   // Link a scheduled-run notification back to its schedule, but only when that
   // schedule still exists in the loaded list (it may have since been deleted).

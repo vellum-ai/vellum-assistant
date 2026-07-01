@@ -700,7 +700,48 @@ describe("feed-writer", () => {
       }
     });
 
-    test("returns 0 when the underlying writeFileSync throws", async () => {
+    test("ids scope limits bulk update to matching item ids only", async () => {
+      await appendFeedItem(makeItem({ id: "n1", status: "new" }));
+      await appendFeedItem(
+        makeItem({
+          id: "n2",
+          status: "new",
+          createdAt: "2026-04-14T12:00:01.000Z",
+        }),
+      );
+      await appendFeedItem(
+        makeItem({
+          id: "n3",
+          status: "new",
+          createdAt: "2026-04-14T12:00:02.000Z",
+        }),
+      );
+
+      const count = await bulkSetFeedItemStatus(
+        ["new"],
+        "seen",
+        ["n1", "n3"],
+      );
+      expect(count).toBe(2);
+
+      const decoded = readFileJson();
+      const byId = new Map(decoded.items.map((i) => [i.id, i.status]));
+      expect(byId.get("n1")).toBe("seen");
+      expect(byId.get("n2")).toBe("new");
+      expect(byId.get("n3")).toBe("seen");
+    });
+
+    test("ids scope with no matching ids returns 0", async () => {
+      await appendFeedItem(makeItem({ id: "n1", status: "new" }));
+
+      const count = await bulkSetFeedItemStatus(["new"], "seen", ["nonexistent"]);
+      expect(count).toBe(0);
+
+      const decoded = readFileJson();
+      expect(decoded.items[0]!.status).toBe("new");
+    });
+
+    test("returns -1 when the underlying writeFileSync throws", async () => {
       await appendFeedItem(
         makeItem({
           id: "fail-bulk",

@@ -178,28 +178,33 @@ export function useHomeFeedQuery(assistantId: string | null) {
     mutationFn: async ({
       from,
       to,
+      ids,
     }: {
       from: HomeFeedMarkallPostData["body"]["from"];
       to: FeedItemStatus;
+      ids?: string[];
     }) => {
       const { data } = await homeFeedMarkallPost({
         path: { assistant_id: assistantId! },
-        body: { from, to },
+        body: { from, to, ids },
         throwOnError: true,
       });
       return data;
     },
 
-    onMutate: async ({ from, to }) => {
+    onMutate: async ({ from, to, ids }) => {
       await queryClient.cancelQueries({ queryKey: feedQueryKey });
 
       const previous = queryClient.getQueryData<HomeFeedGetResponse>(feedQueryKey);
 
       const fromSet = new Set<FeedItemStatus>(from);
+      const idSet = ids ? new Set(ids) : null;
       homeFeedGetSetQueryData(queryClient, feedOpts, (old) => {
         if (!old) return old;
         const items = old.items.map((item) =>
-          fromSet.has(item.status) && item.status !== to
+          fromSet.has(item.status) &&
+          item.status !== to &&
+          (!idSet || idSet.has(item.id))
             ? { ...item, status: to }
             : item,
         );

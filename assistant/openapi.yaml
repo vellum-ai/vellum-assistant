@@ -12869,6 +12869,10 @@ paths:
                     - seen
                     - acted_on
                     - dismissed
+                ids:
+                  type: array
+                  items:
+                    type: string
               required:
                 - from
                 - to
