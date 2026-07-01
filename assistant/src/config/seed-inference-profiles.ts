@@ -304,6 +304,17 @@ export function seedInferenceProfiles(
     if (preservedProfileNames.has(name)) continue;
 
     const previous = readObject(profiles[name]);
+    // Never clobber a user-owned profile that shares a managed name (e.g. a
+    // user-owned `frontier` that migration 115 deliberately preserved). A
+    // source-less profile is legacy managed (migration 052 seeded canonicals
+    // without `source`), so only an explicit non-managed source is skipped.
+    if (
+      previous !== null &&
+      previous.source !== undefined &&
+      previous.source !== "managed"
+    ) {
+      continue;
+    }
     const effectiveTemplate: ManagedProfileTemplate = isByokMode
       ? { ...template, label: `${template.label} (Managed)` }
       : template;
