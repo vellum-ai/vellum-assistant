@@ -36,6 +36,22 @@ mock.module("../persistence/conversation-search-lexical.js", () => ({
   },
 }));
 
+// Drives the real recall backend gate: when true the source must fall back to
+// FTS regardless of the flag, because the lexical index write path is
+// suppressed and Qdrant is never populated. Defaults false so every other test
+// exercises its intended backend. Spread the real module so the other 9 exports
+// (job handlers, enqueue helpers) stay intact for transitive importers.
+let suppressIndexing = false;
+const realLexicalModule =
+  await import("../plugins/defaults/memory/job-handlers/index-message-lexical.js");
+mock.module(
+  "../plugins/defaults/memory/job-handlers/index-message-lexical.js",
+  () => ({
+    ...realLexicalModule,
+    isMemoryIndexingSuppressed: () => suppressIndexing,
+  }),
+);
+
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { rawRun } from "../persistence/raw-query.js";
@@ -385,16 +401,45 @@ describe("searchConversationSource with the qdrant backend", () => {
     getDb().run("DELETE FROM messages");
     getDb().run("DELETE FROM conversations");
     lexicalCalls = [];
+    suppressIndexing = false;
     setOverridesForTesting({ "messages-search-backend": true });
   });
 
   afterEach(() => {
     setOverridesForTesting({});
+    suppressIndexing = false;
     lexicalMockImpl = () => {
       throw new Error(
         "searchMessageIdsLexical mock not configured for this test",
       );
     };
+  });
+
+  test("falls back to FTS when memory indexing is suppressed, even with the qdrant flag on", async () => {
+    const match = await seedConversation({
+      title: "Suppressed indexing notes",
+      content: "The suppressedtoken decision is recorded here.",
+    });
+
+    // The lexical index is not populated while indexing is suppressed, so the
+    // source must NOT query Qdrant — it must use the FTS path.
+    suppressIndexing = true;
+    lexicalMockImpl = async () => {
+      throw new Error("searchMessageIdsLexical must not run while suppressed");
+    };
+
+    const result = await searchConversationSource(
+      "suppressedtoken",
+      makeContext(),
+      5,
+    );
+
+    // FTS path found the row (proves the backend fell back), and the Qdrant
+    // candidate helper was never called.
+    expect(lexicalCalls).toHaveLength(0);
+    expect(result.evidence.map((item) => item.locator)).toEqual([
+      `${match.conversation.id}#${match.message.id}`,
+    ]);
   });
 
   test("over-fetches a wide candidate pool from Qdrant, not the FTS prefetch window", async () => {

@@ -11,6 +11,7 @@ import {
   parseExternalContentEnvelope,
   wrapUntrustedContent,
 } from "../../../../../security/untrusted-content.js";
+import { isMemoryIndexingSuppressed } from "../../job-handlers/index-message-lexical.js";
 import type { RecallSearchContext, RecallSearchResult } from "../types.js";
 
 const SUBAGENT_SOURCE = "subagent";
@@ -122,8 +123,23 @@ export async function searchConversationSource(
     normalizedLimit * CONVERSATION_SEARCH_PREFETCH_MULTIPLIER,
   );
 
+  // The Qdrant lexical index is forward-filled by the memory write path, which
+  // is gated on `isMemoryIndexingSuppressed()`. When indexing is suppressed
+  // (memory disabled or the memory plugin disabled) the collection is never
+  // populated, so a qdrant-backed read would silently return nothing while FTS
+  // still works — force the FTS path regardless of the flag in that case.
+  const backend = isMemoryIndexingSuppressed()
+    ? "fts5"
+    : getMessagesSearchBackend(context.config);
+
   let rows: ConversationEvidenceRow[];
-  if (getMessagesSearchBackend(context.config) === "qdrant") {
+  if (backend === "qdrant") {
+    // A brief post-edit staleness window (an edited message whose re-index job
+    // has not yet run, or a just-deleted message still present as a point) is
+    // an ACCEPTED consequence of async indexing. Recall is fuzzy evidence
+    // re-ranked by the app-side scorer, and the wide candidate pool dilutes a
+    // single stale hit; we do not re-verify candidate content against the query
+    // (a substring re-check would wrongly drop valid stemmed matches).
     const qdrantCandidateLimit = Math.max(
       normalizedLimit * QDRANT_RECALL_CANDIDATE_MULTIPLIER,
       QDRANT_RECALL_MIN_CANDIDATES,
