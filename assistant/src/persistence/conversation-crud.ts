@@ -2876,6 +2876,43 @@ export function appendMessageReaction(
 }
 
 /**
+ * Remove the `(emoji, actor)` reaction from a message's metadata. Runs the
+ * read-merge-write in a transaction like {@link appendMessageReaction}.
+ * Returns the full reaction set after the removal (unchanged when no
+ * matching reaction existed), or `null` when the message does not exist.
+ */
+export function removeMessageReaction(
+  messageId: string,
+  reaction: Pick<MessageReaction, "emoji" | "actor">,
+): MessageReaction[] | null {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const row = tx
+      .select({ metadata: messages.metadata })
+      .from(messages)
+      .where(eq(messages.id, messageId))
+      .get();
+    if (!row) {
+      return null;
+    }
+    const existing = row.metadata ? safeParseRecord(row.metadata) : {};
+    const parsed = z.array(messageReactionSchema).safeParse(existing.reactions);
+    const reactions = parsed.success ? parsed.data : [];
+    const updated = reactions.filter(
+      (r) => !(r.emoji === reaction.emoji && r.actor === reaction.actor),
+    );
+    if (updated.length === reactions.length) {
+      return reactions;
+    }
+    tx.update(messages)
+      .set({ metadata: JSON.stringify({ ...existing, reactions: updated }) })
+      .where(eq(messages.id, messageId))
+      .run();
+    return updated;
+  });
+}
+
+/**
  * Newest-first `user`-role rows for a conversation, capped at `limit`.
  * An indexed seek plus small scan, so callers that only need the recent
  * user turns (e.g. resolving a reaction target) avoid loading the full
