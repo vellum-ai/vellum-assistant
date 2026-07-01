@@ -466,22 +466,35 @@ describe("backfillLexicalIndexJob", () => {
       expect(isLexicalBackfillComplete()).toBe(false);
     });
 
-    test("clears an existing completion marker when memory is disabled (heals the gap on resume)", () => {
-      // Backfill completed, then memory was disabled. Messages written while
-      // disabled are absent from the index, so the completion marker must not
-      // survive: clearing it (cursor preserved) keeps reads on FTS and re-arms
-      // the backfill for the next boot after memory is re-enabled.
+    test("clears the completion marker AND resets the cursor when memory is disabled (heals the gap on resume)", () => {
+      // Backfill completed (cursor at the end), then memory was disabled. Rows
+      // created OR edited while disabled are absent/stale in the index, so the
+      // completion marker must not survive and the cursor must reset to the
+      // origin — a cursor-forward re-run would skip in-place edits and backdated
+      // inserts. Clearing both keeps reads on FTS and re-arms a full re-index for
+      // the next boot after memory is re-enabled.
       setMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY, "1");
+      writeMessageCursorCheckpoint(CHECKPOINT_KEY, CHECKPOINT_ID_KEY, {
+        createdAt: 9_000,
+        messageId: "msg-tail",
+      });
       setMemoryEnabled(false);
 
       maybeEnqueueLexicalBackfillOnUpgrade();
 
       expect(pendingBackfillJobCount()).toBe(0);
       expect(isLexicalBackfillComplete()).toBe(false);
+      expect(
+        readMessageCursorCheckpoint(CHECKPOINT_KEY, CHECKPOINT_ID_KEY),
+      ).toEqual({ createdAt: 0, messageId: "" });
     });
 
-    test("clears an existing completion marker when the memory plugin is disabled", () => {
+    test("clears the completion marker AND resets the cursor when the memory plugin is disabled", () => {
       setMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY, "1");
+      writeMessageCursorCheckpoint(CHECKPOINT_KEY, CHECKPOINT_ID_KEY, {
+        createdAt: 9_000,
+        messageId: "msg-tail",
+      });
       setMemoryEnabled(true);
       setMemoryPluginDisabled(true);
 
@@ -489,6 +502,9 @@ describe("backfillLexicalIndexJob", () => {
 
       expect(pendingBackfillJobCount()).toBe(0);
       expect(isLexicalBackfillComplete()).toBe(false);
+      expect(
+        readMessageCursorCheckpoint(CHECKPOINT_KEY, CHECKPOINT_ID_KEY),
+      ).toEqual({ createdAt: 0, messageId: "" });
     });
 
     test("does NOT enqueue a duplicate when a backfill job is already pending", () => {

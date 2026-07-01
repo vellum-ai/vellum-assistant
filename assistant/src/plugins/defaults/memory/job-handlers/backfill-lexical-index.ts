@@ -54,16 +54,20 @@ const LEXICAL_BACKFILL_CHECKPOINT_ID_KEY = "lexical:messages:last_id";
  *
  * Suppression handling. When memory indexing is suppressed — memory disabled,
  * or the memory plugin disabled via its `.disabled` sentinel — per-message index
- * writes are off, so any message created or edited while suppressed is absent
- * from `messages_lexical`. If the backfill had already completed, that leaves a
- * gap the completion sentinel would otherwise hide once indexing resumes. So
- * when suppressed this clears the completion sentinel (leaving the resumable
- * cursor intact) rather than enqueuing: the read paths keep serving FTS while
- * suppressed (they share the {@link isMemoryIndexingSuppressed} signal), and on
- * the next boot after indexing resumes this re-enqueues a backfill that drains
- * from the preserved cursor forward, catching the messages missed during the
- * disabled window before the completion sentinel is re-set and reads flip back
- * to Qdrant.
+ * writes are off, so any message created OR edited while suppressed is absent or
+ * stale in `messages_lexical`. If the backfill had already completed, that
+ * leaves a gap the completion sentinel would otherwise hide once indexing
+ * resumes. So when suppressed this both clears the completion sentinel AND resets
+ * the backfill cursor, rather than enqueuing: the read paths keep serving FTS
+ * while suppressed (they share the {@link isMemoryIndexingSuppressed} signal),
+ * and on the next boot after indexing resumes this re-enqueues a backfill that
+ * re-indexes the whole `messages` table from the start before the completion
+ * sentinel is re-set and reads flip back to Qdrant. The cursor reset is required
+ * because a cursor-forward-only re-run would skip rows whose content changed
+ * under an unchanged `created_at` (an edit during the window) or rows imported
+ * with a backdated `created_at` behind the cursor. The re-index is idempotent
+ * (deterministic point ids) and runs off the event loop in batches, so it is a
+ * bounded one-time cost per disable→resume cycle.
  *
  * Guards to enqueue (when not suppressed):
  * - The completion sentinel must be unset. Once the backfill has fully drained
@@ -84,14 +88,20 @@ const LEXICAL_BACKFILL_CHECKPOINT_ID_KEY = "lexical:messages:last_id";
 export function maybeEnqueueLexicalBackfillOnUpgrade(): void {
   try {
     if (isMemoryIndexingSuppressed()) {
-      // Indexing is off, so messages written while suppressed are not in the
-      // index. Clear the completion sentinel (keep the cursor) so that once
-      // indexing resumes, the next boot re-runs the backfill from the cursor and
-      // heals the gap; until then the read paths stay on FTS via the same signal.
+      // Indexing is off, so messages created or edited while suppressed are
+      // absent/stale in the index. Clear the completion sentinel AND reset the
+      // cursor so that once indexing resumes, the next boot re-indexes the whole
+      // table (not just rows after the old cursor — that would skip in-place
+      // edits and backdated inserts); until then the read paths stay on FTS via
+      // the same signal.
       if (isLexicalBackfillComplete()) {
+        resetMessageCursorCheckpoint(
+          LEXICAL_BACKFILL_CHECKPOINT_KEY,
+          LEXICAL_BACKFILL_CHECKPOINT_ID_KEY,
+        );
         clearLexicalBackfillComplete();
         log.info(
-          "Memory indexing suppressed — cleared lexical-index backfill completion so it re-runs when indexing resumes",
+          "Memory indexing suppressed — reset lexical-index backfill so it re-runs from the start when indexing resumes",
         );
       }
       return;
