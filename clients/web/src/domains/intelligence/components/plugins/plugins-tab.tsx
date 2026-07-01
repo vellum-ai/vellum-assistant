@@ -119,6 +119,7 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
     isFetching,
     catalogError,
     categorySupported,
+    pluginToggleSupported,
     installedCategoryCounts,
     installedPlugins,
     installedTotal,
@@ -126,13 +127,26 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
     unfilteredInstalledNames,
   } = usePluginsList(assistantId, effectiveCategory);
 
+  // The picker offers different status options per daemon capability
+  // (All/Active/Off/Available when it can toggle, All/Installed/Available when
+  // it can't). If a prior selection carries into an assistant whose picker no
+  // longer offers it, coerce to All so rows don't silently vanish under an
+  // unreachable filter. Everything that drives display reads this, not the raw
+  // `filter`; `setFilter` still records the raw user choice.
+  const offeredFilters: PluginFilter[] = pluginToggleSupported
+    ? ["all", "active", "off", "available"]
+    : ["all", "installed", "available"];
+  const effectiveFilter: PluginFilter = offeredFilters.includes(filter)
+    ? filter
+    : "all";
+
   const { counts, totalCount } = useMergedPluginCounts(
     installedCategoryCounts,
     installedPlugins,
     installedTotal,
     catalogMatches,
     unfilteredInstalledNames,
-    filter,
+    effectiveFilter,
   );
 
   // Two-pane rail only when the daemon understands the category taxonomy AND
@@ -262,10 +276,10 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
 
   const visibleItems = useMemo(
     () =>
-      filterByStatus(items, filter).filter((item) =>
+      filterByStatus(items, effectiveFilter).filter((item) =>
         matchesQuery(item, searchValue),
       ),
-    [items, filter, searchValue],
+    [items, effectiveFilter, searchValue],
   );
 
   // Background-fetch state (focus refetch, post-install invalidation); drives
@@ -277,17 +291,19 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
   const hasActiveSearch = searchValue.trim().length > 0;
 
   if (selectedPluginName) {
-    // Seed the detail header icon from the already-loaded list row: catalog
-    // rows are known-external (📦 immediately, no load-time flash). Installed
-    // rows and unmatched deep-links are `undefined` (origin unknown), so the
-    // header shows a glyph-less placeholder until the detail query resolves.
-    const selectedExternalHint = items.find(
-      (p) => p.name === selectedPluginName,
-    )?.external;
+    // Seed the detail header icon + auto-include toggle from the already-loaded
+    // list row: catalog rows are known-external (📦 immediately, no load-time
+    // flash). Installed rows and unmatched deep-links are `undefined` (origin
+    // unknown), so the header shows a glyph-less placeholder until the detail
+    // query resolves. `enabled` is likewise sourced from the row — the detail
+    // GET carries no enablement — and is `undefined` for available/deep-link
+    // rows, which hides the toggle.
+    const selectedRow = items.find((p) => p.name === selectedPluginName);
     const detailProps = {
       assistantId,
       name: selectedPluginName,
-      externalHint: selectedExternalHint,
+      externalHint: selectedRow?.external,
+      enabled: selectedRow?.enabled,
       onBack: handleCloseDetail,
     };
     return isMobile ? (
@@ -306,10 +322,12 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
       ) : visibleItems.length === 0 ? (
         // Don't flash an "empty" state for available plugins while the
         // catalog is still loading (installed plugins already render above).
-        catalogLoading && filter !== "installed" ? (
+        // Only the filters that surface catalog rows (all/available) wait on it.
+        catalogLoading &&
+          (effectiveFilter === "all" || effectiveFilter === "available") ? (
           <LoadingState />
         ) : (
-          <EmptyState filter={filter} category={effectiveCategory} />
+          <EmptyState filter={effectiveFilter} category={effectiveCategory} />
         )
       ) : (
         <ul className="flex flex-col gap-2">
@@ -347,7 +365,7 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
       <FilterBar
         search={searchValue}
         onSearchChange={setSearchValue}
-        filter={filter}
+        filter={effectiveFilter}
         onFilterChange={setFilter}
         isSearching={isSearching}
         categories={categoryRailEnabled ? categories : []}
@@ -356,6 +374,7 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
         counts={counts}
         totalCount={totalCount}
         showCounts={!hasActiveSearch}
+        pluginToggleSupported={pluginToggleSupported}
       />
 
       {catalogError && !isLoading && !isError ? (
@@ -429,17 +448,32 @@ function useMergedPluginCounts(
 ): { counts: Record<string, number>; totalCount: number } {
   return useMemo(() => {
     const counts: Record<string, number> = {};
+    // all/active/off all narrow the installed set, so they include installed
+    // rows; only `available` excludes them. Catalog (available) rows count only
+    // for the filters that actually surface them — all and available.
     const includeInstalled = filter !== "available";
-    const includeCatalog = filter !== "installed";
+    const includeCatalog = filter === "all" || filter === "available";
+
+    // Active/Off narrow the installed set by enablement — which the server's
+    // `installedCategoryCounts` (totals for ALL installed plugins) can't express.
+    // For those filters, bucket the enablement-filtered installed set on the
+    // client so badges/totals never count rows the filter hides.
+    const enablementFiltered = filter === "active" || filter === "off";
+    const matchingInstalled = enablementFiltered
+      ? installedPlugins.filter((p) =>
+          filter === "off" ? p.enabled === false : p.enabled !== false,
+        )
+      : installedPlugins;
 
     if (includeInstalled) {
       if (
+        !enablementFiltered &&
         installedCategoryCounts &&
         Object.keys(installedCategoryCounts).length > 0
       ) {
         Object.assign(counts, installedCategoryCounts);
       } else {
-        for (const plugin of installedPlugins) {
+        for (const plugin of matchingInstalled) {
           const cat = plugin.category ?? SYSTEM_CATEGORY;
           counts[cat] = (counts[cat] ?? 0) + 1;
         }
@@ -457,7 +491,9 @@ function useMergedPluginCounts(
         catalogTotal += 1;
       }
     }
-    const installedTotalResolved = installedTotal ?? installedPlugins.length;
+    const installedTotalResolved = enablementFiltered
+      ? matchingInstalled.length
+      : (installedTotal ?? installedPlugins.length);
     const totalCount =
       (includeInstalled ? installedTotalResolved : 0) + catalogTotal;
     return { counts, totalCount };
@@ -653,7 +689,20 @@ function getEmptyStateCopy(
     case "installed":
       return {
         title: "No Plugins Installed",
-        subtitle: "Install a plugin from the catalog to extend your assistant.",
+        subtitle:
+          "Browse the catalog to install plugins that extend your assistant.",
+        Icon: Puzzle,
+      };
+    case "active":
+      return {
+        title: "No Active Plugins",
+        subtitle: "Install a plugin from the catalog, or turn on an installed one.",
+        Icon: Puzzle,
+      };
+    case "off":
+      return {
+        title: "No Plugins Turned Off",
+        subtitle: "Installed plugins you turn off will appear here.",
         Icon: Puzzle,
       };
     case "available":

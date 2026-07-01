@@ -21119,6 +21119,11 @@ paths:
                         name:
                           type: string
                           description: Display name. Equal to `id` today.
+                        enabled:
+                          type: boolean
+                          description:
+                            Whether the plugin is active in this workspace. `false` when a `.disabled` sentinel is present under its
+                            directory; `true` otherwise.
                         description:
                           anyOf:
                             - type: string
@@ -21147,6 +21152,7 @@ paths:
                       required:
                         - id
                         - name
+                        - enabled
                         - description
                         - version
                       additionalProperties: false
@@ -21430,6 +21436,80 @@ paths:
           description: The install recorded no commit or no fingerprint to re-materialize and verify a baseline from.
         "503":
           description: The plugin source (GitHub) was temporarily unavailable; the diff is retryable.
+  /v1/plugins/{name}/disable:
+    post:
+      operationId: plugins_by_name_disable_post
+      summary: Disable a plugin
+      description:
+        Disable a plugin in this workspace by dropping a `.disabled` sentinel, mirroring the CLI's `assistant
+        plugins disable <name>`. The change is honored live at read time by every tool / injector / hook gate — no
+        restart required. Broadcasts a `sync_changed` invalidation carrying the `plugins:list` tag so other clients
+        refetch `GET /v1/plugins`. An already-disabled plugin returns 409; a user plugin with no directory returns 404
+        (default plugins are stubbed on demand via the `default-` prefix); a malformed name returns 400.
+      tags:
+        - plugins
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
+        "400":
+          description: The plugin name failed validation (not kebab-case alphanumerics).
+        "404":
+          description: No plugin directory exists with the given name (user plugins must already be installed).
+        "409":
+          description: The plugin is already disabled.
+  /v1/plugins/{name}/enable:
+    post:
+      operationId: plugins_by_name_enable_post
+      summary: Enable a plugin
+      description:
+        Enable a plugin in this workspace by removing its `.disabled` sentinel, mirroring the CLI's `assistant
+        plugins enable <name>`. The change is honored live at read time by every tool / injector / hook gate — no
+        restart required. Broadcasts a `sync_changed` invalidation carrying the `plugins:list` tag so other clients
+        refetch `GET /v1/plugins`. An already-enabled plugin returns 409; a name with no plugin directory returns 404
+        (prefix a default plugin with `default-`); a malformed name returns 400.
+      tags:
+        - plugins
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
+        "400":
+          description: The plugin name failed validation (not kebab-case alphanumerics).
+        "404":
+          description: No plugin directory exists with the given name.
+        "409":
+          description: The plugin is already enabled.
   /v1/plugins/{name}/inspect:
     get:
       operationId: plugins_by_name_inspect_get

@@ -144,6 +144,21 @@ describe("PluginListRow", () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
+  test("Remove is disabled while an upgrade is in flight (no concurrent delete)", () => {
+    render(
+      <PluginListRow
+        item={makeItem({ status: "installed" })}
+        drift={makeDrift("update-available")}
+        onSelect={() => {}}
+        onRemove={() => {}}
+        onUpgrade={() => {}}
+        isUpgrading
+      />,
+    );
+
+    expect(getButton("Remove plugin").disabled).toBe(true);
+  });
+
   test("does not render an origin badge (origin is unknowable from the list)", () => {
     const onSelect = mock(() => {});
 
@@ -164,6 +179,7 @@ describe("PluginListRow", () => {
 
   test("upgrade affordance only appears with update-available drift", () => {
     const onSelect = mock(() => {});
+    const onUpgrade = mock(() => {});
 
     // Up-to-date installed plugin shows Remove, not Upgrade.
     const { rerender } = render(
@@ -171,6 +187,7 @@ describe("PluginListRow", () => {
         item={makeItem({ status: "installed" })}
         drift={makeDrift("up-to-date")}
         onSelect={onSelect}
+        onUpgrade={onUpgrade}
       />,
     );
 
@@ -181,17 +198,106 @@ describe("PluginListRow", () => {
       document.querySelector('button[aria-label="Remove plugin"]'),
     ).not.toBeNull();
 
-    // Same plugin with drift now exposes Upgrade.
+    // Same plugin with drift now exposes Upgrade (Remove stays put).
     rerender(
       <PluginListRow
         item={makeItem({ status: "installed" })}
         drift={makeDrift("update-available")}
         onSelect={onSelect}
+        onUpgrade={onUpgrade}
       />,
     );
 
     expect(
       document.querySelector('button[aria-label="Upgrade plugin"]'),
+    ).not.toBeNull();
+  });
+
+  test("Enabled installed row shows an Enabled tag beside Remove (no toggle)", () => {
+    const { getByText } = render(
+      <PluginListRow
+        item={makeItem({ status: "installed", enabled: true })}
+        onSelect={mock(() => {})}
+        onRemove={mock(() => {})}
+      />,
+    );
+
+    expect(getByText("Enabled")).toBeTruthy();
+    // The row carries no interactive toggle — changing it happens on detail.
+    expect(document.querySelector('button[role="switch"]')).toBeNull();
+    expect(
+      document.querySelector('button[aria-label="Remove plugin"]'),
+    ).not.toBeNull();
+  });
+
+  test("Disabled row is dimmed and shows a Disabled tag", () => {
+    const { getByText } = render(
+      <PluginListRow
+        item={makeItem({ status: "installed", enabled: false })}
+        onSelect={mock(() => {})}
+      />,
+    );
+
+    expect(getByText("Disabled")).toBeTruthy();
+    // Disabled rows dim the name to the tertiary content token.
+    expect(getByText("Test Plugin").style.color).toContain("content-tertiary");
+  });
+
+  test("drift renders the Update chip (Remove stays), even when Disabled", () => {
+    const { getByText } = render(
+      <PluginListRow
+        item={makeItem({ status: "installed", enabled: false })}
+        drift={makeDrift("update-available")}
+        onSelect={mock(() => {})}
+        onRemove={mock(() => {})}
+        onUpgrade={mock(() => {})}
+      />,
+    );
+
+    // Drift is an Update chip, not a Remove-replacing button: both are present.
+    expect(
+      document.querySelector('button[aria-label="Upgrade plugin"]'),
+    ).not.toBeNull();
+    expect(
+      document.querySelector('button[aria-label="Remove plugin"]'),
+    ).not.toBeNull();
+    // The chip shows regardless of the enablement state — here it's Disabled.
+    expect(getByText("Disabled")).toBeTruthy();
+  });
+
+  test("available row shows only Install (no tag, no Remove)", () => {
+    const { queryByText } = render(
+      <PluginListRow
+        item={makeItem({ status: "available" })}
+        onSelect={mock(() => {})}
+        onInstall={mock(() => {})}
+      />,
+    );
+
+    expect(
+      document.querySelector('button[aria-label="Install plugin"]'),
+    ).not.toBeNull();
+    expect(queryByText("Enabled")).toBeNull();
+    expect(queryByText("Disabled")).toBeNull();
+    expect(
+      document.querySelector('button[aria-label="Remove plugin"]'),
+    ).toBeNull();
+  });
+
+  test("installed row without `enabled` (older daemon) renders no tag", () => {
+    const { queryByText } = render(
+      <PluginListRow
+        item={makeItem({ status: "installed" })}
+        onSelect={mock(() => {})}
+        onRemove={mock(() => {})}
+      />,
+    );
+
+    expect(queryByText("Enabled")).toBeNull();
+    expect(queryByText("Disabled")).toBeNull();
+    // Remove is still present for installed rows.
+    expect(
+      document.querySelector('button[aria-label="Remove plugin"]'),
     ).not.toBeNull();
   });
 });

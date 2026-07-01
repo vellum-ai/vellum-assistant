@@ -53,6 +53,12 @@ export interface UsePluginsListResult {
    */
   categorySupported: boolean;
   /**
+   * True once any installed item carries `enabled` — the daemon understands
+   * the plugin enable/disable surface. Older daemons omit it; the toggle gates
+   * on this (version-skew safeguard). Sticky, reset per assistant.
+   */
+  pluginToggleSupported: boolean;
+  /**
    * Unfiltered installed category counts from the server (before the category
    * filter is applied). Undefined on daemons without taxonomy support.
    */
@@ -91,6 +97,39 @@ async function fetchInstalled(
   if (status === 404) return { plugins: [] } as PluginsGetResponse;
   if (!result.response?.ok) throw new Error("Failed to load plugins");
   return result.data ?? ({ plugins: [] } as PluginsGetResponse);
+}
+
+/**
+ * Sticky per-assistant capability latch. `observed` is the live signal that the
+ * daemon supports a feature for the current render; once true it latches so the
+ * feature's UI doesn't flicker off while the backing read is momentarily pending
+ * (e.g. mid category switch). The latch resets SYNCHRONOUSLY when `assistantId`
+ * changes — cleared during render, not in an effect — so a prior assistant's
+ * latched `true` never leaks into the first render of a next assistant whose
+ * daemon omits the capability.
+ */
+function useStickyAssistantCapability(
+  assistantId: string,
+  observed: boolean,
+): boolean {
+  const [latch, setLatch] = useState({ assistantId, latched: false });
+  const latchedForThisAssistant =
+    latch.assistantId === assistantId ? latch.latched : false;
+  if (latch.assistantId !== assistantId) {
+    // Reset during render (the discarded render's effects never commit) so the
+    // stale latch can't gate even one render for the new assistant.
+    setLatch({ assistantId, latched: false });
+  }
+  useEffect(() => {
+    if (observed) {
+      setLatch((prev) =>
+        prev.assistantId === assistantId && prev.latched
+          ? prev
+          : { assistantId, latched: true },
+      );
+    }
+  }, [assistantId, observed]);
+  return latchedForThisAssistant || observed;
 }
 
 /**
@@ -190,24 +229,19 @@ export function usePluginsList(
   const unfilteredInstalledData =
     category !== null ? installedCountsQuery.data : installedQuery.data;
 
-  // Latch support sticky once the unfiltered read first carries `categoryCounts`
-  // (it's a stable daemon capability): the live OR covers the current render, and
-  // the latch keeps it true across a category switch while the unfiltered source
-  // is momentarily pending, so the rail never vanishes mid-filter.
-  const categoryCountsObserved =
-    unfilteredInstalledData?.categoryCounts !== undefined;
-  const [categorySupportedLatched, setCategorySupportedLatched] =
-    useState(false);
-  // Support is a per-assistant daemon capability. Reset the latch when the
-  // active assistant changes so a `true` observed for a prior assistant can't
-  // keep the rail alive for a next assistant whose daemon omits `categoryCounts`.
-  useEffect(() => {
-    setCategorySupportedLatched(false);
-  }, [assistantId]);
-  useEffect(() => {
-    if (categoryCountsObserved) setCategorySupportedLatched(true);
-  }, [categoryCountsObserved]);
-  const categorySupported = categorySupportedLatched || categoryCountsObserved;
+  // Both are sticky per-assistant capabilities (see useStickyAssistantCapability),
+  // observed live from the unfiltered read: category support = counts present,
+  // toggle support = any installed plugin carries `enabled`.
+  const categorySupported = useStickyAssistantCapability(
+    assistantId,
+    unfilteredInstalledData?.categoryCounts !== undefined,
+  );
+  const pluginToggleSupported = useStickyAssistantCapability(
+    assistantId,
+    (unfilteredInstalledData?.plugins ?? EMPTY_INSTALLED).some(
+      (p) => p.enabled !== undefined,
+    ),
+  );
 
   // Self-heal timeout-degraded category counts. A cold catalog can make the
   // daemon's bounded category lookup time out, so the installed read buckets
@@ -267,6 +301,7 @@ export function usePluginsList(
     isFetching: installedQuery.isFetching || catalogQuery.isFetching,
     catalogError: catalogQuery.isError,
     categorySupported,
+    pluginToggleSupported,
     installedCategoryCounts: unfilteredInstalledData?.categoryCounts,
     installedPlugins: unfilteredInstalledData?.plugins ?? EMPTY_INSTALLED,
     installedTotal: unfilteredInstalledData?.totalCount,

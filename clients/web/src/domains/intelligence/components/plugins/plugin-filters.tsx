@@ -5,6 +5,8 @@ import {
     Filter,
     LayoutGrid,
     Loader2,
+    Power,
+    PowerOff,
     Search,
 } from "lucide-react";
 import { type ChangeEvent, type ReactNode, useState } from "react";
@@ -21,11 +23,34 @@ interface FilterOption {
   icon: typeof LayoutGrid;
 }
 
-const STATUS_FILTERS: FilterOption[] = [
-  { value: "all", label: "All", icon: LayoutGrid },
-  { value: "installed", label: "Installed", icon: CheckCircle },
-  { value: "available", label: "Available", icon: ArrowDownToLine },
-];
+const ALL_FILTER: FilterOption = { value: "all", label: "All", icon: LayoutGrid };
+const AVAILABLE_FILTER: FilterOption = {
+  value: "available",
+  label: "Available",
+  icon: ArrowDownToLine,
+};
+
+/**
+ * Status options for the filter. Active/Off narrow installed rows by
+ * enablement, so they only make sense when the daemon supports toggling —
+ * without it there's no active/off distinction, so offer a plain Installed
+ * option instead (All / Installed / Available).
+ */
+function statusFilters(pluginToggleSupported: boolean): FilterOption[] {
+  if (!pluginToggleSupported) {
+    return [
+      ALL_FILTER,
+      { value: "installed", label: "Installed", icon: CheckCircle },
+      AVAILABLE_FILTER,
+    ];
+  }
+  return [
+    ALL_FILTER,
+    { value: "active", label: "Active", icon: Power },
+    { value: "off", label: "Off", icon: PowerOff },
+    AVAILABLE_FILTER,
+  ];
+}
 
 interface FilterBarProps {
   search: string;
@@ -42,6 +67,8 @@ interface FilterBarProps {
   counts: Record<string, number>;
   totalCount: number;
   showCounts: boolean;
+  /** Gates the Active/Off status options on daemon enable/disable support. */
+  pluginToggleSupported: boolean;
 }
 
 export function FilterBar({
@@ -56,6 +83,7 @@ export function FilterBar({
   counts,
   totalCount,
   showCounts,
+  pluginToggleSupported,
 }: FilterBarProps) {
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     onSearchChange(e.target.value);
@@ -88,6 +116,7 @@ export function FilterBar({
         counts={counts}
         totalCount={totalCount}
         showCounts={showCounts}
+        pluginToggleSupported={pluginToggleSupported}
       />
     </div>
   );
@@ -102,6 +131,7 @@ interface FilterControlProps {
   counts: Record<string, number>;
   totalCount: number;
   showCounts: boolean;
+  pluginToggleSupported: boolean;
 }
 
 /**
@@ -144,7 +174,7 @@ function FilterControl(props: FilterControlProps) {
         <ul role="listbox">
           <FilterGroup
             label="Status"
-            options={STATUS_FILTERS}
+            options={statusFilters(props.pluginToggleSupported)}
             selected={props.filter}
             onSelect={(v) => {
               props.onFilterChange(v);
@@ -179,6 +209,7 @@ function FilterSheet({
   counts,
   totalCount,
   showCounts,
+  pluginToggleSupported,
   open,
   onOpenChange,
   trigger,
@@ -200,7 +231,7 @@ function FilterSheet({
         </BottomSheet.Header>
         <BottomSheet.Body className="flex flex-col gap-3 pt-2">
           <SheetSection label="Status">
-            {STATUS_FILTERS.map((option) => (
+            {statusFilters(pluginToggleSupported).map((option) => (
               <FilterRow
                 key={option.value}
                 icon={option.icon}
