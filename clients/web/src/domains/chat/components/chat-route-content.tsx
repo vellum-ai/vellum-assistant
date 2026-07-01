@@ -456,6 +456,13 @@ export function ChatMainPanel({
     useComposerStore.getState().setInput("");
   }, [cancelEditing]);
 
+  // Clear stale edit-recall state when the active conversation changes: ChatMainPanel
+  // is not keyed by conversation, so an edit started in one thread would otherwise
+  // leak into the next and drive its send down the undo path.
+  useEffect(() => {
+    cancelEditing();
+  }, [activeConversationId, cancelEditing]);
+
   // -------------------------------------------------------------------------
   // Nudges + ghost text
   // -------------------------------------------------------------------------
