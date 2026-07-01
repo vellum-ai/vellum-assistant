@@ -352,7 +352,36 @@ describe("ensureCliInstalled", () => {
     await ensureCliInstalled();
 
     expect(spawnCalls).toHaveLength(0);
-    expect(renameSyncCalls).toEqual([[`${locatorPath}.tmp`, locatorPath]]);
+    expect(renameSyncCalls).toContainEqual([`${locatorPath}.tmp`, locatorPath]);
+  });
+
+  test("stamps the package.json of an already-installed CLI on the upgrade path", async () => {
+    // The common upgrade case: a working install is adopted without a
+    // reinstall, so the post-install stamp is never reached — heal it here so
+    // installs predating the field (or on an older bun) don't drift (LUM-2649).
+    existsSyncDefault = true;
+    readFileSyncReturn = '{"dependencies":{"vellum":"latest"}}';
+
+    await ensureCliInstalled();
+
+    expect(spawnCalls).toHaveLength(0);
+    const pkgWrite = writeFileSyncCalls.find(
+      ([p]) => p === `${latestInstallDir}/package.json.tmp`,
+    );
+    expect(pkgWrite).toBeDefined();
+    expect(JSON.parse(pkgWrite![1]).packageManager).toBe(`bun@${mockBunVersion}`);
+  });
+
+  test("does not rewrite an already-stamped install on the upgrade path", async () => {
+    existsSyncDefault = true;
+    readFileSyncReturn = `{"packageManager":"bun@${mockBunVersion}","dependencies":{"vellum":"latest"}}`;
+
+    await ensureCliInstalled();
+
+    const pkgWrite = writeFileSyncCalls.find(
+      ([p]) => p === `${latestInstallDir}/package.json.tmp`,
+    );
+    expect(pkgWrite).toBeUndefined();
   });
 
   test("a throwing locator write does not reject", async () => {
