@@ -118,15 +118,15 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
-  test("rejects edits to quality-optimized that touch non-label/status fields", async () => {
+  test("rejects edits to quality-optimized that touch non-topP fields", async () => {
     await expect(
       replaceRoute.handler({
         pathParams: { name: "quality-optimized" },
         body: { provider: "openai", model: "gpt-4o" },
       }),
     ).rejects.toThrow(
-      'Cannot edit managed profile "quality-optimized" fields [provider, model]. ' +
-        "Only label, status, and topP may be edited; duplicate to a custom profile to change other fields.",
+      'Cannot edit invariant profile "quality-optimized" fields [provider, model]. ' +
+        "Default profiles cannot be disabled or relabeled; only topP may be edited.",
     );
   });
 
@@ -176,14 +176,14 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
   // propagate the clear through to disk. These tests lock the round-trip.
   // -------------------------------------------------------------------------
 
-  test("PUT { label: null } on managed profile clears the label on disk", async () => {
+  test("PUT { label: null } on non-invariant managed profile clears the label on disk", async () => {
     savedRaw = null;
     rawConfig = {
       llm: {
         profiles: {
-          balanced: {
-            provider: "anthropic",
-            model: "claude-sonnet",
+          "os-beta": {
+            provider: "fireworks",
+            model: "accounts/fireworks/models/test",
             label: "My Custom Name",
             source: "managed",
           },
@@ -191,27 +191,27 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
       },
     };
     const result = await replaceRoute.handler({
-      pathParams: { name: "balanced" },
+      pathParams: { name: "os-beta" },
       body: { label: null },
     });
     expect(result).toEqual({ ok: true });
-    const profile = (savedRaw as unknown as Record<string, any>)?.llm?.profiles
-      ?.balanced as Record<string, unknown>;
+    const profile = (savedRaw as unknown as Record<string, any>)?.llm
+      ?.profiles?.["os-beta"] as Record<string, unknown>;
     // Label key removed; seed fields preserved.
     expect("label" in profile).toBe(false);
-    expect(profile.provider).toBe("anthropic");
-    expect(profile.model).toBe("claude-sonnet");
+    expect(profile.provider).toBe("fireworks");
+    expect(profile.model).toBe("accounts/fireworks/models/test");
     expect(profile.source).toBe("managed");
   });
 
-  test("PUT { status: null } on managed profile clears status (back to active-by-absence)", async () => {
+  test("PUT { status: null } on non-invariant managed profile clears status (back to active-by-absence)", async () => {
     savedRaw = null;
     rawConfig = {
       llm: {
         profiles: {
-          "quality-optimized": {
-            provider: "anthropic",
-            model: "claude-opus",
+          "os-beta": {
+            provider: "fireworks",
+            model: "accounts/fireworks/models/test",
             status: "disabled",
             source: "managed",
           },
@@ -219,25 +219,25 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
       },
     };
     const result = await replaceRoute.handler({
-      pathParams: { name: "quality-optimized" },
+      pathParams: { name: "os-beta" },
       body: { status: null },
     });
     expect(result).toEqual({ ok: true });
     const profile = (savedRaw as unknown as Record<string, any>)?.llm
-      ?.profiles?.["quality-optimized"] as Record<string, unknown>;
+      ?.profiles?.["os-beta"] as Record<string, unknown>;
     expect("status" in profile).toBe(false);
-    expect(profile.provider).toBe("anthropic");
-    expect(profile.model).toBe("claude-opus");
+    expect(profile.provider).toBe("fireworks");
+    expect(profile.model).toBe("accounts/fireworks/models/test");
   });
 
-  test("PUT { label: null, status: null } clears both in a single request", async () => {
+  test("PUT { label: null, status: null } clears both in a single request on non-invariant managed profile", async () => {
     savedRaw = null;
     rawConfig = {
       llm: {
         profiles: {
-          "cost-optimized": {
-            provider: "anthropic",
-            model: "claude-haiku",
+          "os-beta": {
+            provider: "fireworks",
+            model: "accounts/fireworks/models/test",
             label: "Speed (Custom)",
             status: "disabled",
             source: "managed",
@@ -246,26 +246,26 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
       },
     };
     const result = await replaceRoute.handler({
-      pathParams: { name: "cost-optimized" },
+      pathParams: { name: "os-beta" },
       body: { label: null, status: null },
     });
     expect(result).toEqual({ ok: true });
     const profile = (savedRaw as unknown as Record<string, any>)?.llm
-      ?.profiles?.["cost-optimized"] as Record<string, unknown>;
+      ?.profiles?.["os-beta"] as Record<string, unknown>;
     expect("label" in profile).toBe(false);
     expect(profile.status).toBeUndefined();
-    expect(profile.provider).toBe("anthropic");
-    expect(profile.model).toBe("claude-haiku");
+    expect(profile.provider).toBe("fireworks");
+    expect(profile.model).toBe("accounts/fireworks/models/test");
   });
 
-  test("PUT { label: null, status: 'disabled' } mixes clear + set in one call", async () => {
+  test("PUT { label: null, status: 'disabled' } mixes clear + set on non-invariant managed profile", async () => {
     savedRaw = null;
     rawConfig = {
       llm: {
         profiles: {
-          balanced: {
-            provider: "anthropic",
-            model: "claude-sonnet",
+          "os-beta": {
+            provider: "fireworks",
+            model: "accounts/fireworks/models/test",
             label: "Custom Label",
             source: "managed",
           },
@@ -273,12 +273,12 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
       },
     };
     const result = await replaceRoute.handler({
-      pathParams: { name: "balanced" },
+      pathParams: { name: "os-beta" },
       body: { label: null, status: "disabled" },
     });
     expect(result).toEqual({ ok: true });
-    const profile = (savedRaw as unknown as Record<string, any>)?.llm?.profiles
-      ?.balanced as Record<string, unknown>;
+    const profile = (savedRaw as unknown as Record<string, any>)?.llm
+      ?.profiles?.["os-beta"] as Record<string, unknown>;
     expect("label" in profile).toBe(false);
     expect(profile.status).toBe("disabled");
   });
@@ -484,16 +484,41 @@ describe("PATCH /v1/config — managed profile deletion guard", () => {
     });
   });
 
-  test("allows patches that modify a managed profile (non-null)", async () => {
+  test("allows patches that modify a non-invariant managed profile (non-null)", async () => {
     savedRaw = null;
+    rawConfig = {
+      llm: {
+        profiles: {
+          "os-beta": {
+            provider: "fireworks",
+            model: "accounts/fireworks/models/test",
+            source: "managed",
+          },
+        },
+      },
+    };
     const result = await patchRoute.handler({
       body: {
         llm: {
-          profiles: { "quality-optimized": { provider: "anthropic" } },
+          profiles: { "os-beta": { label: "New Label" } },
         },
       },
     });
     expect(result).toHaveProperty("llm");
+  });
+
+  test("rejects patches that modify invariant profile non-topP fields", async () => {
+    await expect(
+      patchRoute.handler({
+        body: {
+          llm: {
+            profiles: { balanced: { status: "disabled" } },
+          },
+        },
+      }),
+    ).rejects.toThrow(
+      /Cannot edit invariant profile "balanced" fields \[status\]/,
+    );
   });
 
   test("allows deletion of a user-owned profile sharing a managed name (os-beta)", async () => {
