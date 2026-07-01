@@ -118,15 +118,30 @@ describe("wipeConversation", () => {
       }
     ).$client;
 
-    // Both jobs should be failed with conversation_wiped error
     const jobs = raw
-      .query("SELECT status, last_error FROM memory_jobs")
-      .all() as Array<{ status: string; last_error: string | null }>;
+      .query("SELECT type, status, last_error FROM memory_jobs")
+      .all() as Array<{
+      type: string;
+      status: string;
+      last_error: string | null;
+    }>;
 
-    for (const job of jobs) {
+    // The pre-existing jobs should be failed with the conversation_wiped error.
+    for (const job of jobs.filter(
+      (j) => j.type !== "purge_conversation_lexical",
+    )) {
       expect(job.status).toBe("failed");
       expect(job.last_error).toContain("conversation_wiped");
     }
+
+    // Wiping also enqueues a lexical-index purge, which must SURVIVE the
+    // job-cancellation pass (it is enqueued after cancellation) so the worker
+    // can delete the conversation's Qdrant points.
+    const purgeJobs = jobs.filter(
+      (j) => j.type === "purge_conversation_lexical",
+    );
+    expect(purgeJobs).toHaveLength(1);
+    expect(purgeJobs[0].status).toBe("pending");
 
     expect(result.cancelledJobCount).toBeGreaterThanOrEqual(2);
   });

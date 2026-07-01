@@ -50,6 +50,7 @@ import {
 } from "../persistence/llm-request-log-store.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
+import { enqueueLexicalIndexForMessage } from "../plugins/defaults/memory/job-handlers/index-message-lexical.js";
 import { backfillMemoryRecallLogMessageId } from "../plugins/defaults/memory/memory-recall-log-store.js";
 import { backfillMemoryV2ActivationMessageId } from "../plugins/defaults/memory/memory-v2-activation-log-store.js";
 import { backfillMemoryV3SelectionMessageId } from "../plugins/defaults/memory/v3/shadow-plugin.js";
@@ -1318,6 +1319,10 @@ export async function finalizePendingToolResultRow(
         "Failed to index tool-result message for memory (non-fatal)",
       );
     }
+    // Dual-write the finalized tool-result content into the lexical index. The
+    // reserve+finalize path bypasses `onMessagePersisted`, so enqueue here to
+    // keep the lexical index in lockstep with the segment index.
+    enqueueLexicalIndexForMessage(rowId);
   }
   for (const id of state.pendingToolResults.keys()) {
     state.persistedToolUseIds.add(id);
@@ -2072,6 +2077,10 @@ export async function handleMessageComplete(
         "Failed to index assistant message for memory (non-fatal)",
       );
     }
+    // Dual-write the finalized assistant content into the lexical index. The
+    // reserve+finalize path bypasses `onMessagePersisted`, so enqueue here to
+    // keep the lexical index in lockstep with the segment index.
+    enqueueLexicalIndexForMessage(assistantMessageId);
     try {
       const attentionStateChanged = projectAssistantMessage({
         conversationId: deps.ctx.conversationId,

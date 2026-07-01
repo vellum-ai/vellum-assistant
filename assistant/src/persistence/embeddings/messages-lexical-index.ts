@@ -315,6 +315,34 @@ export class MessagesLexicalIndex {
   }
 
   /**
+   * Remove every point from the index by dropping the whole collection. Used by
+   * "clear all conversations" — a bulk wipe with no conversation ids left to
+   * enqueue per-conversation purges against. Resetting `collectionReady` means
+   * the next write self-heals via `ensureCollection`. Returns `false` (rather
+   * than throwing) if the collection is absent or the drop fails, mirroring the
+   * shared Qdrant client's `deleteCollection` so callers can treat it as
+   * best-effort.
+   */
+  async clear(): Promise<boolean> {
+    try {
+      const exists = await this.client.collectionExists(this.collection);
+      if (!exists.exists) {
+        this.collectionReady = false;
+        return false;
+      }
+      await this.client.deleteCollection(this.collection);
+      this.collectionReady = false;
+      return true;
+    } catch (err) {
+      log.warn(
+        { err, collection: this.collection },
+        "Failed to clear messages lexical index collection",
+      );
+      return false;
+    }
+  }
+
+  /**
    * Detect "collection not found" errors from Qdrant so callers can reset
    * collectionReady and retry after an external deletion.
    */

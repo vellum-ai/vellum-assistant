@@ -28,6 +28,7 @@ import {
   findMessageBySourceId,
   recordInbound,
 } from "../../../persistence/delivery-crud.js";
+import { enqueueLexicalIndexForMessage } from "../../../plugins/defaults/memory/job-handlers/index-message-lexical.js";
 import { safeParseRecord } from "../../../util/json.js";
 import { getLogger } from "../../../util/logger.js";
 
@@ -156,6 +157,11 @@ export async function handleEditIntercept(
     } else {
       updateMessageContent(original.messageId, newContent);
     }
+    // The edit changed searchable text (the no-op guard above already returned
+    // for identical content) and this path bypasses `onMessagePersisted`, so
+    // reindex the message into the lexical index — the idempotent upsert
+    // replaces the stale Qdrant point with the edited content.
+    enqueueLexicalIndexForMessage(original.messageId);
     log.info(
       { assistantId, sourceMessageId, messageId: original.messageId },
       "Updated message content from edited_message",

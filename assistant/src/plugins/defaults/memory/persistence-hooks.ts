@@ -9,6 +9,12 @@ import type {
 import { getWorkspaceDir } from "../../../util/platform.js";
 import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
+import {
+  clearMessagesLexicalIndex,
+  enqueueDeleteMessageLexical,
+  enqueueLexicalIndexForMessage,
+  enqueuePurgeConversationLexical,
+} from "./job-handlers/index-message-lexical.js";
 import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
 import { forkRetrospectiveState } from "./memory-retrospective-state.js";
 import { cancelPendingJobsForConversation } from "./task-memory-cleanup.js";
@@ -35,7 +41,21 @@ import {
  */
 export const memoryPersistenceHooks: MemoryPersistenceHooks = {
   async onMessagePersisted(event: MessagePersistedEvent): Promise<void> {
-    await indexMessageNow({ ...event, scopeId: "default" }, getConfig().memory);
+    try {
+      await indexMessageNow(
+        { ...event, scopeId: "default" },
+        getConfig().memory,
+      );
+    } finally {
+      // Dual-write into the lexical (Qdrant) index off the write path. The
+      // sparse lexical job is independent of the dense embedding path, so it
+      // must be scheduled even when segment indexing above throws (a transient
+      // embedding/Qdrant/config failure) — otherwise the message would be
+      // permanently missing from the lexical index. Self-gates on the memory
+      // plugin's active state; the upsert is idempotent so a redundant enqueue
+      // is harmless.
+      enqueueLexicalIndexForMessage(event.messageId);
+    }
   },
 
   onConversationForked(event: ConversationForkedEvent): void {
@@ -114,7 +134,38 @@ export const memoryPersistenceHooks: MemoryPersistenceHooks = {
   },
 
   onConversationWiped(conversationId: string): number {
+    // Cancel pending memory jobs only. The lexical purge is fired from the
+    // shared delete primitive via `onConversationDeleted` (which
+    // `wipeConversation` reaches through its internal `deleteConversation`), so
+    // the purge lands AFTER this cancellation pass and cannot be swept by it.
     return cancelPendingJobsForConversation(conversationId);
+  },
+
+  onConversationDeleted(conversationId: string): void {
+    // Purge the conversation's points from the lexical (Qdrant) index. Fired
+    // from the shared delete primitive, so every delete caller — route, wipe,
+    // retrospective cleanup, GC — cleans up. The enqueue helper self-selects:
+    // enqueue a job when memory is enabled, run the delete inline (best-effort,
+    // breaker-wrapped) when it is disabled.
+    enqueuePurgeConversationLexical(conversationId);
+  },
+
+  onMessagesDeleted(messageIds: string[]): void {
+    // Remove each deleted message's point from the lexical index. The enqueue
+    // helper self-selects: enqueue a job when memory is enabled, run the delete
+    // inline (best-effort, breaker-wrapped) when it is disabled.
+    for (const messageId of messageIds) {
+      enqueueDeleteMessageLexical(messageId);
+    }
+  },
+
+  async onAllConversationsCleared(): Promise<void> {
+    // Drop the whole lexical (Qdrant) collection — a "delete all" leaves no ids
+    // to key per-message cleanup on. Awaited so the drop completes before
+    // clear-all returns and writes resume; otherwise a message created right
+    // after clear-all could upsert into the not-yet-dropped collection and then
+    // be erased when the drop lands.
+    await clearMessagesLexicalIndex(getConfig());
   },
 
   onWorkerStartup(): void {

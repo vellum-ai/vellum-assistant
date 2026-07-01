@@ -11,6 +11,7 @@ import { getQdrantClient } from "../persistence/embeddings/qdrant-client.js";
 import { enqueueMemoryJob } from "../persistence/jobs-store.js";
 import { relinkLlmRequestLogs } from "../persistence/llm-request-log-store.js";
 import { getSummaryFromContextMessage } from "../plugins/defaults/compaction/window-manager.js";
+import { enqueueLexicalIndexForMessage } from "../plugins/defaults/memory/job-handlers/index-message-lexical.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 
@@ -280,6 +281,11 @@ export function consolidateAssistantMessages(
     firstAssistantMsg.id,
     JSON.stringify(consolidatedContent),
   );
+  // Consolidation changed the retained message's searchable text (merged in the
+  // other rows' blocks); `updateMessageContent` is CRUD-only, so reindex it into
+  // the lexical index. The merged-away rows' points are removed by
+  // `deleteMessageById` below.
+  enqueueLexicalIndexForMessage(firstAssistantMsg.id);
 
   // Re-link attachments and LLM request logs from messages about to be
   // deleted to the consolidated message. Without this, ON DELETE CASCADE on
