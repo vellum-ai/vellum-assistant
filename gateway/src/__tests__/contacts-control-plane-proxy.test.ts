@@ -1942,6 +1942,26 @@ describe("handleDeleteContact (gateway-native)", () => {
     expect(body.error.code).toBe("NOT_FOUND");
     expect(assistantDbRunMock).not.toHaveBeenCalled();
   });
+
+  test("still deletes a gateway contact when the assistant mirror is unavailable", async () => {
+    seedGatewayContact("ct_mirror_down", "contact");
+    // The mirror lookup AND delete both throw (assistant DB unavailable). The
+    // delete must degrade to gateway-only rather than 500ing on the mirror.
+    assistantDbQueryMock = mock(async () => {
+      throw new Error("assistant DB unavailable");
+    });
+    assistantDbRunMock = mock(async () => {
+      throw new Error("assistant DB unavailable");
+    });
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleDeleteContact("ct_mirror_down");
+
+    expect(res.status).toBe(204);
+    // The source-of-truth gateway row was still deleted despite the mirror
+    // outage.
+    expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(0);
+  });
 });
 
 describe("handleCreateInvite (gateway-native)", () => {

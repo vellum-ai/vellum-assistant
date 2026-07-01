@@ -1360,11 +1360,22 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
         .where(eq(contacts.id, contactId))
         .get();
 
-      const mirrorRows = await assistantDbQuery<{ id: string }>(
-        "SELECT id FROM contacts WHERE id = ? LIMIT 1",
-        [contactId],
-      );
-      const inMirror = mirrorRows.length > 0;
+      // Best-effort mirror lookup: if the assistant DB is unavailable, degrade
+      // to a gateway-only decision rather than failing the delete. The gateway
+      // DB is the source of truth; the mirror is only a cleanup target.
+      let inMirror = false;
+      try {
+        const mirrorRows = await assistantDbQuery<{ id: string }>(
+          "SELECT id FROM contacts WHERE id = ? LIMIT 1",
+          [contactId],
+        );
+        inMirror = mirrorRows.length > 0;
+      } catch (err) {
+        log.warn(
+          { err, contactId },
+          "delete_contact: mirror lookup failed (best-effort); proceeding with gateway-only check",
+        );
+      }
 
       if (!gatewayRow && !inMirror) {
         log.warn(
@@ -1400,8 +1411,17 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
 
       // Delete from both stores (a delete against the store lacking the row is a
       // harmless no-op), so an assistant-only orphan is cleaned up and stops
-      // showing in the UI.
-      await assistantDbRun("DELETE FROM contacts WHERE id = ?", [contactId]);
+      // showing in the UI. The mirror delete is best-effort — the gateway
+      // (source of truth) delete below always applies, even if the mirror is
+      // unavailable.
+      try {
+        await assistantDbRun("DELETE FROM contacts WHERE id = ?", [contactId]);
+      } catch (err) {
+        log.warn(
+          { err, contactId },
+          "delete_contact: mirror delete failed (best-effort); gateway delete still applied",
+        );
+      }
       getGatewayDb().delete(contacts).where(eq(contacts.id, contactId)).run();
       void ipcCallAssistant("emit_event", {
         body: { kind: "contacts_changed" },
