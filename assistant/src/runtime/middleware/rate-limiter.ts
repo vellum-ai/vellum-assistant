@@ -221,6 +221,36 @@ export function selectAuthenticatedRateLimiter(
 }
 
 /**
+ * `/v1/` endpoints that bypass the per-minute request rate limiter.
+ *
+ * - Liveness/readiness (`health`, `healthz`, `readyz`): cheap probes that
+ *   must always answer. The desktop app polls `/v1/health` every few seconds
+ *   and the reachability probe hits `/v1/healthz`; a 429 makes the client
+ *   treat the assistant as unreachable and reconnect harder.
+ * - SSE stream (`events`): a single long-lived streaming connection, not a
+ *   burst of discrete requests. Metering each (re)connect against the
+ *   per-minute budget is the wrong model — and 429-ing the stream drops it,
+ *   which drives a client reconnect + full re-bootstrap loop that generates
+ *   far more load than the limiter saves. The events route still enforces
+ *   auth downstream (an unauthenticated stream request is rejected there),
+ *   and daemon memory is bounded by SSE backpressure shedding and subscriber
+ *   caps rather than by this request-count limiter.
+ *
+ * The argument is the `/v1/`-stripped, trailing-slash-normalized endpoint
+ * segment (e.g. `events`, `health`) as computed by the HTTP server.
+ */
+const RATE_LIMIT_EXEMPT_ENDPOINTS = new Set([
+  "events",
+  "health",
+  "healthz",
+  "readyz",
+]);
+
+export function isRateLimitExemptEndpoint(endpoint: string): boolean {
+  return RATE_LIMIT_EXEMPT_ENDPOINTS.has(endpoint);
+}
+
+/**
  * Extract the client IP from a request. Only trusts proxy headers
  * (X-Forwarded-For, X-Real-IP) when the peer IP is loopback or private,
  * meaning the request arrived via the gateway. Direct connections from
