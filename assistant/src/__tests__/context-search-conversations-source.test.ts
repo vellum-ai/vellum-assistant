@@ -17,12 +17,23 @@ let lexicalMockImpl: (
   throw new Error("searchMessageIdsLexical mock not configured for this test");
 };
 
+// Records the arguments of every mock invocation so tests can assert the
+// candidate over-fetch count the qdrant branch requests.
+let lexicalCalls: Array<{
+  query: string;
+  limit: number;
+  opts?: { conversationId?: string };
+}> = [];
+
 mock.module("../persistence/conversation-search-lexical.js", () => ({
   searchMessageIdsLexical: (
     query: string,
     limit: number,
     opts?: { conversationId?: string },
-  ) => lexicalMockImpl(query, limit, opts),
+  ) => {
+    lexicalCalls.push({ query, limit, opts });
+    return lexicalMockImpl(query, limit, opts);
+  },
 }));
 
 import { getDb } from "../persistence/db-connection.js";
@@ -373,6 +384,7 @@ describe("searchConversationSource with the qdrant backend", () => {
   beforeEach(() => {
     getDb().run("DELETE FROM messages");
     getDb().run("DELETE FROM conversations");
+    lexicalCalls = [];
     setOverridesForTesting({ "messages-search-backend": true });
   });
 
@@ -383,6 +395,32 @@ describe("searchConversationSource with the qdrant backend", () => {
         "searchMessageIdsLexical mock not configured for this test",
       );
     };
+  });
+
+  test("over-fetches a wide candidate pool from Qdrant, not the FTS prefetch window", async () => {
+    const match = await seedConversation({
+      title: "Launch notes",
+      content: "The widecandidatetoken launch checklist is recorded here.",
+    });
+
+    lexicalMockImpl = async () => [{ messageId: match.message.id, score: 0.9 }];
+
+    // limit = 5 → FTS would prefetch 5 × 5 = 25. The qdrant branch instead
+    // over-fetches max(5 × 20, 200) = 200 candidates so post-filter yield stays
+    // healthy when top lexical hits are excluded by the SQL predicates.
+    const result = await searchConversationSource(
+      "widecandidatetoken",
+      makeContext(),
+      5,
+    );
+
+    expect(lexicalCalls).toHaveLength(1);
+    expect(lexicalCalls[0]?.limit).toBe(200);
+    // Filtering still yields the correctly-scored surviving row.
+    expect(result.evidence.map((item) => item.locator)).toEqual([
+      `${match.conversation.id}#${match.message.id}`,
+    ]);
+    expect(result.evidence[0]?.score).toBeGreaterThan(0);
   });
 
   test("returns app-scored evidence for Qdrant-supplied candidates", async () => {

@@ -28,6 +28,35 @@ interface ConversationEvidenceRow {
 
 const CONVERSATION_SEARCH_PREFETCH_MULTIPLIER = 5;
 
+/**
+ * Qdrant candidate over-fetch multiplier for the lexical read path.
+ *
+ * FTS applies the source/type/excluded-conversation predicates *inside* SQL
+ * before its LIMIT, so its post-filter window is already correct. The Qdrant
+ * path instead fetches ranked message-id candidates first and filters them in
+ * SQL afterwards, so it must over-fetch enough candidates that excluded rows
+ * (the active conversation, subagent/auto-analysis/notification sources,
+ * private history) don't starve the post-filter pool. This is deliberately
+ * larger than the FTS prefetch multiplier — a generous candidate pool is cheap
+ * (the final consumer takes top-N after the app-side scorer anyway).
+ *
+ * This is a proportionate over-fetch, NOT a hard parity guarantee: a query
+ * whose visible matches all rank beyond the widened window can still be
+ * under-filled. True parity would need pagination or Qdrant group-search;
+ * that stronger fix is deferred to pre-flip hardening if Gate A shows recall
+ * regressions.
+ */
+const QDRANT_RECALL_CANDIDATE_MULTIPLIER = 20;
+
+/**
+ * Floor for the Qdrant candidate pool, so small `max_results` requests still
+ * over-fetch a healthy number of candidates before SQL filtering. Recall's
+ * `max_results` is capped at `MAX_RECALL_MAX_RESULTS` (20), so the pool is
+ * bounded at 20 × 20 = 400 candidate ids — far under the SQLite bound-variable
+ * limit (32766), so the `WHERE m.id IN (...)` query needs no chunking.
+ */
+const QDRANT_RECALL_MIN_CANDIDATES = 200;
+
 const NON_SALIENT_RECALL_TERMS = new Set([
   "a",
   "about",
@@ -95,9 +124,13 @@ export async function searchConversationSource(
 
   let rows: ConversationEvidenceRow[];
   if (getMessagesSearchBackend(context.config) === "qdrant") {
+    const qdrantCandidateLimit = Math.max(
+      normalizedLimit * QDRANT_RECALL_CANDIDATE_MULTIPLIER,
+      QDRANT_RECALL_MIN_CANDIDATES,
+    );
     rows = await gatherCandidateRowsFromQdrant(
       trimmedQuery,
-      queryLimit,
+      qdrantCandidateLimit,
       context.conversationId,
     );
   } else {
@@ -177,6 +210,12 @@ function gatherCandidateRowsFromFts(
  * source/type/excluded-conversation predicates FTS applies, so only the
  * candidate *source* differs. Final ordering stays with the app-side scorer.
  *
+ * `candidateLimit` is the widened over-fetch count (see
+ * {@link QDRANT_RECALL_CANDIDATE_MULTIPLIER}) — it bounds both the Qdrant fetch
+ * and the post-filter SQL `LIMIT`, so surviving candidates aren't dropped
+ * before scoring. Filtering shrinks the pool but never grows it, so the final
+ * `LIMIT` is a no-op ceiling here; it exists only to bound the returned rows.
+ *
  * Returns an empty array when the query tokenizes to no sparse terms (the
  * lexical helper's empty guard) or when the Qdrant call throws — in both cases
  * the caller degrades to the LIKE fallback, mirroring how the FTS path falls
@@ -184,12 +223,12 @@ function gatherCandidateRowsFromFts(
  */
 async function gatherCandidateRowsFromQdrant(
   query: string,
-  queryLimit: number,
+  candidateLimit: number,
   excludedConversationId: string,
 ): Promise<ConversationEvidenceRow[]> {
   let candidates: Array<{ messageId: string }>;
   try {
-    candidates = await searchMessageIdsLexical(query, queryLimit);
+    candidates = await searchMessageIdsLexical(query, candidateLimit);
   } catch {
     return [];
   }
@@ -197,7 +236,7 @@ async function gatherCandidateRowsFromQdrant(
   const candidateIds = candidates.map((candidate) => candidate.messageId);
   if (candidateIds.length === 0) return [];
 
-  return searchByIds(candidateIds, queryLimit, excludedConversationId);
+  return searchByIds(candidateIds, candidateLimit, excludedConversationId);
 }
 
 function searchWithFts(
