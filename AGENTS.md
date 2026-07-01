@@ -131,6 +131,10 @@ Proactively remove unused code during every change. Remove code your change make
 
 Default to no comment — bias aggressively toward terseness and rely on good naming. Follow the commenting density of the surrounding code.
 
+## Control-Flow Braces
+
+Wrap every `if` / `else` / `for` / `while` / `do…while` body in braces, even a single-statement one-liner. Braces make control flow easy to scan — the block boundary is explicit — and close a common footgun: a second line added under a braceless condition reads as if it sits inside the branch but runs unconditionally. The ESLint `curly` rule flags this in both `assistant/` and `clients/web/` (currently at `warn`); it is fully auto-fixable, so add braces to any control statement you touch.
+
 ## Generic Examples
 
 Never include personal user data — real names, emails, phone numbers, account IDs, or other identifying details of specific people — anywhere in the codebase. This covers code, tests, fixtures, documentation, comments, commit messages, and AGENTS.md files. Always use generic placeholders:
