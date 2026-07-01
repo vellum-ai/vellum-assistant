@@ -35,6 +35,18 @@ import {
 
 const log = getLogger("voice-session-bridge");
 
+/**
+ * How long startVoiceTurn waits for a prior turn to release the processing
+ * lock before giving up. Must stay strictly greater than the agent loop's
+ * turn-boundary commit window (workspaceGit.turnCommitMaxWaitMs) so the
+ * bridge never gives up before the agent-loop `finally` can clear the lock.
+ * See JARVIS-1232.
+ */
+const PROCESSING_WAIT_MARGIN_MS = 1000;
+export function resolveProcessingWaitMs(turnCommitMaxWaitMs: number): number {
+  return turnCommitMaxWaitMs + PROCESSING_WAIT_MARGIN_MS;
+}
+
 // ---------------------------------------------------------------------------
 // Module-level dependency injection
 // ---------------------------------------------------------------------------
@@ -360,7 +372,10 @@ export async function startVoiceTurn(
   if (conversation.isProcessing()) {
     // Voice barge-in can race with turn teardown. Wait briefly for the
     // previous turn to finish aborting before giving up.
-    const maxWaitMs = 3000;
+    const config = getConfig();
+    const maxWaitMs = resolveProcessingWaitMs(
+      config.workspaceGit?.turnCommitMaxWaitMs ?? 4000,
+    );
     const pollIntervalMs = 50;
     let waited = 0;
     while (conversation.isProcessing() && waited < maxWaitMs) {
@@ -374,6 +389,9 @@ export async function startVoiceTurn(
       throw new Error("Turn aborted while waiting for conversation");
     }
     if (conversation.isProcessing()) {
+      // maxWaitMs is sized to exceed the agent loop's commit window so this
+      // bound is only a guardrail; decoupling the lock from the commit
+      // (see JARVIS-1232 PR 1) is the primary fix for the underlying race.
       throw new Error("Conversation is already processing a message");
     }
   }
