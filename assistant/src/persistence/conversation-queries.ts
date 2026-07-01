@@ -9,6 +9,7 @@ import {
   wrapUntrustedContent,
 } from "../security/untrusted-content.js";
 import { getLogger } from "../util/logger.js";
+import { isLexicalBackfillComplete } from "./checkpoints.js";
 import type { ConversationRow } from "./conversation-crud.js";
 import { parseConversation } from "./conversation-crud.js";
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
@@ -554,10 +555,35 @@ function likeContentMatchMessages(
 }
 
 /**
+ * Resolve the effective message-search backend for the persistence read site.
+ *
+ * Starts from the `messages-search-backend` feature flag, then downgrades to
+ * `fts5` in two cases where the Qdrant `messages_lexical` collection is not a
+ * safe source (each would return an empty result — not a throw — so the
+ * Qdrant-error degrade never fires):
+ *   1. Memory is disabled — the per-message write path is suppressed, so the
+ *      collection is never forward-filled. `!isMemoryEnabled()` is the
+ *      layer-clean check available from `persistence/`.
+ *   2. The one-time upgrade backfill has not finished — the collection is only
+ *      partially populated, so older content is missing until it drains.
+ *
+ * The recall read site applies the same completion gate (via the shared
+ * {@link isLexicalBackfillComplete}) on top of its own, stricter suppression
+ * check (`isMemoryIndexingSuppressed`, which also covers a disabled plugin).
+ */
+function resolveMessageSearchBackend(): "fts5" | "qdrant" {
+  if (!isMemoryEnabled()) return "fts5";
+  const flagBackend = getMessagesSearchBackend(getConfig());
+  if (flagBackend === "qdrant" && !isLexicalBackfillComplete()) return "fts5";
+  return flagBackend;
+}
+
+/**
  * Full-text search across message content.
  *
  * The lexical backend is selected by the `messages-search-backend` feature
- * flag (see {@link getMessagesSearchBackend}):
+ * flag (see {@link getMessagesSearchBackend}) and gated by
+ * {@link resolveMessageSearchBackend}:
  *   - `fts5` (default): the `messages_fts` virtual table for tokenized matching.
  *   - `qdrant`: the sparse `messages_lexical` Qdrant index (BM25-style).
  * Both apply the same visibility/archived SQL filtering, merge with a `LIKE`
@@ -600,9 +626,14 @@ export async function searchConversations(
   // `isMemoryIndexingSuppressed` predicate) can't be reached from here without a
   // persistence -> plugin import, and is covered at flip time by requiring the
   // backfill/population check before enabling the flag.
-  const backend = !isMemoryEnabled()
-    ? "fts5"
-    : getMessagesSearchBackend(getConfig());
+  //
+  // The backfill completion gate is the second half of that population guard,
+  // for the common (memory-enabled) case: on an upgraded instance the historical
+  // messages are indexed by a background backfill, so until it has fully drained
+  // the `messages_lexical` collection is only partially populated and a `qdrant`
+  // read would silently miss older content. Stay on `fts5` until
+  // `isLexicalBackfillComplete()` confirms the index is whole, then switch.
+  const backend = resolveMessageSearchBackend();
 
   // LIKE pattern for title matching (message-content indexes don't cover titles).
   const titlePattern = likeContainsPattern(query);

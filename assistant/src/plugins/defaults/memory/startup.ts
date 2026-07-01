@@ -30,6 +30,7 @@ import { startMemoryJobsWorker } from "../../../persistence/jobs-worker.js";
 import { getLogger } from "../../../util/logger.js";
 import { getWorkspaceDir } from "../../../util/platform.js";
 import { resolveQdrantUrl } from "./embeddings.js";
+import { maybeEnqueueLexicalBackfillOnUpgrade } from "./job-handlers/backfill-lexical-index.js";
 import { sweepConceptPageFrontmatter } from "./v2/frontmatter-sweep.js";
 import {
   maybeRebuildMemoryV2Concepts,
@@ -205,6 +206,14 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
   log.info("Daemon startup: starting memory worker");
   registerMemoryJobHandlers();
   startMemoryJobsWorker();
+
+  // One-time, self-healing backfill of existing messages into the Qdrant
+  // lexical index (`messages_lexical`) on upgrade, so a later read-path flip to
+  // the lexical backend never opens onto an empty index. Enqueue-only and
+  // checkpoint-guarded — the indexing runs off the event loop via the memory
+  // worker started just above; see the function's docstring for the guards and
+  // the deliberate exception it makes to the "no work at daemon startup" rule.
+  maybeEnqueueLexicalBackfillOnUpgrade();
 
   // Seed capability graph nodes (new memory graph system)
   try {
