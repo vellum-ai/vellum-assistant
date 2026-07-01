@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { getLogger } from "../../util/logger.js";
 import type { WorkspaceMigration } from "./types.js";
 
-const log = getLogger("workspace-migration-118");
+const log = getLogger("workspace-migration-119");
 
 /**
  * Every memory.v3 tuning leaf paired with the schema default value(s) it has
@@ -130,7 +130,11 @@ export const stripPersistedMemoryV3TuningDefaultsMigration: WorkspaceMigration =
               ? (v3[leaf.parent] as Record<string, unknown>)
               : undefined;
         if (container === undefined || !(leaf.key in container)) continue;
-        if ((leaf.defaults as ReadonlyArray<unknown>).includes(container[leaf.key])) {
+        if (
+          (leaf.defaults as ReadonlyArray<unknown>).includes(
+            container[leaf.key],
+          )
+        ) {
           delete container[leaf.key];
           changed = true;
         }
