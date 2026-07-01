@@ -764,6 +764,12 @@ export class CallController {
       );
     }
 
+    // Synthesized playback (and its native fallback) can await provider
+    // latency; re-check the run wasn't superseded meanwhile so a stale turn
+    // doesn't inject its end-of-turn marker (or fallback text) into the next
+    // turn's relay stream.
+    if (!this.isCurrentRun(runVersion)) return fullResponseText;
+
     // Signal end of this turn's speech.  An empty token with `last: true`
     // tells ConversationRelay to start listening — it does NOT trigger TTS
     // synthesis.  This is required even when a synthesized provider handled

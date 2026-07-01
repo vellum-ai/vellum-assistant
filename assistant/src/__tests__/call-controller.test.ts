@@ -2868,10 +2868,12 @@ describe("call-controller", () => {
     // Supersede the in-flight synthesized turn (bumps run version + aborts synthesis).
     controller.handleInterrupt();
 
-    // Releasing the stale synthesis must NOT send a play URL for the old run.
+    // Releasing the stale synthesis must NOT send a play URL for the old run,
+    // nor inject a stale end-of-turn marker into the relay stream.
     releaseChunk?.();
     await turn;
     expect(relay.sentPlayUrls.length).toBe(0);
+    expect(relay.sentTokens.filter((t) => t.last).length).toBe(0);
 
     controller.destroy();
   });
