@@ -25,7 +25,9 @@ import { messages } from "../../../../persistence/schema/index.js";
  * (re)points the singleton at an equivalent client — so re-initializing from
  * the same config is safe.
  */
-function resolveLexicalIndex(config: AssistantConfig): MessagesLexicalIndex {
+export function resolveLexicalIndex(
+  config: AssistantConfig,
+): MessagesLexicalIndex {
   try {
     return getMessagesLexicalIndex();
   } catch {

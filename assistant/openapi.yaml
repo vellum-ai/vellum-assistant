@@ -18815,6 +18815,29 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/messages/lexical/backfill:
+    post:
+      operationId: messages_lexical_backfill_post
+      summary: Enqueue a resumable backfill of messages into the lexical index
+      description:
+        "Enqueues the cursor-checkpointed backfill job that indexes existing messages into the Qdrant lexical
+        (BM25-style) collection in batches. Resumable and idempotent — re-running continues from the last checkpoint.
+        Pass `force: true` to reset the cursor and re-index from the beginning. Not run at daemon startup."
+      tags:
+        - memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                force:
+                  type: boolean
+              additionalProperties: false
+      responses:
+        "200":
+          description: Successful response
   /v1/messages/queued/{id}:
     delete:
       operationId: messages_queued_by_id_delete

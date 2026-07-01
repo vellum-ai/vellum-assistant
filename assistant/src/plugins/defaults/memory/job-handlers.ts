@@ -28,6 +28,7 @@ import {
 import { runNarrativeRefinement } from "./graph/narrative.js";
 import { runPatternScan } from "./graph/pattern-scan.js";
 import { backfillJob } from "./job-handlers/backfill.js";
+import { backfillLexicalIndexJob } from "./job-handlers/backfill-lexical-index.js";
 import {
   embedAttachmentJob,
   embedMediaJob,
@@ -211,5 +212,9 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
   {
     type: "purge_conversation_lexical",
     handler: (job, config) => purgeConversationLexicalJob(job, config),
+  },
+  {
+    type: "backfill_lexical_index",
+    handler: (job, config) => backfillLexicalIndexJob(job, config),
   },
 ];
