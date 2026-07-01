@@ -54,7 +54,7 @@ export interface AccessRequestParams {
 
 export type AccessRequestResult =
   | { notified: true; created: boolean; requestId: string }
-  | { notified: false; reason: "no_sender_id" };
+  | { notified: false; reason: "no_sender_id" | "already_denied" };
 
 // ---------------------------------------------------------------------------
 // Helper
@@ -145,6 +145,28 @@ export async function notifyGuardianOfAccessRequest(
       created: false,
       requestId: existingCanonical[0].id,
     };
+  }
+
+  // Terminal-deny suppression: once the guardian has denied an access request
+  // for this sender on this channel, subsequent inbound must not re-prompt.
+  // The denied decision persists the sender as an unverified_contact (see the
+  // accessRequestResolver deny path); re-surfacing the same request the
+  // guardian already rejected would be noise. Scoped to the same assistant via
+  // conversationId, matching the pending-dedup above. The guardian can still
+  // verify the contact manually — that path does not go through here.
+  const deniedCanonical = listCanonicalGuardianRequests({
+    status: "denied",
+    requesterExternalUserId: actorExternalId,
+    sourceChannel,
+    kind: "access_request",
+    conversationId,
+  });
+  if (deniedCanonical.length > 0) {
+    log.debug(
+      { sourceChannel, actorExternalId, deniedId: deniedCanonical[0].id },
+      "Suppressing access request notification — guardian already denied this sender",
+    );
+    return { notified: false, reason: "already_denied" };
   }
 
   const senderIdentifier = actorDisplayName || actorUsername || actorExternalId;

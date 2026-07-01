@@ -94,6 +94,7 @@ function seedGatewayGuardian(
 }
 
 import {
+  createCanonicalGuardianRequest,
   listCanonicalGuardianDeliveries,
   listCanonicalGuardianRequests,
 } from "../contacts/canonical-guardian-store.js";
@@ -825,5 +826,110 @@ describe("access-request-helper unit tests", () => {
     expect(telegram).toBeDefined();
     expect(telegram!.destinationChatId).toBe("guardian-chat-456");
     expect(telegram!.status).toBe("sent");
+  });
+
+  test("notifyGuardianOfAccessRequest is suppressed after a prior deny for the same sender", async () => {
+    // Simulate a previously-denied access request for this sender on this
+    // channel/assistant. The conversationId must match the assistant-scoped
+    // key the helper derives: access-req-<assistantId>-<channel>-<actor>.
+    createCanonicalGuardianRequest({
+      id: `denied-${Date.now()}`,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "access-req-self-telegram-denied-user",
+      requesterExternalUserId: "denied-user",
+      guardianPrincipalId: anchorPrincipalId,
+      toolName: "ingress_access_request",
+      status: "denied",
+    });
+
+    const result = await notifyGuardianOfAccessRequest({
+      canonicalAssistantId: "self",
+      sourceChannel: "telegram",
+      conversationExternalId: "chat-denied",
+      actorExternalId: "denied-user",
+      actorDisplayName: "Denied User",
+    });
+
+    // Suppressed: no new prompt, no signal, no new pending request.
+    expect(result.notified).toBe(false);
+    if (!result.notified) {
+      expect(result.reason).toBe("already_denied");
+    }
+    expect(emitSignalCalls.length).toBe(0);
+
+    const pending = listCanonicalGuardianRequests({
+      status: "pending",
+      requesterExternalUserId: "denied-user",
+      kind: "access_request",
+    });
+    expect(pending.length).toBe(0);
+  });
+
+  test("a prior deny for one sender does not suppress prompts for a different sender", async () => {
+    createCanonicalGuardianRequest({
+      id: `denied-other-${Date.now()}`,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "access-req-self-telegram-denied-user",
+      requesterExternalUserId: "denied-user",
+      guardianPrincipalId: anchorPrincipalId,
+      toolName: "ingress_access_request",
+      status: "denied",
+    });
+
+    // A different sender still gets a fresh prompt.
+    const result = await notifyGuardianOfAccessRequest({
+      canonicalAssistantId: "self",
+      sourceChannel: "telegram",
+      conversationExternalId: "chat-fresh",
+      actorExternalId: "fresh-user",
+      actorDisplayName: "Fresh User",
+    });
+
+    expect(result.notified).toBe(true);
+    expect(emitSignalCalls.length).toBe(1);
+
+    const pending = listCanonicalGuardianRequests({
+      status: "pending",
+      requesterExternalUserId: "fresh-user",
+      kind: "access_request",
+    });
+    expect(pending.length).toBe(1);
+  });
+
+  test("a denied request on a different channel does not suppress a new channel's prompt", async () => {
+    // Denied on telegram; the same actor id messaging on slack is a distinct
+    // (channel-scoped) context and still surfaces to the guardian.
+    createCanonicalGuardianRequest({
+      id: `denied-tg-${Date.now()}`,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "access-req-self-telegram-cross-user",
+      requesterExternalUserId: "cross-user",
+      guardianPrincipalId: anchorPrincipalId,
+      toolName: "ingress_access_request",
+      status: "denied",
+    });
+
+    const result = await notifyGuardianOfAccessRequest({
+      canonicalAssistantId: "self",
+      sourceChannel: "slack",
+      conversationExternalId: "C-cross",
+      actorExternalId: "cross-user",
+      actorDisplayName: "Cross User",
+    });
+
+    expect(result.notified).toBe(true);
+    const pending = listCanonicalGuardianRequests({
+      status: "pending",
+      requesterExternalUserId: "cross-user",
+      sourceChannel: "slack",
+      kind: "access_request",
+    });
+    expect(pending.length).toBe(1);
   });
 });
