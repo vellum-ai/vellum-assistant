@@ -55,7 +55,9 @@ async function waitFor(predicate: () => boolean): Promise<void> {
   // predicate holds, so a larger budget costs nothing when events flow.
   const deadline = Date.now() + 2000;
   while (Date.now() < deadline) {
-    if (predicate()) return;
+    if (predicate()) {
+      return;
+    }
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   throw new Error("Timed out waiting for schedule-store event");
@@ -1406,5 +1408,93 @@ describe("describeCronExpression", () => {
 
   test("returns description for valid cron expression", () => {
     expect(describeCronExpression("0 9 * * *")).toBe("Every day at 9:00 AM");
+  });
+});
+
+// ── claimDueSchedules mode filter ───────────────────────────────────
+
+describe("claimDueSchedules (mode filter)", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run("DELETE FROM cron_runs");
+    db.run("DELETE FROM cron_jobs");
+  });
+
+  /** One due recurring script schedule + one due recurring execute schedule. */
+  async function createDueScriptAndExecuteJobs(): Promise<{
+    scriptId: string;
+    executeId: string;
+  }> {
+    const script = await createSchedule({
+      name: "Script job",
+      cronExpression: "* * * * *",
+      message: "run script",
+      mode: "script",
+      script: "echo hi",
+    });
+    const execute = await createSchedule({
+      name: "Execute job",
+      cronExpression: "* * * * *",
+      message: "do the thing",
+    });
+    getRawDb().run("UPDATE cron_jobs SET next_run_at = ?", [Date.now() - 1000]);
+    return { scriptId: script.id, executeId: execute.id };
+  }
+
+  test("includeModes claims only the listed modes", async () => {
+    const { scriptId } = await createDueScriptAndExecuteJobs();
+
+    const claimed = await claimDueSchedules(Date.now(), {
+      includeModes: ["script"],
+    });
+
+    expect(claimed.map((j) => j.id)).toEqual([scriptId]);
+  });
+
+  test("excludeModes leaves the listed modes unclaimed and claimable later", async () => {
+    const { scriptId, executeId } = await createDueScriptAndExecuteJobs();
+
+    const claimed = await claimDueSchedules(Date.now(), {
+      excludeModes: ["script"],
+    });
+    expect(claimed.map((j) => j.id)).toEqual([executeId]);
+
+    // The script job stays due for another claimer (the schedule worker).
+    const remaining = await claimDueSchedules(Date.now(), {
+      includeModes: ["script"],
+    });
+    expect(remaining.map((j) => j.id)).toEqual([scriptId]);
+  });
+
+  test("mode filter applies to one-shot schedules too", async () => {
+    const scriptOneShot = await createSchedule({
+      name: "Script one-shot",
+      cronExpression: null,
+      message: "run once",
+      mode: "script",
+      script: "echo once",
+      nextRunAt: Date.now() - 1000,
+    });
+    await createSchedule({
+      name: "Execute one-shot",
+      cronExpression: null,
+      message: "do once",
+      nextRunAt: Date.now() - 1000,
+    });
+
+    const claimed = await claimDueSchedules(Date.now(), {
+      includeModes: ["script"],
+    });
+
+    expect(claimed.map((j) => j.id)).toEqual([scriptOneShot.id]);
+    expect(claimed[0].status).toBe("firing");
+  });
+
+  test("no filter claims every due mode", async () => {
+    await createDueScriptAndExecuteJobs();
+
+    const claimed = await claimDueSchedules(Date.now());
+
+    expect(claimed).toHaveLength(2);
   });
 });

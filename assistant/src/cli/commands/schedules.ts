@@ -5,6 +5,7 @@ import { confirmPrompt } from "../lib/confirm-prompt.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { writeOutput } from "../output.js";
+import { registerSchedulesWorkerCommand } from "./schedules-worker.js";
 
 interface ScheduleRecord {
   id: string;
@@ -77,12 +78,16 @@ and manual one-time execution. One documented exception: 'create' is limited
 to 'execute' mode — notify/script/wake schedules are created via the
 in-assistant schedule_create tool, but can be inspected and updated here.
 
+The 'worker' subgroup manages the schedule worker process, which runs
+script-mode schedules in a separate OS process when enabled.
+
 Examples:
   $ assistant schedules list
   $ assistant schedules get <schedule-id>
   $ assistant schedules update <schedule-id> --expression '0 9 * * *'
   $ assistant schedules runs <schedule-id> --limit 25 --json
-  $ assistant schedules execute <schedule-id>`,
+  $ assistant schedules execute <schedule-id>
+  $ assistant schedules worker start`,
       );
 
       schedules
@@ -108,7 +113,9 @@ Examples:
         .action(
           async (opts: { all?: boolean; json?: boolean }, cmd: Command) => {
             const queryParams: Record<string, string> = {};
-            if (opts.all) queryParams.include_all = "true";
+            if (opts.all) {
+              queryParams.include_all = "true";
+            }
 
             const result = await cliIpcCall<ListSchedulesResponse>(
               "listSchedules",
@@ -237,7 +244,9 @@ Examples:
             pathParams: { id: scheduleId },
           });
 
-          if (!result.ok) return exitFromIpcResult(result, cmd);
+          if (!result.ok) {
+            return exitFromIpcResult(result, cmd);
+          }
 
           const schedule = result.result?.schedule;
           if (!schedule) {
@@ -320,14 +329,18 @@ Examples:
           ) => {
             const scheduleId = id.trim();
             const queryParams: Record<string, string> = {};
-            if (opts.limit != null) queryParams.limit = opts.limit;
+            if (opts.limit != null) {
+              queryParams.limit = opts.limit;
+            }
 
             const result = await cliIpcCall<ListScheduleRunsResponse>(
               "listScheduleRuns",
               { pathParams: { id: scheduleId }, queryParams },
             );
 
-            if (!result.ok) return exitFromIpcResult(result, cmd);
+            if (!result.ok) {
+              return exitFromIpcResult(result, cmd);
+            }
 
             const response = result.result ?? { runs: [] };
             if (opts.json) {
@@ -533,15 +546,21 @@ Examples:
             const mode = opts.mode ?? "execute";
             if (mode === "script" && !opts.script) {
               const error = "--script is required for --mode script";
-              if (opts.json) writeOutput(cmd, { ok: false, error });
-              else log.error(error);
+              if (opts.json) {
+                writeOutput(cmd, { ok: false, error });
+              } else {
+                log.error(error);
+              }
               process.exitCode = 1;
               return;
             }
             if (mode === "execute" && !opts.message) {
               const error = "--message is required for execute mode";
-              if (opts.json) writeOutput(cmd, { ok: false, error });
-              else log.error(error);
+              if (opts.json) {
+                writeOutput(cmd, { ok: false, error });
+              } else {
+                log.error(error);
+              }
               process.exitCode = 1;
               return;
             }
@@ -553,19 +572,33 @@ Examples:
               enabled: opts.enabled,
             };
             // Omit mode for the default; the route treats absent as 'execute'.
-            if (mode !== "execute") body.mode = mode;
-            if (opts.message != null) body.message = opts.message;
-            if (opts.script != null) body.script = opts.script;
-            if (opts.timeoutMs != null) body.timeoutMs = Number(opts.timeoutMs);
-            if (opts.timezone != null) body.timezone = opts.timezone;
-            if (opts.profile != null) body.inferenceProfile = opts.profile;
+            if (mode !== "execute") {
+              body.mode = mode;
+            }
+            if (opts.message != null) {
+              body.message = opts.message;
+            }
+            if (opts.script != null) {
+              body.script = opts.script;
+            }
+            if (opts.timeoutMs != null) {
+              body.timeoutMs = Number(opts.timeoutMs);
+            }
+            if (opts.timezone != null) {
+              body.timezone = opts.timezone;
+            }
+            if (opts.profile != null) {
+              body.inferenceProfile = opts.profile;
+            }
 
             const result = await cliIpcCall<GetScheduleResponse>(
               "createSchedule",
               { body },
             );
 
-            if (!result.ok) return exitFromIpcResult(result, cmd);
+            if (!result.ok) {
+              return exitFromIpcResult(result, cmd);
+            }
 
             if (opts.json) {
               writeOutput(cmd, result.result ?? {});
@@ -751,7 +784,9 @@ Examples:
                 "getSchedule",
                 { pathParams: { id: scheduleId } },
               );
-              if (!existing.ok) return exitFromIpcResult(existing, cmd);
+              if (!existing.ok) {
+                return exitFromIpcResult(existing, cmd);
+              }
               if (!existing.result?.schedule.wakeConversationId) {
                 fail(
                   "--mode wake requires the schedule to already have a wake conversation target; this CLI cannot set one. Create wake schedules with the schedule tool instead.",
@@ -761,23 +796,41 @@ Examples:
             }
 
             const body: Record<string, unknown> = {};
-            if (opts.name != null) body.name = opts.name;
-            if (opts.description != null) body.description = opts.description;
-            if (opts.expression != null) body.expression = opts.expression;
-            if (opts.timezone != null) body.timezone = opts.timezone;
-            if (opts.message != null) body.message = opts.message;
-            if (opts.script != null) body.script = opts.script;
-            if (opts.mode != null) body.mode = opts.mode;
+            if (opts.name != null) {
+              body.name = opts.name;
+            }
+            if (opts.description != null) {
+              body.description = opts.description;
+            }
+            if (opts.expression != null) {
+              body.expression = opts.expression;
+            }
+            if (opts.timezone != null) {
+              body.timezone = opts.timezone;
+            }
+            if (opts.message != null) {
+              body.message = opts.message;
+            }
+            if (opts.script != null) {
+              body.script = opts.script;
+            }
+            if (opts.mode != null) {
+              body.mode = opts.mode;
+            }
             if (opts.routingIntent != null) {
               body.routingIntent = opts.routingIntent;
             }
-            if (opts.quiet != null) body.quiet = opts.quiet;
+            if (opts.quiet != null) {
+              body.quiet = opts.quiet;
+            }
             if (opts.reuseConversation != null) {
               body.reuseConversation = opts.reuseConversation;
             }
             if (opts.maxRetries != null) {
               const parsed = parseInteger("--max-retries", opts.maxRetries);
-              if (parsed == null) return;
+              if (parsed == null) {
+                return;
+              }
               body.maxRetries = parsed;
             }
             if (opts.retryBackoffMs != null) {
@@ -785,17 +838,27 @@ Examples:
                 "--retry-backoff-ms",
                 opts.retryBackoffMs,
               );
-              if (parsed == null) return;
+              if (parsed == null) {
+                return;
+              }
               body.retryBackoffMs = parsed;
             }
             if (opts.timeoutMs != null) {
               const parsed = parseInteger("--timeout-ms", opts.timeoutMs);
-              if (parsed == null) return;
+              if (parsed == null) {
+                return;
+              }
               body.timeoutMs = parsed;
             }
-            if (opts.clearTimeout) body.timeoutMs = null;
-            if (opts.profile != null) body.inferenceProfile = opts.profile;
-            if (opts.clearProfile) body.inferenceProfile = null;
+            if (opts.clearTimeout) {
+              body.timeoutMs = null;
+            }
+            if (opts.profile != null) {
+              body.inferenceProfile = opts.profile;
+            }
+            if (opts.clearProfile) {
+              body.inferenceProfile = null;
+            }
 
             if (Object.keys(body).length === 0) {
               fail(
@@ -809,7 +872,9 @@ Examples:
               { pathParams: { id: scheduleId }, body },
             );
 
-            if (!result.ok) return exitFromIpcResult(result, cmd);
+            if (!result.ok) {
+              return exitFromIpcResult(result, cmd);
+            }
 
             const response = result.result ?? { schedules: [] };
             if (opts.json) {
@@ -901,7 +966,9 @@ Examples:
             { pathParams: { id: scheduleId } },
           );
 
-          if (!result.ok) return exitFromIpcResult(result, cmd);
+          if (!result.ok) {
+            return exitFromIpcResult(result, cmd);
+          }
 
           const response = result.result ?? { schedules: [] };
           if (opts.json) {
@@ -977,7 +1044,9 @@ Examples:
               { pathParams: { id: scheduleId } },
             );
 
-            if (!result.ok) return exitFromIpcResult(result, cmd);
+            if (!result.ok) {
+              return exitFromIpcResult(result, cmd);
+            }
 
             const response = result.result ?? { schedules: [] };
             if (opts.json) {
@@ -1024,7 +1093,9 @@ Examples:
             { pathParams: { id: scheduleId } },
           );
 
-          if (!result.ok) return exitFromIpcResult(result, cmd);
+          if (!result.ok) {
+            return exitFromIpcResult(result, cmd);
+          }
 
           const response = result.result ?? { schedules: [] };
           const schedule = response.schedules.find(
@@ -1046,6 +1117,8 @@ Examples:
 
           log.info(`Executed schedule: ${scheduleId}`);
         });
+
+      registerSchedulesWorkerCommand(schedules);
     },
   });
 }
@@ -1062,7 +1135,9 @@ async function toggleScheduleEnabled(
     body: { enabled },
   });
 
-  if (!result.ok) return exitFromIpcResult(result, cmd);
+  if (!result.ok) {
+    return exitFromIpcResult(result, cmd);
+  }
 
   const response = result.result ?? { schedules: [] };
   if (opts.json) {
@@ -1074,7 +1149,9 @@ async function toggleScheduleEnabled(
 }
 
 function describeSchedule(schedule: ScheduleRecord): string {
-  if (schedule.isOneShot) return "one-shot";
+  if (schedule.isOneShot) {
+    return "one-shot";
+  }
   const expression = schedule.cadenceDescription ?? schedule.expression ?? "—";
   return schedule.timezone
     ? `${expression} (${schedule.timezone})`
@@ -1082,7 +1159,9 @@ function describeSchedule(schedule: ScheduleRecord): string {
 }
 
 function formatTimestamp(value: number): string {
-  if (!Number.isFinite(value) || value <= 0) return "—";
+  if (!Number.isFinite(value) || value <= 0) {
+    return "—";
+  }
   return new Date(value).toISOString();
 }
 
@@ -1091,8 +1170,12 @@ function formatNullableTimestamp(value: number | null): string {
 }
 
 function formatDuration(value: number | null): string {
-  if (value == null || !Number.isFinite(value) || value < 0) return "—";
-  if (value < 1000) return `${Math.round(value)}ms`;
+  if (value == null || !Number.isFinite(value) || value < 0) {
+    return "—";
+  }
+  if (value < 1000) {
+    return `${Math.round(value)}ms`;
+  }
 
   // Keep one decimal of precision only in the sub-minute range, where it's
   // meaningful; coarser units round to whole seconds. Working in tenths of a

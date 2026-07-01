@@ -118,6 +118,7 @@ import { ROUTES as RENAME_CONVERSATION_ROUTES } from "./rename-conversation-rout
 import { ROUTES as RETROSPECTIVE_ROUTES } from "./retrospective-routes.js";
 import { ROUTES as SANITY_ROUTES } from "./sanity-routes.js";
 import { ROUTES as SCHEDULE_ROUTES } from "./schedule-routes.js";
+import { ROUTES as SCHEDULE_WORKER_ROUTES } from "./schedule-worker-routes.js";
 import { ROUTES as SECRET_ROUTES } from "./secret-routes.js";
 import { ROUTES as SEQUENCE_ROUTES } from "./sequence-routes.js";
 import { ROUTES as SETTINGS_ROUTES } from "./settings-routes.js";
@@ -253,6 +254,7 @@ export const ROUTES: RouteDefinition[] = [
   ...MONITORING_ROUTES,
   ...RETROSPECTIVE_ROUTES,
   ...SCHEDULE_ROUTES,
+  ...SCHEDULE_WORKER_ROUTES,
   ...SANITY_ROUTES,
   ...SECRET_ROUTES,
   ...SETTINGS_ROUTES,
