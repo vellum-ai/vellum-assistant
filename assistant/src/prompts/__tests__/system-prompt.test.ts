@@ -197,14 +197,39 @@ describe("buildSystemPrompt — default persona trust-class guardrail", () => {
   });
 
   test("renders for a non-guardian even when HTTP auth is disabled", () => {
-    // Platform-managed deployments run with DISABLE_HTTP_AUTH=true, under which
-    // resolveTrustClass() collapses every actor to "guardian". The guardrail
-    // must gate on the actor's real trust class instead, or it would silently
-    // switch off for the non-guardian channel actors it exists to protect.
+    // Platform-managed deployments run with DISABLE_HTTP_AUTH=true. A *present*
+    // trustContext must keep the actor's real class under that posture
+    // (resolveTrustClass only fail-safes *unresolved* actors), or the guardrail
+    // would silently switch off for the non-guardian channel actors it exists
+    // to protect.
     process.env.DISABLE_HTTP_AUTH = "true";
     const result = buildSystemPrompt({
       trustContext: { sourceChannel: "slack", trustClass: "unknown" },
     });
+
+    expect(result).toContain(GUARDRAIL);
+    expect(result).toContain(STRANGER_GREETING);
+  });
+
+  test("gates off for an unresolved local build when HTTP auth is disabled", () => {
+    // Initial-prompt warming, home generation, and btw sidechains build
+    // prompts with NO trustContext on behalf of the owner. In an auth-disabled
+    // (local / platform-managed) deployment that unresolved actor is the
+    // guardian, so the guardrail must not render into those guardian-facing
+    // prompts (fail-stranger would stonewall the owner about their own data).
+    process.env.DISABLE_HTTP_AUTH = "true";
+    const result = buildSystemPrompt({});
+
+    expect(result).not.toContain(GUARDRAIL);
+    expect(result).not.toContain(TRUSTED_GREETING);
+    expect(result).not.toContain(STRANGER_GREETING);
+  });
+
+  test("fails closed to the guardrail for an unresolved build when auth is enabled", () => {
+    // With auth enabled there is no basis to assume the unresolved actor is
+    // the guardian, so an unclassifiable build keeps the boundary.
+    delete process.env.DISABLE_HTTP_AUTH;
+    const result = buildSystemPrompt({});
 
     expect(result).toContain(GUARDRAIL);
     expect(result).toContain(STRANGER_GREETING);

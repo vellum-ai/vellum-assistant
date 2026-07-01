@@ -10,7 +10,10 @@ import { join } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
 import type { ChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import {
+  resolveTrustClass,
+  type TrustContext,
+} from "../daemon/trust-context.js";
 import { markActivationSession } from "../plugins/defaults/memory/activation-session-store.js";
 import { derivePersonaTrustFlags } from "../runtime/trust-class.js";
 import { ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE } from "../telemetry/activation-funnel.js";
@@ -397,11 +400,17 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // Trust flags for the current actor, lifted onto the render context so
   // persona sections — notably `users/default.md`, the persona rendered for
   // non-guardian actors — can gate privacy guardrails on who is being spoken
-  // to. All classification policy (the fail-closed-to-stranger default for
-  // unresolved actors, the trusted/unverified grouping, why this is not
-  // `resolveTrustClass`) lives on {@link derivePersonaTrustFlags}.
+  // to. The class is resolved through `resolveTrustClass` first: a *present*
+  // trustContext always keeps the actor's real class (a resolved non-guardian
+  // channel actor is never elevated, even under DISABLE_HTTP_AUTH), while an
+  // *absent* one follows the actor-resolution contract — guardian for
+  // local/native builds in an auth-disabled deployment (initial-prompt
+  // warming, home generation, and btw sidechains build prompts with no
+  // trustContext for the owner), unknown otherwise so an unclassifiable turn
+  // still fails closed to the guardrail. The flag grouping itself lives on
+  // {@link derivePersonaTrustFlags}.
   const { trustClass, isGuardian, isTrustedContact, isStranger } =
-    derivePersonaTrustFlags(options?.trustContext?.trustClass);
+    derivePersonaTrustFlags(resolveTrustClass(options?.trustContext));
 
   // Section render context.  Workspace section frontmatter `enabled:`
   // predicates, `{{key}}` / `{{#flag}}...{{/flag}}` body interpolation,
