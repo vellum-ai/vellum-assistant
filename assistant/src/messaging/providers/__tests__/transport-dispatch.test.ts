@@ -9,9 +9,6 @@ const slack = {
     Promise.resolve({ ts: "slack-ts" }),
   ),
   sendSlackReaction: mock((..._args: unknown[]) => Promise.resolve()),
-  sendSlackTypingIndicator: mock((..._args: unknown[]) =>
-    Promise.resolve("typing-ts"),
-  ),
   sendSlackAssistantThreadStatus: mock((..._args: unknown[]) =>
     Promise.resolve(),
   ),
@@ -147,13 +144,12 @@ describe("Slack sub-operation selection", () => {
     expect(slack.sendSlackReply).not.toHaveBeenCalled();
   });
 
-  test("typing routes to sendSlackTypingIndicator", async () => {
+  test("a typing payload to Slack falls through to deliver (no typing capability)", async () => {
     await deliverDirect(
       `${BASE}/deliver/slack`,
-      payload({ chatAction: "typing" }),
+      payload({ chatAction: "typing", text: "hi" }),
     );
-    expect(slack.sendSlackTypingIndicator).toHaveBeenCalledTimes(1);
-    expect(slack.sendSlackReply).not.toHaveBeenCalled();
+    expect(slack.sendSlackReply).toHaveBeenCalledTimes(1);
   });
 
   test("slackStream routes to sendSlackStreamOp ahead of the text path", async () => {

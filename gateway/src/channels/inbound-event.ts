@@ -47,6 +47,8 @@ interface InboundEventBase<C extends InboundChannelId> {
     isStranger?: boolean;
     /** Slack-specific: user is a guest / restricted account. */
     isRestricted?: boolean;
+    /** Slack-specific: team ID the actor belongs to. */
+    teamId?: string;
   };
   source: {
     updateId: string;

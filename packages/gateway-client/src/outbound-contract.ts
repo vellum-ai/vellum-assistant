@@ -104,6 +104,16 @@ export const SlackStreamOpSchema = z
       markdownText: z.string().optional(),
       taskDisplayMode: z.literal("plan").optional(),
       tasks: z.array(SlackStreamTaskSchema).optional(),
+      /**
+       * Slack user ID of the reader the stream targets. Required by
+       * `chat.startStream` when streaming into a channel; omitted for DMs.
+       */
+      recipientUserId: z.string().optional(),
+      /**
+       * Slack team ID the recipient belongs to. Required alongside
+       * `recipientUserId` when streaming into a channel; omitted for DMs.
+       */
+      recipientTeamId: z.string().optional(),
     }),
     z.object({
       action: z.literal("append"),
