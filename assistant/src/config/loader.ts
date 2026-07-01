@@ -779,6 +779,16 @@ export function loadConfig(): AssistantConfig {
         // Drop the deployment-context embedding provider so it is never
         // persisted (see above); the schema default re-applies in memory.
         delete (seed.memory.embeddings as { provider?: unknown }).provider;
+        // Memory-v3 tuning knobs are globally-shipped defaults, not per-assistant
+        // config: persist only `live` (genuine per-assistant state — some
+        // workspaces predate the v3 migration and must not be flipped on) and let
+        // every tuning knob resolve from the schema on load. This way a shipped
+        // schema-default change reaches all assistants (mirrors the
+        // embedding-provider strip above); see migration
+        // 118-strip-persisted-memory-v3-tuning-defaults for already-seeded configs.
+        seed.memory.v3 = {
+          live: seed.memory.v3.live,
+        } as (typeof seed.memory)["v3"];
         // Strip dataDir (runtime-derived) from the persisted config
         const { dataDir: _, ...persistable } = seed;
         writeFileSync(configPath, JSON.stringify(persistable, null, 2) + "\n");

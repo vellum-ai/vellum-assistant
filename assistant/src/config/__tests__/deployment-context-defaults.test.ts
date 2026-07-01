@@ -225,4 +225,27 @@ describe("deployment-context embedding-provider default (via loadConfig)", () =>
     expect(config.memory.embeddings.provider).toBe("auto");
     expect(config.memory.qdrant.vectorSize).toBe(384);
   });
+
+  test("first launch seeds memory.v3 with only `live` — tuning knobs resolve from the schema, not disk", () => {
+    if (existsSync(CONFIG_PATH)) rmSync(CONFIG_PATH, { force: true });
+    delete process.env.IS_PLATFORM;
+
+    const config = loadConfig();
+
+    // In-memory effective config still carries the full tuning (schema defaults).
+    expect(config.memory.v3.gate.denseThreshold).toBe(0.66);
+    expect(config.memory.v3.needleK).toBe(100);
+
+    // Persisted config.json carries ONLY `live` under memory.v3 — no tuning knob
+    // is frozen to disk, so a shipped schema-default change reaches this
+    // assistant on its next load (mirrors the embedding-provider strip above).
+    const raw = readConfig();
+    const v3Raw = ((raw.memory as Record<string, unknown>).v3 ?? {}) as Record<
+      string,
+      unknown
+    >;
+    expect(Object.keys(v3Raw)).toEqual(["live"]);
+    expect(v3Raw.gate).toBeUndefined();
+    expect(v3Raw.needleK).toBeUndefined();
+  });
 });
