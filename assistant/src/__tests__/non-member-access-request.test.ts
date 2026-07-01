@@ -105,6 +105,7 @@ import {
   isAccessRequestDenied,
   notifyGuardianOfAccessRequest,
 } from "../runtime/access-request-helper.js";
+import { createOutboundSession } from "../runtime/channel-verification-service.js";
 import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
@@ -124,6 +125,7 @@ const TEST_BEARER_TOKEN = "test-token";
 function resetState(): string {
   const db = getDb();
   db.run("DELETE FROM channel_inbound_events");
+  db.run("DELETE FROM channel_verification_sessions");
   db.run("DELETE FROM conversations");
   db.run("DELETE FROM notification_events");
   db.run("DELETE FROM canonical_guardian_requests");
@@ -937,6 +939,86 @@ describe("access-request-helper unit tests", () => {
       kind: "access_request",
     });
     expect(pending.length).toBe(0);
+  });
+
+  // LUM-2673: an approved request whose verification code is still live must
+  // not be re-created by the sender's follow-up inbound — that re-delivered a
+  // fresh Approve/Reject card on top of the one the guardian just decided.
+  test("suppressed while an approved request's verification session is live", async () => {
+    createCanonicalGuardianRequest({
+      id: `approved-${Date.now()}`,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "access-req-self-telegram-approved-user",
+      requesterExternalUserId: "approved-user",
+      guardianPrincipalId: anchorPrincipalId,
+      toolName: "ingress_access_request",
+      status: "approved",
+    });
+    createOutboundSession({
+      channel: "telegram",
+      expectedExternalUserId: "approved-user",
+      expectedChatId: "chat-approved",
+      identityBindingStatus: "bound",
+      destinationAddress: "chat-approved",
+      verificationPurpose: "trusted_contact",
+    });
+
+    const result = await notifyGuardianOfAccessRequest({
+      canonicalAssistantId: "self",
+      sourceChannel: "telegram",
+      conversationExternalId: "chat-approved",
+      actorExternalId: "approved-user",
+      actorDisplayName: "Approved User",
+    });
+
+    expect(result.notified).toBe(false);
+    if (!result.notified) {
+      expect(result.reason).toBe("approval_pending_verification");
+    }
+    expect(emitSignalCalls.length).toBe(0);
+
+    const pending = listCanonicalGuardianRequests({
+      status: "pending",
+      requesterExternalUserId: "approved-user",
+      kind: "access_request",
+    });
+    expect(pending.length).toBe(0);
+  });
+
+  test("re-prompts once the approved request's verification session has lapsed", async () => {
+    createCanonicalGuardianRequest({
+      id: `approved-stale-${Date.now()}`,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "access-req-self-telegram-stale-user",
+      requesterExternalUserId: "stale-user",
+      guardianPrincipalId: anchorPrincipalId,
+      toolName: "ingress_access_request",
+      status: "approved",
+    });
+    // No live verification session: the code lapsed unconsumed, so the
+    // sender's next message legitimately re-prompts the guardian.
+
+    const result = await notifyGuardianOfAccessRequest({
+      canonicalAssistantId: "self",
+      sourceChannel: "telegram",
+      conversationExternalId: "chat-stale",
+      actorExternalId: "stale-user",
+      actorDisplayName: "Stale User",
+    });
+
+    expect(result.notified).toBe(true);
+    expect(emitSignalCalls.length).toBe(1);
+
+    const pending = listCanonicalGuardianRequests({
+      status: "pending",
+      requesterExternalUserId: "stale-user",
+      kind: "access_request",
+    });
+    expect(pending.length).toBe(1);
   });
 
   test("a prior deny for one sender does not suppress prompts for a different sender", async () => {

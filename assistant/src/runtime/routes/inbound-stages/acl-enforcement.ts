@@ -97,6 +97,17 @@ export interface AclEnforcementParams {
    * replies for senders who will be admitted by the floor stage anyway.
    */
   effectiveAdmissionPolicy?: AdmissionPolicy;
+  /**
+   * True when the inbound event is an interaction callback (e.g. a Slack
+   * Block Kit button press or a message_deleted sentinel) rather than a
+   * message the sender composed. Callbacks are decision attempts / lifecycle
+   * events, not access attempts: a denied callback must never mint a
+   * verification challenge or create an access request — a stale button
+   * press from an unrecognized sender would otherwise spawn a fresh
+   * Approve/Reject card the guardian already dealt with (LUM-2673). The
+   * deny itself (and its canned reply) still applies.
+   */
+  isCallbackInteraction?: boolean;
 }
 
 /**
@@ -151,6 +162,7 @@ export async function enforceIngressAcl(
     assistantId,
     externalMessageId,
     effectiveAdmissionPolicy,
+    isCallbackInteraction,
   } = params;
 
   let isValidatedBootstrap = false;
@@ -409,11 +421,14 @@ export async function enforceIngressAcl(
 
         // Slack-specific: send a verification challenge directly to the
         // user's DM instead of requiring guardian-mediated approval. The
-        // user can reply with the code in the DM to self-verify.
+        // user can reply with the code in the DM to self-verify. Callback
+        // interactions never initiate a challenge — a button press is not a
+        // conversation attempt.
         if (
           sourceChannel === "slack" &&
           (canonicalSenderId ?? rawSenderId) &&
-          !terminallyDenied
+          !terminallyDenied &&
+          !isCallbackInteraction
         ) {
           const slackVerifyResult = initiateSlackVerificationChallenge({
             sourceChannel,
@@ -493,7 +508,8 @@ export async function enforceIngressAcl(
         if (
           sourceChannel === "email" &&
           (canonicalSenderId ?? rawSenderId) &&
-          !terminallyDenied
+          !terminallyDenied &&
+          !isCallbackInteraction
         ) {
           const emailVerifyResult = initiateEmailVerificationChallenge({
             sourceChannel,
@@ -539,34 +555,44 @@ export async function enforceIngressAcl(
         // Notify the guardian about the access request so they can approve/deny.
         // Uses the shared helper which handles guardian binding lookup,
         // deduplication, canonical request creation, and notification emission.
+        // Skipped for callback interactions — a button press must not create
+        // an access request.
         let guardianNotified = false;
-        try {
-          const accessResult = await notifyGuardianOfAccessRequest({
-            canonicalAssistantId,
-            sourceChannel,
-            conversationExternalId,
-            actorExternalId: canonicalSenderId ?? rawSenderId,
-            actorDisplayName,
-            actorUsername,
-            messagePreview: truncate(
-              trimmedContent,
-              MESSAGE_PREVIEW_MAX_LENGTH,
-            ),
-            isStranger,
-            isRestricted,
-            messageTs,
-          });
-          guardianNotified = accessResult.notified;
-        } catch (err) {
-          log.error(
-            { err, sourceChannel, conversationExternalId },
-            "Failed to notify guardian of access request",
-          );
+        let handshakeInProgress = false;
+        if (!isCallbackInteraction) {
+          try {
+            const accessResult = await notifyGuardianOfAccessRequest({
+              canonicalAssistantId,
+              sourceChannel,
+              conversationExternalId,
+              actorExternalId: canonicalSenderId ?? rawSenderId,
+              actorDisplayName,
+              actorUsername,
+              messagePreview: truncate(
+                trimmedContent,
+                MESSAGE_PREVIEW_MAX_LENGTH,
+              ),
+              isStranger,
+              isRestricted,
+              messageTs,
+            });
+            guardianNotified = accessResult.notified;
+            handshakeInProgress =
+              !accessResult.notified &&
+              accessResult.reason === "approval_pending_verification";
+          } catch (err) {
+            log.error(
+              { err, sourceChannel, conversationExternalId },
+              "Failed to notify guardian of access request",
+            );
+          }
         }
 
-        const replyText = guardianNotified
-          ? `Hmm looks like you don't have access to talk to me. I'll let ${await resolveGuardianLabel(sourceChannel)} know you tried talking to me and get back to you.`
-          : "Sorry, you haven't been approved to message this assistant.";
+        const replyText = handshakeInProgress
+          ? "Your access has been approved! Reply with the 6-digit verification code you received to finish connecting."
+          : guardianNotified
+            ? `Hmm looks like you don't have access to talk to me. I'll let ${await resolveGuardianLabel(sourceChannel)} know you tried talking to me and get back to you.`
+            : "Sorry, you haven't been approved to message this assistant.";
         let replyDelivered = false;
         if (replyCallbackUrl) {
           const replyPayload: Parameters<typeof deliverChannelReply>[1] = {
@@ -754,12 +780,14 @@ export async function enforceIngressAcl(
 
           // Slack-specific: re-verify inactive members via DM challenge
           // (same as non-member path). Blocked members are excluded —
-          // the guardian made an explicit decision to block them.
+          // the guardian made an explicit decision to block them. Callback
+          // interactions never initiate a challenge.
           if (
             sourceChannel === "slack" &&
             resolvedMember.status !== "blocked" &&
             (canonicalSenderId ?? rawSenderId) &&
-            !terminallyDenied
+            !terminallyDenied &&
+            !isCallbackInteraction
           ) {
             const slackVerifyResult = initiateSlackVerificationChallenge({
               sourceChannel,
@@ -833,8 +861,10 @@ export async function enforceIngressAcl(
           // For revoked/pending members, notify the guardian so they can
           // re-approve. Blocked members are intentionally excluded — the
           // guardian already made an explicit decision to block them.
+          // Callback interactions never create an access request.
           let guardianNotified = false;
-          if (resolvedMember.status !== "blocked") {
+          let handshakeInProgress = false;
+          if (resolvedMember.status !== "blocked" && !isCallbackInteraction) {
             try {
               const accessResult = await notifyGuardianOfAccessRequest({
                 canonicalAssistantId,
@@ -855,6 +885,9 @@ export async function enforceIngressAcl(
                 messageTs,
               });
               guardianNotified = accessResult.notified;
+              handshakeInProgress =
+                !accessResult.notified &&
+                accessResult.reason === "approval_pending_verification";
             } catch (err) {
               log.error(
                 { err, sourceChannel, conversationExternalId },
@@ -863,9 +896,11 @@ export async function enforceIngressAcl(
             }
           }
 
-          const inactiveReplyText = guardianNotified
-            ? `Hmm looks like you don't have access to talk to me. I'll let ${await resolveGuardianLabel(sourceChannel)} know you tried talking to me and get back to you.`
-            : "Sorry, you haven't been approved to message this assistant.";
+          const inactiveReplyText = handshakeInProgress
+            ? "Your access has been approved! Reply with the 6-digit verification code you received to finish connecting."
+            : guardianNotified
+              ? `Hmm looks like you don't have access to talk to me. I'll let ${await resolveGuardianLabel(sourceChannel)} know you tried talking to me and get back to you.`
+              : "Sorry, you haven't been approved to message this assistant.";
           let inactiveReplyDelivered = false;
           if (replyCallbackUrl) {
             const inactiveReplyPayload: Parameters<

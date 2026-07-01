@@ -50,6 +50,8 @@ mock.module("../db/assistant-db-proxy.js", () => ({
   },
 }));
 
+import { eq } from "drizzle-orm";
+
 import { createGuardianBinding } from "../auth/guardian-bootstrap.js";
 import {
   initGatewayDb,
@@ -204,5 +206,111 @@ describe("createGuardianBinding id resolution", () => {
 
     expect(result.contactId).toBe("guardian-contact");
     expect(result.channelId).toBe("guardian-channel");
+  });
+
+  // LUM-2672: claiming an inbound-seeded channel must not strand the seed
+  // contact as a channel-less duplicate of the guardian.
+  test("claiming a seeded channel garbage-collects the orphaned seed contact", async () => {
+    seedGwGuardianContact();
+    seedGwSlackChannel("U123EXAMPLE");
+
+    await createGuardianBinding({
+      channel: "slack",
+      externalUserId: "U123EXAMPLE",
+      deliveryChatId: "D123EXAMPLE",
+      guardianPrincipalId: "guardian-principal",
+      displayName: "Example User",
+      verifiedVia: "challenge",
+    });
+
+    const orphan = getGatewayDb()
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(eq(contacts.id, "seed-contact"))
+      .get();
+    expect(orphan).toBeUndefined();
+  });
+
+  test("keeps the previous parent contact when it still has other channels", async () => {
+    seedGwGuardianContact();
+    seedGwSlackChannel("U123EXAMPLE");
+    getGatewayDb()
+      .insert(contactChannels)
+      .values({
+        id: "seed-telegram-channel",
+        contactId: "seed-contact",
+        type: "telegram",
+        address: "tg-1001",
+        isPrimary: false,
+        status: "unverified",
+        policy: "allow",
+        interactionCount: 0,
+        createdAt: 1,
+        updatedAt: 1,
+      })
+      .run();
+
+    await createGuardianBinding({
+      channel: "slack",
+      externalUserId: "U123EXAMPLE",
+      deliveryChatId: "D123EXAMPLE",
+      guardianPrincipalId: "guardian-principal",
+      displayName: "Example User",
+      verifiedVia: "challenge",
+    });
+
+    const kept = getGatewayDb()
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(eq(contacts.id, "seed-contact"))
+      .get();
+    expect(kept?.id).toBe("seed-contact");
+  });
+
+  test("never garbage-collects a principal-bearing previous parent", async () => {
+    seedGwGuardianContact();
+    getGatewayDb()
+      .insert(contacts)
+      .values({
+        id: "principal-contact",
+        displayName: "Example User",
+        role: "contact",
+        principalId: "some-other-principal",
+        createdAt: 1,
+        updatedAt: 1,
+      })
+      .run();
+    getGatewayDb()
+      .insert(contactChannels)
+      .values({
+        id: "principal-channel",
+        contactId: "principal-contact",
+        type: "slack",
+        address: "U123EXAMPLE",
+        externalChatId: "D123EXAMPLE",
+        isPrimary: false,
+        status: "unverified",
+        policy: "allow",
+        interactionCount: 0,
+        createdAt: 1,
+        updatedAt: 1,
+      })
+      .run();
+
+    await createGuardianBinding({
+      channel: "slack",
+      externalUserId: "U123EXAMPLE",
+      deliveryChatId: "D123EXAMPLE",
+      guardianPrincipalId: "guardian-principal",
+      displayName: "Example User",
+      verifiedVia: "challenge",
+    });
+
+    const kept = getGatewayDb()
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(eq(contacts.id, "principal-contact"))
+      .get();
+    expect(kept?.id).toBe("principal-contact");
   });
 });

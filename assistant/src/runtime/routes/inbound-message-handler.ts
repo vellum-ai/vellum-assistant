@@ -454,6 +454,13 @@ export async function handleChannelInbound({
     ? admissionPolicyFromGateway
     : undefined;
 
+  // Callback payloads (button presses, delete sentinels) are decision
+  // attempts / lifecycle events, not access attempts: the ACL stage must not
+  // respond to one by minting a verification challenge or creating an access
+  // request (LUM-2673). Reactions are intercepted before this point; the
+  // guard is defensive.
+  const isCallbackInteraction = hasCallbackData && !isSlackReactionEvent(body);
+
   // ── Ingress ACL enforcement ──
   const aclResult = await enforceIngressAcl({
     canonicalSenderId,
@@ -470,6 +477,7 @@ export async function handleChannelInbound({
     assistantId,
     externalMessageId,
     effectiveAdmissionPolicy: effectiveAdmissionPolicyForAcl,
+    isCallbackInteraction,
   });
   if (aclResult.earlyResponse) return aclResult.earlyResponse;
   const { resolvedMember } = aclResult;
@@ -798,48 +806,57 @@ export async function handleChannelInbound({
     // `acl-enforcement.ts:267-449` for `not_a_member`, so denials are
     // visible in the same UI. previousMemberStatus is only meaningful when
     // a member record exists; we pass it through when available so the
-    // guardian sees "previously pending" etc.
+    // guardian sees "previously pending" etc. Callback interactions never
+    // create an access request (LUM-2673).
     let guardianNotified = false;
-    try {
-      const accessResult = await notifyGuardianOfAccessRequest({
-        canonicalAssistantId,
-        sourceChannel,
-        conversationExternalId,
-        actorExternalId: canonicalSenderId ?? rawSenderId,
-        actorDisplayName: body.actorDisplayName,
-        actorUsername: body.actorUsername,
-        ...(resolvedMember
-          ? {
-              previousMemberStatus: channelStatusToMemberStatus(
-                resolvedMember.status,
-              ),
-            }
-          : {}),
-        messagePreview: truncate(trimmedContent, MESSAGE_PREVIEW_MAX_LENGTH),
-        ...(typeof sourceMetadata?.isStranger === "boolean"
-          ? { isStranger: sourceMetadata.isStranger }
-          : {}),
-        ...(typeof sourceMetadata?.isRestricted === "boolean"
-          ? { isRestricted: sourceMetadata.isRestricted }
-          : {}),
-        ...(typeof sourceMetadata?.messageId === "string"
-          ? { messageTs: sourceMetadata.messageId }
-          : {}),
-      });
-      guardianNotified = accessResult.notified;
-    } catch (err) {
-      log.error(
-        { err, sourceChannel, conversationExternalId },
-        "Failed to notify guardian of access request (admission policy)",
-      );
+    let handshakeInProgress = false;
+    if (!isCallbackInteraction) {
+      try {
+        const accessResult = await notifyGuardianOfAccessRequest({
+          canonicalAssistantId,
+          sourceChannel,
+          conversationExternalId,
+          actorExternalId: canonicalSenderId ?? rawSenderId,
+          actorDisplayName: body.actorDisplayName,
+          actorUsername: body.actorUsername,
+          ...(resolvedMember
+            ? {
+                previousMemberStatus: channelStatusToMemberStatus(
+                  resolvedMember.status,
+                ),
+              }
+            : {}),
+          messagePreview: truncate(trimmedContent, MESSAGE_PREVIEW_MAX_LENGTH),
+          ...(typeof sourceMetadata?.isStranger === "boolean"
+            ? { isStranger: sourceMetadata.isStranger }
+            : {}),
+          ...(typeof sourceMetadata?.isRestricted === "boolean"
+            ? { isRestricted: sourceMetadata.isRestricted }
+            : {}),
+          ...(typeof sourceMetadata?.messageId === "string"
+            ? { messageTs: sourceMetadata.messageId }
+            : {}),
+        });
+        guardianNotified = accessResult.notified;
+        handshakeInProgress =
+          !accessResult.notified &&
+          accessResult.reason === "approval_pending_verification";
+      } catch (err) {
+        log.error(
+          { err, sourceChannel, conversationExternalId },
+          "Failed to notify guardian of access request (admission policy)",
+        );
+      }
     }
 
     // Canned reply mirrors the not_a_member surface. §8.2: no upgrade
     // challenge text for `trusted_contacts` / `guardian_only` denials —
     // sender gets the standard "ask the guardian" copy.
-    const replyText = guardianNotified
-      ? "Hmm looks like you don't have access to talk to me. I'll let your guardian know you tried."
-      : "Sorry, you haven't been approved to message this assistant.";
+    const replyText = handshakeInProgress
+      ? "Your access has been approved! Reply with the 6-digit verification code you received to finish connecting."
+      : guardianNotified
+        ? "Hmm looks like you don't have access to talk to me. I'll let your guardian know you tried."
+        : "Sorry, you haven't been approved to message this assistant.";
     let replyDelivered = false;
     if (replyCallbackUrl) {
       const replyPayload: Parameters<typeof deliverChannelReply>[1] = {

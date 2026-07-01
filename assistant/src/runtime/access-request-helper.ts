@@ -26,6 +26,7 @@ import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import type { GuardianResolutionSource } from "../notifications/signal.js";
 import { getLogger } from "../util/logger.js";
 import { resolveAnchoredGuardian } from "./anchored-guardian.js";
+import { findSessionByIdentity } from "./channel-verification-service.js";
 import { GUARDIAN_APPROVAL_TTL_MS } from "./routes/channel-route-shared.js";
 
 const log = getLogger("access-request-helper");
@@ -54,7 +55,13 @@ export interface AccessRequestParams {
 
 export type AccessRequestResult =
   | { notified: true; created: boolean; requestId: string }
-  | { notified: false; reason: "no_sender_id" | "already_denied" };
+  | {
+      notified: false;
+      reason:
+        | "no_sender_id"
+        | "already_denied"
+        | "approval_pending_verification";
+    };
 
 // ---------------------------------------------------------------------------
 // Terminal-deny lookup
@@ -194,6 +201,34 @@ export async function notifyGuardianOfAccessRequest(
       created: false,
       requestId: existingCanonical[0].id,
     };
+  }
+
+  // Handshake-in-progress suppression: once the guardian APPROVES an access
+  // request, the requester holds a live verification code and the flow is
+  // waiting on them to enter it. Until that session lapses, further inbound
+  // from the same sender (messages, code attempts, button callbacks) must not
+  // re-create a request the guardian already decided — the resolved request no
+  // longer matches the pending-dedupe above, so without this check every
+  // post-approval inbound minted a fresh canonical request and re-delivered a
+  // new Approve/Reject card on top of the just-approved one (LUM-2673). Once
+  // the session expires unconsumed, re-prompting is allowed again.
+  const hasApprovedRequest =
+    listCanonicalGuardianRequests({
+      status: "approved",
+      requesterExternalUserId: actorExternalId,
+      sourceChannel,
+      kind: "access_request",
+      conversationId,
+    }).length > 0;
+  if (
+    hasApprovedRequest &&
+    findSessionByIdentity(sourceChannel, actorExternalId)
+  ) {
+    log.debug(
+      { sourceChannel, actorExternalId },
+      "Suppressing access request notification — approval granted, verification session still live",
+    );
+    return { notified: false, reason: "approval_pending_verification" };
   }
 
   // Terminal-deny suppression: once the guardian has denied an access request

@@ -180,6 +180,11 @@ function writeVerifiedGatewayChannel(params: {
  * Re-parent a gateway channel to the invite's target contact, ensuring the
  * target contact row exists first. Best-effort: a gateway DB error is logged,
  * not thrown, so a legitimate activation still proceeds.
+ *
+ * When the re-parent strips the previous parent of its last channel, the
+ * previous parent is garbage-collected if it is an inbound-seeded stub (see
+ * `deleteContactIfOrphaned`) so channel claims don't strand duplicate
+ * contacts (LUM-2672).
  */
 function reassignChannelContact(params: {
   type: string;
@@ -202,6 +207,18 @@ function reassignChannelContact(params: {
       })
       .onConflictDoNothing()
       .run();
+    // Capture the previous parent before the update so an orphaned seed
+    // contact can be garbage-collected after the re-parent.
+    const previousParent = gwDb
+      .select({ contactId: gwContactChannels.contactId })
+      .from(gwContactChannels)
+      .where(
+        and(
+          eq(gwContactChannels.type, type),
+          sql`${gwContactChannels.address} = ${address} COLLATE NOCASE`,
+        ),
+      )
+      .get();
     // Match by the (type,address) logical key, not the assistant channel id:
     // the gateway row can live under a different UUID (m0006 reconcile), and an
     // id-only update would re-parent nothing.
@@ -215,9 +232,102 @@ function reassignChannelContact(params: {
         ),
       )
       .run();
+    if (previousParent && previousParent.contactId !== toContactId) {
+      void deleteContactIfOrphaned(previousParent.contactId);
+    }
   } catch (gwErr) {
     log.warn({ err: gwErr }, "Gateway channel reassignment dual-write failed");
   }
+}
+
+/**
+ * Garbage-collect a contact stranded by a channel re-parent (LUM-2672).
+ *
+ * Inbound seeding (`upsertContactChannel` below) creates a stub contact for a
+ * first-seen sender keyed only by (type, address). When that sender later
+ * turns out to be the guardian (channel verification) or an invite target,
+ * the claim re-parents the channel to the real contact and the stub is left
+ * behind with zero channels — a duplicate the guardian sees in the Contacts
+ * pane.
+ *
+ * Deletion is deliberately narrow so a claim can never destroy real data:
+ * the contact must have role `contact`, no principal, and no remaining
+ * channels in the gateway DB (source of truth). The assistant mirror row is
+ * deleted best-effort and only when it, too, is channel-less and carries no
+ * guardian-authored notes.
+ *
+ * Never throws. Returns true when the gateway row was deleted.
+ */
+export async function deleteContactIfOrphaned(
+  contactId: string,
+): Promise<boolean> {
+  try {
+    const gwDb = getGatewayDb();
+    const contact = gwDb
+      .select({
+        role: gwContacts.role,
+        principalId: gwContacts.principalId,
+      })
+      .from(gwContacts)
+      .where(eq(gwContacts.id, contactId))
+      .get();
+    if (!contact || contact.role !== "contact" || contact.principalId) {
+      return false;
+    }
+    const remainingChannel = gwDb
+      .select({ id: gwContactChannels.id })
+      .from(gwContactChannels)
+      .where(eq(gwContactChannels.contactId, contactId))
+      .limit(1)
+      .get();
+    if (remainingChannel) return false;
+
+    gwDb.delete(gwContacts).where(eq(gwContacts.id, contactId)).run();
+    log.info(
+      { contactId },
+      "Deleted orphaned seed contact after channel re-parent",
+    );
+  } catch (gwErr) {
+    log.warn(
+      { err: gwErr, contactId },
+      "Orphaned contact garbage-collection failed (gateway)",
+    );
+    return false;
+  }
+
+  // Assistant mirror cleanup: best-effort, and skipped entirely when the IPC
+  // socket is unavailable (test environments) or the mirror still has
+  // channels or notes — a leftover mirror row is recoverable via the tolerant
+  // contact delete (LUM-2662), lost notes are not.
+  try {
+    const { path: socketPath } = resolveIpcSocketPath("assistant");
+    if (!existsSync(socketPath)) return true;
+
+    const mirrorChannels = await assistantDbQuery<{ id: string }>(
+      `SELECT id FROM contact_channels WHERE contact_id = ? LIMIT 1`,
+      [contactId],
+    );
+    if (mirrorChannels.length > 0) return true;
+    const mirrorNotes = await assistantDbQuery<{ notes: string | null }>(
+      `SELECT notes FROM contacts WHERE id = ?`,
+      [contactId],
+    );
+    if (mirrorNotes.length === 0) return true;
+    if (mirrorNotes[0].notes && mirrorNotes[0].notes.trim().length > 0) {
+      log.info(
+        { contactId },
+        "Keeping assistant-mirror contact with notes after gateway orphan delete",
+      );
+      return true;
+    }
+    await assistantDbRun(`DELETE FROM contacts WHERE id = ?`, [contactId]);
+  } catch (mirrorErr) {
+    log.warn(
+      { err: mirrorErr, contactId },
+      "Orphaned contact garbage-collection failed (assistant mirror)",
+    );
+  }
+  return true;
 }
 
 /**
@@ -225,7 +335,10 @@ function reassignChannelContact(params: {
  * (type, address) COLLATE NOCASE. The gateway is the source of truth; the
  * assistant mirror can lag behind a block/revoke landed gateway-side.
  */
-export function gatewayChannelStatus(type: string, address: string): string | null {
+export function gatewayChannelStatus(
+  type: string,
+  address: string,
+): string | null {
   const row = getGatewayDb()
     .select({ status: gwContactChannels.status })
     .from(gwContactChannels)
