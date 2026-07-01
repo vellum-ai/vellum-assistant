@@ -6,37 +6,17 @@ import {
   resetMessageCursorCheckpoint,
   writeMessageCursorCheckpoint,
 } from "../../../../persistence/checkpoints.js";
-import { messageMetadataSchema } from "../../../../persistence/conversation-crud.js";
+import { parseMessageMetadata } from "../../../../persistence/conversation-crud.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import {
   enqueueMemoryJob,
   type MemoryJob,
 } from "../../../../persistence/jobs-store.js";
 import { messages } from "../../../../persistence/schema/index.js";
-import type { TrustClass } from "../../../../runtime/actor-trust-resolver.js";
 import { indexMessageNow } from "../indexer.js";
 
 const BACKFILL_CHECKPOINT_KEY = "memory:backfill:last_created_at";
 const BACKFILL_CHECKPOINT_ID_KEY = "memory:backfill:last_message_id";
-
-function parseMessageMetadata(rawMetadata: string | null): {
-  provenanceTrustClass: TrustClass | undefined;
-  automated: boolean | undefined;
-} {
-  if (!rawMetadata)
-    return { provenanceTrustClass: undefined, automated: undefined };
-  try {
-    const parsed = messageMetadataSchema.safeParse(JSON.parse(rawMetadata));
-    if (!parsed.success)
-      return { provenanceTrustClass: undefined, automated: undefined };
-    return {
-      provenanceTrustClass: parsed.data.provenanceTrustClass,
-      automated: parsed.data.automated,
-    };
-  } catch {
-    return { provenanceTrustClass: undefined, automated: undefined };
-  }
-}
 
 export async function backfillJob(
   job: MemoryJob,
@@ -73,9 +53,7 @@ export async function backfillJob(
 
   if (batch.length > 0) {
     for (const message of batch) {
-      const { provenanceTrustClass, automated } = parseMessageMetadata(
-        message.metadata ?? null,
-      );
+      const meta = parseMessageMetadata(message.metadata ?? null);
       await indexMessageNow(
         {
           messageId: message.id,
@@ -84,8 +62,8 @@ export async function backfillJob(
           content: message.content,
           createdAt: message.createdAt,
           scopeId: "default",
-          provenanceTrustClass,
-          automated,
+          provenanceTrustClass: meta?.provenanceTrustClass,
+          automated: meta?.automated,
         },
         config.memory,
       );

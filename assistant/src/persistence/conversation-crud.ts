@@ -30,6 +30,7 @@ import type { TrustContext } from "../daemon/trust-context.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
+import { trustClassSchema } from "../runtime/trust-class.js";
 import { UserError } from "../util/errors.js";
 import { safeParseRecord } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
@@ -170,9 +171,7 @@ export const messageMetadataSchema = z
      * trust status changes later. Used by the memory write gate (indexer)
      * and read gate (conversation history loading) to enforce trust-aware access.
      */
-    provenanceTrustClass: z
-      .enum(["guardian", "trusted_contact", "unverified_contact", "unknown"])
-      .optional(),
+    provenanceTrustClass: trustClassSchema.optional(),
     provenanceSourceChannel: channelIdSchema.optional(),
     provenanceGuardianExternalUserId: z.string().optional(),
     provenanceRequesterIdentifier: z.string().optional(),
@@ -208,6 +207,31 @@ export const messageMetadataSchema = z
     nonInteractiveContextBlock: z.string().optional(),
   })
   .passthrough();
+
+/** Validated shape of a persisted message's `metadata` column. */
+export type MessageMetadata = z.infer<typeof messageMetadataSchema>;
+
+/**
+ * Parse a persisted message's metadata JSON against {@link messageMetadataSchema}
+ * — the single source of truth for its shape — returning the validated fields,
+ * or `undefined` when the column is absent, not valid JSON, or fails validation.
+ * The single place the raw JSON.parse + safeParse dance lives, so callers read
+ * typed fields (e.g. `provenanceTrustClass`, `automated`, `subagentNotification`)
+ * instead of re-implementing it.
+ */
+export function parseMessageMetadata(
+  metadataJson: string | null,
+): MessageMetadata | undefined {
+  if (!metadataJson) {
+    return undefined;
+  }
+  try {
+    const parsed = messageMetadataSchema.safeParse(JSON.parse(metadataJson));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 function cloneForkMessageMetadata(
   metadata: string | null,
@@ -246,7 +270,9 @@ function cloneForkMessageMetadata(
 export function provenanceFromTrustContext(
   ctx: TrustContext | null | undefined,
 ): Record<string, unknown> {
-  if (!ctx) return { provenanceTrustClass: "unknown" };
+  if (!ctx) {
+    return { provenanceTrustClass: "unknown" };
+  }
   return {
     provenanceTrustClass: ctx.trustClass,
     provenanceSourceChannel: ctx.sourceChannel,
@@ -1039,7 +1065,9 @@ function populateForkContentsInProcess(args: PopulateForkContentsArgs): void {
   const attachmentIdMap = new Map<string, string>();
   for (const message of messagesToCopy) {
     const forkedMessageId = forkedMessageIds.get(message.id);
-    if (!forkedMessageId) continue;
+    if (!forkedMessageId) {
+      continue;
+    }
 
     const attachmentLinks = db
       .select({
@@ -1153,7 +1181,9 @@ function latestForkedAssistantFrom(
 ): { messageId: string; messageAt: number } | null {
   for (let i = messagesToCopy.length - 1; i >= 0; i--) {
     const message = messagesToCopy[i]!;
-    if (message.role !== "assistant") continue;
+    if (message.role !== "assistant") {
+      continue;
+    }
     const forkedMessageId = forkedMessageIds.get(message.id);
     if (forkedMessageId) {
       return { messageId: forkedMessageId, messageAt: message.createdAt };
@@ -1797,7 +1827,9 @@ export function countMessagesAfter(
     .from(messages)
     .where(eq(messages.id, afterMessageId))
     .get();
-  if (!ref) return 0;
+  if (!ref) {
+    return 0;
+  }
   // Tie-breaker on `messages.id` so rows that share a millisecond timestamp
   // with the reference are not permanently skipped. Mirrors the
   // `(createdAt, id)` cursor pattern used by the backfill job-handler and
@@ -1850,7 +1882,9 @@ export function getMessagesAfter(
     .from(messages)
     .where(eq(messages.id, afterMessageId))
     .get();
-  if (!ref) return [];
+  if (!ref) {
+    return [];
+  }
   // Same `(createdAt, id)` cursor as `countMessagesAfter` — rows sharing
   // the reference's millisecond timestamp would otherwise be skipped.
   return db
@@ -1991,15 +2025,23 @@ export function getMessagesPaginated(
       .all()
       .map(parseMessage);
 
-    if (chunk.length === 0) break;
+    if (chunk.length === 0) {
+      break;
+    }
     rowsScanned += chunk.length;
 
     for (const row of chunk) {
-      if (!filter || filter(row)) visible.push(row);
-      if (visible.length >= limit + 1) break;
+      if (!filter || filter(row)) {
+        visible.push(row);
+      }
+      if (visible.length >= limit + 1) {
+        break;
+      }
     }
 
-    if (chunk.length < chunkSize) break;
+    if (chunk.length < chunkSize) {
+      break;
+    }
     const lastRow = chunk[chunk.length - 1];
     lastScanned = { createdAt: lastRow.createdAt, id: lastRow.id };
     cursorCreatedAt = lastRow.createdAt;
@@ -2011,7 +2053,9 @@ export function getMessagesPaginated(
   // the scanned window, so report `hasMore: true` to keep the client draining
   // — returning `false` here is the stall this loop exists to prevent.
   const hasMore = filledPage || scanCapTruncated;
-  if (filledPage) visible.splice(limit);
+  if (filledPage) {
+    visible.splice(limit);
+  }
   visible.reverse();
 
   // Only hand back a resume cursor when the cap (not DB exhaustion) cut the
@@ -2093,7 +2137,9 @@ export function updateConversationTitle(
 ): void {
   const db = getDb();
   const set: Record<string, unknown> = { title, updatedAt: Date.now() };
-  if (isAutoTitle !== undefined) set.isAutoTitle = isAutoTitle;
+  if (isAutoTitle !== undefined) {
+    set.isAutoTitle = isAutoTitle;
+  }
   db.update(conversations).set(set).where(eq(conversations.id, id)).run();
 
   // Update disk view meta.json with the new title
@@ -2182,7 +2228,9 @@ export function updateConversationSlackContextWatermark(
 
 export function archiveConversation(id: string): boolean {
   const conv = getConversation(id);
-  if (!conv) return false;
+  if (!conv) {
+    return false;
+  }
   const now = Date.now();
   rawRun(
     "UPDATE conversations SET archived_at = ?, updated_at = ? WHERE id = ?",
@@ -2195,7 +2243,9 @@ export function archiveConversation(id: string): boolean {
 
 export function unarchiveConversation(id: string): boolean {
   const conv = getConversation(id);
-  if (!conv) return false;
+  if (!conv) {
+    return false;
+  }
   const now = Date.now();
   rawRun(
     "UPDATE conversations SET archived_at = NULL, updated_at = ? WHERE id = ?",
@@ -2245,7 +2295,9 @@ export function clearStaleProcessingFlags(): number {
  */
 export function isConversationProcessing(id: string): boolean {
   const inMemory = findConversation(id)?.isProcessing();
-  if (inMemory != null) return inMemory;
+  if (inMemory != null) {
+    return inMemory;
+  }
   const row = rawGet<{ processing_started_at: number | null }>(
     "SELECT processing_started_at FROM conversations WHERE id = ?",
     id,
@@ -2283,7 +2335,9 @@ export function getConversationPersistedSeq(id: string): number | null {
  * Non-positive or non-finite `seq` values are ignored.
  */
 export function recordConversationPersistedSeq(id: string, seq: number): void {
-  if (!Number.isFinite(seq) || seq <= 0) return;
+  if (!Number.isFinite(seq) || seq <= 0) {
+    return;
+  }
   rawRun(
     "UPDATE conversations SET seq = ? WHERE id = ? AND (seq IS NULL OR seq < ?)",
     seq,
@@ -2310,7 +2364,9 @@ export function setConversationSurfaced(
   surfaced: boolean,
 ): { surfacedAt: number | null } | null {
   const conv = getConversation(id);
-  if (!conv) return null;
+  if (!conv) {
+    return null;
+  }
   const now = Date.now();
   const surfacedAt = surfaced ? now : null;
   rawRun(
@@ -2392,7 +2448,9 @@ export function clearExpiredInferenceProfiles(
     )
     .all(now) as Array<{ conversationId: string; sessionId: string | null }>;
 
-  if (expired.length === 0) return [];
+  if (expired.length === 0) {
+    return [];
+  }
 
   const ids = expired.map((r) => r.conversationId);
   const placeholders = ids.map(() => "?").join(", ");
@@ -2673,7 +2731,9 @@ export function deleteLastExchange(conversationId: string): number {
     .limit(1)
     .get();
 
-  if (!lastUserMsg) return 0;
+  if (!lastUserMsg) {
+    return 0;
+  }
 
   // Use rowid to identify the last user message and everything after it.
   // rowid is monotonically increasing for inserts, so this is safe even if
@@ -2689,7 +2749,9 @@ export function deleteLastExchange(conversationId: string): number {
     .from(messages)
     .where(condition)
     .all();
-  if (deleted === 0) return 0;
+  if (deleted === 0) {
+    return 0;
+  }
 
   // Collect attachment IDs linked to the messages being deleted so we can
   // scope orphan cleanup to only those candidates (not freshly uploaded ones).
@@ -2859,7 +2921,9 @@ export function relinkAttachments(
   fromMessageIds: string[],
   toMessageId: string,
 ): number {
-  if (fromMessageIds.length === 0) return 0;
+  if (fromMessageIds.length === 0) {
+    return 0;
+  }
   const db = getDb();
 
   // Count how many links will be moved before updating.
@@ -2869,7 +2933,9 @@ export function relinkAttachments(
     .where(inArray(messageAttachments.messageId, fromMessageIds))
     .all();
 
-  if (total === 0) return 0;
+  if (total === 0) {
+    return 0;
+  }
 
   db.update(messageAttachments)
     .set({ messageId: toMessageId })
@@ -3051,13 +3117,7 @@ export function getConversationRecentProvenanceTrustClass(
      ORDER BY created_at DESC LIMIT 1`,
     conversationId,
   );
-  if (!row?.metadata) return undefined;
-  try {
-    const parsed = messageMetadataSchema.safeParse(JSON.parse(row.metadata));
-    return parsed.success ? parsed.data.provenanceTrustClass : undefined;
-  } catch {
-    return undefined;
-  }
+  return parseMessageMetadata(row?.metadata ?? null)?.provenanceTrustClass;
 }
 
 // ---------------------------------------------------------------------------
@@ -3162,7 +3222,9 @@ export function getDisplayMetaForConversations(
     string,
     { displayOrder: number | null; isPinned: boolean; groupId: string | null }
   >();
-  if (conversationIds.length === 0) return result;
+  if (conversationIds.length === 0) {
+    return result;
+  }
   for (const id of conversationIds) {
     const row = rawGet<{
       display_order: number | null;
@@ -3191,10 +3253,14 @@ export function getDisplayMetaForConversations(
  * be treated as turn boundaries.
  */
 function isToolResultMessage(role: string, content: string): boolean {
-  if (role !== "user") return false;
+  if (role !== "user") {
+    return false;
+  }
   try {
     const parsed = JSON.parse(content);
-    if (!Array.isArray(parsed) || parsed.length === 0) return false;
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      return false;
+    }
     return parsed.every(
       (block: unknown) =>
         block != null &&
@@ -3350,7 +3416,9 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
 
   // Look up the target message to get its conversationId and createdAt.
   const target = getMessageById(messageId);
-  if (!target) return [messageId];
+  if (!target) {
+    return [messageId];
+  }
 
   // Walk backward from the target message to find the turn boundary.
   // Limit to 50 rows — sufficient for even aggressive tool-use loops.
@@ -3455,7 +3523,9 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
 
   // Sort by createdAt to ensure stable ordering.
   // Re-fetch createdAt for all collected IDs so the sort is accurate.
-  if (assistantIds.length <= 1) return assistantIds;
+  if (assistantIds.length <= 1) {
+    return assistantIds;
+  }
 
   const idSet = new Set(assistantIds);
   const sorted = db

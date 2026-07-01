@@ -9,7 +9,7 @@ import { formatLocalTimestamp } from "../daemon/date-context.js";
 import {
   getConversation,
   getMessages,
-  messageMetadataSchema,
+  parseMessageMetadata,
 } from "../persistence/conversation-crud.js";
 import { truncate } from "../util/truncate.js";
 
@@ -29,7 +29,9 @@ function extractAnalysisText(blocks: ContentBlock[]): string {
   for (const block of blocks) {
     switch (block.type) {
       case "text":
-        if (block.text) parts.push(block.text);
+        if (block.text) {
+          parts.push(block.text);
+        }
         break;
       case "tool_use":
         parts.push(
@@ -155,34 +157,26 @@ function appendMessageBlock(
   lines.push(text);
   lines.push("");
 
-  if (msg.metadata) {
-    try {
-      const parsed = messageMetadataSchema.safeParse(JSON.parse(msg.metadata));
-      if (parsed.success && parsed.data.subagentNotification) {
-        const notif = parsed.data.subagentNotification;
-        if (
-          (notif.status === "completed" ||
-            notif.status === "failed" ||
-            notif.status === "aborted") &&
-          notif.conversationId
-        ) {
-          const subMessages = getMessages(notif.conversationId);
-          lines.push(`### Subagent: ${notif.label} (${notif.status})`);
-          lines.push("");
-          // Subagent conversations persist the parent assistant's objective
-          // as a `user` message (see subagent/manager.ts), so reusing the
-          // parent's display-name options would render the assistant's
-          // tasking text under the human user's name. Keep child transcripts
-          // on generic role labels — and only pass through the time zone.
-          lines.push(
-            formatSubagentMessages(subMessages, { timeZone: options.timeZone }),
-          );
-          lines.push("");
-        }
-      }
-    } catch {
-      // Skip unparseable metadata
-    }
+  const notif = parseMessageMetadata(msg.metadata)?.subagentNotification;
+  if (
+    notif &&
+    (notif.status === "completed" ||
+      notif.status === "failed" ||
+      notif.status === "aborted") &&
+    notif.conversationId
+  ) {
+    const subMessages = getMessages(notif.conversationId);
+    lines.push(`### Subagent: ${notif.label} (${notif.status})`);
+    lines.push("");
+    // Subagent conversations persist the parent assistant's objective
+    // as a `user` message (see subagent/manager.ts), so reusing the
+    // parent's display-name options would render the assistant's
+    // tasking text under the human user's name. Keep child transcripts
+    // on generic role labels — and only pass through the time zone.
+    lines.push(
+      formatSubagentMessages(subMessages, { timeZone: options.timeZone }),
+    );
+    lines.push("");
   }
 }
 
@@ -211,29 +205,19 @@ export function buildAnalysisTranscript(conversationId: string): string {
     lines.push("");
 
     // Check for subagent notifications in metadata
-    if (msg.metadata) {
-      try {
-        const parsed = messageMetadataSchema.safeParse(
-          JSON.parse(msg.metadata),
-        );
-        if (parsed.success && parsed.data.subagentNotification) {
-          const notif = parsed.data.subagentNotification;
-          if (
-            (notif.status === "completed" ||
-              notif.status === "failed" ||
-              notif.status === "aborted") &&
-            notif.conversationId
-          ) {
-            const subMessages = getMessages(notif.conversationId);
-            lines.push(`### Subagent: ${notif.label} (${notif.status})`);
-            lines.push("");
-            lines.push(formatSubagentMessages(subMessages));
-            lines.push("");
-          }
-        }
-      } catch {
-        // Skip unparseable metadata
-      }
+    const notif = parseMessageMetadata(msg.metadata)?.subagentNotification;
+    if (
+      notif &&
+      (notif.status === "completed" ||
+        notif.status === "failed" ||
+        notif.status === "aborted") &&
+      notif.conversationId
+    ) {
+      const subMessages = getMessages(notif.conversationId);
+      lines.push(`### Subagent: ${notif.label} (${notif.status})`);
+      lines.push("");
+      lines.push(formatSubagentMessages(subMessages));
+      lines.push("");
     }
   }
 
