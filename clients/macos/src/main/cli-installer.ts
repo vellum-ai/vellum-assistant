@@ -428,8 +428,8 @@ export async function ensureCliInstalled(): Promise<void> {
     writeCliLocator();
     // Heal installs written before this field existed (or before a bun bump):
     // the upgrade path returns here without reinstalling, so an existing user's
-    // package.json would otherwise stay unmarked and exposed to npm drift
-    // (LUM-2649). Skipped for local builds that run the repo CLI source.
+    // package.json would otherwise stay unmarked and exposed to npm drift.
+    // Skipped for local builds that run the repo CLI source.
     if (getLocalCliEntry() === null) stampPackageManager(getCliInstallDir());
     return;
   }
