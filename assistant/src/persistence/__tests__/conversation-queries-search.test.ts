@@ -126,11 +126,11 @@ describe("searchConversations · qdrant backend", () => {
     const results = await searchConversations("flux capacitor");
 
     expect(searchMessageIdsLexicalMock).toHaveBeenCalledTimes(1);
-    // The query text and the over-fetch limit of 1000 are passed through.
+    // The query text is passed through; the limit is the wide candidate
+    // over-fetch (asserted precisely in its own test below).
     expect(searchMessageIdsLexicalMock.mock.calls[0]![0]).toBe(
       "flux capacitor",
     );
-    expect(searchMessageIdsLexicalMock.mock.calls[0]![1]).toBe(1000);
 
     expect(results.map((r) => r.conversationId)).toEqual([conv.id]);
     // Only the candidate the lexical index returned is surfaced as a match.
@@ -158,6 +158,58 @@ describe("searchConversations · qdrant backend", () => {
     for (const r of results) {
       expect(r.matchingMessages).toHaveLength(1);
     }
+  });
+
+  test("over-fetches a wide message-candidate pool (cap on distinct conversations, not messages)", async () => {
+    const conv = createConversation("Notes");
+    insertMessage("m-1", conv.id, "flux capacitor");
+    lexicalReturns(["m-1"]);
+
+    await searchConversations("flux capacitor");
+
+    // The candidate limit must be far larger than the caller's result `limit`
+    // (default 20) so the effective cap lands on distinct visible
+    // conversations after dedup, not raw messages. A single chatty
+    // conversation must not be able to consume the whole candidate budget.
+    const requestedLimit = searchMessageIdsLexicalMock.mock.calls[0]![1];
+    expect(requestedLimit).toBeGreaterThanOrEqual(5000);
+  });
+
+  test("a chatty conversation does not starve other distinct visible conversations", async () => {
+    // `chatty` has many matching messages; `other` has a single one. If the
+    // cap were on messages (and chatty's messages ranked first), `other` could
+    // be crowded out. The distinct-conversation cap must surface both.
+    const chatty = createConversation("Chatty");
+    const other = createConversation("Other");
+
+    const chattyIds: string[] = [];
+    for (let i = 0; i < 50; i++) {
+      const id = `chatty-${i}`;
+      insertMessage(id, chatty.id, `flux capacitor mention ${i}`, 1000 + i);
+      chattyIds.push(id);
+    }
+    insertMessage("other-1", other.id, "flux capacitor once", 999);
+
+    // Rank ALL of chatty's messages ahead of other's single message — the
+    // worst case for a message-level cap.
+    lexicalReturns([...chattyIds, "other-1"]);
+
+    const results = await searchConversations("flux capacitor");
+
+    expect(searchMessageIdsLexicalMock).toHaveBeenCalledTimes(1);
+    // Both distinct visible conversations surface despite chatty dominating
+    // the candidate ranking.
+    expect(results.map((r) => r.conversationId).sort()).toEqual(
+      [chatty.id, other.id].sort(),
+    );
+    // Per-conversation message rows are still capped (default 3) and sourced
+    // from the single round-trip.
+    const chattyResult = results.find((r) => r.conversationId === chatty.id)!;
+    expect(chattyResult.matchingMessages.length).toBeLessThanOrEqual(3);
+    const otherResult = results.find((r) => r.conversationId === other.id)!;
+    expect(otherResult.matchingMessages.map((m) => m.messageId)).toEqual([
+      "other-1",
+    ]);
   });
 
   test("applies the same visibility filtering (excludes non-surfaced background)", async () => {

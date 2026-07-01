@@ -22,6 +22,42 @@ import { conversations, messages } from "./schema/index.js";
 const log = getLogger("conversation-store");
 
 /**
+ * Max distinct visible conversations {@link searchConversations} collects from
+ * content matches before merging with title matches and the final
+ * `updated_at`-ordered `LIMIT`. Both backends cap on distinct conversations (not
+ * matching messages) so one chatty conversation can't crowd others out; the FTS
+ * path enforces this in SQL (`SELECT DISTINCT conversation_id … LIMIT`).
+ */
+const CONVERSATION_SEARCH_DISTINCT_LIMIT = 1000;
+
+/**
+ * Message-candidate over-fetch for the Qdrant lexical backend.
+ *
+ * Qdrant ranks at message grain and has no visibility/archived filtering, so a
+ * naive cap at {@link CONVERSATION_SEARCH_DISTINCT_LIMIT} *messages* could be
+ * consumed entirely by one chatty visible conversation or by private/archived
+ * candidates, starving other matching visible conversations — unlike the FTS
+ * path, which caps on distinct conversations *after* the visibility JOIN.
+ *
+ * To approximate that behavior we over-fetch this many message candidates, then
+ * filter/dedupe to distinct visible conversations in code, so the effective cap
+ * lands on {@link CONVERSATION_SEARCH_DISTINCT_LIMIT} distinct visible
+ * conversations. A few thousand candidates reliably yields far more than the
+ * caller's `limit` (default 20) distinct visible conversations except in
+ * pathological mega-conversation cases.
+ *
+ * This is a proportionate over-fetch, NOT a hard parity guarantee: a query
+ * whose top ~{@link QDRANT_SEARCH_CANDIDATE_LIMIT} candidates all fall in a
+ * handful of conversations can still under-surface. The stronger fix — Qdrant
+ * `search_groups` (group_by `conversation_id`) or true score-ordered
+ * pagination — is deferred to pre-flip hardening if Gate A shows regressions.
+ *
+ * Kept well under bun:sqlite's ~32k bound-parameter ceiling so the
+ * `WHERE m.id IN (…)` visibility query stays a single statement.
+ */
+const QDRANT_SEARCH_CANDIDATE_LIMIT = 5000;
+
+/**
  * Build an FTS5 MATCH query string from natural text by extracting tokens.
  * Used for messages_fts full-text search over conversation content.
  */
@@ -531,6 +567,13 @@ function likeContentMatchMessages(
  * single-char input like "你", "é", "C++") falls back to a `messages.content
  * LIKE` scan for both backends. If the Qdrant lexical lookup throws, the search
  * degrades to that same `LIKE` scan.
+ *
+ * Both backends cap on distinct conversations, not matching messages. Qdrant
+ * ranks at message grain, so its path over-fetches a candidate pool
+ * ({@link QDRANT_SEARCH_CANDIDATE_LIMIT}) and dedupes to
+ * {@link CONVERSATION_SEARCH_DISTINCT_LIMIT} distinct visible conversations in
+ * score order — a proportionate approximation of the FTS distinct-conversation
+ * cap, not a hard parity guarantee (see the constant's docstring).
  */
 export async function searchConversations(
   query: string,
@@ -567,7 +610,10 @@ export async function searchConversations(
   if (ftsMatch && backend === "qdrant") {
     let candidates: Awaited<ReturnType<typeof searchMessageIdsLexical>> = [];
     try {
-      candidates = await searchMessageIdsLexical(trimmed, 1000);
+      candidates = await searchMessageIdsLexical(
+        trimmed,
+        QDRANT_SEARCH_CANDIDATE_LIMIT,
+      );
     } catch (err) {
       qdrantDegraded = true;
       log.warn(
@@ -581,8 +627,11 @@ export async function searchConversations(
     } else if (candidates.length > 0) {
       const candidateIds = candidates.map((c) => c.messageId);
       // Filter the lexical candidates down to visible, non-archived
-      // conversations in SQL (Qdrant has no visibility filtering), then group
-      // the surviving candidate message ids by conversation for reuse below.
+      // conversations in SQL (Qdrant has no visibility filtering). No SQL
+      // LIMIT here: the row count is already bounded by the candidate pool
+      // (≤ QDRANT_SEARCH_CANDIDATE_LIMIT), and capping in SQL would cap on
+      // messages, not distinct conversations. The distinct-conversation cap is
+      // applied below in Qdrant score order.
       interface CandidateRow {
         id: string;
         conversation_id: string;
@@ -590,20 +639,36 @@ export async function searchConversations(
       const placeholders = candidateIds.map(() => "?").join(",");
       const visibleRows = rawAll<CandidateRow>(
         `
-        SELECT DISTINCT m.id, m.conversation_id
+        SELECT m.id, m.conversation_id
         FROM messages m
         JOIN conversations c ON c.id = m.conversation_id
         WHERE m.id IN (${placeholders}) AND ${standardListingVisibilitySql("c")} AND c.archived_at IS NULL
-        LIMIT 1000
       `,
         ...candidateIds,
       );
-      qdrantCandidatesByConv = new Map();
+      const visibleConvByMessageId = new Map<string, string>();
       for (const row of visibleRows) {
-        contentConvIds.add(row.conversation_id);
-        const bucket = qdrantCandidatesByConv.get(row.conversation_id);
-        if (bucket) bucket.push(row.id);
-        else qdrantCandidatesByConv.set(row.conversation_id, [row.id]);
+        visibleConvByMessageId.set(row.id, row.conversation_id);
+      }
+
+      // Walk candidates in Qdrant score order (highest first). Bucket each
+      // visible candidate's message id under its conversation and stop
+      // collecting NEW conversations once CONVERSATION_SEARCH_DISTINCT_LIMIT
+      // distinct visible conversations are seen — so one chatty conversation
+      // can't starve others, matching the FTS distinct-conversation cap.
+      qdrantCandidatesByConv = new Map();
+      for (const candidate of candidates) {
+        const convId = visibleConvByMessageId.get(candidate.messageId);
+        if (!convId) continue;
+        const bucket = qdrantCandidatesByConv.get(convId);
+        if (bucket) {
+          bucket.push(candidate.messageId);
+        } else {
+          if (qdrantCandidatesByConv.size >= CONVERSATION_SEARCH_DISTINCT_LIMIT)
+            continue;
+          qdrantCandidatesByConv.set(convId, [candidate.messageId]);
+          contentConvIds.add(convId);
+        }
       }
     }
   } else if (ftsMatch) {
