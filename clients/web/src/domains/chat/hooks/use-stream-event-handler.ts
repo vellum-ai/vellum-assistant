@@ -459,6 +459,11 @@ export function useStreamEventHandler(
         case "interaction_resolved":
           handleInteractionResolved(event);
           break;
+        // Message content mutation is owned by the rolling-snapshot reducer
+        // (`applyEnvelopeToSnapshot` folds the reaction set onto the target
+        // row); no side effects are needed here.
+        case "message_reaction_updated":
+          break;
         // Diagnostic timeline events. The logs domain fetches these from
         // the daemon's trace-events endpoint on demand; the chat stream
         // handler ignores them.

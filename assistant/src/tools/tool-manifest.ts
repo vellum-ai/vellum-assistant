@@ -23,6 +23,7 @@ import { codeSearchTool } from "./filesystem/search.js";
 import { fileWriteTool } from "./filesystem/write.js";
 import { webFetchTool } from "./network/web-fetch.js";
 import { webSearchTool } from "./network/web-search.js";
+import { sendReactionTool } from "./reactions/send-reaction.js";
 import { skillExecuteTool } from "./skills/execute.js";
 import { skillLoadTool } from "./skills/load.js";
 import { notifyParentTool } from "./subagent/notify-parent.js";
@@ -67,6 +68,7 @@ export const eagerModuleToolNames: string[] = [
   "skill_load",
   "request_system_permission",
   "notify_parent",
+  "send_reaction",
 ];
 
 // ── Explicit tool instances ─────────────────────────────────────────
@@ -94,6 +96,7 @@ export const explicitTools: ToolDefinition[] = [
   recallTool,
   notifyParentTool,
   askQuestionTool,
+  sendReactionTool,
   // NOTE: external skill tools (registered via registerExternalTools in
   // registry.ts) are intentionally NOT included here. `explicitTools` is a
   // module-level const whose value is fixed at first evaluation, so
