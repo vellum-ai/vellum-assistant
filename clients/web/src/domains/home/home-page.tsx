@@ -9,7 +9,7 @@ import { useSystemTasks } from "@/domains/settings/hooks/use-system-tasks";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
-import { ResizablePanel, Tabs } from "@vellumai/design-library";
+import { Button, ResizablePanel, Tabs } from "@vellumai/design-library";
 import { HomeSchedulesPanel } from "./components/home-schedules-panel";
 import { ScheduleDetailPanel } from "./components/schedule-detail-panel";
 import { SystemTaskDetailPanel } from "./components/system-task-detail-panel";
@@ -219,6 +219,22 @@ export function HomePage({
     [onOpenConversation],
   );
 
+  const feedItems = feedQuery.data?.items ?? [];
+  const newCount = feedItems.filter((i) => i.status === "new").length;
+  const activeCount = feedItems.filter((i) => i.status !== "dismissed").length;
+
+  const handleMarkAllRead = useCallback(() => {
+    feedQuery.markAll.mutate({ from: ["new"], to: "seen" });
+  }, [feedQuery.markAll]);
+
+  const handleClearAll = useCallback(() => {
+    feedQuery.markAll.mutate({
+      from: ["new", "seen", "acted_on"],
+      to: "dismissed",
+    });
+    setSelectedItem(null);
+  }, [feedQuery.markAll]);
+
   // Link a scheduled-run notification back to its schedule, but only when that
   // schedule still exists in the loaded list (it may have since been deleted).
   const selectedItemScheduleId = getFeedItemScheduleId(selectedItem);
@@ -362,8 +378,32 @@ export function HomePage({
             : "."}
         </div>
       ) : null}
+      {(newCount > 0 || activeCount > 0) && (
+        <div className="flex items-center justify-end gap-[var(--app-spacing-sm)]">
+          {newCount > 0 && (
+            <Button
+              variant="ghost"
+              size="compact"
+              onClick={handleMarkAllRead}
+              disabled={feedQuery.markAll.isPending}
+            >
+              Mark all as read
+            </Button>
+          )}
+          {activeCount > 0 && (
+            <Button
+              variant="ghost"
+              size="compact"
+              onClick={handleClearAll}
+              disabled={feedQuery.markAll.isPending}
+            >
+              Clear all
+            </Button>
+          )}
+        </div>
+      )}
       <HomeFeedList
-        items={feedQuery.data?.items ?? []}
+        items={feedItems}
         selectedItemId={selectedItem?.id}
         validConversationIds={validConversationIds}
         onSelectItem={handleSelectItem}

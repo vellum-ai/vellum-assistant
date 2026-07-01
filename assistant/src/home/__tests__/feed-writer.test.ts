@@ -45,6 +45,7 @@ const {
   HOME_FEED_FILENAME,
   HOME_FEED_VERSION,
   appendFeedItem,
+  bulkSetFeedItemStatus,
   clearAllConversationIds,
   getHomeFeedPath,
   patchFeedItemStatus,
@@ -52,7 +53,7 @@ const {
   stripConversationIds,
 } = await import("../feed-writer.js");
 
-type FeedItemStatus = "new" | "seen" | "acted_on";
+type FeedItemStatus = "new" | "seen" | "acted_on" | "dismissed";
 
 interface TestFeedItem {
   id: string;
@@ -580,6 +581,210 @@ describe("feed-writer", () => {
       }
       // All three items still exist.
       expect(decoded.items).toHaveLength(3);
+    });
+  });
+
+  describe("bulkSetFeedItemStatus", () => {
+    test("flips every new item to seen, leaves other statuses alone", async () => {
+      await appendFeedItem(makeItem({ id: "n1", status: "new" }));
+      await appendFeedItem(
+        makeItem({
+          id: "n2",
+          status: "new",
+          createdAt: "2026-04-14T12:00:01.000Z",
+        }),
+      );
+      await appendFeedItem(
+        makeItem({
+          id: "s1",
+          status: "seen",
+          createdAt: "2026-04-14T12:00:02.000Z",
+        }),
+      );
+      await appendFeedItem(
+        makeItem({
+          id: "a1",
+          status: "acted_on",
+          createdAt: "2026-04-14T12:00:03.000Z",
+        }),
+      );
+
+      const count = await bulkSetFeedItemStatus(["new"], "seen");
+      expect(count).toBe(2);
+
+      const decoded = readFileJson();
+      const byId = new Map(decoded.items.map((i) => [i.id, i]));
+      expect(byId.get("n1")!.status).toBe("seen");
+      expect(byId.get("n2")!.status).toBe("seen");
+      expect(byId.get("s1")!.status).toBe("seen");
+      expect(byId.get("a1")!.status).toBe("acted_on");
+    });
+
+    test("returns 0 when nothing matches", async () => {
+      await appendFeedItem(makeItem({ id: "s1", status: "seen" }));
+      await appendFeedItem(
+        makeItem({
+          id: "s2",
+          status: "seen",
+          createdAt: "2026-04-14T12:00:01.000Z",
+        }),
+      );
+      await appendFeedItem(
+        makeItem({
+          id: "s3",
+          status: "seen",
+          createdAt: "2026-04-14T12:00:02.000Z",
+        }),
+      );
+      publishSpy.mockClear();
+
+      const count = await bulkSetFeedItemStatus(["new"], "seen");
+      expect(count).toBe(0);
+      // The writer still emits a publish for the empty-pass cycle,
+      // matching the strip/patch pattern.
+      expect(publishSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
+    });
+
+    test("skips items already at target status", async () => {
+      await appendFeedItem(makeItem({ id: "n1", status: "new" }));
+      await appendFeedItem(
+        makeItem({
+          id: "s1",
+          status: "seen",
+          createdAt: "2026-04-14T12:00:01.000Z",
+        }),
+      );
+
+      const count = await bulkSetFeedItemStatus(["new", "seen"], "seen");
+      expect(count).toBe(1);
+
+      const decoded = readFileJson();
+      for (const item of decoded.items) {
+        expect(item.status).toBe("seen");
+      }
+    });
+
+    test("clear-all flips new + seen + acted_on to dismissed and leaves dismissed alone", async () => {
+      await appendFeedItem(makeItem({ id: "n1", status: "new" }));
+      await appendFeedItem(
+        makeItem({
+          id: "s1",
+          status: "seen",
+          createdAt: "2026-04-14T12:00:01.000Z",
+        }),
+      );
+      await appendFeedItem(
+        makeItem({
+          id: "a1",
+          status: "acted_on",
+          createdAt: "2026-04-14T12:00:02.000Z",
+        }),
+      );
+      await appendFeedItem(
+        makeItem({
+          id: "d1",
+          status: "dismissed",
+          createdAt: "2026-04-14T12:00:03.000Z",
+        }),
+      );
+
+      const count = await bulkSetFeedItemStatus(
+        ["new", "seen", "acted_on"],
+        "dismissed",
+      );
+      expect(count).toBe(3);
+
+      const decoded = readFileJson();
+      for (const item of decoded.items) {
+        expect(item.status).toBe("dismissed");
+      }
+    });
+
+    test("returns 0 when the underlying writeFileSync throws", async () => {
+      await appendFeedItem(
+        makeItem({
+          id: "fail-bulk",
+          status: "new",
+        }),
+      );
+
+      const feedPath = getHomeFeedPath();
+      const originalWrite = fs.writeFileSync;
+      const spy = spyOn(fs, "writeFileSync").mockImplementation(((
+        path: fs.PathOrFileDescriptor,
+        data: string | NodeJS.ArrayBufferView,
+        options?: fs.WriteFileOptions,
+      ) => {
+        if (typeof path === "string" && path === feedPath) {
+          throw new Error("Simulated write failure");
+        }
+        return originalWrite(path, data, options);
+      }) as typeof fs.writeFileSync);
+
+      try {
+        const count = await bulkSetFeedItemStatus(["new"], "seen");
+        expect(count).toBe(0);
+
+        const decoded = readFileJson();
+        expect(decoded.items[0]!.status).toBe("new");
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    test("SSE home_feed_updated fires with correct post-flip newItemCount", async () => {
+      await appendFeedItem(makeItem({ id: "n1", status: "new" }));
+      await appendFeedItem(
+        makeItem({
+          id: "n2",
+          status: "new",
+          createdAt: "2026-04-14T12:00:01.000Z",
+        }),
+      );
+      await appendFeedItem(
+        makeItem({
+          id: "s1",
+          status: "seen",
+          createdAt: "2026-04-14T12:00:02.000Z",
+        }),
+      );
+      publishSpy.mockClear();
+
+      await bulkSetFeedItemStatus(["new"], "seen");
+
+      expect(publishSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
+      const lastCall = publishSpy.mock.calls[publishSpy.mock.calls.length - 1]!;
+      const event = lastCall[0] as {
+        message: { type: string; newItemCount: number };
+      };
+      expect(event.message.type).toBe("home_feed_updated");
+      expect(event.message.newItemCount).toBe(0);
+    });
+
+    test("coalesces with a concurrent append: late-appended new item is also flipped", async () => {
+      await appendFeedItem(makeItem({ id: "existing", status: "new" }));
+
+      // Both calls push to their pending arrays synchronously before
+      // the async scheduleWrite runs, so they land in the same
+      // runWrite cycle. runWrite applies appends before bulk-status,
+      // so the late item is observed as `new` by the bulk pass and
+      // gets flipped.
+      const appendPromise = appendFeedItem(
+        makeItem({
+          id: "late",
+          status: "new",
+          createdAt: "2026-04-14T12:00:05.000Z",
+        }),
+      );
+      const bulkPromise = bulkSetFeedItemStatus(["new"], "seen");
+
+      const [_, count] = await Promise.all([appendPromise, bulkPromise]);
+      expect(count).toBe(2);
+
+      const decoded = readFileJson();
+      const byId = new Map(decoded.items.map((i) => [i.id, i]));
+      expect(byId.get("existing")!.status).toBe("seen");
+      expect(byId.get("late")!.status).toBe("seen");
     });
   });
 

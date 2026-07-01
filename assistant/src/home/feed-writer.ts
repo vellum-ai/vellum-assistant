@@ -222,6 +222,31 @@ export async function clearAllConversationIds(): Promise<number> {
   return stripConversationIds("*");
 }
 
+/**
+ * Bulk-flip the status of every feed item currently at one of the
+ * `from` statuses to the single `to` status. Returns the count of
+ * items whose status was changed. Items already at the target status
+ * (or outside `from`) are left untouched, so the returned count is
+ * the real "how many did we mutate" figure the caller can surface.
+ *
+ * Goes through the same coalescing write queue as appends and single
+ * patches, so overlapping callers cannot race on the on-disk file.
+ * If the underlying write fails the returned count is 0 — callers
+ * must not report success when the write did not land.
+ */
+export async function bulkSetFeedItemStatus(
+  from: readonly FeedItemStatus[],
+  to: FeedItemStatus,
+): Promise<number> {
+  let resolveResult!: (count: number) => void;
+  const resultPromise = new Promise<number>((resolve) => {
+    resolveResult = resolve;
+  });
+  pendingBulkStatus.push({ from, to, resolve: resolveResult });
+  void scheduleWrite();
+  return resultPromise;
+}
+
 // ─── Internal: coalescing queue ────────────────────────────────────────
 
 /**
@@ -242,6 +267,11 @@ const pendingContentPatches: Array<{
 }> = [];
 const pendingStrips: Array<{
   conversationId: string;
+  resolve: (count: number) => void;
+}> = [];
+const pendingBulkStatus: Array<{
+  from: readonly FeedItemStatus[];
+  to: FeedItemStatus;
   resolve: (count: number) => void;
 }> = [];
 
@@ -287,6 +317,10 @@ async function runWrite(): Promise<void> {
     pendingContentPatches.length,
   );
   const stripsToApply = pendingStrips.splice(0, pendingStrips.length);
+  const bulkStatusToApply = pendingBulkStatus.splice(
+    0,
+    pendingBulkStatus.length,
+  );
 
   const current = readHomeFeed();
   let items = current.items.slice();
@@ -365,6 +399,26 @@ async function runWrite(): Promise<void> {
     stripResults.push({ resolve: strip.resolve, count });
   }
 
+  // Bulk-flip status. Applied after single patches so overlapping
+  // single-item patches land first and the bulk pass observes the
+  // post-patch statuses.
+  const bulkStatusResults: Array<{
+    resolve: (count: number) => void;
+    count: number;
+  }> = [];
+  for (const op of bulkStatusToApply) {
+    const fromSet = new Set(op.from);
+    let count = 0;
+    for (let i = 0; i < items.length; i++) {
+      const current = items[i]!;
+      if (current.status === op.to) continue;
+      if (!fromSet.has(current.status)) continue;
+      items[i] = { ...current, status: op.to };
+      count++;
+    }
+    bulkStatusResults.push({ resolve: op.resolve, count });
+  }
+
   items.sort(compareFeedItems);
 
   const updatedAt = new Date().toISOString();
@@ -406,6 +460,9 @@ async function runWrite(): Promise<void> {
     resolve(wrote ? value : null);
   }
   for (const { resolve, count } of stripResults) {
+    resolve(wrote ? count : 0);
+  }
+  for (const { resolve, count } of bulkStatusResults) {
     resolve(wrote ? count : 0);
   }
 }
