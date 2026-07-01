@@ -11,20 +11,21 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
 }));
 
-// Spy on the lexical-index helpers `conversation-crud` calls. All exports of
-// the module are stubbed so any importer in the graph resolves; only
-// `clearMessagesLexicalIndex` is observed.
+// Spy on `clearMessagesLexicalIndex` (called by `clearAll`) while keeping the
+// rest of the module REAL. `mock.module` is process-global and not undone by
+// `mock.restore()`, so a partial mock that drops the other exports would leak
+// into any later test file in the same process that imports them (e.g. the
+// handler tests importing `indexMessageLexicalJob`). Spread the real module so
+// only this one export is replaced. Importing the real module here is safe: its
+// deps (`@qdrant/js-client-rest`, `uuid`, the local TF-IDF encoder) resolve in
+// the worktree.
+const actualLexical =
+  await import("../plugins/defaults/memory/job-handlers/index-message-lexical.js");
 let clearCalls = 0;
 mock.module(
   "../plugins/defaults/memory/job-handlers/index-message-lexical.js",
   () => ({
-    indexMessageToLexical: async () => {},
-    indexMessageLexicalJob: async () => {},
-    purgeConversationLexicalJob: async () => {},
-    deleteMessageLexicalJob: async () => {},
-    enqueueLexicalIndexForMessage: () => {},
-    enqueuePurgeConversationLexical: () => {},
-    enqueueDeleteMessageLexical: () => {},
+    ...actualLexical,
     clearMessagesLexicalIndex: async () => {
       clearCalls += 1;
     },
