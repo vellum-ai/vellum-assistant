@@ -22,7 +22,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-import type { ResourceMonitorConfig } from "../config/schemas/resource-monitor.js";
+import type { MonitoringConfig } from "../config/schemas/monitoring.js";
 import {
   type ContainerMemoryEvents,
   getContainerMemoryEvents,
@@ -32,7 +32,7 @@ import {
 } from "../util/cgroup-memory.js";
 import { getDiskUsageInfo } from "../util/disk-usage.js";
 import { getLogger } from "../util/logger.js";
-import { getResourceMonitorDataDir } from "../util/platform.js";
+import { getMonitoringDataDir } from "../util/platform.js";
 import { buildProcessTree, listProcesses } from "../util/process-tree.js";
 import { SampleRingBuffer } from "./sample-ring-buffer.js";
 
@@ -215,10 +215,10 @@ export interface ResourceSamplerHandle {
  * it is the keep-alive that holds the process open.
  */
 export function startResourceSampler(
-  config: ResourceMonitorConfig,
+  config: MonitoringConfig,
   clock: () => number = Date.now,
 ): ResourceSamplerHandle {
-  const dataDir = getResourceMonitorDataDir();
+  const dataDir = getMonitoringDataDir();
   const buffer = new SampleRingBuffer<ResourceSample>(
     join(dataDir, SAMPLES_FILE),
     config.ringBufferSize,

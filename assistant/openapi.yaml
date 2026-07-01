@@ -19296,6 +19296,175 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/monitoring/start:
+    post:
+      operationId: monitoring_start_post
+      summary: Start the resource monitor
+      description: Spawns (or reuses) the resource monitor process as a child of the daemon and enables monitoring.enabled.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pid:
+                    type: number
+                  alreadyRunning:
+                    type: boolean
+                  monitoringEnabled:
+                    type: boolean
+                    const: true
+                  pidPath:
+                    type: string
+                required:
+                  - pid
+                  - alreadyRunning
+                  - monitoringEnabled
+                  - pidPath
+                additionalProperties: false
+  /v1/monitoring/status:
+    get:
+      operationId: monitoring_status_get
+      summary: Resource monitor status
+      description:
+        Reports the resource monitor process state, monitoring.enabled, the forensics data directory, and the most
+        recent persisted memory/disk sample.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - running
+                      - not_running
+                  pid:
+                    type: number
+                  monitoringEnabled:
+                    type: boolean
+                  dataDir:
+                    type: string
+                  latestSample:
+                    anyOf:
+                      - type: object
+                        properties:
+                          ts:
+                            type: number
+                          memory:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  currentBytes:
+                                    type: number
+                                  limitBytes:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  peakBytes:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  ratio:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                required:
+                                  - currentBytes
+                                  - limitBytes
+                                  - peakBytes
+                                  - ratio
+                                additionalProperties: false
+                              - type: "null"
+                          events:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  low:
+                                    type: number
+                                  high:
+                                    type: number
+                                  max:
+                                    type: number
+                                  oom:
+                                    type: number
+                                  oomKill:
+                                    type: number
+                                required:
+                                  - low
+                                  - high
+                                  - max
+                                  - oom
+                                  - oomKill
+                                additionalProperties: false
+                              - type: "null"
+                          disk:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  path:
+                                    type: string
+                                  usedMb:
+                                    type: number
+                                  totalMb:
+                                    type: number
+                                  freeMb:
+                                    type: number
+                                required:
+                                  - path
+                                  - usedMb
+                                  - totalMb
+                                  - freeMb
+                                additionalProperties: false
+                              - type: "null"
+                        required:
+                          - ts
+                          - memory
+                          - events
+                          - disk
+                        additionalProperties: false
+                      - type: "null"
+                required:
+                  - status
+                  - monitoringEnabled
+                  - dataDir
+                  - latestSample
+                additionalProperties: false
+  /v1/monitoring/stop:
+    post:
+      operationId: monitoring_stop_post
+      summary: Stop the resource monitor
+      description: Disables monitoring.enabled and SIGTERMs the resource monitor process if it is running.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  monitoringWasRunning:
+                    type: boolean
+                  pid:
+                    type: number
+                  monitoringEnabled:
+                    type: boolean
+                    const: false
+                required:
+                  - monitoringWasRunning
+                  - monitoringEnabled
+                additionalProperties: false
   /v1/notification-intent-result:
     post:
       operationId: notificationintentresult_post
@@ -22356,175 +22525,6 @@ paths:
       responses:
         "200":
           description: Successful response
-  /v1/resource-monitor/start:
-    post:
-      operationId: resourcemonitor_start_post
-      summary: Start the resource monitor
-      description: Spawns (or reuses) the resource monitor process as a child of the daemon and enables resourceMonitor.enabled.
-      tags:
-        - system
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  pid:
-                    type: number
-                  alreadyRunning:
-                    type: boolean
-                  monitorEnabled:
-                    type: boolean
-                    const: true
-                  pidPath:
-                    type: string
-                required:
-                  - pid
-                  - alreadyRunning
-                  - monitorEnabled
-                  - pidPath
-                additionalProperties: false
-  /v1/resource-monitor/status:
-    get:
-      operationId: resourcemonitor_status_get
-      summary: Resource monitor status
-      description:
-        Reports the resource monitor process state, resourceMonitor.enabled, the forensics data directory, and the
-        most recent persisted memory/disk sample.
-      tags:
-        - system
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    enum:
-                      - running
-                      - not_running
-                  pid:
-                    type: number
-                  monitorEnabled:
-                    type: boolean
-                  dataDir:
-                    type: string
-                  latestSample:
-                    anyOf:
-                      - type: object
-                        properties:
-                          ts:
-                            type: number
-                          memory:
-                            anyOf:
-                              - type: object
-                                properties:
-                                  currentBytes:
-                                    type: number
-                                  limitBytes:
-                                    anyOf:
-                                      - type: number
-                                      - type: "null"
-                                  peakBytes:
-                                    anyOf:
-                                      - type: number
-                                      - type: "null"
-                                  ratio:
-                                    anyOf:
-                                      - type: number
-                                      - type: "null"
-                                required:
-                                  - currentBytes
-                                  - limitBytes
-                                  - peakBytes
-                                  - ratio
-                                additionalProperties: false
-                              - type: "null"
-                          events:
-                            anyOf:
-                              - type: object
-                                properties:
-                                  low:
-                                    type: number
-                                  high:
-                                    type: number
-                                  max:
-                                    type: number
-                                  oom:
-                                    type: number
-                                  oomKill:
-                                    type: number
-                                required:
-                                  - low
-                                  - high
-                                  - max
-                                  - oom
-                                  - oomKill
-                                additionalProperties: false
-                              - type: "null"
-                          disk:
-                            anyOf:
-                              - type: object
-                                properties:
-                                  path:
-                                    type: string
-                                  usedMb:
-                                    type: number
-                                  totalMb:
-                                    type: number
-                                  freeMb:
-                                    type: number
-                                required:
-                                  - path
-                                  - usedMb
-                                  - totalMb
-                                  - freeMb
-                                additionalProperties: false
-                              - type: "null"
-                        required:
-                          - ts
-                          - memory
-                          - events
-                          - disk
-                        additionalProperties: false
-                      - type: "null"
-                required:
-                  - status
-                  - monitorEnabled
-                  - dataDir
-                  - latestSample
-                additionalProperties: false
-  /v1/resource-monitor/stop:
-    post:
-      operationId: resourcemonitor_stop_post
-      summary: Stop the resource monitor
-      description: Disables resourceMonitor.enabled and SIGTERMs the resource monitor process if it is running.
-      tags:
-        - system
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  monitorWasRunning:
-                    type: boolean
-                  pid:
-                    type: number
-                  monitorEnabled:
-                    type: boolean
-                    const: false
-                required:
-                  - monitorWasRunning
-                  - monitorEnabled
-                additionalProperties: false
   /v1/retrospective/config:
     get:
       operationId: retrospective_config_get

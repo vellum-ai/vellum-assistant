@@ -1,8 +1,8 @@
 /**
  * Standalone entry point for the resource monitor as its own OS process.
  *
- * Spawned by `assistant monitor start` (and at daemon startup when
- * `resourceMonitor.enabled` is set). Loads config, starts the sampling loop,
+ * Spawned by `assistant monitoring start` (and at daemon startup when
+ * `monitoring.enabled` is set). Loads config, starts the sampling loop,
  * writes a PID file, and stays alive until SIGTERM/SIGINT.
  *
  * Running as a separate process — off the assistant's main event loop — is the
@@ -15,8 +15,8 @@ import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { getConfig } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
 import {
-  getResourceMonitorDataDir,
-  getResourceMonitorPidPath,
+  getMonitoringDataDir,
+  getMonitoringPidPath,
 } from "../util/platform.js";
 import {
   type ResourceSamplerHandle,
@@ -26,7 +26,7 @@ import {
 const log = getLogger("monitoring-worker");
 
 function cleanupPidFile(): void {
-  const pidPath = getResourceMonitorPidPath();
+  const pidPath = getMonitoringPidPath();
   try {
     if (existsSync(pidPath)) unlinkSync(pidPath);
   } catch {
@@ -36,11 +36,11 @@ function cleanupPidFile(): void {
 
 async function main(): Promise<void> {
   const config = getConfig();
-  const pidPath = getResourceMonitorPidPath();
+  const pidPath = getMonitoringPidPath();
 
   // Ensure the data dir exists before the PID write — the sampler's ring buffer
   // would otherwise be the first to create it, but the PID file lands here too.
-  mkdirSync(getResourceMonitorDataDir(), { recursive: true });
+  mkdirSync(getMonitoringDataDir(), { recursive: true });
 
   // Write PID file so `status` and `stop` can find us.
   writeFileSync(pidPath, String(process.pid), { flag: "w" });
@@ -48,13 +48,13 @@ async function main(): Promise<void> {
     {
       pid: process.pid,
       pidPath,
-      sampleIntervalMs: config.resourceMonitor.sampleIntervalMs,
+      sampleIntervalMs: config.monitoring.sampleIntervalMs,
     },
     "Resource monitor process started",
   );
 
   const sampler: ResourceSamplerHandle = startResourceSampler(
-    config.resourceMonitor,
+    config.monitoring,
   );
 
   const shutdown = (signal: string) => {

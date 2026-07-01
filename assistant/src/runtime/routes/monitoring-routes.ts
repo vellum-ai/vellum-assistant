@@ -4,7 +4,7 @@
  * These run inside the daemon so the monitor process the daemon spawns is a
  * direct child of the daemon — which is what makes it show up in the daemon's
  * process tree (`assistant ps`) and lets the daemon tear it down on shutdown.
- * The `assistant resource-monitor` CLI is a thin IPC client over these routes.
+ * The `assistant monitoring` CLI is a thin IPC client over these routes.
  */
 
 import { join } from "node:path";
@@ -18,33 +18,33 @@ import {
   setNestedValue,
 } from "../../config/loader.js";
 import {
-  probeResourceMonitor,
-  ResourceMonitorSpawnError,
-  spawnResourceMonitorProcess,
-  stopResourceMonitorProcess,
-} from "../../monitoring/resource-monitor-control.js";
+  MonitoringWorkerSpawnError,
+  probeMonitoringWorker,
+  spawnMonitoringWorkerProcess,
+  stopMonitoringWorkerProcess,
+} from "../../monitoring/control.js";
 import type { ResourceSample } from "../../monitoring/resource-sampler.js";
 import { SampleRingBuffer } from "../../monitoring/sample-ring-buffer.js";
 import { getLogger } from "../../util/logger.js";
 import {
-  getResourceMonitorDataDir,
-  getResourceMonitorPidPath,
+  getMonitoringDataDir,
+  getMonitoringPidPath,
 } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { InternalError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 
-const log = getLogger("resource-monitor-routes");
+const log = getLogger("monitoring-routes");
 
 /**
- * Persist `resourceMonitor.enabled` to the on-disk config via the shared
+ * Persist `monitoring.enabled` to the on-disk config via the shared
  * raw-config helpers, so only this leaf changes (schema defaults are not baked
  * into the file). The daemon re-reads config from disk, so the change takes
  * effect without a restart.
  */
-function setResourceMonitorEnabled(enabled: boolean): void {
+function setMonitoringEnabled(enabled: boolean): void {
   const raw = loadRawConfig();
-  setNestedValue(raw, "resourceMonitor.enabled", enabled);
+  setNestedValue(raw, "monitoring.enabled", enabled);
   saveRawConfig(raw);
 }
 
@@ -80,68 +80,68 @@ const latestSampleSchema = z.object({
 const startResponseSchema = z.object({
   pid: z.number(),
   alreadyRunning: z.boolean(),
-  monitorEnabled: z.literal(true),
+  monitoringEnabled: z.literal(true),
   pidPath: z.string(),
 });
 
 const stopResponseSchema = z.object({
-  monitorWasRunning: z.boolean(),
+  monitoringWasRunning: z.boolean(),
   pid: z.number().optional(),
-  monitorEnabled: z.literal(false),
+  monitoringEnabled: z.literal(false),
 });
 
 const statusResponseSchema = z.object({
   status: z.enum(["running", "not_running"]),
   pid: z.number().optional(),
-  monitorEnabled: z.boolean(),
+  monitoringEnabled: z.boolean(),
   dataDir: z.string(),
   latestSample: latestSampleSchema.nullable(),
 });
 
 /**
  * Start (or reuse) the resource monitor process as a child of the daemon, then
- * enable `resourceMonitor.enabled` so it is respawned on the next boot. The
+ * enable `monitoring.enabled` so it is respawned on the next boot. The
  * flag is only enabled once the monitor is confirmed up — on spawn failure it
  * is left untouched.
  */
-async function startResourceMonitor() {
+async function handleMonitoringStart() {
   let result: { pid: number; alreadyRunning: boolean };
   try {
     // `detached: false` parents the monitor to the daemon so it appears in
     // `assistant ps` and is torn down on shutdown.
-    result = await spawnResourceMonitorProcess({
+    result = await spawnMonitoringWorkerProcess({
       detached: false,
       terminateOnTimeout: true,
     });
   } catch (err) {
     const message =
-      err instanceof ResourceMonitorSpawnError || err instanceof Error
+      err instanceof MonitoringWorkerSpawnError || err instanceof Error
         ? err.message
         : String(err);
     log.warn({ err }, "Failed to start resource monitor process");
     throw new InternalError(message);
   }
 
-  setResourceMonitorEnabled(true);
+  setMonitoringEnabled(true);
 
   return {
     pid: result.pid,
     alreadyRunning: result.alreadyRunning,
-    monitorEnabled: true as const,
-    pidPath: getResourceMonitorPidPath(),
+    monitoringEnabled: true as const,
+    pidPath: getMonitoringPidPath(),
   };
 }
 
 /**
- * Disable `resourceMonitor.enabled` and SIGTERM the monitor process if it is
+ * Disable `monitoring.enabled` and SIGTERM the monitor process if it is
  * running. A monitor that is not running is not an error.
  */
-function stopResourceMonitor() {
-  setResourceMonitorEnabled(false);
+function handleMonitoringStop() {
+  setMonitoringEnabled(false);
 
-  let before: ReturnType<typeof stopResourceMonitorProcess>;
+  let before: ReturnType<typeof stopMonitoringWorkerProcess>;
   try {
-    before = stopResourceMonitorProcess();
+    before = stopMonitoringWorkerProcess();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.warn({ err }, "Failed to signal resource monitor process");
@@ -149,9 +149,9 @@ function stopResourceMonitor() {
   }
 
   return {
-    monitorWasRunning: before.status === "running",
+    monitoringWasRunning: before.status === "running",
     ...(before.pid != null ? { pid: before.pid } : {}),
-    monitorEnabled: false as const,
+    monitoringEnabled: false as const,
   };
 }
 
@@ -160,8 +160,8 @@ function readLatestSample(): ResourceSample | null {
   const config = getConfigReadOnly();
   try {
     const buffer = new SampleRingBuffer<ResourceSample>(
-      join(getResourceMonitorDataDir(), "samples.jsonl"),
-      config.resourceMonitor.ringBufferSize,
+      join(getMonitoringDataDir(), "samples.jsonl"),
+      config.monitoring.ringBufferSize,
     );
     return buffer.readLast();
   } catch (err) {
@@ -171,66 +171,66 @@ function readLatestSample(): ResourceSample | null {
 }
 
 /**
- * Report the monitor process state, the `resourceMonitor.enabled` config value,
+ * Report the monitor process state, the `monitoring.enabled` config value,
  * and the most recent persisted sample so a caller can see live memory/disk
  * numbers without the monitor having to push anything.
  */
-function resourceMonitorStatus() {
-  const monitor = probeResourceMonitor();
+function handleMonitoringStatus() {
+  const monitor = probeMonitoringWorker();
   const config = getConfigReadOnly();
 
   return {
     status: monitor.status,
     ...(monitor.pid != null ? { pid: monitor.pid } : {}),
-    monitorEnabled: config.resourceMonitor.enabled,
-    dataDir: getResourceMonitorDataDir(),
+    monitoringEnabled: config.monitoring.enabled,
+    dataDir: getMonitoringDataDir(),
     latestSample: readLatestSample(),
   };
 }
 
 export const ROUTES: RouteDefinition[] = [
   {
-    operationId: "resource_monitor_start",
-    endpoint: "resource-monitor/start",
+    operationId: "monitoring_start",
+    endpoint: "monitoring/start",
     method: "POST",
     policy: {
       requiredScopes: ["settings.write"],
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
-    handler: startResourceMonitor,
+    handler: handleMonitoringStart,
     summary: "Start the resource monitor",
     description:
-      "Spawns (or reuses) the resource monitor process as a child of the daemon and enables resourceMonitor.enabled.",
+      "Spawns (or reuses) the resource monitor process as a child of the daemon and enables monitoring.enabled.",
     tags: ["system"],
     responseBody: startResponseSchema,
   },
   {
-    operationId: "resource_monitor_stop",
-    endpoint: "resource-monitor/stop",
+    operationId: "monitoring_stop",
+    endpoint: "monitoring/stop",
     method: "POST",
     policy: {
       requiredScopes: ["settings.write"],
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
-    handler: stopResourceMonitor,
+    handler: handleMonitoringStop,
     summary: "Stop the resource monitor",
     description:
-      "Disables resourceMonitor.enabled and SIGTERMs the resource monitor process if it is running.",
+      "Disables monitoring.enabled and SIGTERMs the resource monitor process if it is running.",
     tags: ["system"],
     responseBody: stopResponseSchema,
   },
   {
-    operationId: "resource_monitor_status",
-    endpoint: "resource-monitor/status",
+    operationId: "monitoring_status",
+    endpoint: "monitoring/status",
     method: "GET",
     policy: {
       requiredScopes: ["settings.read"],
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
-    handler: resourceMonitorStatus,
+    handler: handleMonitoringStatus,
     summary: "Resource monitor status",
     description:
-      "Reports the resource monitor process state, resourceMonitor.enabled, the forensics data directory, and the most recent persisted memory/disk sample.",
+      "Reports the resource monitor process state, monitoring.enabled, the forensics data directory, and the most recent persisted memory/disk sample.",
     tags: ["system"],
     responseBody: statusResponseSchema,
   },

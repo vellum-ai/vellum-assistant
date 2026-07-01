@@ -1,8 +1,8 @@
 /**
  * Tests for the resource monitor process control surface.
  *
- * Focuses on the readiness wait (which gates whether `assistant resource-monitor
- * start` reports success and flips `resourceMonitor.enabled`) and the PID-file
+ * Focuses on the readiness wait (which gates whether `assistant monitoring
+ * start` reports success and flips `monitoring.enabled`) and the PID-file
  * liveness probe, mirroring the memory worker's worker-control tests.
  */
 
@@ -19,7 +19,7 @@ let pidPath: string;
 
 mock.module("../../util/platform.js", () => ({
   ...realPlatform,
-  getResourceMonitorPidPath: () => pidPath,
+  getMonitoringPidPath: () => pidPath,
 }));
 
 const noopLogger = {
@@ -32,15 +32,15 @@ mock.module("../../util/logger.js", () => ({
   ...realLogger,
   getLogger: () => noopLogger,
   getCliLogger: () => noopLogger,
-  getCurrentLogFilePath: () => join(tmpDir, "resource-monitor-test.log"),
+  getCurrentLogFilePath: () => join(tmpDir, "monitoring-test.log"),
 }));
 
 const {
-  spawnResourceMonitorProcess,
-  ResourceMonitorSpawnError,
-  probeResourceMonitor,
-  stopResourceMonitorProcess,
-} = await import("../resource-monitor-control.js");
+  spawnMonitoringWorkerProcess,
+  MonitoringWorkerSpawnError,
+  probeMonitoringWorker,
+  stopMonitoringWorkerProcess,
+} = await import("../control.js");
 
 function stubProcessKill(
   livePids: Set<number>,
@@ -85,15 +85,15 @@ function neverExits(): Promise<unknown> {
 }
 
 beforeEach(() => {
-  tmpDir = mkdtempSync(join(tmpdir(), "resource-monitor-control-test-"));
-  pidPath = join(tmpDir, "resource-monitor.pid");
+  tmpDir = mkdtempSync(join(tmpdir(), "monitoring-control-test-"));
+  pidPath = join(tmpDir, "monitoring.pid");
 });
 
 afterEach(() => {
   rmSync(tmpDir, { recursive: true, force: true });
 });
 
-describe("spawnResourceMonitorProcess", () => {
+describe("spawnMonitoringWorkerProcess", () => {
   test("returns the PID when the monitor writes its file immediately", async () => {
     const restore = stubBunSpawn(() => {
       writeFileSync(pidPath, "4242");
@@ -105,7 +105,7 @@ describe("spawnResourceMonitorProcess", () => {
       };
     });
     try {
-      const result = await spawnResourceMonitorProcess({
+      const result = await spawnMonitoringWorkerProcess({
         pidWaitTimeoutMs: 1_000,
         pidPollIntervalMs: 10,
       });
@@ -127,12 +127,12 @@ describe("spawnResourceMonitorProcess", () => {
     }));
     try {
       await expect(
-        spawnResourceMonitorProcess({
+        spawnMonitoringWorkerProcess({
           pidWaitTimeoutMs: 10_000,
           pidPollIntervalMs: 10,
           terminateOnTimeout: true,
         }),
-      ).rejects.toBeInstanceOf(ResourceMonitorSpawnError);
+      ).rejects.toBeInstanceOf(MonitoringWorkerSpawnError);
       expect(killed).toBe(false);
     } finally {
       restore();
@@ -151,12 +151,12 @@ describe("spawnResourceMonitorProcess", () => {
     }));
     try {
       await expect(
-        spawnResourceMonitorProcess({
+        spawnMonitoringWorkerProcess({
           pidWaitTimeoutMs: 150,
           pidPollIntervalMs: 20,
           terminateOnTimeout: true,
         }),
-      ).rejects.toBeInstanceOf(ResourceMonitorSpawnError);
+      ).rejects.toBeInstanceOf(MonitoringWorkerSpawnError);
       expect(killed).toBe(true);
     } finally {
       restore();
@@ -171,7 +171,7 @@ describe("spawnResourceMonitorProcess", () => {
       return { unref: () => {}, kill: () => {}, pid: 1, exited: neverExits() };
     });
     try {
-      const result = await spawnResourceMonitorProcess({
+      const result = await spawnMonitoringWorkerProcess({
         pidWaitTimeoutMs: 100,
       });
       expect(result).toEqual({ pid: process.pid, alreadyRunning: true });
@@ -182,16 +182,16 @@ describe("spawnResourceMonitorProcess", () => {
   });
 });
 
-describe("probeResourceMonitor", () => {
+describe("probeMonitoringWorker", () => {
   test("reports not_running when no PID file exists", () => {
-    expect(probeResourceMonitor()).toEqual({ status: "not_running" });
+    expect(probeMonitoringWorker()).toEqual({ status: "not_running" });
   });
 
   test("cleans up a stale PID file pointing at a dead process", () => {
     writeFileSync(pidPath, "999999");
     const restore = stubProcessKill(new Set());
     try {
-      expect(probeResourceMonitor()).toEqual({ status: "not_running" });
+      expect(probeMonitoringWorker()).toEqual({ status: "not_running" });
     } finally {
       restore();
     }
@@ -201,16 +201,16 @@ describe("probeResourceMonitor", () => {
     writeFileSync(pidPath, "4321");
     const restore = stubProcessKill(new Set(), new Set([4321]));
     try {
-      expect(probeResourceMonitor()).toEqual({ status: "running", pid: 4321 });
+      expect(probeMonitoringWorker()).toEqual({ status: "running", pid: 4321 });
     } finally {
       restore();
     }
   });
 });
 
-describe("stopResourceMonitorProcess", () => {
+describe("stopMonitoringWorkerProcess", () => {
   test("is a no-op when the monitor is not running", () => {
-    expect(stopResourceMonitorProcess()).toEqual({ status: "not_running" });
+    expect(stopMonitoringWorkerProcess()).toEqual({ status: "not_running" });
   });
 
   test("signals a running monitor and reports its prior state", () => {
@@ -223,7 +223,7 @@ describe("stopResourceMonitorProcess", () => {
       return true;
     }) as typeof process.kill;
     try {
-      expect(stopResourceMonitorProcess()).toEqual({
+      expect(stopMonitoringWorkerProcess()).toEqual({
         status: "running",
         pid: 4321,
       });

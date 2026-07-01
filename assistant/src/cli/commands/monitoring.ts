@@ -1,5 +1,5 @@
 /**
- * `assistant monitor` CLI command.
+ * `assistant monitoring` CLI command.
  *
  * Manages the resource monitor as its own OS process — separate from the
  * assistant's main event loop — so it keeps sampling memory/disk during a
@@ -7,9 +7,9 @@
  *
  * Subcommands:
  *
- *   - `start`  — spawn the monitor process and enable `resourceMonitor.enabled`.
- *   - `stop`   — SIGTERM the monitor process and disable `resourceMonitor.enabled`.
- *   - `status` — report the monitor process state, `resourceMonitor.enabled`,
+ *   - `start`  — spawn the monitor process and enable `monitoring.enabled`.
+ *   - `stop`   — SIGTERM the monitor process and disable `monitoring.enabled`.
+ *   - `status` — report the monitor process state, `monitoring.enabled`,
  *     and the most recent memory/disk sample.
  *
  * All three are thin IPC wrappers (transport: "ipc"): the daemon owns the
@@ -44,20 +44,20 @@ interface LatestSample {
 interface StartResponse {
   pid: number;
   alreadyRunning: boolean;
-  monitorEnabled: true;
+  monitoringEnabled: true;
   pidPath: string;
 }
 
 interface StopResponse {
-  monitorWasRunning: boolean;
+  monitoringWasRunning: boolean;
   pid?: number;
-  monitorEnabled: false;
+  monitoringEnabled: false;
 }
 
 interface StatusResponse {
   status: "running" | "not_running";
   pid?: number;
-  monitorEnabled: boolean;
+  monitoringEnabled: boolean;
   dataDir: string;
   latestSample: LatestSample | null;
 }
@@ -66,9 +66,9 @@ function formatMib(bytes: number): string {
   return `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MiB`;
 }
 
-export function registerMonitorCommand(program: Command): void {
+export function registerMonitoringCommand(program: Command): void {
   registerCommand(program, {
-    name: "monitor",
+    name: "monitoring",
     transport: "ipc",
     description: "Manage the resource monitor process (start/stop/status)",
     build: (monitor) => {
@@ -81,24 +81,24 @@ recording during a main-thread freeze and its samples survive an OOM SIGKILL.
 The daemon owns the process, so it is spawned as a child of the daemon and shows
 up in \`assistant ps\`.
 
-\`start\` enables resourceMonitor.enabled (so it is respawned on the next boot)
+\`start\` enables monitoring.enabled (so it is respawned on the next boot)
 and \`stop\` disables it. Samples and high-memory snapshots are written under the
 data directory reported by \`status\`.
 
 Examples:
-  $ assistant monitor start
-  $ assistant monitor status
-  $ assistant monitor stop`,
+  $ assistant monitoring start
+  $ assistant monitoring status
+  $ assistant monitoring stop`,
       );
 
       monitor
         .command("start")
         .description(
-          "Start the resource monitor process and enable resourceMonitor.enabled",
+          "Start the resource monitor process and enable monitoring.enabled",
         )
         .option("--json", "Emit raw JSON instead of a formatted summary")
         .action(async (_opts: { json?: boolean }, cmd: Command) => {
-          const r = await cliIpcCall<StartResponse>("resource_monitor_start");
+          const r = await cliIpcCall<StartResponse>("monitoring_start");
           if (!r.ok) return exitFromIpcResult(r);
           const res = r.result!;
 
@@ -112,18 +112,18 @@ Examples:
               : `Resource monitor started (PID ${res.pid})`,
           );
           log.info(
-            "Enabled resourceMonitor.enabled; it will be respawned on the next assistant start",
+            "Enabled monitoring.enabled; it will be respawned on the next assistant start",
           );
         });
 
       monitor
         .command("stop")
         .description(
-          "Stop the resource monitor process and disable resourceMonitor.enabled",
+          "Stop the resource monitor process and disable monitoring.enabled",
         )
         .option("--json", "Emit raw JSON instead of a formatted summary")
         .action(async (_opts: { json?: boolean }, cmd: Command) => {
-          const r = await cliIpcCall<StopResponse>("resource_monitor_stop");
+          const r = await cliIpcCall<StopResponse>("monitoring_stop");
           if (!r.ok) return exitFromIpcResult(r);
           const res = r.result!;
 
@@ -131,22 +131,22 @@ Examples:
             writeOutput(cmd, res);
             return;
           }
-          if (res.monitorWasRunning) {
+          if (res.monitoringWasRunning) {
             log.info(`Resource monitor stop signal sent (PID ${res.pid})`);
           } else {
             log.info("Resource monitor process was not running");
           }
-          log.info("Disabled resourceMonitor.enabled");
+          log.info("Disabled monitoring.enabled");
         });
 
       monitor
         .command("status")
         .description(
-          "Report the monitor process state, resourceMonitor.enabled, and the latest sample",
+          "Report the monitor process state, monitoring.enabled, and the latest sample",
         )
         .option("--json", "Emit raw JSON instead of a formatted summary")
         .action(async (_opts: { json?: boolean }, cmd: Command) => {
-          const r = await cliIpcCall<StatusResponse>("resource_monitor_status");
+          const r = await cliIpcCall<StatusResponse>("monitoring_status");
           if (!r.ok) return exitFromIpcResult(r);
           const res = r.result!;
 
@@ -159,7 +159,7 @@ Examples:
           } else {
             log.info("Resource monitor process is not running");
           }
-          log.info(`resourceMonitor.enabled: ${res.monitorEnabled}`);
+          log.info(`monitoring.enabled: ${res.monitoringEnabled}`);
           log.info(`Data directory: ${res.dataDir}`);
 
           const sample = res.latestSample;

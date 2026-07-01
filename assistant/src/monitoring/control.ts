@@ -2,8 +2,8 @@
  * Shared control surface for the resource monitor *process* — the background OS
  * process whose entry point is `worker.ts`.
  *
- * Both the `assistant monitor` CLI and the daemon lifecycle (when
- * `resourceMonitor.enabled` is set) need to probe, spawn, and stop this process,
+ * Both the `assistant monitoring` CLI and the daemon lifecycle (when
+ * `monitoring.enabled` is set) need to probe, spawn, and stop this process,
  * so the PID-file bookkeeping lives here in one place. Mirrors the memory
  * worker's `persistence/worker-control.ts`.
  */
@@ -20,11 +20,11 @@ import { dirname } from "node:path";
 
 import { getConfig } from "../config/loader.js";
 import { getCurrentLogFilePath, getLogger } from "../util/logger.js";
-import { getResourceMonitorPidPath } from "../util/platform.js";
+import { getMonitoringPidPath } from "../util/platform.js";
 
-const log = getLogger("resource-monitor-control");
+const log = getLogger("monitoring-control");
 
-export interface ResourceMonitorStatus {
+export interface MonitoringWorkerStatus {
   status: "running" | "not_running";
   pid?: number;
 }
@@ -44,8 +44,8 @@ function isEsrchError(err: unknown): boolean {
  * not_running; a file pointing at a dead process is cleaned up and reported as
  * not_running.
  */
-export function probeResourceMonitor(): ResourceMonitorStatus {
-  const path = getResourceMonitorPidPath();
+export function probeMonitoringWorker(): MonitoringWorkerStatus {
+  const path = getMonitoringPidPath();
   if (!existsSync(path)) return { status: "not_running" };
 
   const raw = readFileSync(path, "utf-8").trim();
@@ -70,18 +70,18 @@ export function probeResourceMonitor(): ResourceMonitorStatus {
   }
 }
 
-export class ResourceMonitorSpawnError extends Error {}
+export class MonitoringWorkerSpawnError extends Error {}
 
 /**
- * How long {@link spawnResourceMonitorProcess} waits for the freshly-spawned
+ * How long {@link spawnMonitoringWorkerProcess} waits for the freshly-spawned
  * monitor to write its PID file before treating the spawn as failed. A cold
- * `bun run resource-monitor.ts` start — new runtime, config load — can take a
+ * `bun run monitoring.ts` start — new runtime, config load — can take a
  * few seconds, so this is deliberately generous.
  */
 const PID_FILE_WAIT_TIMEOUT_MS = 15_000;
 const PID_FILE_POLL_INTERVAL_MS = 100;
 
-export interface SpawnResourceMonitorOptions {
+export interface SpawnMonitoringWorkerOptions {
   pidWaitTimeoutMs?: number;
   pidPollIntervalMs?: number;
   /**
@@ -129,22 +129,22 @@ async function waitForPidFile(
 /**
  * Spawn the resource monitor as a background process. If a monitor is already
  * running, returns its PID with `alreadyRunning: true` rather than spawning a
- * second one. Throws {@link ResourceMonitorSpawnError} if the child crashes
+ * second one. Throws {@link MonitoringWorkerSpawnError} if the child crashes
  * during startup or never writes its PID file within the wait window.
  */
-export async function spawnResourceMonitorProcess(
-  opts: SpawnResourceMonitorOptions = {},
+export async function spawnMonitoringWorkerProcess(
+  opts: SpawnMonitoringWorkerOptions = {},
 ): Promise<{ pid: number; alreadyRunning: boolean }> {
   const pidWaitTimeoutMs = opts.pidWaitTimeoutMs ?? PID_FILE_WAIT_TIMEOUT_MS;
   const pidPollIntervalMs = opts.pidPollIntervalMs ?? PID_FILE_POLL_INTERVAL_MS;
   const detached = opts.detached ?? true;
 
-  const current = probeResourceMonitor();
+  const current = probeMonitoringWorker();
   if (current.status === "running" && current.pid != null) {
     return { pid: current.pid, alreadyRunning: true };
   }
 
-  const pidPath = getResourceMonitorPidPath();
+  const pidPath = getMonitoringPidPath();
   const entry = new URL("./worker.ts", import.meta.url);
 
   // Pipe the monitor's stderr into the same daily log file the daemon writes
@@ -185,7 +185,7 @@ export async function spawnResourceMonitorProcess(
         // best-effort — the child may already be gone
       }
     }
-    throw new ResourceMonitorSpawnError(
+    throw new MonitoringWorkerSpawnError(
       outcome === "exited"
         ? "Resource monitor exited during startup before writing its PID file"
         : `Resource monitor was spawned but did not write its PID file within ${Math.round(
@@ -203,8 +203,8 @@ export async function spawnResourceMonitorProcess(
  * status observed before signalling. Only throws if `process.kill` itself fails
  * (e.g. EPERM) — a not-running monitor is a no-op.
  */
-export function stopResourceMonitorProcess(): ResourceMonitorStatus {
-  const current = probeResourceMonitor();
+export function stopMonitoringWorkerProcess(): MonitoringWorkerStatus {
+  const current = probeMonitoringWorker();
   if (current.status === "running" && current.pid != null) {
     process.kill(current.pid, "SIGTERM");
   }
@@ -214,12 +214,12 @@ export function stopResourceMonitorProcess(): ResourceMonitorStatus {
 /**
  * Daemon-lifecycle entry point: spawn the monitor as a child of the daemon
  * (`detached: false`, so it appears in `assistant ps` and is torn down on
- * shutdown) when `resourceMonitor.enabled` is set. Fire-and-forget — a monitor
+ * shutdown) when `monitoring.enabled` is set. Fire-and-forget — a monitor
  * failure must never block boot.
  */
-export function startResourceMonitor(): void {
-  if (!getConfig().resourceMonitor.enabled) return;
-  void spawnResourceMonitorProcess({ detached: false })
+export function startMonitoring(): void {
+  if (!getConfig().monitoring.enabled) return;
+  void spawnMonitoringWorkerProcess({ detached: false })
     .then((r) =>
       log.info(
         { pid: r.pid, alreadyRunning: r.alreadyRunning },
@@ -234,11 +234,11 @@ export function startResourceMonitor(): void {
 /**
  * Daemon-lifecycle entry point: SIGTERM the monitor process if it is running.
  * Keyed off live state rather than config: it may have been spawned at startup
- * or out of band via `assistant monitor start`. Never throws.
+ * or out of band via `assistant monitoring start`. Never throws.
  */
-export function stopResourceMonitor(): void {
+export function stopMonitoring(): void {
   try {
-    const status = stopResourceMonitorProcess();
+    const status = stopMonitoringWorkerProcess();
     if (status.status === "running") {
       log.info({ pid: status.pid }, "Sent SIGTERM to resource monitor process");
     }

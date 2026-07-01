@@ -2,7 +2,7 @@
  * Tests for the resource monitor control routes (start / stop / status).
  *
  * The route handlers run inside the daemon and own the monitor process. We mock
- * resource-monitor-control, the config loader, and the sample ring buffer so the
+ * monitoring-control, the config loader, and the sample ring buffer so the
  * tests assert handler behaviour:
  *   - start spawns as a daemon child (detached:false), enables the flag only on
  *     success, and throws on spawn failure (flag untouched).
@@ -14,32 +14,32 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import * as actualLoader from "../../../config/loader.js";
 import type { ResourceSample } from "../../../monitoring/resource-sampler.js";
-import { getResourceMonitorPidPath } from "../../../util/platform.js";
+import { getMonitoringPidPath } from "../../../util/platform.js";
 
 class FakeSpawnError extends Error {}
 
 let spawnImpl: () => Promise<{ pid: number; alreadyRunning: boolean }>;
 let spawnArgs: Array<{ detached?: boolean; terminateOnTimeout?: boolean }> = [];
 let stopImpl: () => { status: "running" | "not_running"; pid?: number };
-/** Records the `resourceMonitor.enabled` values written via saveRawConfig. */
+/** Records the `monitoring.enabled` values written via saveRawConfig. */
 let enabledCalls: boolean[] = [];
-let monitorProbe: { status: "running" | "not_running"; pid?: number } = {
+let monitoringProbe: { status: "running" | "not_running"; pid?: number } = {
   status: "not_running",
 };
 let configEnabled = false;
 let latestSample: ResourceSample | null = null;
 
-mock.module("../../../monitoring/resource-monitor-control.js", () => ({
-  ResourceMonitorSpawnError: FakeSpawnError,
-  spawnResourceMonitorProcess: async (opts: {
+mock.module("../../../monitoring/control.js", () => ({
+  MonitoringWorkerSpawnError: FakeSpawnError,
+  spawnMonitoringWorkerProcess: async (opts: {
     detached?: boolean;
     terminateOnTimeout?: boolean;
   }) => {
     spawnArgs.push(opts);
     return spawnImpl();
   },
-  stopResourceMonitorProcess: () => stopImpl(),
-  probeResourceMonitor: () => monitorProbe,
+  stopMonitoringWorkerProcess: () => stopImpl(),
+  probeMonitoringWorker: () => monitoringProbe,
 }));
 
 mock.module("../../../monitoring/sample-ring-buffer.js", () => ({
@@ -53,15 +53,15 @@ mock.module("../../../monitoring/sample-ring-buffer.js", () => ({
 mock.module("../../../config/loader.js", () => ({
   ...actualLoader,
   getConfigReadOnly: () => ({
-    resourceMonitor: { enabled: configEnabled, ringBufferSize: 4000 },
+    monitoring: { enabled: configEnabled, ringBufferSize: 4000 },
   }),
   loadRawConfig: () => ({}),
-  saveRawConfig: (cfg: { resourceMonitor?: { enabled?: boolean } }) => {
-    enabledCalls.push(cfg.resourceMonitor?.enabled === true);
+  saveRawConfig: (cfg: { monitoring?: { enabled?: boolean } }) => {
+    enabledCalls.push(cfg.monitoring?.enabled === true);
   },
 }));
 
-const { ROUTES } = await import("../resource-monitor-routes.js");
+const { ROUTES } = await import("../monitoring-routes.js");
 
 function handler(operationId: string) {
   const route = ROUTES.find((r) => r.operationId === operationId);
@@ -74,31 +74,31 @@ beforeEach(() => {
   enabledCalls = [];
   spawnImpl = async () => ({ pid: 4242, alreadyRunning: false });
   stopImpl = () => ({ status: "not_running" });
-  monitorProbe = { status: "not_running" };
+  monitoringProbe = { status: "not_running" };
   configEnabled = false;
   latestSample = null;
 });
 
-describe("resource_monitor_start", () => {
+describe("monitoring_start", () => {
   test("spawns as a daemon child and enables the flag on success", async () => {
     spawnImpl = async () => ({ pid: 4242, alreadyRunning: false });
 
-    const res = await handler("resource_monitor_start")();
+    const res = await handler("monitoring_start")();
 
     expect(spawnArgs).toEqual([{ detached: false, terminateOnTimeout: true }]);
     expect(enabledCalls).toEqual([true]);
     expect(res).toEqual({
       pid: 4242,
       alreadyRunning: false,
-      monitorEnabled: true,
-      pidPath: getResourceMonitorPidPath(),
+      monitoringEnabled: true,
+      pidPath: getMonitoringPidPath(),
     });
   });
 
   test("reports an already-running monitor without re-spawning", async () => {
     spawnImpl = async () => ({ pid: 99, alreadyRunning: true });
 
-    const res = await handler("resource_monitor_start")();
+    const res = await handler("monitoring_start")();
 
     expect(res).toMatchObject({ pid: 99, alreadyRunning: true });
     expect(enabledCalls).toEqual([true]);
@@ -109,55 +109,55 @@ describe("resource_monitor_start", () => {
       throw new FakeSpawnError("monitor exited during startup");
     };
 
-    await expect(handler("resource_monitor_start")()).rejects.toThrow(
+    await expect(handler("monitoring_start")()).rejects.toThrow(
       "monitor exited during startup",
     );
     expect(enabledCalls).toEqual([]);
   });
 });
 
-describe("resource_monitor_stop", () => {
+describe("monitoring_stop", () => {
   test("disables the flag and reports a signalled running monitor", async () => {
     stopImpl = () => ({ status: "running", pid: 555 });
 
-    const res = await handler("resource_monitor_stop")();
+    const res = await handler("monitoring_stop")();
 
     expect(enabledCalls).toEqual([false]);
     expect(res).toEqual({
-      monitorWasRunning: true,
+      monitoringWasRunning: true,
       pid: 555,
-      monitorEnabled: false,
+      monitoringEnabled: false,
     });
   });
 
   test("disables the flag and succeeds when no monitor is running", async () => {
     stopImpl = () => ({ status: "not_running" });
 
-    const res = await handler("resource_monitor_stop")();
+    const res = await handler("monitoring_stop")();
 
     expect(enabledCalls).toEqual([false]);
-    expect(res).toEqual({ monitorWasRunning: false, monitorEnabled: false });
+    expect(res).toEqual({ monitoringWasRunning: false, monitoringEnabled: false });
   });
 });
 
-describe("resource_monitor_status", () => {
+describe("monitoring_status", () => {
   test("reports a running monitor with the enabled flag and no sample yet", async () => {
-    monitorProbe = { status: "running", pid: 321 };
+    monitoringProbe = { status: "running", pid: 321 };
     configEnabled = true;
     latestSample = null;
 
-    const res = await handler("resource_monitor_status")();
+    const res = await handler("monitoring_status")();
 
     expect(res).toMatchObject({
       status: "running",
       pid: 321,
-      monitorEnabled: true,
+      monitoringEnabled: true,
       latestSample: null,
     });
   });
 
   test("surfaces the most recent persisted sample", async () => {
-    monitorProbe = { status: "running", pid: 321 };
+    monitoringProbe = { status: "running", pid: 321 };
     configEnabled = true;
     latestSample = {
       ts: 1000,
@@ -171,23 +171,23 @@ describe("resource_monitor_status", () => {
       disk: { path: "/workspace", usedMb: 100, totalMb: 1000, freeMb: 900 },
     };
 
-    const res = await handler("resource_monitor_status")();
+    const res = await handler("monitoring_status")();
 
     expect(res).toMatchObject({
-      monitorEnabled: true,
+      monitoringEnabled: true,
       latestSample: { ts: 1000, memory: { ratio: 0.75 } },
     });
   });
 
   test("reports not_running with the flag off", async () => {
-    monitorProbe = { status: "not_running" };
+    monitoringProbe = { status: "not_running" };
     configEnabled = false;
 
-    const res = await handler("resource_monitor_status")();
+    const res = await handler("monitoring_status")();
 
     expect(res).toMatchObject({
       status: "not_running",
-      monitorEnabled: false,
+      monitoringEnabled: false,
     });
     expect(res.pid).toBeUndefined();
   });

@@ -255,13 +255,13 @@ export function getMemoryWorkerPidPath(): string {
  * tree (see `data/monitoring/` in git-service.ts) so the assistant's own
  * telemetry is not auto-committed as user changes.
  */
-export function getResourceMonitorDataDir(): string {
+export function getMonitoringDataDir(): string {
   return join(getDataDir(), "monitoring");
 }
 
-/** Returns the path to the resource-monitor PID file, under the monitor data dir. */
-export function getResourceMonitorPidPath(): string {
-  return join(getResourceMonitorDataDir(), "resource-monitor.pid");
+/** Returns the path to the monitoring PID file, under the monitor data dir. */
+export function getMonitoringPidPath(): string {
+  return join(getMonitoringDataDir(), "monitoring.pid");
 }
 
 /**
