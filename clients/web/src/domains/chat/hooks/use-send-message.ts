@@ -464,16 +464,9 @@ export function useSendMessage({
       }
 
       if (isHidden) {
-        // Hidden sends (e.g. the onboarding "Let's chat" kickoff) never
-        // materialize a user row in `/messages` — the daemon suppresses it
-        // (see `conversation-routes.ts`) — so `pollForResponse`'s causal
-        // boundary (find the user message, then the assistant reply after it)
-        // can never match: the poll would spin the full timeout and then
-        // fire a spurious "Assistant did not respond in time." error even
-        // though the proactive greeting streamed in fine over SSE. Skip the
-        // poll entirely and lean on the reconciliation loop, which pulls the
-        // latest snapshot without needing a user-message boundary and folds
-        // the greeting in if the SSE stream dropped it.
+        // A hidden send (onboarding kickoff) has no user row in `/messages`, so
+        // `pollForResponse`'s causal boundary can never match and would
+        // false-timeout with a spurious error. Reconcile instead of polling.
         startReconciliationLoop(epoch);
         return {
           status: "ok",
