@@ -31,10 +31,10 @@ import { useEffect, useRef, useState } from "react";
 
 import { Typography } from "@vellumai/design-library";
 
-import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { DetailShell } from "@/domains/chat/components/detail-shell";
 import { RiskBadge } from "@/domains/chat/components/risk-badge";
 import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils";
+import { VirtualizedThinkingMarkdown } from "@/domains/chat/components/virtualized-thinking-markdown";
 import { useLiveThinkingText } from "@/domains/chat/hooks/use-live-thinking-text";
 import { useLiveToolCall } from "@/domains/chat/hooks/use-live-tool-call";
 import {
@@ -145,12 +145,16 @@ function ThinkingDetailBody({
     detail.thinkingGroupIndex,
     detail.thinkingItemIndex,
   );
+  const content = live ?? detail.thinkingText ?? "";
+
   return (
-    <DetailShell Glyph={Brain} title={detail.title} closeLabel="Close tool details" onClose={onClose}>
-      <ChatMarkdownMessage
-        content={live ?? detail.thinkingText ?? ""}
-        hardLineBreaks
-      />
+    <DetailShell
+      Glyph={Brain}
+      title={detail.title}
+      closeLabel="Close tool details"
+      onClose={onClose}
+    >
+      <VirtualizedThinkingMarkdown content={content} />
     </DetailShell>
   );
 }

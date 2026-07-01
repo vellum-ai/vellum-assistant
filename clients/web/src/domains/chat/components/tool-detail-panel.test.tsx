@@ -199,6 +199,19 @@ describe("ToolDetailPanel", () => {
     expect(queryByText("Subagent Spawn")).toBeNull();
   });
 
+  test("thinking variant renders reasoning inside a virtual list", () => {
+    const detail = makeDetail({
+      kind: "thinking",
+      title: "Thinking",
+      thinkingText: "I should first check the directory listing.",
+    });
+    const { container } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+
+    expect(container.querySelector('[data-slot="virtual-list"]')).not.toBeNull();
+  });
+
   test("thinking variant close button fires onClose", () => {
     const onClose = mock(() => {});
     const detail = makeDetail({
