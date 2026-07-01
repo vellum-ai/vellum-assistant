@@ -117,6 +117,7 @@ import { renameMemoryPluginDisabledSentinelMigration } from "./116-rename-memory
 import { normalizeStaleLeanMemoryV3DefaultsMigration } from "./117-normalize-stale-lean-memory-v3-defaults.js";
 import { seedNowMdMigration } from "./118-seed-now-md.js";
 import { stripPersistedMemoryV3TuningDefaultsMigration } from "./119-strip-persisted-memory-v3-tuning-defaults.js";
+import { reviseOnboardingThreadsMigration } from "./120-revise-onboarding-threads.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -245,4 +246,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   normalizeStaleLeanMemoryV3DefaultsMigration,
   seedNowMdMigration,
   stripPersistedMemoryV3TuningDefaultsMigration,
+  reviseOnboardingThreadsMigration,
 ];
