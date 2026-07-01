@@ -103,8 +103,8 @@ const baseActionsProps = {
   hasLocalEdits: false,
 };
 
-describe("PluginDetailActions Active/Off toggle", () => {
-  test("renders an Active toggle + word reflecting an enabled plugin", () => {
+describe("PluginDetailActions Active/Off control", () => {
+  test("renders the Active segment checked for an enabled plugin", () => {
     render(
       <PluginDetailActions
         {...baseActionsProps}
@@ -114,11 +114,15 @@ describe("PluginDetailActions Active/Off toggle", () => {
       />,
     );
 
-    expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe("true");
-    expect(screen.getByText("Active")).toBeTruthy();
+    expect(
+      screen.getByRole("radio", { name: "Active" }).getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(
+      screen.getByRole("radio", { name: "Off" }).getAttribute("aria-checked"),
+    ).toBe("false");
   });
 
-  test("renders an Off toggle + word reflecting a disabled plugin", () => {
+  test("renders the Off segment checked for a disabled plugin", () => {
     render(
       <PluginDetailActions
         {...baseActionsProps}
@@ -128,13 +132,15 @@ describe("PluginDetailActions Active/Off toggle", () => {
       />,
     );
 
-    expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe(
-      "false",
-    );
-    expect(screen.getByText("Off")).toBeTruthy();
+    expect(
+      screen.getByRole("radio", { name: "Off" }).getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(
+      screen.getByRole("radio", { name: "Active" }).getAttribute("aria-checked"),
+    ).toBe("false");
   });
 
-  test("calls onToggle when the switch is clicked (no confirm)", () => {
+  test("calls onToggle when the other segment is clicked (no confirm)", () => {
     const onToggle = mock(noop);
     render(
       <PluginDetailActions
@@ -145,10 +151,10 @@ describe("PluginDetailActions Active/Off toggle", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("switch"));
+    fireEvent.click(screen.getByRole("radio", { name: "Off" }));
 
     expect(onToggle).toHaveBeenCalledTimes(1);
-    // Optimistic: the switch flips without opening any dialog.
+    // Optimistic: the state flips without opening any dialog.
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
@@ -184,10 +190,10 @@ describe("PluginDetailActions Active/Off toggle", () => {
     ).toBeTruthy();
   });
 
-  test("hides the toggle + word when enablement is unknown", () => {
+  test("hides the control when enablement is unknown", () => {
     render(<PluginDetailActions {...baseActionsProps} />);
 
-    expect(screen.queryByRole("switch")).toBeNull();
+    expect(screen.queryByRole("radiogroup")).toBeNull();
     expect(screen.queryByText("Active")).toBeNull();
     expect(screen.queryByText("Off")).toBeNull();
   });

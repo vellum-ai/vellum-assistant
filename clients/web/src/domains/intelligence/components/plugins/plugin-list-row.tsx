@@ -3,9 +3,10 @@ import type { KeyboardEvent } from "react";
 
 import { PluginIcon } from "@/domains/intelligence/components/plugins/plugin-icon";
 import { UpdateAvailableBadge } from "@/domains/intelligence/components/plugins/update-available-badge";
+import { PLUGIN_TOGGLE_SEGMENTS } from "@/domains/intelligence/plugins/constants";
 import type { PluginListItem } from "@/domains/intelligence/plugins/types";
 import type { PluginDrift } from "@/domains/intelligence/use-plugin-drift";
-import { Button, Card, Toggle } from "@vellumai/design-library";
+import { Button, Card, SegmentControl } from "@vellumai/design-library";
 
 interface PluginListRowProps {
   item: PluginListItem;
@@ -147,24 +148,25 @@ export function PluginListRow({
             />
           )
         ) : (
-          // Installed: Active/Off switch beside an always-present Remove (Upgrade
+          // Installed: Active/Off control beside an always-present Remove (Upgrade
           // lives in the version-line chip), so the pair never shifts.
           <div className="flex shrink-0 items-center gap-2">
             {showToggle ? (
-              // Toggle has no onClick to stopPropagation, so wrap it: the row is
-              // a role="button" and would otherwise select on switch clicks.
-              // inline-flex on both wrappers drops the switch's baseline gap so
-              // it centers with the Remove button.
+              // Wrap to stopPropagation: the row is a role="button" and would
+              // otherwise select when a segment is clicked.
               <span
                 className="inline-flex items-center"
                 onClick={(e) => e.stopPropagation()}
               >
-                <Toggle
-                  className="inline-flex"
-                  checked={item.enabled ?? false}
-                  onChange={() => onToggle?.(!item.enabled)}
-                  disabled={isToggling}
-                  aria-label={`Turn ${item.name} ${item.enabled ? "off" : "on"}`}
+                <SegmentControl
+                  className="w-auto [&_[role=radio]]:flex-none [&_[role=radio]]:text-body-large-default"
+                  items={PLUGIN_TOGGLE_SEGMENTS.map((s) => ({
+                    ...s,
+                    disabled: isToggling,
+                  }))}
+                  value={item.enabled ? "active" : "off"}
+                  onChange={(next) => onToggle?.(next === "active")}
+                  ariaLabel={`Turn ${item.name} on or off`}
                 />
               </span>
             ) : null}

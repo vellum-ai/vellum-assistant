@@ -188,7 +188,7 @@ describe("PluginDetailMobile", () => {
     expect(getActionButton("Remove")).toBeTruthy();
   });
 
-  test("installed plugin: Active/Off toggle appears when enabled is provided", () => {
+  test("installed plugin: Active/Off control appears when enabled is provided", () => {
     hookState.plugin = makePlugin({ installed: true });
 
     render(
@@ -200,19 +200,19 @@ describe("PluginDetailMobile", () => {
       />,
     );
 
-    // The design-library Toggle renders a role="switch"; mobile detail must wire
-    // it so phone users can enable/disable, matching the desktop detail.
-    expect(screen.getByRole("switch")).toBeTruthy();
+    // The Active/Off SegmentControl renders a role="radiogroup"; mobile detail
+    // must wire it so phone users can enable/disable, matching desktop detail.
+    expect(screen.getByRole("radiogroup")).toBeTruthy();
   });
 
-  test("installed plugin: no toggle when enabled is undefined", () => {
+  test("installed plugin: no control when enabled is undefined", () => {
     hookState.plugin = makePlugin({ installed: true });
 
     render(
       <PluginDetailMobile assistantId="asst-1" name="test-plugin" onBack={() => {}} />,
     );
 
-    expect(screen.queryByRole("switch")).toBeNull();
+    expect(screen.queryByRole("radiogroup")).toBeNull();
   });
 
   test("while loading with no externalHint, the header shows a glyph-less placeholder (no 🧩, no 📦)", () => {
