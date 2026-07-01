@@ -41,6 +41,7 @@ import { consolidateAssistantMessages } from "../daemon/conversation-history.js"
 import {
   addMessage,
   createConversation,
+  deleteLastExchange,
   deleteMessageById,
   forkConversation,
   getMessages,
@@ -194,6 +195,35 @@ describe("messages lexical-index dual-write", () => {
     resetMemoryJobs();
     deleteMessageById("does-not-exist");
     expect(countJobs("delete_message_lexical")).toBe(0);
+  });
+
+  test("deleteLastExchange enqueues delete_message_lexical for every removed message", async () => {
+    // Undo bulk-deletes the last user turn + everything after it via a single
+    // `tx.delete(messages)`, bypassing `deleteMessageById`. It must still purge
+    // each removed message's lexical point.
+    const conv = createConversation("Undo thread");
+    await addMessage(conv.id, "user", "first user turn");
+    await addMessage(conv.id, "assistant", "first assistant reply");
+    const lastUser = await addMessage(conv.id, "user", "undo this turn");
+    const lastAssistant = await addMessage(
+      conv.id,
+      "assistant",
+      "and this reply",
+    );
+
+    resetMemoryJobs();
+    const removed = deleteLastExchange(conv.id);
+    expect(removed).toBe(2);
+
+    const deletedIds = getMemoryDb()!
+      .select({ payload: memoryJobs.payload })
+      .from(memoryJobs)
+      .where(eq(memoryJobs.type, "delete_message_lexical"))
+      .all()
+      .map((r) => (JSON.parse(r.payload) as { messageId?: string }).messageId);
+    expect(new Set(deletedIds)).toEqual(
+      new Set([lastUser.id, lastAssistant.id]),
+    );
   });
 
   test("updateMessageContent (CRUD primitive) does not enqueue a reindex on its own", async () => {

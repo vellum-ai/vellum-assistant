@@ -2695,6 +2695,13 @@ export function deleteLastExchange(conversationId: string): number {
 
   deleteOrphanAttachments(candidateAttachmentIds);
 
+  // Remove the undone messages' points from the lexical index. This bulk delete
+  // bypasses `deleteMessageById` (which centralizes that cleanup), so enqueue
+  // per removed id here, after the transaction and off the write path.
+  for (const id of messageIds) {
+    enqueueDeleteMessageLexical(id);
+  }
+
   return deleted;
 }
 
