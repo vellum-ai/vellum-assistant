@@ -282,4 +282,75 @@ describe("rolling-snapshot reducer", () => {
       ).toBe("cr-1");
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Authoritative `processing` flag fold.
+  // -------------------------------------------------------------------------
+  describe("processing flag", () => {
+    const turnStart = (seq: number, id: string) =>
+      env(seq, { type: "assistant_turn_start", messageId: id } as AssistantEvent);
+    const activityIdle = (seq: number) =>
+      env(seq, { type: "assistant_activity_state", phase: "idle" } as AssistantEvent);
+    const activityThinking = (seq: number) =>
+      env(seq, {
+        type: "assistant_activity_state",
+        phase: "thinking",
+      } as AssistantEvent);
+    // A defined seed = a 0.8.8+ daemon that reported `processing` on /messages.
+    const idleSeed: PaginatedHistoryResult = { ...SEED, processing: false };
+    const busySeed: PaginatedHistoryResult = { ...SEED, processing: true };
+
+    test("turn-start folds processing → true", () => {
+      expect(applyEvent(idleSeed, turnStart(1, "a1")).processing).toBe(true);
+    });
+
+    test("assistant content folds processing → true (turn-start fallback)", () => {
+      expect(applyEvent(idleSeed, textDelta(1, "a1", "hi")).processing).toBe(true);
+      expect(applyEvent(idleSeed, thinkingDelta(1, "a1", "hmm")).processing).toBe(
+        true,
+      );
+    });
+
+    test("a non-idle activity phase keeps processing true", () => {
+      expect(applyEvent(busySeed, activityThinking(1)).processing).toBe(true);
+    });
+
+    test("activity_state(idle) folds processing → false", () => {
+      expect(applyEvent(busySeed, activityIdle(1)).processing).toBe(false);
+    });
+
+    test("message_complete folds processing → false", () => {
+      expect(applyEvent(busySeed, complete(1, "a1")).processing).toBe(false);
+    });
+
+    test("undefined seed stays undefined — the pre-0.8.8 version sentinel", () => {
+      // SEED omits `processing`; the fold must never manufacture a value, so
+      // phase-only behavior is preserved for daemons that don't report it.
+      const after = applyEvent(SEED, turnStart(1, "a1"));
+      expect(after.processing).toBeUndefined();
+      expect("processing" in after).toBe(false);
+    });
+
+    test("a replayed lower-seq turn-start cannot resurrect a closed turn", () => {
+      // idle at seq 5 closes the turn; a late/duplicated turn-start at seq 2 is
+      // below the watermark and dropped, so processing stays false.
+      const closed = applyEvent(busySeed, activityIdle(5));
+      expect(closed.processing).toBe(false);
+      expect(applyEvent(closed, turnStart(2, "a1")).processing).toBe(false);
+    });
+
+    test("converges under a noisy, out-of-order lifecycle stream", () => {
+      // The scalar-fold analogue of the message invariant: the highest-seq
+      // lifecycle event wins regardless of arrival order.
+      const clean = [turnStart(1, "a1"), textDelta(2, "a1", "hi"), activityIdle(3)];
+      const cleanProcessing = applyEventsToHistory(idleSeed, clean).processing;
+      expect(cleanProcessing).toBe(false);
+      for (let seed = 1; seed <= 50; seed++) {
+        const noisy = withReplays(clean, rng(seed));
+        expect(applyEventsToHistory(idleSeed, noisy).processing).toBe(
+          cleanProcessing,
+        );
+      }
+    });
+  });
 });
