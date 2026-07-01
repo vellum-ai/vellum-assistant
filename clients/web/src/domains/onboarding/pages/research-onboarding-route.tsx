@@ -183,6 +183,9 @@ export function ResearchOnboardingRoute() {
   const [personalityValues, setPersonalityValues] = useState<
     Record<string, number>
   >({});
+  // Free-text persona ("who do you want me to be?"), lives alongside the slider
+  // values so it survives a step-back and is sent with them on continue.
+  const [persona, setPersona] = useState("");
   const [personalityLocked, setPersonalityLocked] = useState(false);
   // Id of the behind-the-scenes "research me" conversation. Captured the moment
   // it's minted (and restored from the snapshot on refresh) so a mid-search
@@ -572,6 +575,8 @@ export function ResearchOnboardingRoute() {
             onValueChange={(axisId, value) =>
               setPersonalityValues((prev) => ({ ...prev, [axisId]: value }))
             }
+            persona={persona}
+            onPersonaChange={setPersona}
             locked={personalityLocked}
             onContinue={() => {
               // First continue applies the sliders to the assistant's persona on
@@ -585,6 +590,7 @@ export function ResearchOnboardingRoute() {
                 void applyPersonality({
                   awaitAssistantId: awaitHatchReady,
                   values: personalityValues,
+                  persona: persona.trim() || undefined,
                   userName: formValues?.firstName?.trim() || undefined,
                 });
                 setPersonalityLocked(true);
