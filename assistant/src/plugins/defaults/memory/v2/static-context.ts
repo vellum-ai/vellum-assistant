@@ -37,7 +37,9 @@ const MEMORY_V2_STATIC_BLOCKS: readonly MemoryV2StaticBlock[] = [
 /**
  * Build the v2 static memory block, gated on `config.memory.enabled` and
  * `config.memory.v2.enabled`. Empty/missing files are skipped; returns `null`
- * when either gate is off or every file is empty.
+ * when either gate is off or every file is empty. Each file renders under
+ * its canonical heading unless the file already opens with a heading of its
+ * own, in which case the file's heading stands alone.
  *
  * `excludeBuffer` drops the `## Buffer` section. The consolidation run sets
  * it: the agent's contract there is the `memory/buffer.md` FILE — it reads,
@@ -65,8 +67,15 @@ export function readMemoryV2StaticContent(
       continue;
     }
     const content = readPromptFile(getWorkspacePromptPath(file));
-    if (!content) continue;
-    sections.push(`${heading}\n\n${content}`);
+    if (!content) {
+      continue;
+    }
+    // Files that open with their own markdown heading (e.g. a
+    // consolidation-written `# Essentials`) already label themselves —
+    // prepending the canonical heading too would render a redundant
+    // double title inside the injected block.
+    const hasOwnHeading = /^#{1,6}\s/.test(content);
+    sections.push(hasOwnHeading ? content : `${heading}\n\n${content}`);
   }
   return sections.length > 0 ? sections.join("\n\n") : null;
 }
