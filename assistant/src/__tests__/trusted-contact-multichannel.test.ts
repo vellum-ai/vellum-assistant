@@ -52,6 +52,10 @@ mock.module("../runtime/access-request-helper.js", () => ({
       requestId: `mock-req-${Date.now()}`,
     };
   },
+  // acl-enforcement imports this alongside notifyGuardianOfAccessRequest; stub
+  // it so the terminal-deny check never falls through to the real DB-backed
+  // helper in this mocked suite.
+  isAccessRequestDenied: () => false,
 }));
 
 const deliverReplyCalls: Array<{
