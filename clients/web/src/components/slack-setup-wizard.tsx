@@ -6,11 +6,7 @@ import { buildSlackManifestUrl } from "@/utils/slack-manifest";
 
 export type SlackThreadMode = "mention_only" | "mention_then_thread";
 
-type SaveStatus =
-  | { state: "idle" }
-  | { state: "saving" }
-  | { state: "succeeded" }
-  | { state: "failed"; message: string };
+export type MutationStatus = "idle" | "pending" | "success" | "error";
 
 const WIZARD_STEP_IDS = ["create-app", "app-token", "install-and-connect"] as const;
 type WizardStepId = (typeof WIZARD_STEP_IDS)[number];
@@ -30,7 +26,9 @@ export interface SlackSetupWizardProps {
   threadMode?: SlackThreadMode;
   threadModePending?: boolean;
   onThreadModeChange?: (mode: SlackThreadMode) => void;
-  onSave?: (botToken: string, appToken: string) => Promise<void>;
+  onSave?: (botToken: string, appToken: string) => void;
+  saveStatus?: MutationStatus;
+  saveError?: string | null;
 }
 
 export function SlackSetupWizard({
@@ -42,6 +40,8 @@ export function SlackSetupWizard({
   threadModePending = false,
   onThreadModeChange,
   onSave,
+  saveStatus = "idle",
+  saveError = null,
 }: SlackSetupWizardProps) {
   const [stepId, setStepId] = useState<WizardStepId>(initialStepId);
   const [slackAppName, setSlackAppName] = useState(assistantName);
@@ -53,7 +53,6 @@ export function SlackSetupWizard({
 
   const [appToken, setAppToken] = useState("");
   const [botToken, setBotToken] = useState("");
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>({ state: "idle" });
 
   const stepIndex = WIZARD_STEP_IDS.indexOf(stepId);
 
@@ -63,23 +62,8 @@ export function SlackSetupWizard({
     window.open(url, "_blank", "noopener,noreferrer");
   }, [slackAppName]);
 
-  const handleSave = useCallback(async () => {
-    if (!onSave) return;
-    if (!appToken.trim()) {
-      setSaveStatus({ state: "failed", message: "App token is required. Go back to step 2 to enter it." });
-      return;
-    }
-    if (!botToken.trim()) {
-      setSaveStatus({ state: "failed", message: "Bot token is required." });
-      return;
-    }
-    setSaveStatus({ state: "saving" });
-    try {
-      await onSave(botToken.trim(), appToken.trim());
-      setSaveStatus({ state: "succeeded" });
-    } catch (err) {
-      setSaveStatus({ state: "failed", message: err instanceof Error ? err.message : "Failed to save credentials." });
-    }
+  const handleSave = useCallback(() => {
+    onSave?.(botToken.trim(), appToken.trim());
   }, [onSave, botToken, appToken]);
 
   const handleStepSelect = useCallback(
@@ -138,7 +122,7 @@ export function SlackSetupWizard({
           steps={WIZARD_STEPS}
           current={stepIndex}
           onStepSelect={handleStepSelect}
-          disabled={saveStatus.state === "saving"}
+          disabled={saveStatus === "pending"}
           compact={compact}
         />
 
@@ -164,8 +148,8 @@ export function SlackSetupWizard({
           {stepId === "install-and-connect" && (
             <InstallAndConnectStep
               botToken={botToken}
-              appToken={appToken}
               saveStatus={saveStatus}
+              saveError={saveError}
               onBotTokenChange={setBotToken}
               onSave={handleSave}
             />
@@ -310,16 +294,16 @@ function AppTokenStep({
 
 interface InstallAndConnectStepProps {
   botToken: string;
-  appToken: string;
-  saveStatus: SaveStatus;
+  saveStatus: MutationStatus;
+  saveError: string | null;
   onBotTokenChange: (value: string) => void;
   onSave: () => void;
 }
 
 function InstallAndConnectStep({
   botToken,
-  appToken,
   saveStatus,
+  saveError,
   onBotTokenChange,
   onSave,
 }: InstallAndConnectStepProps) {
@@ -349,19 +333,19 @@ function InstallAndConnectStep({
           type="button"
           variant="primary"
           onClick={onSave}
-          disabled={!botToken.trim() || !appToken.trim() || saveStatus.state === "saving"}
+          disabled={saveStatus === "pending"}
         >
-          {saveStatus.state === "saving" ? "Saving\u2026" : "Save"}
+          {saveStatus === "pending" ? "Saving\u2026" : "Save"}
         </Button>
       </div>
-      {saveStatus.state === "succeeded" && (
+      {saveStatus === "success" && (
         <p className="text-body-small-default text-[var(--content-positive)]">
           Credentials saved.
         </p>
       )}
-      {saveStatus.state === "failed" && (
+      {saveStatus === "error" && saveError && (
         <p className="text-body-small-default text-[var(--system-negative-strong)]">
-          {saveStatus.message}
+          {saveError}
         </p>
       )}
     </div>
