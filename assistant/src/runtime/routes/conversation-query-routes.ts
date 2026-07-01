@@ -879,6 +879,32 @@ function rejectManagedProfileDeletion(body: Record<string, unknown>): void {
 }
 
 /**
+ * Rejects writes to `label` or `status` on invariant profiles through the
+ * generic config PATCH/SET endpoints. Complements the dedicated PUT guard on
+ * `config/llm/profiles/:name` so there is no bypass path.
+ */
+function rejectInvariantProfileMutation(body: Record<string, unknown>): void {
+  const llm = asMutablePlainObject(body.llm);
+  if (!llm) return;
+  const profiles = asMutablePlainObject(llm.profiles);
+  if (!profiles) return;
+  for (const name of Object.keys(profiles)) {
+    if (!INVARIANT_PROFILE_NAMES.has(name)) continue;
+    const fragment = asMutablePlainObject(profiles[name]);
+    if (!fragment) continue;
+    const disallowed = Object.keys(fragment).filter(
+      (k) => !INVARIANT_PROFILE_EDITABLE_KEYS.has(k),
+    );
+    if (disallowed.length > 0) {
+      throw new BadRequestError(
+        `Cannot edit invariant profile "${name}" fields [${disallowed.join(", ")}]. ` +
+          `Default profiles cannot be disabled or relabeled; only topP may be edited.`,
+      );
+    }
+  }
+}
+
+/**
  * Persist a mutated raw config object to disk and synchronize the running
  * daemon (file-watcher, embedding cache, provider registry).
  *
@@ -940,6 +966,7 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
     throw new BadRequestError("Body must be a non-empty JSON object");
   }
   rejectManagedProfileDeletion(body as Record<string, unknown>);
+  rejectInvariantProfileMutation(body as Record<string, unknown>);
   rejectMcpTransportHeaderWrite(body);
 
   const raw = loadRawConfig();
@@ -994,6 +1021,7 @@ async function handleSetConfig({ body }: RouteHandlerArgs) {
   const patchShape: Record<string, unknown> = {};
   setNestedValue(patchShape, path, value);
   rejectManagedProfileDeletion(patchShape);
+  rejectInvariantProfileMutation(patchShape);
   rejectMcpTransportHeaderWrite(patchShape);
 
   const raw = loadRawConfig();

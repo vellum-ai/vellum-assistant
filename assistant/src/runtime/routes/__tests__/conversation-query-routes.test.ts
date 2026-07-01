@@ -98,6 +98,10 @@ const replaceProfileRoute = ROUTES.find(
   (r) => r.operationId === "config_llm_profiles_replace",
 )!;
 
+const patchConfigRoute = ROUTES.find((r) => r.operationId === "config_patch")!;
+
+const setConfigRoute = ROUTES.find((r) => r.operationId === "config_set")!;
+
 function dispatchLlmContext(messageId: string) {
   return llmContextRoute.handler({ pathParams: { id: messageId } });
 }
@@ -1069,6 +1073,43 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       expect(initializeProvidersCalls).toBe(0);
       expect(invalidateConfigCacheCalls).toBe(0);
       expect(clearEmbeddingBackendCacheCalls).toBe(0);
+    });
+
+    test("config PATCH rejects status edit on invariant profile", async () => {
+      await expect(
+        patchConfigRoute.handler({
+          body: { llm: { profiles: { balanced: { status: "disabled" } } } },
+        }),
+      ).rejects.toThrow(
+        /Cannot edit invariant profile "balanced" fields \[status\]/,
+      );
+    });
+
+    test("config PATCH rejects label edit on invariant profile", async () => {
+      await expect(
+        patchConfigRoute.handler({
+          body: { llm: { profiles: { balanced: { label: "X" } } } },
+        }),
+      ).rejects.toThrow(
+        /Cannot edit invariant profile "balanced" fields \[label\]/,
+      );
+    });
+
+    test("config SET rejects status edit on invariant profile", async () => {
+      await expect(
+        setConfigRoute.handler({
+          body: { path: "llm.profiles.balanced.status", value: "disabled" },
+        }),
+      ).rejects.toThrow(
+        /Cannot edit invariant profile "balanced" fields \[status\]/,
+      );
+    });
+
+    test("config PATCH allows topP on invariant profile", async () => {
+      const result = await patchConfigRoute.handler({
+        body: { llm: { profiles: { balanced: { topP: 0.8 } } } },
+      });
+      expect(result).toBeDefined();
     });
   });
 

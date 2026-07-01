@@ -179,7 +179,7 @@ function ProfileEditorModalInner({
   // and disabling (status). Invariant profiles (balanced, quality-optimized,
   // cost-optimized) only allow topP edits.
   const isInvariant =
-    mode === "view" &&
+    effectiveMode === "view" &&
     profileName != null &&
     INVARIANT_PROFILE_NAMES.has(profileName);
   const initialLabel = initialValues?.label ?? "";
