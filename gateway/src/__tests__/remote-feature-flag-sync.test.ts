@@ -131,6 +131,7 @@ function defaultCredentials(): Record<string, string> {
 const savedVellumPlatformUrl = process.env.VELLUM_PLATFORM_URL;
 const savedAssistantCredential = process.env.ASSISTANT_API_KEY;
 const savedDisablePlatform = process.env.VELLUM_DISABLE_PLATFORM;
+const savedIsPlatform = process.env.IS_PLATFORM;
 
 beforeEach(() => {
   // Clear env vars that the production code falls back to, so tests remain
@@ -138,6 +139,7 @@ beforeEach(() => {
   delete process.env.VELLUM_PLATFORM_URL;
   delete process.env.ASSISTANT_API_KEY;
   delete process.env.VELLUM_DISABLE_PLATFORM;
+  delete process.env.IS_PLATFORM;
   mkdirSync(protectedDir, { recursive: true });
   // Write the test registry and point resolution at it
   writeFileSync(testRegistryPath, JSON.stringify(TEST_REGISTRY, null, 2));
@@ -160,6 +162,7 @@ afterEach(() => {
   restoreEnv("VELLUM_PLATFORM_URL", savedVellumPlatformUrl);
   restoreEnv("ASSISTANT_API_KEY", savedAssistantCredential);
   restoreEnv("VELLUM_DISABLE_PLATFORM", savedDisablePlatform);
+  restoreEnv("IS_PLATFORM", savedIsPlatform);
   try {
     rmSync(protectedDir, { recursive: true, force: true });
     mkdirSync(protectedDir, { recursive: true });
@@ -639,16 +642,17 @@ describe("RemoteFeatureFlagSync", () => {
     expect(cached["unknown-flag"]).toBe(false);
   });
 
-  test("preserves remote false for GA-normalization-exempt flags (staged rollout)", async () => {
-    // messages-search-backend defaults on (defaultEnabled: true) but is listed
-    // in GA_NORMALIZATION_EXEMPT_FLAGS. The platform's blanket-deny false must
-    // pass through unchanged so managed assistants stay off until LaunchDarkly
-    // targeting flips them on — unlike a normal GA flag, whose false is rewritten
-    // to true.
+  test("on managed, preserves remote false for GA-normalization-exempt flags (staged rollout)", async () => {
+    // messages-search-backend defaults on (defaultEnabled: true) but is a
+    // staged-rollout flag. On a MANAGED deployment the platform's blanket-deny
+    // false must pass through unchanged so managed assistants stay off until
+    // LaunchDarkly targeting flips them on — unlike a normal GA flag, whose
+    // false is rewritten to true.
+    process.env.IS_PLATFORM = "true";
     fetchMock = mock(async () =>
       Response.json({
         flags: {
-          // Exempt flag (defaultEnabled: true) — remote false is KEPT.
+          // Exempt flag (defaultEnabled: true) — remote false is KEPT on managed.
           "messages-search-backend": false,
           // Ordinary GA flag (defaultEnabled: true) — remote false normalized to true.
           "test-ga-flag": false,
@@ -667,6 +671,35 @@ describe("RemoteFeatureFlagSync", () => {
     // Exempt flag: platform false is honored (not normalized to true).
     expect(cached["messages-search-backend"]).toBe(false);
     // Non-exempt GA flag: platform false is still normalized to true.
+    expect(cached["test-ga-flag"]).toBe(true);
+  });
+
+  test("off-platform, still normalizes a staged-rollout flag's remote false to true", async () => {
+    // A local/self-hosted install with platform credentials still syncs remote
+    // flags. The exemption is managed-only, so off-platform (IS_PLATFORM unset)
+    // the blanket-deny false for messages-search-backend must be normalized to
+    // true — otherwise a stored false would win over the true registry default
+    // and wrongly hold the local install on fts5.
+    delete process.env.IS_PLATFORM;
+    fetchMock = mock(async () =>
+      Response.json({
+        flags: {
+          "messages-search-backend": false,
+          "test-ga-flag": false,
+        },
+      }),
+    );
+
+    const sync = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(defaultCredentials()),
+    });
+    await sync.start();
+    sync.stop();
+
+    clearRemoteFeatureFlagStoreCache();
+    const cached = readRemoteFeatureFlags();
+    // Off-platform: the exempt flag's false is normalized to true like any GA flag.
+    expect(cached["messages-search-backend"]).toBe(true);
     expect(cached["test-ga-flag"]).toBe(true);
   });
 

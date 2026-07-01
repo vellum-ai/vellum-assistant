@@ -5,7 +5,7 @@ import { fetchImpl } from "./fetch.js";
 import { loadFeatureFlagDefaults } from "./feature-flag-defaults.js";
 import { writeRemoteFeatureFlags } from "./feature-flag-remote-store.js";
 import { arePlatformFeaturesEnabled } from "./feature-flag-resolver.js";
-import { GA_NORMALIZATION_EXEMPT_FLAGS } from "./feature-flag-staged-rollout.js";
+import { shouldExemptFromGaNormalization } from "./feature-flag-staged-rollout.js";
 import { getLogger } from "./logger.js";
 
 const log = getLogger("remote-feature-flag-sync");
@@ -420,10 +420,11 @@ export class RemoteFeatureFlagSync {
     // GA normalization only applies to boolean false values; string flag
     // values pass through unchanged.
     //
-    // Flags in GA_NORMALIZATION_EXEMPT_FLAGS are excluded: they default on in
-    // the registry (so local/self-hosted installs get the new default) but must
-    // still honor a platform-sent `false` so managed assistants can be rolled
-    // out gradually via LaunchDarkly targeting instead of switching all at once.
+    // Staged-rollout flags are excluded on managed deployments only
+    // (see shouldExemptFromGaNormalization): they default on in the registry so
+    // local/self-hosted installs get the new default even here, but on a managed
+    // deployment they must honor a platform-sent `false` so managed assistants
+    // roll out gradually via LaunchDarkly targeting instead of switching at once.
     const registry = loadFeatureFlagDefaults();
     const values: Record<string, boolean | string> = {};
     for (const [key, value] of Object.entries(body.flags)) {
@@ -431,7 +432,7 @@ export class RemoteFeatureFlagSync {
       if (
         value === false &&
         registry[key]?.defaultEnabled === true &&
-        !GA_NORMALIZATION_EXEMPT_FLAGS.has(key)
+        !shouldExemptFromGaNormalization(key)
       ) {
         log.debug(
           { key },
