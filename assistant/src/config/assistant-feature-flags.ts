@@ -349,21 +349,27 @@ export type MessagesSearchBackend = "fts5" | "qdrant";
  * keeps reading `fts5` until its Qdrant lexical index is fully populated even
  * when the flag resolves to `qdrant`.
  *
- * Managed staged-rollout guard: on a platform-managed instance the authoritative
- * value is the gateway's merged map, which fails an absent
- * `messages-search-backend` safe to `false` so the managed cutover stays gated
- * on LaunchDarkly targeting. Until that map is loaded into the override cache
- * ({@link isCachedFromGateway}) — during the non-blocking startup fetch, or if
- * the IPC fetch fails — a plain read falls through to the assistant's bundled
- * registry default (`true`) and selects `qdrant` for managed. Fail safe to
- * `fts5` in that window so the daemon never bypasses the staged rollout. This
- * does not affect local/self-hosted (`IS_PLATFORM` unset), which resolves the
- * `qdrant` registry default.
+ * Managed staged-rollout guard: on a platform-managed instance the managed
+ * cutover is gated on LaunchDarkly targeting, delivered through the gateway
+ * override map. The daemon must therefore select `qdrant` only from an
+ * *explicit* gateway-supplied value — never from its own bundled registry
+ * default (`true`). A managed instance resolves `fts5` unless the gateway
+ * override map holds an explicit qdrant-selecting value, which covers every
+ * case where the daemon would otherwise fall through to the registry default:
+ * the non-blocking startup fetch has not completed or failed (cache not
+ * gateway-populated), or the hydrated map simply omits the key (a split/older
+ * gateway, or an unsynced gateway registry). Local/self-hosted (`IS_PLATFORM`
+ * unset) is unaffected and resolves the `qdrant` registry default.
  */
 export function getMessagesSearchBackend(
   config: AssistantConfig,
 ): MessagesSearchBackend {
-  if (getIsPlatform() && !isCachedFromGateway()) return "fts5";
+  if (getIsPlatform()) {
+    // Managed: honor only an explicit gateway override; never the registry
+    // default. Any absent/unexpected value fails safe to fts5.
+    const override = getCachedOverrides()?.["messages-search-backend"];
+    return override === "qdrant" || override === true ? "qdrant" : "fts5";
+  }
   const raw = getAssistantFeatureFlagValue("messages-search-backend", config);
   return raw === "qdrant" || raw === true ? "qdrant" : "fts5";
 }

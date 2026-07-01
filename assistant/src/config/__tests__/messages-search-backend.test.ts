@@ -92,17 +92,28 @@ describe("getMessagesSearchBackend · managed staged-rollout guard", () => {
     setOverridesForTesting({});
   });
 
-  // On a managed instance the authoritative value is the gateway's merged map,
-  // which fails an absent flag safe to false. Until that map is loaded into the
-  // override cache (startup race / IPC failure), a plain read would fall through
-  // to the bundled registry default (qdrant). The guard fails safe to fts5 in
-  // that window; once the gateway map hydrates it trusts the resolved value.
+  // On a managed instance the cutover is gated on LaunchDarkly targeting,
+  // delivered through the gateway override map. The daemon selects qdrant only
+  // from an explicit gateway-supplied value — never its own registry default —
+  // so it fails safe to fts5 whenever no such value is present: the cache is not
+  // yet gateway-populated (startup race / IPC failure), or the hydrated map
+  // omits the key (a split/older gateway, or an unsynced gateway registry).
 
   test("fails safe to fts5 on managed when the gateway cache has not hydrated", () => {
     process.env.IS_PLATFORM = "true";
     // Cache not populated from the gateway (the pre-hydration / IPC-failure
-    // window). isCachedFromGateway() is false, so the guard fires.
+    // window). No explicit gateway value ⇒ fts5.
     clearFeatureFlagOverridesCache();
+    expect(getMessagesSearchBackend(CONFIG)).toBe("fts5");
+  });
+
+  test("fails safe to fts5 on managed when the hydrated gateway map omits the key", () => {
+    process.env.IS_PLATFORM = "true";
+    // Gateway map is populated (isCachedFromGateway() true) but does not carry
+    // messages-search-backend — e.g. a split/older gateway or unsynced gateway
+    // registry. The daemon must NOT fall through to its own registry default
+    // (qdrant); with no explicit gateway value it stays on fts5.
+    setOverridesForTesting({ "some-other-flag": true });
     expect(getMessagesSearchBackend(CONFIG)).toBe("fts5");
   });
 
