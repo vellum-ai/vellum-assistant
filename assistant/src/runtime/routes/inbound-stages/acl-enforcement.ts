@@ -312,8 +312,28 @@ export async function enforceIngressAcl(
       //    self-verify challenge is a default-onboarding behavior change left
       //    for a separate §8.2 decision.
       // Runs AFTER invite intercepts so valid tokens redeem first.
+      //
+      // Terminal-deny gate: a sender the guardian has explicitly denied must
+      // not be re-admitted by a permissive floor. Computed BEFORE the bypass
+      // so a denied stranger is not passed through to the admission stage —
+      // under `strangers` (floor 1) any sender clears the floor, which would
+      // turn the guardian's deny into access. Mirrors the inactive-member gate
+      // and covers the edge case where persisting the denied sender as an
+      // unverified contact failed, so they resurface here as a non-member
+      // rather than an inactive member. Reused below to skip the self-verify
+      // challenge and the canned re-notify.
+      const nonMemberSenderId = canonicalSenderId ?? rawSenderId;
+      const terminallyDenied =
+        !!nonMemberSenderId &&
+        isAccessRequestDenied({
+          canonicalAssistantId,
+          sourceChannel,
+          actorExternalId: nonMemberSenderId,
+        });
+
       if (
         denyNonMember &&
+        !terminallyDenied &&
         (effectiveAdmissionPolicy === "strangers" ||
           effectiveAdmissionPolicy === "guardian_only")
       ) {
@@ -326,19 +346,11 @@ export async function enforceIngressAcl(
           "Ingress ACL: no member record, denying",
         );
 
-        // Terminal deny: if the guardian already rejected this sender, skip all
-        // re-engagement (self-verify challenge + guardian notify) and deliver
-        // only the canned reply. Otherwise a denied sender whose first
-        // verification session expired would be handed a fresh, unusable
-        // challenge the guardian was never told about.
-        const nonMemberSenderId = canonicalSenderId ?? rawSenderId;
-        const terminallyDenied =
-          !!nonMemberSenderId &&
-          isAccessRequestDenied({
-            canonicalAssistantId,
-            sourceChannel,
-            actorExternalId: nonMemberSenderId,
-          });
+        // `terminallyDenied` (computed above) drives the re-engagement skips:
+        // when the guardian already rejected this sender, deliver only the
+        // canned reply — no self-verify challenge, no fresh guardian notify.
+        // Otherwise a denied sender whose first verification session expired
+        // would be handed a new, unusable challenge the guardian never saw.
 
         // Slack-specific: send a verification challenge directly to the
         // user's DM instead of requiring guardian-mediated approval. The
@@ -642,7 +654,25 @@ export async function enforceIngressAcl(
         //   the challenge legitimately upgrades the sender into access.
         // In every case skip the deny gate so the admission stage decides.
         // Runs AFTER invite intercepts so valid tokens redeem first.
-        if (!isBlockedMember && denyInactiveMember) {
+        // Terminal-deny gate: a sender the guardian has explicitly denied must
+        // not be re-admitted by a permissive floor. Computed BEFORE the bypass
+        // so a denied unverified member is not passed through to the admission
+        // stage — on `any_contact` (floor 2) an unverified_contact (rank 2)
+        // would otherwise clear the floor, turning the guardian's deny into
+        // access. Reused below to skip the self-verify challenge. A normal
+        // (non-denied) unverified member is still bypassed and admitted where
+        // the policy allows; only the explicitly-denied are held out.
+        const inactiveSenderId = canonicalSenderId ?? rawSenderId;
+        const terminallyDenied =
+          !isBlockedMember &&
+          !!inactiveSenderId &&
+          isAccessRequestDenied({
+            canonicalAssistantId,
+            sourceChannel,
+            actorExternalId: inactiveSenderId,
+          });
+
+        if (!isBlockedMember && denyInactiveMember && !terminallyDenied) {
           if (
             (effectiveAdmissionPolicy === "strangers" &&
               resolvedMember.status !== "revoked") ||
@@ -664,20 +694,6 @@ export async function enforceIngressAcl(
             },
             "Ingress ACL: member not active, denying",
           );
-
-          // Terminal deny: a sender the guardian already rejected must not be
-          // handed a fresh self-verify challenge on re-contact (the guardian is
-          // no longer notified, so the code would go nowhere). Skip the
-          // challenge and fall through to the canned reply.
-          const inactiveSenderId = canonicalSenderId ?? rawSenderId;
-          const terminallyDenied =
-            !isBlockedMember &&
-            !!inactiveSenderId &&
-            isAccessRequestDenied({
-              canonicalAssistantId,
-              sourceChannel,
-              actorExternalId: inactiveSenderId,
-            });
 
           // Slack-specific: re-verify inactive members via DM challenge
           // (same as non-member path). Blocked members are excluded —
