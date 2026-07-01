@@ -13,6 +13,7 @@ import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
 import { storePayload } from "../../../persistence/delivery-crud.js";
 import { getLogger } from "../../../util/logger.js";
 import { getGuardianBinding } from "../../channel-verification-service.js";
+import { findLocalGuardianPrincipalId } from "../../local-actor-identity.js";
 import type { VerdictMember } from "../../trust-verdict-consumer.js";
 import { GUARDIAN_APPROVAL_TTL_MS } from "../channel-route-shared.js";
 
@@ -90,6 +91,26 @@ export async function handleEscalationIntercept(
     };
   }
 
+  // A binding with no principal is unresolved, not empty: adopt the principal
+  // from the assistant's vellum anchor so the resulting request is decidable
+  // by the guardian. When neither resolves, fail closed — a principal-less
+  // tool_approval request can never be authorized by anyone (it would sit
+  // pending with dead Approve/Reject buttons until expiry). `||` (not `??`)
+  // so an empty-string principal is also treated as unresolved.
+  const guardianPrincipalId =
+    binding.guardianPrincipalId || (await findLocalGuardianPrincipalId());
+  if (!guardianPrincipalId) {
+    log.warn(
+      { sourceChannel, channelId: resolvedMember.channelId },
+      "Ingress ACL: escalate policy but guardian principal unresolved, denying",
+    );
+    return {
+      accepted: true,
+      denied: true,
+      reason: "escalate_no_guardian",
+    };
+  }
+
   // Persist the raw payload so the decide handler can recover the original
   // message content when the escalation is approved.
   storePayload(eventId, {
@@ -115,7 +136,7 @@ export async function handleEscalationIntercept(
       conversationId,
       requesterExternalUserId: canonicalSenderId ?? rawSenderId ?? undefined,
       guardianExternalUserId: binding.guardianExternalUserId,
-      guardianPrincipalId: binding.guardianPrincipalId,
+      guardianPrincipalId,
       toolName: "ingress_message",
       questionText: "Ingress policy requires guardian approval",
       expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,

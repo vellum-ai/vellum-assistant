@@ -24,6 +24,13 @@ mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => _conversationMocks.get(id),
 }));
 
+// Anchored guardian principal, driven per-test to exercise the guardian
+// principal gate (undefined = anchor unresolvable).
+let _anchorPrincipalId: string | undefined;
+mock.module("../runtime/local-actor-identity.js", () => ({
+  findLocalGuardianPrincipalId: async () => _anchorPrincipalId,
+}));
+
 import type { Conversation } from "../daemon/conversation.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { initializeDb } from "../persistence/db-init.js";
@@ -76,6 +83,7 @@ describe("approval interception trust-class gates", () => {
 
   beforeEach(() => {
     pendingInteractions.clear();
+    _anchorPrincipalId = undefined;
     deliverSpy = spyOn(gatewayClient, "deliverChannelReply").mockResolvedValue({
       ok: true,
     });
@@ -115,6 +123,142 @@ describe("approval interception trust-class gates", () => {
 
     deliverSpy.mockRestore();
     composeSpy.mockRestore();
+  });
+
+  test("guardian apr: callback with a principal matching the anchor applies the decision", async () => {
+    _anchorPrincipalId = "guardian-principal-1";
+    const sessionMock = registerPendingInteraction(
+      "req-guardian-apply-1",
+      CONVERSATION_ID,
+      TOOL_NAME,
+      TOOL_INPUT,
+    );
+
+    const result = await handleApprovalInterception({
+      conversationId: CONVERSATION_ID,
+      callbackData: "apr:req-guardian-apply-1:approve_once",
+      content: "",
+      conversationExternalId: REQUESTER_CHAT,
+      sourceChannel: "telegram",
+      actorExternalId: "guardian-user-1",
+      replyCallbackUrl: "https://gateway.test/deliver",
+      trustCtx: {
+        sourceChannel: "telegram",
+        trustClass: "guardian",
+        requesterExternalUserId: "guardian-user-1",
+        guardianExternalUserId: "guardian-user-1",
+        guardianPrincipalId: "guardian-principal-1",
+      } as TrustContext,
+      assistantId: ASSISTANT_ID,
+    });
+
+    expect(result.handled).toBe(true);
+    expect(result.type).toBe("decision_applied");
+    expect(sessionMock).toHaveBeenCalled();
+  });
+
+  test("guardian apr: callback with a principal NOT matching the anchor is rejected before any decision", async () => {
+    _anchorPrincipalId = "the-real-guardian-principal";
+    const sessionMock = registerPendingInteraction(
+      "req-guardian-mismatch-1",
+      CONVERSATION_ID,
+      TOOL_NAME,
+      TOOL_INPUT,
+    );
+
+    const result = await handleApprovalInterception({
+      conversationId: CONVERSATION_ID,
+      callbackData: "apr:req-guardian-mismatch-1:approve_once",
+      content: "",
+      conversationExternalId: REQUESTER_CHAT,
+      sourceChannel: "telegram",
+      actorExternalId: "stale-guardian-user",
+      replyCallbackUrl: "https://gateway.test/deliver",
+      trustCtx: {
+        sourceChannel: "telegram",
+        trustClass: "guardian",
+        requesterExternalUserId: "stale-guardian-user",
+        guardianExternalUserId: "stale-guardian-user",
+        guardianPrincipalId: "some-other-principal",
+      } as TrustContext,
+      assistantId: ASSISTANT_ID,
+    });
+
+    expect(result.handled).toBe(true);
+    expect(result.type).toBe("stale_ignored");
+    expect(sessionMock).not.toHaveBeenCalled();
+    // Generic failure copy — no oracle about pending requests or permission.
+    const replyText = (
+      deliverSpy.mock.calls[0]?.[1] as { text?: string } | undefined
+    )?.text;
+    expect(replyText).toBe("Sorry, I couldn't process that. Please try again.");
+  });
+
+  test("guardian without a resolved acting principal is rejected before any decision", async () => {
+    // Address-only guardian classification (e.g. a binding row with a null
+    // principal) must not authorize decisions.
+    _anchorPrincipalId = "the-real-guardian-principal";
+    const sessionMock = registerPendingInteraction(
+      "req-guardian-no-principal-1",
+      CONVERSATION_ID,
+      TOOL_NAME,
+      TOOL_INPUT,
+    );
+
+    const result = await handleApprovalInterception({
+      conversationId: CONVERSATION_ID,
+      callbackData: "apr:req-guardian-no-principal-1:approve_once",
+      content: "",
+      conversationExternalId: REQUESTER_CHAT,
+      sourceChannel: "telegram",
+      actorExternalId: "guardian-user-1",
+      replyCallbackUrl: "https://gateway.test/deliver",
+      trustCtx: {
+        sourceChannel: "telegram",
+        trustClass: "guardian",
+        requesterExternalUserId: "guardian-user-1",
+        guardianExternalUserId: "guardian-user-1",
+      } as TrustContext,
+      assistantId: ASSISTANT_ID,
+    });
+
+    expect(result.handled).toBe(true);
+    expect(result.type).toBe("stale_ignored");
+    expect(sessionMock).not.toHaveBeenCalled();
+  });
+
+  test("guardian decision defers to the verdict when the anchor read is unresolvable", async () => {
+    // Transient gateway miss on the anchor read: the gateway-stamped verdict
+    // (which already classified the actor guardian by principal) wins.
+    _anchorPrincipalId = undefined;
+    const sessionMock = registerPendingInteraction(
+      "req-guardian-anchor-miss-1",
+      CONVERSATION_ID,
+      TOOL_NAME,
+      TOOL_INPUT,
+    );
+
+    const result = await handleApprovalInterception({
+      conversationId: CONVERSATION_ID,
+      callbackData: "apr:req-guardian-anchor-miss-1:approve_once",
+      content: "",
+      conversationExternalId: REQUESTER_CHAT,
+      sourceChannel: "telegram",
+      actorExternalId: "guardian-user-1",
+      replyCallbackUrl: "https://gateway.test/deliver",
+      trustCtx: {
+        sourceChannel: "telegram",
+        trustClass: "guardian",
+        requesterExternalUserId: "guardian-user-1",
+        guardianExternalUserId: "guardian-user-1",
+        guardianPrincipalId: "guardian-principal-1",
+      } as TrustContext,
+      assistantId: ASSISTANT_ID,
+    });
+
+    expect(result.handled).toBe(true);
+    expect(result.type).toBe("decision_applied");
+    expect(sessionMock).toHaveBeenCalled();
   });
 
   test("unverified sender (no identity) auto-denies pending approval", async () => {

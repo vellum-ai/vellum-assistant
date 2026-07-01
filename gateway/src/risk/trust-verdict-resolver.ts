@@ -33,6 +33,14 @@ export interface ResolveTrustVerdictInput {
  * 2. Resolve the channel's active guardian binding (label/identity fields).
  * 3. Resolve THIS actor's member channel by `(type,address)` COLLATE NOCASE.
  * 4. Classify guardian > trusted_contact > unverified_contact > unknown.
+ *
+ * Guardian classification is by principal, not only by same-channel binding:
+ * a sender whose identity maps to the guardian contact (via this channel's
+ * member row, or via an active guardian channel on any channel type) is
+ * classified `guardian` even without a same-channel guardian binding. A
+ * blocked/revoked same-channel row always wins (stays `unknown`), and a
+ * guardian contact with no active channel anywhere never re-acquires the
+ * class.
  */
 export async function resolveTrustVerdict(
   input: ResolveTrustVerdictInput,
@@ -82,6 +90,8 @@ export async function resolveTrustVerdict(
           verifiedAt: gwContactChannels.verifiedAt,
           verifiedVia: gwContactChannels.verifiedVia,
           memberDisplayName: gwContacts.displayName,
+          memberRole: gwContacts.role,
+          memberPrincipalId: gwContacts.principalId,
         })
         .from(gwContactChannels)
         .innerJoin(gwContacts, eq(gwContactChannels.contactId, gwContacts.id))
@@ -105,8 +115,72 @@ export async function resolveTrustVerdict(
     !!canonicalSenderId &&
     guardianRow.address.toLowerCase() === canonicalSenderId.toLowerCase();
 
+  // A blocked/revoked same-channel row is an explicit per-channel governance
+  // action and always wins: it suppresses the principal-level guardian check
+  // below and classifies `unknown` (raw status/policy still surfaced so the
+  // consumer enforces the member_blocked / member_revoked hard-deny).
+  const memberDeniedByStatus =
+    !!memberRow &&
+    memberRow.status !== "active" &&
+    memberRow.status !== "pending" &&
+    memberRow.status !== "unverified";
+
+  // --- Guardian-by-principal (sender maps to the guardian contact) ---
+  // The same-channel address match above fails for a guardian speaking on a
+  // channel where they hold no active guardian binding. Never route the
+  // guardian through the stranger lane: when the sender's identity maps to
+  // the guardian contact — via this channel's member row, or via an ACTIVE
+  // guardian channel with this address on any channel type — classify
+  // `guardian`. The guardian contact must still hold at least one active
+  // channel, so a fully revoked guardian never re-acquires the class.
+  let guardianByPrincipal: {
+    principalId: string | null;
+    displayName: string | null;
+  } | null = null;
+  if (!isGuardian && canonicalSenderId && !memberDeniedByStatus) {
+    if (memberRow) {
+      if (memberRow.memberRole === "guardian") {
+        const activeGuardianChannel = db
+          .select({ id: gwContactChannels.id })
+          .from(gwContactChannels)
+          .where(
+            and(
+              eq(gwContactChannels.contactId, memberRow.contactId),
+              eq(gwContactChannels.status, "active"),
+            ),
+          )
+          .limit(1)
+          .get();
+        if (activeGuardianChannel) {
+          guardianByPrincipal = {
+            principalId: memberRow.memberPrincipalId,
+            displayName: memberRow.memberDisplayName,
+          };
+        }
+      }
+    } else {
+      guardianByPrincipal =
+        db
+          .select({
+            principalId: gwContacts.principalId,
+            displayName: gwContacts.displayName,
+          })
+          .from(gwContactChannels)
+          .innerJoin(gwContacts, eq(gwContactChannels.contactId, gwContacts.id))
+          .where(
+            and(
+              eq(gwContacts.role, "guardian"),
+              eq(gwContactChannels.status, "active"),
+              sql`${gwContactChannels.address} = ${canonicalSenderId} COLLATE NOCASE`,
+            ),
+          )
+          .limit(1)
+          .get() ?? null;
+    }
+  }
+
   let trustClass: TrustClass;
-  if (isGuardian) {
+  if (isGuardian || guardianByPrincipal) {
     trustClass = "guardian";
   } else if (memberRow) {
     const status = memberRow.status;
@@ -132,6 +206,17 @@ export async function resolveTrustVerdict(
     if (guardianRow.principalId)
       verdict.guardianPrincipalId = guardianRow.principalId;
     verdict.guardianDisplayName = guardianRow.displayName;
+  } else if (guardianByPrincipal) {
+    // Principal-classified guardian with no same-channel binding: carry the
+    // principal + label so the consumer can authorize decisions by principal.
+    // Delivery fields (address/chat id) stay absent — they describe the
+    // same-channel binding, which does not exist here.
+    if (guardianByPrincipal.principalId) {
+      verdict.guardianPrincipalId = guardianByPrincipal.principalId;
+    }
+    if (guardianByPrincipal.displayName) {
+      verdict.guardianDisplayName = guardianByPrincipal.displayName;
+    }
   }
 
   if (memberRow) {

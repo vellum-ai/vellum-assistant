@@ -73,7 +73,7 @@ describe("getGuardianBinding", () => {
     expect(binding?.verifiedVia).toBe("verified");
   });
 
-  test("falls back to empty strings for absent optional delivery fields", async () => {
+  test("a missing principal surfaces as null (unresolved), never an empty string", async () => {
     mockGuardianList = [
       {
         channelType: "telegram",
@@ -85,7 +85,7 @@ describe("getGuardianBinding", () => {
 
     const binding = await getGuardianBinding("asst-1", "telegram");
 
-    expect(binding?.guardianPrincipalId).toBe("");
+    expect(binding?.guardianPrincipalId).toBeNull();
     expect(binding?.guardianDeliveryChatId).toBe("");
     expect(binding?.verifiedAt).toBe(0);
   });

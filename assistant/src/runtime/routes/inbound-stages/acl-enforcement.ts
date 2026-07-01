@@ -4,6 +4,7 @@
  * intercepts, and notifies the guardian of denied access requests.
  */
 import type { AdmissionPolicy, SourceMetadata } from "@vellumai/gateway-client";
+import { TRUST_CLASS_VALUES } from "@vellumai/gateway-client";
 
 import { isInviteCodeRedemptionEnabled } from "../../../channels/config.js";
 import type { ChannelId } from "../../../channels/types.js";
@@ -198,6 +199,70 @@ export async function enforceIngressAcl(
         reason: "not_a_member",
       },
     };
+  }
+
+  // An unrecognized trust class is an unresolvable verdict (version skew,
+  // malformed payload), not a stranger. Fail safe: soft-deny with no
+  // stranger-lane side effects (no access-request card, no verification
+  // challenge, no canned reply) — never fail-stranger.
+  if (!(TRUST_CLASS_VALUES as readonly string[]).includes(verdict.trustClass)) {
+    log.warn(
+      {
+        sourceChannel,
+        externalUserId: canonicalSenderId,
+        trustClass: verdict.trustClass,
+      },
+      "Ingress ACL: unrecognized trust class on verdict, denying fail-safe",
+    );
+    return {
+      resolvedMember: null,
+      earlyResponse: {
+        accepted: true,
+        denied: true,
+        reason: "not_a_member",
+      },
+    };
+  }
+
+  // ── Guardian short-circuit ──
+  // A verdict classified `guardian` is admitted even when it carries no
+  // per-channel member row (`resolvedMember` null) or an inactive one. The
+  // gateway classifies guardians by principal, so a guardian speaking on a
+  // channel where they hold no same-channel binding must not fall through the
+  // member-vs-stranger gates below — those would misroute the guardian into
+  // the stranger lane and fire an access request at the guardian themselves.
+  if (verdict.trustClass === "guardian") {
+    // The gateway never classifies a blocked/revoked same-channel row as
+    // guardian (explicit per-channel governance wins over the principal
+    // check), so a verdict claiming both is contradictory. Fail safe:
+    // soft-deny with no stranger-lane side effects.
+    if (
+      resolvedMember?.status === "blocked" ||
+      resolvedMember?.status === "revoked"
+    ) {
+      log.warn(
+        {
+          sourceChannel,
+          externalUserId: canonicalSenderId,
+          status: resolvedMember.status,
+        },
+        "Ingress ACL: contradictory guardian verdict with blocked/revoked member row, denying fail-safe",
+      );
+      return {
+        resolvedMember: null,
+        earlyResponse: {
+          accepted: true,
+          denied: true,
+          reason: "not_a_member",
+        },
+      };
+    }
+
+    log.info(
+      { sourceChannel, externalUserId: canonicalSenderId },
+      "Ingress ACL: guardian admitted via trust verdict",
+    );
+    return { resolvedMember };
   }
 
   // /start gv_<token> bootstrap commands must also bypass ACL — the user
