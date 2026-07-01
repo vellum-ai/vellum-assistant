@@ -42,6 +42,9 @@ mock.module(
   }),
 );
 
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
 import {
   getConfig,
   invalidateConfigCache,
@@ -51,12 +54,29 @@ import {
 import { getMemoryDb } from "../../../../../persistence/db-connection.js";
 import { initializeDb } from "../../../../../persistence/db-init.js";
 import { memoryJobs } from "../../../../../persistence/schema/index.js";
+import { getWorkspacePluginsDir } from "../../../../../util/platform.js";
+import memoryPkg from "../../package.json" with { type: "json" };
 import {
   enqueueDeleteMessageLexical,
+  enqueueLexicalIndexForMessage,
   enqueuePurgeConversationLexical,
 } from "../index-message-lexical.js";
 
 await initializeDb();
+
+function memoryPluginDir(): string {
+  return join(getWorkspacePluginsDir(), memoryPkg.name);
+}
+
+function setMemoryPluginDisabled(disabled: boolean): void {
+  const dir = memoryPluginDir();
+  if (disabled) {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, ".disabled"), "");
+  } else {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 function setMemoryEnabled(enabled: boolean): void {
   const raw = loadRawConfig();
@@ -84,6 +104,7 @@ beforeEach(() => {
   deleteByConversationCalls.length = 0;
   deleteByMessageIdCalls.length = 0;
   setMemoryEnabled(true);
+  setMemoryPluginDisabled(false);
 });
 
 describe("lexical cleanup when memory is enabled — enqueues a job", () => {
@@ -128,5 +149,49 @@ describe("lexical cleanup when memory is DISABLED — runs inline", () => {
     expect(deleteByMessageIdCalls).toEqual([]);
     // Sanity: config really is disabled for this test.
     expect(getConfig().memory.enabled).toBe(false);
+  });
+});
+
+// The INDEX/write path must honor the plugin's `.disabled` sentinel (the same
+// full disabled-state check the host applies in the guarded hook seam), because
+// the direct index-write callers (finalize/import/edit/consolidation) run
+// outside that guard. The CLEANUP paths must still run while disabled so points
+// written when enabled are not orphaned.
+describe("plugin disabled via the .disabled sentinel (config still enabled)", () => {
+  test("index write is suppressed — enqueues NO index_message_lexical job", async () => {
+    setMemoryPluginDisabled(true);
+    enqueueLexicalIndexForMessage("msg-idx");
+    await flush();
+    expect(jobCount("index_message_lexical")).toBe(0);
+  });
+
+  test("index write resumes once the sentinel is removed", async () => {
+    setMemoryPluginDisabled(true);
+    enqueueLexicalIndexForMessage("msg-a");
+    setMemoryPluginDisabled(false);
+    enqueueLexicalIndexForMessage("msg-b");
+    await flush();
+    // Only the post-enable write was indexed.
+    const ids = getMemoryDb()!
+      .select({ payload: memoryJobs.payload })
+      .from(memoryJobs)
+      .where(eq(memoryJobs.type, "index_message_lexical"))
+      .all()
+      .map((r) => (JSON.parse(r.payload) as { messageId?: string }).messageId);
+    expect(ids).toEqual(["msg-b"]);
+  });
+
+  test("cleanup STILL runs while the plugin is disabled — enqueues purge + delete jobs", async () => {
+    setMemoryPluginDisabled(true);
+    enqueuePurgeConversationLexical("conv-x");
+    enqueueDeleteMessageLexical("msg-x");
+    await flush();
+    // Config is still enabled, so cleanup takes the enqueue path (the worker
+    // does not gate on the `.disabled` sentinel, so these jobs drain).
+    expect(jobCount("purge_conversation_lexical")).toBe(1);
+    expect(jobCount("delete_message_lexical")).toBe(1);
+    // ...and it did not run inline (config enabled → enqueue, not inline).
+    expect(deleteByConversationCalls).toEqual([]);
+    expect(deleteByMessageIdCalls).toEqual([]);
   });
 });

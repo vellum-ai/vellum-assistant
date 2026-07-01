@@ -20,8 +20,25 @@ import {
 } from "../../../../persistence/jobs-store.js";
 import { messages } from "../../../../persistence/schema/index.js";
 import { getLogger } from "../../../../util/logger.js";
+import { isPluginDisabled } from "../../../disabled-state.js";
+import memoryPkg from "../package.json" with { type: "json" };
 
 const log = getLogger("messages-lexical-enqueue");
+
+/**
+ * True when the memory plugin's per-message index writes should be suppressed —
+ * either the memory feature is off in config (`memory.enabled === false`) or the
+ * `default-memory` plugin is disabled via its `.disabled` sentinel. This mirrors
+ * the FULL disabled-state check the host applies in
+ * `guardPersistenceHooksByDisabledState`, because the index-write call sites
+ * (streaming finalize, import, edit, consolidation) call
+ * {@link enqueueLexicalIndexForMessage} directly, outside that guard. Applies
+ * ONLY to the index/write path — the cleanup paths (purge/delete/clear) must
+ * still run while disabled so points written when enabled are not orphaned.
+ */
+function isMemoryIndexingSuppressed(): boolean {
+  return !isMemoryEnabled() || isPluginDisabled(memoryPkg.name);
+}
 
 /**
  * Resolve the messages lexical index singleton, lazily initializing it from
@@ -156,9 +173,12 @@ export async function deleteMessageLexicalJob(
  * drop every message but the last from the index. The upsert into Qdrant is
  * idempotent, so re-enqueuing the same message id is harmless.
  *
- * Gated on {@link isMemoryEnabled} so nothing is enqueued when memory is
- * disabled — matching the gate the segment indexer uses for its `embed_segment`
- * enqueues.
+ * This is the INDEX/write path: it is gated on {@link isMemoryIndexingSuppressed}
+ * — the same FULL disabled-state check the host applies in
+ * `guardPersistenceHooksByDisabledState` (config `memory.enabled` AND the
+ * `default-memory` `.disabled` sentinel) — so no index job is created while the
+ * plugin is disabled. The direct callers (streaming finalize, import, edit,
+ * consolidation) run outside that host guard, so the gate lives here.
  *
  * Best-effort: the enqueue itself is a memory side effect off the message write
  * path, so a failure (e.g. the memory database is unavailable) is swallowed and
@@ -168,7 +188,7 @@ export async function deleteMessageLexicalJob(
  */
 export function enqueueLexicalIndexForMessage(messageId: string): void {
   if (!messageId) return;
-  if (!isMemoryEnabled()) return;
+  if (isMemoryIndexingSuppressed()) return;
   try {
     enqueueMemoryJob("index_message_lexical", { messageId });
   } catch (err) {

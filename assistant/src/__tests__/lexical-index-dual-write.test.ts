@@ -24,10 +24,16 @@ mock.module("../util/logger.js", () => ({
 
 // Stub the segment indexer so `onMessagePersisted` runs cheaply. The lexical
 // enqueue in the hook is a separate call and still fires. Other exports are
-// provided so any transitive importer of this module resolves.
+// provided so any transitive importer of this module resolves. `throwFromIndex`
+// lets a test simulate a transient segment-indexing failure to prove the
+// lexical enqueue survives it.
+let throwFromIndex = false;
 mock.module("../plugins/defaults/memory/indexer.js", () => ({
   MIN_SEGMENT_CHARS: 50,
-  indexMessageNow: async () => ({ indexedSegments: 0, enqueuedJobs: 0 }),
+  indexMessageNow: async () => {
+    if (throwFromIndex) throw new Error("simulated segment-indexing failure");
+    return { indexedSegments: 0, enqueuedJobs: 0 };
+  },
   enqueueBackfillJob: () => "",
   enqueueRebuildIndexJob: () => "",
 }));
@@ -124,6 +130,7 @@ describe("messages lexical-index dual-write", () => {
     // Restore the default-enabled config so a disabled-case test cannot leak
     // into later tests sharing this process.
     setMemoryEnabled(true);
+    throwFromIndex = false;
   });
 
   test("addMessage enqueues one index_message_lexical job for the persisted message", async () => {
@@ -133,6 +140,21 @@ describe("messages lexical-index dual-write", () => {
     const ids = lexicalJobMessageIds();
     expect(ids).toContain(message.id);
     expect(ids.filter((id) => id === message.id)).toHaveLength(1);
+  });
+
+  test("lexical job is still enqueued when segment indexing (indexMessageNow) throws", async () => {
+    // The sparse lexical job is independent of the dense embedding path, so a
+    // transient segment-indexing failure must not leave the message missing
+    // from the lexical index. `addMessage` catches the hook throw as non-fatal.
+    throwFromIndex = true;
+    const conv = createConversation("Segment failure thread");
+    const message = await addMessage(
+      conv.id,
+      "user",
+      "index me despite failure",
+    );
+
+    expect(lexicalJobMessageIds()).toContain(message.id);
   });
 
   test("addMessage enqueues NO index_message_lexical job when memory is disabled", async () => {

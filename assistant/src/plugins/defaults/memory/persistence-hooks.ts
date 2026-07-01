@@ -37,11 +37,21 @@ import {
  */
 export const memoryPersistenceHooks: MemoryPersistenceHooks = {
   async onMessagePersisted(event: MessagePersistedEvent): Promise<void> {
-    await indexMessageNow({ ...event, scopeId: "default" }, getConfig().memory);
-    // Dual-write into the lexical (Qdrant) index off the write path. Self-gated
-    // on memory-enabled; the upsert is idempotent so a redundant enqueue is
-    // harmless.
-    enqueueLexicalIndexForMessage(event.messageId);
+    try {
+      await indexMessageNow(
+        { ...event, scopeId: "default" },
+        getConfig().memory,
+      );
+    } finally {
+      // Dual-write into the lexical (Qdrant) index off the write path. The
+      // sparse lexical job is independent of the dense embedding path, so it
+      // must be scheduled even when segment indexing above throws (a transient
+      // embedding/Qdrant/config failure) — otherwise the message would be
+      // permanently missing from the lexical index. Self-gates on the memory
+      // plugin's active state; the upsert is idempotent so a redundant enqueue
+      // is harmless.
+      enqueueLexicalIndexForMessage(event.messageId);
+    }
   },
 
   onConversationForked(event: ConversationForkedEvent): void {
