@@ -64,6 +64,12 @@ function nodeKind(entry: PageIndexEntry): string {
   return "concept";
 }
 
+/** A real concept page: on-disk (has an mtime) and not a synthetic skill or
+ * CLI-command capability slug. The graph shows concepts only. */
+function isConceptEntry(entry: PageIndexEntry): boolean {
+  return entry.modifiedAt > 0 && !entry.slug.startsWith("skills/");
+}
+
 export interface AssembleMemoryGraphInput {
   /** Every article node in the corpus (page-index entries). */
   entries: readonly PageIndexEntry[];
@@ -178,17 +184,21 @@ export async function getMemoryGraph(
 
   const workspaceDir = getWorkspaceDir();
   const pageIndex = await getPageIndex(workspaceDir);
+  // Concepts only: exclude synthetic skill / CLI-command slugs so the graph is
+  // purely the assistant's learned/authored concept pages. Edges to excluded
+  // slugs drop out downstream because they aren't in the node set.
+  const conceptEntries = pageIndex.entries.filter(isConceptEntry);
 
   // Raw (frontmatter + body) page reader, matching the v3 lane build. A read
-  // that rejects (e.g. synthetic capability slugs with no on-disk page) drops
-  // that article's authored/wikilink edges but keeps its numeric fallbacks.
+  // that rejects drops that article's authored/wikilink edges but keeps its
+  // numeric fallbacks.
   const pageRaw = async (slug: Slug): Promise<string> => {
     const page = await readPage(workspaceDir, slug);
     if (!page) throw new Error(`page not found: ${slug}`);
     return renderPageContent(page);
   };
 
-  const staticGraph = await buildEdgeGraph(pageIndex.entries, pageRaw, {
+  const staticGraph = await buildEdgeGraph(conceptEntries, pageRaw, {
     hubDegree: config.memory.v3.edge.hubDegree,
   });
 
@@ -207,12 +217,12 @@ export async function getMemoryGraph(
       maxPerPage: Math.max(learned.maxPerPage, 14),
       now: Date.now(),
       windowMs: LEARNED_EDGES_WINDOW_DAYS * DAY_MS,
-      knownSlugs: new Set(pageIndex.entries.map((e) => e.slug)),
+      knownSlugs: new Set(conceptEntries.map((e) => e.slug)),
     },
   );
 
   const assembled = assembleMemoryGraph({
-    entries: pageIndex.entries,
+    entries: conceptEntries,
     staticAdjacency: staticGraph.adjacency,
     learnedAdjacency: learnedGraph.adjacency,
   });

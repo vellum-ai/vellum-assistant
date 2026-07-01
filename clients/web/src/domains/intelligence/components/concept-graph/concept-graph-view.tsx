@@ -491,7 +491,11 @@ export function ConceptGraphView({
       <>
         <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
 
-        <ConceptGraphLegend nodeKinds={presentKinds} hasLinks={hasLinks} hasLearned={hasLearned} />
+        <ConceptGraphLegend
+          nodeKinds={presentKinds.length > 1 ? presentKinds : []}
+          hasLinks={hasLinks}
+          hasLearned={hasLearned}
+        />
 
         {focusLabel ? (
           <div
