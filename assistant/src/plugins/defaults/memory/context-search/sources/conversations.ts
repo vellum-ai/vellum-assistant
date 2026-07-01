@@ -132,8 +132,19 @@ export async function searchConversationSource(
     ? "fts5"
     : getMessagesSearchBackend(context.config);
 
+  // Tokenize once. Short/punctuation-only queries (`C++`, CJK) produce no
+  // usable ≥2-char match shape, and both backends must route those straight to
+  // the exact `searchWithLike` path — the FTS path already does (an empty match
+  // list yields no rows and falls through to LIKE below). The Qdrant path needs
+  // this guard explicitly: the sparse encoder still emits a 1-char token for
+  // such queries, so it would return noisy hits and wrongly skip the exact-LIKE
+  // fallback. Only query a lexical index when the query genuinely tokenizes.
+  const ftsMatches = buildRecallFtsMatchQueries(trimmedQuery);
+
   let rows: ConversationEvidenceRow[];
-  if (backend === "qdrant") {
+  if (ftsMatches.length === 0) {
+    rows = searchWithLike(trimmedQuery, queryLimit, context.conversationId);
+  } else if (backend === "qdrant") {
     // A brief post-edit staleness window (an edited message whose re-index job
     // has not yet run, or a just-deleted message still present as a point) is
     // an ACCEPTED consequence of async indexing. Recall is fuzzy evidence
@@ -151,7 +162,7 @@ export async function searchConversationSource(
     );
   } else {
     rows = gatherCandidateRowsFromFts(
-      trimmedQuery,
+      ftsMatches,
       queryLimit,
       normalizedLimit,
       context.conversationId,
@@ -188,19 +199,18 @@ export async function searchConversationSource(
 }
 
 /**
- * Generate candidate rows via SQLite FTS5. Walks progressively broader match
- * shapes, merging matches until enough rows are collected, and swallows a
- * malformed-query error on any single shape so a broader shape can still run.
- * Returns an empty array when no shape matches — the caller then degrades to
- * the LIKE fallback.
+ * Generate candidate rows via SQLite FTS5 from precomputed match shapes. Walks
+ * the shapes (progressively broader), merging matches until enough rows are
+ * collected, and swallows a malformed-query error on any single shape so a
+ * broader shape can still run. Returns an empty array when no shape matches —
+ * the caller then degrades to the LIKE fallback.
  */
 function gatherCandidateRowsFromFts(
-  query: string,
+  ftsMatches: readonly string[],
   queryLimit: number,
   normalizedLimit: number,
   excludedConversationId: string,
 ): ConversationEvidenceRow[] {
-  const ftsMatches = buildRecallFtsMatchQueries(query);
   let rows: ConversationEvidenceRow[] = [];
 
   for (const ftsMatch of ftsMatches) {

@@ -442,6 +442,28 @@ describe("searchConversationSource with the qdrant backend", () => {
     ]);
   });
 
+  test("routes short/punctuation-only queries to the exact LIKE path, not Qdrant", async () => {
+    const match = await seedConversation({
+      title: "C++ notes",
+      role: "user",
+      content: "Use C++ when the example needs deterministic lifetime notes.",
+    });
+
+    // `C++` produces no usable ≥2-char FTS match shape, so the source must use
+    // the exact LIKE path rather than the sparse encoder (which would still
+    // emit a noisy 1-char `c` token). The mock throws to prove it never runs.
+    lexicalMockImpl = async () => {
+      throw new Error("searchMessageIdsLexical must not run for a short query");
+    };
+
+    const result = await searchConversationSource("C++", makeContext(), 5);
+
+    expect(lexicalCalls).toHaveLength(0);
+    expect(result.evidence.map((item) => item.locator)).toEqual([
+      `${match.conversation.id}#${match.message.id}`,
+    ]);
+  });
+
   test("over-fetches a wide candidate pool from Qdrant, not the FTS prefetch window", async () => {
     const match = await seedConversation({
       title: "Launch notes",
