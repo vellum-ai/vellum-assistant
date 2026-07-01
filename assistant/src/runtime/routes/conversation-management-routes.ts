@@ -48,6 +48,7 @@ import {
   setConversationKeyIfAbsent,
 } from "../../persistence/conversation-key-store.js";
 import { enqueueMemoryJob } from "../../persistence/jobs-store.js";
+import { enqueuePurgeConversationLexical } from "../../plugins/defaults/memory/job-handlers/index-message-lexical.js";
 import { deleteSchedule } from "../../schedule/schedule-store.js";
 import { UserError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
@@ -330,6 +331,11 @@ async function handleDeleteConversation({
       targetId: summaryId,
     });
   }
+  // Purge the conversation's points from the lexical (Qdrant) index. Unlike
+  // `wipeConversation`, plain `deleteConversation` does not run the
+  // `onConversationWiped` hook, so enqueue the lexical purge here alongside the
+  // segment vector cleanup.
+  enqueuePurgeConversationLexical(resolvedId);
   log.info({ conversationId: resolvedId }, "Deleted conversation");
 
   publishConversationListAndMetadataChanged(

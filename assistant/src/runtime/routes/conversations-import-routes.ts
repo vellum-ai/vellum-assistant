@@ -17,6 +17,7 @@ import {
   messages as messagesTable,
 } from "../../persistence/schema/index.js";
 import { indexMessageNow } from "../../plugins/defaults/memory/indexer.js";
+import { enqueueLexicalIndexForMessage } from "../../plugins/defaults/memory/job-handlers/index-message-lexical.js";
 import { getLogger } from "../../util/logger.js";
 import { withSqliteRetry } from "../../util/sqlite-retry.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -190,6 +191,10 @@ async function handleConversationsImport({ body }: RouteHandlerArgs) {
             err instanceof Error ? err.message : String(err),
           );
         }
+        // Dual-write the imported message into the lexical index. Import inserts
+        // rows directly, bypassing `onMessagePersisted`, so enqueue here to keep
+        // the lexical index in lockstep with the segment index.
+        enqueueLexicalIndexForMessage(dbMessages[i].id);
       }
 
       if (conv.sourceKey) {

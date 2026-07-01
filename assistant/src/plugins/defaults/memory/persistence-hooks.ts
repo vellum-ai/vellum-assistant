@@ -6,6 +6,10 @@ import type {
 } from "../../../persistence/memory-lifecycle-hooks.js";
 import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
+import {
+  enqueueLexicalIndexForMessage,
+  enqueuePurgeConversationLexical,
+} from "./job-handlers/index-message-lexical.js";
 import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
 import { forkRetrospectiveState } from "./memory-retrospective-state.js";
 import { cancelPendingJobsForConversation } from "./task-memory-cleanup.js";
@@ -32,6 +36,10 @@ import {
 export const memoryPersistenceHooks: MemoryPersistenceHooks = {
   async onMessagePersisted(event: MessagePersistedEvent): Promise<void> {
     await indexMessageNow({ ...event, scopeId: "default" }, getConfig().memory);
+    // Dual-write into the lexical (Qdrant) index off the write path. Self-gated
+    // on memory-enabled; the upsert is idempotent so a redundant enqueue is
+    // harmless.
+    enqueueLexicalIndexForMessage(event.messageId);
   },
 
   onConversationForked(event: ConversationForkedEvent): void {
@@ -110,6 +118,10 @@ export const memoryPersistenceHooks: MemoryPersistenceHooks = {
   },
 
   onConversationWiped(conversationId: string): number {
+    // Purge the conversation's points from the lexical (Qdrant) index. Cleanup
+    // path — runs even while the plugin is disabled so points written while it
+    // was enabled are not orphaned.
+    enqueuePurgeConversationLexical(conversationId);
     return cancelPendingJobsForConversation(conversationId);
   },
 

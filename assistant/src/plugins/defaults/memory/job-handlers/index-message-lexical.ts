@@ -12,7 +12,11 @@ import {
 import { withQdrantBreaker } from "../../../../persistence/embeddings/qdrant-circuit-breaker.js";
 import { resolveQdrantUrl } from "../../../../persistence/embeddings/qdrant-client.js";
 import { asString } from "../../../../persistence/job-utils.js";
-import type { MemoryJob } from "../../../../persistence/jobs-store.js";
+import {
+  enqueueMemoryJob,
+  isMemoryEnabled,
+  type MemoryJob,
+} from "../../../../persistence/jobs-store.js";
 import { messages } from "../../../../persistence/schema/index.js";
 
 /**
@@ -101,4 +105,39 @@ export async function purgeConversationLexicalJob(
 
   const index = resolveLexicalIndex(config);
   await withQdrantBreaker(() => index.deleteByConversation(conversationId));
+}
+
+/**
+ * Enqueue an `index_message_lexical` job for a single message so its content is
+ * (re)indexed into the lexical (Qdrant) index off the SQLite write path. Called
+ * wherever a message's content becomes durable — on persist and on the
+ * streaming/import finalize seams that mirror the segment indexer
+ * (`indexMessageNow`).
+ *
+ * One job per message (not a debounced per-conversation coalesce): the payload
+ * carries a specific `messageId`, so coalescing bursts by conversation would
+ * drop every message but the last from the index. The upsert into Qdrant is
+ * idempotent, so re-enqueuing the same message id is harmless.
+ *
+ * Gated on {@link isMemoryEnabled} so nothing is enqueued when memory is
+ * disabled — matching the gate the segment indexer uses for its `embed_segment`
+ * enqueues.
+ */
+export function enqueueLexicalIndexForMessage(messageId: string): void {
+  if (!messageId) return;
+  if (!isMemoryEnabled()) return;
+  enqueueMemoryJob("index_message_lexical", { messageId });
+}
+
+/**
+ * Enqueue a `purge_conversation_lexical` job so a deleted/wiped conversation's
+ * points are removed from the lexical index. Intentionally NOT gated on
+ * {@link isMemoryEnabled}: it is a cleanup path that must run even while the
+ * memory plugin is disabled, so points written while it was enabled are not
+ * orphaned. The purge targets Qdrant by `conversationId`, so it is correct even
+ * after the conversation's message rows have been deleted.
+ */
+export function enqueuePurgeConversationLexical(conversationId: string): void {
+  if (!conversationId) return;
+  enqueueMemoryJob("purge_conversation_lexical", { conversationId });
 }
