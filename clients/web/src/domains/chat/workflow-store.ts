@@ -29,6 +29,7 @@ import type {
 
 import { fetchWorkflowJournal } from "./fetch-workflow-journal";
 import { fetchWorkflowRun } from "./fetch-workflow-run";
+import { setToolUseAnchor } from "./store-helpers/by-tool-use-id-index";
 
 // ---------------------------------------------------------------------------
 // State
@@ -318,10 +319,9 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
         label: nextLabel,
         toolUseId: nextToolUseId,
       };
-      const nextByToolUseId =
-        toolUseIdChanged && params.toolUseId
-          ? new Map(byToolUseId).set(params.toolUseId, params.runId)
-          : byToolUseId;
+      const nextByToolUseId = toolUseIdChanged
+        ? setToolUseAnchor(byToolUseId, params.toolUseId, params.runId)
+        : byToolUseId;
       set({
         byId: { ...byId, [params.runId]: updated },
         byToolUseId: nextByToolUseId,
@@ -336,9 +336,11 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
     };
     // Only clone the tool-use index when this start carries a `toolUseId`;
     // otherwise keep the existing reference stable.
-    const nextByToolUseId = params.toolUseId
-      ? new Map(byToolUseId).set(params.toolUseId, params.runId)
-      : byToolUseId;
+    const nextByToolUseId = setToolUseAnchor(
+      byToolUseId,
+      params.toolUseId,
+      params.runId,
+    );
     set({
       byId: { ...byId, [params.runId]: entry },
       orderedIds: [...orderedIds, params.runId],

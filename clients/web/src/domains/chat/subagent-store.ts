@@ -21,6 +21,7 @@ import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 import { isActiveStatus } from "@/utils/subagent-status";
 import { fetchSubagentDetail } from "./fetch-subagent-detail";
 import { mapDetailEvents } from "./map-detail-events";
+import { setToolUseAnchor } from "./store-helpers/by-tool-use-id-index";
 
 // ---------------------------------------------------------------------------
 // State
@@ -407,10 +408,11 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     // Only clone the tool-use index when this spawn carries a
     // `parentToolUseId`; otherwise keep the existing reference stable so
     // index subscribers don't re-render.
-    const prevByToolUseId = get().byToolUseId;
-    const nextByToolUseId = params.parentToolUseId
-      ? new Map(prevByToolUseId).set(params.parentToolUseId, params.subagentId)
-      : prevByToolUseId;
+    const nextByToolUseId = setToolUseAnchor(
+      get().byToolUseId,
+      params.parentToolUseId,
+      params.subagentId,
+    );
     set({
       byId: nextById,
       orderedIds: [...orderedIds, params.subagentId],

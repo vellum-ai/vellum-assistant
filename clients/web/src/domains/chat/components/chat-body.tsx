@@ -175,23 +175,14 @@ export interface ChatBodyProps {
   dockStartersToBottom?: boolean;
 
   /**
-   * Top-center floating overlay. Shown whenever there is ≥1 active subagent,
-   * independent of scroll position; the caller passes the slot only when its
-   * active list is non-empty.
+   * Top-center floating row of active background-process overlays (subagents,
+   * ACP runs, workflows, background tasks), shown independent of scroll
+   * position. The caller builds this from the process registry and passes it
+   * only when at least one process is active; each overlay self-gates on its
+   * own active ids. Omitting it (or passing `undefined`) keeps the row from
+   * mounting.
    */
-  activeSubagentsSlot?: ReactNode;
-
-  /**
-   * Top-center floating overlay for active ACP runs; gated identically to
-   * {@link activeSubagentsSlot} and placed alongside it.
-   */
-  activeAcpRunsSlot?: ReactNode;
-
-  /** Floating overlay for active workflow runs; gated like activeSubagentsSlot. */
-  activeWorkflowsSlot?: ReactNode;
-
-  /** Floating overlay for active background tasks; gated like activeSubagentsSlot. */
-  activeBackgroundTasksSlot?: ReactNode;
+  activeProcessOverlaysSlot?: ReactNode;
 }
 
 /**
@@ -249,10 +240,7 @@ export function ChatBody({
   startersSlot,
   belowFoldSlot,
   dockStartersToBottom = false,
-  activeSubagentsSlot,
-  activeAcpRunsSlot,
-  activeWorkflowsSlot,
-  activeBackgroundTasksSlot,
+  activeProcessOverlaysSlot,
 }: ChatBodyProps) {
   const isEmptyState = scrollAreaProps.showEmptyState;
   const bottomBannerOverlayRef = useRef<HTMLDivElement | null>(null);
@@ -476,21 +464,14 @@ export function ChatBody({
         bottomOverlayReservePx={bottomOverlayReservePx}
       />
 
-      {!isEmptyState &&
-        (activeSubagentsSlot ||
-          activeAcpRunsSlot ||
-          activeWorkflowsSlot ||
-          activeBackgroundTasksSlot) && (
-          <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center gap-2 px-3 pt-2">
-            {/* Always shown while a background process of that type is running,
-                independent of scroll position. subagents, then active acp runs,
-                then workflows, then background tasks (do not reorder). */}
-            {activeSubagentsSlot}
-            {activeAcpRunsSlot}
-            {activeWorkflowsSlot}
-            {activeBackgroundTasksSlot}
-          </div>
-        )}
+      {!isEmptyState && activeProcessOverlaysSlot && (
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center gap-2 px-3 pt-2">
+          {/* Registry-driven row of active background-process overlays. Order is
+              owned by PROCESS_KINDS (subagents, acp runs, workflows, background
+              tasks); each overlay self-gates on its own active ids. */}
+          {activeProcessOverlaysSlot}
+        </div>
+      )}
 
       {renderComposerStack(startersSlot)}
       {dragOverlay}

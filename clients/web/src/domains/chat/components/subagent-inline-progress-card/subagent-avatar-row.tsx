@@ -6,9 +6,12 @@ import { ChevronDown } from "lucide-react";
 import { SubagentAvatarBadge } from "@/components/avatar/subagent-avatar-badge";
 import { Typography } from "@vellumai/design-library";
 
-// Visible-avatar cap before the "+N" overflow chip; 6 matches the Figma mock
-// (6063:148462: 6 avatars + "+6").
-export const MAX_VISIBLE_SUBAGENT_AVATARS = 6;
+import { MAX_VISIBLE_STACKED_CHIPS } from "@/domains/chat/process-registry/constants";
+
+// Visible-avatar cap before the "+N" overflow chip. Aliases the shared
+// stacked-chips cap so the avatar row and the overlay pills share one source of
+// truth.
+export const MAX_VISIBLE_SUBAGENT_AVATARS = MAX_VISIBLE_STACKED_CHIPS;
 
 export interface SubagentAvatarRowProps {
   subagentIds: string[];
