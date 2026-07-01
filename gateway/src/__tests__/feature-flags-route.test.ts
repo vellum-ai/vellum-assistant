@@ -55,6 +55,15 @@ const TEST_REGISTRY = {
       description: "Default LLM model identifier",
       defaultEnabled: "claude-sonnet-4-6",
     },
+    {
+      // GA-normalization-exempt staged-rollout flag (defaultEnabled: true).
+      id: "messages-search-backend",
+      scope: "assistant",
+      key: "messages-search-backend",
+      label: "Messages Search Backend",
+      description: "Messages search backend (qdrant default; staged rollout)",
+      defaultEnabled: true,
+    },
   ],
 };
 
@@ -82,6 +91,7 @@ afterEach(() => {
   clearRemoteFeatureFlagStoreCache();
   resetEnvOverridesCache();
   delete process.env.VELLUM_FLAG_A2A_CHANNEL;
+  delete process.env.IS_PLATFORM;
 });
 
 const { createFeatureFlagsGetHandler, createFeatureFlagsPatchHandler } =
@@ -138,6 +148,37 @@ describe("GET /v1/feature-flags handler", () => {
     expect(browserFlag.label).toBe("Browser");
     // When no persisted value, enabled should equal defaultEnabled
     expect(browserFlag.enabled).toBe(true);
+  });
+
+  test("reports a staged-rollout flag as disabled on managed when absent (matches the daemon IPC map)", async () => {
+    // messages-search-backend defaults true in the registry but is a
+    // GA-normalization-exempt staged-rollout flag. On a managed deployment
+    // (IS_PLATFORM) with no persisted/remote value, the HTTP list served to the
+    // web client must report it disabled — same as getMergedFeatureFlags — so
+    // the settings UI does not diverge from the value driving search. browser
+    // (GA, not exempt) stays enabled.
+    process.env.IS_PLATFORM = "true";
+    if (existsSync(featureFlagStorePath)) rmSync(featureFlagStorePath);
+    clearFeatureFlagStoreCache();
+    clearRemoteFeatureFlagStoreCache();
+
+    const handler = createFeatureFlagsGetHandler();
+    const res = await handler(
+      new Request("http://gateway.test/v1/feature-flags"),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    const msearch = body.flags.find(
+      (f: { key: string }) => f.key === "messages-search-backend",
+    );
+    expect(msearch.enabled).toBe(false);
+    // The displayed registry default still reflects the true registry value.
+    expect(msearch.defaultEnabled).toBe(true);
+    const browser = body.flags.find(
+      (f: { key: string }) => f.key === "browser",
+    );
+    expect(browser.enabled).toBe(true);
   });
 
   test("returns label field for all flags", async () => {
