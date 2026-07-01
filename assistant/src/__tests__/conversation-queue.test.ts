@@ -827,6 +827,13 @@ describe("Conversation message queue", () => {
       (e) => e.type === "conversation_error",
     );
     expect(conversationErr3).toBeUndefined();
+
+    // Settle the aborted in-flight run so its abort watchdog clears the
+    // real-time timer it armed. A leaked ~5s timer otherwise fires during a
+    // later test and drives this stale turn into commitTurnChanges, inflating
+    // the shared turnCommitCalls counter that other tests assert against.
+    await resolveRun(0);
+    await new Promise((r) => setTimeout(r, 10));
   });
 
   test("conversation-scoped errors emit both conversation_error and generic error", async () => {
@@ -2801,6 +2808,13 @@ describe("Regression: cancel semantics and error channel split", () => {
       );
       expect(conversationErr).toBeUndefined();
     }
+
+    // Settle the aborted in-flight run so its abort watchdog clears the
+    // real-time timer it armed. A leaked ~5s timer otherwise fires during a
+    // later test and drives this stale turn into commitTurnChanges, inflating
+    // the shared turnCommitCalls counter that other tests assert against.
+    await resolveRun(0);
+    await new Promise((r) => setTimeout(r, 10));
   });
 
   test("commitTurnChanges never resolving within budget -> turn still completes and drains queue", async () => {
