@@ -158,7 +158,9 @@ export function PersonaStep({
     >
       <OnboardingTopBar onBack={onBack} onNext={onForward} />
 
-      <div className="absolute left-1/2 top-1/2 flex w-full max-w-xl -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-9 px-6">
+      {/* Anchor the title at the same height as the "Create my personality"
+          step (top-[14%]) so the two read as one continuous screen. */}
+      <div className="absolute left-1/2 top-[14%] flex w-full max-w-xl -translate-x-1/2 flex-col items-center gap-9 px-6">
         <h1
           className="text-center text-[2.6rem] leading-none"
           style={{ fontFamily: "var(--font-serif)" }}
