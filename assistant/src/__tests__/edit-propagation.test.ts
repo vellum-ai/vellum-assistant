@@ -21,10 +21,10 @@ mock.module("../util/logger.js", () => ({
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { addMessage } from "../persistence/conversation-crud.js";
 import { getConversationByKey } from "../persistence/conversation-key-store.js";
-import { getDb } from "../persistence/db-connection.js";
+import { getDb, getMemoryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { linkMessage, recordInbound } from "../persistence/delivery-crud.js";
-import { messages } from "../persistence/schema/index.js";
+import { memoryJobs, messages } from "../persistence/schema/index.js";
 import { handleEditIntercept } from "../runtime/routes/inbound-stages/edit-intercept.js";
 
 await initializeDb();
@@ -35,6 +35,25 @@ function resetTables(): void {
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversation_keys");
   db.run("DELETE FROM conversations");
+  // memory_jobs lives in the dedicated memory connection.
+  getMemoryDb()!.run("DELETE FROM memory_jobs");
+}
+
+function lexicalIndexJobMessageIds(): string[] {
+  return getMemoryDb()!
+    .select({ payload: memoryJobs.payload })
+    .from(memoryJobs)
+    .where(eq(memoryJobs.type, "index_message_lexical"))
+    .all()
+    .map((r) => {
+      try {
+        return (
+          (JSON.parse(r.payload) as { messageId?: string }).messageId ?? ""
+        );
+      } catch {
+        return "";
+      }
+    });
 }
 
 interface SeededFixture {
@@ -276,6 +295,41 @@ describe("Slack edit propagation", () => {
     expect(after.content).toBe(before.content);
     // No metadata mutation either -- the write is fully skipped.
     expect(after.metadata).toBe(before.metadata);
+
+    // A no-op edit changes no searchable text, so it must NOT enqueue a lexical
+    // reindex.
+    expect(lexicalIndexJobMessageIds()).not.toContain(seeded.messageId);
+  });
+
+  test("a content-changing edit enqueues a lexical reindex for the message", async () => {
+    // Regression: channel edits update the row in-place via
+    // updateMessageContentAndMetadata / updateMessageContent, bypassing
+    // onMessagePersisted. The lexical index must be refreshed so the old Qdrant
+    // point does not go stale against the edited (FTS-updated) content.
+    const seeded = await seedSlackMessage({
+      conversationExternalId: "C0123CHANNEL",
+      channelTs: "1234.5678",
+      initialContent: "original text",
+    });
+
+    // The seed used skipIndexing, so no lexical job exists yet.
+    expect(lexicalIndexJobMessageIds()).not.toContain(seeded.messageId);
+
+    await handleEditIntercept({
+      sourceChannel: "slack",
+      conversationExternalId: seeded.conversationExternalId,
+      externalMessageId: nextEditEventId(),
+      sourceMessageId: seeded.channelTs,
+      canonicalAssistantId: "self",
+      assistantId: "self",
+      content: "edited searchable text",
+    });
+
+    expect(readMessageRow(seeded.messageId).content).toBe(
+      "edited searchable text",
+    );
+    // The edit reindexed the message into the lexical index.
+    expect(lexicalIndexJobMessageIds()).toContain(seeded.messageId);
   });
 
   // The lookup retries 5 times with 2s backoff (~10s total) before giving up,

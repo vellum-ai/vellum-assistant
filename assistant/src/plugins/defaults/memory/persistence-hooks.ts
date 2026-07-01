@@ -118,11 +118,14 @@ export const memoryPersistenceHooks: MemoryPersistenceHooks = {
   },
 
   onConversationWiped(conversationId: string): number {
+    const cancelledJobCount = cancelPendingJobsForConversation(conversationId);
     // Purge the conversation's points from the lexical (Qdrant) index. Cleanup
     // path — runs even while the plugin is disabled so points written while it
-    // was enabled are not orphaned.
+    // was enabled are not orphaned. Enqueued AFTER cancellation: that pass fails
+    // every pending `conversationId`-keyed job, which would otherwise sweep this
+    // very purge (and inflate the returned cancelled count).
     enqueuePurgeConversationLexical(conversationId);
-    return cancelPendingJobsForConversation(conversationId);
+    return cancelledJobCount;
   },
 
   onWorkerStartup(): void {

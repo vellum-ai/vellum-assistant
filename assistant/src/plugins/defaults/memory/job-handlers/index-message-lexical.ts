@@ -18,6 +18,9 @@ import {
   type MemoryJob,
 } from "../../../../persistence/jobs-store.js";
 import { messages } from "../../../../persistence/schema/index.js";
+import { getLogger } from "../../../../util/logger.js";
+
+const log = getLogger("messages-lexical-enqueue");
 
 /**
  * Resolve the messages lexical index singleton, lazily initializing it from
@@ -122,11 +125,24 @@ export async function purgeConversationLexicalJob(
  * Gated on {@link isMemoryEnabled} so nothing is enqueued when memory is
  * disabled — matching the gate the segment indexer uses for its `embed_segment`
  * enqueues.
+ *
+ * Best-effort: the enqueue itself is a memory side effect off the message write
+ * path, so a failure (e.g. the memory database is unavailable) is swallowed and
+ * logged rather than propagated — a memory hiccup must not escalate a
+ * successful message persist into a throw, mirroring the `indexMessageNow` call
+ * sites this runs beside.
  */
 export function enqueueLexicalIndexForMessage(messageId: string): void {
   if (!messageId) return;
   if (!isMemoryEnabled()) return;
-  enqueueMemoryJob("index_message_lexical", { messageId });
+  try {
+    enqueueMemoryJob("index_message_lexical", { messageId });
+  } catch (err) {
+    log.warn(
+      { err, messageId },
+      "Failed to enqueue lexical index job for message (non-fatal)",
+    );
+  }
 }
 
 /**
@@ -136,8 +152,24 @@ export function enqueueLexicalIndexForMessage(messageId: string): void {
  * memory plugin is disabled, so points written while it was enabled are not
  * orphaned. The purge targets Qdrant by `conversationId`, so it is correct even
  * after the conversation's message rows have been deleted.
+ *
+ * Callers on the wipe path must enqueue AFTER
+ * `cancelPendingJobsForConversation`, which fails every pending
+ * `conversationId`-keyed job — otherwise the purge this enqueues is swept by
+ * that same cancellation.
+ *
+ * Best-effort: a failed enqueue (e.g. the memory database is unavailable) is
+ * swallowed and logged rather than propagated, so conversation deletion never
+ * fails on a memory hiccup.
  */
 export function enqueuePurgeConversationLexical(conversationId: string): void {
   if (!conversationId) return;
-  enqueueMemoryJob("purge_conversation_lexical", { conversationId });
+  try {
+    enqueueMemoryJob("purge_conversation_lexical", { conversationId });
+  } catch (err) {
+    log.warn(
+      { err, conversationId },
+      "Failed to enqueue lexical purge job for conversation (non-fatal)",
+    );
+  }
 }
