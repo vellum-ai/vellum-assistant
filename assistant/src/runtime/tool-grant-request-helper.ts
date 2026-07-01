@@ -23,6 +23,7 @@ import {
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { getLogger } from "../util/logger.js";
 import { getGuardianBinding } from "./channel-verification-service.js";
+import { resolveDecidableGuardianPrincipalId } from "./local-actor-identity.js";
 import { GUARDIAN_APPROVAL_TTL_MS } from "./routes/channel-route-shared.js";
 
 const log = getLogger("tool-grant-request-helper");
@@ -87,6 +88,21 @@ export async function createOrReuseToolGrantRequest(
     return { failed: true, reason: "no_guardian_binding" };
   }
 
+  // A binding with no principal is unresolved, not empty: adopt the vellum
+  // anchor principal so the resulting request is decidable by the guardian.
+  // When neither resolves, fail closed — a principal-less tool_grant_request
+  // can never be authorized by anyone.
+  const guardianPrincipalId = await resolveDecidableGuardianPrincipalId(
+    binding.guardianPrincipalId,
+  );
+  if (!guardianPrincipalId) {
+    log.warn(
+      { sourceChannel, assistantId },
+      "Guardian principal unresolved for tool grant request escalation",
+    );
+    return { failed: true, reason: "no_guardian_binding" };
+  }
+
   // Deduplicate: skip creation if there is already a pending canonical request
   // for the same requester + conversation + tool + input digest + guardian.
   // Guardian identity is included so that after a guardian rebind, old requests
@@ -132,7 +148,7 @@ export async function createOrReuseToolGrantRequest(
     requesterExternalUserId,
     requesterChatId: requesterChatId ?? undefined,
     guardianExternalUserId: binding.guardianExternalUserId,
-    guardianPrincipalId: binding.guardianPrincipalId,
+    guardianPrincipalId,
     toolName,
     inputDigest,
     questionText,

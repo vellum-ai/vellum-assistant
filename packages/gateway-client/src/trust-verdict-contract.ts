@@ -32,6 +32,18 @@ export const TrustClassSchema = z.enum(TRUST_CLASS_VALUES);
 
 export type TrustClass = (typeof TRUST_CLASS_VALUES)[number];
 
+const TRUST_CLASS_SET: ReadonlySet<string> = new Set(TRUST_CLASS_VALUES);
+
+/**
+ * Type guard for wire-sourced trust classes. Consumers receive verdicts over
+ * IPC/HTTP, so a field statically typed {@link TrustClass} can still carry an
+ * out-of-contract value (version skew, malformed payload); this narrows it
+ * safely without casting.
+ */
+export function isTrustClass(value: string): value is TrustClass {
+  return TRUST_CLASS_SET.has(value);
+}
+
 /**
  * Per-actor trust verdict resolved by the gateway from its ACL DB. ACL +
  * identity keys + minimal labels only. Guardian binding and member
@@ -42,9 +54,10 @@ export const TrustVerdictSchema = z.object({
   trustClass: TrustClassSchema,
   canonicalSenderId: z.string().nullable(),
 
-  // Present+true ⇒ gateway attempted resolution but failed (DB error);
-  // consumer treats it as "could not vouch", distinct from a real `unknown`
-  // stranger.
+  // Present+true ⇒ gateway attempted resolution but could not produce a
+  // usable verdict (DB error, or a sender who maps to the guardian contact
+  // whose principal is unresolved); consumer treats it as "could not vouch",
+  // distinct from a real `unknown` stranger.
   resolutionFailed: z.boolean().optional(),
 
   // Guardian binding — present only when a guardian binding matches.

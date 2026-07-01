@@ -342,7 +342,9 @@ export async function getGuardianBinding(
     channel,
     guardianExternalUserId: delivery.address,
     guardianDeliveryChatId: delivery.externalChatId ?? "",
-    guardianPrincipalId: delivery.principalId ?? "",
+    // A missing principal is surfaced as null (unresolved), never coerced to
+    // an empty string that would masquerade as a present-but-empty principal.
+    guardianPrincipalId: delivery.principalId ?? null,
     status: "active" as const,
     verifiedAt: delivery.verifiedAt ?? 0,
     // verifiedVia is not carried on the delivery contract; a bound guardian

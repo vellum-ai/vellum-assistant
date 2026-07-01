@@ -12,8 +12,9 @@ import { describe, expect, it } from "bun:test";
  *      (optional string), NOT `string | null`.
  *  (b) trustClass in ToolContext must be a required field (no `?`).
  *  (c) The channel retry sweep parser must not reference `actorRole`.
- *  (d) guardianPrincipalId in GuardianBinding must be `string` (non-null,
- *      non-optional).
+ *  (d) guardianPrincipalId in GuardianBinding must be `string | null` —
+ *      a gateway guardian row with no principal surfaces as UNRESOLVED
+ *      (null) and is never coerced to a present-but-empty "" (LUM-2665).
  */
 
 const srcDir = join(import.meta.dir, "..");
@@ -163,10 +164,11 @@ describe("trust-context guards", () => {
   });
 
   // -----------------------------------------------------------------------
-  // (e) guardianPrincipalId is non-null in GuardianBinding
+  // (d) guardianPrincipalId is nullable (unresolved-capable) in
+  //     GuardianBinding
   // -----------------------------------------------------------------------
 
-  it("guardianPrincipalId is typed as string (non-null) in GuardianBinding", () => {
+  it("guardianPrincipalId is typed as string | null in GuardianBinding, and reads never coerce null to ''", () => {
     const source = readFileSync(
       join(srcDir, "channels", "channel-verification-sessions.ts"),
       "utf-8",
@@ -197,18 +199,27 @@ describe("trust-context guards", () => {
       "Expected to find guardianPrincipalId in GuardianBinding",
     ).toBeDefined();
 
-    // Must be `guardianPrincipalId: string` — not optional, not nullable
+    // Must be `guardianPrincipalId: string | null` — a gateway guardian row
+    // with no principal is UNRESOLVED. Callers repair via the vellum anchor
+    // or fail closed; a plain `string` type invites `?? ""` coercion, which
+    // creates undecidable canonical requests (LUM-2665).
     expect(
       principalLine!.includes("string | null") ||
         principalLine!.includes("null | string"),
-      "guardianPrincipalId must not be typed as nullable in GuardianBinding. " +
+      "guardianPrincipalId must be typed `string | null` in GuardianBinding " +
+        "so a missing gateway principal surfaces as unresolved. " +
         `Found: "${principalLine!.trim()}"`,
-    ).toBe(false);
+    ).toBe(true);
 
+    // The synthesizing read must never mask a missing principal as "".
+    const serviceSource = readFileSync(
+      join(srcDir, "runtime", "channel-verification-service.ts"),
+      "utf-8",
+    );
     expect(
-      /guardianPrincipalId\s*\?/.test(principalLine!),
-      "guardianPrincipalId must not be optional in GuardianBinding. " +
-        `Found: "${principalLine!.trim()}"`,
+      serviceSource.includes('principalId ?? ""'),
+      "getGuardianBinding must not coerce a missing gateway principal to " +
+        '"" — surface null and let callers repair or fail closed.',
     ).toBe(false);
   });
 });

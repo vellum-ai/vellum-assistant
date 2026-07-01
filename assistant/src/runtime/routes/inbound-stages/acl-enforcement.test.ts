@@ -180,6 +180,123 @@ describe("enforceIngressAcl — verdict-sourced member resolution", () => {
     expect(result.resolvedMember!.status).toBe("active");
     expect(findContactChannelCalls.length).toBe(0);
   });
+
+  test("member-less guardian verdict is admitted and never fires an access request", async () => {
+    // A guardian classified by principal reaches this channel with NO
+    // per-channel member row: trustClass is "guardian" but the verdict
+    // carries no contactId/channelId/status/policy. The guardian
+    // short-circuit must admit them instead of routing them into the
+    // stranger branch, which fires notifyGuardianOfAccessRequest at the
+    // guardian themselves.
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceMetadata: withVerdict({
+          trustClass: "guardian",
+          canonicalSenderId: "sender-1",
+          guardianPrincipalId: "p-1",
+        }),
+      }),
+    );
+
+    expect(result.earlyResponse).toBeUndefined();
+    expect(result.resolvedMember).toBeNull();
+    expect(accessRequestCalls.length).toBe(0);
+    expect(deliverReplyCalls.length).toBe(0);
+  });
+
+  test("guardian verdict with an inactive (pending) member row is still admitted", async () => {
+    // Guardian by principal whose same-channel row is pending: the
+    // inactive-member deny gate must not challenge or deny the guardian.
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceMetadata: withVerdict(
+          memberVerdict({
+            trustClass: "guardian",
+            status: "pending",
+            guardianPrincipalId: "p-1",
+          }),
+        ),
+      }),
+    );
+
+    expect(result.earlyResponse).toBeUndefined();
+    expect(result.resolvedMember).not.toBeNull();
+    expect(accessRequestCalls.length).toBe(0);
+    expect(deliverReplyCalls.length).toBe(0);
+  });
+
+  test("guardian verdict with an explicit policy-deny member row is denied, not admitted", async () => {
+    // An explicit per-channel policy deny on the guardian's own row is
+    // honored like blocked/revoked — the guardian short-circuit must not
+    // bypass it. Accurate policy_deny reason, no stranger-lane side effects.
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceMetadata: withVerdict(
+          memberVerdict({
+            trustClass: "guardian",
+            policy: "deny",
+            guardianPrincipalId: "p-1",
+          }),
+        ),
+      }),
+    );
+
+    expect(result.earlyResponse).toMatchObject({
+      accepted: true,
+      denied: true,
+      reason: "policy_deny",
+    });
+    expect(accessRequestCalls.length).toBe(0);
+    expect(deliverReplyCalls.length).toBe(0);
+  });
+
+  test("contradictory guardian verdict with a blocked member row fails safe", async () => {
+    // The gateway never classifies a blocked row as guardian; a verdict
+    // claiming both is malformed. Soft-deny with no stranger-lane side
+    // effects.
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceMetadata: withVerdict(
+          memberVerdict({
+            trustClass: "guardian",
+            status: "blocked",
+            policy: "deny",
+          }),
+        ),
+      }),
+    );
+
+    expect(result.earlyResponse).toMatchObject({
+      accepted: true,
+      denied: true,
+      reason: "not_a_member",
+    });
+    expect(accessRequestCalls.length).toBe(0);
+    expect(deliverReplyCalls.length).toBe(0);
+  });
+
+  test("unrecognized trust class fails safe: denied with no stranger-lane side effects", async () => {
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceMetadata: withVerdict({
+          // Deliberately out-of-contract wire data (version skew / malformed
+          // payload) — the cast is the point of the test.
+          trustClass: "totally_new_class" as TrustVerdict["trustClass"],
+          canonicalSenderId: "sender-1",
+        }),
+      }),
+    );
+
+    expect(result.earlyResponse).toMatchObject({
+      accepted: true,
+      denied: true,
+      reason: "not_a_member",
+    });
+    // Fail-safe, never fail-stranger: no access-request card, no
+    // verification challenge, no canned reply.
+    expect(accessRequestCalls.length).toBe(0);
+    expect(deliverReplyCalls.length).toBe(0);
+  });
 });
 
 describe("enforceIngressAcl — hard denies from the verdict status/policy", () => {
