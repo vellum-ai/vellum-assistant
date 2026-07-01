@@ -231,8 +231,8 @@ export async function clearAllConversationIds(): Promise<number> {
  *
  * Goes through the same coalescing write queue as appends and single
  * patches, so overlapping callers cannot race on the on-disk file.
- * If the underlying write fails the returned count is 0 — callers
- * must not report success when the write did not land.
+ * Returns `-1` when the underlying write fails so callers can
+ * distinguish a legitimate zero-count from a persistence failure.
  */
 export async function bulkSetFeedItemStatus(
   from: readonly FeedItemStatus[],
@@ -463,7 +463,7 @@ async function runWrite(): Promise<void> {
     resolve(wrote ? count : 0);
   }
   for (const { resolve, count } of bulkStatusResults) {
-    resolve(wrote ? count : 0);
+    resolve(wrote ? count : -1);
   }
 }
 

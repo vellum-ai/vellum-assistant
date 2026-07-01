@@ -877,4 +877,38 @@ describe("handleBulkSetFeedItemStatus", () => {
     expect(caught).toBeInstanceOf(RouteError);
     expect((caught as { statusCode: number }).statusCode).toBe(400);
   });
+
+  test("500 when the underlying write fails", async () => {
+    const feedPath = getHomeFeedPath();
+    writeFeedFile([makeItem({ id: "n1", status: "new" })]);
+
+    const fs = await import("node:fs");
+    const originalWrite = fs.writeFileSync;
+    mock.module("node:fs", () => ({
+      ...fs,
+      writeFileSync: mock(
+        (
+          path: string,
+          data: string | NodeJS.ArrayBufferView,
+          options?: import("node:fs").WriteFileOptions,
+        ) => {
+          if (typeof path === "string" && path === feedPath) {
+            throw new Error("Simulated write failure");
+          }
+          return originalWrite(path, data, options);
+        },
+      ),
+    }));
+
+    let caught: unknown;
+    try {
+      await _handleBulkSetFeedItemStatus({
+        body: { from: ["new"], to: "seen" },
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(RouteError);
+    expect((caught as { statusCode: number }).statusCode).toBe(500);
+  });
 });

@@ -723,7 +723,7 @@ describe("feed-writer", () => {
 
       try {
         const count = await bulkSetFeedItemStatus(["new"], "seen");
-        expect(count).toBe(0);
+        expect(count).toBe(-1);
 
         const decoded = readFileJson();
         expect(decoded.items[0]!.status).toBe("new");

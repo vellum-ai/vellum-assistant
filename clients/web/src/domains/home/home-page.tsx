@@ -7,6 +7,7 @@ import { CreateScheduleModal } from "@/domains/settings/components/create-schedu
 import { SystemTasksSection } from "@/domains/settings/components/system-tasks-section";
 import { useSystemTasks } from "@/domains/settings/hooks/use-system-tasks";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useSupportsBulkFeedStatus } from "@/lib/backwards-compat/bulk-feed-status";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 import { Button, ResizablePanel, Tabs } from "@vellumai/design-library";
@@ -222,6 +223,7 @@ export function HomePage({
   const feedItems = feedQuery.data?.items ?? [];
   const newCount = feedItems.filter((i) => i.status === "new").length;
   const activeCount = feedItems.filter((i) => i.status !== "dismissed").length;
+  const supportsBulkStatus = useSupportsBulkFeedStatus();
 
   const handleMarkAllRead = useCallback(() => {
     feedQuery.markAll.mutate({ from: ["new"], to: "seen" });
@@ -378,7 +380,7 @@ export function HomePage({
             : "."}
         </div>
       ) : null}
-      {(newCount > 0 || activeCount > 0) && (
+      {supportsBulkStatus && (newCount > 0 || activeCount > 0) && (
         <div className="flex items-center justify-end gap-[var(--app-spacing-sm)]">
           {newCount > 0 && (
             <Button

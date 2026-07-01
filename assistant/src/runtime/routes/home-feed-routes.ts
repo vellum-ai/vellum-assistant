@@ -332,6 +332,10 @@ export async function handleBulkSetFeedItemStatus({
 
   const { from, to } = parsed.data;
   const updatedCount = await bulkSetFeedItemStatus(from, to);
+  if (updatedCount === -1) {
+    throw new InternalError("Failed to persist bulk feed item status update");
+  }
+
   const { updatedAt } = readHomeFeed();
 
   log.info({ from, to, updatedCount }, "POST /v1/home/feed/mark-all");
