@@ -52,6 +52,17 @@ mock.module("../jobs-store.js", () => ({
   isMemoryEnabled: () => memoryEnabled,
 }));
 
+// The read backend also falls back to fts5 when the `default-memory` plugin is
+// disabled via its `.disabled` sentinel — the index write path is suppressed
+// then too. Control `isPluginDisabled` so one test asserts that fallback; it
+// defaults false so the other qdrant tests exercise the populated-index path.
+let pluginDisabled = false;
+const actualDisabledState = await import("../../plugins/disabled-state.js");
+mock.module("../../plugins/disabled-state.js", () => ({
+  ...actualDisabledState,
+  isPluginDisabled: () => pluginDisabled,
+}));
+
 import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
 import {
   deleteMemoryCheckpoint,
@@ -134,6 +145,7 @@ describe("searchConversations · qdrant backend", () => {
   beforeEach(() => {
     resetTables();
     memoryEnabled = true;
+    pluginDisabled = false;
     // These tests exercise the populated-index (post-backfill) qdrant path.
     markBackfillComplete();
     searchMessageIdsLexicalMock.mockClear();
@@ -331,6 +343,27 @@ describe("searchConversations · qdrant backend", () => {
     ]);
   });
 
+  test("uses the fts5 path (not qdrant) when the memory plugin is disabled, even after backfill", async () => {
+    // The `default-memory` plugin can be disabled via its `.disabled` sentinel
+    // while memory.enabled stays true and the backfill marker is set. In that
+    // state the per-message index write path is suppressed, so new/edited
+    // messages are missing from `messages_lexical`. The read must fall back to
+    // the always-populated fts5 path and never query the (stale) lexical index —
+    // matching the write side's `isMemoryIndexingSuppressed`.
+    pluginDisabled = true;
+    const conv = createConversation("Notes");
+    insertMessage("m-1", conv.id, "the flux capacitor needs recalibration");
+    lexicalReturns(["m-1"]);
+
+    const results = await searchConversations("flux capacitor");
+
+    expect(searchMessageIdsLexicalMock).not.toHaveBeenCalled();
+    expect(results.map((r) => r.conversationId)).toEqual([conv.id]);
+    expect(results[0]!.matchingMessages.map((m) => m.messageId)).toEqual([
+      "m-1",
+    ]);
+  });
+
   test("uses the fts5 path (not qdrant) until the backfill completion checkpoint is set", async () => {
     // On an upgraded instance the historical messages are indexed by a
     // background backfill. Until it drains, the lexical collection is only
@@ -377,6 +410,8 @@ describe("searchConversations · qdrant backend", () => {
 describe("searchConversations · fts5 backend ignores the lexical index", () => {
   beforeEach(() => {
     resetTables();
+    memoryEnabled = true;
+    pluginDisabled = false;
     // Backfill completion is irrelevant on the fts5 backend, but clear it so
     // this suite does not depend on the qdrant suite's marker leaking across.
     deleteMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY);
