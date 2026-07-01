@@ -97,6 +97,7 @@ import {
   createCanonicalGuardianRequest,
   listCanonicalGuardianDeliveries,
   listCanonicalGuardianRequests,
+  resolveCanonicalGuardianRequest,
 } from "../contacts/canonical-guardian-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
@@ -303,6 +304,75 @@ describe("non-member access request notification", () => {
       kind: "access_request",
     });
     expect(pending.length).toBe(1);
+  });
+
+  // End-to-end regression for the reported bug: after the guardian DENIES an
+  // access request, subsequent DMs from the same sender must not re-prompt.
+  // Drives the real inbound path for both messages so the deny-dedup matches
+  // the exact assistant-scoped conversationId the notify path derives — a
+  // hand-crafted fixture could mask a mismatch. This FAILS on the pre-fix code
+  // (second inbound would emit a second signal).
+  test("a denied sender's subsequent DM does not re-prompt the guardian", async () => {
+    seedGatewayGuardian({
+      channelType: "telegram",
+      address: "guardian-user-789",
+      externalChatId: "guardian-chat-789",
+      principalId: anchorPrincipalId,
+    });
+    createGuardianBinding({
+      channel: "telegram",
+      guardianExternalUserId: "guardian-user-789",
+      guardianDeliveryChatId: "guardian-chat-789",
+      guardianPrincipalId: anchorPrincipalId,
+      verifiedVia: "test",
+    });
+
+    // 1) First DM from the unknown sender → guardian is prompted once.
+    await handleChannelInbound(
+      buildInboundRequest(),
+      undefined,
+      TEST_BEARER_TOKEN,
+    );
+    expect(emitSignalCalls.length).toBe(1);
+
+    const created = listCanonicalGuardianRequests({
+      status: "pending",
+      requesterExternalUserId: "user-unknown-456",
+      sourceChannel: "telegram",
+      kind: "access_request",
+    });
+    expect(created.length).toBe(1);
+
+    // 2) Guardian denies — resolve the *real* request (same CAS transition the
+    // deny primitive performs), preserving its conversationId.
+    const denied = resolveCanonicalGuardianRequest(created[0].id, "pending", {
+      status: "denied",
+      decidedByExternalUserId: "guardian-user-789",
+    });
+    expect(denied?.status).toBe("denied");
+
+    // 3) Same sender DMs again → still denied, but NO new guardian prompt.
+    const resp2 = await handleChannelInbound(
+      buildInboundRequest({
+        externalMessageId: `msg-after-deny-${Date.now()}`,
+      }),
+      undefined,
+      TEST_BEARER_TOKEN,
+    );
+    const json2 = (await resp2.json()) as Record<string, unknown>;
+    expect(json2.denied).toBe(true);
+
+    // No additional access-request signal was emitted (still just the first).
+    expect(emitSignalCalls.length).toBe(1);
+
+    // And no fresh pending request was created for the denied sender.
+    const pendingAfter = listCanonicalGuardianRequests({
+      status: "pending",
+      requesterExternalUserId: "user-unknown-456",
+      sourceChannel: "telegram",
+      kind: "access_request",
+    });
+    expect(pendingAfter.length).toBe(0);
   });
 
   test("access request is created with self-healed principal even without same-channel guardian binding", async () => {
