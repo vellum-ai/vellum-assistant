@@ -333,7 +333,7 @@ function InstallAndConnectStep({
           type="button"
           variant="primary"
           onClick={onSave}
-          disabled={saveStatus === "pending"}
+          disabled={!botToken.trim() || saveStatus === "pending"}
         >
           {saveStatus === "pending" ? "Saving\u2026" : "Save"}
         </Button>
