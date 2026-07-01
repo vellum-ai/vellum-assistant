@@ -17,6 +17,7 @@ import {
   generateLocalSigningKey,
   isAssistantWatchModeAvailable,
   isGatewayWatchModeAvailable,
+  startCes,
   startLocalDaemon,
   startGateway,
 } from "../lib/local";
@@ -176,6 +177,13 @@ export async function wake(): Promise<void> {
   }
 
   if (!daemonRunning) {
+    // Launch the CES sibling before the daemon so its socket is bound by the
+    // time the assistant probes for it. CES's lifecycle tracks the daemon (its
+    // only consumer): restarting it under a live daemon would sever the
+    // daemon's open connection, so it is only (re)started alongside the daemon.
+    // No-op unless VELLUM_TEMP_CES_SIBLING is set, in which case the assistant
+    // spawns CES itself as today.
+    await startCes(watch, resources);
     await startLocalDaemon(watch, resources, { foreground, signingKey });
   }
 
@@ -256,7 +264,11 @@ export async function wake(): Promise<void> {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         await resetGuardianBootstrap(loopbackUrl, bootstrapSecret);
-        await leaseGuardianToken(loopbackUrl, entry.assistantId, bootstrapSecret);
+        await leaseGuardianToken(
+          loopbackUrl,
+          entry.assistantId,
+          bootstrapSecret,
+        );
         console.log("   Re-provisioned guardian token.");
         break;
       } catch (err) {

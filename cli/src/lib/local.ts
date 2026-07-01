@@ -143,6 +143,19 @@ function localRuntimeGatewayDir(
   return isGatewaySourceDir(candidate) ? candidate : undefined;
 }
 
+function localRuntimeCesDir(
+  resources: LocalInstanceResources | undefined,
+): string | undefined {
+  const installDir = resources?.runtimeInstallDir;
+  if (!installDir) return undefined;
+  const candidate = packagePath(
+    installDir,
+    "@vellumai/credential-executor",
+    "",
+  );
+  return isCesSourceDir(candidate) ? candidate : undefined;
+}
+
 export function ensureLocalRuntime(
   resources: LocalInstanceResources,
   version: string,
@@ -328,6 +341,18 @@ function isGatewaySourceDir(dir: string): boolean {
   try {
     const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
     return pkg.name === "@vellumai/vellum-gateway";
+  } catch {
+    return false;
+  }
+}
+
+function isCesSourceDir(dir: string): boolean {
+  const pkgPath = join(dir, "package.json");
+  if (!existsSync(pkgPath) || !existsSync(join(dir, "src", "main.ts")))
+    return false;
+  try {
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    return pkg.name === "@vellumai/credential-executor";
   } catch {
     return false;
   }
@@ -526,6 +551,14 @@ function applyDaemonEnvOverrides(
     env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH =
       options.defaultWorkspaceConfigPath;
   }
+  // When the CLI launches CES as a sibling (VELLUM_TEMP_CES_SIBLING), pin the
+  // daemon to the exact socket the sibling binds so the two agree regardless of
+  // any stale CES_LOCAL_SOCKET inherited from the parent environment. The
+  // assistant then connects to the sibling instead of spawning its own CES.
+  if (isCesSiblingOptIn()) {
+    env.VELLUM_TEMP_CES_SIBLING = "1";
+    env.CES_LOCAL_SOCKET = resolveCesSocketPath(resources);
+  }
   applyIpcSocketDirOverride(env);
 }
 
@@ -714,6 +747,168 @@ function resolveGatewayDir(resources?: LocalInstanceResources): string {
     throw new Error(
       "Gateway not found. Ensure @vellumai/vellum-gateway is installed or run from the source tree.",
     );
+  }
+}
+
+function resolveCesDir(resources?: LocalInstanceResources): string {
+  const runtimeCesDir = localRuntimeCesDir(resources);
+  if (runtimeCesDir) return runtimeCesDir;
+
+  // Source tree / npm sibling: cli/src/lib/ → ../../.. → credential-executor/
+  const sourceDir = join(
+    import.meta.dir,
+    "..",
+    "..",
+    "..",
+    "credential-executor",
+  );
+  if (isCesSourceDir(sourceDir)) {
+    return sourceDir;
+  }
+
+  // npm-installed elsewhere on disk: resolve via the package entry.
+  try {
+    const pkgPath = _require.resolve(
+      "@vellumai/credential-executor/package.json",
+    );
+    return dirname(pkgPath);
+  } catch {
+    throw new Error(
+      "credential-executor not found. Ensure @vellumai/credential-executor is installed or run from the source tree.",
+    );
+  }
+}
+
+/**
+ * Resolve the Unix socket path the CLI-launched CES sibling binds and the
+ * daemon connects to. Both sides read `CES_LOCAL_SOCKET`, which the CLI sets to
+ * this exact path so they agree. On macOS, long workspace paths are relocated
+ * to a short tmpdir override (the same one the IPC sockets use) to stay under
+ * the AF_UNIX path limit.
+ */
+function resolveCesSocketPath(resources?: LocalInstanceResources): string {
+  const workspaceDir = resources
+    ? join(resources.instanceDir, ".vellum", "workspace")
+    : join(homedir(), ".vellum", "workspace");
+  const override = computeIpcSocketDirOverride(workspaceDir);
+  const socketDir = override ?? workspaceDir;
+  mkdirSync(socketDir, { recursive: true });
+  return join(socketDir, "ces.sock");
+}
+
+/**
+ * Whether the CLI should launch CES as an independent sibling process instead
+ * of leaving the assistant to spawn it as an stdio child. Temporary opt-in
+ * (`VELLUM_TEMP_CES_SIBLING=1`) while local CES converges onto the sibling
+ * model that containerized homes already use.
+ */
+function isCesSiblingOptIn(): boolean {
+  return process.env.VELLUM_TEMP_CES_SIBLING === "1";
+}
+
+/**
+ * Launch the local CES sibling over a Unix socket (opted into via
+ * `VELLUM_TEMP_CES_SIBLING`). No-op unless the opt-in is set, in which case the
+ * assistant continues to spawn CES itself as today.
+ *
+ * The sibling runs with `CES_STANDALONE=1` so its lifecycle is anchored to
+ * SIGTERM rather than stdin EOF, mirroring the gateway: a CLI-owned process
+ * with a PID file under `.vellum/ces.pid`, started by `wake` and stopped by
+ * `sleep`.
+ */
+export async function startCes(
+  watch: boolean = false,
+  resources?: LocalInstanceResources,
+): Promise<void> {
+  if (!isCesSiblingOptIn()) return;
+
+  const vellumDir = resources
+    ? join(resources.instanceDir, ".vellum")
+    : join(homedir(), ".vellum");
+  const cesPidFile = join(vellumDir, "ces.pid");
+
+  // Kill any existing sibling first — a stale CES holds the socket and would
+  // corrupt the shared credential store if a second copy also bound it.
+  await stopProcessByPidFile(cesPidFile, "credential-executor");
+
+  console.log("🔐 Starting credential-executor sibling...");
+
+  const socketPath = resolveCesSocketPath(resources);
+  // A stale socket file from an unclean shutdown blocks re-bind; CES unlinks it
+  // on startup, but remove it here too so a leftover never masks a launch bug.
+  try {
+    unlinkSync(socketPath);
+  } catch {
+    /* no stale socket — fine */
+  }
+
+  const securityDir = resources
+    ? join(resources.instanceDir, ".vellum", "protected")
+    : join(homedir(), ".vellum", "protected");
+  const workspaceDir = resources
+    ? join(resources.instanceDir, ".vellum", "workspace")
+    : join(homedir(), ".vellum", "workspace");
+  mkdirSync(securityDir, { recursive: true });
+
+  const cesEnv: Record<string, string | undefined> = {
+    ...process.env,
+    CES_STANDALONE: "1",
+    CES_LOCAL_SOCKET: socketPath,
+    CREDENTIAL_SECURITY_DIR: securityDir,
+    VELLUM_WORKSPACE_DIR: workspaceDir,
+  };
+
+  let ces;
+  const runtimeCesDir = !watch ? localRuntimeCesDir(resources) : undefined;
+  const cesBinary = join(dirname(process.execPath), "credential-executor");
+  if (!runtimeCesDir && existsSync(cesBinary) && !watch) {
+    // Compiled binary alongside the CLI (desktop app / compiled CLI).
+    const cesLogFd = openLogFile("hatch.log");
+    ces = spawn(cesBinary, [], {
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: cesEnv,
+    });
+    pipeToLogFile(ces, cesLogFd, "credential-executor");
+  } else {
+    // Source tree / bunx: run the CES entry point via bun.
+    const cesDir = runtimeCesDir ?? resolveCesDir(resources);
+    const bunArgs = watch
+      ? ["--watch", "run", "src/main.ts"]
+      : ["run", "src/main.ts"];
+    const cesLogFd = openLogFile("hatch.log");
+    ces = spawn(resolveBunExecutable(), bunArgs, {
+      cwd: cesDir,
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: envWithBunPath(cesEnv),
+    });
+    pipeToLogFile(ces, cesLogFd, "credential-executor");
+    if (watch) {
+      console.log("   credential-executor started in watch mode (bun --watch)");
+    }
+  }
+
+  ces.unref();
+
+  if (ces.pid) {
+    mkdirSync(vellumDir, { recursive: true });
+    writeFileSync(cesPidFile, String(ces.pid), "utf-8");
+  }
+
+  // Wait for the socket to appear so the daemon's discovery finds it on the
+  // first probe rather than burning its retry budget.
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    if (existsSync(socketPath)) break;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  if (!existsSync(socketPath)) {
+    console.warn(
+      "⚠ credential-executor started but its socket did not appear within 10s",
+    );
+  } else {
+    console.log("✅ credential-executor started\n");
   }
 }
 
@@ -1406,6 +1601,12 @@ export async function stopLocalProcesses(
 
   const gatewayPidFile = join(vellumDir, "gateway.pid");
   await stopProcessByPidFile(gatewayPidFile, "gateway", undefined, 7000);
+
+  // Stop the CES sibling if one was launched (VELLUM_TEMP_CES_SIBLING). No-op
+  // when the PID file is absent, so this is safe on the default topology where
+  // the assistant owns CES as an stdio child.
+  const cesPidFile = join(vellumDir, "ces.pid");
+  await stopProcessByPidFile(cesPidFile, "credential-executor");
 
   // Kill ngrok directly by PID rather than using stopProcessByPidFile, because
   // isVellumProcess() won't match the ngrok binary — resulting in a no-op that
