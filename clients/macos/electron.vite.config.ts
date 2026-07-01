@@ -49,7 +49,7 @@ const resolveBuildSha = (): string => {
 // Bun version bundled with the app, read from the repo-root `.tool-versions`
 // (the same source fetch-bun.sh downloads from). Baked into the main bundle so
 // the CLI installer can stamp `packageManager: bun@<version>` on the install it
-// writes, marking that install bun-only (see cli-installer.ts, LUM-2649).
+// writes, marking that install bun-only.
 const resolveBunVersion = (): string => {
   try {
     const toolVersions = readFileSync(

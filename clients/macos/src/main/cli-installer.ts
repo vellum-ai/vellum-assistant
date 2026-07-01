@@ -297,8 +297,8 @@ function seedCliLockfile(installDir: string): boolean {
  * Stamp `packageManager: bun@<version>` into the install dir's package.json to
  * mark the install bun-only. Both `bun add` and the seeded package.json omit
  * the field, so a manual `npm install` during recovery would silently drift the
- * install to a package-lock.json the bun loader ignores (LUM-2649). No-op when
- * the bun version is unknown (non-packaged build) or already stamped. Non-fatal.
+ * install to a package-lock.json the bun loader ignores. No-op when the bun
+ * version is unknown (non-packaged build) or already stamped. Non-fatal.
  */
 function stampPackageManager(installDir: string): void {
   if (!BUNDLED_BUN_VERSION) return;
@@ -404,7 +404,7 @@ async function bunInstallCli(): Promise<void> {
   }
 
   // Mark the freshly written install bun-only so manual recovery doesn't drift
-  // it to npm (LUM-2649). Both bun add and the seeded package.json omit the field.
+  // it to npm. Both bun add and the seeded package.json omit the field.
   stampPackageManager(installDir);
 }
 
