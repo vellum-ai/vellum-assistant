@@ -17,6 +17,7 @@
  * — the hooks stay registered but are filtered out on the next turn.
  */
 
+import { resolveConversationPluginScope } from "../daemon/conversation-plugin-scope.js";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import { getUserHooksFor } from "../plugins/mtime-cache.js";
 import type { HookFunction } from "../plugins/types.js";
@@ -90,16 +91,20 @@ export function unregisterPluginHooks(pluginName: string): void {
  * context in place return `void`; hooks that return a new context replace
  * the threaded value for the next hook in the chain.
  *
- * `effectiveEnabledPlugins` layers the per-chat plugin scope on top of the
- * global disabled check: when non-null, a hook's contributing plugin must also
- * be a member of the set or the hook is excluded for this turn (applies to both
- * in-process default plugins and user-land plugins). `null`/omitted means no
- * per-chat restriction — every globally-enabled plugin's hooks run, unchanged.
+ * When `conversationId` is given, the conversation's effective plugin scope is
+ * resolved from it (memory, then DB) and layered on top of the global disabled
+ * check: a hook's contributing plugin must also be a member of that set or the
+ * hook is excluded for this turn (applies to both in-process default plugins
+ * and user-land plugins). Omit it (or pass a conversation with no per-chat
+ * restriction) and every globally-enabled plugin's hooks run, unchanged.
  */
 export async function getHooksFor<TCtx = unknown>(
   name: string,
-  effectiveEnabledPlugins?: Set<string> | null,
+  options?: { conversationId?: string },
 ): Promise<HookFunction<TCtx>[]> {
+  const effectiveEnabledPlugins = options?.conversationId
+    ? resolveConversationPluginScope(options.conversationId)
+    : null;
   // First-party defaults from the hook registry, filtered by the `.disabled`
   // sentinel at read time. This is what makes `assistant plugins disable
   // default-*` take effect immediately in a running assistant: the hooks stay

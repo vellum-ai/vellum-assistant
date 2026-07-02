@@ -19,7 +19,6 @@
 import { getHooksFor } from "../hooks/registry.js";
 import type { HookName } from "../plugin-api/constants.js";
 import { getLogger } from "../util/logger.js";
-import { resolveConversationPluginScope } from "./enabled-plugin-scope.js";
 import type { HookFunction } from "./types.js";
 
 // ─── Hook runner ────────────────────────────────────────────────────────────
@@ -108,11 +107,10 @@ function cloneHookValue<T>(value: T, seen = new WeakMap<object, unknown>()): T {
  * successfully committed context. The final context after the chain settles is
  * returned.
  *
- * When `initialCtx` carries a `conversationId`, the per-chat plugin scope is
- * resolved from it (memory, then DB) via {@link resolveConversationPluginScope}
- * and applied under the hood: a hook whose contributing plugin is outside the
- * conversation's effective set is skipped for this run. Contexts without a
- * `conversationId` (or when no resolver is registered) impose no restriction —
+ * When `initialCtx` carries a `conversationId`, it is passed to
+ * {@link getHooksFor}, which resolves the conversation's per-chat plugin scope
+ * (memory, then DB) and skips a hook whose contributing plugin is outside the
+ * effective set. Contexts without a `conversationId` impose no restriction —
  * every globally-enabled plugin's hook runs.
  *
  * @param name        The hook identifier — pick one from {@link HOOKS}.
@@ -124,10 +122,10 @@ export async function runHook<TCtx>(
   name: HookName,
   initialCtx: TCtx,
 ): Promise<TCtx> {
-  const effectiveEnabledPlugins = resolvePluginScopeFromContext(initialCtx);
+  const conversationId = extractConversationId(initialCtx);
   let hooks: HookFunction<TCtx>[];
   try {
-    hooks = await getHooksFor<TCtx>(name, effectiveEnabledPlugins);
+    hooks = await getHooksFor<TCtx>(name, { conversationId });
   } catch (err) {
     log.error(
       { err, hookName: name },
@@ -156,15 +154,9 @@ export async function runHook<TCtx>(
   return active;
 }
 
-/**
- * Derive the per-chat plugin scope from a hook context: when it carries a
- * string `conversationId`, resolve the conversation's effective set via the
- * registered resolver; otherwise return `null` (no per-chat restriction).
- */
-function resolvePluginScopeFromContext(ctx: unknown): Set<string> | null {
+/** The `conversationId` off a hook context, when it carries one as a string. */
+function extractConversationId(ctx: unknown): string | undefined {
   const conversationId = (ctx as { conversationId?: unknown } | null)
     ?.conversationId;
-  return typeof conversationId === "string"
-    ? resolveConversationPluginScope(conversationId)
-    : null;
+  return typeof conversationId === "string" ? conversationId : undefined;
 }

@@ -1,6 +1,14 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { registerConversationPluginScopeResolver } from "../plugins/enabled-plugin-scope.js";
+// Stub the conversation scope resolver so the pipeline's conversationId-based
+// scoping can be exercised without a live conversation or DB row.
+const resolveScopeMock = mock(
+  (_conversationId: string): Set<string> | null => null,
+);
+mock.module("../daemon/conversation-plugin-scope.js", () => ({
+  resolveConversationPluginScope: (id: string) => resolveScopeMock(id),
+}));
+
 import { runHook } from "../plugins/pipeline.js";
 import {
   registerPlugin,
@@ -9,6 +17,8 @@ import {
 
 beforeEach(() => {
   resetPluginRegistryForTests();
+  resolveScopeMock.mockReset();
+  resolveScopeMock.mockImplementation(() => null);
 });
 
 describe("plugin pipeline", () => {
@@ -97,8 +107,6 @@ describe("plugin pipeline", () => {
 });
 
 describe("plugin pipeline — per-conversation scope", () => {
-  afterEach(() => registerConversationPluginScopeResolver(null));
-
   function registerSeenHook(name: string) {
     registerPlugin({
       manifest: { name, version: "1.0.0" },
@@ -113,7 +121,7 @@ describe("plugin pipeline — per-conversation scope", () => {
   test("scopes hooks to the resolved set when the context has a conversationId", async () => {
     registerSeenHook("in-scope");
     registerSeenHook("out-scope");
-    registerConversationPluginScopeResolver((conversationId) =>
+    resolveScopeMock.mockImplementation((conversationId: string) =>
       conversationId === "c1" ? new Set(["in-scope"]) : null,
     );
 
@@ -124,17 +132,22 @@ describe("plugin pipeline — per-conversation scope", () => {
       { conversationId: "c1", seen: [] },
     );
     expect(scoped.seen).toEqual(["in-scope"]);
+    expect(resolveScopeMock).toHaveBeenCalledWith("c1");
 
-    // A context without a conversationId imposes no restriction.
+    // A context without a conversationId is never resolved and imposes no
+    // restriction.
+    resolveScopeMock.mockClear();
     const unscoped = await runHook<{ seen: string[] }>("user-prompt-submit", {
       seen: [],
     });
     expect(unscoped.seen).toEqual(["in-scope", "out-scope"]);
+    expect(resolveScopeMock).not.toHaveBeenCalled();
   });
 
-  test("imposes no restriction when no resolver is registered", async () => {
+  test("imposes no restriction when the resolver returns null", async () => {
     registerSeenHook("plugin-a");
     registerSeenHook("plugin-b");
+    resolveScopeMock.mockImplementation(() => null);
 
     const result = await runHook<{ conversationId: string; seen: string[] }>(
       "user-prompt-submit",

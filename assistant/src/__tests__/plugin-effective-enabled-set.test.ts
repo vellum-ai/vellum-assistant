@@ -9,8 +9,9 @@
  * the contract that both gather sites honor it:
  *  - `getRegisteredInjectors(set)` excludes injectors from plugins outside the
  *    set, and is unchanged for `null`/omitted.
- *  - `getHooksFor(name, set)` excludes in-process default-plugin hooks outside
- *    the set, and is unchanged for `null`/omitted.
+ *  - `getHooksFor(name, { conversationId })` resolves the conversation's scope
+ *    and excludes in-process default-plugin hooks outside it; omitting the
+ *    conversationId imposes no restriction.
  *  - `collectUserHooks(name, dirs, set)` excludes user-land plugin hooks outside
  *    the set, while standalone workspace hooks (not owned by a plugin) still run.
  *
@@ -21,7 +22,16 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+
+// `getHooksFor` resolves the per-chat scope from a conversationId via this
+// module; stub it so the hook tests can drive the effective set directly.
+const resolveScopeMock = mock(
+  (_conversationId: string): Set<string> | null => null,
+);
+mock.module("../daemon/conversation-plugin-scope.js", () => ({
+  resolveConversationPluginScope: (id: string) => resolveScopeMock(id),
+}));
 
 import { collectUserHooks } from "../hooks/hook-loader.js";
 import { getHooksFor } from "../hooks/registry.js";
@@ -91,10 +101,14 @@ describe("getRegisteredInjectors per-chat plugin scope", () => {
 });
 
 describe("getHooksFor per-chat plugin scope (in-process default hooks)", () => {
-  beforeEach(() => resetPluginRegistryForTests());
+  beforeEach(() => {
+    resetPluginRegistryForTests();
+    resolveScopeMock.mockReset();
+    resolveScopeMock.mockImplementation(() => null);
+  });
   afterEach(() => resetPluginRegistryForTests());
 
-  test("null/omitted set runs both plugins' hooks (unchanged)", async () => {
+  test("no conversationId (or an unrestricted one) runs both plugins' hooks", async () => {
     registerPlugin(
       buildPlugin("default-a", {
         "user-prompt-submit": () => Promise.resolve(),
@@ -106,11 +120,16 @@ describe("getHooksFor per-chat plugin scope (in-process default hooks)", () => {
       }),
     );
 
+    // No conversationId → the resolver is never consulted.
     expect(await getHooksFor("user-prompt-submit")).toHaveLength(2);
-    expect(await getHooksFor("user-prompt-submit", null)).toHaveLength(2);
+    expect(resolveScopeMock).not.toHaveBeenCalled();
+    // A conversationId whose scope resolves to null (no restriction).
+    expect(
+      await getHooksFor("user-prompt-submit", { conversationId: "c1" }),
+    ).toHaveLength(2);
   });
 
-  test("a set excluding plugin b drops b's hooks and keeps a's", async () => {
+  test("a scope excluding plugin b drops b's hooks and keeps a's", async () => {
     let aRan = 0;
     let bRan = 0;
     registerPlugin(
@@ -129,12 +148,13 @@ describe("getHooksFor per-chat plugin scope (in-process default hooks)", () => {
         },
       }),
     );
+    resolveScopeMock.mockImplementation(() => new Set(["default-a"]));
 
-    const hooks = await getHooksFor(
-      "user-prompt-submit",
-      new Set(["default-a"]),
-    );
+    const hooks = await getHooksFor("user-prompt-submit", {
+      conversationId: "c1",
+    });
     expect(hooks).toHaveLength(1);
+    expect(resolveScopeMock).toHaveBeenCalledWith("c1");
 
     // The surviving hook is a's, not b's.
     await hooks[0]!({});
@@ -142,14 +162,15 @@ describe("getHooksFor per-chat plugin scope (in-process default hooks)", () => {
     expect(bRan).toBe(0);
   });
 
-  test("an empty set excludes every plugin's hooks", async () => {
+  test("an empty scope excludes every plugin's hooks", async () => {
     registerPlugin(
       buildPlugin("default-a", {
         "user-prompt-submit": () => Promise.resolve(),
       }),
     );
+    resolveScopeMock.mockImplementation(() => new Set<string>());
     expect(
-      await getHooksFor("user-prompt-submit", new Set<string>()),
+      await getHooksFor("user-prompt-submit", { conversationId: "c1" }),
     ).toHaveLength(0);
   });
 });
