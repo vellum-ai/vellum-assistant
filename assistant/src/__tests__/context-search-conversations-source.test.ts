@@ -35,19 +35,6 @@ mock.module("../persistence/conversation-search-lexical.js", () => ({
   },
 }));
 
-// Drives the real recall availability gate: when true the source yields no
-// evidence, because the lexical index write path is suppressed and the
-// collection is never populated. Defaults false so every other test exercises
-// the live path. Spread the real module so its other exports (job handlers,
-// enqueue helpers) stay intact for transitive importers.
-let suppressIndexing = false;
-const realLexicalModule =
-  await import("../persistence/job-handlers/message-lexical.js");
-mock.module("../persistence/job-handlers/message-lexical.js", () => ({
-  ...realLexicalModule,
-  isMemoryIndexingSuppressed: () => suppressIndexing,
-}));
-
 import {
   deleteMemoryCheckpoint,
   LEXICAL_BACKFILL_COMPLETE_KEY,
@@ -67,15 +54,13 @@ describe("searchConversationSource (qdrant lexical index)", () => {
     getDb().run("DELETE FROM messages");
     getDb().run("DELETE FROM conversations");
     lexicalCalls = [];
-    suppressIndexing = false;
-    // Content evidence is available once the index is populated: not
-    // suppressed + backfill complete. Most tests exercise that path, so mark
-    // the backfill complete; the gates are covered by their own tests.
+    // Content evidence is available once the index is populated (backfill
+    // complete). Most tests exercise that path, so mark the backfill
+    // complete; the gate is covered by its own test.
     setMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY, "1");
   });
 
   afterEach(() => {
-    suppressIndexing = false;
     deleteMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY);
     lexicalMockImpl = () => {
       throw new Error(
@@ -138,29 +123,6 @@ describe("searchConversationSource (qdrant lexical index)", () => {
     expect(lexicalCalls).toHaveLength(0);
     expect(shortResult.evidence).toEqual([]);
     expect(unicodeResult.evidence).toEqual([]);
-  });
-
-  test("returns no evidence when memory indexing is suppressed", async () => {
-    await seedConversation({
-      title: "Suppressed indexing notes",
-      content: "The suppressedtoken decision is recorded here.",
-    });
-
-    // The lexical index is never populated while indexing is suppressed, so
-    // the source must yield no evidence without consulting Qdrant.
-    suppressIndexing = true;
-    lexicalMockImpl = async () => {
-      throw new Error("searchMessageIdsLexical must not run while suppressed");
-    };
-
-    const result = await searchConversationSource(
-      "suppressedtoken",
-      makeContext(),
-      5,
-    );
-
-    expect(lexicalCalls).toHaveLength(0);
-    expect(result.evidence).toEqual([]);
   });
 
   test("returns no evidence until the backfill completion checkpoint is set", async () => {

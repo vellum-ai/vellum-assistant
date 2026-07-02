@@ -72,6 +72,7 @@ import {
   copyForkMessagesViaSubprocess,
   type ForkIdPair,
 } from "./fork-message-copy.js";
+import { enqueueLexicalIndexForMessage } from "./job-handlers/message-lexical.js";
 import { getMemoryPersistenceHooks } from "./memory-lifecycle-hooks.js";
 import {
   rawExec,
@@ -1684,6 +1685,12 @@ export async function addMessage(
   const message = inserted;
 
   if (!skipIndexing) {
+    // Message-content lexical indexing is host infrastructure, invoked
+    // directly (not through the memory hook seam, whose active side effects go
+    // inert while the memory plugin is disabled — search indexing must not).
+    // The direct write seams (streaming finalize, import, edit) enqueue for
+    // themselves; this covers the plain addMessage path.
+    enqueueLexicalIndexForMessage(message.id);
     try {
       const parsed = metadata
         ? messageMetadataSchema.safeParse(metadata)

@@ -15,7 +15,6 @@ import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { searchMessageIdsLexical } from "./conversation-search-lexical.js";
 import type { ConversationType } from "./conversation-types.js";
 import { getDb } from "./db-connection.js";
-import { isMemoryEnabled } from "./jobs-store.js";
 import { rawAll } from "./raw-query.js";
 import { conversations, messages } from "./schema/index.js";
 
@@ -282,7 +281,9 @@ export function getMessageRoleStatsByConversation(
   conversationIds: string[],
   role: string = "assistant",
 ): Map<string, { count: number; lastAt: number }> {
-  if (conversationIds.length === 0) return new Map();
+  if (conversationIds.length === 0) {
+    return new Map();
+  }
   const db = getDb();
   const rows = db
     .select({
@@ -433,7 +434,9 @@ export function isLastUserMessageToolResult(conversationId: string): boolean {
     .limit(1)
     .get();
 
-  if (!lastUserMsg) return false;
+  if (!lastUserMsg) {
+    return false;
+  }
 
   try {
     const parsed = JSON.parse(lastUserMsg.content);
@@ -493,20 +496,14 @@ function likeContainsPattern(query: string): string {
 /**
  * Whether the sparse Qdrant `messages_lexical` index — the only source of
  * message-content matches — is a safe read source. Content matching is
- * unavailable (title matches only) in two cases, each of which would
- * otherwise silently return too little (an empty result — not a throw):
- *   1. Memory is disabled — the per-message write path is suppressed, so the
- *      collection is never forward-filled. `!isMemoryEnabled()` is the
- *      layer-clean check available from `persistence/`.
- *   2. The one-time upgrade backfill has not finished — the collection is only
- *      partially populated, so older content is missing until it drains.
- *
- * The recall read site applies the same completion gate (via the shared
- * {@link isLexicalBackfillComplete}) on top of its own, stricter suppression
- * check (`isMemoryIndexingSuppressed`, which also covers a disabled plugin).
+ * unavailable (title matches only) until the one-time upgrade backfill has
+ * fully drained: a partially populated collection would silently miss older
+ * content (an empty result — not a throw). Indexing itself is unconditional
+ * host infrastructure, so completion is the only gate; the recall read site
+ * applies the same one via the shared {@link isLexicalBackfillComplete}.
  */
 function isMessageContentSearchAvailable(): boolean {
-  return isMemoryEnabled() && isLexicalBackfillComplete();
+  return isLexicalBackfillComplete();
 }
 
 /**
@@ -535,7 +532,9 @@ export async function searchConversations(
   query: string,
   opts?: { limit?: number; maxMessagesPerConversation?: number },
 ): Promise<ConversationSearchResult[]> {
-  if (!query.trim()) return [];
+  if (!query.trim()) {
+    return [];
+  }
 
   ensureGroupMigration();
   const db = getDb();
@@ -617,13 +616,18 @@ export async function searchConversations(
       qdrantCandidatesByConv = new Map();
       for (const candidate of candidates) {
         const convId = visibleConvByMessageId.get(candidate.messageId);
-        if (!convId) continue;
+        if (!convId) {
+          continue;
+        }
         const bucket = qdrantCandidatesByConv.get(convId);
         if (bucket) {
           bucket.push(candidate.messageId);
         } else {
-          if (qdrantCandidatesByConv.size >= CONVERSATION_SEARCH_DISTINCT_LIMIT)
+          if (
+            qdrantCandidatesByConv.size >= CONVERSATION_SEARCH_DISTINCT_LIMIT
+          ) {
             continue;
+          }
           qdrantCandidatesByConv.set(convId, [candidate.messageId]);
           contentConvIds.add(convId);
         }
@@ -661,9 +665,13 @@ export async function searchConversations(
       ),
     )
     .all();
-  for (const row of titleMatchConvs) contentConvIds.add(row.id);
+  for (const row of titleMatchConvs) {
+    contentConvIds.add(row.id);
+  }
 
-  if (contentConvIds.size === 0) return [];
+  if (contentConvIds.size === 0) {
+    return [];
+  }
 
   // Fetch the matching conversation rows, ordered by updatedAt, capped at limit.
   const convIds = [...contentConvIds];
@@ -682,7 +690,9 @@ export async function searchConversations(
     limit,
   );
 
-  if (matchingConversations.length === 0) return [];
+  if (matchingConversations.length === 0) {
+    return [];
+  }
 
   const results: ConversationSearchResult[] = [];
 

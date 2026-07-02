@@ -20,10 +20,7 @@ import {
   type MemoryJob,
 } from "../jobs-store.js";
 import { messages } from "../schema/index.js";
-import {
-  isMemoryIndexingSuppressed,
-  resolveLexicalIndex,
-} from "./message-lexical.js";
+import { resolveLexicalIndex } from "./message-lexical.js";
 
 const log = getLogger("lexical-backfill");
 
@@ -53,22 +50,17 @@ const LEXICAL_BACKFILL_CHECKPOINT_ID_KEY = "lexical:messages:last_id";
  * philosophy of never blocking or doing expensive work at boot.
  *
  * Guards (all must pass to enqueue):
- * - Memory indexing must not be suppressed — memory enabled AND the memory
- *   plugin not disabled — using the same {@link isMemoryIndexingSuppressed}
- *   signal as the write/recall paths. When `memory.enabled === false` the memory
- *   job worker drains nothing (`runMemoryJobsOnce` returns early), so an enqueued
- *   backfill would sit pending forever and only accumulate dead rows. When the
- *   memory plugin is disabled via its `.disabled` sentinel, per-message index
- *   writes are suppressed, so completing a backfill would leave a stale index
- *   that a lexical-backed read could serve; gating on the same signal keeps the
- *   completion marker unset while writes are suppressed, so every read path stays
- *   on FTS in that state (the marker unifies them).
  * - The completion sentinel must be unset. Once the backfill has fully drained
  *   on this instance there is nothing to do; the marker makes this idempotent
  *   across restarts.
  * - No backfill job may already be pending or running. Without this, every
  *   restart during a long backfill would pile up a duplicate job. (The batches
  *   are idempotent, but redundant jobs waste worker cycles.)
+ *
+ * Unconditional beyond those guards: message-content search is host
+ * infrastructure, so the backfill runs regardless of the memory feature's or
+ * memory plugin's state (the job worker drains the lexical types even while
+ * memory is disabled).
  *
  * An instance that was already manually backfilled via the route but predates
  * the completion sentinel re-enqueues once here and re-runs the idempotent
@@ -80,9 +72,6 @@ const LEXICAL_BACKFILL_CHECKPOINT_ID_KEY = "lexical:messages:last_id";
  */
 export function maybeEnqueueLexicalBackfillOnUpgrade(): void {
   try {
-    if (isMemoryIndexingSuppressed()) {
-      return;
-    }
     if (isLexicalBackfillComplete()) {
       return;
     }

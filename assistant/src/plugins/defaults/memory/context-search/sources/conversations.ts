@@ -6,7 +6,6 @@ import {
   hasLexicalTokens,
 } from "../../../../../persistence/conversation-queries.js";
 import { searchMessageIdsLexical } from "../../../../../persistence/conversation-search-lexical.js";
-import { isMemoryIndexingSuppressed } from "../../../../../persistence/job-handlers/message-lexical.js";
 import { rawAll } from "../../../../../persistence/raw-query.js";
 import {
   parseExternalContentEnvelope,
@@ -116,15 +115,13 @@ export async function searchConversationSource(
   }
 
   // The Qdrant lexical index — the only source of conversation evidence — is
-  // forward-filled by the memory write path, which is gated on
-  // `isMemoryIndexingSuppressed()`: while suppressed (memory disabled or the
-  // memory plugin disabled) the collection is never populated. And until the
-  // one-time upgrade backfill has fully drained, it holds only messages
-  // written since the write path went live. In both cases a qdrant read would
-  // silently miss content (an empty candidate set, not a throw), so the
-  // source yields no evidence instead of serving misleading partial results.
-  // The completion checkpoint is shared with the persistence read site.
-  if (isMemoryIndexingSuppressed() || !isLexicalBackfillComplete()) {
+  // populated unconditionally (host-owned message-search indexing), but until
+  // the one-time upgrade backfill has fully drained it holds only messages
+  // written since the write path went live. A qdrant read then would silently
+  // miss older content (an empty candidate set, not a throw), so the source
+  // yields no evidence instead of serving misleading partial results. The
+  // completion checkpoint is shared with the persistence read site.
+  if (!isLexicalBackfillComplete()) {
     return { evidence: [] };
   }
 

@@ -192,10 +192,9 @@ function setMemoryEnabled(enabled: boolean): void {
 
 /**
  * Toggle the memory plugin's `.disabled` sentinel in the real workspace plugins
- * dir so `isMemoryIndexingSuppressed()` (via `isPluginDisabled(MEMORY_PLUGIN_NAME)`)
- * sees the change. Driving the real sentinel — not a process-global mock —
- * exercises the same suppression path the write/recall gates use and avoids
- * leaking a mock into sibling test files.
+ * dir. Driving the real sentinel — not a process-global mock — proves the
+ * backfill enqueue ignores the plugin's disabled state without leaking a mock
+ * into sibling test files.
  */
 function setMemoryPluginDisabled(disabled: boolean): void {
   const dir = join(getWorkspacePluginsDir(), MEMORY_PLUGIN_NAME);
@@ -430,29 +429,24 @@ describe("backfillLexicalIndexJob", () => {
       expect(pendingBackfillJobCount()).toBe(0);
     });
 
-    test("does NOT enqueue when memory is disabled", () => {
+    // Message-content search is host infrastructure: the backfill enqueues
+    // regardless of the memory feature's or memory plugin's state (the job
+    // worker drains the lexical types even while memory is disabled).
+    test("enqueues even when memory is disabled", () => {
       setMemoryEnabled(false);
 
       maybeEnqueueLexicalBackfillOnUpgrade();
 
-      expect(pendingBackfillJobCount()).toBe(0);
+      expect(pendingBackfillJobCount()).toBe(1);
     });
 
-    // Indexing is suppressed by the memory plugin's `.disabled` sentinel even
-    // while `memory.enabled` is true. The hook gates on the same
-    // `isMemoryIndexingSuppressed` signal as the write/recall paths, so it must
-    // skip: enqueuing (and later setting the completion marker) would leave a
-    // stale index that a lexical-backed read could serve while per-message writes
-    // stay suppressed.
-    test("does NOT enqueue when the memory plugin is disabled but memory.enabled is true", () => {
+    test("enqueues even when the memory plugin is disabled", () => {
       setMemoryEnabled(true);
       setMemoryPluginDisabled(true);
 
       maybeEnqueueLexicalBackfillOnUpgrade();
 
-      expect(pendingBackfillJobCount()).toBe(0);
-      // The completion marker must stay unset so reads stay on FTS.
-      expect(isLexicalBackfillComplete()).toBe(false);
+      expect(pendingBackfillJobCount()).toBe(1);
     });
 
     test("does NOT enqueue a duplicate when a backfill job is already pending", () => {
