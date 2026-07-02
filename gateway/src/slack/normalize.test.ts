@@ -8,6 +8,7 @@ import {
   normalizeSlackAppMention,
   normalizeSlackMessageEdit,
   normalizeSlackMessageDelete,
+  slackBotContactNote,
   type SlackBlockActionsPayload,
   type SlackReactionAddedEvent,
   type SlackReactionRemovedEvent,
@@ -1570,5 +1571,95 @@ describe("source.threadId propagation", () => {
       expect(result).not.toBeNull();
       expect(result!.event.source.threadId).toBeUndefined();
     });
+  });
+});
+
+describe("bot sender classification", () => {
+  it("marks a DM from another bot as a bot sender", () => {
+    const config = makeConfig();
+    const event = makeDmEvent({
+      user: "UBOT99",
+      bot_id: "B0AGENT",
+      bot_profile: {
+        id: "B0AGENT",
+        name: "Peer Assistant",
+        app_id: "A0EXAMPLE",
+        team_id: "T0EXAMPLE",
+      },
+    });
+    const result = normalizeSlackDirectMessage(event, "evt-bot-1", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.actor.isBot).toBe(true);
+    expect(result!.botSender).toEqual({
+      botId: "B0AGENT",
+      botName: "Peer Assistant",
+      appId: "A0EXAMPLE",
+      teamId: "T0EXAMPLE",
+    });
+  });
+
+  it("marks a channel message from another bot as a bot sender", () => {
+    const config = makeConfig();
+    const event = makeChannelEvent({
+      user: "UBOT99",
+      bot_id: "B0AGENT",
+    });
+    const result = normalizeSlackChannelMessage(event, "evt-bot-2", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.actor.isBot).toBe(true);
+    expect(result!.botSender).toEqual({ botId: "B0AGENT" });
+  });
+
+  it("marks an app_mention from another bot as a bot sender", () => {
+    const config = makeConfig();
+    const event = makeAppMentionEvent({
+      user: "UBOT99",
+      bot_id: "B0AGENT",
+      bot_profile: { name: "Peer Assistant" },
+    });
+    const result = normalizeSlackAppMention(event, "evt-bot-3", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.actor.isBot).toBe(true);
+    expect(result!.botSender).toEqual({
+      botId: "B0AGENT",
+      botName: "Peer Assistant",
+    });
+  });
+
+  it("does not mark a human sender as a bot", () => {
+    const config = makeConfig();
+    const result = normalizeSlackDirectMessage(
+      makeDmEvent(),
+      "evt-bot-4",
+      config,
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.event.actor.isBot).toBeUndefined();
+    expect(result!.botSender).toBeUndefined();
+  });
+});
+
+describe("slackBotContactNote", () => {
+  it("includes bot name, app id, and workspace when available", () => {
+    expect(
+      slackBotContactNote({
+        botId: "B0AGENT",
+        botName: "Peer Assistant",
+        appId: "A0EXAMPLE",
+        teamId: "T0EXAMPLE",
+      }),
+    ).toBe(
+      'Automated Slack bot "Peer Assistant" (Slack app A0EXAMPLE, workspace T0EXAMPLE) — messages from this contact are sent by an app, not a person.',
+    );
+  });
+
+  it("degrades gracefully when only bot_id is known", () => {
+    expect(slackBotContactNote({ botId: "B0AGENT" })).toBe(
+      "Automated Slack bot — messages from this contact are sent by an app, not a person.",
+    );
   });
 });

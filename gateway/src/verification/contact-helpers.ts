@@ -708,9 +708,12 @@ export async function upsertVerifiedContactChannel(params: {
  *
  * - Existing channel: updates display name, external_chat_id.
  *   Status and policy live in the gateway DB and are left unchanged so
- *   blocked/revoked channels stay that way.
- * - New channel: inserts contact + channel. ACL columns (status, policy) are
- *   gateway-owned; the gateway DB seeds status='unverified', policy='allow'.
+ *   blocked/revoked channels stay that way. `contactType`/`notes` are also
+ *   left unchanged so guardian-authored edits are never clobbered.
+ * - New channel: inserts contact + channel, classified via `contactType`
+ *   (default 'human') and seeded with `notes` when provided. ACL columns
+ *   (status, policy) are gateway-owned; the gateway DB seeds
+ *   status='unverified', policy='allow'.
  *
  * Dual-writes to both the assistant DB (identity/info mirror) and the gateway
  * DB (ACL source of truth). Skips silently when the assistant IPC socket is
@@ -722,6 +725,10 @@ export async function upsertContactChannel(params: {
   externalChatId?: string;
   displayName?: string;
   username?: string;
+  /** Classification for a newly created contact (e.g. 'assistant' for bot senders). */
+  contactType?: "human" | "assistant";
+  /** Notes seeded onto a newly created contact (e.g. bot/app provenance). */
+  notes?: string;
 }): Promise<void> {
   const { path: socketPath } = resolveIpcSocketPath("assistant");
   if (!existsSync(socketPath)) return;
@@ -789,9 +796,17 @@ export async function upsertContactChannel(params: {
   const channelId = crypto.randomUUID();
 
   await assistantDbRun(
-    `INSERT OR IGNORE INTO contacts (id, display_name, created_at, updated_at)
-     VALUES (?, ?, ?, ?)`,
-    [contactId, contactDisplayName, now, now],
+    `INSERT OR IGNORE INTO contacts
+       (id, display_name, notes, contact_type, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [
+      contactId,
+      contactDisplayName,
+      params.notes ?? null,
+      params.contactType ?? "human",
+      now,
+      now,
+    ],
   );
   // ACL columns are gateway-owned; the mirror carries identity/info only and
   // relies on the schema defaults (status='unverified', policy='allow').
