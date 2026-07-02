@@ -18,6 +18,7 @@ import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import { getBindingByConversation } from "../persistence/external-conversation-store.js";
 import { DEFAULT_PLUGIN_NAMES } from "../plugins/defaults/default-plugin-names.js";
+import { isPluginDisabled } from "../plugins/disabled-state.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
@@ -129,20 +130,31 @@ export function resolveConversationAttribution(
  * filters intersect their candidate set against this; `null` is the no-op
  * sentinel (no intersection).
  *
- * The first-party default plugins are ALWAYS unioned into a non-null scope:
- * they are core runtime infrastructure (memory, turn-context, workspace
- * grounding, session framing, history repair, title generation, …), not
- * user-toggleable extensions. The per-chat pills only list user-INSTALLED
- * plugins (`/v1/plugins` = installed plugins), so without this union,
- * deselecting any pill would intersect the defaults out and silently disable
- * core behavior. Unioning here fixes every consumer (tools/skills/injectors/
- * hooks) at the single chokepoint.
+ * The first-party default plugins are unioned into a non-null scope: they are
+ * core runtime infrastructure (memory, turn-context, workspace grounding,
+ * session framing, history repair, title generation, …), not user-toggleable
+ * extensions. The per-chat pills only list user-INSTALLED plugins
+ * (`/v1/plugins` = installed plugins), so without this union, deselecting any
+ * pill would intersect the defaults out and silently disable core behavior.
+ * Unioning here fixes every consumer (tools/skills/injectors/hooks) at the
+ * single chokepoint.
+ *
+ * A globally disabled plugin (`assistant plugins disable <name>`) is dropped
+ * from the effective set even inside a scoped chat — including a disabled
+ * default. Otherwise the union would re-add a disabled default and consumers
+ * that treat the set as the sole authority (e.g. skill scoping in
+ * `filterSkillsByEnabledPlugins`) would let it back in, regressing the ability
+ * to disable default plugins.
  */
 export function getEffectiveEnabledPluginSet(conv: {
   enabledPlugins?: string[] | null;
 }): Set<string> | null {
   if (conv.enabledPlugins == null) return null;
-  return new Set([...conv.enabledPlugins, ...DEFAULT_PLUGIN_NAMES]);
+  const effective = new Set([...conv.enabledPlugins, ...DEFAULT_PLUGIN_NAMES]);
+  for (const name of effective) {
+    if (isPluginDisabled(name)) effective.delete(name);
+  }
+  return effective;
 }
 
 // ── createToolExecutor ───────────────────────────────────────────────

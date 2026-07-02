@@ -1,9 +1,20 @@
-import { describe, expect, test } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import { getAllDefaultPlugins } from "../plugins/defaults/index.js";
+import { getWorkspacePluginsDir } from "../util/platform.js";
 import { getEffectiveEnabledPluginSet } from "./conversation-tool-setup.js";
 
 const DEFAULT_NAMES = getAllDefaultPlugins().map((p) => p.manifest.name);
+
+/** Write a `.disabled` sentinel for `pluginName`; returns the created dir. */
+function disablePlugin(pluginName: string): string {
+  const dir = join(getWorkspacePluginsDir(), pluginName);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, ".disabled"), "");
+  return dir;
+}
 
 describe("getEffectiveEnabledPluginSet", () => {
   test("returns null when enabledPlugins is null (no per-chat restriction)", () => {
@@ -41,5 +52,34 @@ describe("getEffectiveEnabledPluginSet", () => {
     expect(set).not.toBeNull();
     expect(set?.has("default-memory")).toBe(true);
     expect(set?.size).toBe(DEFAULT_NAMES.length);
+  });
+
+  describe("globally disabled plugins", () => {
+    const created: string[] = [];
+    afterEach(() => {
+      for (const dir of created.splice(0)) {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    test("drops a globally disabled default even in a scoped chat", () => {
+      created.push(disablePlugin("default-memory"));
+      const set = getEffectiveEnabledPluginSet({ enabledPlugins: ["user-a"] });
+      expect(set?.has("user-a")).toBe(true);
+      // The disabled default is excluded...
+      expect(set?.has("default-memory")).toBe(false);
+      // ...while the other defaults remain.
+      expect(set?.has("default-turn-context")).toBe(true);
+      expect(set?.size).toBe(DEFAULT_NAMES.length); // user-a + defaults - memory
+    });
+
+    test("drops a globally disabled user plugin that was explicitly selected", () => {
+      created.push(disablePlugin("user-a"));
+      const set = getEffectiveEnabledPluginSet({
+        enabledPlugins: ["user-a", "user-b"],
+      });
+      expect(set?.has("user-a")).toBe(false);
+      expect(set?.has("user-b")).toBe(true);
+    });
   });
 });
