@@ -43,21 +43,22 @@ const MEMORY_JOB_TYPES = [
   "memory_v2_activation_recompute",
   "memory_v3_maintain",
   "memory_retrospective",
-  "index_message_lexical",
-  "purge_conversation_lexical",
-  "delete_message_lexical",
-  "backfill_lexical_index",
 ].sort();
 
 /**
  * Job types wired directly by `registerMemoryJobHandlers` for domains that are
- * not plugins (persistence cleanup, conversations, media, home, runtime).
+ * not plugins (persistence cleanup, message-content lexical indexing,
+ * conversations, media, home, runtime).
  */
 const NON_PLUGIN_JOB_TYPES = [
   "prune_old_conversations",
   "prune_old_llm_request_logs",
   "prune_old_trace_events",
   "prune_old_tool_invocations",
+  "index_message_lexical",
+  "purge_conversation_lexical",
+  "delete_message_lexical",
+  "backfill_lexical_index",
   "build_conversation_summary",
   "media_processing",
   "conversation_analyze",

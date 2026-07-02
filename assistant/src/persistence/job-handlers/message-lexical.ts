@@ -1,35 +1,40 @@
 import { eq } from "drizzle-orm";
 
-import { getConfig } from "../../../../config/loader.js";
-import type { AssistantConfig } from "../../../../config/types.js";
-import { getDb } from "../../../../persistence/db-connection.js";
-import { generateSparseEmbedding } from "../../../../persistence/embeddings/embedding-backend.js";
+import { getConfig } from "../../config/loader.js";
+import type { AssistantConfig } from "../../config/types.js";
+import { isPluginDisabled } from "../../plugins/disabled-state.js";
+import { getLogger } from "../../util/logger.js";
+import { getDb } from "../db-connection.js";
+import { generateSparseEmbedding } from "../embeddings/embedding-backend.js";
 import {
   getMessagesLexicalIndex,
   initMessagesLexicalIndex,
   MESSAGES_LEXICAL_COLLECTION,
   type MessagesLexicalIndex,
-} from "../../../../persistence/embeddings/messages-lexical-index.js";
-import { withQdrantBreaker } from "../../../../persistence/embeddings/qdrant-circuit-breaker.js";
-import { asString } from "../../../../persistence/job-utils.js";
+} from "../embeddings/messages-lexical-index.js";
+import { withQdrantBreaker } from "../embeddings/qdrant-circuit-breaker.js";
+import { resolveQdrantUrl } from "../embeddings/qdrant-client.js";
+import { asString } from "../job-utils.js";
 import {
   enqueueMemoryJob,
   isMemoryEnabled,
   type MemoryJob,
-} from "../../../../persistence/jobs-store.js";
-import { messages } from "../../../../persistence/schema/index.js";
-import { getLogger } from "../../../../util/logger.js";
-import { isPluginDisabled } from "../../../disabled-state.js";
-import { resolveQdrantUrl } from "../embeddings.js";
-import memoryPkg from "../package.json" with { type: "json" };
+} from "../jobs-store.js";
+import { messages } from "../schema/index.js";
 
 const log = getLogger("messages-lexical-enqueue");
 
 /**
- * True when the memory plugin's per-message index writes should be suppressed —
- * either the memory feature is off in config (`memory.enabled === false`) or the
- * `default-memory` plugin is disabled via its `.disabled` sentinel. This mirrors
- * the FULL disabled-state check the host applies in
+ * The lexical index's write path is enqueued alongside the memory plugin's
+ * per-message indexing, so its suppression state tracks that plugin's name.
+ */
+const MEMORY_PLUGIN_NAME = "default-memory";
+
+/**
+ * True when per-message lexical index writes should be suppressed — either the
+ * memory feature is off in config (`memory.enabled === false`) or the
+ * `default-memory` plugin is disabled via its `.disabled` sentinel. This
+ * mirrors the FULL disabled-state check the host applies in
  * `guardPersistenceHooksByDisabledState`, because the index-write call sites
  * (streaming finalize, import, edit, consolidation) call
  * {@link enqueueLexicalIndexForMessage} directly, outside that guard.
@@ -38,11 +43,11 @@ const log = getLogger("messages-lexical-enqueue");
  * paths (purge/delete/clear) must still run while disabled so points written
  * when enabled are not orphaned. It doubles as the read-side population signal:
  * when suppression is active the lexical index is not being forward-filled, so
- * lexical-backed reads must fall back to FTS rather than query a stale/empty
- * `messages_lexical` collection.
+ * lexical-backed reads must treat the `messages_lexical` collection as
+ * stale/empty rather than query it.
  */
 export function isMemoryIndexingSuppressed(): boolean {
-  return !isMemoryEnabled() || isPluginDisabled(memoryPkg.name);
+  return !isMemoryEnabled() || isPluginDisabled(MEMORY_PLUGIN_NAME);
 }
 
 /**
@@ -62,7 +67,7 @@ export function resolveLexicalIndex(
     return getMessagesLexicalIndex();
   } catch {
     return initMessagesLexicalIndex({
-      url: resolveQdrantUrl(),
+      url: resolveQdrantUrl(config),
       collection: MESSAGES_LEXICAL_COLLECTION,
       onDisk: config.memory.qdrant.onDisk,
     });
@@ -104,7 +109,9 @@ export async function indexMessageLexicalJob(
   config: AssistantConfig,
 ): Promise<void> {
   const messageId = asString(job.payload.messageId);
-  if (!messageId) return;
+  if (!messageId) {
+    return;
+  }
 
   const db = getDb();
   const row = db
@@ -119,7 +126,9 @@ export async function indexMessageLexicalJob(
     .get();
 
   // The message may have been deleted between enqueue and dispatch — no-op.
-  if (!row) return;
+  if (!row) {
+    return;
+  }
 
   await indexMessageToLexical(row, config);
 }
@@ -155,7 +164,9 @@ export async function purgeConversationLexicalJob(
   config: AssistantConfig,
 ): Promise<void> {
   const conversationId = asString(job.payload.conversationId);
-  if (!conversationId) return;
+  if (!conversationId) {
+    return;
+  }
   await purgeConversationLexical(conversationId, config);
 }
 
@@ -164,7 +175,9 @@ export async function deleteMessageLexicalJob(
   config: AssistantConfig,
 ): Promise<void> {
   const messageId = asString(job.payload.messageId);
-  if (!messageId) return;
+  if (!messageId) {
+    return;
+  }
   await deleteMessageLexical(messageId, config);
 }
 
@@ -194,8 +207,12 @@ export async function deleteMessageLexicalJob(
  * sites this runs beside.
  */
 export function enqueueLexicalIndexForMessage(messageId: string): void {
-  if (!messageId) return;
-  if (isMemoryIndexingSuppressed()) return;
+  if (!messageId) {
+    return;
+  }
+  if (isMemoryIndexingSuppressed()) {
+    return;
+  }
   try {
     enqueueMemoryJob("index_message_lexical", { messageId });
   } catch (err) {
@@ -229,7 +246,9 @@ export function enqueueLexicalIndexForMessage(messageId: string): void {
  * than propagated, so conversation deletion never fails on a memory hiccup.
  */
 export function enqueuePurgeConversationLexical(conversationId: string): void {
-  if (!conversationId) return;
+  if (!conversationId) {
+    return;
+  }
   try {
     if (isMemoryEnabled()) {
       enqueueMemoryJob("purge_conversation_lexical", { conversationId });
@@ -259,7 +278,9 @@ export function enqueuePurgeConversationLexical(conversationId: string): void {
  * message deletion never fails on a memory hiccup.
  */
 export function enqueueDeleteMessageLexical(messageId: string): void {
-  if (!messageId) return;
+  if (!messageId) {
+    return;
+  }
   try {
     if (isMemoryEnabled()) {
       enqueueMemoryJob("delete_message_lexical", { messageId });

@@ -28,7 +28,6 @@ import {
 import { runNarrativeRefinement } from "./graph/narrative.js";
 import { runPatternScan } from "./graph/pattern-scan.js";
 import { backfillJob } from "./job-handlers/backfill.js";
-import { backfillLexicalIndexJob } from "./job-handlers/backfill-lexical-index.js";
 import {
   embedAttachmentJob,
   embedMediaJob,
@@ -39,11 +38,6 @@ import {
   deleteQdrantVectorsJob,
   rebuildIndexJob,
 } from "./job-handlers/index-maintenance.js";
-import {
-  deleteMessageLexicalJob,
-  indexMessageLexicalJob,
-  purgeConversationLexicalJob,
-} from "./job-handlers/index-message-lexical.js";
 import { embedConceptPageJob } from "./jobs/embed-concept-page.js";
 import { embedPkbFileJob } from "./jobs/embed-pkb-file.js";
 import { memoryRetrospectiveJob } from "./memory-retrospective-job.js";
@@ -156,7 +150,9 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
     handler: async (job, config) => {
       // Stale rows enqueued before v2 was enabled (or by any unguarded v1
       // path) must not consume embedding/extraction budget when v2 is on.
-      if (config.memory.v2.enabled) return;
+      if (config.memory.v2.enabled) {
+        return;
+      }
       await graphExtractJob(job, config);
     },
   },
@@ -205,21 +201,5 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
   {
     type: "memory_retrospective",
     handler: (job, config) => memoryRetrospectiveJob(job, config),
-  },
-  {
-    type: "index_message_lexical",
-    handler: (job, config) => indexMessageLexicalJob(job, config),
-  },
-  {
-    type: "purge_conversation_lexical",
-    handler: (job, config) => purgeConversationLexicalJob(job, config),
-  },
-  {
-    type: "delete_message_lexical",
-    handler: (job, config) => deleteMessageLexicalJob(job, config),
-  },
-  {
-    type: "backfill_lexical_index",
-    handler: (job, config) => backfillLexicalIndexJob(job, config),
   },
 ];

@@ -6,13 +6,13 @@ import {
   hasLexicalTokens,
 } from "../../../../../persistence/conversation-queries.js";
 import { searchMessageIdsLexical } from "../../../../../persistence/conversation-search-lexical.js";
+import { isMemoryIndexingSuppressed } from "../../../../../persistence/job-handlers/message-lexical.js";
 import { rawAll } from "../../../../../persistence/raw-query.js";
 import {
   parseExternalContentEnvelope,
   wrapUntrustedContent,
 } from "../../../../../security/untrusted-content.js";
 import { getLogger } from "../../../../../util/logger.js";
-import { isMemoryIndexingSuppressed } from "../../job-handlers/index-message-lexical.js";
 import type { RecallSearchContext, RecallSearchResult } from "../types.js";
 
 const log = getLogger("recall-conversations-source");
@@ -212,7 +212,9 @@ async function gatherCandidateRowsFromQdrant(
   }
 
   const candidateIds = candidates.map((candidate) => candidate.messageId);
-  if (candidateIds.length === 0) return [];
+  if (candidateIds.length === 0) {
+    return [];
+  }
 
   return searchByIds(candidateIds, candidateLimit, excludedConversationId);
 }
@@ -283,7 +285,9 @@ function parseSlackRecallMetadata(rawMetadata: string | null): {
   displayName?: string;
   provenanceTrustClass?: string;
 } | null {
-  if (!rawMetadata) return null;
+  if (!rawMetadata) {
+    return null;
+  }
 
   let parsed: unknown;
   try {
@@ -297,9 +301,13 @@ function parseSlackRecallMetadata(rawMetadata: string | null): {
   }
 
   const metadata = parsed as Record<string, unknown>;
-  if (typeof metadata.slackMeta !== "string") return null;
+  if (typeof metadata.slackMeta !== "string") {
+    return null;
+  }
   const slackMeta = readSlackMetadata(metadata.slackMeta);
-  if (!slackMeta) return null;
+  if (!slackMeta) {
+    return null;
+  }
 
   return {
     ...(slackMeta.displayName ? { displayName: slackMeta.displayName } : {}),
@@ -339,6 +347,8 @@ function compareScoredConversationRows(
   b: { row: ConversationEvidenceRow; score: number },
 ): number {
   const scoreCompare = b.score - a.score;
-  if (scoreCompare !== 0) return scoreCompare;
+  if (scoreCompare !== 0) {
+    return scoreCompare;
+  }
   return b.row.created_at - a.row.created_at;
 }

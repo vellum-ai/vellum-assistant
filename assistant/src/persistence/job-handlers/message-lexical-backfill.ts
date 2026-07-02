@@ -1,6 +1,7 @@
 import { and, asc, eq, gt, or } from "drizzle-orm";
 
-import type { AssistantConfig } from "../../../../config/types.js";
+import type { AssistantConfig } from "../../config/types.js";
+import { getLogger } from "../../util/logger.js";
 import {
   clearLexicalBackfillComplete,
   isLexicalBackfillComplete,
@@ -9,21 +10,20 @@ import {
   resetMessageCursorCheckpoint,
   setMemoryCheckpoint,
   writeMessageCursorCheckpoint,
-} from "../../../../persistence/checkpoints.js";
-import { getDb } from "../../../../persistence/db-connection.js";
-import { generateSparseEmbedding } from "../../../../persistence/embeddings/embedding-backend.js";
-import { withQdrantBreaker } from "../../../../persistence/embeddings/qdrant-circuit-breaker.js";
+} from "../checkpoints.js";
+import { getDb } from "../db-connection.js";
+import { generateSparseEmbedding } from "../embeddings/embedding-backend.js";
+import { withQdrantBreaker } from "../embeddings/qdrant-circuit-breaker.js";
 import {
   enqueueMemoryJob,
   hasActiveJobOfType,
   type MemoryJob,
-} from "../../../../persistence/jobs-store.js";
-import { messages } from "../../../../persistence/schema/index.js";
-import { getLogger } from "../../../../util/logger.js";
+} from "../jobs-store.js";
+import { messages } from "../schema/index.js";
 import {
   isMemoryIndexingSuppressed,
   resolveLexicalIndex,
-} from "./index-message-lexical.js";
+} from "./message-lexical.js";
 
 const log = getLogger("lexical-backfill");
 
@@ -38,10 +38,10 @@ const LEXICAL_BACKFILL_CHECKPOINT_ID_KEY = "lexical:messages:last_id";
 
 /**
  * One-time, self-healing auto-enqueue of the messages lexical-index backfill,
- * invoked once from `runMemoryStartup` (startup.ts) on daemon boot. Ensures each
+ * invoked once from daemon startup (`daemon/lifecycle.ts`). Ensures each
  * instance populates its Qdrant lexical index (`messages_lexical`) exactly once
- * on upgrade — in the background — so a later read-path flip to the lexical
- * backend does not open onto an empty index.
+ * on upgrade — in the background — so message-content search does not open
+ * onto an empty index.
  *
  * Deliberate, narrow exception to the "not run at daemon startup" note carried by
  * the manual backfill route (`messages-lexical-routes.ts`, added in the FTS→Qdrant
@@ -80,9 +80,15 @@ const LEXICAL_BACKFILL_CHECKPOINT_ID_KEY = "lexical:messages:last_id";
  */
 export function maybeEnqueueLexicalBackfillOnUpgrade(): void {
   try {
-    if (isMemoryIndexingSuppressed()) return;
-    if (isLexicalBackfillComplete()) return;
-    if (hasActiveJobOfType("backfill_lexical_index")) return;
+    if (isMemoryIndexingSuppressed()) {
+      return;
+    }
+    if (isLexicalBackfillComplete()) {
+      return;
+    }
+    if (hasActiveJobOfType("backfill_lexical_index")) {
+      return;
+    }
     const jobId = enqueueMemoryJob("backfill_lexical_index", {});
     log.info(
       { jobId },

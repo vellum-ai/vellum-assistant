@@ -10,9 +10,9 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
 
-import { makeMockLogger } from "../../../../../__tests__/helpers/mock-logger.js";
+import { makeMockLogger } from "../../../__tests__/helpers/mock-logger.js";
 
-mock.module("../../../../../util/logger.js", () => ({
+mock.module("../../../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
 }));
 
@@ -32,15 +32,12 @@ const fakeIndex = {
   },
 };
 const actualLexicalIndex =
-  await import("../../../../../persistence/embeddings/messages-lexical-index.js");
-mock.module(
-  "../../../../../persistence/embeddings/messages-lexical-index.js",
-  () => ({
-    ...actualLexicalIndex,
-    getMessagesLexicalIndex: () => fakeIndex,
-    initMessagesLexicalIndex: () => fakeIndex,
-  }),
-);
+  await import("../../embeddings/messages-lexical-index.js");
+mock.module("../../embeddings/messages-lexical-index.js", () => ({
+  ...actualLexicalIndex,
+  getMessagesLexicalIndex: () => fakeIndex,
+  initMessagesLexicalIndex: () => fakeIndex,
+}));
 
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -50,22 +47,22 @@ import {
   invalidateConfigCache,
   loadRawConfig,
   saveRawConfig,
-} from "../../../../../config/loader.js";
-import { getMemoryDb } from "../../../../../persistence/db-connection.js";
-import { initializeDb } from "../../../../../persistence/db-init.js";
-import { memoryJobs } from "../../../../../persistence/schema/index.js";
-import { getWorkspacePluginsDir } from "../../../../../util/platform.js";
-import memoryPkg from "../../package.json" with { type: "json" };
+} from "../../../config/loader.js";
+import { getWorkspacePluginsDir } from "../../../util/platform.js";
+import { getMemoryDb } from "../../db-connection.js";
+import { initializeDb } from "../../db-init.js";
+import { memoryJobs } from "../../schema/index.js";
+const MEMORY_PLUGIN_NAME = "default-memory";
 import {
   enqueueDeleteMessageLexical,
   enqueueLexicalIndexForMessage,
   enqueuePurgeConversationLexical,
-} from "../index-message-lexical.js";
+} from "../message-lexical.js";
 
 await initializeDb();
 
 function memoryPluginDir(): string {
-  return join(getWorkspacePluginsDir(), memoryPkg.name);
+  return join(getWorkspacePluginsDir(), MEMORY_PLUGIN_NAME);
 }
 
 function setMemoryPluginDisabled(disabled: boolean): void {

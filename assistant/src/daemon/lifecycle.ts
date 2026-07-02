@@ -22,6 +22,7 @@ import { clearStaleProcessingFlags } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { startEmbeddingRuntimeManager } from "../persistence/embeddings/embedding-runtime-manager.js";
+import { maybeEnqueueLexicalBackfillOnUpgrade } from "../persistence/job-handlers/message-lexical-backfill.js";
 import { startConsentRefresh } from "../platform/consent-cache.js";
 import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";
 import { runMemoryStartup } from "../plugins/defaults/memory/startup.js";
@@ -111,7 +112,9 @@ function runDeferredDiskPressureStartupSample(): void {
 export function startDiskPressureGuardForLifecycle(): void {
   try {
     const startedStatus = startDiskPressureGuard();
-    if (!startedStatus.enabled) return;
+    if (!startedStatus.enabled) {
+      return;
+    }
     if (!diskPressureStartupSampleTimer) {
       diskPressureStartupSampleTimer = setTimeout(
         runDeferredDiskPressureStartupSample,
@@ -660,6 +663,14 @@ export async function runDaemon(): Promise<void> {
   void runMemoryStartup(config).catch((err) =>
     log.warn({ err }, "Background Qdrant init failed"),
   );
+
+  // One-time, self-healing backfill of existing messages into the Qdrant
+  // lexical index (`messages_lexical`) on upgrade, so message-content search
+  // never opens onto an empty index. Enqueue-only and checkpoint-guarded — the
+  // indexing runs off the event loop via the background job worker; see the
+  // function's docstring for the guards and the deliberate exception it makes
+  // to the "no work at daemon startup" rule.
+  maybeEnqueueLexicalBackfillOnUpgrade();
 
   // Spawn the resource monitor as a child of the daemon when enabled, off the
   // main event loop.
