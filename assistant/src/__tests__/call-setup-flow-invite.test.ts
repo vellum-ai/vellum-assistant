@@ -538,5 +538,32 @@ describe("CallSetupFlow invite redemption", () => {
       expect(result.trustContext.trustClass).toBe("unknown");
       expect(result.trustContext.requesterChatId).toBe(CALLER_NUMBER);
     });
+
+    test("dispose during re-resolution suppresses the handoff on the dead call", async () => {
+      let releaseTrust!: (ctx: TrustContext) => void;
+      const gated = new Promise<TrustContext>((resolve) => {
+        releaseTrust = resolve;
+      });
+      const { flow, spoken, events, notifierCalls, results } = createHarness({
+        resolveMidCallTrustContext: () => gated,
+      });
+
+      await flow.start(inviteOutcome("Alice"), makeResolved(true));
+      for (const digit of CODE) {
+        flow.pushDtmfDigit(digit);
+      }
+      await settle();
+
+      // Caller hangs up while trust re-resolution is still in flight.
+      flow.dispose("transport_closed");
+      releaseTrust(UPGRADED_TRUST);
+      await settle();
+
+      // Only the invite prompt was spoken — no synthetic handoff.
+      expect(spoken).toHaveLength(1);
+      expect(events.map((e) => e.eventType)).not.toContain("assistant_spoke");
+      expect(notifierCalls).toEqual([]);
+      expect(results).toHaveLength(0);
+    });
   });
 });

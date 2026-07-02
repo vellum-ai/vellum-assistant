@@ -204,11 +204,7 @@ describe("CallSetupFlow", () => {
 
       await expect(
         flow.start(
-          {
-            action: "name_capture",
-            assistantId: "self",
-            fromNumber: PHONE_NUMBER,
-          },
+          { action: "not_a_real_action" } as unknown as SetupOutcome,
           makeResolved("unknown"),
         ),
       ).rejects.toBeInstanceOf(UnsupportedSetupFlowError);
