@@ -28,6 +28,10 @@ import {
 } from "../config/env.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
+import {
+  DB_MIGRATION_READINESS_EXEMPT_OPERATIONS,
+  getDbMigrationReadiness,
+} from "../daemon/daemon-readiness.js";
 import { processMessage } from "../daemon/process-message.js";
 import { createLiveVoiceSession } from "../live-voice/live-voice-session.js";
 import { LiveVoiceSessionManager } from "../live-voice/live-voice-session-manager.js";
@@ -102,17 +106,12 @@ const log = getLogger("runtime-http");
 
 const DEFAULT_PORT = 7821;
 const DEFAULT_HOSTNAME = "127.0.0.1";
-const DB_MIGRATION_READINESS_EXEMPT_ENDPOINTS = new Set([
-  "health",
-  "healthz",
-  "ps",
-]);
 
 /** Global hard cap on request body size (512 MB — accommodates large .vbundle backup imports). */
 const MAX_REQUEST_BODY_BYTES = 512 * 1024 * 1024;
 
 function shouldBypassDbMigrationReadiness(endpoint: string): boolean {
-  return DB_MIGRATION_READINESS_EXEMPT_ENDPOINTS.has(endpoint);
+  return DB_MIGRATION_READINESS_EXEMPT_OPERATIONS.has(endpoint);
 }
 
 function dbMigrationUnavailableForEndpoint(endpoint: string): Response | null {
@@ -455,8 +454,8 @@ export class RuntimeHttpServer {
     // run. The sweeps touch the ORM (retry sweep → processMessage, guardian
     // expiry, profile reaper), so starting them now would race async migrations
     // and hit "no such table". The daemon calls
-    // startRuntimeHttpServerBackgroundSweeps() only after migrations report
-    // ready (setDbReady). See daemon/lifecycle.ts.
+    // startRuntimeHttpServerBackgroundSweeps() only after migrations settle
+    // (success or failed degraded mode). See daemon/lifecycle.ts.
 
     log.info(
       "Running in gateway-only ingress mode. Direct webhook routes disabled.",
@@ -493,8 +492,10 @@ export class RuntimeHttpServer {
    * guardian approval/action expiry sweeps, and canonical guardian expiry.
    *
    * These all touch the ORM, so the daemon defers this until DB migrations
-   * report ready (see daemon/lifecycle.ts). Idempotent — safe to call once
-   * per ready transition; repeat calls are no-ops.
+   * have settled — successfully or in the failed degraded mode, where the DB
+   * is open and the expiry/reaper maintenance still applies (see
+   * daemon/lifecycle.ts). Idempotent — safe to call once per settle; repeat
+   * calls are no-ops.
    */
   startBackgroundSweeps(): void {
     if (this.sweepsStarted) return;
@@ -502,6 +503,12 @@ export class RuntimeHttpServer {
     if (!this.retrySweepTimer) {
       this.retrySweepTimer = setInterval(() => {
         if (this.sweepInProgress) return;
+        // Replays route through processMessage, which refuses turns while
+        // migration readiness is unready — and each refused replay would count
+        // toward the event's dead-letter budget. Skip the cycle instead so
+        // events queued before a failed migration survive until a restart
+        // repairs the schema.
+        if (!getDbMigrationReadiness().ready) return;
         this.sweepInProgress = true;
         void sweepFailedEvents(processMessage)
           .catch((err) => {
@@ -1167,9 +1174,12 @@ export async function startRuntimeHttpServer(): Promise<void> {
 
 /**
  * Start the runtime HTTP server's ORM-touching background sweeps. Called by the
- * daemon once DB migrations report ready, so the sweeps (retry sweep, guardian
- * expiry, profile reaper) never run against a not-yet-migrated schema. No-op if
- * the HTTP server failed to bind (IPC-only mode) or sweeps already started.
+ * daemon once DB migrations have settled — on success, or in the failed
+ * degraded mode where the DB opened and maintenance (guardian approval/action
+ * expiry, profile reaping) must still run; the retry sweep additionally skips
+ * its cycles while readiness is unready. Never called before migrations settle,
+ * so the sweeps can't race a schema mid-migration. No-op if the HTTP server
+ * failed to bind (IPC-only mode) or sweeps already started.
  */
 export function startRuntimeHttpServerBackgroundSweeps(): void {
   instance?.startBackgroundSweeps();

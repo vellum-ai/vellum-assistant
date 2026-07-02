@@ -117,8 +117,10 @@ const STATUS_BANNER_PLACEMENT_CLASSES: Record<StatusBannerPlacement, string> = {
   electron: "min-h-8 rounded-[6px] px-2 py-[7px]",
 };
 
-export interface StatusBannerNoticeProps
-  extends Omit<ComponentProps<"div">, "title" | "children"> {
+export interface StatusBannerNoticeProps extends Omit<
+  ComponentProps<"div">,
+  "title" | "children"
+> {
   tone: NoticeTone;
   title: ReactNode;
   children?: ReactNode;
@@ -145,11 +147,13 @@ export function StatusBannerNotice({
       ? "text-body-medium-default leading-5"
       : "text-body-small-default leading-[18px]";
   const resolvedIcon =
-    icon === undefined
-      ? toneClasses.DefaultIcon
-        ? <toneClasses.DefaultIcon aria-hidden="true" />
-        : null
-      : icon;
+    icon === undefined ? (
+      toneClasses.DefaultIcon ? (
+        <toneClasses.DefaultIcon aria-hidden="true" />
+      ) : null
+    ) : (
+      icon
+    );
 
   return (
     <div
@@ -179,13 +183,7 @@ export function StatusBannerNotice({
           </span>
         ) : null}
         <div className="min-w-0">
-          <div
-            className={cn(
-              "truncate",
-              toneClasses.content,
-              titleClassName,
-            )}
-          >
+          <div className={cn("truncate", toneClasses.content, titleClassName)}>
             {title}
           </div>
           {children ? (
@@ -509,12 +507,22 @@ function useAssistantBannerConfig(): BannerConfig | null {
       (assistant) =>
         assistant.isPlatformHosted === true && assistant.isLocal === false,
     );
-    return (
-      platformAssistants.find((assistant) => assistant.id === selectedAssistantId)
-        ?.id ??
-      platformAssistants[0]?.id ??
-      null
-    );
+    const selectedPlatformAssistantId =
+      platformAssistants.find(
+        (assistant) => assistant.id === selectedAssistantId,
+      )?.id ?? null;
+    if (selectedPlatformAssistantId) {
+      return selectedPlatformAssistantId;
+    }
+    // Fall back to the org's platform assistant only when nothing is selected
+    // yet (early boot, before selection hydrates). When the user has
+    // explicitly selected a local/self-hosted assistant, the banner must not
+    // re-point itself — and its background polling — at an unrelated platform
+    // assistant that happens to exist in the same org.
+    if (selectedAssistantId != null) {
+      return null;
+    }
+    return platformAssistants[0]?.id ?? null;
   }, [assistants, currentOrganizationId, selectedAssistantId]);
   const assistantId =
     operationalStatusAssistantId ??
@@ -687,7 +695,8 @@ function useAssistantBannerConfig(): BannerConfig | null {
       if (!result.ok) {
         setIsLocalWakeSettling(false);
         setWakeLocalAssistantError(
-          result.error || "Wake failed. Try running vellum wake in your terminal.",
+          result.error ||
+            "Wake failed. Try running vellum wake in your terminal.",
         );
         return;
       }
@@ -824,7 +833,10 @@ function useAssistantBannerConfig(): BannerConfig | null {
     operationalStatus?.state === "unreachable" && wasRecentlySleeping
       ? { ...operationalStatus, state: "waking" as AssistantOperationalState }
       : operationalStatus?.state === "unreachable" && wasRecentlyActive
-        ? { ...operationalStatus, state: "sleeping" as AssistantOperationalState }
+        ? {
+            ...operationalStatus,
+            state: "sleeping" as AssistantOperationalState,
+          }
         : operationalStatus;
 
   const isFailedOperationDismissed =

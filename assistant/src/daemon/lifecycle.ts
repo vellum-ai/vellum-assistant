@@ -272,18 +272,24 @@ export async function runDaemon(): Promise<void> {
     if (migrationsOk) {
       setDbReady(true);
       log.info("Daemon startup: DB initialized");
-      // Now that migrations have created the schema, start the HTTP server's
-      // ORM-touching background sweeps (retry sweep, guardian expiry, profile
-      // reaper). The server binds earlier, before migrations run, so these are
-      // deferred to here to avoid racing async migrations into a missing table.
-      startRuntimeHttpServerBackgroundSweeps();
     } else {
       setDbMigrationFailed();
       log.error(
         "Daemon startup: DB opened but one or more migrations failed — /readyz will remain unready",
       );
     }
+    // Migrations have settled (successfully or in the failed degraded mode),
+    // so start the HTTP server's ORM-touching background sweeps. The server
+    // binds earlier, before migrations run, so these are deferred to here to
+    // avoid racing async migrations into a missing table. They run in degraded
+    // mode too: the DB is open, and guardian approval/action expiry is
+    // security-relevant maintenance on tables that predate whatever migration
+    // failed. The retry sweep skips its cycles while readiness is unready (see
+    // startBackgroundSweeps) so refused replays can't burn dead-letter budget.
+    startRuntimeHttpServerBackgroundSweeps();
   } catch (err) {
+    // Sweeps intentionally NOT started on this path: initializeDb() threw, so
+    // the DB never opened and every sweep cycle would just error against it.
     setDbMigrationFailed(err);
     log.error(
       { err },

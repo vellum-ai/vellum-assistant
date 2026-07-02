@@ -35,8 +35,11 @@ let currentOrganizationIdMock: string | null = "org-1";
 let operationalStatusAssistantIdMock: string | null = null;
 let assistantStateMock:
   | { kind: "loading" }
-  | { kind: "active"; isLocal: boolean; maintenanceMode?: { enabled: boolean } } =
-  { kind: "active", isLocal: false };
+  | {
+      kind: "active";
+      isLocal: boolean;
+      maintenanceMode?: { enabled: boolean };
+    } = { kind: "active", isLocal: false };
 let requestedOperationalStatusAssistantId: string | null | undefined;
 let operationalStatusQueryMock: {
   data:
@@ -123,7 +126,8 @@ mock.module("@/assistant/operational-status", () => ({
     requestedOperationalStatusAssistantId = assistantId;
     return {
       ...operationalStatusQueryMock,
-      refetch: operationalStatusQueryMock.refetch ?? refetchOperationalStatusMock,
+      refetch:
+        operationalStatusQueryMock.refetch ?? refetchOperationalStatusMock,
     };
   },
 }));
@@ -330,6 +334,51 @@ describe("StatusBanner", () => {
     expect(requestedOperationalStatusAssistantId).toBe("assistant-selected");
     expect(html).toContain("Assistant is migrating");
     expect(html).toContain('data-tone="info"');
+  });
+
+  test("falls back to the org's platform assistant when nothing is selected", () => {
+    activeAssistantIdMock = null;
+    assistantStateMock = { kind: "loading" };
+    selectedAssistantIdMock = null;
+    assistantsMock = [
+      {
+        id: "assistant-only",
+        isLocal: false,
+        isPlatformHosted: true,
+        organizationId: "org-1",
+      },
+    ];
+
+    renderToStaticMarkup(<StatusBanner />);
+
+    expect(requestedOperationalStatusAssistantId).toBe("assistant-only");
+  });
+
+  test("does not fall back to an unrelated platform assistant when a local assistant is selected", () => {
+    activeAssistantIdMock = null;
+    assistantStateMock = { kind: "loading" };
+    selectedAssistantIdMock = "assistant-local";
+    assistantsMock = [
+      {
+        id: "assistant-local",
+        isLocal: true,
+        isPlatformHosted: false,
+        organizationId: "org-1",
+      },
+      // An unrelated platform assistant in the same org (e.g. an old
+      // crash-looping one) must not become the banner's polling target just
+      // because the user's selection isn't platform-hosted.
+      {
+        id: "assistant-unrelated",
+        isLocal: false,
+        isPlatformHosted: true,
+        organizationId: "org-1",
+      },
+    ];
+
+    renderToStaticMarkup(<StatusBanner />);
+
+    expect(requestedOperationalStatusAssistantId).toBeNull();
   });
 
   test("renders operational error states with error tone and Doctor action for platform assistants", () => {
@@ -670,7 +719,9 @@ describe("StatusBanner", () => {
       fireEvent.click(screen.getByRole("button", { name: "Wake up" }));
 
       await waitFor(() => {
-        expect(wakeLocalAssistantHostMock).toHaveBeenCalledWith("assistant-123");
+        expect(wakeLocalAssistantHostMock).toHaveBeenCalledWith(
+          "assistant-123",
+        );
       });
       expect(refetchOperationalStatusMock).toHaveBeenCalledTimes(1);
       expect(retryConnectivityMock).toHaveBeenCalledTimes(1);

@@ -33,7 +33,10 @@ import { createServer, type Server, type Socket } from "node:net";
 
 import { ensureSocketDir, SocketWatchdog } from "@vellumai/ipc-server-utils";
 
-import { getDbMigrationReadiness } from "../daemon/daemon-readiness.js";
+import {
+  DB_MIGRATION_READINESS_EXEMPT_OPERATIONS,
+  getDbMigrationReadiness,
+} from "../daemon/daemon-readiness.js";
 import type { PrincipalType } from "../runtime/auth/types.js";
 import { findLocalGuardianPrincipalIdFromStore } from "../runtime/local-actor-identity.js";
 import { RouteError } from "../runtime/routes/errors.js";
@@ -67,16 +70,11 @@ const log = getLogger("assistant-ipc-server");
 // IPC methods that must stay answerable while DB migrations are still running.
 // Everything else touches the ORM (shared ROUTES handlers, db_proxy, invite
 // methods) and is gated on migration readiness so it can't hit a not-yet-
-// created table. This mirrors the HTTP transport's exempt set
-// (`DB_MIGRATION_READINESS_EXEMPT_ENDPOINTS` in runtime/http-server.ts) — the
-// two must stay in sync — plus the `$cancel` control method, which only aborts
-// an in-flight request and never reads the DB. `health`/`healthz` in
-// particular MUST stay exempt so the gateway can poll them to observe when
-// migrations finish (see gateway/src/post-assistant-ready.ts).
+// created table. Derived from the shared exempt set in daemon-readiness.ts
+// (the same source the HTTP gate uses) plus the `$cancel` control method,
+// which only aborts an in-flight request and never reads the DB.
 const DB_MIGRATION_READINESS_EXEMPT_IPC_METHODS = new Set([
-  "health",
-  "healthz",
-  "ps",
+  ...DB_MIGRATION_READINESS_EXEMPT_OPERATIONS,
   "$cancel",
 ]);
 
