@@ -846,6 +846,9 @@ describe("upsertVerifiedContactChannel — invite target-contact binding", () =>
       contactId: "co-mom",
       type: "telegram",
       address: "redeemer-tg",
+      // Genuine target-contact bind: the gateway reparented, so the mirror must
+      // reparent too.
+      reassignConflictingChannels: true,
     });
 
     // Gateway channel re-parented to the target contact too.
@@ -927,6 +930,10 @@ describe("upsertVerifiedContactChannel — invite target-contact binding", () =>
         (u.set as { status?: string }).status === undefined,
     );
     expect(gwReparent).toBeUndefined();
+
+    // The gateway did NOT reparent, so the mirror upsert must not either.
+    const upsert = mirrorUpserts()[0];
+    expect(upsert!.body.reassignConflictingChannels).toBe(false);
   });
 
   test("creates a fresh channel under the supplied target contact", async () => {
@@ -946,6 +953,9 @@ describe("upsertVerifiedContactChannel — invite target-contact binding", () =>
     const upsert = mirrorUpserts()[0];
     expect(upsert).toBeTruthy();
     expect(upsert!.body.contactId).toBe("co-target");
+    // A target contact drove reassignChannelContact on the gateway, so the
+    // mirror reparents a raced conflicting channel to match.
+    expect(upsert!.body.reassignConflictingChannels).toBe(true);
   });
 
   test("re-parents a divergent gateway row to the target when the assistant lookup misses", async () => {
@@ -982,6 +992,50 @@ describe("upsertVerifiedContactChannel — invite target-contact binding", () =>
     expect(where.conds.some((c) => c.op === "eq" && c.col === "id")).toBe(
       false,
     );
+  });
+});
+
+// The mirror's reassignConflictingChannels must track the gateway's ACTUAL
+// reparent decision in each branch — not the call path — or the two stores end
+// up disagreeing about which contact owns a channel.
+describe("upsertVerifiedContactChannel — mirror reparent tracks gateway reparent", () => {
+  test("plain verification, no target, no existing channel: mirror does NOT reparent (Codex race)", async () => {
+    // Create branch, no targetContactId. The gateway does NOT call
+    // reassignChannelContact; a raced inbound seed under a different contact is
+    // left in place by writeVerifiedGatewayChannel (its update set omits
+    // contactId). The mirror must NOT reparent, or it would move the channel to
+    // this fresh contactId while the gateway keeps the seed contact.
+    queryRows = [];
+    gwSelectStatus = null;
+
+    await upsertVerifiedContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "plain-create-tg",
+      externalChatId: "plain-create-tg",
+    });
+
+    const upsert = mirrorUpserts()[0];
+    expect(upsert).toBeTruthy();
+    expect(upsert!.body.reassignConflictingChannels).toBe(false);
+  });
+
+  test("plain verification, no target, existing channel: mirror does NOT reparent", async () => {
+    // Update branch, no target-contact bind → boundContactId === row.contactId,
+    // so the gateway does not reparent and neither must the mirror.
+    queryRows = [
+      { channelId: "ch-plain", contactId: "co-plain", channelStatus: "active" },
+    ];
+
+    await upsertVerifiedContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "plain-update-tg",
+      externalChatId: "plain-update-tg",
+    });
+
+    const upsert = mirrorUpserts()[0];
+    expect(upsert).toBeTruthy();
+    expect(upsert!.body.contactId).toBe("co-plain");
+    expect(upsert!.body.reassignConflictingChannels).toBe(false);
   });
 });
 
@@ -1028,6 +1082,8 @@ describe("upsertContactChannel — inbound seed identity mirror (id alignment + 
     expect(mirror!.body.channelId).toBe(gwChannel!.values.id);
     // Inbound seed refreshes the mirror display name.
     expect(mirror!.body.refreshDisplayName).toBe(true);
+    // Inbound seed never reparents (gateway insert uses onConflictDoNothing).
+    expect(mirror!.body.reassignConflictingChannels).toBe(false);
   });
 
   test("Finding B: a follow-up seed update targets the aligned id and persists externalChatId", async () => {

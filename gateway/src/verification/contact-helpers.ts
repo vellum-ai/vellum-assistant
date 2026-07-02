@@ -581,7 +581,11 @@ export async function upsertVerifiedContactChannel(params: {
       targetContactId && targetContactId !== row.contactId
         ? targetContactId
         : row.contactId;
-    if (boundContactId !== row.contactId) {
+    // The gateway reparents the channel only on a genuine target-contact bind;
+    // the mirror must mirror THAT decision (not the call path) so the two stores
+    // never disagree about channel ownership.
+    const gatewayReparented = boundContactId !== row.contactId;
+    if (gatewayReparented) {
       reassignChannelContact({
         type: sourceChannel,
         address,
@@ -635,9 +639,10 @@ export async function upsertVerifiedContactChannel(params: {
     }
 
     // Activate the assistant mirror. ACL columns are gateway-owned; only
-    // identity/info columns are written here. reassignConflictingChannels: the
-    // gateway already re-parented the (type,address) row to boundContactId, so
-    // the mirror must follow (invite/verified binding).
+    // identity/info columns are written here. reassignConflictingChannels
+    // tracks the gateway's actual reparent decision above: true only on a real
+    // target-contact bind, so the mirror never moves a channel the gateway
+    // left in place.
     await runMirror(
       () =>
         ipcCallAssistant("contacts_mirror_upsert_channel", {
@@ -647,7 +652,7 @@ export async function upsertVerifiedContactChannel(params: {
             address,
             externalChatId,
             displayName: contactDisplayName,
-            reassignConflictingChannels: true,
+            reassignConflictingChannels: gatewayReparented,
           },
         }),
       "update",
@@ -663,6 +668,11 @@ export async function upsertVerifiedContactChannel(params: {
   // supplied so the new channel lands under it.
   const contactId = targetContactId ?? crypto.randomUUID();
   const channelId = crypto.randomUUID();
+  // Gateway reparents a raced (type,address) row only on a target-contact bind
+  // (reassignChannelContact below). Plain verification with no target leaves any
+  // raced seed row under its seed contact (writeVerifiedGatewayChannel omits
+  // contactId), so the mirror must NOT reparent either or the stores disagree.
+  const gatewayReparented = Boolean(targetContactId);
 
   // The parent contact is conflict-tolerant (a pre-existing contact is fine).
   // For the channel, resolve by logical key so an existing non-blocked gateway
@@ -746,9 +756,10 @@ export async function upsertVerifiedContactChannel(params: {
           address,
           displayName: contactDisplayName,
           externalChatId,
-          // Invite/verified binding: reparent a conflicting (type,address) row
-          // to this contact if one exists (matches the gateway reassign above).
-          reassignConflictingChannels: true,
+          // Mirror the gateway's actual reparent decision: true only when a
+          // target contact drove reassignChannelContact above. Plain
+          // verification (no target) does not reparent, matching the gateway.
+          reassignConflictingChannels: gatewayReparented,
         },
       }),
     "create",
