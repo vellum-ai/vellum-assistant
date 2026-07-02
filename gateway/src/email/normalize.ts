@@ -57,6 +57,22 @@ export interface NormalizedEmailEvent {
 }
 
 /**
+ * Parse an RFC 5322 address like `"Alice <alice@example.com>"` into its
+ * components. Returns the raw email address and optional display name.
+ */
+export function parseEmailAddress(raw: string): {
+  address: string;
+  displayName?: string;
+} {
+  const match = raw.match(/^(.+?)\s*<([^>]+)>$/);
+  if (match) {
+    const name = match[1].trim().replace(/^["']|["']$/g, "");
+    return { address: match[2].trim(), displayName: name || undefined };
+  }
+  return { address: raw.trim() };
+}
+
+/**
  * Normalize a Vellum email webhook payload into a GatewayInboundEvent.
  *
  * Returns null if required fields are missing.

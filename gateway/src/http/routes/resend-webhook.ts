@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { buildEmailTransportMetadata } from "../../channels/transport-hints.js";
+import type { Logger } from "pino";
 import type { ConfigFileCache } from "../../config-file-cache.js";
 import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
@@ -8,21 +8,13 @@ import {
   resolveCredentialWithRefresh,
   verifySecretWithRefresh,
 } from "../../credential-refresh.js";
-import { recordDenialReplyIfAllowed } from "../../db/denial-reply-rate-limiter.js";
 import { StringDedupCache } from "../../dedup-cache.js";
+import type { EmailReplySender } from "../../email/inbound-pipeline.js";
+import { runEmailInboundPipeline } from "../../email/inbound-pipeline.js";
 import type { VellumEmailPayload } from "../../email/normalize.js";
-import { normalizeEmailWebhook } from "../../email/normalize.js";
-import { handleInbound } from "../../handlers/handle-inbound.js";
+import { parseEmailAddress } from "../../email/normalize.js";
 import { getLogger } from "../../logger.js";
 import { readLimitedBody } from "../read-limited-body.js";
-import {
-  resolveAssistant,
-  isRejection,
-} from "../../routing/resolve-assistant.js";
-import {
-  handleCircuitBreakerError,
-  processInboundResult,
-} from "../../webhook-pipeline.js";
 
 const log = getLogger("resend-webhook");
 
@@ -166,22 +158,6 @@ async function fetchResendEmailContent(
 }
 
 /**
- * Parse an RFC 5322 address like `"Alice <alice@example.com>"` into its
- * components. Returns the raw email address and optional display name.
- */
-function parseEmailAddress(raw: string): {
-  address: string;
-  displayName?: string;
-} {
-  const match = raw.match(/^(.+?)\s*<([^>]+)>$/);
-  if (match) {
-    const name = match[1].trim().replace(/^["']|["']$/g, "");
-    return { address: match[2].trim(), displayName: name || undefined };
-  }
-  return { address: raw.trim() };
-}
-
-/**
  * Normalize a Resend `email.received` webhook event into a
  * `VellumEmailPayload` suitable for `normalizeEmailWebhook()`.
  */
@@ -229,6 +205,46 @@ function normalizeResendToVellumPayload(
     references,
     conversationId,
     timestamp: data.created_at,
+  };
+}
+
+// ── Reply delivery ──────────────────────────────────────────────────
+
+/** Reply sender using the Resend Emails API. */
+function buildResendReplySender(apiKey: string, log: Logger): EmailReplySender {
+  return async ({ kind, from, to, subject, text, inReplyTo }) => {
+    try {
+      const sendResponse = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from,
+          to: [to],
+          subject,
+          text,
+          ...(inReplyTo
+            ? {
+                headers: {
+                  "In-Reply-To": inReplyTo,
+                },
+              }
+            : {}),
+        }),
+      });
+      if (sendResponse.ok) {
+        log.info({ from, to }, `Sent ${kind} reply via Resend`);
+      } else {
+        log.warn(
+          { status: sendResponse.status, from, to },
+          `Failed to send ${kind} reply via Resend`,
+        );
+      }
+    } catch (err) {
+      log.error({ err, from, to }, `Error sending ${kind} reply via Resend`);
+    }
   };
 }
 
@@ -353,236 +369,20 @@ export function createResendWebhookHandler(
       return Response.json({ ok: true });
     }
 
-    // Feed into the standard email normalization pipeline
-    const normalized = normalizeEmailWebhook(
-      vellumPayload as unknown as Record<string, unknown>,
-    );
-    if (!normalized) {
-      tlog.debug(
-        "normalizeEmailWebhook returned null for Resend event, acknowledging",
-      );
-      dedupCache.mark(messageId);
-      return Response.json({ ok: true });
-    }
+    // ── Forward through the shared email pipeline ───────────────────
 
-    const { event: gatewayEvent, eventId, recipientAddress } = normalized;
-
-    tlog.info(
-      {
-        source: "resend",
-        eventId,
-        emailId,
-        from: gatewayEvent.actor.actorExternalId,
-        to: recipientAddress,
-      },
-      "Resend webhook received",
-    );
-
-    // ── Routing ─────────────────────────────────────────────────────
-
-    const routing = resolveAssistant(
+    return runEmailInboundPipeline({
       config,
-      gatewayEvent.message.conversationExternalId,
-      gatewayEvent.actor.actorExternalId,
-    );
-
-    if (isRejection(routing)) {
-      tlog.warn(
-        {
-          from: gatewayEvent.actor.actorExternalId,
-          to: recipientAddress,
-          reason: routing.reason,
-        },
-        "Routing rejected inbound Resend email",
-      );
-      dedupCache.mark(messageId);
-      return Response.json({ ok: true });
-    }
-
-    // ── Forward to runtime ──────────────────────────────────────────
-
-    try {
-      const result = await handleInbound(config, gatewayEvent, {
-        transportMetadata: buildEmailTransportMetadata({
-          senderAddress: gatewayEvent.actor.actorExternalId,
-          recipientAddress,
-          subject: vellumPayload.subject,
-          inReplyTo: vellumPayload.inReplyTo,
-        }),
-        replyCallbackUrl: undefined,
-        traceId,
-        routingOverride: routing,
-        sourceMetadata: {
-          emailSubject: vellumPayload.subject ?? undefined,
-          emailRecipient: recipientAddress,
-          ...(vellumPayload.inReplyTo
-            ? { emailInReplyTo: vellumPayload.inReplyTo }
-            : {}),
-          ...(vellumPayload.references
-            ? { emailReferences: vellumPayload.references }
-            : {}),
-        },
-      });
-
-      // ── Verification reply ──────────────────────────────────────
-      // Not gated by recordDenialReplyIfAllowed — verification success
-      // confirmations must always be delivered regardless of prior denial
-      // replies to this sender.
-      if (
-        result.verificationIntercepted &&
-        result.verificationReplyText &&
-        apiKey
-      ) {
-        const senderAddress = gatewayEvent.actor.actorExternalId;
-        try {
-          const sendResponse = await fetch("https://api.resend.com/emails", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${apiKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              from: recipientAddress,
-              to: [senderAddress],
-              subject: `Re: ${vellumPayload.subject ?? "(no subject)"}`,
-              text: result.verificationReplyText,
-              ...(vellumPayload.messageId
-                ? {
-                    headers: {
-                      "In-Reply-To": vellumPayload.messageId,
-                    },
-                  }
-                : {}),
-            }),
-          });
-          if (sendResponse.ok) {
-            tlog.info(
-              { from: recipientAddress, to: senderAddress },
-              "Sent verification reply via Resend",
-            );
-          } else {
-            tlog.warn(
-              {
-                status: sendResponse.status,
-                from: recipientAddress,
-                to: senderAddress,
-              },
-              "Failed to send verification reply via Resend",
-            );
-          }
-        } catch (err) {
-          tlog.error(
-            { err, from: recipientAddress, to: senderAddress },
-            "Error sending verification reply via Resend",
-          );
-        }
-        dedupCache.mark(messageId);
-        return Response.json({ ok: true, verificationIntercepted: true });
-      }
-
-      const processed = processInboundResult(
-        result,
-        dedupCache,
-        messageId,
-        () => {
-          tlog.warn(
-            { from: gatewayEvent.actor.actorExternalId, to: recipientAddress },
-            "Resend email routing rejected after forwarding attempt",
-          );
-        },
-        tlog,
-      );
-
-      if (!processed.ok) {
-        return Response.json({ error: "Internal error" }, { status: 500 });
-      }
-
-      dedupCache.mark(messageId);
-
-      if (!result.rejected) {
-        tlog.info(
-          { status: "forwarded", eventId, emailId },
-          "Resend email message forwarded to runtime",
-        );
-      }
-
-      // ── Denial reply ────────────────────────────────────────────
-      // When the runtime denies the message (ACL rejection) and provides
-      // replyText, send a reply email so the unknown sender knows why
-      // their message was rejected. The runtime can't send email directly
-      // (no replyCallbackUrl for email), so the gateway handles it.
-      const runtimeBody = result.runtimeResponse ?? {};
-      if (
-        result.runtimeResponse?.denied &&
-        result.runtimeResponse.replyText &&
-        apiKey
-      ) {
-        const senderAddress = gatewayEvent.actor.actorExternalId;
-        if (recordDenialReplyIfAllowed("email", senderAddress)) {
-          try {
-            const sendResponse = await fetch("https://api.resend.com/emails", {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${apiKey}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                from: recipientAddress,
-                to: [senderAddress],
-                subject: `Re: ${vellumPayload.subject ?? "(no subject)"}`,
-                text: result.runtimeResponse.replyText,
-                ...(vellumPayload.messageId
-                  ? {
-                      headers: {
-                        "In-Reply-To": vellumPayload.messageId,
-                      },
-                    }
-                  : {}),
-              }),
-            });
-            if (sendResponse.ok) {
-              tlog.info(
-                { from: recipientAddress, to: senderAddress },
-                "Sent denial reply via Resend",
-              );
-            } else {
-              tlog.warn(
-                {
-                  status: sendResponse.status,
-                  from: recipientAddress,
-                  to: senderAddress,
-                },
-                "Failed to send denial reply via Resend",
-              );
-            }
-          } catch (err) {
-            tlog.error(
-              { err, from: recipientAddress, to: senderAddress },
-              "Error sending denial reply via Resend",
-            );
-          }
-        } else {
-          tlog.info(
-            { from: recipientAddress, to: senderAddress },
-            "Denial reply rate-limited, skipping Resend send",
-          );
-        }
-      }
-
-      return Response.json({ ok: true, ...runtimeBody });
-    } catch (err) {
-      const cbResponse = handleCircuitBreakerError(
-        err,
-        dedupCache,
-        messageId,
-        tlog,
-      );
-      if (cbResponse) return cbResponse;
-
-      tlog.error({ err, eventId }, "Failed to process inbound Resend email");
-      dedupCache.unreserve(messageId);
-      return Response.json({ error: "Internal error" }, { status: 500 });
-    }
+      log: tlog,
+      label: "Resend",
+      source: "resend",
+      dedupCache,
+      dedupKey: messageId,
+      vellumPayload,
+      traceId,
+      sendReply: apiKey ? buildResendReplySender(apiKey, tlog) : undefined,
+      logFields: { emailId },
+    });
   };
 
   return { handler, dedupCache };
