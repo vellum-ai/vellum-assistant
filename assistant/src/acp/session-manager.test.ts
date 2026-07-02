@@ -200,11 +200,6 @@ describe("AcpSessionManager parent notification", () => {
     await fire(manager, "sess-cancel", entry);
     // Any notification would have called enqueue synchronously inside the catch.
     expect(enqueueMessage).not.toHaveBeenCalled();
-    // Nor a terminal error event (would regress the optimistic Cancelled state).
-    const sentTypes = (entry.sendToVellum.mock.calls as unknown[][]).map(
-      (c) => (c[0] as { type?: string })?.type,
-    );
-    expect(sentTypes).not.toContain("acp_session_error");
   });
 
   test("a cancelled session does not notify the parent on success", async () => {
@@ -226,12 +221,6 @@ describe("AcpSessionManager parent notification", () => {
 
     await fire(manager, "sess-cancel-ok", entry);
     expect(enqueueMessage).not.toHaveBeenCalled();
-    // Nor a completed terminal event: it would regress the client's optimistic
-    // Cancelled state to Completed while history is stored as cancelled.
-    const sentTypes = (entry.sendToVellum.mock.calls as unknown[][]).map(
-      (c) => (c[0] as { type?: string })?.type,
-    );
-    expect(sentTypes).not.toContain("acp_session_completed");
   });
 
   test("cancel marks the session cancelled before the protocol cancel resolves", async () => {
@@ -265,6 +254,33 @@ describe("AcpSessionManager parent notification", () => {
 
     resolveCancel();
     await cancelPromise;
+  });
+
+  test("cancel restores the previous status when the protocol cancel throws", async () => {
+    // If process.cancel rejects, the session was not actually cancelled, so the
+    // status must roll back to running (else the live prompt's eventual settle
+    // is wrongly suppressed) and the error must propagate to the caller.
+    const manager = new AcpSessionManager(1);
+    const proc = {
+      markStderr: () => 0,
+      stderrSince: () => "",
+      prompt: () => new Promise(() => {}),
+      kill: mock(() => {}),
+      cancel: mock(() => Promise.reject(new Error("adapter down"))),
+    };
+    const entry = injectSession(
+      manager,
+      "sess-cancel-throw",
+      "parent-cancel-throw",
+      proc as unknown as ReturnType<typeof fakeProcess>,
+    );
+    // A prompt is still in flight; cancel must not tear it down on failure.
+    entry.currentPrompt = new Promise(() => {});
+
+    await expect((manager as any).cancel("sess-cancel-throw")).rejects.toThrow(
+      "adapter down",
+    );
+    expect(entry.state.status).toBe("running");
   });
 
   test("a superseded prompt does not notify the parent", async () => {

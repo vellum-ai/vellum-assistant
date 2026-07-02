@@ -744,9 +744,24 @@ export class AcpSessionManager {
     // prompt rejects during this window, its catch handler must already see
     // "cancelled" so it neither overwrites the status with "failed" nor wakes
     // the parent — no model activity may follow a user stop.
+    const prevStatus = entry.state.status;
+    const prevCompletedAt = entry.state.completedAt;
     entry.state.status = "cancelled";
     entry.state.completedAt = Date.now();
-    await entry.process.cancel(entry.state.acpSessionId);
+    try {
+      await entry.process.cancel(entry.state.acpSessionId);
+    } catch (err) {
+      // The protocol cancel failed (e.g. the adapter connection is already
+      // down): the session was NOT actually cancelled, so restore the prior
+      // status. Otherwise the still-running prompt's eventual completion would
+      // be wrongly suppressed and persisted as cancelled. Rethrow so the caller
+      // reports failure and the client rolls back its optimistic cancel.
+      if (this.sessions.get(acpSessionId) === entry) {
+        entry.state.status = prevStatus;
+        entry.state.completedAt = prevCompletedAt;
+      }
+      throw err;
+    }
     // Re-check the map after the await: the in-flight prompt's handler may
     // have already torn the session down while process.cancel was pending.
     if (!entry.currentPrompt && this.sessions.get(acpSessionId) === entry) {
@@ -1018,18 +1033,11 @@ export class AcpSessionManager {
             { acpSessionId, stopReason: response.stopReason },
             "ACP prompt completed",
           );
-          // Skip the completed terminal event when the session was already
-          // cancelled (a prompt can win the cancel race by resolving normally):
-          // emitting it would regress the client's optimistic Cancelled state to
-          // Completed while history persists as cancelled. persistTerminal below
-          // records the preserved "cancelled" status.
-          if (current.state.status !== "cancelled") {
-            current.sendToVellum({
-              type: "acp_session_completed",
-              acpSessionId,
-              stopReason: response.stopReason,
-            });
-          }
+          current.sendToVellum({
+            type: "acp_session_completed",
+            acpSessionId,
+            stopReason: response.stopReason,
+          });
 
           // Persist the terminal row + buffered event log before tearing
           // down (teardown deletes the buffer entry).
@@ -1080,15 +1088,11 @@ export class AcpSessionManager {
             { acpSessionId, error: err.message, failureMessage },
             "ACP prompt failed",
           );
-          // Skip the error terminal event when already cancelled (same cancel
-          // race as the success path): a user stop must not surface an error.
-          if (current.state.status !== "cancelled") {
-            current.sendToVellum({
-              type: "acp_session_error",
-              acpSessionId,
-              error: failureMessage,
-            });
-          }
+          current.sendToVellum({
+            type: "acp_session_error",
+            acpSessionId,
+            error: failureMessage,
+          });
 
           // Persist the terminal row before teardown clears the buffer.
           this.persistTerminal(acpSessionId, current);
