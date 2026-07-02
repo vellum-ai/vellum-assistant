@@ -30,8 +30,8 @@
   "author": "Vellum AI",
   "license": "MIT",
   "dependencies": {
-    "@vellumai/environments": "file:../packages/environments",
-    "@vellumai/local-mode": "file:../packages/local-mode",
+    "@vellumai/environments": "workspace:*",
+    "@vellumai/local-mode": "workspace:*",
     "chalk": "5.6.2",
     "ink": "6.8.0",
     "nanoid": "5.1.7",

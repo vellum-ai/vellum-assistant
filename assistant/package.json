@@ -43,15 +43,15 @@
     "@resvg/resvg-js": "2.6.2",
     "@sentry/node": "10.43.0",
     "@slack/types": "2.21.1",
-    "@vellumai/ces-client": "file:../packages/ces-client",
-    "@vellumai/credential-storage": "file:../packages/credential-storage",
-    "@vellumai/egress-proxy": "file:../packages/egress-proxy",
-    "@vellumai/environments": "file:../packages/environments",
-    "@vellumai/gateway-client": "file:../packages/gateway-client",
-    "@vellumai/ipc-server-utils": "file:../packages/ipc-server-utils",
-    "@vellumai/service-contracts": "file:../packages/service-contracts",
-    "@vellumai/slack-text": "file:../packages/slack-text",
-    "@vellumai/twilio-client": "file:../packages/twilio-client",
+    "@vellumai/ces-client": "workspace:*",
+    "@vellumai/credential-storage": "workspace:*",
+    "@vellumai/egress-proxy": "workspace:*",
+    "@vellumai/environments": "workspace:*",
+    "@vellumai/gateway-client": "workspace:*",
+    "@vellumai/ipc-server-utils": "workspace:*",
+    "@vellumai/service-contracts": "workspace:*",
+    "@vellumai/slack-text": "workspace:*",
+    "@vellumai/twilio-client": "workspace:*",
     "commander": "13.1.0",
     "croner": "10.0.1",
     "diff": "8.0.4",
@@ -95,10 +95,6 @@
     "@vellumai/slack-text",
     "@vellumai/twilio-client"
   ],
-  "overrides": {
-    "lodash": "4.18.1",
-    "path-to-regexp": "8.4.2"
-  },
   "optionalDependencies": {
     "@resvg/resvg-js-darwin-arm64": "2.6.2",
     "@resvg/resvg-js-darwin-x64": "2.6.2"

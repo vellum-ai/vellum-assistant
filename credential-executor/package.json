@@ -21,9 +21,9 @@
     "prepack": "node ../scripts/prepack-bundled-deps.mjs"
   },
   "dependencies": {
-    "@vellumai/service-contracts": "file:../packages/service-contracts",
-    "@vellumai/credential-storage": "file:../packages/credential-storage",
-    "@vellumai/egress-proxy": "file:../packages/egress-proxy",
+    "@vellumai/service-contracts": "workspace:*",
+    "@vellumai/credential-storage": "workspace:*",
+    "@vellumai/egress-proxy": "workspace:*",
     "pino": "9.14.0",
     "pino-pretty": "13.1.3"
   },
