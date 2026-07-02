@@ -16,10 +16,10 @@ export interface SlackUserInfo {
   timezone?: string;
   timezoneLabel?: string;
   timezoneOffsetSeconds?: number;
-  isStranger?: boolean;
-  isRestricted?: boolean;
   /** The sender is a bot user (Slack `users.info` `is_bot`). */
   isBot?: boolean;
+  isStranger?: boolean;
+  isRestricted?: boolean;
 }
 
 export type SlackUserActorFields = Pick<
@@ -29,6 +29,7 @@ export type SlackUserActorFields = Pick<
   | "timezone"
   | "timezoneLabel"
   | "timezoneOffsetSeconds"
+  | "isBot"
   | "isStranger"
   | "isRestricted"
 >;
@@ -188,13 +189,16 @@ export async function resolveSlackUser(
           ? data.user.tz_offset
           : undefined;
 
-      const isStranger = data.user.is_stranger === true ? true : undefined;
+      // Explicit booleans, not presence flags: a successful users.info is a
+      // positive identity resolution, so `false` means "Slack says this user
+      // is a regular workspace member". When resolution fails these fields
+      // are absent entirely (unknown), and downstream trust policy must fail
+      // toward the handshake rather than treating the sender as vouched.
+      const isBot = data.user.is_bot === true;
+      const isStranger = data.user.is_stranger === true;
       const isRestricted =
         data.user.is_restricted === true ||
-        data.user.is_ultra_restricted === true
-          ? true
-          : undefined;
-      const isBot = data.user.is_bot === true ? true : undefined;
+        data.user.is_ultra_restricted === true;
 
       const info: SlackUserInfo = {
         displayName,
@@ -204,9 +208,9 @@ export async function resolveSlackUser(
         ...(timezoneOffsetSeconds !== undefined
           ? { timezoneOffsetSeconds }
           : {}),
-        ...(isStranger !== undefined ? { isStranger } : {}),
-        ...(isRestricted !== undefined ? { isRestricted } : {}),
-        ...(isBot !== undefined ? { isBot } : {}),
+        isBot,
+        isStranger,
+        isRestricted,
       };
       cacheSet(
         userInfoCache,
@@ -499,6 +503,7 @@ export function slackUserActorFields(
     ...(userInfo.timezoneOffsetSeconds !== undefined
       ? { timezoneOffsetSeconds: userInfo.timezoneOffsetSeconds }
       : {}),
+    ...(userInfo.isBot !== undefined ? { isBot: userInfo.isBot } : {}),
     ...(userInfo.isStranger !== undefined
       ? { isStranger: userInfo.isStranger }
       : {}),

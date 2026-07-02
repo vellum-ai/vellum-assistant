@@ -9,13 +9,14 @@
 
 import { ipcCall } from "../ipc/gateway-client.js";
 import { getLogger } from "../util/logger.js";
-import type { ExecutionContext } from "./approval-policy.js";
+import type {
+  AutoApproveThreshold,
+  ExecutionContext,
+} from "./approval-policy.js";
 
 const log = getLogger("gateway-threshold-reader");
 
 // ── Types ────────────────────────────────────────────────────────────────────
-
-type Threshold = "none" | "low" | "medium" | "high";
 
 interface GlobalThresholds {
   interactive: string;
@@ -163,7 +164,7 @@ function mapExecutionContextToField(
   return "autonomous";
 }
 
-function isValidThreshold(value: string): value is Threshold {
+function isValidThreshold(value: string): value is AutoApproveThreshold {
   return (
     value === "none" ||
     value === "low" ||
@@ -188,7 +189,7 @@ function isValidThreshold(value: string): value is Threshold {
 export async function getAutoApproveThreshold(
   conversationId: string | undefined,
   executionContext?: ExecutionContext,
-): Promise<Threshold> {
+): Promise<AutoApproveThreshold> {
   const ctx: ExecutionContext = executionContext ?? "conversation";
 
   // For conversation context with a conversationId, try per-conversation override first
@@ -315,7 +316,7 @@ async function fetchGlobalThresholds(): Promise<GlobalThresholds> {
 export async function refreshAutoApproveThreshold(
   conversationId: string | undefined,
   executionContext?: ExecutionContext,
-): Promise<Threshold | null> {
+): Promise<AutoApproveThreshold | null> {
   const ctx: ExecutionContext = executionContext ?? "conversation";
 
   if (ctx === "conversation" && conversationId) {

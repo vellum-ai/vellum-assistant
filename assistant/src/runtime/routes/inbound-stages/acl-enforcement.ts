@@ -179,7 +179,9 @@ export async function enforceIngressAcl(
 
   let isValidatedBootstrap = false;
 
-  // Trust signals from Slack users.info, forwarded via sourceMetadata.
+  // Identity signals forwarded via sourceMetadata: bot flag (Slack users.info
+  // / Telegram is_bot) plus Slack workspace trust signals.
+  const isBot = sourceMetadata?.isBot ?? undefined;
   const isStranger = sourceMetadata?.isStranger ?? undefined;
   const isRestricted = sourceMetadata?.isRestricted ?? undefined;
 
@@ -241,20 +243,35 @@ export async function enforceIngressAcl(
   }
 
   // ── Guardian short-circuit ──
-  // A verdict classified `guardian` is admitted even when it carries no
-  // per-channel member row (`resolvedMember` null) or an inactive one. The
-  // gateway classifies guardians by principal, so a guardian speaking on a
-  // channel where they hold no same-channel binding must not fall through the
-  // member-vs-stranger gates below — those would misroute the guardian into
-  // the stranger lane and fire an access request at the guardian themselves.
+  // A verdict classified `guardian` is admitted even when its same-channel
+  // member row is inactive (e.g. pending): the gateway classifies guardians
+  // by principal, so a guardian speaking on a channel where they hold no
+  // active guardian binding must not fall through the member-vs-stranger
+  // gates below — those would misroute the guardian into the stranger lane
+  // and fire an access request at the guardian themselves.
   if (verdict.trustClass === "guardian") {
+    // The gateway proves guardian identity via a same-channel member row
+    // (the active binding address, or a row belonging to the guardian
+    // contact), so every guardian verdict carries a resolvable member row.
+    // A guardian verdict WITHOUT one is contradictory — cross-channel
+    // address collisions are not identity proofs and must never confer
+    // guardian capabilities. Fail safe: soft-deny with no stranger-lane
+    // side effects.
+    if (!resolvedMember) {
+      log.warn(
+        { sourceChannel, externalUserId: canonicalSenderId },
+        "Ingress ACL: guardian verdict without a member row, denying fail-safe",
+      );
+      return failClosedDeny();
+    }
+
     // The gateway never classifies a blocked/revoked same-channel row as
     // guardian (explicit per-channel governance wins over the principal
     // check), so a verdict claiming both is contradictory. Fail safe:
     // soft-deny with no stranger-lane side effects.
     if (
-      resolvedMember?.status === "blocked" ||
-      resolvedMember?.status === "revoked"
+      resolvedMember.status === "blocked" ||
+      resolvedMember.status === "revoked"
     ) {
       log.warn(
         {
@@ -272,7 +289,7 @@ export async function enforceIngressAcl(
     // classification. Deny with the accurate policy_deny reason but none of
     // the stranger-lane side effects — the canned "ask the guardian" reply
     // would be addressed at the guardian themselves.
-    if (resolvedMember?.policy === "deny") {
+    if (resolvedMember.policy === "deny") {
       log.info(
         { sourceChannel, externalUserId: canonicalSenderId },
         "Ingress ACL: guardian member row carries policy deny, denying",
@@ -374,9 +391,12 @@ export async function enforceIngressAcl(
 
         // Slack-specific: send a verification challenge directly to the
         // user's DM instead of requiring guardian-mediated approval. The
-        // user can reply with the code in the DM to self-verify.
+        // user can reply with the code in the DM to self-verify. Bots are
+        // excluded — a bot cannot return a code, so it goes straight to the
+        // guardian-notify lane and its introduction card offers direct trust.
         if (
           sourceChannel === "slack" &&
+          isBot !== true &&
           (canonicalSenderId ?? rawSenderId) &&
           !terminallyDenied &&
           !isCallbackInteraction
@@ -400,6 +420,7 @@ export async function enforceIngressAcl(
                   trimmedContent,
                   MESSAGE_PREVIEW_MAX_LENGTH,
                 ),
+                isBot,
                 isStranger,
                 isRestricted,
                 messageTs,
@@ -480,6 +501,7 @@ export async function enforceIngressAcl(
                   trimmedContent,
                   MESSAGE_PREVIEW_MAX_LENGTH,
                 ),
+                isBot,
                 isStranger,
                 isRestricted,
                 messageTs,
@@ -530,6 +552,7 @@ export async function enforceIngressAcl(
                 trimmedContent,
                 MESSAGE_PREVIEW_MAX_LENGTH,
               ),
+              isBot,
               isStranger,
               isRestricted,
               messageTs,
@@ -680,9 +703,11 @@ export async function enforceIngressAcl(
 
           // Slack-specific: re-verify inactive members via DM challenge
           // (same as non-member path). Blocked members are excluded —
-          // the guardian made an explicit decision to block them.
+          // the guardian made an explicit decision to block them. Bots are
+          // excluded — a bot cannot return a code.
           if (
             sourceChannel === "slack" &&
+            isBot !== true &&
             resolvedMember.status !== "blocked" &&
             (canonicalSenderId ?? rawSenderId) &&
             !terminallyDenied &&
@@ -709,6 +734,7 @@ export async function enforceIngressAcl(
                     trimmedContent,
                     MESSAGE_PREVIEW_MAX_LENGTH,
                   ),
+                  isBot,
                   isStranger,
                   isRestricted,
                   messageTs,
@@ -787,6 +813,7 @@ export async function enforceIngressAcl(
                     trimmedContent,
                     MESSAGE_PREVIEW_MAX_LENGTH,
                   ),
+                  isBot,
                   isStranger,
                   isRestricted,
                   messageTs,

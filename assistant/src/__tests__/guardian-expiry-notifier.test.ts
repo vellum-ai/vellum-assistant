@@ -90,6 +90,7 @@ function makeRequest(
     riskLevel: null,
     activityText: null,
     executionTarget: null,
+    requesterSignals: null,
     status: "expired",
     answerText: null,
     decidedByExternalUserId: null,

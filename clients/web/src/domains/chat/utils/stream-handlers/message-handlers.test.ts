@@ -1,6 +1,8 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
 import {
   handleAssistantTextDelta,
   handleAssistantThinkingDelta,
@@ -333,11 +335,31 @@ describe("handleMessageComplete", () => {
 });
 
 describe("handleUserMessageEcho", () => {
-  /** Run the handler and apply the captured setOptimisticSends updater. */
+  const seededSnapshot: PaginatedHistoryResult = {
+    messages: [],
+    hasMore: false,
+    oldestTimestamp: null,
+    oldestMessageId: null,
+    seq: 1,
+  };
+
+  // The handler reads the real chat-session store to decide whether the paired
+  // snapshot fold has somewhere to land. Reset it around each case so state
+  // never leaks between tests.
+  beforeEach(() => {
+    useChatSessionStore.setState({ snapshot: null, optimisticSends: [] });
+  });
+  afterEach(() => {
+    useChatSessionStore.setState({ snapshot: null, optimisticSends: [] });
+  });
+
+  /** Seed the snapshot, run the handler, and apply the captured
+   *  setOptimisticSends updater. */
   function applyEcho(
     event: Parameters<typeof handleUserMessageEcho>[0],
     prev: DisplayMessage[],
   ): DisplayMessage[] {
+    useChatSessionStore.setState({ snapshot: seededSnapshot });
     const ctx = makeCtx();
     handleUserMessageEcho(event, ctx);
     expect(ctx.setOptimisticSends).toHaveBeenCalled();
@@ -345,6 +367,25 @@ describe("handleUserMessageEcho", () => {
       .mock.calls[0][0] as (prev: DisplayMessage[]) => DisplayMessage[];
     return updater(prev);
   }
+
+  it("does NOT retire the optimistic send when the snapshot is unseeded (first-message flicker guard)", () => {
+    // Regression: the first message of a freshly server-minted conversation has
+    // no history snapshot yet, so `applyEnvelopeToSnapshot` no-ops. Retiring the
+    // overlay here would blank the message out until `seedSnapshot` lands. The
+    // reseed's `pruneConfirmedOptimisticSends` retires it instead.
+    expect(useChatSessionStore.getState().snapshot).toBeNull();
+    const ctx = makeCtx();
+    handleUserMessageEcho(
+      {
+        type: "user_message_echo",
+        text: "Hello",
+        messageId: "msg-1",
+        clientMessageId: "client-1",
+      },
+      ctx,
+    );
+    expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
+  });
 
   it("removes the attachment-less optimistic send correlated by clientMessageId", () => {
     const next = applyEcho(
