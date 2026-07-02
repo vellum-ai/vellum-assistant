@@ -510,6 +510,42 @@ export class ContactStore {
   }
 
   /**
+   * Resolve a channel id by its logical (type, address) key, falling back to
+   * (type, externalChatId) for legacy/imported contacts. Gateway DB only.
+   */
+  findChannelIdByAddress(
+    type: string,
+    address: string,
+    externalChatId?: string | null,
+  ): string | undefined {
+    const byAddress = this.db
+      .select({ id: contactChannels.id })
+      .from(contactChannels)
+      .where(
+        and(
+          eq(contactChannels.type, type),
+          sql`${contactChannels.address} = ${address} COLLATE NOCASE`,
+        ),
+      )
+      .limit(1)
+      .get();
+    if (byAddress) return byAddress.id;
+
+    if (externalChatId == null) return undefined;
+    return this.db
+      .select({ id: contactChannels.id })
+      .from(contactChannels)
+      .where(
+        and(
+          eq(contactChannels.type, type),
+          eq(contactChannels.externalChatId, externalChatId),
+        ),
+      )
+      .limit(1)
+      .get()?.id;
+  }
+
+  /**
    * Set lastSeenAt to now for a channel (gateway DB only).
    */
   touchChannelLastSeen(channelId: string): void {
