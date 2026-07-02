@@ -46,7 +46,7 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 const { useEffectiveChatPlugins } = await import("./use-effective-chat-plugins");
 
 function installed(name: string): InstalledPlugin {
-  return { id: name, name, description: null, version: null };
+  return { id: name, name, enabled: true, description: null, version: null };
 }
 
 function installedOk(plugins: InstalledPlugin[]): InstalledResult {

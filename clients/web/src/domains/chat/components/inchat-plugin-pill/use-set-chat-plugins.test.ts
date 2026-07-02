@@ -92,7 +92,7 @@ function deferred<T>(): Deferred<T> {
 }
 
 function installed(name: string): InstalledPlugin {
-  return { id: name, name, description: null, version: null };
+  return { id: name, name, enabled: true, description: null, version: null };
 }
 
 function installedOk(plugins: InstalledPlugin[]): InstalledResult {
