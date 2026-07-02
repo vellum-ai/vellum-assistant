@@ -28,9 +28,9 @@ import {
   normalizeSlackBlockActions,
   normalizeSlackReactionAdded,
   normalizeSlackReactionRemoved,
+  enrichNormalizedActor,
   resolveSlackChannel,
   resolveSlackUser,
-  slackUserActorFields,
   type SlackAppMentionEvent,
   type SlackDirectMessageEvent,
   type SlackChannelMessageEvent,
@@ -1391,7 +1391,9 @@ export class SlackSocketModeClient {
         ),
       ]);
       if (userInfo) {
-        Object.assign(actor, slackUserActorFields(userInfo));
+        // Also re-runs bot-sender classification: an is_bot-only bot (no
+        // top-level bot_id) is undetectable during cache-only normalization.
+        enrichNormalizedActor(normalized, userInfo);
       }
     }
 
