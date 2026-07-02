@@ -77,10 +77,17 @@ export class AcpAgentProcess {
 
   /**
    * Ring of the most recent stderr lines, bounded to ~STDERR_RETENTION_BYTES.
-   * Read once on the failure path to surface the real adapter error.
+   * Read once on the failure path to surface the real adapter error. Each
+   * entry carries a monotonic `seq` so a caller can scope reads to lines
+   * produced after a checkpoint (see markStderr/stderrSince).
    */
-  private stderrRing: string[] = [];
+  private stderrRing: { seq: number; text: string }[] = [];
   private stderrRingBytes = 0;
+  /**
+   * Cumulative count of stderr lines ever retained, including ones later
+   * evicted. Assigned as each line's `seq`; markStderr() snapshots it.
+   */
+  private stderrSeq = 0;
 
   constructor(
     public readonly agentId: string,
@@ -144,14 +151,15 @@ export class AcpAgentProcess {
    * so a single oversized line is not fully dropped.
    */
   private retainStderr(text: string): void {
-    this.stderrRing.push(text);
+    this.stderrSeq += 1;
+    this.stderrRing.push({ seq: this.stderrSeq, text });
     this.stderrRingBytes += Buffer.byteLength(text);
     while (
       this.stderrRingBytes > STDERR_RETENTION_BYTES &&
       this.stderrRing.length > 1
     ) {
       const evicted = this.stderrRing.shift()!;
-      this.stderrRingBytes -= Buffer.byteLength(evicted);
+      this.stderrRingBytes -= Buffer.byteLength(evicted.text);
     }
   }
 
@@ -160,7 +168,29 @@ export class AcpAgentProcess {
    * it does not mutate or clear the buffer.
    */
   recentStderr(): string {
-    return this.stderrRing.join("\n");
+    return this.stderrSince(0);
+  }
+
+  /**
+   * Snapshots the current cumulative stderr line count. Pair with
+   * stderrSince() to read only stderr produced after this checkpoint, so a
+   * prompt's failure derives from its own stderr rather than lines retained
+   * from startup, resume, or an earlier (possibly cancelled) prompt.
+   */
+  markStderr(): number {
+    return this.stderrSeq;
+  }
+
+  /**
+   * Returns retained stderr lines produced after `mark` (a markStderr()
+   * checkpoint), joined by newlines. Best-effort: lines pushed after the mark
+   * but since evicted are simply absent; returns "" when nothing newer remains.
+   */
+  stderrSince(mark: number): string {
+    return this.stderrRing
+      .filter((e) => e.seq > mark)
+      .map((e) => e.text)
+      .join("\n");
   }
 
   /**

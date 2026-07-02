@@ -62,6 +62,13 @@ describe("deriveFailureError", () => {
     );
   });
 
+  test("structured error duplicating the generic ack yields the clean ack, not the raw JSON", () => {
+    // The adapter acked "Internal error" and also emitted it as a JSON blob;
+    // return the clean ack rather than echoing the raw JSON line.
+    const stderr = `{"error":{"message":"Internal error"}}`;
+    expect(deriveFailureError("Internal error", stderr)).toBe("Internal error");
+  });
+
   test("falls back to the ack message when stderr has no JSON and no lines", () => {
     expect(deriveFailureError("Internal error", "   \n  \n")).toBe(
       "Internal error",

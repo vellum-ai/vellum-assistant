@@ -17,9 +17,10 @@ export function deriveFailureError(ackMessage: string, stderr: string): string {
   const clean = stderr.replace(ANSI_ESCAPE, "").trim();
 
   // Most precise: a structured adapter error. Prefer it even over a specific
-  // ack, but never return a value that just duplicates the ack.
+  // ack, but when it merely duplicates the ack, return the clean ack rather
+  // than falling through to echo the raw JSON blob as a stderr line.
   const jsonMessage = lastJsonErrorMessage(clean);
-  if (jsonMessage && jsonMessage !== ackMessage) return jsonMessage;
+  if (jsonMessage) return jsonMessage !== ackMessage ? jsonMessage : ackMessage;
 
   // An already-specific ack is preserved when stderr has no better detail.
   if (ackMessage.length > 0 && ackMessage !== "Internal error")

@@ -72,3 +72,49 @@ describe("AcpAgentProcess.recentStderr", () => {
     expect(proc.recentStderr()).toBe("only line");
   });
 });
+
+describe("AcpAgentProcess.markStderr / stderrSince", () => {
+  test("stderrSince returns only lines produced after the mark", () => {
+    const proc = newProcess();
+    feed(proc, "before 1");
+    feed(proc, "before 2");
+
+    const mark = proc.markStderr();
+    feed(proc, "after 1");
+    feed(proc, "after 2");
+
+    expect(proc.stderrSince(mark)).toBe("after 1\nafter 2");
+  });
+
+  test("a mark taken after all lines excludes everything retained so far", () => {
+    const proc = newProcess();
+    feed(proc, "line 1");
+    feed(proc, "line 2");
+
+    const mark = proc.markStderr();
+    expect(proc.stderrSince(mark)).toBe("");
+  });
+
+  test("stderrSince(0) returns all retained lines, like recentStderr", () => {
+    const proc = newProcess();
+    feed(proc, "line 1");
+    feed(proc, "line 2");
+
+    expect(proc.stderrSince(0)).toBe(proc.recentStderr());
+  });
+
+  test("mark is monotonic across eviction: seq keeps counting evicted lines", () => {
+    const proc = newProcess();
+    // Overflow the byte cap so early lines are evicted, then mark and add one
+    // fresh line: only the post-mark line comes back, unaffected by eviction.
+    const kb = "z".repeat(1024);
+    for (let i = 0; i < 8; i++) {
+      feed(proc, `${i}:${kb}`);
+    }
+
+    const mark = proc.markStderr();
+    feed(proc, "fresh failure");
+
+    expect(proc.stderrSince(mark)).toBe("fresh failure");
+  });
+});
