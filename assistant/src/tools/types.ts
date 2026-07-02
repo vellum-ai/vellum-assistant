@@ -212,6 +212,13 @@ export interface ToolExecutedEvent extends ExecutorTelemetryStamp {
   approvalMode?: string;
   /** Why the approval decision was reached (stable enum). Copied from PermissionDecision for analytics consumers. */
   approvalReason?: string;
+  /**
+   * Normalized top-level CLI for bash/host_bash invocations (e.g. `git`), or
+   * null/absent when the command isn't a single recognized CLI. The audit
+   * listener composes this into the recorded tool name (`bash:git`,
+   * `bash:other`) for telemetry grouping.
+   */
+  cli?: string | null;
   decision: string;
   durationMs: number;
   result: ToolExecutionResult;
@@ -222,7 +229,14 @@ export interface ToolExecutedEvent extends ExecutorTelemetryStamp {
  * fields stamped centrally by the executor's `emitLifecycleEvent`.
  */
 export interface ToolExecutionErrorEvent
-  extends ContractsToolExecutionErrorEvent, ExecutorTelemetryStamp {}
+  extends ContractsToolExecutionErrorEvent, ExecutorTelemetryStamp {
+  /**
+   * Normalized top-level CLI for bash/host_bash invocations (e.g. `git`), or
+   * null/absent when the command isn't a single recognized CLI. Lets errored
+   * shell commands bucket by CLI in telemetry, same as successful ones.
+   */
+  cli?: string | null;
+}
 
 export type ToolLifecycleEvent =
   | ToolExecutionStartEvent

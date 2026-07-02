@@ -70,6 +70,12 @@ interface RiskClassificationWithMeta extends RiskClassification {
   commandCandidates?: string[];
   /** Action keys from the gateway for trust rule matching (bash tools). */
   actionKeys?: string[];
+  /**
+   * Normalized top-level CLI for bash/host_bash commands (e.g. `git`, `npm`),
+   * or `null` when the command isn't a single recognized CLI. Used for
+   * telemetry grouping.
+   */
+  cli?: string | null;
   /** Whether the command qualifies for sandbox auto-approve (bash tools). */
   sandboxAutoApprove?: boolean;
   /** Allowlist options from the gateway for generateAllowlistOptions(). */
@@ -639,6 +645,7 @@ export async function classifyRisk(
     reason: gatewayResult.reason,
     commandCandidates: gatewayResult.commandCandidates,
     actionKeys: gatewayResult.actionKeys,
+    cli: gatewayResult.cli,
     sandboxAutoApprove: gatewayResult.sandboxAutoApprove,
     allowlistOptions: gatewayResult.allowlistOptions,
     resolvedPaths: gatewayResult.resolvedPaths,

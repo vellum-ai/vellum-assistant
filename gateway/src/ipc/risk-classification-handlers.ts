@@ -15,6 +15,7 @@ import {
   bashRiskClassifier,
   getWrappedProgramWithArgs,
 } from "../risk/bash-risk-classifier.js";
+import { deriveCliNameFromAnalysis } from "../risk/cli-name.js";
 import { DEFAULT_COMMAND_REGISTRY } from "../risk/command-registry/index.js";
 import { generateDirectoryScopeOptions } from "../risk/directory-scope.js";
 import {
@@ -111,6 +112,12 @@ interface ClassificationResult {
   }>;
   actionKeys?: string[];
   commandCandidates?: string[];
+  /**
+   * Normalized top-level CLI for bash/host_bash commands (e.g. `git`, `npm`),
+   * or `null` when the command isn't a single recognized CLI. Used by the
+   * assistant for telemetry grouping. Absent for non-shell tools.
+   */
+  cli?: string | null;
   dangerousPatterns?: Array<{
     type: string;
     description: string;
@@ -237,6 +244,10 @@ export async function handleClassifyRisk(
         candidateSet.add(key);
       }
       const commandCandidates = [...candidateSet];
+
+      // Normalized top-level CLI for telemetry grouping (null → "other").
+      // Reuses the analysis/actionResult already computed above.
+      const cli = deriveCliNameFromAnalysis(analysis, actionResult);
 
       // Compute sandbox auto-approve for "bash" tool only
       let sandboxAutoApprove = false;
@@ -415,6 +426,7 @@ export async function handleClassifyRisk(
         allowlistOptions: assessment.allowlistOptions,
         actionKeys,
         commandCandidates,
+        cli,
         dangerousPatterns: analysis.dangerousPatterns,
         opaqueConstructs: analysis.hasOpaqueConstructs,
         isComplexSyntax,

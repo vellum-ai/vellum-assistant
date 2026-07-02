@@ -435,6 +435,93 @@ describe("tool audit listener", () => {
     });
   });
 
+  test("folds the top-level CLI into the recorded name for shell tools", () => {
+    const records: ToolInvocationRecord[] = [];
+    const listener = createToolAuditListener((record) => records.push(record));
+
+    listener({
+      type: "executed",
+      toolName: "bash",
+      input: { command: "git status" },
+      workingDir: "/tmp",
+      conversationId: "conv-cli",
+      riskLevel: "low",
+      decision: "allow",
+      durationMs: 1,
+      cli: "git",
+      result: { content: "ok", isError: false },
+    });
+    listener({
+      type: "executed",
+      toolName: "host_bash",
+      input: { command: "npm i" },
+      workingDir: "/tmp",
+      conversationId: "conv-cli",
+      riskLevel: "low",
+      decision: "allow",
+      durationMs: 1,
+      cli: "npm",
+      result: { content: "ok", isError: false },
+    });
+    // null CLI (unrecognized / chain / opaque) buckets as ":other".
+    listener({
+      type: "executed",
+      toolName: "bash",
+      input: { command: "frobnicate" },
+      workingDir: "/tmp",
+      conversationId: "conv-cli",
+      riskLevel: "low",
+      decision: "allow",
+      durationMs: 1,
+      cli: null,
+      result: { content: "ok", isError: false },
+    });
+    // Errored shell commands bucket the same way.
+    listener({
+      type: "error",
+      toolName: "bash",
+      input: { command: "git push" },
+      workingDir: "/tmp",
+      conversationId: "conv-cli",
+      riskLevel: "low",
+      decision: "error",
+      durationMs: 1,
+      cli: "git",
+      errorMessage: "boom",
+      isExpected: false,
+      errorCategory: "tool_failure",
+    });
+
+    expect(records.map((r) => r.toolName)).toEqual([
+      "bash:git",
+      "host_bash:npm",
+      "bash:other",
+      "bash:git",
+    ]);
+  });
+
+  test("leaves non-shell tool names untouched even if a cli is present", () => {
+    const records: ToolInvocationRecord[] = [];
+    const listener = createToolAuditListener((record) => records.push(record));
+
+    listener({
+      type: "executed",
+      toolName: "file_read",
+      input: { path: "/tmp/a" },
+      workingDir: "/tmp",
+      conversationId: "conv-cli-noshell",
+      riskLevel: "low",
+      decision: "allow",
+      durationMs: 1,
+      // cli should be ignored for non-shell tools.
+      cli: "git",
+      result: { content: "ok", isError: false },
+    });
+
+    expect(records).toHaveLength(1);
+    expect(records[0].toolName).toBe("file_read");
+  });
+
   test("maps attribution onto executed records and leaves denied records null", () => {
     const records: ToolInvocationRecord[] = [];
     const listener = createToolAuditListener((record) => records.push(record));

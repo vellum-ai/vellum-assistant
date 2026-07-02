@@ -31,6 +31,8 @@ export type PermissionDecision =
       decision: string;
       riskLevel: string;
       wasPrompted?: boolean;
+      /** Normalized top-level CLI for bash/host_bash (e.g. `git`), or null/absent when not a single recognized CLI. Telemetry only. */
+      cli?: string | null;
       /** ID of the trust rule that matched this invocation (if any). Always set when a rule matched, even for non-classifier tools where riskMeta is absent. */
       matchedTrustRuleId?: string;
       /** Risk metadata from the classifier assessment cache (when available). */
@@ -55,6 +57,8 @@ export type PermissionDecision =
       decision: string;
       riskLevel: string;
       content: string;
+      /** Normalized top-level CLI for bash/host_bash (e.g. `git`), or null/absent when not a single recognized CLI. Telemetry only. */
+      cli?: string | null;
       /** ID of the trust rule that matched this invocation (if any). Always set when a rule matched, even for non-classifier tools where riskMeta is absent. */
       matchedTrustRuleId?: string;
       /** Risk metadata from the classifier assessment cache (when available). */
@@ -75,6 +79,19 @@ export type PermissionDecision =
       riskThreshold?: RiskThreshold;
     };
 
+type ComputePreviewDiff = (
+  toolName: string,
+  input: Record<string, unknown>,
+  workingDir: string,
+) =>
+  | {
+      filePath: string;
+      oldContent: string;
+      newContent: string;
+      isNewFile: boolean;
+    }
+  | undefined;
+
 export class PermissionChecker {
   private prompter: PermissionPrompter;
 
@@ -87,6 +104,11 @@ export class PermissionChecker {
    * prompting for a tool invocation. Returns whether the tool is allowed
    * to execute, along with the decision string and risk level for lifecycle
    * event reporting.
+   *
+   * Thin wrapper over {@link runPermissionCheck} that attaches the normalized
+   * top-level CLI (for bash/host_bash) to the decision for telemetry. The
+   * `classifyRisk` call is served from cache after `runPermissionCheck`, so the
+   * extra read is effectively free.
    */
   async checkPermission(
     name: string,
@@ -96,18 +118,68 @@ export class PermissionChecker {
     executionTarget: ExecutionTarget,
     emitLifecycleEvent: (event: ToolLifecycleEvent) => void,
     startTime: number,
-    computePreviewDiff: (
-      toolName: string,
-      input: Record<string, unknown>,
-      workingDir: string,
-    ) =>
-      | {
-          filePath: string;
-          oldContent: string;
-          newContent: string;
-          isNewFile: boolean;
-        }
-      | undefined,
+    computePreviewDiff: ComputePreviewDiff,
+  ): Promise<PermissionDecision> {
+    const decision = await this.runPermissionCheck(
+      name,
+      input,
+      tool,
+      context,
+      executionTarget,
+      emitLifecycleEvent,
+      startTime,
+      computePreviewDiff,
+    );
+
+    // Best-effort telemetry dimension — a classification failure here (e.g. a
+    // cache miss that re-hits the gateway and fails) must never override an
+    // authorization decision that has already been made.
+    let cli: string | null = null;
+    try {
+      cli = await this.resolveCli(name, input, context);
+    } catch {
+      // Ignore — telemetry only.
+    }
+    if (cli != null) return { ...decision, cli };
+
+    return decision;
+  }
+
+  /**
+   * Resolve the normalized top-level CLI for a shell tool invocation (e.g.
+   * `git`), for telemetry grouping. Returns null for non-shell tools and for
+   * commands that aren't a single recognized CLI. Served from the classifyRisk
+   * cache when the command was already classified this turn.
+   *
+   * Exposed so callers that bypass the full permission check (e.g. the
+   * executor's grant-consumed path) can still attach the CLI dimension.
+   */
+  async resolveCli(
+    name: string,
+    input: Record<string, unknown>,
+    context: ToolContext,
+  ): Promise<string | null> {
+    if (name !== "bash" && name !== "host_bash") return null;
+    const { cli } = await classifyRisk(
+      name,
+      input,
+      context.workingDir,
+      undefined,
+      undefined,
+      context.signal,
+    );
+    return cli ?? null;
+  }
+
+  private async runPermissionCheck(
+    name: string,
+    input: Record<string, unknown>,
+    tool: Tool,
+    context: ToolContext,
+    executionTarget: ExecutionTarget,
+    emitLifecycleEvent: (event: ToolLifecycleEvent) => void,
+    startTime: number,
+    computePreviewDiff: ComputePreviewDiff,
   ): Promise<PermissionDecision> {
     const { level: risk, reason: riskReason } = await classifyRisk(
       name,

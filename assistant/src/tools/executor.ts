@@ -83,6 +83,9 @@ export class ToolExecutor {
     let permApprovalMode: string | undefined;
     let permApprovalReason: string | undefined;
     let permRiskThreshold: string | undefined;
+    // Normalized top-level CLI for bash/host_bash (e.g. `git`), used to compose
+    // the telemetry tool_name (`bash:git`). Null/undefined → "other".
+    let permCli: string | null | undefined;
     // Registered tools have `executionTarget` stamped at load time; the
     // `resolveExecutionTarget` fallback only fires for unknown tools (the
     // executor's name-aliased lookup can race against late registration).
@@ -235,6 +238,7 @@ export class ToolExecutor {
         permApprovalMode = permResult.approvalMode;
         permApprovalReason = permResult.approvalReason;
         permRiskThreshold = permResult.riskThreshold;
+        permCli = permResult.cli;
 
         if (!permResult.allowed) {
           return {
@@ -261,6 +265,18 @@ export class ToolExecutor {
         // so the record shows how this execution was authorized.
         permApprovalMode = "auto";
         permApprovalReason = "grant_scoped_consumed";
+        // The permission check normally supplies the CLI telemetry dimension;
+        // resolve it directly (best-effort) so grant-consumed shell commands
+        // still bucket by CLI instead of falling back to "other".
+        try {
+          permCli = await this.permissionChecker.resolveCli(
+            name,
+            input,
+            context,
+          );
+        } catch {
+          // Telemetry only — never let classification block a granted run.
+        }
       }
 
       // Execute the tool. Tools that forward to an external resolver
@@ -294,6 +310,7 @@ export class ToolExecutor {
           requestId: context.requestId,
           riskLevel,
           matchedTrustRuleId: permMatchedTrustRuleId,
+          cli: permCli,
           decision: "error",
           durationMs,
           errorMessage: msg,
@@ -372,6 +389,7 @@ export class ToolExecutor {
             requestId: context.requestId,
             riskLevel,
             matchedTrustRuleId: permMatchedTrustRuleId,
+            cli: permCli,
             decision: "error",
             durationMs,
             errorMessage: errorMsg,
@@ -419,6 +437,7 @@ export class ToolExecutor {
         matchedTrustRuleId: permMatchedTrustRuleId,
         approvalMode: permApprovalMode,
         approvalReason: permApprovalReason,
+        cli: permCli,
         decision,
         durationMs,
         result: safeResult,
@@ -496,6 +515,7 @@ export class ToolExecutor {
         requestId: context.requestId,
         riskLevel,
         matchedTrustRuleId: permMatchedTrustRuleId,
+        cli: permCli,
         decision: "error",
         durationMs,
         errorMessage: msg,
