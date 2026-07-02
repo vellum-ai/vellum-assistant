@@ -959,11 +959,16 @@ async function handleMergeContactsRoute(args: RouteHandlerArgs) {
 
   try {
     const contact = mergeContacts(keepId, mergeId);
-    // Daemon-native read (assistant DB): role is the neutral default, derive it.
-    const guardianIds = await getGuardianContactIds();
+    // Daemon-native read (assistant DB): telemetry is gateway-owned, so overlay
+    // it (fail-soft to null) and derive role from the guardian-id set. Both hit
+    // the gateway and are independent — run them concurrently.
+    const [[hydrated], guardianIds] = await Promise.all([
+      hydrateTelemetryFromGateway([contact]),
+      getGuardianContactIds(),
+    ]);
     return {
       ok: true,
-      contact: prepareContactResponse(contact, guardianIds),
+      contact: prepareContactResponse(hydrated, guardianIds),
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
