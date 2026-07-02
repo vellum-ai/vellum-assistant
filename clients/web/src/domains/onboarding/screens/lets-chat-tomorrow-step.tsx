@@ -79,14 +79,14 @@ export function LetsChatTomorrowStep({
           style={{ fontFamily: "var(--font-serif)" }}
         >
           {waitingForAssistant
-            ? "Almost ready"
+            ? "Waking up"
             : missingCalendarScope
               ? "Access not enabled"
               : "Let me make this easy"}
         </h1>
         <p className="text-[16px]" style={{ color: tone.fgMuted }}>
           {waitingForAssistant
-            ? "Your assistant is still getting ready. Calendar setup will be available in a moment."
+            ? "Your assistant is getting ready"
             : missingCalendarScope
               ? "Check the box next to the Google Calendar permission so I can book the check-in."
               : "Connect your Google Calendar so I can find time to check in and start helping."}
@@ -119,16 +119,19 @@ export function LetsChatTomorrowStep({
               "Connect Calendar →"
             )}
           </button>
-          {/* Skip sits directly under the connect button. */}
-          <button
-            type="button"
-            onClick={onSkip}
-            disabled={oauthInProgress}
-            className="cursor-pointer text-body-small-default transition-opacity hover:opacity-100 disabled:opacity-60"
-            style={{ color: tone.fgMuted }}
-          >
-            Skip for now
-          </button>
+          {/* Skip sits directly under the connect button, hidden while the
+              assistant is still waking up (nothing to skip yet). */}
+          {!waitingForAssistant && (
+            <button
+              type="button"
+              onClick={onSkip}
+              disabled={oauthInProgress}
+              className="cursor-pointer text-body-small-default transition-opacity hover:opacity-100 disabled:opacity-60"
+              style={{ color: tone.fgMuted }}
+            >
+              Skip for now
+            </button>
+          )}
         </div>
       </div>
     </div>
