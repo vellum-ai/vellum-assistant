@@ -19,6 +19,7 @@ import { loadSkillCatalog } from "../config/skills.js";
 import { deleteSkillCapabilityNode } from "../plugins/defaults/memory/graph/capability-seed.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceSkillsDir } from "../util/platform.js";
+import { catalogEntryTime, mergeCatalogsPreferFresh } from "./catalog-merge.js";
 import { computeSkillHash, writeInstallMeta } from "./install-meta.js";
 
 const log = getLogger("catalog-install");
@@ -80,7 +81,9 @@ export function getRepoSkillsDir(): string | undefined {
     return undefined;
   }
 
-  if (!process.env.VELLUM_DEV) return undefined;
+  if (!process.env.VELLUM_DEV) {
+    return undefined;
+  }
 
   // assistant/src/skills/catalog-install.ts -> ../../../skills/
   const candidate = join(importDir, "..", "..", "..", "skills");
@@ -128,11 +131,15 @@ function asStr(value: unknown): string | undefined {
  * so a future API change to the nested shape keeps working.
  */
 function normalizeCatalogEntry(raw: unknown): CatalogSkill | null {
-  if (typeof raw !== "object" || raw === null) return null;
+  if (typeof raw !== "object" || raw === null) {
+    return null;
+  }
   const entry = raw as RawCatalogEntry;
 
   const id = asStr(entry.id);
-  if (!id) return null;
+  if (!id) {
+    return null;
+  }
 
   const nested = entry.metadata?.vellum;
   const category = nested?.category ?? asStr(entry.category);
@@ -187,7 +194,9 @@ export function readLocalCatalog(repoSkillsDir: string): CatalogSkill[] {
   try {
     const raw = readFileSync(join(repoSkillsDir, "catalog.json"), "utf-8");
     const manifest = JSON.parse(raw) as { skills?: unknown };
-    if (!Array.isArray(manifest.skills)) return [];
+    if (!Array.isArray(manifest.skills)) {
+      return [];
+    }
     return manifest.skills
       .map((s) => normalizeCatalogEntry(s))
       .filter((s): s is CatalogSkill => s !== null);
@@ -228,7 +237,9 @@ function safeResolveSkillInstallPath(
   const insideDestination =
     destPath === resolvedDestRoot ||
     destPath.startsWith(resolvedDestRoot + sep);
-  if (!insideDestination) return null;
+  if (!insideDestination) {
+    return null;
+  }
 
   return { normalizedPath, destPath };
 }
@@ -240,7 +251,9 @@ export function writeSkillFilesToDir(
   let foundSkillMd = false;
   for (const [relativePath, content] of Object.entries(files)) {
     const resolved = safeResolveSkillInstallPath(destDir, relativePath);
-    if (!resolved) continue;
+    if (!resolved) {
+      continue;
+    }
 
     mkdirSync(dirname(resolved.destPath), { recursive: true });
     writeFileSync(resolved.destPath, content);
@@ -263,7 +276,9 @@ export function extractTarToDir(tarBuffer: Buffer, destDir: string): boolean {
     const header = tarBuffer.subarray(offset, offset + 512);
 
     // End-of-archive (two consecutive zero blocks)
-    if (header.every((b) => b === 0)) break;
+    if (header.every((b) => b === 0)) {
+      break;
+    }
 
     // Filename (bytes 0-99, null-terminated)
     const nameEnd = header.indexOf(0, 0);
@@ -290,7 +305,9 @@ export function extractTarToDir(tarBuffer: Buffer, destDir: string): boolean {
           tarBuffer.subarray(offset, offset + size),
         );
 
-        if (resolved.normalizedPath === "SKILL.md") foundSkillMd = true;
+        if (resolved.normalizedPath === "SKILL.md") {
+          foundSkillMd = true;
+        }
       }
     }
 
@@ -350,7 +367,9 @@ function assertInstalledSkillDiscoverable(
   }
 
   const discovered = loadSkillCatalog().some((skill) => {
-    if (skill.id !== skillId) return false;
+    if (skill.id !== skillId) {
+      return false;
+    }
     try {
       return realpathSync(skill.directoryPath) === realpathSync(skillDir);
     } catch {
@@ -421,7 +440,9 @@ function discardSkillInstallBackup(backupDir: string | null): void {
 
 function snapshotExistingSkillDir(skillId: string): string | null {
   const skillDir = join(getWorkspaceSkillsDir(), skillId);
-  if (!existsSync(skillDir)) return null;
+  if (!existsSync(skillDir)) {
+    return null;
+  }
 
   const backupDir = createSkillInstallBackupPath();
   renameSync(skillDir, backupDir);
@@ -485,17 +506,48 @@ export async function installSkillLocally(
 
   const stagedDir = createSkillInstallStagingDir();
 
-  // In dev mode, install from the local repo skills directory if available
+  // Install from the local repo/bundled skills directory when it exists and
+  // is at least as fresh as the entry being installed. When the entry's
+  // `updatedAt` is newer than the bundled catalog's entry (the platform
+  // published an update after this build), the bundled files are stale —
+  // fetch from the platform instead, falling back to the bundled copy if
+  // the fetch fails.
   const repoSkillsDir = getRepoSkillsDir();
   const repoSkillSource = repoSkillsDir
     ? join(repoSkillsDir, skillId)
     : undefined;
+  const repoHasSkill =
+    repoSkillSource !== undefined &&
+    existsSync(join(repoSkillSource, "SKILL.md"));
+  const repoEntry =
+    repoHasSkill && repoSkillsDir
+      ? readLocalCatalog(repoSkillsDir).find((s) => s.id === skillId)
+      : undefined;
+  const entryNewerThanRepo = repoHasSkill
+    ? catalogEntryTime(catalogEntry) > catalogEntryTime(repoEntry ?? {})
+    : false;
 
   let installSource: "repo" | "platform";
   try {
-    if (repoSkillSource && existsSync(join(repoSkillSource, "SKILL.md"))) {
+    if (repoHasSkill && !entryNewerThanRepo) {
       installSource = "repo";
-      cpSync(repoSkillSource, stagedDir, { recursive: true });
+      cpSync(repoSkillSource!, stagedDir, { recursive: true });
+    } else if (repoHasSkill) {
+      try {
+        installSource = "platform";
+        await fetchAndExtractSkill(skillId, stagedDir);
+      } catch (err) {
+        log.warn(
+          { err, skillId },
+          "Platform fetch for newer catalog entry failed; installing bundled copy",
+        );
+        // A failed fetch can leave partial extraction in the staging dir —
+        // reset it so stale files cannot ride along with the bundled copy.
+        rmSync(stagedDir, { recursive: true, force: true });
+        mkdirSync(stagedDir, { recursive: true });
+        installSource = "repo";
+        cpSync(repoSkillSource!, stagedDir, { recursive: true });
+      }
     } else {
       installSource = "platform";
       await fetchAndExtractSkill(skillId, stagedDir);
@@ -503,10 +555,19 @@ export async function installSkillLocally(
 
     assertStagedSkillRoot(skillId, stagedDir);
 
+    // Provenance stamp of the content actually installed: the bundled
+    // catalog's entry when the repo copy was used, the requested entry when
+    // the platform served it. Stamping the requested entry after a repo
+    // fallback would mark stale bundled content as current and suppress the
+    // refresh that should replace it once the platform is reachable.
+    const installedUpdatedAt =
+      installSource === "repo" ? repoEntry?.updatedAt : catalogEntry.updatedAt;
+
     writeInstallMeta(stagedDir, {
       origin: "vellum",
       installedAt: new Date().toISOString(),
       ...(catalogEntry.version ? { version: catalogEntry.version } : {}),
+      ...(installedUpdatedAt ? { catalogUpdatedAt: installedUpdatedAt } : {}),
       ...(contactId ? { installedBy: contactId } : {}),
       author: "user",
       contentHash: computeSkillHash(stagedDir) ?? undefined,
@@ -556,11 +617,11 @@ export async function resolveCatalog(
         return local;
       }
       // Skill not found locally — merge with remote so remote-only skills
-      // can still be discovered. Local entries take precedence by id.
+      // can still be discovered. Per-id conflicts keep whichever entry has
+      // the newer `updatedAt` (see mergeCatalogsPreferFresh).
       try {
         const remote = await fetchCatalog();
-        const localIds = new Set(local.map((s) => s.id));
-        const merged = [...local, ...remote.filter((s) => !localIds.has(s.id))];
+        const merged = mergeCatalogsPreferFresh(local, remote);
         log.info(
           {
             skillId,

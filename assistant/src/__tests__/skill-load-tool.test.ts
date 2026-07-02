@@ -23,6 +23,14 @@ mock.module("../skills/catalog-install.js", () => ({
   resolveCatalog: (_skillId?: string) => Promise.resolve([]),
 }));
 
+// The load path calls into catalog-refresh; these tests exercise load, not
+// refresh, so stub it to a no-op. This also keeps the real catalog-refresh →
+// catalog-cache → catalog-install chain from loading against the partial
+// catalog-install mock above.
+mock.module("../skills/catalog-refresh.js", () => ({
+  refreshInstalledSkillIfStale: () => Promise.resolve("fresh"),
+}));
+
 await import("../tools/skills/load.js");
 const { getTool } = await import("../tools/registry.js");
 

@@ -25,6 +25,12 @@ export interface SkillInstallMeta {
   slug?: string; // registry slug
   sourceRepo?: string; // GitHub repo (e.g. "vercel-labs/agent-skills")
   contentHash?: string; // SHA-256 content hash (v2:hex format)
+  // The catalog entry's `updatedAt` at install time (vellum origin only).
+  // Content-provenance baseline for staleness checks: a catalog entry with a
+  // newer `updatedAt` means the installed copy is outdated, regardless of
+  // when the install itself happened (an install from a stale bundle records
+  // the stale stamp, so it is still detected as outdated).
+  catalogUpdatedAt?: string;
   // Authorship provenance. Drives prune protection: only "assistant"-authored
   // skills are eligible for the usage-based prune; "user" and untagged skills
   // are protected. Set by install/scaffold callers, never defaulted here.

@@ -5,6 +5,7 @@ import {
   getRepoSkillsDir,
   readLocalCatalog,
 } from "./catalog-install.js";
+import { mergeCatalogsPreferFresh } from "./catalog-merge.js";
 
 const log = getLogger("catalog-cache");
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -17,13 +18,17 @@ let cacheTimestamp = 0;
  *
  * When a local first-party catalog is available (dev mode or compiled binary
  * with bundled skills), merge it with the remote catalog so skills published
- * after the build still show up. Local entries take precedence by id. If the
- * remote fetch fails and a local catalog exists, fall back to it so listings
- * keep working offline. Mirrors `resolveCatalog()` in `catalog-install.ts`.
+ * after the build still show up. Per-id conflicts keep whichever entry has
+ * the newer `updatedAt` (see `mergeCatalogsPreferFresh`). If the remote fetch
+ * fails and a local catalog exists, fall back to it so listings keep working
+ * offline. Mirrors `resolveCatalog()` in `catalog-install.ts`.
  */
 export async function getCatalog(): Promise<CatalogSkill[]> {
   if (cachedCatalog && Date.now() - cacheTimestamp < CACHE_TTL_MS) {
-    log.info({ source: "memory-cache", count: cachedCatalog.length }, "Resolved skills catalog from in-memory cache");
+    log.info(
+      { source: "memory-cache", count: cachedCatalog.length },
+      "Resolved skills catalog from in-memory cache",
+    );
     return cachedCatalog;
   }
   const repoSkillsDir = getRepoSkillsDir();
@@ -31,12 +36,8 @@ export async function getCatalog(): Promise<CatalogSkill[]> {
   let catalog: CatalogSkill[];
   try {
     const remote = await fetchCatalog();
-    if (local.length > 0) {
-      const localIds = new Set(local.map((s) => s.id));
-      catalog = [...local, ...remote.filter((s) => !localIds.has(s.id))];
-    } else {
-      catalog = remote;
-    }
+    catalog =
+      local.length > 0 ? mergeCatalogsPreferFresh(local, remote) : remote;
   } catch (err) {
     if (cachedCatalog) {
       log.warn(

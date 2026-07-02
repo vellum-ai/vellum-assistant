@@ -15,6 +15,7 @@ import {
   autoInstallFromCatalog,
   resolveCatalog,
 } from "../../skills/catalog-install.js";
+import { refreshInstalledSkillIfStale } from "../../skills/catalog-refresh.js";
 import {
   collectAllMissing,
   indexCatalogById,
@@ -49,6 +50,15 @@ const INLINE_COMMAND_TOKEN_PATTERN = /!`[^`]*`/g;
  */
 const INLINE_COMMAND_CLEANUP_STUB =
   "[inline command skipped: storage cleanup mode]";
+
+/**
+ * Upper bound on how long a load waits for the staleness refresh. With a
+ * warm catalog cache the refresh check is local file IO and finishes well
+ * inside this; a cold cache pays one platform fetch, and if that runs long
+ * the load proceeds with the current copy while the refresh completes in
+ * the background for the next load.
+ */
+const SKILL_REFRESH_WAIT_MS = 2_000;
 
 const log = getLogger("skill-load");
 
@@ -210,7 +220,28 @@ export const skillLoadTool = {
       };
     }
 
-    const skill = loaded.skill;
+    let skill = loaded.skill;
+
+    // Catalog-installed copies load with user-skill precedence and would
+    // otherwise stay frozen at install time. Refresh a pristine, stale
+    // vellum-origin install before serving its instructions, bounded so a
+    // slow catalog fetch cannot stall the load — a refresh that misses the
+    // window still lands for the next load. `managed` is the source catalog
+    // installs resolve as; other sources are never catalog-managed.
+    if (!cleanupMode && skill.source === "managed") {
+      const outcome = await Promise.race([
+        refreshInstalledSkillIfStale(skill.id),
+        new Promise<"pending">((resolve) => {
+          setTimeout(() => resolve("pending"), SKILL_REFRESH_WAIT_MS);
+        }),
+      ]);
+      if (outcome === "refreshed") {
+        const reloaded = loadSkillBySelector(selector);
+        if (reloaded.skill) {
+          skill = reloaded.skill;
+        }
+      }
+    }
 
     // Per-chat plugin scope gate: a plugin-owned skill whose owning plugin is
     // outside the conversation's effective set must not have its instructions
