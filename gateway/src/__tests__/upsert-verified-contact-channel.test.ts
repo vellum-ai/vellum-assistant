@@ -22,9 +22,31 @@ type ExistingRow = {
 
 let queryRows: ExistingRow[] = [];
 const queryCalls: { sql: string; params: unknown[] }[] = [];
-const runCalls: { sql: string; params: unknown[] }[] = [];
-// When set, assistantDbRun throws for any SQL containing this substring.
-let runThrowOnSql: string | null = null;
+// Typed identity-mirror IPC calls (contacts_mirror_*), recorded per test.
+const mirrorCalls: { method: string; body: Record<string, unknown> }[] = [];
+// When true, ipcCallAssistant throws for any mirror method (models an
+// unreachable/failing daemon mirror).
+let mirrorThrow = false;
+
+const mirrorUpserts = () =>
+  mirrorCalls.filter((c) => c.method === "contacts_mirror_upsert_channel");
+
+// ACL fields the identity mirror must never carry (gateway-owned).
+const ACL_MIRROR_FIELDS = [
+  "status",
+  "policy",
+  "verifiedAt",
+  "verifiedVia",
+  "revokedReason",
+  "blockedReason",
+  "role",
+  "principalId",
+] as const;
+const expectIdentityOnly = (body: Record<string, unknown>): void => {
+  for (const field of ACL_MIRROR_FIELDS) {
+    expect(body[field]).toBeUndefined();
+  }
+};
 
 // Fake gateway DB: records update/insert calls and returns a configurable
 // `changes` count per update so the resilient dual-write fallback can be
@@ -105,11 +127,20 @@ mock.module("../db/assistant-db-proxy.js", () => ({
     queryCalls.push({ sql, params });
     return queryRows;
   },
-  assistantDbRun: async (sql: string, params: unknown[]) => {
-    runCalls.push({ sql, params });
-    if (runThrowOnSql && sql.includes(runThrowOnSql)) {
-      throw new Error(`assistantDbRun failed for: ${runThrowOnSql}`);
+}));
+
+mock.module("../ipc/assistant-client.js", () => ({
+  IpcHandlerError: class extends Error {},
+  IpcTransportError: class extends Error {},
+  ipcCallAssistant: async (
+    method: string,
+    params?: { body?: Record<string, unknown> },
+  ) => {
+    mirrorCalls.push({ method, body: params?.body ?? {} });
+    if (mirrorThrow) {
+      throw new Error(`ipcCallAssistant mirror failed: ${method}`);
     }
+    return { ok: true };
   },
 }));
 
@@ -148,7 +179,8 @@ const { upsertContactChannel, upsertVerifiedContactChannel } =
 beforeEach(() => {
   queryRows = [];
   queryCalls.length = 0;
-  runCalls.length = 0;
+  mirrorCalls.length = 0;
+  mirrorThrow = false;
   gwUpdates.length = 0;
   gwInserts.length = 0;
   // Default: the id-keyed gateway update lands on an existing row.
@@ -157,7 +189,6 @@ beforeEach(() => {
   gwSelectStatus = null;
   gwInsertWrote = true;
   gwWriteThrows = false;
-  runThrowOnSql = null;
   writeFileSync(TEST_SOCKET_PATH, "");
 });
 
@@ -187,7 +218,7 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
       externalChatId: "+15550001111",
     });
 
-    expect(runCalls.filter((c) => c.sql.includes("UPDATE"))).toHaveLength(0);
+    expect(mirrorUpserts()).toHaveLength(0);
   });
 
   test("skips update when the authoritative gateway channel is blocked", async () => {
@@ -206,7 +237,7 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
       externalChatId: "+15550001111",
     });
 
-    expect(runCalls.filter((c) => c.sql.includes("UPDATE"))).toHaveLength(0);
+    expect(mirrorUpserts()).toHaveLength(0);
   });
 
   test("proceeds when only the assistant mirror is revoked but the gateway row is active", async () => {
@@ -228,13 +259,7 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     });
 
     expect(result).toEqual({ verified: true });
-    expect(
-      runCalls.filter(
-        (c) =>
-          c.sql.includes("UPDATE contact_channels") &&
-          c.sql.includes("external_chat_id = ?"),
-      ),
-    ).toHaveLength(1);
+    expect(mirrorUpserts()).toHaveLength(1);
   });
 
   test("updates an active channel belonging to a guardian contact", async () => {
@@ -252,7 +277,7 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
       externalChatId: "+15550001111",
     });
 
-    expect(runCalls.filter((c) => c.sql.includes("UPDATE"))).toHaveLength(1);
+    expect(mirrorUpserts()).toHaveLength(1);
   });
 
   test("updates an active channel belonging to a non-guardian contact", async () => {
@@ -270,7 +295,7 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
       externalChatId: "+15550001111",
     });
 
-    expect(runCalls.filter((c) => c.sql.includes("UPDATE"))).toHaveLength(1);
+    expect(mirrorUpserts()).toHaveLength(1);
   });
 
   test("creates new contact + channel when no existing channel found", async () => {
@@ -282,8 +307,8 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
       externalChatId: "+15550009999",
     });
 
-    const inserts = runCalls.filter((c) => c.sql.includes("INSERT"));
-    expect(inserts).toHaveLength(2);
+    // The create path fires a single identity-mirror upsert (contact + channel).
+    expect(mirrorUpserts()).toHaveLength(1);
   });
 
   test("new-insert path returns verified:false and writes nothing when gateway row is blocked", async () => {
@@ -299,7 +324,7 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     });
 
     expect(result).toEqual({ verified: false });
-    expect(runCalls.filter((c) => c.sql.includes("INSERT"))).toHaveLength(0);
+    expect(mirrorUpserts()).toHaveLength(0);
     expect(gwInserts).toHaveLength(0);
     expect(gwUpdates).toHaveLength(0);
   });
@@ -315,7 +340,7 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     });
 
     expect(result).toEqual({ verified: false });
-    expect(runCalls.filter((c) => c.sql.includes("INSERT"))).toHaveLength(0);
+    expect(mirrorUpserts()).toHaveLength(0);
     expect(gwInserts).toHaveLength(0);
     expect(gwUpdates).toHaveLength(0);
   });
@@ -363,7 +388,7 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     });
 
     expect(result).toEqual({ verified: true });
-    expect(runCalls.filter((c) => c.sql.includes("INSERT"))).toHaveLength(2);
+    expect(mirrorUpserts()).toHaveLength(1);
   });
 
   test("update path stamps verified state on the gateway, not the assistant mirror", async () => {
@@ -385,17 +410,10 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     expect(gwActivate!.set).toMatchObject({ verifiedVia: "challenge" });
     expect(gwActivate!.set.verifiedAt).toEqual(expect.any(Number));
 
-    // The assistant mirror UPDATE carries identity/info only — no ACL columns.
-    const update = runCalls.find((c) =>
-      c.sql.includes("UPDATE contact_channels"),
-    );
-    expect(update).toBeTruthy();
-    expect(update!.sql).not.toContain("status =");
-    expect(update!.sql).not.toContain("policy =");
-    expect(update!.sql).not.toContain("verified_at");
-    expect(update!.sql).not.toContain("verified_via");
-    expect(update!.sql).not.toContain("revoked_reason");
-    expect(update!.sql).not.toContain("blocked_reason");
+    // The identity-mirror upsert carries identity/info only — no ACL fields.
+    const upsert = mirrorUpserts()[0];
+    expect(upsert).toBeTruthy();
+    expectIdentityOnly(upsert!.body);
   });
 
   test("insert path stamps verified state on the gateway, not the assistant mirror", async () => {
@@ -416,16 +434,10 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     expect(gwChannelInsert).toBeTruthy();
     expect(gwChannelInsert!.values).toMatchObject({ verifiedVia: "challenge" });
 
-    // The assistant mirror INSERT carries identity/info only — no ACL columns.
-    const channelInsert = runCalls.find((c) =>
-      c.sql.includes("INSERT OR IGNORE INTO contact_channels"),
-    );
-    expect(channelInsert).toBeTruthy();
-    expect(channelInsert!.sql).not.toContain("status");
-    expect(channelInsert!.sql).not.toContain("policy");
-    expect(channelInsert!.sql).not.toContain("verified_at");
-    expect(channelInsert!.sql).not.toContain("verified_via");
-    expect(channelInsert!.sql).not.toContain("'active'");
+    // The identity-mirror upsert carries identity/info only — no ACL fields.
+    const upsert = mirrorUpserts()[0];
+    expect(upsert).toBeTruthy();
+    expectIdentityOnly(upsert!.body);
   });
 
   test("resolves the gateway row by (type,address) when the id-keyed update misses", async () => {
@@ -538,13 +550,7 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     });
 
     expect(result).toEqual({ verified: false });
-    expect(
-      runCalls.filter(
-        (c) =>
-          c.sql.includes("UPDATE contact_channels") &&
-          c.sql.includes("external_chat_id = ?"),
-      ),
-    ).toHaveLength(0);
+    expect(mirrorUpserts()).toHaveLength(0);
     // Gateway write never attempted (returned before the dual-write).
     expect(gwUpdates).toHaveLength(0);
     expect(gwInserts).toHaveLength(0);
@@ -563,13 +569,7 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     });
 
     expect(result).toEqual({ verified: false });
-    expect(
-      runCalls.filter(
-        (c) =>
-          c.sql.includes("UPDATE contact_channels") &&
-          c.sql.includes("external_chat_id = ?"),
-      ),
-    ).toHaveLength(0);
+    expect(mirrorUpserts()).toHaveLength(0);
     expect(gwUpdates).toHaveLength(0);
     expect(gwInserts).toHaveLength(0);
   });
@@ -587,9 +587,7 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     });
 
     expect(result).toEqual({ verified: true });
-    expect(
-      runCalls.filter((c) => c.sql.includes("UPDATE contact_channels")),
-    ).toHaveLength(1);
+    expect(mirrorUpserts()).toHaveLength(1);
   });
 
   test("returns verified:false when the insert-mirror is no-op'd by a blocked/revoked row", async () => {
@@ -634,12 +632,7 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     });
 
     expect(result).toEqual({ verified: false });
-    const assistantActivate = runCalls.find(
-      (c) =>
-        /UPDATE contact_channels/i.test(c.sql) &&
-        c.sql.includes("external_chat_id = ?"),
-    );
-    expect(assistantActivate).toBeUndefined();
+    expect(mirrorUpserts()).toHaveLength(0);
   });
 
   test("fails closed (verified:false) when the gateway write throws on the existing-channel path", async () => {
@@ -660,12 +653,7 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
 
     expect(result).toEqual({ verified: false });
     // The assistant mirror activation must NOT fire on a lost gateway write.
-    const activate = runCalls.find(
-      (c) =>
-        c.sql.includes("UPDATE contact_channels") &&
-        c.sql.includes("external_chat_id = ?"),
-    );
-    expect(activate).toBeUndefined();
+    expect(mirrorUpserts()).toHaveLength(0);
   });
 
   test("fails closed (verified:false) when the gateway write throws on the new-insert path", async () => {
@@ -681,7 +669,7 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
 
     expect(result).toEqual({ verified: false });
     // No assistant mirror INSERT for an actor whose gateway write was lost.
-    expect(runCalls.filter((c) => c.sql.includes("INSERT"))).toHaveLength(0);
+    expect(mirrorUpserts()).toHaveLength(0);
   });
 
   test("allowRevokedReactivation: a revoked authoritative gateway row is reactivated and the activation update fires", async () => {
@@ -702,12 +690,7 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     });
 
     expect(result).toEqual({ verified: true });
-    const activate = runCalls.find(
-      (c) =>
-        c.sql.includes("UPDATE contact_channels") &&
-        c.sql.includes("external_chat_id = ?"),
-    );
-    expect(activate).toBeTruthy();
+    expect(mirrorUpserts()).toHaveLength(1);
     // The gateway reactivation guard excludes only 'blocked', allowing the
     // revoked row to be UPDATED to active.
     expect(gwUpdates[0]!.where).toMatchObject({ op: "and" });
@@ -728,13 +711,7 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     });
 
     expect(result).toEqual({ verified: false });
-    expect(
-      runCalls.filter(
-        (c) =>
-          c.sql.includes("UPDATE contact_channels") &&
-          c.sql.includes("external_chat_id = ?"),
-      ),
-    ).toHaveLength(0);
+    expect(mirrorUpserts()).toHaveLength(0);
     expect(gwUpdates).toHaveLength(0);
     expect(gwInserts).toHaveLength(0);
   });
@@ -757,17 +734,13 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     });
 
     expect(reactivate).toEqual({ verified: true });
-    const activate = runCalls.find(
-      (c) =>
-        c.sql.includes("UPDATE contact_channels") &&
-        c.sql.includes("external_chat_id = ?"),
-    );
+    const activate = mirrorUpserts()[0];
     expect(activate).toBeTruthy();
-    expect(activate!.params).toContain("+15550001515");
+    expect(activate!.body.address).toBe("+15550001515");
 
     // A later plain verification (no flag) against the now-active gateway row
     // must succeed: the decision follows the gateway, not the stale mirror.
-    runCalls.length = 0;
+    mirrorCalls.length = 0;
     gwUpdates.length = 0;
     gwSelectStatus = "active";
 
@@ -798,7 +771,7 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     });
 
     expect(result).toEqual({ verified: false });
-    expect(runCalls.filter((c) => c.sql.includes("UPDATE"))).toHaveLength(0);
+    expect(mirrorUpserts()).toHaveLength(0);
   });
 
   test("honors an explicit verifiedVia value on the update path", async () => {
@@ -841,14 +814,15 @@ describe("upsertVerifiedContactChannel — invite target-contact binding", () =>
       contactId: "co-mom",
     });
 
-    // Assistant mirror re-parents the channel to the target contact.
-    const reparent = runCalls.find(
-      (c) =>
-        c.sql.includes("UPDATE contact_channels") &&
-        c.sql.includes("contact_id = ?"),
-    );
+    // The identity-mirror upsert re-parents the (type,address) channel to the
+    // target contact.
+    const reparent = mirrorUpserts()[0];
     expect(reparent).toBeTruthy();
-    expect(reparent!.params).toEqual(["co-mom", "ch-redeemer"]);
+    expect(reparent!.body).toMatchObject({
+      contactId: "co-mom",
+      type: "telegram",
+      address: "redeemer-tg",
+    });
 
     // Gateway channel re-parented to the target contact too.
     const gwReparent = gwUpdates.find(
@@ -879,7 +853,7 @@ describe("upsertVerifiedContactChannel — invite target-contact binding", () =>
     ).toBe(true);
   });
 
-  test("activates the gateway channel even when the assistant mirror re-parent fails", async () => {
+  test("activates the gateway channel even when the assistant mirror upsert fails", async () => {
     queryRows = [
       {
         channelId: "ch-redeemer",
@@ -887,8 +861,9 @@ describe("upsertVerifiedContactChannel — invite target-contact binding", () =>
         channelStatus: "active",
       },
     ];
-    // The assistant-DB mirror re-parent throws transiently.
-    runThrowOnSql = "SET contact_id";
+    // The assistant-DB mirror upsert throws transiently. Invite redemption runs
+    // this soft, so the failure is swallowed and the gateway result stands.
+    mirrorThrow = true;
 
     const result = await upsertVerifiedContactChannel({
       sourceChannel: "telegram",
@@ -896,6 +871,7 @@ describe("upsertVerifiedContactChannel — invite target-contact binding", () =>
       externalChatId: "redeemer-tg",
       verifiedVia: "invite",
       contactId: "co-mom",
+      softMirrorFailures: true,
     });
 
     // The gateway activation still ran (mirror failure is best-effort), so the
@@ -919,12 +895,14 @@ describe("upsertVerifiedContactChannel — invite target-contact binding", () =>
       contactId: "co-mom",
     });
 
-    const reparent = runCalls.find(
-      (c) =>
-        c.sql.includes("UPDATE contact_channels") &&
-        c.sql.includes("contact_id = ?"),
+    // No gateway re-parent (a bare contactId update) fires when the channel
+    // already belongs to the target contact.
+    const gwReparent = gwUpdates.find(
+      (u) =>
+        (u.set as { contactId?: string }).contactId === "co-mom" &&
+        (u.set as { status?: string }).status === undefined,
     );
-    expect(reparent).toBeUndefined();
+    expect(gwReparent).toBeUndefined();
   });
 
   test("creates a fresh channel under the supplied target contact", async () => {
@@ -939,13 +917,11 @@ describe("upsertVerifiedContactChannel — invite target-contact binding", () =>
       contactId: "co-target",
     });
 
-    // The assistant contact INSERT uses the supplied target contactId, not a
+    // The identity-mirror upsert uses the supplied target contactId, not a
     // freshly minted UUID.
-    const contactInsert = runCalls.find((c) =>
-      c.sql.includes("INSERT OR IGNORE INTO contacts"),
-    );
-    expect(contactInsert).toBeTruthy();
-    expect(contactInsert!.params[0]).toBe("co-target");
+    const upsert = mirrorUpserts()[0];
+    expect(upsert).toBeTruthy();
+    expect(upsert!.body.contactId).toBe("co-target");
   });
 
   test("re-parents a divergent gateway row to the target when the assistant lookup misses", async () => {
@@ -995,12 +971,10 @@ describe("upsertContactChannel — channel address casing", () => {
       externalChatId: "D123EXAMPLE",
     });
 
-    const channelInsert = runCalls.find((c) =>
-      c.sql.includes("INSERT OR IGNORE INTO contact_channels"),
-    );
-    expect(channelInsert).toBeTruthy();
+    const upsert = mirrorUpserts()[0];
+    expect(upsert).toBeTruthy();
     // address preserves original casing
-    expect(channelInsert!.params[3]).toBe("U123EXAMPLE");
+    expect(upsert!.body.address).toBe("U123EXAMPLE");
 
     expect(queryCalls[0]!.sql).toContain("cc.address = ? COLLATE NOCASE");
     expect(queryCalls[0]!.params).toEqual(["slack", "U123EXAMPLE"]);
@@ -1021,16 +995,12 @@ describe("upsertContactChannel — bot sender classification", () => {
         "Automated Slack bot — messages from this contact are sent by an app, not a person.",
     });
 
-    const contactInsert = runCalls.find((c) =>
-      c.sql.includes("INSERT OR IGNORE INTO contacts"),
-    );
-    expect(contactInsert).toBeTruthy();
-    expect(contactInsert!.sql).toContain("contact_type");
-    // params: [id, display_name, notes, contact_type, created_at, updated_at]
-    expect(contactInsert!.params[1]).toBe("Peer Assistant");
-    expect(contactInsert!.params[2]).toContain("Automated Slack bot");
-    expect(contactInsert!.params[3]).toBe("assistant");
-    expect(contactInsert!.params[3]).not.toBe("human");
+    const upsert = mirrorUpserts()[0];
+    expect(upsert).toBeTruthy();
+    expect(upsert!.body.displayName).toBe("Peer Assistant");
+    expect(upsert!.body.notes).toContain("Automated Slack bot");
+    expect(upsert!.body.contactType).toBe("assistant");
+    expect(upsert!.body.contactType).not.toBe("human");
   });
 
   test("creates a human sender's contact as 'human' with no notes by default", async () => {
@@ -1043,12 +1013,10 @@ describe("upsertContactChannel — bot sender classification", () => {
       displayName: "Alice",
     });
 
-    const contactInsert = runCalls.find((c) =>
-      c.sql.includes("INSERT OR IGNORE INTO contacts"),
-    );
-    expect(contactInsert).toBeTruthy();
-    expect(contactInsert!.params[2]).toBeNull();
-    expect(contactInsert!.params[3]).toBe("human");
+    const upsert = mirrorUpserts()[0];
+    expect(upsert).toBeTruthy();
+    expect(upsert!.body.notes).toBeUndefined();
+    expect(upsert!.body.contactType).toBe("human");
   });
 
   test("does not overwrite contact type or notes for an existing channel", async () => {
@@ -1067,11 +1035,11 @@ describe("upsertContactChannel — bot sender classification", () => {
       notes: "Automated Slack bot",
     });
 
-    const contactUpdate = runCalls.find((c) =>
-      c.sql.includes("UPDATE contacts"),
-    );
-    expect(contactUpdate).toBeTruthy();
-    expect(contactUpdate!.sql).not.toContain("contact_type");
-    expect(contactUpdate!.sql).not.toContain("notes");
+    // The existing-channel branch upserts identity only — contactType/notes are
+    // omitted so guardian-authored classification is never clobbered.
+    const upsert = mirrorUpserts()[0];
+    expect(upsert).toBeTruthy();
+    expect(upsert!.body.contactType).toBeUndefined();
+    expect(upsert!.body.notes).toBeUndefined();
   });
 });

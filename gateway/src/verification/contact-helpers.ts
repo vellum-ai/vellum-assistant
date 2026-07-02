@@ -1,8 +1,9 @@
 /**
  * Contact upsert/lookup helpers for gateway-owned verification.
  *
- * All operations go through assistantDbQuery/assistantDbRun (raw SQL via
- * IPC proxy). No IPC routes are used — only the direct SQL executor.
+ * Identity/info reads go through assistantDbQuery (raw SQL via the IPC proxy);
+ * identity-mirror writes go through the typed `contacts_mirror_*` IPC methods.
+ * The gateway DB stays the ACL source of truth.
  *
  * These helpers cover the subset of contact operations needed by the
  * verification intercept flow. They are intentionally simpler than the
@@ -14,12 +15,13 @@ import { existsSync } from "node:fs";
 
 import { and, eq, sql } from "drizzle-orm";
 
-import { assistantDbQuery, assistantDbRun } from "../db/assistant-db-proxy.js";
+import { assistantDbQuery } from "../db/assistant-db-proxy.js";
 import { getGatewayDb } from "../db/connection.js";
 import {
   contactChannels as gwContactChannels,
   contacts as gwContacts,
 } from "../db/schema.js";
+import { ipcCallAssistant } from "../ipc/assistant-client.js";
 import { getLogger } from "../logger.js";
 import { resolveIpcSocketPath } from "../ipc/socket-path.js";
 import { canonicalizeInboundIdentity } from "./identity.js";
@@ -356,7 +358,9 @@ export async function deleteContactIfOrphaned(
 
   if (mirrorRowPresent) {
     try {
-      await assistantDbRun(`DELETE FROM contacts WHERE id = ?`, [contactId]);
+      await ipcCallAssistant("contacts_mirror_delete_contact", {
+        body: { contactId },
+      });
     } catch (mirrorErr) {
       log.warn(
         { err: mirrorErr, contactId },
@@ -584,7 +588,8 @@ export async function upsertVerifiedContactChannel(params: {
 
     // Bind to the invite's target contact when supplied: an invite can attach a
     // redeemer's existing channel to a different contact, so reassign the
-    // channel's parent (gateway + assistant mirror) before activating.
+    // channel's gateway parent here; the assistant mirror re-parent lands with
+    // the activation upsert below.
     const boundContactId =
       targetContactId && targetContactId !== row.contactId
         ? targetContactId
@@ -597,19 +602,6 @@ export async function upsertVerifiedContactChannel(params: {
         displayName: contactDisplayName,
         now,
       });
-      // Best-effort: a failed assistant mirror re-parent must not block the
-      // gateway activation below (the gateway is the source of truth).
-      try {
-        await assistantDbRun(
-          `UPDATE contact_channels SET contact_id = ? WHERE id = ?`,
-          [boundContactId, row.channelId],
-        );
-      } catch (mirrorErr) {
-        log.warn(
-          { err: mirrorErr },
-          "Assistant mirror re-parent failed; proceeding with gateway activation",
-        );
-      }
     }
 
     // Gateway is source of truth: write it FIRST, then activate the assistant
@@ -656,17 +648,19 @@ export async function upsertVerifiedContactChannel(params: {
     }
 
     // Activate the assistant mirror. ACL columns are gateway-owned; only
-    // identity/info columns are written here.
+    // identity/info columns are written here. The upsert re-parents the
+    // (type,address) channel to boundContactId when it moved.
     await runMirror(
       () =>
-        assistantDbRun(
-          `UPDATE contact_channels
-           SET address = ?,
-               external_chat_id = ?,
-               updated_at = ?
-           WHERE id = ?`,
-          [address, externalChatId, now, row.channelId],
-        ),
+        ipcCallAssistant("contacts_mirror_upsert_channel", {
+          body: {
+            contactId: boundContactId,
+            type: sourceChannel,
+            address,
+            externalChatId,
+            displayName: contactDisplayName,
+          },
+        }),
       "update",
     );
 
@@ -749,25 +743,22 @@ export async function upsertVerifiedContactChannel(params: {
     return { verified: false };
   }
 
-  // Create the assistant mirror. OR IGNORE for idempotency under retries; if the
-  // channel insert fails mid-flight, the orphan contact row is harmless.
-  await runMirror(async () => {
-    await assistantDbRun(
-      `INSERT OR IGNORE INTO contacts (id, display_name, created_at, updated_at)
-       VALUES (?, ?, ?, ?)`,
-      [contactId, contactDisplayName, now, now],
-    );
-
-    // ACL columns are gateway-owned; the mirror carries identity/info only and
-    // relies on the schema defaults (status='unverified', policy='allow').
-    await assistantDbRun(
-      `INSERT OR IGNORE INTO contact_channels
-         (id, contact_id, type, address, is_primary, external_chat_id,
-          interaction_count, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 0, ?, 0, ?, ?)`,
-      [channelId, contactId, sourceChannel, address, externalChatId, now, now],
-    );
-  }, "create");
+  // Create the assistant mirror. Idempotent under retries; ACL columns are
+  // gateway-owned, so the mirror carries identity/info only and relies on the
+  // schema defaults (status='unverified', policy='allow').
+  await runMirror(
+    () =>
+      ipcCallAssistant("contacts_mirror_upsert_channel", {
+        body: {
+          contactId,
+          type: sourceChannel,
+          address,
+          externalChatId,
+          displayName: contactDisplayName,
+        },
+      }),
+    "create",
+  );
 
   return { verified: true };
 }
@@ -832,19 +823,18 @@ export async function upsertContactChannel(params: {
     // Gateway DB is the source of truth for ACL: a blocked channel stays blocked.
     if (gatewayChannelStatus(sourceChannel, address) === "blocked") return;
 
-    // Update identity/display fields; preserve status and policy.
-    await assistantDbRun(
-      `UPDATE contacts SET display_name = ?, updated_at = ? WHERE id = ?`,
-      [contactDisplayName, now, row.contactId],
-    );
-    await assistantDbRun(
-      `UPDATE contact_channels
-       SET address = ?,
-           external_chat_id = COALESCE(?, external_chat_id),
-           updated_at = ?
-       WHERE id = ?`,
-      [address, externalChatId ?? null, now, row.channelId],
-    );
+    // Update identity/display fields; ACL columns (status, policy) are
+    // gateway-owned and left untouched by the mirror. externalChatId is omitted
+    // when absent so the existing value is preserved.
+    await ipcCallAssistant("contacts_mirror_upsert_channel", {
+      body: {
+        contactId: row.contactId,
+        type: sourceChannel,
+        address,
+        externalChatId,
+        displayName: contactDisplayName,
+      },
+    });
 
     try {
       const gwDb = getGatewayDb();
@@ -866,40 +856,24 @@ export async function upsertContactChannel(params: {
     return;
   }
 
-  // New contact + channel.
+  // New contact + channel. Share the gateway-generated contact id with the
+  // mirror so both stores key the contact identically; the mirror channel id is
+  // assistant-owned. ACL columns are gateway-owned (schema defaults
+  // status='unverified', policy='allow').
   const contactId = crypto.randomUUID();
   const channelId = crypto.randomUUID();
 
-  await assistantDbRun(
-    `INSERT OR IGNORE INTO contacts
-       (id, display_name, notes, contact_type, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [
+  await ipcCallAssistant("contacts_mirror_upsert_channel", {
+    body: {
       contactId,
-      contactDisplayName,
-      params.notes ?? null,
-      params.contactType ?? "human",
-      now,
-      now,
-    ],
-  );
-  // ACL columns are gateway-owned; the mirror carries identity/info only and
-  // relies on the schema defaults (status='unverified', policy='allow').
-  await assistantDbRun(
-    `INSERT OR IGNORE INTO contact_channels
-       (id, contact_id, type, address, is_primary, external_chat_id,
-        interaction_count, created_at, updated_at)
-     VALUES (?, ?, ?, ?, 0, ?, 0, ?, ?)`,
-    [
-      channelId,
-      contactId,
-      sourceChannel,
+      type: sourceChannel,
       address,
-      externalChatId ?? null,
-      now,
-      now,
-    ],
-  );
+      externalChatId,
+      displayName: contactDisplayName,
+      contactType: params.contactType ?? "human",
+      notes: params.notes,
+    },
+  });
 
   try {
     const gwDb = getGatewayDb();

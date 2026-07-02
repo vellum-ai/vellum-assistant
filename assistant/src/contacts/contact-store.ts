@@ -337,6 +337,16 @@ export function upsertContact(params: {
 }
 
 /**
+ * Delete a contact row (channels cascade via FK). Info-only: the gateway DB is
+ * the ACL source of truth, so this only removes the local identity mirror. A
+ * missing row is a harmless no-op.
+ */
+export function deleteContact(id: string): void {
+  getDb().delete(contacts).where(eq(contacts.id, id)).run();
+  notifyContactsChanged();
+}
+
+/**
  * Add new channels to a contact without removing existing ones.
  * When a channel already exists (same type+address), updates access/verification
  * fields if provided. Skips channels owned by a different contact.

@@ -13,7 +13,7 @@ import {
   getContactInternal,
   upsertContact,
 } from "./contact-store.js";
-import type { ContactWriteResult } from "./types.js";
+import type { ContactType, ContactWriteResult } from "./types.js";
 
 // ── Guardian operations ──────────────────────────────────────────────
 
@@ -41,6 +41,10 @@ export function upsertContactChannel(params: {
   displayName?: string;
   username?: string;
   contactId?: string;
+  /** Classification for a newly created contact (e.g. 'assistant' for bots). */
+  contactType?: ContactType;
+  /** Notes seeded onto a newly created contact (e.g. bot/app provenance). */
+  notes?: string | null;
 }): ContactWriteResult | null {
   let address: string;
 
@@ -68,11 +72,16 @@ export function upsertContactChannel(params: {
   upsertContact({
     id: params.contactId,
     displayName,
+    contactType: params.contactType,
+    notes: params.notes,
     channels: [
       {
         type: params.sourceChannel,
         address,
-        externalChatId: params.externalChatId ?? null,
+        // Pass through undefined so syncChannels preserves an existing
+        // external_chat_id (COALESCE semantics); a new channel still defaults
+        // to null. An explicit value overwrites.
+        externalChatId: params.externalChatId,
       },
     ],
     // When a specific contactId is provided, reassign conflicting channels from

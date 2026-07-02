@@ -56,6 +56,7 @@ import {
   type DbProxyTransactionParams,
   handleDbProxyTransaction,
 } from "./routes/db-proxy-transaction.js";
+import { CONTACTS_MIRROR_IPC_METHODS } from "./routes/contacts-mirror-ipc-routes.js";
 import { INVITE_IPC_METHODS } from "./routes/invite-ipc-routes.js";
 import { routeDefinitionsToIpcMethods } from "./routes/route-adapter.js";
 import { ensureSocketPathFree } from "./socket-cleanup.js";
@@ -208,6 +209,16 @@ export class AssistantIpcServer {
     // gateway calls these back over IPC to mirror redeemed-invite contact
     // info locally. No HTTP surface; never in ROUTES.
     for (const [operationId, handler] of Object.entries(INVITE_IPC_METHODS)) {
+      this.methods.set(operationId, handler);
+    }
+
+    // IPC-only contact identity-mirror methods (see
+    // ipc/routes/contacts-mirror-ipc-routes.ts). The gateway calls these back
+    // over IPC to mirror single-row contact/channel identity locally after a
+    // gateway-owned ACL write. No HTTP surface; never in ROUTES.
+    for (const [operationId, handler] of Object.entries(
+      CONTACTS_MIRROR_IPC_METHODS,
+    )) {
       this.methods.set(operationId, handler);
     }
 
