@@ -8,12 +8,9 @@
  * 6-digit code, the existing verification intercept validates it, creates
  * the guardian binding, and sends a success reply.
  */
-import type {
-  CreateOutboundSessionResult,
-  VerificationSessionWire,
-} from "../../../channels/gateway-verification-sessions.js";
+import type { VerificationSessionWire } from "../../../channels/gateway-verification-sessions.js";
 import {
-  createOutboundSession,
+  createOutboundSessionConditional,
   findActiveSession,
 } from "../../../channels/gateway-verification-sessions.js";
 import type { ChannelId } from "../../../channels/types.js";
@@ -133,6 +130,23 @@ export async function handleGuardianActivationIntercept(
     );
     return null;
   }
+  const respondActivationPending = (): Record<string, unknown> => {
+    if (replyCallbackUrl) {
+      deliverChannelReply(replyCallbackUrl, {
+        chatId: conversationExternalId,
+        text: "A verification is already in progress. Check your assistant app for the code and enter it here.",
+        assistantId,
+      }).catch((err) => {
+        log.error(
+          { err, sourceChannel, conversationExternalId },
+          "Failed to deliver guardian activation idempotency reply",
+        );
+      });
+    }
+    markProcessed(externalMessageId);
+    return { accepted: true, guardianActivationPending: true };
+  };
+
   if (existingSession) {
     // Only block if the session belongs to the same sender. If a different
     // user triggered the session, let this sender proceed (they'll supersede
@@ -143,33 +157,27 @@ export async function handleGuardianActivationIntercept(
       sessionOwner === rawSenderId ||
       sessionOwner === conversationExternalId
     ) {
-      if (replyCallbackUrl) {
-        deliverChannelReply(replyCallbackUrl, {
-          chatId: conversationExternalId,
-          text: "A verification is already in progress. Check your assistant app for the code and enter it here.",
-          assistantId,
-        }).catch((err) => {
-          log.error(
-            { err, sourceChannel, conversationExternalId },
-            "Failed to deliver guardian activation idempotency reply",
-          );
-        });
-      }
-      markProcessed(externalMessageId);
-      return { accepted: true, guardianActivationPending: true };
+      return respondActivationPending();
     }
   }
 
   // ── Create verification session ──
-  let sessionResult: CreateOutboundSessionResult;
+  // When the read above saw no active session, ifNoneActive makes the create
+  // a gateway-side create-if-absent: a concurrent activation that minted in
+  // between conflicts here instead of revoking that first code. A supersede
+  // (stale session from a different sender) deliberately omits the guard.
+  let sessionResult: Awaited<
+    ReturnType<typeof createOutboundSessionConditional>
+  >;
   try {
-    sessionResult = await createOutboundSession({
+    sessionResult = await createOutboundSessionConditional({
       channel: sourceChannel,
       expectedExternalUserId: rawSenderId,
       expectedChatId: conversationExternalId,
       identityBindingStatus: "bound",
       destinationAddress: conversationExternalId,
       verificationPurpose: "guardian",
+      ...(existingSession ? {} : { ifNoneActive: true }),
     });
   } catch (err) {
     log.warn(
@@ -177,6 +185,16 @@ export async function handleGuardianActivationIntercept(
       "Guardian activation: session creation failed (gateway unreachable), skipping auto-activation",
     );
     return null;
+  }
+
+  if ("conflict" in sessionResult) {
+    // Lost the create race: a session was minted between the read and this
+    // create. Mirror the dedup path — the winner's code stays valid.
+    log.info(
+      { sourceChannel, reason: sessionResult.reason },
+      "Guardian activation: concurrent activation already created a session",
+    );
+    return respondActivationPending();
   }
 
   // Mark as processed only after session creation succeeds so transient

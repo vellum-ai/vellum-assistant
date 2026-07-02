@@ -17,7 +17,7 @@ import type {
 } from "../../../channels/gateway-verification-sessions.js";
 import {
   bindSessionIdentity,
-  createOutboundSession,
+  createOutboundSessionConditional,
   resolveBootstrapToken,
   updateSessionDelivery,
 } from "../../../channels/gateway-verification-sessions.js";
@@ -140,7 +140,7 @@ export async function handleBootstrapIntercept(
     return null;
   }
 
-  let newSession: CreateOutboundSessionResult;
+  let minted: Awaited<ReturnType<typeof createOutboundSessionConditional>>;
   try {
     // Bind the pending_bootstrap session to the sender's identity. Binding
     // leaves status untouched, so a failure anywhere before the mint keeps
@@ -154,12 +154,17 @@ export async function handleBootstrapIntercept(
     // Mint the identity-bound replacement with a fresh secret. The gateway
     // revokes the bootstrap session in the same call, so a successful mint
     // is what consumes the token — no separate status transition needed.
-    newSession = await createOutboundSession({
+    // requireSourceSessionPending makes the claim atomic gateway-side: if a
+    // concurrent /start for the same deep link already minted (revoking the
+    // bootstrap session), this call conflicts instead of revoking the
+    // winner's freshly sent code.
+    minted = await createOutboundSessionConditional({
       channel: sourceChannel,
       expectedExternalUserId: rawSenderId,
       expectedChatId: conversationExternalId,
       identityBindingStatus: "bound",
       destinationAddress: conversationExternalId,
+      requireSourceSessionPending: bootstrapSession.id,
     });
   } catch (err) {
     log.warn(
@@ -168,6 +173,22 @@ export async function handleBootstrapIntercept(
     );
     return respondBootstrapUnavailable(conversationExternalId, eventId);
   }
+
+  if ("conflict" in minted) {
+    // A concurrent /start already claimed this token and sent its code —
+    // handled response, no new mint, no reply (the winner's code stands).
+    log.info(
+      { sourceChannel, sessionId: bootstrapSession.id, reason: minted.reason },
+      "Bootstrap intercept: token already claimed by a concurrent handoff",
+    );
+    return {
+      accepted: true,
+      duplicate: false,
+      eventId,
+      verificationOutcome: "bootstrap_already_claimed",
+    };
+  }
+  const newSession: CreateOutboundSessionResult = minted;
 
   // Compose and send the verification prompt via Telegram
   const telegramBody = composeVerificationTelegram(

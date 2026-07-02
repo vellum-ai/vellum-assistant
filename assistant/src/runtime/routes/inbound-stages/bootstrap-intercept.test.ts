@@ -7,8 +7,10 @@
  * bootstrap session gateway-side), fall-through for unresolvable tokens,
  * ACL-threaded session reuse (no second gateway lookup), the
  * gateway-unreachable posture (handled "unavailable" response — never
- * fall-through to normal processing), and retryability: any failure before
- * the mint leaves the original session pending_bootstrap.
+ * fall-through to normal processing), retryability (any failure before the
+ * mint leaves the original session pending_bootstrap), and the atomic claim:
+ * a concurrent handoff that already consumed the token conflicts instead of
+ * minting a second code.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -23,6 +25,7 @@ let bootstrapSessionForTest: Record<string, unknown> | null = null;
 let resolveThrows = false;
 let bindThrows = false;
 let createThrows = false;
+let createConflicts = false;
 let updateDeliveryThrows = false;
 
 const resolveCalls: unknown[][] = [];
@@ -44,9 +47,12 @@ mock.module("../../../channels/gateway-verification-sessions.js", () => ({
   updateSessionStatus: async (...args: unknown[]) => {
     updateStatusCalls.push(args);
   },
-  createOutboundSession: async (params: unknown) => {
+  createOutboundSessionConditional: async (params: unknown) => {
     if (createThrows) throw new Error("gateway unreachable");
     createCalls.push(params);
+    if (createConflicts) {
+      return { conflict: true, reason: "source_session_not_pending" };
+    }
     return {
       sessionId: "new-session-1",
       secret: "654321",
@@ -100,6 +106,7 @@ beforeEach(() => {
   resolveThrows = false;
   bindThrows = false;
   createThrows = false;
+  createConflicts = false;
   updateDeliveryThrows = false;
   resolveCalls.length = 0;
   bindCalls.length = 0;
@@ -133,6 +140,8 @@ describe("handleBootstrapIntercept", () => {
         expectedChatId: "chat-123",
         identityBindingStatus: "bound",
         destinationAddress: "chat-123",
+        // Atomic gateway-side claim of the bootstrap session.
+        requireSourceSessionPending: "bootstrap-session-1",
       },
     ]);
     expect(updateDeliveryCalls).toHaveLength(1);
@@ -258,6 +267,24 @@ describe("handleBootstrapIntercept", () => {
     });
     expect(resolveCalls).toHaveLength(0);
     expect(telegramReplies).toHaveLength(1);
+  });
+
+  test("losing the concurrent claim race returns a handled response without a second code", async () => {
+    createConflicts = true;
+
+    const result = await handleBootstrapIntercept(makeParams());
+
+    // The winner already sent its code; the loser must not mint, reply, or
+    // touch delivery tracking — and must not fall through.
+    expect(result).toEqual({
+      accepted: true,
+      duplicate: false,
+      eventId: "event-1",
+      verificationOutcome: "bootstrap_already_claimed",
+    });
+    expect(createCalls).toHaveLength(1);
+    expect(updateDeliveryCalls).toHaveLength(0);
+    expect(telegramReplies).toHaveLength(0);
   });
 
   test("delivery-tracking failure after the code is sent does not unwind the bootstrap", async () => {

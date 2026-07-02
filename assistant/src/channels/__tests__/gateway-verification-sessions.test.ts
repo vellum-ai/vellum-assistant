@@ -179,6 +179,60 @@ describe("createOutboundSession", () => {
   });
 });
 
+describe("createOutboundSessionConditional", () => {
+  test("forwards claim guards and returns the parsed create result", async () => {
+    const created = {
+      sessionId: "sess-3",
+      secret: "654321",
+      challengeHash: "c".repeat(64),
+      expiresAt: 1_700_000_600_000,
+      ttlSeconds: 600,
+    };
+    ipcResponse = created;
+
+    const result = await client.createOutboundSessionConditional({
+      channel: "telegram",
+      requireSourceSessionPending: "bootstrap-1",
+      ifNoneActive: true,
+    });
+
+    expect(ipcCalls[0]?.method).toBe("verification_sessions_create_outbound");
+    expect(ipcCalls[0]?.params).toEqual({
+      channel: "telegram",
+      requireSourceSessionPending: "bootstrap-1",
+      ifNoneActive: true,
+    });
+    expect(result).toEqual(created);
+  });
+
+  test("passes the gateway conflict marker through", async () => {
+    ipcResponse = { conflict: true, reason: "active_session_exists" };
+
+    const result = await client.createOutboundSessionConditional({
+      channel: "telegram",
+      ifNoneActive: true,
+    });
+
+    expect(result).toEqual({
+      conflict: true,
+      reason: "active_session_exists",
+    });
+  });
+
+  test("throws on transport failure and malformed responses", async () => {
+    ipcError = new Error("gateway unavailable");
+    await expect(
+      client.createOutboundSessionConditional({ channel: "telegram" }),
+    ).rejects.toThrow("gateway unavailable");
+
+    ipcError = null;
+    ipcResponse = { conflict: true, reason: "not-a-known-reason" };
+    await expect(
+      client.createOutboundSessionConditional({ channel: "telegram" }),
+    ).rejects.toThrow("verification_sessions_create_outbound");
+  });
+});
+
 describe("session lookups", () => {
   test("getPendingSession returns the wire session", async () => {
     const session = makeWireSession();
