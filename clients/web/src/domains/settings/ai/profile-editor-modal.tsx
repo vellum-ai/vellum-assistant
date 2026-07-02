@@ -724,12 +724,7 @@ function ProfileEditorModalInner({
     !isInvariant || status !== "active" ? (
       <Toggle
         checked={status === "active"}
-        onChange={(v) => {
-          if (isInvariant && v !== true) {
-            return;
-          }
-          setStatus(v ? "active" : "disabled");
-        }}
+        onChange={(v) => setStatus(v ? "active" : "disabled")}
         label="Active"
       />
     ) : null;
