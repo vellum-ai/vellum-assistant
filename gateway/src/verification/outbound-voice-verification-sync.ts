@@ -2,7 +2,7 @@
  * Gateway-side polling loop for outbound voice verification session completion.
  *
  * When the assistant places an outbound call for guardian phone verification,
- * the relay server handles DTMF collection and consumes the verification session.
+ * the media-stream call flow handles DTMF collection and consumes the verification session.
  * However, the assistant process must never write to the contact/trust graph
  * (it is potentially prompt-injected), so no guardian binding is created there.
  *

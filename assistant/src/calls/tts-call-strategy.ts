@@ -8,18 +8,18 @@
  *
  * Two strategies exist:
  *
- * - **native-twilio** -- Twilio synthesises audio itself via its built-in
- *   provider integrations. The profile needs a real `ttsProvider` name
- *   (e.g. `"ElevenLabs"`) and a provider-specific voice spec string.
- *   New native providers plug in by registering a
- *   {@link NativeTwilioVoiceSpecBuilder} -- no edits to the core call
- *   routing logic required.
+ * - **native-twilio** -- the text-token path: spoken text is sent via
+ *   `sendTextToken()`, which the media-stream transport re-synthesizes
+ *   through daemon TTS. The profile carries a real `ttsProvider` name
+ *   (e.g. `"ElevenLabs"`) and a provider-specific voice spec string built
+ *   by a registered {@link NativeTwilioVoiceSpecBuilder}. (Collapsing this
+ *   mode is a documented deferred follow-up.)
  *
- * - **synthesized-play** -- The assistant synthesises audio and streams
- *   chunks to Twilio via `play` messages, so Twilio does not drive TTS on
- *   the happy path. The profile still carries a valid native fallback voice
+ * - **synthesized-play** -- The assistant synthesises audio via the
+ *   provider API and streams it through the audio store / `sendPlayUrl()`
+ *   path. The profile still carries a valid native fallback voice
  *   (see `resolveVoiceQualityProfile`) so a mid-call synthesis failure can
- *   degrade to native token TTS instead of being rejected with error 64106.
+ *   degrade to the text-token path.
  *
  * @module
  */

@@ -905,7 +905,8 @@ type StartVerificationCallResult =
  *
  * Creates a minimal call session with a voice channel binding and
  * passes `verificationSessionId` as a custom parameter so the
- * relay server can detect this is a guardian verification call.
+ * media-stream server's `routeSetup` can detect this is a guardian
+ * verification call.
  */
 export async function startVerificationCall(
   input: StartVerificationCallInput,
@@ -1036,8 +1037,8 @@ type StartInviteCallResult = { ok: true; callSid: string } | CallError;
  * Initiate an outbound call to deliver a voice invite to a contact.
  *
  * Creates a minimal call session with a voice channel binding and
- * passes invite-specific custom parameters so the relay server can
- * detect this is an invite redemption call.
+ * passes invite-specific custom parameters so the media-stream
+ * server's `routeSetup` can detect this is an invite redemption call.
  */
 export async function startInviteCall(
   input: StartInviteCallInput,

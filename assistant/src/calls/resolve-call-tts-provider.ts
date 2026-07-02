@@ -35,8 +35,10 @@ export interface ResolvedCallTts {
   /**
    * True when the catalog's `callMode` is `"synthesized-play"` -- audio
    * is synthesized via the provider API and streamed through the audio
-   * store. False when `callMode` is `"native-twilio"` -- text tokens are
-   * sent directly to the relay for Twilio's built-in TTS engine.
+   * store. False when `callMode` is `"native-twilio"` -- text is sent
+   * via `sendTextToken()`, which the media-stream transport re-synthesizes
+   * through daemon TTS. (Collapsing the callMode split is a documented
+   * deferred follow-up.)
    */
   useSynthesizedPath: boolean;
 
@@ -76,8 +78,8 @@ export interface ResolveCallTtsOptions {
  * decision path used by `voice-quality.ts`. Providers with
  * `callMode: "synthesized-play"` have their audio streamed through the
  * audio store and played via `sendPlayUrl`. Providers with
- * `callMode: "native-twilio"` stream text tokens directly to the relay
- * for Twilio's built-in TTS.
+ * `callMode: "native-twilio"` send text via `sendTextToken`, which the
+ * media-stream transport re-synthesizes through daemon TTS.
  *
  * For WAV-requiring transports (`preferWav`, i.e. media-stream), the
  * resolved provider is validated against the media-stream playability
@@ -134,8 +136,8 @@ export async function resolveCallTtsProvider(
         }
       }
     } else if (useSynthesizedPath && fishAudioUnusable) {
-      // Non-WAV transport: degrade to the native token path (Twilio TTS)
-      // rather than letting the call stay silent.
+      // Non-WAV transport: degrade to the native token path rather than
+      // letting the call stay silent.
       log.warn(
         { provider: providerId },
         "Synthesized call TTS disabled: fish-audio.referenceId is not configured; falling back to native token path",
