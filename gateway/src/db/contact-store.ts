@@ -517,10 +517,9 @@ export class ContactStore {
   }
 
   /**
-   * Update a channel's status and/or policy in the gateway DB, then
-   * best-effort dual-write to the assistant DB.
+   * Update a channel's status and/or policy in the gateway DB.
    *
-   * Returns the updated channel, or null if not found in either DB.
+   * Returns the updated channel, or null if not found.
    * Throws if a blocked channel is being revoked (caller maps to 409).
    *
    * `revokedReason` / `blockedReason` are set based on the new status:
