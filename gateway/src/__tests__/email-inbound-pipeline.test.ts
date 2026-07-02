@@ -88,6 +88,12 @@ describe("runEmailInboundPipeline", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });
     expect(handleInboundMock).toHaveBeenCalledTimes(1);
+    const forwardOptions = (
+      handleInboundMock.mock.calls[0] as unknown[]
+    )[2] as {
+      sourceMetadata: Record<string, unknown>;
+    };
+    expect(forwardOptions.sourceMetadata.emailProvider).toBe("mailgun");
     // A marked key stays deduped: a second reserve is refused
     expect(dedupCache.reserve("key-1")).toBe(false);
   });

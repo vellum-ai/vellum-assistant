@@ -132,6 +132,7 @@ export async function runEmailInboundPipeline(
       traceId,
       routingOverride: routing,
       sourceMetadata: {
+        emailProvider: source,
         emailSubject: vellumPayload.subject ?? undefined,
         emailRecipient: recipientAddress,
         ...(vellumPayload.inReplyTo

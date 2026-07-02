@@ -91,6 +91,11 @@ export const SourceMetadataSchema = z
     trustVerdict: TrustVerdictSchema.optional(),
 
     // Email-specific fields
+    /**
+     * Ingress provider that delivered the email to the gateway
+     * (e.g. "mailgun", "resend", or "platform" for the Vellum relay).
+     */
+    emailProvider: z.string().optional(),
     /** Email subject line. */
     emailSubject: z.string().optional(),
     /** Email recipient address. */

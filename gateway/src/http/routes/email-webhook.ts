@@ -159,6 +159,7 @@ export function createEmailWebhookHandler(
         routingOverride: routing,
         senderAuthenticated,
         sourceMetadata: {
+          emailProvider: "platform",
           emailSubject: (payload.subject as string | undefined) ?? undefined,
           emailRecipient: recipientAddress,
           ...(typeof payload.inReplyTo === "string"
