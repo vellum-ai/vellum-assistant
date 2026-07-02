@@ -944,6 +944,78 @@ describe("wire-only profile keys are stripped from writes", () => {
     expectNothingCommitted();
   });
 
+  // -------------------------------------------------------------------------
+  // Stale wire-only keys on disk: configs written before the write-side strip
+  // existed can carry `supportsVision` under a managed profile. The invariant
+  // guard ignores wire-only keys on both sides, so a GET → write round-trip
+  // (whose incoming copy is stripped) is not rejected for "removing" the
+  // stale key — and a full-entry SET drops it from disk.
+  // -------------------------------------------------------------------------
+
+  test("SET round-trip re-enabling a managed profile with stale on-disk supportsVision succeeds and drops the stale key", async () => {
+    const balanced = (rawConfig as Record<string, any>).llm.profiles.balanced;
+    balanced.supportsVision = true; // stale pre-strip persistence
+    balanced.status = "disabled";
+    const entry = structuredClone(balanced) as Record<string, unknown>;
+    entry.invariant = true; // wire stamp from GET
+    entry.status = "active"; // legal re-enable
+    const result = await setRoute.handler({
+      body: { path: "llm.profiles.balanced", value: entry },
+    });
+    expect(result).toEqual({ ok: true });
+    expectOneCommitCycle();
+    const profile = savedProfile("balanced");
+    expect(profile.status).toBe("active");
+    expect("supportsVision" in profile).toBe(false);
+    expect("invariant" in profile).toBe(false);
+    expect(profile.provider).toBe("anthropic");
+    expect(profile.model).toBe("claude-sonnet");
+  });
+
+  test("pure no-op SET round-trip with stale on-disk supportsVision succeeds", async () => {
+    const balanced = (rawConfig as Record<string, any>).llm.profiles.balanced;
+    balanced.supportsVision = true; // stale pre-strip persistence
+    const entry = structuredClone(balanced) as Record<string, unknown>;
+    entry.invariant = true; // wire stamp from GET
+    const result = await setRoute.handler({
+      body: { path: "llm.profiles.balanced", value: entry },
+    });
+    expect(result).toEqual({ ok: true });
+    expectOneCommitCycle();
+    const profile = savedProfile("balanced");
+    expect("supportsVision" in profile).toBe(false);
+    expect("invariant" in profile).toBe(false);
+    expect(profile.provider).toBe("anthropic");
+    expect(profile.model).toBe("claude-sonnet");
+  });
+
+  test("PATCH re-enable carrying wire keys succeeds when the on-disk entry has stale supportsVision", async () => {
+    const balanced = (rawConfig as Record<string, any>).llm.profiles.balanced;
+    balanced.supportsVision = true; // stale pre-strip persistence
+    balanced.status = "disabled";
+    const result = await patchRoute.handler({
+      body: {
+        llm: {
+          profiles: {
+            balanced: {
+              status: "active",
+              invariant: true,
+              supportsVision: true,
+            },
+          },
+        },
+      },
+    });
+    expect(result).toHaveProperty("llm");
+    expectOneCommitCycle();
+    const profile = savedProfile("balanced");
+    expect(profile.status).toBe("active");
+    // The deep merge starts from the on-disk entry, so the stale key survives
+    // a PATCH (only a full-entry SET removes it) — but the write gains no
+    // `invariant` key and never 400s on the phantom-field diff.
+    expect("invariant" in profile).toBe(false);
+  });
+
   test("PATCH with supportsVision on a custom profile does not persist it", async () => {
     const result = await patchRoute.handler({
       body: {

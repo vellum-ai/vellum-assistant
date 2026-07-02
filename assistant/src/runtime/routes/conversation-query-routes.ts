@@ -937,10 +937,15 @@ function rejectManagedProfileDeletion(body: Record<string, unknown>): void {
  *   profile can never be disabled; a changed `status` must be `"active"`,
  *   `null`, or absent — re-enabling a disabled profile. Any other value is
  *   rejected.
+ * - Wire-only keys (`WIRE_ONLY_PROFILE_KEYS`) are ignored on both sides:
+ *   incoming writes have them stripped, but configs persisted before the
+ *   strip existed may still carry them on disk, and treating that stale key
+ *   as a removed field would reject every round-trip write until reboot
+ *   reseeds the profile.
  * - Every other field is frozen: any changed, added, or removed key across
- *   the union of both entries' keys (except `status`) is rejected. A
- *   pre-existing on-disk override (e.g. `topP`) is preserved but frozen —
- *   it passes the guard only while it doesn't change.
+ *   the union of both entries' keys (except `status` and the wire-only keys)
+ *   is rejected. A pre-existing on-disk override (e.g. `topP`) is preserved
+ *   but frozen — it passes the guard only while it doesn't change.
  */
 function assertInvariantProfilesPreserved(
   oldRaw: Record<string, unknown>,
@@ -990,7 +995,9 @@ function assertInvariantProfilesPreserved(
       ...new Set([...Object.keys(oldEntry), ...Object.keys(newEntry)]),
     ].filter(
       (key) =>
-        key !== "status" && !isDeepStrictEqual(oldEntry[key], newEntry[key]),
+        key !== "status" &&
+        !WIRE_ONLY_PROFILE_KEYS.has(key) &&
+        !isDeepStrictEqual(oldEntry[key], newEntry[key]),
     );
     if (changedKeys.length > 0) {
       throw new BadRequestError(
