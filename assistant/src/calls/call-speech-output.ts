@@ -17,8 +17,7 @@
 
 import { loadConfig } from "../config/loader.js";
 import { getPublicBaseUrl } from "../inbound/public-ingress-urls.js";
-import { getCatalogProvider } from "../tts/provider-catalog.js";
-import { getTtsProvider } from "../tts/provider-registry.js";
+import { getCatalogProvider, getTtsProvider } from "../tts/provider-catalog.js";
 import type { TtsProvider, TtsProviderId } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
 import { createStreamingEntry } from "./audio-store.js";

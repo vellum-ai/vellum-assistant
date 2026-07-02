@@ -49,9 +49,6 @@ const realConfigLoaderModule = { ...(await import("../config/loader.js")) };
 const realSecureKeysModule = {
   ...(await import("../security/secure-keys.js")),
 };
-const realProviderRegistryModule = {
-  ...(await import("../tts/provider-registry.js")),
-};
 const realAudioStoreModule = { ...(await import("../calls/audio-store.js")) };
 const realPublicIngressUrlsModule = {
   ...(await import("../inbound/public-ingress-urls.js")),
@@ -103,6 +100,10 @@ const fakeCatalog: FakeCatalogEntry[] = [
   makeEntry("compressed-only", "synthesized-play", "none", false),
 ];
 
+// The catalog is also the adapter-resolution point (`getTtsProvider`), so the
+// fake registry of stub adapters is served through the same module mock.
+const registeredProviders = new Map<string, unknown>();
+
 mock.module("../tts/provider-catalog.js", () => ({
   ...realProviderCatalogModule,
   listCatalogProviders: () =>
@@ -122,6 +123,16 @@ mock.module("../tts/provider-catalog.js", () => ({
       throw new Error(`Unknown TTS provider "${id}" is not in the catalog.`);
     }
     return entry;
+  },
+  getTtsProvider: (id: string) => {
+    if (!guardMocksActive) {
+      return realProviderCatalogModule.getTtsProvider(id);
+    }
+    const provider = registeredProviders.get(id);
+    if (!provider) {
+      throw new Error(`Unknown TTS provider "${id}".`);
+    }
+    return provider;
   },
 }));
 
@@ -165,24 +176,6 @@ mock.module("../security/secure-keys.js", () => ({
     guardMocksActive
       ? storedKeys[key]
       : realSecureKeysModule.getSecureKeyAsync(key),
-}));
-
-// -- Mutable provider registry ---------------------------------------------------
-
-const registeredProviders = new Map<string, unknown>();
-
-mock.module("../tts/provider-registry.js", () => ({
-  ...realProviderRegistryModule,
-  getTtsProvider: (id: string) => {
-    if (!guardMocksActive) {
-      return realProviderRegistryModule.getTtsProvider(id);
-    }
-    const provider = registeredProviders.get(id);
-    if (!provider) {
-      throw new Error(`Unknown TTS provider "${id}".`);
-    }
-    return provider;
-  },
 }));
 
 // -- Audio store + ingress URL (used by call-speech-output) ---------------------

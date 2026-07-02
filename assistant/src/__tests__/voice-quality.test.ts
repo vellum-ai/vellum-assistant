@@ -29,23 +29,20 @@ mock.module("../config/loader.js", () => ({
   loadConfig: () => mockConfig,
 }));
 
-// -- Call strategy voice-spec registry setup --------------------------------
+// -- Stub adapter overrides --------------------------------------------------
+// The native Twilio voice specs come from the static provider catalog; only
+// the runtime adapters are stubbed (availability checks must not hit real
+// provider HTTP APIs).
 
 import {
-  _resetNativeTwilioVoiceSpecRegistry,
-  registerNativeTwilioVoiceSpec,
-} from "../calls/tts-call-strategy.js";
-import {
-  _resetTtsProviderRegistry,
-  registerTtsProvider,
-} from "../tts/provider-registry.js";
+  _resetTtsProviderOverridesForTests,
+  _setTtsProviderForTests,
+} from "../tts/provider-catalog.js";
 import type { TtsProvider } from "../tts/types.js";
 
 function registerTestVoiceSpecs(): void {
-  _resetNativeTwilioVoiceSpecRegistry();
-  _resetTtsProviderRegistry();
+  _resetTtsProviderOverridesForTests();
 
-  // Register runtime TTS providers (needed for availability checks).
   const elevenlabs: TtsProvider = {
     id: "elevenlabs",
     capabilities: { supportsStreaming: false, supportedFormats: ["mp3"] },
@@ -53,7 +50,7 @@ function registerTestVoiceSpecs(): void {
       return { audio: Buffer.from(""), contentType: "audio/mpeg" };
     },
   };
-  registerTtsProvider(elevenlabs);
+  _setTtsProviderForTests(elevenlabs);
 
   const fishAudio: TtsProvider = {
     id: "fish-audio",
@@ -68,7 +65,7 @@ function registerTestVoiceSpecs(): void {
       return { audio: Buffer.from(""), contentType: "audio/mpeg" };
     },
   };
-  registerTtsProvider(fishAudio);
+  _setTtsProviderForTests(fishAudio);
 
   const deepgram: TtsProvider = {
     id: "deepgram",
@@ -80,38 +77,14 @@ function registerTestVoiceSpecs(): void {
       return { audio: Buffer.from(""), contentType: "audio/mpeg" };
     },
   };
-  registerTtsProvider(deepgram);
-
-  // Register the ElevenLabs native Twilio voice-spec builder (mirrors
-  // the production registration in register-builtins.ts).
-  registerNativeTwilioVoiceSpec("elevenlabs", {
-    twilioProviderName: "ElevenLabs",
-    buildVoiceSpec: (providerConfig) => {
-      const cfg = providerConfig as {
-        voiceId?: string;
-        voiceModelId?: string;
-        speed?: number;
-        stability?: number;
-        similarityBoost?: number;
-      };
-      return buildElevenLabsVoiceSpec({
-        voiceId: cfg.voiceId ?? "",
-        voiceModelId: cfg.voiceModelId,
-        speed: cfg.speed,
-        stability: cfg.stability,
-        similarityBoost: cfg.similarityBoost,
-      });
-    },
-  });
+  _setTtsProviderForTests(deepgram);
 }
 
 // -- Import subjects after mocks ------------------------------------------
 
-import {
-  buildElevenLabsVoiceSpec,
-  resolveVoiceQualityProfile,
-} from "../calls/voice-quality.js";
+import { resolveVoiceQualityProfile } from "../calls/voice-quality.js";
 import { DEFAULT_ELEVENLABS_VOICE_ID } from "../config/schemas/elevenlabs.js";
+import { buildElevenLabsVoiceSpec } from "../tts/providers/elevenlabs-provider.js";
 
 // -- Tests ----------------------------------------------------------------
 
@@ -195,7 +168,7 @@ describe("resolveVoiceQualityProfile", () => {
     expect(profile.ttsProvider).toBe("ElevenLabs");
   });
 
-  test("voice spec comes from registered NativeTwilioVoiceSpec builder", () => {
+  test("voice spec comes from the catalog NativeTwilioVoiceSpec builder", () => {
     mockConfig = {
       calls: {
         voice: {
@@ -487,7 +460,7 @@ describe("resolveVoiceQualityProfile", () => {
     expect(profile.voice).toBe(DEFAULT_ELEVENLABS_VOICE_ID);
   });
 
-  test("native-twilio strategy delegates voice-spec to registered builder", () => {
+  test("native-twilio strategy delegates voice-spec to the catalog builder", () => {
     // The catalog declares elevenlabs as native-twilio. The voice spec
     // is built by the registered NativeTwilioVoiceSpec builder, not by
     // hardcoded branching in resolveVoiceQualityProfile.
@@ -519,10 +492,7 @@ describe("resolveVoiceQualityProfile", () => {
     expect(profile.voice).toBe("test-voice-model-x-1.1_0.6_0.8");
   });
 
-  test("falls back to ElevenLabs config when voice-spec builder is not registered", () => {
-    // Clear the voice-spec registry to simulate missing builder.
-    _resetNativeTwilioVoiceSpecRegistry();
-
+  test("builds a bare voiceId spec from the elevenlabs config block", () => {
     mockConfig = {
       calls: {
         voice: {
@@ -541,15 +511,13 @@ describe("resolveVoiceQualityProfile", () => {
       },
     };
     const profile = resolveVoiceQualityProfile();
-    // Falls back to reading from the elevenlabs config block directly.
     expect(profile.ttsProvider).toBe("ElevenLabs");
     expect(profile.voice).toBe("some-voice");
   });
 
-  test("falls back to default voice ID when no config or builder available", () => {
-    // Clear the voice-spec registry and omit elevenlabs config.
-    _resetNativeTwilioVoiceSpecRegistry();
-
+  test("falls back to default voice ID when the elevenlabs config block is missing", () => {
+    // The catalog voice spec resolves to an empty voice without an elevenlabs
+    // config block; the profile must not carry it (Twilio 64106).
     mockConfig = {
       calls: {
         voice: {

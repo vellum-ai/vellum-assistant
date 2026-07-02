@@ -16,11 +16,7 @@ import {
   setPlatformOrganizationId,
   setPlatformUserId,
 } from "../../config/env.js";
-import {
-  API_KEY_PROVIDERS,
-  getConfig,
-  invalidateConfigCache,
-} from "../../config/loader.js";
+import { getConfig, invalidateConfigCache } from "../../config/loader.js";
 import { getCesClient } from "../../credential-execution/ces-runtime.js";
 import type { CesClient } from "../../credential-execution/client.js";
 import { evictConversationsForReload } from "../../daemon/conversation-store.js";
@@ -33,6 +29,7 @@ import { validateAtlasCloudApiKey } from "../../providers/atlascloud/client.js";
 import { validateGeminiApiKey } from "../../providers/gemini/client.js";
 import { validateMinimaxApiKey } from "../../providers/minimax/client.js";
 import { validateOpenAIApiKey } from "../../providers/openai/client.js";
+import { API_KEY_PROVIDERS } from "../../providers/provider-secret-catalog.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
@@ -570,10 +567,14 @@ async function handleListSecrets() {
     // delete(provider) steps.
     const credentialNamespaceProviders = new Set<string>(
       accounts.flatMap((account) => {
-        if (!account.startsWith(CREDENTIAL_KEY_PREFIX)) return [];
+        if (!account.startsWith(CREDENTIAL_KEY_PREFIX)) {
+          return [];
+        }
         const rest = account.slice(CREDENTIAL_KEY_PREFIX.length);
         const slashIdx = rest.indexOf("/");
-        if (slashIdx < 1 || slashIdx >= rest.length - 1) return [];
+        if (slashIdx < 1 || slashIdx >= rest.length - 1) {
+          return [];
+        }
         const service = rest.slice(0, slashIdx);
         const field = rest.slice(slashIdx + 1);
         if (
@@ -592,8 +593,12 @@ async function handleListSecrets() {
       .filter((account) => {
         // Drop bare-key entries for providers already represented via the
         // credential/ namespace to prevent duplicates after a partial migration.
-        if (account.startsWith(CREDENTIAL_KEY_PREFIX)) return true;
-        if (credentialNamespaceProviders.has(account)) return false;
+        if (account.startsWith(CREDENTIAL_KEY_PREFIX)) {
+          return true;
+        }
+        if (credentialNamespaceProviders.has(account)) {
+          return false;
+        }
         return true;
       })
       .map((account) => {

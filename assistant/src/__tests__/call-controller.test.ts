@@ -194,19 +194,20 @@ mock.module("../calls/voice-session-bridge.js", () => {
   };
 });
 
-// ── TTS provider registry setup ──────────────────────────────────────
-// Register test providers so call-controller can resolve the TTS provider
-// abstraction. ElevenLabs is the default native provider (no streaming),
-// while Fish Audio is a synthesized provider (streaming).
+// ── TTS provider override setup ──────────────────────────────────────
+// Install test adapters that shadow the static catalog adapters so
+// call-controller resolves stubs instead of real HTTP-backed providers.
+// ElevenLabs is the default native provider (no streaming), while Fish
+// Audio is a synthesized provider (streaming).
 
 import {
-  _resetTtsProviderRegistry,
-  registerTtsProvider,
-} from "../tts/provider-registry.js";
+  _resetTtsProviderOverridesForTests,
+  _setTtsProviderForTests,
+} from "../tts/provider-catalog.js";
 import type { TtsProvider } from "../tts/types.js";
 
 function registerTestTtsProviders(): void {
-  _resetTtsProviderRegistry();
+  _resetTtsProviderOverridesForTests();
 
   const elevenlabs: TtsProvider = {
     id: "elevenlabs",
@@ -215,7 +216,7 @@ function registerTestTtsProviders(): void {
       return { audio: Buffer.from(""), contentType: "audio/mpeg" };
     },
   };
-  registerTtsProvider(elevenlabs);
+  _setTtsProviderForTests(elevenlabs);
 
   const fishAudio: TtsProvider = {
     id: "fish-audio",
@@ -230,7 +231,7 @@ function registerTestTtsProviders(): void {
       return { audio: Buffer.from(""), contentType: "audio/mpeg" };
     },
   };
-  registerTtsProvider(fishAudio);
+  _setTtsProviderForTests(fishAudio);
 
   const deepgram: TtsProvider = {
     id: "deepgram",
@@ -245,7 +246,7 @@ function registerTestTtsProviders(): void {
       };
     },
   };
-  registerTtsProvider(deepgram);
+  _setTtsProviderForTests(deepgram);
 }
 
 // Register providers immediately so they're available for all tests
@@ -2649,7 +2650,7 @@ describe("call-controller", () => {
     cfg.services.tts.provider = "fish-audio";
     cfg.services.tts.providers["fish-audio"].referenceId = "fish-ref-123";
 
-    _resetTtsProviderRegistry();
+    _resetTtsProviderOverridesForTests();
     const elevenlabs: TtsProvider = {
       id: "elevenlabs",
       capabilities: { supportsStreaming: false, supportedFormats: ["mp3"] },
@@ -2657,7 +2658,7 @@ describe("call-controller", () => {
         return { audio: Buffer.from(""), contentType: "audio/mpeg" };
       },
     };
-    registerTtsProvider(elevenlabs);
+    _setTtsProviderForTests(elevenlabs);
 
     const fishAudioFailing: TtsProvider = {
       id: "fish-audio",
@@ -2672,7 +2673,7 @@ describe("call-controller", () => {
         throw new Error("fish-audio stream failure");
       },
     };
-    registerTtsProvider(fishAudioFailing);
+    _setTtsProviderForTests(fishAudioFailing);
 
     mockStartVoiceTurn.mockImplementation(
       createMockVoiceTurn(["Hello from synthesized path"]),
@@ -2699,7 +2700,7 @@ describe("call-controller", () => {
     cfg.services.tts.provider = "fish-audio";
     cfg.services.tts.providers["fish-audio"].referenceId = "fish-ref-123";
 
-    _resetTtsProviderRegistry();
+    _resetTtsProviderOverridesForTests();
     // elevenlabs present so native fallback is available for fish-audio.
     const elevenlabs: TtsProvider = {
       id: "elevenlabs",
@@ -2708,7 +2709,7 @@ describe("call-controller", () => {
         return { audio: Buffer.from(""), contentType: "audio/mpeg" };
       },
     };
-    registerTtsProvider(elevenlabs);
+    _setTtsProviderForTests(elevenlabs);
 
     let releaseSynth: (() => void) | undefined;
     const synthGate = new Promise<void>((resolve) => {
@@ -2730,7 +2731,7 @@ describe("call-controller", () => {
         throw new Error("fish-audio stream failure");
       },
     };
-    registerTtsProvider(fishAudioGatedFailing);
+    _setTtsProviderForTests(fishAudioGatedFailing);
 
     mockStartVoiceTurn.mockImplementation(
       createMockVoiceTurn(["Stale synthesized response"]),
@@ -2759,7 +2760,7 @@ describe("call-controller", () => {
     cfg.services.tts.provider = "fish-audio";
     cfg.services.tts.providers["fish-audio"].referenceId = "fish-ref-123";
 
-    _resetTtsProviderRegistry();
+    _resetTtsProviderOverridesForTests();
     const fishAudioStreaming: TtsProvider = {
       id: "fish-audio",
       capabilities: {
@@ -2780,7 +2781,7 @@ describe("call-controller", () => {
         };
       },
     };
-    registerTtsProvider(fishAudioStreaming);
+    _setTtsProviderForTests(fishAudioStreaming);
 
     mockStartVoiceTurn.mockImplementation(
       createMockVoiceTurn(["Hello from synthesized path."]),
@@ -2802,7 +2803,7 @@ describe("call-controller", () => {
     cfg.services.tts.provider = "fish-audio";
     cfg.services.tts.providers["fish-audio"].referenceId = "fish-ref-123";
 
-    _resetTtsProviderRegistry();
+    _resetTtsProviderOverridesForTests();
     let releaseChunk: (() => void) | undefined;
     const chunkGate = new Promise<void>((resolve) => {
       releaseChunk = resolve;
@@ -2826,7 +2827,7 @@ describe("call-controller", () => {
         };
       },
     };
-    registerTtsProvider(fishAudioStreaming);
+    _setTtsProviderForTests(fishAudioStreaming);
 
     mockStartVoiceTurn.mockImplementation(
       createMockVoiceTurn(["Hello from synthesized path."]),
@@ -2858,7 +2859,7 @@ describe("call-controller", () => {
     cfg.services.tts.provider = "fish-audio";
     cfg.services.tts.providers["fish-audio"].referenceId = "fish-ref-123";
 
-    _resetTtsProviderRegistry();
+    _resetTtsProviderOverridesForTests();
     let releaseChunk: (() => void) | undefined;
     const chunkGate = new Promise<void>((resolve) => {
       releaseChunk = resolve;
@@ -2879,7 +2880,7 @@ describe("call-controller", () => {
         return { audio: Buffer.from("stale-audio"), contentType: "audio/mpeg" };
       },
     };
-    registerTtsProvider(fishAudioStreaming);
+    _setTtsProviderForTests(fishAudioStreaming);
 
     mockStartVoiceTurn.mockImplementation(
       createMockVoiceTurn(["Hello from synthesized path."]),
@@ -2918,7 +2919,7 @@ describe("call-controller", () => {
     const cfg = loadConfig();
     cfg.services.tts.provider = "deepgram";
 
-    _resetTtsProviderRegistry();
+    _resetTtsProviderOverridesForTests();
     const elevenlabs: TtsProvider = {
       id: "elevenlabs",
       capabilities: { supportsStreaming: false, supportedFormats: ["mp3"] },
@@ -2926,7 +2927,7 @@ describe("call-controller", () => {
         return { audio: Buffer.from(""), contentType: "audio/mpeg" };
       },
     };
-    registerTtsProvider(elevenlabs);
+    _setTtsProviderForTests(elevenlabs);
 
     const deepgramFailing: TtsProvider = {
       id: "deepgram",
@@ -2940,7 +2941,7 @@ describe("call-controller", () => {
         throw err;
       },
     };
-    registerTtsProvider(deepgramFailing);
+    _setTtsProviderForTests(deepgramFailing);
 
     mockStartVoiceTurn.mockImplementation(
       createMockVoiceTurn(["Hello from deepgram path"]),
@@ -2967,7 +2968,7 @@ describe("call-controller", () => {
     cfg.services.tts.provider = "fish-audio";
     cfg.services.tts.providers["fish-audio"].referenceId = "fish-ref-abc";
 
-    _resetTtsProviderRegistry();
+    _resetTtsProviderOverridesForTests();
     const elevenlabs: TtsProvider = {
       id: "elevenlabs",
       capabilities: { supportsStreaming: false, supportedFormats: ["mp3"] },
@@ -2975,7 +2976,7 @@ describe("call-controller", () => {
         return { audio: Buffer.from(""), contentType: "audio/mpeg" };
       },
     };
-    registerTtsProvider(elevenlabs);
+    _setTtsProviderForTests(elevenlabs);
 
     const fishAudioFailing: TtsProvider = {
       id: "fish-audio",
@@ -2990,7 +2991,7 @@ describe("call-controller", () => {
         throw new Error("fish-audio stream failure");
       },
     };
-    registerTtsProvider(fishAudioFailing);
+    _setTtsProviderForTests(fishAudioFailing);
 
     mockStartVoiceTurn.mockImplementation(
       createMockVoiceTurn(["Hello from fish path"]),
@@ -3064,8 +3065,10 @@ describe("call-controller", () => {
       expect(result.audioFormat).toBe("mp3");
     });
 
-    test("returns fallback when provider registry is empty", async () => {
-      _resetTtsProviderRegistry();
+    test("returns fallback when the configured provider is not in the catalog", async () => {
+      const cfg = loadConfig();
+      cfg.services.tts.provider = "not-a-real-provider";
+
       const result = await resolveCallTtsProvider();
       expect(result.provider).toBeNull();
       expect(result.useSynthesizedPath).toBe(false);
