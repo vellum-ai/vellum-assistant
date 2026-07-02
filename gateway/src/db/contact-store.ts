@@ -1780,8 +1780,8 @@ export class ContactStore {
           `INSERT INTO contact_channels
              (id, contact_id, type, address, is_primary,
               external_chat_id,
-              interaction_count, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+              created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             channelId,
             contactId,
