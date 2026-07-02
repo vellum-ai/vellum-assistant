@@ -5,7 +5,19 @@ import type {
 
 export type PluginStatus = "installed" | "available";
 
-export type PluginFilter = "all" | "installed" | "available";
+/**
+ * User-facing status filter. Orthogonal to `PluginStatus`: `active` and `off`
+ * both narrow the installed set by enablement (Active = installed & enabled,
+ * Off = installed & !enabled), `installed` is the whole installed set
+ * regardless of enablement (offered when the daemon can't toggle), and
+ * `available` is the not-installed catalog.
+ */
+export type PluginFilter =
+  | "all"
+  | "installed"
+  | "active"
+  | "off"
+  | "available";
 
 /**
  * Unified row model for the Plugins tab, populated from two independent
@@ -25,6 +37,12 @@ export interface PluginListItem {
   version?: string;
   path?: string;
   issues?: string[];
+  /**
+   * Whether the plugin is active in this workspace. Installed rows only —
+   * catalog/available rows carry no enablement. `undefined` on daemons that
+   * predate the enable/disable surface (version-skew safeguard).
+   */
+  enabled?: boolean;
 }
 
 /** Generated element type for an installed plugin (`pluginsGet`). */
@@ -49,6 +67,7 @@ interface InstalledPluginSource {
   version: string | null;
   path?: string;
   issues?: string[];
+  enabled?: boolean;
 }
 
 interface CatalogPluginSource {

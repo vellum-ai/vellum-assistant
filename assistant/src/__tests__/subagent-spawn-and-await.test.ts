@@ -89,6 +89,7 @@ class FakeConversation {
     return undefined;
   }
   setAssistantId() {}
+  setEnabledPlugins() {}
   setSubagentAllowedTools() {}
   setPreactivatedSkillIds() {}
   getCurrentSystemPrompt() {

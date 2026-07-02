@@ -21,3 +21,5 @@ export const PLUGIN_INSTALL_ERROR =
 export const PLUGIN_REMOVE_ERROR = "Failed to remove plugin. Please try again.";
 export const PLUGIN_UPGRADE_ERROR =
   "Failed to upgrade plugin. Please try again.";
+export const PLUGIN_TOGGLE_ERROR =
+  "Failed to update plugin. Please try again.";

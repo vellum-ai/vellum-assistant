@@ -535,7 +535,7 @@ VELLUM_DAEMON_URL=http://localhost:8741 open -a Vellum
 
 ### Claude Code Workflow
 
-This repo includes Claude Code slash commands (in `.claude/commands/`) for agent-driven development.
+This repo includes Claude Code slash commands for agent-driven development. Most are shared from the [`claude-skills`](https://github.com/vellum-ai/claude-skills) repo via symlinks; repo-local commands live in `.claude/skills/<name>/` as local skill directories (see `.claude/README.md`).
 
 #### Single-task commands
 

@@ -31,6 +31,15 @@ export interface VellumEmailPayload {
   conversationId: string;
   /** ISO 8601 timestamp of the original email. */
   timestamp?: string;
+  /**
+   * Whether the platform authenticated the sender's `From:` address against
+   * the message's SPF/DKIM/DMARC results. `true` when authentication passed,
+   * `false` when it was evaluated and failed (spoofable sender), omitted when
+   * the platform could not evaluate (no auth-results header). The gateway
+   * downgrades an unauthenticated sender so a forged `From:` cannot inherit
+   * guardian/trusted_contact trust.
+   */
+  senderAuthenticated?: boolean;
 }
 
 export interface NormalizedEmailEvent {
@@ -39,6 +48,28 @@ export interface NormalizedEmailEvent {
   eventId: string;
   /** Original recipient address for routing. */
   recipientAddress: string;
+  /**
+   * The payload's {@link VellumEmailPayload.senderAuthenticated} signal,
+   * forwarded to the trust-verdict downgrade in `handleInbound`. Omitted when
+   * the payload carried no boolean value.
+   */
+  senderAuthenticated?: boolean;
+}
+
+/**
+ * Parse an RFC 5322 address like `"Alice <alice@example.com>"` into its
+ * components. Returns the raw email address and optional display name.
+ */
+export function parseEmailAddress(raw: string): {
+  address: string;
+  displayName?: string;
+} {
+  const match = raw.match(/^(.+?)\s*<([^>]+)>$/);
+  if (match) {
+    const name = match[1].trim().replace(/^["']|["']$/g, "");
+    return { address: match[2].trim(), displayName: name || undefined };
+  }
+  return { address: raw.trim() };
 }
 
 /**
@@ -65,6 +96,10 @@ export function normalizeEmailWebhook(
     "";
 
   const fromName = payload.fromName as string | undefined;
+  const senderAuthenticated =
+    typeof payload.senderAuthenticated === "boolean"
+      ? payload.senderAuthenticated
+      : undefined;
 
   const event: GatewayInboundEvent = {
     version: "v1",
@@ -90,5 +125,6 @@ export function normalizeEmailWebhook(
     event,
     eventId: messageId,
     recipientAddress: to,
+    ...(senderAuthenticated !== undefined ? { senderAuthenticated } : {}),
   };
 }

@@ -202,6 +202,10 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "platform callback-routes",
   "platform callback-routes register",
   "platform callback-routes list",
+  "monitoring",
+  "monitoring start",
+  "monitoring stop",
+  "monitoring status",
   "ps",
   "routes",
   "routes list",
@@ -218,6 +222,10 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "schedules cancel",
   "schedules delete",
   "schedules execute",
+  "schedules worker",
+  "schedules worker start",
+  "schedules worker stop",
+  "schedules worker status",
   "sequence",
   "sequence list",
   "sequence get",
@@ -550,6 +558,21 @@ const riskOverrides: AssistantRiskOverride[] = [
     risk: "low",
     reason: "Read-only liveness probe via PID file",
   },
+  {
+    path: "monitoring start",
+    risk: "medium",
+    reason: "Spawns a background process that samples memory and disk",
+  },
+  {
+    path: "monitoring stop",
+    risk: "low",
+    reason: "Sends SIGTERM to the resource monitor process",
+  },
+  {
+    path: "monitoring status",
+    risk: "low",
+    reason: "Read-only liveness probe via PID file",
+  },
   { path: "notifications send", risk: "low" },
   {
     path: "oauth request",
@@ -613,6 +636,22 @@ const riskOverrides: AssistantRiskOverride[] = [
       "Triggers immediate schedule execution. Script-mode schedules shell out " +
       "via sh -c on the host, and the schedule ID arg is opaque to the " +
       "classifier — must conservatively assume host shell execution",
+  },
+  {
+    path: "schedules worker start",
+    risk: "medium",
+    reason: "Spawns a background process that runs scheduled jobs",
+  },
+  {
+    path: "schedules worker stop",
+    risk: "medium",
+    reason:
+      "Disables schedules.worker.enabled and sends SIGTERM to the schedule worker process",
+  },
+  {
+    path: "schedules worker status",
+    risk: "low",
+    reason: "Read-only liveness probe via PID file",
   },
   { path: "sequence pause", risk: "medium" },
   { path: "sequence resume", risk: "medium" },

@@ -18,10 +18,26 @@ mock.module("@/utils/local-settings", () => ({
   },
 }));
 
-// Mock the upload dependency — we're testing draft logic, not uploads.
+// Mock the upload dependencies. Hoisted mock fns let the attachment tests
+// vary per-call results (server-canonical metadata, stored-blob fetches).
+import type { UploadAttachmentResult } from "@/domains/chat/api/messages";
+
+const uploadChatAttachmentMock = mock(
+  async (): Promise<UploadAttachmentResult> => ({ ok: true, id: "mock-id" }),
+);
 mock.module("@/domains/chat/api/messages", () => ({
-  uploadChatAttachment: mock(async () => ({ ok: true, id: "mock-id" })),
+  uploadChatAttachment: uploadChatAttachmentMock,
 }));
+const fetchAttachmentContentBlobMock = mock(
+  async (): Promise<Blob | null> => null,
+);
+mock.module(
+  "@/domains/chat/components/chat-attachments/download-attachment",
+  () => ({
+    fetchAttachmentContentBlob: fetchAttachmentContentBlobMock,
+    downloadAttachment: mock(async () => {}),
+  }),
+);
 mock.module(
   "@/domains/chat/components/chat-attachments/attachment-image-resize",
   () => ({
@@ -43,12 +59,29 @@ function getStore() {
 beforeEach(() => {
   getStore().fullReset();
   localSettingsStore.clear();
+  uploadChatAttachmentMock.mockClear();
+  fetchAttachmentContentBlobMock.mockClear();
 });
 
 afterEach(() => {
   getStore().fullReset();
   localSettingsStore.clear();
 });
+
+/** Poll until no attachment is in the transient "uploading" state. */
+async function waitForUploadsSettled(expectedCount: number): Promise<void> {
+  for (let i = 0; i < 100; i++) {
+    const atts = getStore().attachments;
+    if (
+      atts.length >= expectedCount &&
+      atts.every((att) => att.kind !== "uploading")
+    ) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error("Attachments never settled");
+}
 
 // ---------------------------------------------------------------------------
 // handleConversationSwitch — save outgoing / restore incoming
@@ -359,5 +392,99 @@ describe("setInput", () => {
     getStore().setInput("hello");
     getStore().setInput((prev) => prev + " world");
     expect(getStore().input).toBe("hello world");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// addFiles — server-canonical upload metadata
+// ---------------------------------------------------------------------------
+
+describe("addFiles upload metadata", () => {
+  test("adopts stored metadata and previews the stored bytes when the assistant transcodes", async () => {
+    uploadChatAttachmentMock.mockResolvedValueOnce({
+      ok: true,
+      id: "att-1",
+      filename: "IMG_5487.jpg",
+      mimeType: "image/jpeg",
+      sizeBytes: 111,
+    });
+    fetchAttachmentContentBlobMock.mockResolvedValueOnce(
+      new Blob(["jpeg-bytes"], { type: "image/jpeg" }),
+    );
+
+    getStore().addFiles(
+      [new File(["heic-bytes"], "IMG_5487.HEIC", { type: "image/heic" })],
+      "assistant-1",
+    );
+    await waitForUploadsSettled(1);
+
+    const att = getStore().attachments[0];
+    expect(att.kind).toBe("uploaded");
+    expect(att.filename).toBe("IMG_5487.jpg");
+    expect(att.mimeType).toBe("image/jpeg");
+    expect(att.sizeBytes).toBe(111);
+    expect(fetchAttachmentContentBlobMock).toHaveBeenCalledWith(
+      "assistant-1",
+      "att-1",
+    );
+  });
+
+  test("skips the stored-bytes fetch when the stored mime matches the local file", async () => {
+    uploadChatAttachmentMock.mockResolvedValueOnce({
+      ok: true,
+      id: "att-2",
+      filename: "photo.png",
+      mimeType: "image/png",
+      sizeBytes: 9,
+    });
+
+    getStore().addFiles(
+      [new File(["png-bytes"], "photo.png", { type: "image/png" })],
+      "assistant-1",
+    );
+    await waitForUploadsSettled(1);
+
+    const att = getStore().attachments[0];
+    expect(att.kind).toBe("uploaded");
+    expect(att.mimeType).toBe("image/png");
+    expect(fetchAttachmentContentBlobMock).not.toHaveBeenCalled();
+  });
+
+  test("still uploads with stored metadata when the stored-bytes fetch fails", async () => {
+    uploadChatAttachmentMock.mockResolvedValueOnce({
+      ok: true,
+      id: "att-3",
+      filename: "IMG_1.jpg",
+      mimeType: "image/jpeg",
+      sizeBytes: 5,
+    });
+    fetchAttachmentContentBlobMock.mockResolvedValueOnce(null);
+
+    getStore().addFiles(
+      [new File(["heic-bytes"], "IMG_1.HEIC", { type: "image/heic" })],
+      "assistant-1",
+    );
+    await waitForUploadsSettled(1);
+
+    const att = getStore().attachments[0];
+    expect(att.kind).toBe("uploaded");
+    expect(att.filename).toBe("IMG_1.jpg");
+    expect(att.mimeType).toBe("image/jpeg");
+  });
+
+  test("keeps local metadata when the response omits stored fields", async () => {
+    uploadChatAttachmentMock.mockResolvedValueOnce({ ok: true, id: "att-4" });
+
+    getStore().addFiles(
+      [new File(["heic-bytes"], "IMG_2.HEIC", { type: "image/heic" })],
+      "assistant-1",
+    );
+    await waitForUploadsSettled(1);
+
+    const att = getStore().attachments[0];
+    expect(att.kind).toBe("uploaded");
+    expect(att.filename).toBe("IMG_2.HEIC");
+    expect(att.mimeType).toBe("image/heic");
+    expect(fetchAttachmentContentBlobMock).not.toHaveBeenCalled();
   });
 });

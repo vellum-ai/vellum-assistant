@@ -493,7 +493,7 @@ async function buildVoiceWebhookTwiml(
   const otherPartyNumber = isInbound ? from : to;
   const verdict = await getPhoneCallerVerdict(otherPartyNumber);
 
-  const { outcome } = routeSetup({
+  const { outcome } = await routeSetup({
     callSessionId,
     session: session ?? null,
     from,

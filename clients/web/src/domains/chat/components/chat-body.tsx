@@ -139,6 +139,15 @@ export interface ChatBodyProps {
   startersSlot?: ReactNode;
 
   /**
+   * Optional per-chat plugin-selection pills rendered inside the max-width
+   * wrapper directly below the composer and above {@link startersSlot}.
+   * Visible only on the empty state; the parent passes `undefined` once
+   * messages arrive. Rendered as a slot (like {@link startersSlot}) so
+   * `ChatBody` stays agnostic of the plugin data model.
+   */
+  pluginPillsSlot?: ReactNode;
+
+  /**
    * Below-the-fold content rendered after the first viewport on the empty
    * state. Only used when {@link dockStartersToBottom} is true (the
    * suggestions-library layout); holds the categorized suggestion groups.
@@ -183,6 +192,7 @@ export function ChatBody({
   queuedDrawerSlot,
   channelFooterSlot,
   startersSlot,
+  pluginPillsSlot,
   belowFoldSlot,
   dockStartersToBottom = false,
   activeProcessOverlaysSlot,
@@ -317,6 +327,7 @@ export function ChatBody({
         {channelFooterSlot}
         <StagedQuotesStrip />
         {composerSlot}
+        {pluginPillsSlot && <div className="mt-4">{pluginPillsSlot}</div>}
         {trailingStarters}
       </div>
     </div>

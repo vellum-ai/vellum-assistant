@@ -40,11 +40,17 @@ Then branch:
 
 ## Step 2 — Open the setup wizard
 
-Use `ui_show` with `surface_type: "channel_setup"` and `data: { channel: "slack" }`. This opens the Slack setup wizard in the side panel. The wizard is non-blocking — the tool returns immediately.
+Call `ui_show` with `surface_type: "channel_setup"` and `data: { channel: "slack" }`. This opens the Slack setup wizard in the side panel. The wizard is non-blocking — the tool returns immediately.
 
-Tell the user:
+⚠️ CRITICAL: **Tool call first, announcement second — in the same turn.** Do not write any message that says the wizard is open (or is opening) until the `ui_show` call has returned success earlier in the same turn. A message claiming the wizard is open when the tool was never called shows the user an empty side panel.
+
+After `ui_show` returns success, tell the user:
 
 > I've opened the Slack setup wizard in the side panel. It will walk you through creating a Slack app, generating tokens, and connecting — complete the steps there. Ask me questions along the way, and let me know when you're done.
+
+If the `ui_show` call fails, do NOT send that message — tell the user the wizard could not be opened and troubleshoot (e.g. no connected client) before retrying.
+
+> ✓ Checkpoint: The successful `ui_show` tool result appears earlier in this turn than your announcement. If it does not, the wizard is not open — make the call before claiming it is.
 
 The wizard handles the entire flow: manifest URL generation, app-level token creation, bot token installation, and credential storage. Tokens are entered in secure input fields within the wizard and saved directly via the API — they never enter the chat conversation.
 
@@ -106,7 +112,7 @@ If identity was skipped → swap the last two lines for:
 ## SKILL COMPLETE WHEN
 
 - [ ] `assistant credentials list` was called and the existing-state branch was named explicitly (Step 1).
-- [ ] `ui_show` with `surface_type: "channel_setup"` was called to open the wizard (Step 2).
+- [ ] `ui_show` with `surface_type: "channel_setup"` was called and returned success before any message claiming the wizard is open (Step 2).
 - [ ] User confirmed completion and both tokens are verified present (Step 3).
 - [ ] `guardian-verify-setup` was loaded and either completed or the user explicitly declined (Step 4).
 - [ ] Success message was posted with real bot identity values (Step 5).

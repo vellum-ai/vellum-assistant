@@ -208,7 +208,6 @@ function memberRecordFromVerdict(
     address: verdict.address ?? "",
     isPrimary: false,
     externalChatId: verdict.externalChatId ?? null,
-    inviteId: null,
     lastSeenAt: null,
     interactionCount: 0,
     lastInteraction: null,

@@ -3,7 +3,7 @@ import { loadSkillCatalog } from "../../config/skills.js";
 import { nearestExistingSkills } from "../../plugins/defaults/memory/v3/candidate-match.js";
 import { readInstallMeta } from "../../skills/install-meta.js";
 import { getManagedSkillDir } from "../../skills/managed-store.js";
-import type { ToolContext, ToolExecutionResult } from "../types.js";
+import type { OwnerInfo, ToolContext, ToolExecutionResult } from "../types.js";
 
 /**
  * A shortlisted skill enriched with its catalog name, description, and source.
@@ -36,7 +36,7 @@ interface EnrichedHit {
  */
 export async function executeFindSimilarSkills(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
   deps: {
     nearestExistingSkills?: typeof nearestExistingSkills;
     loadCatalog?: () => {
@@ -44,6 +44,7 @@ export async function executeFindSimilarSkills(
       name: string;
       description: string;
       source: SkillSource;
+      owner?: OwnerInfo;
     }[];
   } = {},
 ): Promise<ToolExecutionResult> {
@@ -73,15 +74,40 @@ export async function executeFindSimilarSkills(
   const findNearest = deps.nearestExistingSkills ?? nearestExistingSkills;
   const loadCatalog = deps.loadCatalog ?? (() => loadSkillCatalog());
 
-  const hits = await findNearest(goal, { limit });
-
   const catalog = loadCatalog();
   const byId = new Map(catalog.map((s) => [s.id, s]));
+
+  // Per-chat plugin scope: a plugin-owned skill whose owning plugin is outside
+  // the conversation's effective set must not be surfaced as a discovery
+  // result. `null` = no restriction; non-plugin skills are always retained
+  // (mirrors `filterSkillsByEnabledPlugins`).
+  const enabledPluginSet = context.enabledPluginSet ?? null;
+  const outOfScope = (skill: { owner?: OwnerInfo }): boolean =>
+    enabledPluginSet !== null &&
+    skill.owner?.kind === "plugin" &&
+    !enabledPluginSet.has(skill.owner.id);
+
+  // Apply the scope filter BEFORE the shortlist's top-K limit: restrict the
+  // candidate catalog to in-scope skills so the nearest-skill search ranks and
+  // slices only those. Filtering after the limit would let out-of-scope
+  // high-rank matches consume slots and starve usable in-scope skills out of
+  // the result. `null` set = pass the catalog through unchanged.
+  const scopedCatalog =
+    enabledPluginSet === null ? catalog : catalog.filter((s) => !outOfScope(s));
+
+  const hits = await findNearest(goal, {
+    limit,
+    loadCatalog: () => scopedCatalog,
+  });
 
   const enriched: EnrichedHit[] = [];
   for (const hit of hits) {
     const skill = byId.get(hit.skillId);
     if (!skill) continue;
+    // Defense in depth: the scoped catalog already excludes out-of-scope plugin
+    // skills, but re-check so a shortlist source that ignores the catalog seam
+    // still cannot leak one.
+    if (outOfScope(skill)) continue;
     enriched.push({
       skill_id: hit.skillId,
       name: skill.name,

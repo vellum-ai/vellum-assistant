@@ -88,6 +88,7 @@ import {
 } from "@/domains/chat/api/messages";
 import { surfaceConversation } from "@/domains/chat/api/conversations";
 import { supportsServerMintedConversation } from "@/lib/backwards-compat/server-minted-conversation";
+import { resolveSupportsNewChatPlugins } from "@/lib/backwards-compat/use-supports-new-chat-plugins";
 import {
   ConversationNotFoundError,
   fetchConversationDetail,
@@ -316,6 +317,20 @@ export function useSendMessage({
       const inferenceProfileForSend = useConversationStore
         .getState()
         .pendingDraftProfiles.get(requestConversationId);
+      // A per-chat plugin set the user picked in the composer before this
+      // conversation's row existed — mirrors `inferenceProfileForSend`. Only an
+      // EXPLICIT selection (an entry in the map, including an empty set) is
+      // forwarded; an untouched default has no entry and sends `undefined`.
+      // Gated on resolved daemon support — older daemons silently drop the
+      // field, so the version must hydrate before deciding (see
+      // `use-supports-new-chat-plugins`).
+      const draftPlugins = useConversationStore
+        .getState()
+        .pendingDraftPlugins.get(requestConversationId);
+      const enabledPluginsForSend =
+        draftPlugins && (await resolveSupportsNewChatPlugins())
+          ? [...draftPlugins].sort()
+          : undefined;
       const postResult = await postChatMessage(
         requestAssistantId,
         useServerMint ? null : requestConversationId,
@@ -324,6 +339,7 @@ export function useSendMessage({
         onboardingContext ?? undefined,
         clientMessageId,
         inferenceProfileForSend,
+        enabledPluginsForSend,
         isHidden,
       );
       if (
@@ -369,6 +385,15 @@ export function useSendMessage({
         useConversationStore
           .getState()
           .clearPendingDraftProfile(requestConversationId);
+      }
+      // Same lifecycle as the profile stash: the draft's plugin selection has
+      // now been persisted on the minted conversation, so drop this draft's
+      // entry. Cleared only on success — a failed send keeps the stash so a
+      // retry still carries the chosen plugins.
+      if (draftPlugins) {
+        useConversationStore
+          .getState()
+          .clearPendingDraftPlugins(requestConversationId);
       }
       if (onboardingDraftConversationIdRef.current === activeConversationId) {
         onboardingDraftConversationIdRef.current = null;

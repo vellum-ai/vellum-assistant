@@ -9,16 +9,17 @@
  * - file_read: Low by default, High if targeting the actor token signing key.
  * - file_write / file_edit: Low by default, High if targeting skill source
  *   code, the workspace hooks directory, the user plugins directory, the
- *   workspace tools directory, or the workspace routes directory.
+ *   workspace tools directory, the workspace routes directory, or the
+ *   workspace workflows directory.
  * - host_file_read: Medium (tool registry default; no special escalation).
  * - host_file_write / host_file_edit: Medium by default, High if targeting
  *   skill source code, the workspace hooks directory, the user plugins
- *   directory, the workspace tools directory, or the workspace routes
- *   directory.
+ *   directory, the workspace tools directory, the workspace routes
+ *   directory, or the workspace workflows directory.
  * - host_file_transfer: Medium by default, High if the host-side path
  *   targets skill source code, the workspace hooks directory, the user
- *   plugins directory, the workspace tools directory, or the workspace
- *   routes directory.
+ *   plugins directory, the workspace tools directory, the workspace
+ *   routes directory, or the workspace workflows directory.
  *
  * The tools and routes directories are escalated for the same reason as
  * plugins: any file written under `<workspace>/tools/` is dynamic-imported
@@ -27,6 +28,11 @@
  * dynamic-imported and executed as an HTTP route handler. A write to either
  * is a code-injection sink, so it must clear the same High-risk approval gate
  * as hooks and plugins.
+ *
+ * The workflows directory is escalated for the same reason: any file under
+ * `<workspace>/workflows/` is a saved workflow whose source is executed (in the
+ * sandbox, and unattended when triggered by a schedule), so it must clear the
+ * same High-risk gate.
  *
  * Gateway adaptation: accepts a FileClassificationContext parameter instead
  * of importing assistant platform utilities directly. The assistant is
@@ -70,6 +76,8 @@ export interface FileClassificationContext {
   toolsDir: string;
   /** Absolute path to the workspace routes directory (dynamic-imported HTTP route handlers). */
   routesDir: string;
+  /** Absolute path to the workspace workflows directory (saved workflow scripts). */
+  workflowsDir: string;
   /**
    * Absolute paths of all skill source root directories (managed, bundled,
    * and any extra dirs from config). The classifier checks whether a file
@@ -259,6 +267,25 @@ function isRoutesPath(
 }
 
 /**
+ * Check whether a resolved absolute path falls inside the workspace workflows
+ * directory (or IS the workflows directory itself). Mirrors {@link isToolsPath}:
+ * a file under `<workspace>/workflows/` is a saved workflow whose source is
+ * executed (unattended when triggered by a schedule), so a write here is
+ * code-injection risk.
+ */
+function isWorkflowsPath(
+  resolvedPath: string,
+  context: FileClassificationContext,
+): boolean {
+  const normalizedWorkflowsDir = normalizeDirPath(context.workflowsDir);
+  const workflowsDirNoTrailingSlash = normalizedWorkflowsDir.slice(0, -1);
+  return (
+    resolvedPath === workflowsDirNoTrailingSlash ||
+    resolvedPath.startsWith(normalizedWorkflowsDir)
+  );
+}
+
+/**
  * Check whether a resolved absolute path falls under any skill source
  * directory.
  */
@@ -341,10 +368,10 @@ function buildFileAllowlistOptions(
 
 /**
  * Classify a resolved (absolute) path against the code-injection sink
- * directories: skill source, hooks, plugins, tools, and routes. A write to
- * any of these plants code the daemon will dynamic-import and execute, so it
- * must clear the High-risk approval gate. Returns a High assessment when the
- * path lands in a sink, or `null` when it doesn't.
+ * directories: skill source, hooks, plugins, tools, routes, and workflows. A
+ * write to any of these plants code the daemon later executes, so it must clear
+ * the High-risk approval gate. Returns a High assessment when the path lands in
+ * a sink, or `null` when it doesn't.
  *
  * `verb` distinguishes the user-facing reason: "Writes" for write/edit tools,
  * "Transfers" for host_file_transfer.
@@ -368,6 +395,8 @@ function classifyCodeInjectionSink(
   if (isPluginsPath(resolvedPath, context)) return high("plugins directory");
   if (isToolsPath(resolvedPath, context)) return high("tools directory");
   if (isRoutesPath(resolvedPath, context)) return high("routes directory");
+  if (isWorkflowsPath(resolvedPath, context))
+    return high("workflows directory");
   return null;
 }
 
@@ -403,8 +432,9 @@ function classifyCodeInjectionSinkEither(
 /**
  * File risk classifier implementation.
  *
- * Classifies all six file tool types by risk level, with escalation paths
- * for skill source code, workspace hooks, and the actor token signing key.
+ * Classifies all seven file tool types by risk level, with escalation paths
+ * for the code-injection sinks (skill source, hooks, plugins, tools, routes,
+ * and workflows) and the actor token signing key.
  *
  * Unlike the assistant version, this classifier accepts a
  * FileClassificationContext parameter on classify() instead of importing

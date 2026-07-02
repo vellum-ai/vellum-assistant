@@ -6,7 +6,15 @@
  * wiring.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 mock.module("../../../util/logger.js", () => ({
   getLogger: () =>
@@ -34,10 +42,6 @@ const mockAnalyzeConversation = mock(
   },
 );
 
-mock.module("../analyze-conversation.js", () => ({
-  analyzeConversation: mockAnalyzeConversation,
-}));
-
 // Mock auto-analysis-enqueue — track calls so we can verify requeue behavior.
 type EnqueueArgs = {
   conversationId: string;
@@ -48,9 +52,40 @@ const mockEnqueueAutoAnalysisIfEnabled = mock((args: EnqueueArgs) => {
   enqueueCalls.push(args);
 });
 
-mock.module("../auto-analysis-enqueue.js", () => ({
-  enqueueAutoAnalysisIfEnabled: mockEnqueueAutoAnalysisIfEnabled,
-}));
+// Scope the sibling-module stubs to this suite's lifecycle. Bun's `mock.module`
+// is process-global and is NOT undone by `mock.restore()`, so registering these
+// at the top level leaks the stubs into sibling suites that import the real
+// modules in the same Bun process (analyze-conversation.test.ts,
+// auto-analysis-enqueue.test.ts). Register the stubs in `beforeAll` and
+// re-register the real modules in `afterAll`.
+//
+// The captures spread into a plain object (`{ ...(await import()) }`) to freeze
+// the real exports by value. A module-namespace reference is a live view:
+// `mock.module` mutates it in place, so a bare `await import` would itself
+// return the stub once the stub is registered, and `afterAll` would "restore"
+// the stub instead of the real module.
+const actualAnalyzeConversation = {
+  ...(await import("../analyze-conversation.js")),
+};
+const actualAutoAnalysisEnqueue = {
+  ...(await import("../auto-analysis-enqueue.js")),
+};
+
+beforeAll(() => {
+  mock.module("../analyze-conversation.js", () => ({
+    ...actualAnalyzeConversation,
+    analyzeConversation: mockAnalyzeConversation,
+  }));
+  mock.module("../auto-analysis-enqueue.js", () => ({
+    ...actualAutoAnalysisEnqueue,
+    enqueueAutoAnalysisIfEnabled: mockEnqueueAutoAnalysisIfEnabled,
+  }));
+});
+
+afterAll(() => {
+  mock.module("../analyze-conversation.js", () => actualAnalyzeConversation);
+  mock.module("../auto-analysis-enqueue.js", () => actualAutoAnalysisEnqueue);
+});
 
 import { DEFAULT_CONFIG } from "../../../config/defaults.js";
 import type { AssistantConfig } from "../../../config/types.js";

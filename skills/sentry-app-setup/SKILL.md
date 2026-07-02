@@ -76,7 +76,7 @@ Then run the store script to securely collect and store the token:
 bun skills/sentry-app-setup/scripts/store-token.ts
 ```
 
-The script opens a secure credential prompt in the user's app, stores the token in the encrypted vault with the correct injection templates, and exits. No further action needed — if it exits 0, the token is stored.
+The script opens a secure credential prompt in the user's app, stores the token in the encrypted vault with the correct injection templates, and exits. No further action needed — if it exits 0, the token is stored. Exit code **130** means the user cancelled the prompt — nothing was stored; that's a valid choice, not an error, so ask whether they'd like to try again rather than treating it as a failure. Any other non-zero exit is a real failure.
 
 ### Step 3: Collect the Organization Slug
 

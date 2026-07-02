@@ -35,6 +35,7 @@ function baseProps() {
     counts: {} as Record<string, number>,
     totalCount: 0,
     showCounts: true,
+    pluginToggleSupported: true,
   };
 }
 
@@ -91,16 +92,31 @@ describe("Plugins FilterBar", () => {
     expect(onSearchChange).toHaveBeenCalledWith("memory");
   });
 
-  test("opening the filter and choosing Installed switches the filter", () => {
+  test("opening the filter and choosing Active switches the filter", () => {
     const onFilterChange = mock((_filter: PluginFilter) => {});
     const { getByLabelText } = render(
       <FilterBar {...baseProps()} onFilterChange={onFilterChange} />,
     );
 
     fireEvent.click(getByLabelText("Filter plugins"));
-    clickStatusOption("Installed");
+    clickStatusOption("Active");
 
-    expect(onFilterChange).toHaveBeenCalledWith("installed");
+    expect(onFilterChange).toHaveBeenCalledWith("active");
+  });
+
+  test("omits Active/Off when the daemon lacks enable/disable support", () => {
+    const { getByLabelText } = render(
+      <FilterBar {...baseProps()} pluginToggleSupported={false} />,
+    );
+
+    fireEvent.click(getByLabelText("Filter plugins"));
+
+    const labels = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).map((o) => o.textContent?.trim());
+    // No enable/disable support → Active/Off are omitted, but Installed is
+    // restored (older daemons keep the installed/available distinction).
+    expect(labels).toEqual(["All", "Installed", "Available"]);
   });
 
   test("the mobile sheet exposes category rows that report the selected slug", async () => {

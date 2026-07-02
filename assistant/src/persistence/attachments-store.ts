@@ -20,6 +20,11 @@ import { basename, dirname, extname, join } from "node:path";
 import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import {
+  jpegFilenameFor,
+  normalizeImageBase64,
+  normalizeImageBytes,
+} from "../util/image-conversion.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { getConversationAttachmentsDirPath } from "./conversation-directories.js";
@@ -528,7 +533,8 @@ export function validateAttachmentUpload(
 /**
  * Write raw bytes to the staging directory and register as a file-backed
  * attachment. Used by the multipart/form-data and application/octet-stream
- * upload paths.
+ * upload paths. HEIF/HEIC images are stored as JPEG masters so every client
+ * surface can render them; other formats are stored verbatim.
  *
  * @param filename  Original filename from the client
  * @param mimeType  MIME type of the file
@@ -540,20 +546,26 @@ export function uploadAttachmentFromBytes(
   mimeType: string,
   bytes: Uint8Array,
 ): StoredAttachment {
+  let norm = normalizeImageBytes(mimeType, bytes);
+  if (norm.converted && norm.bytes.length > MAX_UPLOAD_BYTES) {
+    norm = { mimeType, bytes, converted: false };
+  }
+  const storedFilename = norm.converted ? jpegFilenameFor(filename) : filename;
+
   const dir = join(getWorkspaceDir(), "data", "attachments");
   mkdirSync(dir, { recursive: true });
 
-  const sanitized = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const sanitized = storedFilename.replace(/[^a-zA-Z0-9._-]/g, "_");
   const stagingFilename = `${Date.now()}-${uuid().slice(0, 8)}-${sanitized}`;
   const stagedPath = join(dir, stagingFilename);
 
-  writeFileSync(stagedPath, bytes);
+  writeFileSync(stagedPath, norm.bytes);
 
   return uploadFileBackedAttachment(
-    filename,
-    mimeType,
+    storedFilename,
+    norm.mimeType,
     stagedPath,
-    bytes.length,
+    norm.bytes.length,
   );
 }
 
@@ -720,13 +732,45 @@ function validateAttachmentPayload(
   return sizeBytes;
 }
 
+/**
+ * HEIF/HEIC payloads are stored as JPEG masters (filename extension
+ * rewritten) so every client surface can render them; anything else — and any
+ * conversion whose output would break the upload size limit — passes through
+ * verbatim.
+ */
+function normalizeUploadedImageBase64(
+  filename: string,
+  mimeType: string,
+  dataBase64: string,
+): { filename: string; mimeType: string; dataBase64: string } {
+  const norm = normalizeImageBase64(mimeType, dataBase64);
+  if (
+    !norm.converted ||
+    computeSizeBytesFromBase64(norm.dataBase64) > MAX_UPLOAD_BYTES
+  ) {
+    return { filename, mimeType, dataBase64 };
+  }
+  return {
+    filename: jpegFilenameFor(filename),
+    mimeType: norm.mimeType,
+    dataBase64: norm.dataBase64,
+  };
+}
+
 export function uploadAttachment(
   filename: string,
   mimeType: string,
   dataBase64: string,
   sourcePath?: string,
 ): StoredAttachment {
-  const sizeBytes = validateAttachmentPayload(dataBase64);
+  validateAttachmentPayload(dataBase64);
+
+  ({ filename, mimeType, dataBase64 } = normalizeUploadedImageBase64(
+    filename,
+    mimeType,
+    dataBase64,
+  ));
+  const sizeBytes = computeSizeBytesFromBase64(dataBase64);
 
   const db = getDb();
   const now = Date.now();
@@ -772,8 +816,26 @@ export function attachInlineAttachmentToMessage(
   filename: string,
   mimeType: string,
   dataBase64: string,
-  options?: { sourcePath?: string; skipSizeLimit?: boolean },
+  options?: {
+    sourcePath?: string;
+    skipSizeLimit?: boolean;
+    /**
+     * Store HEIF/HEIC content as a JPEG master (with the filename extension
+     * rewritten) so every client surface can render it. User-sourced ingress
+     * opts in; assistant-produced attachments are stored verbatim — if the
+     * assistant deliberately emits a HEIC, rewriting it would be wrong.
+     */
+    normalizeImage?: boolean;
+  },
 ): StoredAttachment {
+  if (options?.normalizeImage) {
+    ({ filename, mimeType, dataBase64 } = normalizeUploadedImageBase64(
+      filename,
+      mimeType,
+      dataBase64,
+    ));
+  }
+
   const sizeBytes = validateAttachmentPayload(dataBase64, {
     skipSizeLimit: options?.skipSizeLimit,
   });

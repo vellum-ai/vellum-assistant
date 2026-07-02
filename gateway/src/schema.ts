@@ -1692,7 +1692,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Redeem contacts invite",
           description:
-            "Authenticated gateway endpoint that redeems a contacts invite via the assistant runtime.",
+            "Authenticated gateway endpoint that redeems a contacts invite through the gateway-native redemption engine.",
           operationId: "contactsInvitesRedeemPost",
           security: [{ BearerAuth: [] }],
           requestBody: {

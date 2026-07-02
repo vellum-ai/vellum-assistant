@@ -219,7 +219,6 @@ declare global {
       };
       auth?: {
         startOAuth(options: {
-          providerHint?: string;
           loginHint?: string;
           intent?: string;
         }): Promise<{ sessionToken: string }>;

@@ -161,6 +161,7 @@ import type {
 import {
   createResolveToolsCallback,
   createToolExecutor,
+  getEffectiveEnabledPluginSet,
 } from "./conversation-tool-setup.js";
 import { canonicalizeTimeZone } from "./date-context.js";
 import { HostAppControlProxy } from "./host-app-control-proxy.js";
@@ -330,6 +331,15 @@ export class Conversation {
   inferenceProfile: string | null = null;
   /** @internal */ inferenceProfileSessionId: string | null = null;
   /** @internal */ inferenceProfileExpiresAt: number | null = null;
+  /**
+   * Per-conversation plugin scope mirrored from the DB row. `null` means no
+   * per-chat restriction (all globally-enabled plugins apply). Hydrated on load
+   * and kept in sync by {@link setEnabledPlugins} so the live instance is the
+   * source of truth; later tool/skill/hook filters intersect their candidate
+   * set against this via `getEffectiveEnabledPluginSet`.
+   * @internal
+   */
+  enabledPlugins: string[] | null = null;
   /** @internal */ currentRequestId?: string;
   /**
    * The {@link LLMCallSite} of the in-flight turn, set at turn start from
@@ -752,6 +762,9 @@ export class Conversation {
           conv.createdAt,
         );
       },
+      // Read the live per-chat plugin scope each gather so a mid-conversation
+      // selection change applies on the next turn's lifecycle hooks.
+      resolveEffectiveEnabledPlugins: () => getEffectiveEnabledPluginSet(this),
     });
     createContextWindowManager({
       provider,
@@ -949,6 +962,7 @@ export class Conversation {
     this.inferenceProfile = conv?.inferenceProfile ?? null;
     this.inferenceProfileSessionId = conv?.inferenceProfileSessionId ?? null;
     this.inferenceProfileExpiresAt = conv?.inferenceProfileExpiresAt ?? null;
+    this.enabledPlugins = conv?.enabledPlugins ?? null;
     this.contextCompactedMessageCount = Math.max(
       0,
       conv?.contextCompactedMessageCount ?? 0,
@@ -1362,6 +1376,10 @@ export class Conversation {
 
   setSubagentAllowedTools(tools: Set<string> | undefined): void {
     this.subagentAllowedTools = tools;
+  }
+
+  setEnabledPlugins(plugins: string[] | null): void {
+    this.enabledPlugins = plugins;
   }
 
   setIsSubagent(value: boolean): void {

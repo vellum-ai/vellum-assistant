@@ -102,7 +102,6 @@ const nativeContact = {
       address: "+15550200",
       isPrimary: true,
       externalChatId: null,
-      inviteId: null,
       lastSeenAt: 4100,
       interactionCount: 4,
       lastInteraction: 4200,

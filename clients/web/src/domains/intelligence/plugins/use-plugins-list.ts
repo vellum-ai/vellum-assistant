@@ -8,15 +8,17 @@ import type {
 } from "@/domains/intelligence/plugins/types";
 import { mergePlugins, sortPlugins } from "@/domains/intelligence/plugins/utils";
 import {
-    pluginsGetQueryKey,
-    pluginsSearchGetOptions,
+  pluginsGetQueryKey,
+  pluginsSearchGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { pluginsGet } from "@/generated/daemon/sdk.gen";
 import type { PluginsGetResponse } from "@/generated/daemon/types.gen";
+import { installedPluginsQueryOptions } from "@/lib/installed-plugins-query";
 
-// The installed list (local filesystem) and the catalog (the daemon's
-// cached, rate-limited GitHub listing) both change rarely, so `staleTime`
-// keeps each warm across tab switches and revisiting doesn't refetch.
+// The catalog (the daemon's cached, rate-limited GitHub listing) changes
+// rarely, so `staleTime` keeps it warm across tab switches and revisiting
+// doesn't refetch. The installed read carries its own staleTime via
+// `installedPluginsQueryOptions`.
 const CATALOG_STALE_TIME_MS = 5 * 60 * 1000; // 5 minutes
 
 // Stable empty references so consumers' `useMemo`s don't recompute while a
@@ -52,6 +54,12 @@ export interface UsePluginsListResult {
    * gates the category rail on this (version-skew safeguard).
    */
   categorySupported: boolean;
+  /**
+   * True once any installed item carries `enabled` — the daemon understands
+   * the plugin enable/disable surface. Older daemons omit it; the toggle gates
+   * on this (version-skew safeguard). Sticky, reset per assistant.
+   */
+  pluginToggleSupported: boolean;
   /**
    * Unfiltered installed category counts from the server (before the category
    * filter is applied). Undefined on daemons without taxonomy support.
@@ -94,6 +102,39 @@ async function fetchInstalled(
 }
 
 /**
+ * Sticky per-assistant capability latch. `observed` is the live signal that the
+ * daemon supports a feature for the current render; once true it latches so the
+ * feature's UI doesn't flicker off while the backing read is momentarily pending
+ * (e.g. mid category switch). The latch resets SYNCHRONOUSLY when `assistantId`
+ * changes — cleared during render, not in an effect — so a prior assistant's
+ * latched `true` never leaks into the first render of a next assistant whose
+ * daemon omits the capability.
+ */
+function useStickyAssistantCapability(
+  assistantId: string,
+  observed: boolean,
+): boolean {
+  const [latch, setLatch] = useState({ assistantId, latched: false });
+  const latchedForThisAssistant =
+    latch.assistantId === assistantId ? latch.latched : false;
+  if (latch.assistantId !== assistantId) {
+    // Reset during render (the discarded render's effects never commit) so the
+    // stale latch can't gate even one render for the new assistant.
+    setLatch({ assistantId, latched: false });
+  }
+  useEffect(() => {
+    if (observed) {
+      setLatch((prev) =>
+        prev.assistantId === assistantId && prev.latched
+          ? prev
+          : { assistantId, latched: true },
+      );
+    }
+  }, [assistantId, observed]);
+  return latchedForThisAssistant || observed;
+}
+
+/**
  * Single source of truth for the Plugins tab list: the installed read
  * (`pluginsGet`, with an older-daemon 404 → empty degradation) and the
  * catalog (`pluginsSearchGet`), merged via `mergePlugins` and `sortPlugins`
@@ -127,14 +168,11 @@ export function usePluginsList(
   // Unfiltered installed read so the rail badges reflect totals across every
   // category while one is selected. Disabled until a category is chosen — when
   // none is, the main read above is already unfiltered (same query key).
+  // Reuses the shared installed-plugins query options so the new-chat composer
+  // (`useNewChatPlugins`) and this rail resolve to the same cache entry.
   const installedCountsQuery = useQuery({
-    queryKey: pluginsGetQueryKey({
-      path: { assistant_id: assistantId },
-      query: { q: undefined },
-    }),
-    queryFn: ({ signal }) => fetchInstalled(assistantId, undefined, signal),
+    ...installedPluginsQueryOptions(assistantId),
     enabled: Boolean(assistantId) && category !== null,
-    staleTime: CATALOG_STALE_TIME_MS,
   });
 
   const catalogQuery = useQuery({
@@ -190,24 +228,19 @@ export function usePluginsList(
   const unfilteredInstalledData =
     category !== null ? installedCountsQuery.data : installedQuery.data;
 
-  // Latch support sticky once the unfiltered read first carries `categoryCounts`
-  // (it's a stable daemon capability): the live OR covers the current render, and
-  // the latch keeps it true across a category switch while the unfiltered source
-  // is momentarily pending, so the rail never vanishes mid-filter.
-  const categoryCountsObserved =
-    unfilteredInstalledData?.categoryCounts !== undefined;
-  const [categorySupportedLatched, setCategorySupportedLatched] =
-    useState(false);
-  // Support is a per-assistant daemon capability. Reset the latch when the
-  // active assistant changes so a `true` observed for a prior assistant can't
-  // keep the rail alive for a next assistant whose daemon omits `categoryCounts`.
-  useEffect(() => {
-    setCategorySupportedLatched(false);
-  }, [assistantId]);
-  useEffect(() => {
-    if (categoryCountsObserved) setCategorySupportedLatched(true);
-  }, [categoryCountsObserved]);
-  const categorySupported = categorySupportedLatched || categoryCountsObserved;
+  // Both are sticky per-assistant capabilities (see useStickyAssistantCapability),
+  // observed live from the unfiltered read: category support = counts present,
+  // toggle support = any installed plugin carries `enabled`.
+  const categorySupported = useStickyAssistantCapability(
+    assistantId,
+    unfilteredInstalledData?.categoryCounts !== undefined,
+  );
+  const pluginToggleSupported = useStickyAssistantCapability(
+    assistantId,
+    (unfilteredInstalledData?.plugins ?? EMPTY_INSTALLED).some(
+      (p) => p.enabled !== undefined,
+    ),
+  );
 
   // Self-heal timeout-degraded category counts. A cold catalog can make the
   // daemon's bounded category lookup time out, so the installed read buckets
@@ -267,6 +300,7 @@ export function usePluginsList(
     isFetching: installedQuery.isFetching || catalogQuery.isFetching,
     catalogError: catalogQuery.isError,
     categorySupported,
+    pluginToggleSupported,
     installedCategoryCounts: unfilteredInstalledData?.categoryCounts,
     installedPlugins: unfilteredInstalledData?.plugins ?? EMPTY_INSTALLED,
     installedTotal: unfilteredInstalledData?.totalCount,

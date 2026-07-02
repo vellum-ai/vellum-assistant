@@ -242,6 +242,37 @@ describe("ROUTES policy declarations", () => {
     expect(route!.policy!.allowedPrincipalTypes).toContain("local");
   });
 
+  test("contacts/invites/:id/call is gateway-only", async () => {
+    // The handler dials whatever number the body supplies — the invite
+    // validation lives in the gateway's triggerInviteCallNative, so an
+    // actor-reachable policy would be an arbitrary-outbound-call primitive.
+    const { ROUTES } = await import("../../routes/index.js");
+    const route = ROUTES.find((r) => r.operationId === "invites_trigger_call");
+    expect(route).toBeDefined();
+    expect(route!.policy).not.toBeNull();
+    expect(route!.policy!.allowedPrincipalTypes).toEqual(["svc_gateway"]);
+    expect(route!.policy!.requiredScopes).toContain("internal.write");
+
+    // An actor principal with settings.write is denied.
+    authDisabled = false;
+    const actorCtx = buildTestContext({
+      principalType: "actor",
+      scopes: ["settings.write"],
+    });
+    const denied = enforcePolicy(route!.endpoint, route!.policy!, actorCtx);
+    expect(denied).not.toBeNull();
+    expect(denied!.status).toBe(403);
+
+    // The gateway service principal with internal.write is allowed.
+    const gatewayCtx = buildTestContext({
+      principalType: "svc_gateway",
+      scopes: ["internal.write"],
+    });
+    expect(
+      enforcePolicy(route!.endpoint, route!.policy!, gatewayCtx),
+    ).toBeNull();
+  });
+
   test("internal/oauth/connect/start is gateway-only", async () => {
     const { ROUTES } = await import("../../routes/index.js");
     const route = ROUTES.find(

@@ -53,6 +53,7 @@ import {
   getTaskProgressDataFromSurfaceData,
   mergeTaskProgressData,
 } from "../../slack-task-progress.js";
+import { isContactTrustClass } from "../../trust-class.js";
 import { resolveRoutingState } from "../../trust-context-resolver.js";
 import { finalizeEventDelivery } from "../channel-delivery-routes.js";
 import { deliverGeneratedApprovalPrompt } from "../guardian-approval-prompt.js";
@@ -841,9 +842,7 @@ function startTrustedContactApprovalNotifier(params: {
 
   // Only notify identity-known non-guardian contacts (trusted_contact and
   // unverified_contact) who have a resolvable guardian route.
-  const isIdentityKnownNonGuardian =
-    trustClass === "trusted_contact" || trustClass === "unverified_contact";
-  if (!isIdentityKnownNonGuardian || !guardianExternalUserId) {
+  if (!isContactTrustClass(trustClass) || !guardianExternalUserId) {
     return () => {};
   }
 

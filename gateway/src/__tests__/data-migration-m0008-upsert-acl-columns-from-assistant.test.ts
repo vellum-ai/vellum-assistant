@@ -57,17 +57,22 @@ const fakeAssistantDb = {
   channels: new Map<string, FakeChannel>(),
   hasContactsTable: true,
   hasChannelsTable: true,
+  hasInviteIdColumn: true,
   reset(): void {
     this.contacts.clear();
     this.channels.clear();
     this.hasContactsTable = true;
     this.hasChannelsTable = true;
+    this.hasInviteIdColumn = true;
   },
 };
 
 mock.module("../db/assistant-db-proxy.js", () => ({
   assistantDbQuery: mock(async (sql: string) => {
     const lower = sql.toLowerCase();
+    if (lower.includes("pragma_table_info('contact_channels')")) {
+      return fakeAssistantDb.hasInviteIdColumn ? [{ "1": 1 }] : [];
+    }
     if (lower.includes("sqlite_master")) {
       if (lower.includes("'contacts'")) {
         return fakeAssistantDb.hasContactsTable ? [{ "1": 1 }] : [];
@@ -78,7 +83,16 @@ mock.module("../db/assistant-db-proxy.js", () => ({
       return [];
     }
     if (lower.includes("from contact_channels")) {
-      return Array.from(fakeAssistantDb.channels.values());
+      // Mirror SQLite: referencing the dropped column errors; the NULL alias
+      // is not a column reference.
+      const columnRefs = lower.replaceAll("null as invite_id", "");
+      if (!fakeAssistantDb.hasInviteIdColumn && columnRefs.includes("invite_id")) {
+        throw new Error("no such column: invite_id");
+      }
+      const rows = Array.from(fakeAssistantDb.channels.values());
+      return fakeAssistantDb.hasInviteIdColumn
+        ? rows
+        : rows.map((ch) => ({ ...ch, invite_id: null }));
     }
     if (lower.includes("from contacts")) {
       return Array.from(fakeAssistantDb.contacts.values());
@@ -473,6 +487,29 @@ describe("m0008-upsert-acl-columns-from-assistant", () => {
     };
 
     expect(after2).toEqual(after1);
+  });
+
+  test("completes when assistant contact_channels lacks the invite_id column", async () => {
+    fakeAssistantDb.hasInviteIdColumn = false;
+    seedAssistantContact({ id: "c6", role: "guardian", principal_id: "p6" });
+    seedAssistantChannel({
+      id: "ch6",
+      contact_id: "c6",
+      type: "telegram",
+      address: "addr-6",
+      status: "verified",
+    });
+
+    const result = await m0008Up();
+    expect(result).toBe("done");
+
+    const c = gwContact("c6")!;
+    expect(c.role).toBe("guardian");
+    expect(c.principal_id).toBe("p6");
+
+    const ch = gwChannelByAddress("telegram", "addr-6")!;
+    expect(ch.status).toBe("verified");
+    expect(ch.invite_id).toBeNull();
   });
 
   test("returns skip and writes nothing when the assistant DB is unreachable", async () => {

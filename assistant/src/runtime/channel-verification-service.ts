@@ -48,8 +48,12 @@ import { composeApprovalMessage } from "./approval-message-composer.js";
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Challenge TTL in milliseconds (10 minutes). */
-const CHALLENGE_TTL_MS = 10 * 60 * 1000;
+/**
+ * Challenge TTL in milliseconds (10 minutes). Exported so consumers that
+ * reason about "is a just-issued code still redeemable" (e.g. the
+ * access-request handshake window) share this exact bound.
+ */
+export const CHALLENGE_TTL_MS = 10 * 60 * 1000;
 
 /** Maximum invalid verification attempts within the throttling window before lockout. */
 const RATE_LIMIT_MAX_ATTEMPTS = 5;
@@ -342,7 +346,9 @@ export async function getGuardianBinding(
     channel,
     guardianExternalUserId: delivery.address,
     guardianDeliveryChatId: delivery.externalChatId ?? "",
-    guardianPrincipalId: delivery.principalId ?? "",
+    // A missing principal is surfaced as null (unresolved), never coerced to
+    // an empty string that would masquerade as a present-but-empty principal.
+    guardianPrincipalId: delivery.principalId ?? null,
     status: "active" as const,
     verifiedAt: delivery.verifiedAt ?? 0,
     // verifiedVia is not carried on the delivery contract; a bound guardian

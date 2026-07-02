@@ -49,13 +49,6 @@ export interface PluginManifest {
    */
   version: string;
   /**
-   * Assistant feature-flag keys that must all be enabled for this plugin to
-   * activate. Checked by `bootstrapPlugins` via `isAssistantFeatureFlagEnabled`
-   * — if any listed flag is disabled, the plugin is skipped entirely for the
-   * boot (no `init()`, no tool/route/skill contributions, no shutdown hook).
-   */
-  requiresFlag?: string[];
-  /**
    * Zod-compatible validator (or any parser-like object) for the plugin's
    * config block under `plugins.<name>`. Typed as `unknown` here — concrete
    * validators land in M2/M3 PRs.
