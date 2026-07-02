@@ -101,7 +101,6 @@ const bridge: VellumBridge = {
   },
   auth: {
     startOAuth: (options: {
-      providerHint?: string;
       loginHint?: string;
       intent?: string;
     }): Promise<{ sessionToken: string }> =>

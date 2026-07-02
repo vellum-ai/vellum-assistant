@@ -72,11 +72,6 @@ describe("buildAuthorizeUrl", () => {
     expect(url.searchParams.has("prompt")).toBe(false);
   });
 
-  test("provider hint replaces authkit", () => {
-    const url = new URL(buildAuthorizeUrl({ ...base, providerHint: "GoogleOAuth" }));
-    expect(url.searchParams.get("provider")).toBe("GoogleOAuth");
-  });
-
   test("signup intent maps to screen_hint", () => {
     const url = new URL(buildAuthorizeUrl({ ...base, intent: "signup" }));
     expect(url.searchParams.get("screen_hint")).toBe("sign-up");
