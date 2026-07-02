@@ -209,7 +209,7 @@
       "name": "@vellumai/local-mode",
       "version": "0.0.1",
       "dependencies": {
-        "@vellumai/environments": "workspace:*",
+        "@vellumai/environments": "file:../environments",
         "zod": "4.3.6",
       },
       "devDependencies": {
@@ -1971,6 +1971,8 @@
     "@vellumai/environments/@types/bun": ["@types/bun@1.3.11", "", { "dependencies": { "bun-types": "1.3.11" } }, "sha512-5vPne5QvtpjGpsGYXiFyycfpDF2ECyPcTSsFBMa0fraoxiQyMJ3SmuQIGhzPg2WJuWxVBoxWJ2kClYTcw/4fAg=="],
 
     "@vellumai/local-mode/@types/bun": ["@types/bun@1.3.11", "", { "dependencies": { "bun-types": "1.3.11" } }, "sha512-5vPne5QvtpjGpsGYXiFyycfpDF2ECyPcTSsFBMa0fraoxiQyMJ3SmuQIGhzPg2WJuWxVBoxWJ2kClYTcw/4fAg=="],
+
+    "@vellumai/local-mode/@vellumai/environments": ["@vellumai/environments@file:packages/environments", { "devDependencies": { "@types/bun": "1.3.11", "typescript": "5.9.3" } }],
 
     "@vellumai/web/@tailwindcss/vite": ["@tailwindcss/vite@4.1.8", "", { "dependencies": { "@tailwindcss/node": "4.1.8", "@tailwindcss/oxide": "4.1.8", "tailwindcss": "4.1.8" }, "peerDependencies": { "vite": "^5.2.0 || ^6" } }, "sha512-CQ+I8yxNV5/6uGaJjiuymgw0kEQiNKRinYbZXPdx1fk5WgiyReG0VaUx/Xq6aVNSUNJFzxm6o8FNKS5aMaim5A=="],
 
