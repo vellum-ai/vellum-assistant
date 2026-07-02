@@ -50,9 +50,6 @@ interface AssistantChannelRow {
   invite_id: string | null;
   revoked_reason: string | null;
   blocked_reason: string | null;
-  last_seen_at: number | null;
-  interaction_count: number;
-  last_interaction: number | null;
   created_at: number;
   updated_at: number | null;
 }
@@ -128,8 +125,7 @@ export async function up(): Promise<MigrationResult> {
       `SELECT id, contact_id, type, address, is_primary, external_chat_id,
               status, policy, verified_at, verified_via,
               ${await assistantInviteIdSelect()},
-              revoked_reason, blocked_reason, last_seen_at,
-              interaction_count, last_interaction, created_at, updated_at
+              revoked_reason, blocked_reason, created_at, updated_at
          FROM contact_channels`,
     );
 
@@ -191,7 +187,7 @@ export async function up(): Promise<MigrationResult> {
             status, policy, verified_at, verified_via, invite_id,
             revoked_reason, blocked_reason, last_seen_at,
             interaction_count, last_interaction, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, NULL, ?, ?)`,
       );
       const txn = gwDb.transaction(() => {
         for (const ch of missingChannels) {
@@ -218,9 +214,6 @@ export async function up(): Promise<MigrationResult> {
             ch.invite_id,
             ch.revoked_reason,
             ch.blocked_reason,
-            ch.last_seen_at,
-            ch.interaction_count,
-            ch.last_interaction,
             ch.created_at,
             ch.updated_at,
           );
