@@ -2059,6 +2059,24 @@ describe("handleDeleteContact (gateway-native)", () => {
 });
 
 describe("handleCreateInvite (gateway-native mint)", () => {
+  test("rejects sourceChannel 'a2a' (A2A invites are daemon-managed)", async () => {
+    contactStoreCreateInviteMock = makeEchoCreateInviteMock();
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleCreateInvite(
+      new Request("http://localhost:7830/v1/contacts/invites", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ contactId: "ct_1", sourceChannel: "a2a" }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(contactStoreCreateInviteMock).toHaveBeenCalledTimes(0);
+  });
+
   test("mints token + 6-digit code natively for non-voice invites; only hashes reach the store", async () => {
     contactStoreCreateInviteMock = makeEchoCreateInviteMock();
 

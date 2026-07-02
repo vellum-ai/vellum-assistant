@@ -287,6 +287,28 @@ describe("handle-inbound invite redemption intercept", () => {
     });
   });
 
+  test("reply delivery failure after a successful claim: intercept stands, no forward", async () => {
+    seedContact("c1");
+    const inviteId = seedInvite();
+    fetchMock.mockImplementationOnce(async () => {
+      throw new Error("provider send failed");
+    });
+
+    const result = await handleInbound(makeConfig(), makeEvent(), {
+      ...ROUTING,
+      replyCallbackUrl: REPLY_URL,
+    });
+
+    // The claim + ACL side effect are committed; a failed reply send must not
+    // surface as an error or fall through to normal forwarding.
+    expect(result.inviteIntercepted).toBe(true);
+    expect(result.forwarded).toBe(false);
+    expect(forwardToRuntimeMock).toHaveBeenCalledTimes(0);
+    expect(inviteRow(inviteId).useCount).toBe(1);
+    const channel = getGatewayDb().select().from(contactChannels).all()[0];
+    expect(channel?.status).toBe("active");
+  });
+
   test("without a replyCallbackUrl the reply text is surfaced on the result", async () => {
     seedContact("c1");
     seedInvite();

@@ -222,6 +222,16 @@ export async function createInviteNative(
 ): Promise<{ invite: Record<string, unknown>; rawToken?: string }> {
   const store = new ContactStore();
 
+  // A2A invites live in the daemon's a2a_invites store, not in gateway
+  // ingress_invites — a gateway row here would be unredeemable.
+  if (input.sourceChannel === "a2a") {
+    throw new InviteNativeError(
+      'sourceChannel "a2a" is not a gateway invite channel (A2A invites are daemon-managed)',
+      400,
+      "BAD_REQUEST",
+    );
+  }
+
   const contact = store.getContact(input.contactId);
   if (!contact) {
     throw new InviteNativeError(

@@ -603,12 +603,22 @@ export async function tryInviteRedemptionIntercept(
 
   let pendingReplyText: string | undefined;
   if (replyCallbackUrl) {
-    await deliverVerificationReply({
-      replyCallbackUrl,
-      chatId: actorChatId,
-      text: result.replyText,
-      assistantId,
-    });
+    // The claim and ACL side effect are already committed; a reply-delivery
+    // failure must not propagate, or the webhook errors and the provider
+    // retries the already-consumed code into the normal pipeline.
+    try {
+      await deliverVerificationReply({
+        replyCallbackUrl,
+        chatId: actorChatId,
+        text: result.replyText,
+        assistantId,
+      });
+    } catch (err) {
+      log.error(
+        { err, sourceChannel, status: result.status },
+        "Invite redemption reply delivery failed — intercept stands",
+      );
+    }
   } else {
     pendingReplyText = result.replyText;
   }
