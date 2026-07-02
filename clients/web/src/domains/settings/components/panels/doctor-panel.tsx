@@ -1,4 +1,4 @@
-import { ArrowUp, Check, ClipboardCopy, Loader2, Play, Square } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, ClipboardCopy, Loader2, Play, Square } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -32,6 +32,7 @@ import {
   cleanupServerSession,
 } from "@/domains/settings/components/panels/doctor-session-actions";
 import { useDoctorSSE } from "@/domains/settings/components/panels/use-doctor-sse";
+import { useDoctorAutoScroll } from "@/domains/settings/components/panels/use-doctor-auto-scroll";
 import {
   assistantsDoctorHistoryListOptions,
   assistantsDoctorHistoryRetrieveOptions,
@@ -122,8 +123,6 @@ export function DoctorPanel() {
   const platformGate = usePlatformGate();
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const prevEntryCountRef = useRef(0);
-  const prevLastContentLenRef = useRef(0);
 
   // ---------------------------------------------------------------------------
   // SSE hook (owns only the AbortController lifecycle)
@@ -289,6 +288,10 @@ export function DoctorPanel() {
   const handleSend = (content: string) => {
     const text = content.trim();
     if (!text || !sessionId) return;
+    // Re-pin to the latest so the outgoing message and the streamed
+    // response are in view, even if the user had scrolled up to read
+    // earlier content before sending.
+    scrollToLatest();
     sendMutation.mutate({
       path: { assistant_id: assistantId, session_id: sessionId },
       body: { content: text },
@@ -317,27 +320,24 @@ export function DoctorPanel() {
   // Lifecycle effects
   // ---------------------------------------------------------------------------
 
-  // Scroll when entries grow (new message) OR when the last entry's content
-  // grows (streaming message_delta).
+  // Derived transcript entries — live store entries during an active
+  // session, otherwise the most recent persisted history (unless the
+  // user dismissed it). The array identity changes on every store
+  // append/update, which is what re-fires the scroll coordinator.
   const entries = useMemo(
     () => (sessionId || storeEntries.length > 0 ? storeEntries : (!historyDismissed ? historyEntries : [])),
     [sessionId, storeEntries, historyDismissed, historyEntries],
   );
 
-  useEffect(() => {
-    const lastContentLen = entries.at(-1)?.content.length ?? 0;
-    const shouldScroll =
-      entries.length > prevEntryCountRef.current ||
-      lastContentLen > prevLastContentLenRef.current;
-    if (shouldScroll) {
-      scrollRef.current?.scrollTo({
-        top: scrollRef.current.scrollHeight,
-        behavior: "smooth",
-      });
-    }
-    prevEntryCountRef.current = entries.length;
-    prevLastContentLenRef.current = lastContentLen;
-  }, [entries]);
+  // Scroll coordinator — auto-follows streaming growth only while the
+  // user is pinned to the latest message. Scrolling away (drag on
+  // mobile, wheel on desktop) un-pins and surfaces a "Go to Newest"
+  // affordance so the user can catch up on their own instead of being
+  // fought by the stream. See `use-doctor-auto-scroll.ts`.
+  const { showScrollToLatest, scrollToLatest } = useDoctorAutoScroll(
+    scrollRef,
+    entries,
+  );
 
   // Recover from stale state on same-assistant remount.
   // The module-level store survives unmount, but useDoctorSSE's AbortController
@@ -491,7 +491,8 @@ export function DoctorPanel() {
       ) : (
         <>
           {/* Messages area */}
-          <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+          <div className="relative min-h-0 flex-1">
+          <div ref={scrollRef} className="h-full overflow-y-auto">
             <div className="mx-auto max-w-2xl space-y-3">
               {entries.map((entry) => {
                 switch (entry.kind) {
@@ -566,6 +567,18 @@ export function DoctorPanel() {
                 </div>
               )}
             </div>
+          </div>
+          {showScrollToLatest && (
+            <button
+              type="button"
+              onClick={scrollToLatest}
+              aria-label="Go to newest message"
+              className="pointer-events-auto absolute bottom-3 left-1/2 -translate-x-1/2 z-10 inline-flex items-center gap-1 rounded-full bg-[var(--surface-lift)] px-3 py-2 text-body-medium-default text-[var(--content-emphasised)] shadow-md transition-colors hover:text-[var(--content-default)]"
+            >
+              Go to Newest
+              <ChevronDown className="h-3 w-3" />
+            </button>
+          )}
           </div>
 
           {/* Input area */}
