@@ -18,6 +18,13 @@
  * naming the specific query behind a freeze regardless of whether it came from
  * Drizzle or {@link ./raw-query}.
  *
+ * Attribution: raw-query callers attach a curated `.label()` (e.g.
+ * `"schedule:claimDue"`). Drizzle's fluent API has no chokepoint to label, so
+ * for any query without an explicit label the reporter derives a `caller` from
+ * the stack — `path:function:line` of the application frame that issued it —
+ * captured only on the slow path. Between the two, every slow query is
+ * attributable to its call site with no per-query annotation of Drizzle code.
+ *
  * This is pure instrumentation: return values, parameter binding, transactions,
  * savepoints, and error propagation are all preserved exactly. The fast path
  * adds only a `performance.now()` pair and a numeric compare — no allocation or
@@ -62,6 +69,89 @@ export interface SlowQueryEvent {
   rowCount?: number;
   /** Caller-supplied attribution tag, when the query was issued via `.label()`. */
   label?: string;
+  /**
+   * Auto-derived call site (`path:function:line`) for queries with no explicit
+   * `.label()` — notably every Drizzle query, which has no chokepoint to attach
+   * a label to. Captured from the stack only on the slow path.
+   */
+  caller?: string;
+}
+
+/** This instrumentation module — never the query's call site. */
+const SELF_MODULE = "slow-query-log.ts";
+
+/**
+ * Marks the assistant package's own source. In local-runtime installs the CLI
+ * runs the daemon from `<installDir>/node_modules/@vellumai/assistant/src/…`, so
+ * the assistant's own frames also contain `node_modules` — they must NOT be
+ * treated as third-party dependency frames when deriving the caller.
+ */
+const ASSISTANT_SRC_MARKER = "@vellumai/assistant/src/";
+
+/**
+ * True for stack frames that are runtime/ORM/instrumentation plumbing rather
+ * than the application code that issued the query. Third-party dependency frames
+ * (Drizzle et al.) live under `node_modules/` or Bun's global install cache
+ * (`.bun/install/cache/drizzle-orm@x.y.z/…`) and are skipped — but the
+ * assistant's own packaged `src/` frames, which also live under `node_modules`,
+ * are preserved.
+ */
+function isPlumbingFrame(line: string): boolean {
+  // Runtime internals: `node:*` / `bun:*` modules and Bun's `native:` frames
+  // (moduleEvaluation, processTicksAndRejections, …).
+  if (
+    line.includes("node:") ||
+    line.includes("bun:") ||
+    line.includes("native:")
+  ) {
+    return true;
+  }
+  if (line.includes(SELF_MODULE)) return true;
+  const isDependency =
+    line.includes("node_modules/") || line.includes(".bun/install/cache/");
+  return isDependency && !line.includes(ASSISTANT_SRC_MARKER);
+}
+
+/** `src/`-relative path, or bare basename when the frame is outside `src/`. */
+function shortenStackFile(file: string): string {
+  const idx = file.lastIndexOf("/src/");
+  if (idx >= 0) return file.slice(idx + "/src/".length);
+  return file.split("/").pop() ?? file;
+}
+
+/**
+ * Best-effort attribution for a query with no explicit label: the first stack
+ * frame outside this module, dependencies, and the runtime — i.e. the
+ * application code that issued the query. Returns e.g.
+ * `persistence/conversation-crud.ts:insertMessageCore:474`. Only called on the
+ * slow path (a query already past the threshold), so the `Error().stack` cost is
+ * incurred rarely. Accepts an explicit `stack` for testing.
+ *
+ * @internal exported only for unit tests.
+ */
+export function callerFromStack(
+  stack: string | undefined = new Error().stack,
+): string | undefined {
+  if (!stack) return undefined;
+  const lines = stack.split("\n");
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.includes("at ")) continue;
+    if (isPlumbingFrame(line)) continue;
+    // Bun renders frames as `at fn (file:line:col)`, `at file:line:col`, or
+    // (for some optimized frames) `at file:line` with no function or column.
+    const withFn = line.match(
+      /at (?:async )?([^\s(]+) \((.+?):(\d+)(?::\d+)?\)/,
+    );
+    if (withFn) {
+      return `${shortenStackFile(withFn[2])}:${withFn[1]}:${withFn[3]}`;
+    }
+    const noFn = line.match(/at (?:async )?(.+?):(\d+)(?::\d+)?$/);
+    if (noFn) {
+      return `${shortenStackFile(noFn[1])}:${noFn[2]}`;
+    }
+  }
+  return undefined;
 }
 
 /** Log a slow statement execution at WARN with its SQL and duration. */
@@ -132,12 +222,15 @@ export function wrapSqliteForSlowQueryLogging(
     durationMs: number,
     result: unknown,
   ): void => {
-    // Only ever called on the slow path, so building the payload here is fine.
+    // Only ever called on the slow path, so building the payload — including the
+    // stack walk for unlabeled (Drizzle) queries — is fine.
+    const caller = label === undefined ? callerFromStack() : undefined;
     onSlowQuery({
       durationMs,
       sql: sql.slice(0, SQL_PREVIEW_MAX),
       ...(Array.isArray(result) ? { rowCount: result.length } : {}),
       ...(label === undefined ? {} : { label }),
+      ...(caller === undefined ? {} : { caller }),
     });
   };
 
