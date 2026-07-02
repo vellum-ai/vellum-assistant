@@ -84,14 +84,22 @@ export const BubbleAttachments: FC<BubbleAttachmentsProps> = ({
             );
           }
 
+          // A failed inline decode leaves a dead previewUrl (e.g. an
+          // undecodable HEIC blob on Chromium). Sanitize it so the chip and
+          // the full-screen modal both fall back to fetching stored bytes
+          // instead of reusing the broken blob.
+          const previewAttachment = imageFailed
+            ? { ...att, previewUrl: null }
+            : att;
+
           return (
             <MessageAttachmentSquare
               key={att.id}
               filename={att.filename}
               mimeType={att.mimeType}
               sizeBytes={att.sizeBytes}
-              previewUrl={imageFailed ? null : att.previewUrl}
-              onPreview={() => openPreview(att)}
+              previewUrl={previewAttachment.previewUrl}
+              onPreview={() => openPreview(previewAttachment)}
               onDownload={() => handleDownload(att)}
             />
           );
