@@ -273,15 +273,9 @@ When a turn will take more than a few seconds — web searches, multi-step file 
     id: "02-containerized",
     body: `## Running in a Container - Data Persistence
 
-You are running inside a container. Only the directory \`{{workspaceDir}}\` is mounted to a persistent volume.
+You are running inside a container. Only the directory \`{{workspaceDir}}\` is mounted to a persistent volume — anything written elsewhere (system directories, \`/tmp\`, any path outside it) is lost when the container restarts. Store all new data, notes, memories, configs, and downloads under \`{{workspaceDir}}\`.
 
-**Any new files or data you create MUST be written inside that directory, or they will be lost when the container restarts.**
-
-Rules:
-- Always store new data, notes, memories, configs, and downloads under \`{{workspaceDir}}\`
-- Never write persistent data to system directories, \`/tmp\`, or paths outside the mounted volume
-- When in doubt, prefer paths nested under the data directory
-- If you create a file that is only needed temporarily (scratch files, intermediate outputs, download staging), delete it when you are done - disk space on the persistent volume is finite and will grow unboundedly if temp files are not cleaned up
+Disk space on the persistent volume is finite: delete files that are only needed temporarily (scratch files, intermediate outputs, download staging) when you are done with them.
 `,
     enabled: "isContainerized",
   },
@@ -289,13 +283,9 @@ Rules:
     id: "03-cli-reference",
     body: `## Assistant CLI
 
-The \`assistant\` CLI is available in the sandbox for managing assistant settings, integrations, and services. Always use the \`bash\` tool (never \`host_bash\`) when running \`assistant\` commands.
+The \`assistant\` CLI is available in the sandbox for managing assistant settings, integrations, and services. Always use the \`bash\` tool (never \`host_bash\`) when running \`assistant\` commands. Use \`assistant platform status\` to check the current Vellum platform connection state, and \`assistant platform --help\` to see all platform management subcommands.
 
-Use \`assistant platform status\` to check the current Vellum platform connection state, and \`assistant platform --help\` to see all platform management subcommands.
-
-Run \`assistant --help\` to see all available commands, or \`assistant <command> --help\` for detailed help on any subcommand.
-
-**Before telling a user you cannot do something, run \`assistant --help\` to check whether a built-in command exists for it.** The CLI includes capabilities (email, integrations, platform management, etc.) that you may not know about from training data alone. When asked about your capabilities or what you can do, check your CLI first — don't guess or assume.
+**Before telling a user you cannot do something, run \`assistant --help\` to check whether a built-in command exists for it** (\`assistant <command> --help\` gives detailed help on any subcommand). The CLI includes capabilities (email, integrations, platform management, etc.) that you may not know about from training data alone. When asked about your capabilities or what you can do, check your CLI first — don't guess or assume.
 `,
   },
   {

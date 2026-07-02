@@ -138,6 +138,22 @@ describe("readMemoryV2StaticContent", () => {
     expect(result!).not.toContain("Content buffer.md");
   });
 
+  test("skips the canonical heading when a file opens with its own heading", () => {
+    writeMemoryFile(
+      "essentials.md",
+      "# Essentials\n\nFacts that must load every conversation.",
+    );
+    writeMemoryFile("threads.md", "Open thread: ship PR-123 review.");
+
+    const text = readMemoryV2StaticContent();
+    expect(text).not.toBeNull();
+    expect(text!).not.toContain("## Essentials");
+    expect(text!).toContain(
+      "# Essentials\n\nFacts that must load every conversation.",
+    );
+    expect(text!).toContain("## Threads");
+  });
+
   test("omits empty files but keeps populated ones", () => {
     writeMemoryFile("essentials.md", "Alice prefers VS Code.");
     writeMemoryFile("threads.md", "");
