@@ -1,14 +1,17 @@
-import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
-import { registerMemoryJobHandlers } from "../jobs/register-job-handlers.js";
-import * as jobsWorker from "../persistence/jobs-worker.js";
+import { DOMAIN_JOB_HANDLERS } from "../persistence/job-handlers/manifest.js";
 import {
   getMemoryPersistenceHooks,
   resetMemoryPersistenceHooksForTests,
 } from "../persistence/memory-lifecycle-hooks.js";
-import { registerDefaultPluginJobHandlers } from "../plugins/defaults/index.js";
+import {
+  registerDefaultPluginJobHandlers,
+  registerDefaultPluginPersistenceHooks,
+} from "../plugins/defaults/index.js";
 import {
   clearJobHandlerRegistry,
+  getRegisteredJobHandlerFor,
   getRegisteredJobHandlers,
   registerPluginJobHandlers,
 } from "../plugins/job-handler-registry.js";
@@ -46,9 +49,9 @@ const MEMORY_JOB_TYPES = [
 ].sort();
 
 /**
- * Job types wired directly by `registerMemoryJobHandlers` for domains that are
- * not plugins (persistence cleanup, message-content lexical indexing,
- * conversations, media, home, runtime).
+ * Job types the daemon owns directly (not a plugin): persistence cleanup,
+ * message-content lexical indexing, conversations, media, home, runtime. These
+ * live in the static `DOMAIN_JOB_HANDLERS` manifest the worker seeds from.
  */
 const NON_PLUGIN_JOB_TYPES = [
   "prune_old_conversations",
@@ -84,35 +87,30 @@ describe("job-handler registry — memory plugin contribution", () => {
     expect(new Set(types).size).toBe(types.length);
   });
 
-  it("registerMemoryJobHandlers wires the full job-type set into the worker", () => {
-    const captured: string[] = [];
-    const spy = spyOn(jobsWorker, "registerJobHandler").mockImplementation(
-      (type: string) => {
-        captured.push(type);
-      },
+  it("the domain manifest wires exactly the non-plugin job types", () => {
+    expect(Object.keys(DOMAIN_JOB_HANDLERS).sort()).toEqual(
+      NON_PLUGIN_JOB_TYPES,
     );
-    try {
-      registerMemoryJobHandlers();
-    } finally {
-      spy.mockRestore();
-    }
-    const expected = [...MEMORY_JOB_TYPES, ...NON_PLUGIN_JOB_TYPES].sort();
-    expect(captured.slice().sort()).toEqual(expected);
-    // Each type registered exactly once — no plugin/non-plugin overlap, no drop.
-    expect(new Set(captured).size).toBe(captured.length);
+    // No plugin/domain overlap — every type is owned by exactly one side.
+    const memory = new Set(MEMORY_JOB_TYPES);
+    expect(NON_PLUGIN_JOB_TYPES.filter((t) => memory.has(t))).toEqual([]);
   });
 
-  it("registerMemoryJobHandlers also wires the persistence-lifecycle seam (the standalone worker has no bootstrap)", () => {
+  it("every memory job type resolves through the registry (no forwarding step)", () => {
+    registerDefaultPluginJobHandlers();
+    for (const type of MEMORY_JOB_TYPES) {
+      expect(getRegisteredJobHandlerFor(type)).toBeDefined();
+    }
+    // Domain types are not plugin-contributed — they come from the manifest.
+    expect(
+      getRegisteredJobHandlerFor("prune_old_conversations"),
+    ).toBeUndefined();
+  });
+
+  it("registerDefaultPluginPersistenceHooks wires the persistence-lifecycle seam (the standalone worker has no bootstrap)", () => {
     resetMemoryPersistenceHooksForTests();
     const before = getMemoryPersistenceHooks();
-    const spy = spyOn(jobsWorker, "registerJobHandler").mockImplementation(
-      () => {},
-    );
-    try {
-      registerMemoryJobHandlers();
-    } finally {
-      spy.mockRestore();
-    }
+    registerDefaultPluginPersistenceHooks();
     // The seam must move off the no-op default — otherwise the standalone
     // worker's fork-based retrospectives silently drop carried memory state.
     expect(getMemoryPersistenceHooks()).not.toBe(before);

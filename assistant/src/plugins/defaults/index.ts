@@ -491,11 +491,11 @@ export function registerDefaultPluginInjectors(): void {
  * {@link registerDefaultPluginInjectors}. `bootstrapPlugins` calls this before
  * the per-plugin init loop so a default plugin's handlers are present
  * regardless of its disabled-state. The standalone memory-worker process does
- * not run plugin bootstrap, so `registerMemoryJobHandlers`
- * (`jobs/register-job-handlers.ts`) calls this directly before forwarding the
- * registry union into the worker dispatch table. Idempotent:
- * `registerPluginJobHandlers` replaces a plugin's prior set, so the per-plugin
- * re-registration in `initializePlugin` is a harmless no-op replace.
+ * not run plugin bootstrap, so it calls this directly (see `jobs/worker.ts`);
+ * the worker resolves plugin-contributed handlers from the registry at dispatch
+ * time. Idempotent: `registerPluginJobHandlers` replaces a plugin's prior set,
+ * so the per-plugin re-registration in `initializePlugin` is a harmless no-op
+ * replace.
  */
 export function registerDefaultPluginJobHandlers(): void {
   for (const plugin of getAllDefaultPlugins()) {
@@ -521,11 +521,15 @@ export function guardPersistenceHooksByDisabledState(
 ): MemoryPersistenceHooks {
   return {
     onMessagePersisted(event) {
-      if (isPluginDisabled(pluginName)) return;
+      if (isPluginDisabled(pluginName)) {
+        return;
+      }
       return hooks.onMessagePersisted(event);
     },
     onConversationForked(event) {
-      if (isPluginDisabled(pluginName)) return;
+      if (isPluginDisabled(pluginName)) {
+        return;
+      }
       return hooks.onConversationForked(event);
     },
     // Gated like the active side effects above: a disabled plugin reports an
@@ -533,7 +537,9 @@ export function guardPersistenceHooksByDisabledState(
     // work" and skips consolidation — matching how disabled injectors/hooks go
     // inert.
     countMemoryBufferLines() {
-      if (isPluginDisabled(pluginName)) return 0;
+      if (isPluginDisabled(pluginName)) {
+        return 0;
+      }
       return hooks.countMemoryBufferLines();
     },
     // Cleanup hooks are NOT gated on disabled-state: they must run even while

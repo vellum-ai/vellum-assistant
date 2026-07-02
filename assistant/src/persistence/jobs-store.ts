@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, lte, notInArray, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../config/loader.js";
+import type { AssistantConfig } from "../config/types.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
 import { type DrizzleDb, getMemoryDb } from "./db-connection.js";
@@ -140,6 +141,14 @@ export interface MemoryJob<T = Record<string, unknown>> {
   createdAt: number;
   updatedAt: number;
 }
+
+/**
+ * A per-job-type handler. The worker dispatches each claimed job to its handler,
+ * passing the current config at dispatch time. Defined here (not in
+ * `jobs-worker`) so the plugin job-handler registry can type its entries without
+ * importing the worker.
+ */
+export type JobHandler = (job: MemoryJob, config: AssistantConfig) => unknown;
 
 export function enqueueMemoryJob(
   type: MemoryJobType,

@@ -18,7 +18,7 @@ import type {
   InjectionMode,
 } from "../daemon/conversation-runtime-assembly.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import type { JobHandler } from "../persistence/jobs-worker.js";
+import type { JobHandler } from "../persistence/jobs-store.js";
 import type { HookFunction } from "../plugin-api/types.js";
 import type { Message } from "../providers/types.js";
 import type { SkillRoute } from "../runtime/skill-route-registry.js";
@@ -346,10 +346,9 @@ export type PluginRouteRegistration = SkillRoute;
  * A single background-job-handler contribution: a job `type` string paired with
  * the {@link JobHandler} that processes it. Plugins contribute these via the
  * `jobHandlers` field; bootstrap registers them into the global job-handler
- * registry, and the general job worker's registration entry
- * (`jobs/register-job-handlers.ts`) forwards the union into the worker dispatch
- * table. `type` must be globally unique across every plugin — dispatch is a
- * keyed lookup. See `plugins/job-handler-registry.ts`.
+ * registry, which the worker resolves from directly at dispatch time. `type`
+ * must be globally unique across every plugin — dispatch is a keyed lookup. See
+ * `plugins/job-handler-registry.ts`.
  */
 export interface JobHandlerEntry {
   /** The job-queue type string this handler processes (globally unique). */
@@ -411,10 +410,9 @@ export interface Plugin {
   /**
    * Background-job handlers contributed to the general job worker. Bootstrap
    * registers these into the global job-handler registry before `init()` runs,
-   * symmetric with `tools`/`routes`/`injectors`; the general worker's
-   * registration entry (`jobs/register-job-handlers.ts`) forwards the union into
-   * the worker dispatch table. Each `type` must be globally unique across every
-   * plugin. See `plugins/job-handler-registry.ts`.
+   * symmetric with `tools`/`routes`/`injectors`; the worker resolves them from
+   * the registry directly at dispatch time. Each `type` must be globally unique
+   * across every plugin. See `plugins/job-handler-registry.ts`.
    */
   jobHandlers?: readonly JobHandlerEntry[];
 }

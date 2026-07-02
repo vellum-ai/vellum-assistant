@@ -6,6 +6,7 @@ import {
   diskPressureBackgroundSkipLogFields,
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
+import { getRegisteredJobHandlerFor } from "../plugins/job-handler-registry.js";
 import { getLogger } from "../util/logger.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
 import {
@@ -38,6 +39,7 @@ import {
   failMemoryJob,
   failStalledJobs,
   hasActiveJobOfType,
+  type JobHandler,
   MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS,
   type MemoryJob,
   type MemoryJobType,
@@ -50,22 +52,40 @@ import { spawnMemoryWorkerProcess } from "./worker-control.js";
 
 const log = getLogger("memory-jobs-worker");
 
-/**
- * A per-job-type handler. The owning feature (e.g. memory) registers handlers
- * via {@link registerJobHandler}; the worker dispatches each claimed job to its
- * registered handler. Decoupling registration from the worker keeps the queue
- * mechanics generic and free of feature-specific handler imports.
- */
-export type JobHandler = (job: MemoryJob, config: AssistantConfig) => unknown;
+export type { JobHandler };
 
+/**
+ * Explicit per-type handler overrides. Empty in production — domain handlers
+ * come from the static manifest (resolved lazily on first dispatch, see
+ * {@link resolveHandler}) and plugin handlers from the plugin registry. This map
+ * exists so a test can substitute a specific handler via {@link registerJobHandler}.
+ */
 const jobHandlers = new Map<string, JobHandler>();
 
 /**
- * Register a handler for a job type. Later registrations overwrite earlier ones
- * for the same type.
+ * Register (or override) a handler for a job type. Later registrations overwrite
+ * earlier ones. Domain and plugin handlers are already resolvable without this;
+ * it is mainly for tests that substitute a specific handler.
  */
 export function registerJobHandler(type: string, handler: JobHandler): void {
   jobHandlers.set(type, handler);
+}
+
+/**
+ * The daemon's domain (non-plugin) handlers, loaded lazily from the manifest on
+ * first use. Lazy so importing the worker doesn't eagerly pull the domain
+ * handlers' (heavy) transitive graph — they load only when a domain job is
+ * actually dispatched. Cached after the first load.
+ */
+let domainJobHandlers: Readonly<Record<string, JobHandler>> | null = null;
+async function resolveDomainHandler(
+  type: string,
+): Promise<JobHandler | undefined> {
+  if (domainJobHandlers === null) {
+    domainJobHandlers = (await import("./job-handlers/manifest.js"))
+      .DOMAIN_JOB_HANDLERS;
+  }
+  return domainJobHandlers[type];
 }
 
 const AUTOMATIC_CONSOLIDATION_JOB_PAYLOAD = {
@@ -635,7 +655,14 @@ async function processJob(
   if (config.memory.v2.enabled && V1_QDRANT_JOB_TYPES.has(job.type)) {
     return;
   }
-  const handler = jobHandlers.get(job.type);
+  // Resolution order: explicit test overrides, then plugin-contributed handlers
+  // (from the registry, "already registered" the moment a plugin's contribution
+  // lands — no forwarding step), then the daemon's domain handlers (lazily
+  // loaded from the manifest). Domain and plugin `type`s are disjoint.
+  const handler =
+    jobHandlers.get(job.type) ??
+    getRegisteredJobHandlerFor(job.type) ??
+    (await resolveDomainHandler(job.type));
   if (handler) {
     await handler(job, config);
     return;

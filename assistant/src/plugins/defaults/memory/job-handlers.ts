@@ -5,8 +5,7 @@
  * sourcing the implementation from the memory feature (`src/memory/*`) and the
  * v3 engine (`./v3/`). `defaultMemoryPlugin` exposes this array via its
  * `jobHandlers` field; bootstrap registers it into the global job-handler
- * registry, and the general job worker (`jobs/register-job-handlers.ts`)
- * forwards it into the worker dispatch table.
+ * registry, which the worker resolves from directly at dispatch time.
  *
  * Each handler is wrapped in an arrow that reads the imported binding at
  * dispatch time rather than capturing it eagerly, so a per-test `mock.module` of

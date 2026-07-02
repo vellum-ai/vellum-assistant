@@ -14,16 +14,21 @@ import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 
 import { getConfig } from "../config/loader.js";
 import { startInProcessMemoryJobsWorker } from "../persistence/jobs-worker.js";
+import {
+  registerDefaultPluginJobHandlers,
+  registerDefaultPluginPersistenceHooks,
+} from "../plugins/defaults/index.js";
 import { getLogger } from "../util/logger.js";
 import { getMemoryWorkerPidPath } from "../util/platform.js";
-import { registerMemoryJobHandlers } from "./register-job-handlers.js";
 
 const log = getLogger("memory-worker-process");
 
 function cleanupPidFile(): void {
   const pidPath = getMemoryWorkerPidPath();
   try {
-    if (existsSync(pidPath)) unlinkSync(pidPath);
+    if (existsSync(pidPath)) {
+      unlinkSync(pidPath);
+    }
   } catch {
     // best-effort
   }
@@ -42,7 +47,13 @@ async function main(): Promise<void> {
   writeFileSync(pidPath, String(process.pid), { flag: "w" });
   log.info({ pid: process.pid, pidPath }, "Memory worker process started");
 
-  registerMemoryJobHandlers();
+  // This process does not run plugin bootstrap, so self-register the default
+  // plugins' job-handler contributions (into the registry the worker dispatches
+  // from) and their persistence-lifecycle hooks before starting the worker. The
+  // daemon's domain handlers are already seeded into the worker's dispatch table
+  // at module load, so nothing needs to register those.
+  registerDefaultPluginJobHandlers();
+  registerDefaultPluginPersistenceHooks();
   const worker = startInProcessMemoryJobsWorker();
 
   // Keep-alive: the worker's setTimeout timers are unref'd, so without

@@ -173,7 +173,6 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../daemon/skill-memory-refresh.js",
     "../../../daemon/tool-setup-types.js",
     "../../../daemon/trust-context.js",
-    "../../../jobs/register-job-handlers.js",
     "../../../permissions/types.js",
     "../../../persistence/checkpoints.js",
     "../../../persistence/conversation-crud.js",

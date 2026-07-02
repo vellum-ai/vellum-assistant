@@ -14,7 +14,6 @@ import { join } from "node:path";
 import type { AssistantConfig } from "../../../config/schema.js";
 import { reconcileEmbeddingIdentity } from "../../../daemon/embedding-reconcile.js";
 import { refreshSkillCapabilityMemories } from "../../../daemon/skill-memory-refresh.js";
-import { registerMemoryJobHandlers } from "../../../jobs/register-job-handlers.js";
 import { selectEmbeddingBackend } from "../../../persistence/embeddings/embedding-backend.js";
 import {
   initMessagesLexicalIndex,
@@ -208,9 +207,11 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
   // the synchronous runner and stands down when an out-of-process worker is
   // live) and spawns the out-of-process worker at boot when
   // `memory.worker.enabled` is set. Shutdown stops whichever worker is
-  // actually running — see shutdown-handlers.ts.
+  // actually running — see shutdown-handlers.ts. Job handlers are already
+  // registered — domain handlers seeded into the worker's dispatch table and
+  // plugin handlers in the registry (populated by plugin bootstrap) — so there
+  // is no registration step here.
   log.info("Daemon startup: starting memory worker");
-  registerMemoryJobHandlers();
   startMemoryJobsWorker();
 
   // Seed capability graph nodes (new memory graph system)

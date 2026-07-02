@@ -154,7 +154,9 @@ function getDisabledPluginFlag(
   config: AssistantConfig,
 ): string | undefined {
   for (const flagKey of plugin.manifest.requiresFlag ?? []) {
-    if (!isAssistantFeatureFlagEnabled(flagKey, config)) return flagKey;
+    if (!isAssistantFeatureFlagEnabled(flagKey, config)) {
+      return flagKey;
+    }
   }
   return undefined;
 }
@@ -220,9 +222,9 @@ export async function bootstrapPlugins(): Promise<void> {
   registerDefaultPluginInjectors();
 
   // Register the default plugins' background-job handlers up front, the
-  // job-handler analog of the injector registration above. The general job
-  // worker's `registerMemoryJobHandlers` forwards the registry union into the
-  // worker dispatch table; pre-registering here keeps the daemon path symmetric
+  // job-handler analog of the injector registration above. The worker resolves
+  // plugin-contributed handlers straight from this registry at dispatch time
+  // (no forwarding step); pre-registering here keeps the daemon path symmetric
   // with tools/routes/injectors (the standalone worker self-registers instead).
   registerDefaultPluginJobHandlers();
 
