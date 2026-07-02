@@ -468,7 +468,6 @@ export async function handleChannelInbound({
     actorUsername: body.actorUsername,
     replyCallbackUrl: body.replyCallbackUrl,
     assistantId,
-    externalMessageId,
     effectiveAdmissionPolicy: effectiveAdmissionPolicyForAcl,
   });
   if (aclResult.earlyResponse) return aclResult.earlyResponse;
