@@ -8,6 +8,7 @@ import { normalizeEmailWebhook } from "../../email/normalize.js";
 import { verifyEmailWebhookSignature } from "../../email/verify.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
+import { readLimitedBody } from "../read-limited-body.js";
 import {
   resolveAssistant,
   isRejection,
@@ -34,30 +35,20 @@ export function createEmailWebhookHandler(
       return Response.json({ error: "Method not allowed" }, { status: 405 });
     }
 
-    // Payload size guard
-    const contentLength = req.headers.get("content-length");
-    if (
-      contentLength &&
-      Number(contentLength) > config.maxWebhookPayloadBytes
-    ) {
-      tlog.warn({ contentLength }, "Email webhook payload too large");
+    // Cap body buffering before the (unauthenticated) signature check; a
+    // header-only guard is bypassable via chunked / absent Content-Length.
+    const bodyResult = await readLimitedBody(
+      req,
+      config.maxWebhookPayloadBytes,
+    );
+    if (bodyResult.status === "too_large") {
+      tlog.warn("Email webhook payload too large");
       return Response.json({ error: "Payload too large" }, { status: 413 });
     }
-
-    let rawBody: string;
-    try {
-      rawBody = await req.text();
-    } catch {
+    if (bodyResult.status === "unreadable") {
       return Response.json({ error: "Failed to read body" }, { status: 400 });
     }
-
-    if (Buffer.byteLength(rawBody) > config.maxWebhookPayloadBytes) {
-      tlog.warn(
-        { bodyLength: Buffer.byteLength(rawBody) },
-        "Email webhook payload too large",
-      );
-      return Response.json({ error: "Payload too large" }, { status: 413 });
-    }
+    const rawBody = bodyResult.text;
 
     // Resolve webhook secret from credential cache
     const webhookSecret = caches?.credentials

@@ -8,6 +8,7 @@ import { DedupCache } from "../../dedup-cache.js";
 import { ContentMismatchError } from "../../download-validation.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
+import { readLimitedBody } from "../read-limited-body.js";
 import { RejectionRateLimiter } from "../../rejection-rate-limiter.js";
 import {
   resolveAssistant,
@@ -105,20 +106,20 @@ export function createTelegramWebhookHandler(
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    let rawBody: string;
-    try {
-      rawBody = await req.text();
-    } catch {
-      return Response.json({ error: "Failed to read body" }, { status: 400 });
-    }
-
-    if (Buffer.byteLength(rawBody) > config.maxWebhookPayloadBytes) {
-      tlog.warn(
-        { bodyLength: Buffer.byteLength(rawBody) },
-        "Webhook payload too large",
-      );
+    // Cap body buffering on the streamed bytes — the header-only guard
+    // above is bypassable via chunked / absent Content-Length.
+    const bodyResult = await readLimitedBody(
+      req,
+      config.maxWebhookPayloadBytes,
+    );
+    if (bodyResult.status === "too_large") {
+      tlog.warn("Telegram webhook payload too large");
       return Response.json({ error: "Payload too large" }, { status: 413 });
     }
+    if (bodyResult.status === "unreadable") {
+      return Response.json({ error: "Failed to read body" }, { status: 400 });
+    }
+    const rawBody = bodyResult.text;
 
     let payload: Record<string, unknown>;
     try {
