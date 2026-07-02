@@ -96,7 +96,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: clients/web
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --filter=@vellumai/web
 
       - name: Capacitor sync
         working-directory: clients/web

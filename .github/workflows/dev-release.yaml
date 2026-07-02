@@ -1612,13 +1612,13 @@ jobs:
 
       - name: Install design-library dependencies
         working-directory: packages/design-library
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --filter=@vellumai/design-library
 
       - name: Install web dependencies
         working-directory: clients/web
         run: |
-          if ! bun install --frozen-lockfile; then
-            rm -f bun.lock && rm -rf node_modules && bun install
+          if ! bun install --frozen-lockfile --filter=@vellumai/web; then
+            rm -f bun.lock && rm -rf node_modules && bun install --filter=@vellumai/web
           fi
 
       - name: Stamp dev version into package.json
@@ -2002,12 +2002,12 @@ jobs:
           node-version-file: .nvmrc
       - name: Install design-library dependencies
         working-directory: packages/design-library
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --filter=@vellumai/design-library
       - name: Install web dependencies
         working-directory: clients/web
         run: |
-          if ! bun install --frozen-lockfile; then
-            rm -f bun.lock && rm -rf node_modules && bun install
+          if ! bun install --frozen-lockfile --filter=@vellumai/web; then
+            rm -f bun.lock && rm -rf node_modules && bun install --filter=@vellumai/web
           fi
       - name: Generate API clients
         working-directory: clients/web
