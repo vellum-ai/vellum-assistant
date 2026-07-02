@@ -286,23 +286,32 @@ async function prepareConversationForMessage(
 // processMessage — main entry point for channel inbound + daemon callers
 // ---------------------------------------------------------------------------
 
-export async function processMessage(
-  conversationId: string,
-  content: string,
-  options?: ProcessMessageOptions,
-): Promise<{ messageId: string; assistantMessageId?: string }> {
-  // Defense-in-depth: never run a turn against a not-yet-migrated schema.
-  // The HTTP send path is already gated by dbMigrationUnavailableForPath and
-  // the background sweeps are deferred until migrations report ready, but this
-  // is the shared sink for every message caller (sweeps, scheduler, pointer,
-  // future IPC callers), so guard it directly. Migrations run async during
-  // startup, so a caller can reach here before the tables exist.
+/**
+ * Defense-in-depth: never run a turn against a not-yet-migrated schema.
+ * The HTTP send path is already gated by dbMigrationUnavailableForPath, the
+ * IPC transport by dbMigrationGateResponse, and the background sweeps are
+ * deferred until migrations settle — but {@link processMessage} and
+ * {@link processMessageInBackground} are the two sinks every message caller
+ * funnels through (sweeps, scheduler, pointer, signal handlers, the
+ * conversation launcher), and the signal-file transport reaches them without
+ * passing either transport gate. Migrations run async during startup, so a
+ * caller can get here before the tables exist.
+ */
+function assertDbMigrationsReadyForTurn(): void {
   const migrationReadiness = getDbMigrationReadiness();
   if (!migrationReadiness.ready) {
     throw new Error(
       `Cannot process message: database migrations ${migrationReadiness.state}`,
     );
   }
+}
+
+export async function processMessage(
+  conversationId: string,
+  content: string,
+  options?: ProcessMessageOptions,
+): Promise<{ messageId: string; assistantMessageId?: string }> {
+  assertDbMigrationsReadyForTurn();
 
   const { conversation, attachments } = await prepareConversationForMessage(
     conversationId,
@@ -597,6 +606,8 @@ export async function processMessageInBackground(
   content: string,
   options?: ProcessMessageOptions,
 ): Promise<{ messageId: string }> {
+  assertDbMigrationsReadyForTurn();
+
   const { conversation, attachments } = await prepareConversationForMessage(
     conversationId,
     content,

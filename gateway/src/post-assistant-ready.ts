@@ -12,13 +12,21 @@
  * readiness and regular traffic closed until this completes, preventing auth
  * traffic from racing with data migrations.
  *
- * The assistant now runs its own DB migrations asynchronously during startup,
- * so "reachable" is not "ready": the `health` route answers (it is exempt from
+ * The assistant runs its own DB migrations asynchronously during startup, so
+ * "reachable" is not "ready": the `health` route answers (it is exempt from
  * the assistant's migration-readiness gate) while the schema is still being
- * built. We therefore wait until `health` reports migrations ready before
- * running the guardian-binding backfill / data migrations / voice syncs — all
- * of which write to assistant tables over IPC and would otherwise hit a
- * "no such table" error on a warm-pool claim.
+ * built. The deferred tasks therefore wait until `health` reports migrations
+ * ready — they all write to assistant tables over IPC and would otherwise hit
+ * a "no such table" error on a warm-pool claim.
+ *
+ * The initial wait is bounded ({@link MAX_WAIT_MS}) so the gateway never holds
+ * its traffic gate closed indefinitely — but timing out must not skip the
+ * deferred tasks for the process lifetime. A successful migration can
+ * legitimately outlast the wait (large DBs are exactly the case async
+ * migrations exist for), and a failed-migration assistant can be repaired by
+ * a container restart. On timeout the gateway opens traffic and keeps polling
+ * in the background, running the deferred tasks once — whenever the assistant
+ * finally reports migrations ready.
  */
 
 import type { Database } from "bun:sqlite";
@@ -35,6 +43,8 @@ const log = getLogger("post-assistant-ready");
 
 const POLL_INTERVAL_MS = 2_000;
 const MAX_WAIT_MS = 5 * 60 * 1_000; // 5 minutes
+/** Background poll cadence after the bounded startup wait has timed out. */
+const DEFERRED_RETRY_INTERVAL_MS = 30_000;
 
 function getRawDb(drizzleDb: GatewayDb): Database {
   return (drizzleDb as unknown as { $client: Database }).$client;
@@ -95,12 +105,24 @@ export async function waitForAssistant(): Promise<boolean> {
 }
 
 /**
- * Wait for the assistant runtime to become healthy, then run deferred
- * startup tasks.
+ * Whether {@link runDeferredTasks} has run. The tasks are one-shot per
+ * process: the happy path and the background retry path must never both
+ * execute them.
  */
-export async function runPostAssistantReady(): Promise<void> {
-  const ready = await waitForAssistant();
-  if (!ready) return;
+let deferredTasksRan = false;
+
+/** Test-only: allow re-running the one-shot deferred tasks. */
+export function resetPostAssistantReadyForTest(): void {
+  deferredTasksRan = false;
+}
+
+/**
+ * The deferred startup tasks that require a migration-ready assistant.
+ * One-shot per process; repeat calls are no-ops.
+ */
+async function runDeferredTasks(): Promise<void> {
+  if (deferredTasksRan) return;
+  deferredTasksRan = true;
 
   // 1. Data migrations (some read/write the assistant DB)
   try {
@@ -120,4 +142,58 @@ export async function runPostAssistantReady(): Promise<void> {
   // so they must start after the assistant is confirmed ready.
   startVoiceApprovalSync();
   startOutboundVoiceVerificationSync();
+}
+
+/**
+ * Poll the assistant until it reports migrations ready, then run the deferred
+ * tasks. Unbounded by design: it backs the post-timeout background path, where
+ * giving up permanently is exactly the failure mode being fixed — a slow but
+ * successful migration, or a failed one repaired by a later assistant
+ * restart, must still get its data migrations, guardian backfill, and voice
+ * syncs. All errors (including transport) are swallowed so the loop survives
+ * an assistant that is down entirely.
+ *
+ * Exported for tests; production reaches it only via
+ * {@link runPostAssistantReady}'s timeout path.
+ */
+export async function runDeferredTasksWhenAssistantReady(
+  retryIntervalMs = DEFERRED_RETRY_INTERVAL_MS,
+): Promise<void> {
+  for (;;) {
+    try {
+      const health = (await ipcCallAssistant("health")) as AssistantHealth;
+      if (assistantReportsMigrationsReady(health)) break;
+    } catch {
+      // Assistant unreachable — keep polling.
+    }
+    await new Promise((resolve) => setTimeout(resolve, retryIntervalMs));
+  }
+
+  log.info(
+    "Assistant became ready after gateway startup — running deferred post-ready tasks",
+  );
+  await runDeferredTasks();
+}
+
+/**
+ * Wait for the assistant runtime to become migration-ready, then run the
+ * deferred startup tasks. Returns after {@link MAX_WAIT_MS} even if the
+ * assistant is not ready — the caller opens gateway traffic either way — but
+ * in that case the deferred tasks keep retrying in the background instead of
+ * being skipped for the process lifetime.
+ */
+export async function runPostAssistantReady(): Promise<void> {
+  const ready = await waitForAssistant();
+  if (!ready) {
+    log.warn(
+      { retryIntervalMs: DEFERRED_RETRY_INTERVAL_MS },
+      "Opening gateway traffic without the assistant ready — deferred tasks (data migrations, guardian backfill, voice syncs) will run in the background once it reports ready",
+    );
+    void runDeferredTasksWhenAssistantReady().catch((err) => {
+      log.error({ err }, "Background deferred post-ready tasks failed");
+    });
+    return;
+  }
+
+  await runDeferredTasks();
 }

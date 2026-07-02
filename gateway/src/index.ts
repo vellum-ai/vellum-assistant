@@ -1924,7 +1924,10 @@ async function main() {
   log.info({ port: server.port }, "Gateway HTTP server listening");
 
   // Complete post-assistant-ready startup work after binding /healthz.
-  // All non-health routes stay closed until this finishes.
+  // All non-health routes stay closed until this returns. When the assistant
+  // is not migration-ready within the bounded wait, this still returns (so
+  // traffic opens) while the deferred tasks keep retrying in the background —
+  // see post-assistant-ready.ts.
   try {
     await runPostAssistantReady();
     postAssistantReadyComplete = true;
