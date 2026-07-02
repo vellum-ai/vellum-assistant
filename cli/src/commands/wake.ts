@@ -110,6 +110,7 @@ export async function wake(): Promise<void> {
 
   let daemonRunning = false;
   let daemonUnready = false;
+  let daemonMigrationsFailed = false;
   const daemonState = await resolveProcessState(
     pidFile,
     resources.daemonPort,
@@ -117,7 +118,7 @@ export async function wake(): Promise<void> {
     60_000,
     "readyz",
   );
-  if (daemonState.status === "healthy" || daemonState.status === "unready") {
+  if (daemonState.status !== "needs_start") {
     if (watch && isAssistantWatchModeAvailable()) {
       console.log(
         `Assistant running (pid ${daemonState.pid}) — restarting in watch mode...`,
@@ -125,14 +126,19 @@ export async function wake(): Promise<void> {
       await stopProcessByPidFile(pidFile, "assistant");
     } else {
       daemonRunning = true;
-      daemonUnready = daemonState.status === "unready";
+      daemonUnready = daemonState.status !== "healthy";
+      daemonMigrationsFailed = daemonState.status === "migration_failed";
       if (watch) {
         console.log(
           `Assistant running (pid ${daemonState.pid}) — watch mode not available (no source files). Keeping existing process.`,
         );
+      } else if (daemonMigrationsFailed) {
+        console.log(
+          `Assistant running (pid ${daemonState.pid}) but its database migrations failed.`,
+        );
       } else if (daemonUnready) {
         console.log(
-          `Assistant running (pid ${daemonState.pid}) but not ready yet.`,
+          `Assistant running (pid ${daemonState.pid}) — database migrations still running.`,
         );
       } else {
         console.log(`Assistant already running (pid ${daemonState.pid}).`);
@@ -294,9 +300,13 @@ export async function wake(): Promise<void> {
     writeFileSync(ngrokPidFile, String(ngrokChild.pid));
   }
 
-  if (daemonUnready) {
+  if (daemonMigrationsFailed) {
     console.log(
-      "Assistant is still starting; DB-backed routes may return 503.",
+      "Assistant database migrations FAILED — DB-backed routes will return 503 until the assistant is restarted. Check the daemon logs.",
+    );
+  } else if (daemonUnready) {
+    console.log(
+      "Assistant is still running database migrations; DB-backed routes return 503 until they finish.",
     );
   }
   console.log("Wake complete.");

@@ -465,15 +465,25 @@ describe("identity routes — /readyz readiness gate", () => {
     const res = handleReadyz();
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
-    expect(body).toEqual({ status: "ok", ready: true });
+    expect(body.status).toBe("migrating");
+    expect(body.ready).toBe(false);
+    expect((body.dbMigrations as Record<string, unknown>).state).toBe(
+      "not_started",
+    );
   });
 
-  test("returns 200 while DB migrations are running", async () => {
+  test("returns 200 with the migrating body while DB migrations are running", async () => {
     setDbMigrating();
     const res = handleReadyz();
+    // Status code stays 200 so k8s keeps the pod in service mid-migration;
+    // the body carries the real state for programmatic callers (CLI).
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
-    expect(body).toEqual({ status: "ok", ready: true });
+    expect(body.status).toBe("migrating");
+    expect(body.ready).toBe(false);
+    expect((body.dbMigrations as Record<string, unknown>).state).toBe(
+      "running",
+    );
   });
 
   test("returns 503 when DB migrations fail", async () => {

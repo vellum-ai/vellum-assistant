@@ -92,10 +92,15 @@ describe("DB migration readiness HTTP gate", () => {
     await startServer();
 
     const response = await fetch(`http://127.0.0.1:${port}/readyz`);
+    // 200 keeps the k8s pod in service; the body reports the real state.
     expect(response.status).toBe(200);
 
     const body = (await response.json()) as Record<string, unknown>;
-    expect(body).toEqual({ status: "ok", ready: true });
+    expect(body.status).toBe("migrating");
+    expect(body.ready).toBe(false);
+    expect((body.dbMigrations as Record<string, unknown>).state).toBe(
+      "running",
+    );
   });
 
   test("blocks config schema while migrations are running", async () => {

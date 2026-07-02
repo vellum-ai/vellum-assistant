@@ -16,9 +16,15 @@ import {
   type LocalInstanceResources,
 } from "./assistant-config.js";
 import { GATEWAY_PORT } from "./constants.js";
-import { httpHealthCheck, waitForDaemonReady } from "./http-client.js";
+import {
+  type DaemonReadiness,
+  httpHealthCheck,
+  waitForDaemonMigrationsReady,
+  waitForDaemonReady,
+} from "./http-client.js";
 import { stopIngressNginx } from "./nginx-ingress.js";
 import {
+  type ProcessState,
   resolveProcessState,
   stopProcess,
   stopProcessByPidFile,
@@ -529,20 +535,39 @@ function applyDaemonEnvOverrides(
   applyIpcSocketDirOverride(env);
 }
 
-function logDaemonReadiness(ready: boolean): void {
-  if (ready) {
-    console.log("   Assistant ready\n");
-  } else {
-    console.log(
-      "   ⚠️  Assistant did not become ready within 60s — continuing anyway\n",
-    );
+function logDaemonReadiness(readiness: DaemonReadiness): void {
+  switch (readiness) {
+    case "ready":
+      console.log("   Assistant ready\n");
+      break;
+    case "migrating":
+      console.log(
+        "   Assistant is up — database migrations still running; DB-backed commands return 503 until they finish\n",
+      );
+      break;
+    case "failed":
+      console.log(
+        "   ⚠️  Assistant database migrations FAILED — DB-backed commands return 503 until the assistant is restarted\n",
+      );
+      break;
+    default:
+      console.log(
+        "   ⚠️  Assistant did not become ready within 60s — continuing anyway\n",
+      );
   }
 }
 
-function logAssistantAlreadyRunning(pid: number, unready: boolean): void {
-  console.log(
-    `   Assistant already running (pid ${pid})${unready ? " but not ready yet" : ""}\n`,
-  );
+function logAssistantAlreadyRunning(
+  pid: number,
+  status: ProcessState["status"],
+): void {
+  const suffix =
+    status === "migration_failed"
+      ? " but its database migrations failed — restart to recover"
+      : status === "unready"
+        ? " — database migrations still running"
+        : "";
+  console.log(`   Assistant already running (pid ${pid})${suffix}\n`);
 }
 
 async function startDaemonFromSource(
@@ -569,10 +594,7 @@ async function startDaemonFromSource(
     "readyz",
   );
   if (daemonState.status !== "needs_start") {
-    logAssistantAlreadyRunning(
-      daemonState.pid,
-      daemonState.status === "unready",
-    );
+    logAssistantAlreadyRunning(daemonState.pid, daemonState.status);
     return;
   }
 
@@ -647,10 +669,7 @@ async function startDaemonWatchFromSource(
     "readyz",
   );
   if (daemonState.status !== "needs_start") {
-    logAssistantAlreadyRunning(
-      daemonState.pid,
-      daemonState.status === "unready",
-    );
+    logAssistantAlreadyRunning(daemonState.pid, daemonState.status);
     return;
   }
 
@@ -803,8 +822,14 @@ async function awaitStartingSentinel(
   }
 
   console.log("   Assistant is starting — waiting for it to become ready...");
-  if (await waitForDaemonReady(daemonPort, 60000, "readyz")) {
-    console.log("   Assistant is ready\n");
+  const readiness = await waitForDaemonMigrationsReady(
+    daemonPort,
+    Date.now() + 60000,
+  );
+  if (readiness !== "unreachable") {
+    // The daemon exists and is answering — migrating and failed states must
+    // NOT fall through to a second spawn (split-brain). Report honestly.
+    logDaemonReadiness(readiness);
     return true;
   }
   try {
@@ -1073,7 +1098,10 @@ export async function startLocalDaemon(
     console.log("🔨 Starting local assistant runtime...");
     await startDaemonFromSource(runtimeAssistantIndex, resources, options);
     logDaemonReadiness(
-      await waitForDaemonReady(resources.daemonPort, 60000, "readyz"),
+      await waitForDaemonMigrationsReady(
+        resources.daemonPort,
+        Date.now() + 60000,
+      ),
     );
     return;
   }
@@ -1105,17 +1133,17 @@ export async function startLocalDaemon(
     );
     const daemonAlive = daemonState.status !== "needs_start";
     if (daemonAlive) {
-      logAssistantAlreadyRunning(
-        daemonState.pid,
-        daemonState.status === "unready",
-      );
+      logAssistantAlreadyRunning(daemonState.pid, daemonState.status);
     }
 
     if (!daemonAlive) {
       if (await checkOrphanedDaemon(pidFile, resources.daemonPort)) {
         ensureBunInstalled();
         logDaemonReadiness(
-          await waitForDaemonReady(resources.daemonPort, 60000, "readyz"),
+          await waitForDaemonMigrationsReady(
+            resources.daemonPort,
+            Date.now() + 60000,
+          ),
         );
         return;
       }
@@ -1217,14 +1245,17 @@ export async function startLocalDaemon(
     }
 
     // Wait for daemon to respond on HTTP (up to 60s — fresh installs
-    // may need 30-60s for Qdrant download, migrations, and first-time init)
-    let daemonReady = await waitForDaemonReady(
+    // may need 30-60s for Qdrant download, migrations, and first-time init).
+    // "migrating" and "failed" both mean the daemon is up and answering, so
+    // they don't trigger the source fallback (a restart against the same DB
+    // would reproduce the same migration state).
+    let readiness = await waitForDaemonMigrationsReady(
       resources.daemonPort,
-      60000,
-      "readyz",
+      Date.now() + 60000,
     );
     const daemonHealthy =
-      daemonReady || (await httpHealthCheck(resources.daemonPort));
+      readiness !== "unreachable" ||
+      (await httpHealthCheck(resources.daemonPort));
 
     // Dev fallback: if the bundled daemon did not become healthy in time,
     // fall back to source daemon startup so local source runs still work.
@@ -1241,15 +1272,14 @@ export async function startLocalDaemon(
         } else {
           await startDaemonFromSource(assistantIndex, resources, options);
         }
-        daemonReady = await waitForDaemonReady(
+        readiness = await waitForDaemonMigrationsReady(
           resources.daemonPort,
-          60000,
-          "readyz",
+          Date.now() + 60000,
         );
       }
     }
 
-    logDaemonReadiness(daemonReady);
+    logDaemonReadiness(readiness);
   } else {
     console.log("🔨 Starting local assistant...");
 
@@ -1266,7 +1296,10 @@ export async function startLocalDaemon(
       await startDaemonFromSource(assistantIndex, resources, options);
     }
     logDaemonReadiness(
-      await waitForDaemonReady(resources.daemonPort, 60000, "readyz"),
+      await waitForDaemonMigrationsReady(
+        resources.daemonPort,
+        Date.now() + 60000,
+      ),
     );
   }
 }

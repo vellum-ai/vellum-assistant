@@ -56,3 +56,53 @@ export async function waitForDaemonReady(
   }
   return false;
 }
+
+/**
+ * Migration-aware daemon readiness, derived from the `/readyz` BODY rather
+ * than its status code. The status code is the k8s contract — 200 while
+ * migrations run so the pod stays in service, 503 only on migration failure —
+ * so `response.ok` alone cannot distinguish "ready" from "still migrating".
+ */
+export type DaemonReadiness = "ready" | "migrating" | "failed" | "unreachable";
+
+/** Single `/readyz` probe, classified from the response body. */
+export async function probeDaemonReadiness(
+  port: number,
+  timeoutMs = 1500,
+): Promise<DaemonReadiness> {
+  try {
+    const response = await loopbackSafeFetch(`${buildDaemonUrl(port)}/readyz`, {
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const body = (await response.json().catch(() => null)) as {
+      ready?: boolean;
+      dbMigrations?: { state?: string };
+    } | null;
+    if (body?.dbMigrations?.state === "failed") return "failed";
+    // A 200 with no explicit `ready: false` counts as ready — this also
+    // covers daemons that predate the migration-state body.
+    if (response.ok && body?.ready !== false) return "ready";
+    return response.ok ? "migrating" : "unreachable";
+  } catch {
+    return "unreachable";
+  }
+}
+
+/**
+ * Poll `/readyz` until the daemon is ready, its migrations have terminally
+ * FAILED (returned immediately — failed never recovers without a restart, so
+ * waiting out the deadline would be pure delay), or `deadlineMs` passes.
+ * Returns the last observed readiness.
+ */
+export async function waitForDaemonMigrationsReady(
+  port: number,
+  deadlineMs: number,
+): Promise<DaemonReadiness> {
+  let last: DaemonReadiness = "unreachable";
+  for (;;) {
+    last = await probeDaemonReadiness(port);
+    if (last === "ready" || last === "failed") return last;
+    if (Date.now() >= deadlineMs) return last;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+}

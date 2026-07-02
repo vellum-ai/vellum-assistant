@@ -319,6 +319,18 @@ export function handleReadyz(): Response {
     });
   }
 
+  if (!dbMigrations.ready) {
+    // Probe contract: HTTP 200 keeps the k8s pod in service while migrations
+    // run (the per-route gates shield the DB), but the body carries the real
+    // state so programmatic callers — notably the CLI's readiness wait — can
+    // distinguish "still migrating" from "ready". Only the status code is the
+    // k8s contract; orchestrators never read the body.
+    return Response.json(
+      { status: "migrating", ready: false, dbMigrations },
+      { status: 200 },
+    );
+  }
+
   return Response.json({ status: "ok", ready: true });
 }
 

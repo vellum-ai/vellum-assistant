@@ -4,6 +4,7 @@ import { existsSync, readFileSync, unlinkSync } from "fs";
 import {
   httpHealthCheck,
   type HttpProbeEndpoint,
+  waitForDaemonMigrationsReady,
   waitForDaemonReady,
 } from "./http-client.js";
 
@@ -83,26 +84,35 @@ export async function isProcessHealthy(
 /**
  * Outcome of {@link resolveProcessState}. Callers switch on `status`:
  * - `"healthy"` — process is alive and ready; `pid` is the live PID.
- * - `"unready"` — process is alive and healthy, but readiness timed out.
+ * - `"unready"` — process is alive and healthy, but DB migrations were still
+ *   running when the readiness wait elapsed.
+ * - `"migration_failed"` — process is alive and healthy, but its DB migrations
+ *   failed: a terminal state that never recovers without a restart. The
+ *   process is kept alive (same keep-alive rule as `"unready"`).
  * - `"needs_start"` — process was dead, hung (and killed), or a stale PID
  *   was cleaned up. Caller should start a fresh process.
  */
 export type ProcessState =
   | { status: "healthy"; pid: number }
   | { status: "unready"; pid: number }
+  | { status: "migration_failed"; pid: number }
   | { status: "needs_start"; pid: number | null };
 
 /**
  * Determine whether a PID-tracked process is alive and healthy. If the process
- * exists but is unresponsive, waits up to `readinessWaitMs`
- * (default 60s — matches the spawner's own `waitForDaemonReady` timeout
- * so a concurrent caller never kills a process the spawner is still
- * waiting on) for it to start answering health checks. If it remains
- * unresponsive, verifies it belongs to Vellum before killing it, then cleans
- * up the PID file.
+ * exists but is unresponsive, waits for it to start answering health checks.
+ * If it remains unresponsive, verifies it belongs to Vellum before killing it,
+ * then cleans up the PID file.
  *
- * When callers pass a readiness endpoint, this also waits for readiness, but a
- * health-checking process is kept alive if readiness times out.
+ * When callers pass the `"readyz"` readiness endpoint, this also waits for DB
+ * migration readiness (read from the `/readyz` body — the status code stays
+ * 200 during migrations for k8s). A health-checking process is kept alive if
+ * readiness times out or migrations failed.
+ *
+ * `readinessWaitMs` (default 60s — matches the spawner's own
+ * `waitForDaemonReady` timeout so a concurrent caller never kills a process
+ * the spawner is still waiting on) is a single budget shared by the health
+ * wait and the readiness wait, so the total blocking time never exceeds it.
  */
 export async function resolveProcessState(
   pidFile: string,
@@ -111,6 +121,7 @@ export async function resolveProcessState(
   readinessWaitMs: number = 60_000,
   readinessEndpoint: HttpProbeEndpoint = "healthz",
 ): Promise<ProcessState> {
+  const deadline = Date.now() + readinessWaitMs;
   const result = await isProcessHealthy(pidFile, healthPort);
 
   if (!result.alive) {
@@ -121,7 +132,7 @@ export async function resolveProcessState(
     // Alive but not healthy — may still be starting up.
     const becameHealthy = await waitForDaemonReady(
       healthPort,
-      readinessWaitMs,
+      Math.max(0, deadline - Date.now()),
       "healthz",
     );
     if (!becameHealthy) {
@@ -142,12 +153,11 @@ export async function resolveProcessState(
   }
 
   if (readinessEndpoint !== "healthz") {
-    const becameReady = await waitForDaemonReady(
-      healthPort,
-      readinessWaitMs,
-      readinessEndpoint,
-    );
-    if (!becameReady) {
+    const readiness = await waitForDaemonMigrationsReady(healthPort, deadline);
+    if (readiness === "failed") {
+      return { status: "migration_failed", pid: result.pid };
+    }
+    if (readiness !== "ready") {
       return { status: "unready", pid: result.pid };
     }
   }
