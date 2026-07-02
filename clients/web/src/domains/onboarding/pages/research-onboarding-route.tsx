@@ -679,6 +679,9 @@ export function ResearchOnboardingRoute() {
             // rewrite have settled, so the results/chat never open on a persona
             // that's still being written.
             ready={!researchLoading && !personalityPending}
+            // Weave the persona lines into the carousel when a personality was
+            // configured this session (locked on the personality step's continue).
+            applyingPersonality={personalityLocked}
           />
         )}
         {step === "results" && (

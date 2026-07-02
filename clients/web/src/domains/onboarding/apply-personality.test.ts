@@ -41,6 +41,9 @@ describe("buildPersonalityMessage", () => {
     expect(msg).toContain("Overwrite each file completely with file_write");
     expect(msg).toContain("not an edit");
     expect(msg).toContain("do not append");
+    // The rewrite reshapes personality only — it must not rename the assistant.
+    expect(msg).toContain("Keep your existing name exactly as it is");
+    expect(msg).toContain("Do not rename yourself");
     expect(msg).toContain("<system-message>");
     expect(msg).toContain("</system-message>");
   });
