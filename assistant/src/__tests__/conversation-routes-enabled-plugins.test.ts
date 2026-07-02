@@ -190,14 +190,8 @@ mock.module("../ipc/gateway-client.js", () => ({
 }));
 
 import { getEffectiveEnabledPluginSet } from "../daemon/conversation-tool-setup.js";
-import { primeDefaultPluginNames } from "../plugins/defaults/default-plugin-names.js";
-import { getAllDefaultPlugins } from "../plugins/defaults/index.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
 import { callHandler } from "./helpers/call-route-handler.js";
-
-// getEffectiveEnabledPluginSet unions the boot-primed default-name cache; the
-// daemon primes it in registerDefaultPlugins, so prime it here for the unit.
-primeDefaultPluginNames(getAllDefaultPlugins().map((p) => p.manifest.name));
 
 function makeConversation() {
   const runAgentLoop = mock(async () => undefined);
