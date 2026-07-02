@@ -14,9 +14,10 @@ import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 
 import { getConfig } from "../config/loader.js";
 import { startInProcessMemoryJobsWorker } from "../persistence/jobs-worker.js";
+import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/index.js";
+import { registerMemoryPluginJobHandlers } from "../plugins/defaults/memory/job-handler-registration.js";
 import { getLogger } from "../util/logger.js";
 import { getMemoryWorkerPidPath } from "../util/platform.js";
-import { registerMemoryJobHandlers } from "./register-job-handlers.js";
 
 const log = getLogger("memory-worker-process");
 
@@ -42,7 +43,13 @@ async function main(): Promise<void> {
   writeFileSync(pidPath, String(process.pid), { flag: "w" });
   log.info({ pid: process.pid, pidPath }, "Memory worker process started");
 
-  registerMemoryJobHandlers();
+  // This process does not run plugin bootstrap, so self-register everything the
+  // worker dispatches from before starting it: the job handlers (the memory
+  // plugin's own plus the host's non-plugin domain handlers) and the memory
+  // persistence-lifecycle hooks (without which the fork-based retrospectives
+  // silently drop carried memory state).
+  registerMemoryPluginJobHandlers();
+  registerDefaultPluginPersistenceHooks();
   const worker = startInProcessMemoryJobsWorker();
 
   // Keep-alive: the worker's setTimeout timers are unref'd, so without
