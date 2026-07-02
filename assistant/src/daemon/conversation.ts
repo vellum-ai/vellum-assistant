@@ -189,7 +189,7 @@ const log = getLogger("conversation");
  * `getAssistantMessageIdsInTurn`/`getTurnTimeBounds` and the agent loop's
  * per-turn `turnCount++`, so counting these reconstructs `turnCount` on load.
  */
-function startsNewTurn(role: string, content: string): boolean {
+export function startsNewTurn(role: string, content: string): boolean {
   if (role !== "user") return false;
   try {
     const parsed = JSON.parse(content);
