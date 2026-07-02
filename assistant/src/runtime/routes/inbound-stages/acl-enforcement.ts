@@ -257,20 +257,35 @@ export async function enforceIngressAcl(
   }
 
   // ── Guardian short-circuit ──
-  // A verdict classified `guardian` is admitted even when it carries no
-  // per-channel member row (`resolvedMember` null) or an inactive one. The
-  // gateway classifies guardians by principal, so a guardian speaking on a
-  // channel where they hold no same-channel binding must not fall through the
-  // member-vs-stranger gates below — those would misroute the guardian into
-  // the stranger lane and fire an access request at the guardian themselves.
+  // A verdict classified `guardian` is admitted even when its same-channel
+  // member row is inactive (e.g. pending): the gateway classifies guardians
+  // by principal, so a guardian speaking on a channel where they hold no
+  // active guardian binding must not fall through the member-vs-stranger
+  // gates below — those would misroute the guardian into the stranger lane
+  // and fire an access request at the guardian themselves.
   if (verdict.trustClass === "guardian") {
+    // The gateway proves guardian identity via a same-channel member row
+    // (the active binding address, or a row belonging to the guardian
+    // contact), so every guardian verdict carries a resolvable member row.
+    // A guardian verdict WITHOUT one is contradictory — cross-channel
+    // address collisions are not identity proofs and must never confer
+    // guardian capabilities. Fail safe: soft-deny with no stranger-lane
+    // side effects.
+    if (!resolvedMember) {
+      log.warn(
+        { sourceChannel, externalUserId: canonicalSenderId },
+        "Ingress ACL: guardian verdict without a member row, denying fail-safe",
+      );
+      return failClosedDeny();
+    }
+
     // The gateway never classifies a blocked/revoked same-channel row as
     // guardian (explicit per-channel governance wins over the principal
     // check), so a verdict claiming both is contradictory. Fail safe:
     // soft-deny with no stranger-lane side effects.
     if (
-      resolvedMember?.status === "blocked" ||
-      resolvedMember?.status === "revoked"
+      resolvedMember.status === "blocked" ||
+      resolvedMember.status === "revoked"
     ) {
       log.warn(
         {
@@ -288,7 +303,7 @@ export async function enforceIngressAcl(
     // classification. Deny with the accurate policy_deny reason but none of
     // the stranger-lane side effects — the canned "ask the guardian" reply
     // would be addressed at the guardian themselves.
-    if (resolvedMember?.policy === "deny") {
+    if (resolvedMember.policy === "deny") {
       log.info(
         { sourceChannel, externalUserId: canonicalSenderId },
         "Ingress ACL: guardian member row carries policy deny, denying",

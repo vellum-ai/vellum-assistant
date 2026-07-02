@@ -232,7 +232,6 @@ export function useStreamEventHandler(
         streamContext: streamState.streamContext,
         assistantId: useResolvedAssistantsStore.getState().activeAssistantId,
         setOptimisticSends: store.setOptimisticSends,
-        clearOptimisticSend: store.clearOptimisticSend,
         turnActions: useTurnStore.getState(),
         getTurnState: () => useTurnStore.getState(),
         endTurn,
@@ -265,7 +264,7 @@ export function useStreamEventHandler(
           handleNavigateSettings(event, ctx);
           break;
         case "open_panel":
-          handleOpenPanel(event);
+          handleOpenPanel(event, ctx);
           break;
         case "assistant_turn_start":
           handleAssistantTurnStart(event, ctx);

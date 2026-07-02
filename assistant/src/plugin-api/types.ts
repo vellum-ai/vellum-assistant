@@ -232,6 +232,13 @@ export interface UserPromptSubmitContext {
    */
   readonly prompt: string;
   /**
+   * True when the triggering message is a transcript-suppressed machine
+   * signal (`metadata.hidden` — e.g. the channel-setup wizard-close marker)
+   * rather than something the user typed. Hooks that treat `prompt` as
+   * user speech (e.g. title generation) should skip these turns.
+   */
+  readonly isHiddenPrompt?: boolean;
+  /**
    * The user's original message list, immutable for the hook. Plugins
    * may snapshot or compare against this but MUST NOT mutate it.
    */
