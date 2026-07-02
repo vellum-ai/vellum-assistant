@@ -56,17 +56,16 @@ describe("AcpAgentProcess.recentStderr", () => {
     expect(indices).toEqual(sorted);
   });
 
-  test("keeps the newest line but truncates it to the cap when it alone exceeds it", () => {
+  test("truncates an oversized line to the cap, keeping its tail (the diagnostic)", () => {
     const proc = newProcess();
-    const huge = "y".repeat(8192);
+    // The real adapter error sits at the END of the chunk; deriveFailureError
+    // reads from the tail, so truncation must drop the head, not the tail.
+    const huge = "H".repeat(6000) + "TAIL_DIAGNOSTIC";
     feed(proc, huge);
 
-    // The newest line is preserved (not dropped) but capped so one oversized
-    // chunk can't blow the ring budget or make the failure-path stderr scan
-    // super-linear on huge input.
     const retained = proc.recentStderr();
     expect(retained.length).toBe(4096);
-    expect(retained).toBe("y".repeat(4096));
+    expect(retained.endsWith("TAIL_DIAGNOSTIC")).toBe(true);
   });
 
   test("recentStderr is pure: repeated reads do not clear the buffer", () => {
