@@ -1,14 +1,15 @@
 /**
  * Tests for m0010-drop-assistant-ingress-invites.
  *
- * Verifies that phantom a2a rows (copied into the gateway by m0007) are
- * purged from gateway `ingress_invites`, that the assistant
- * `assistant_ingress_invites` table is dropped via the IPC db proxy, that an
- * IPC failure returns "skip" (runner retries next boot) while the a2a purge
- * still applies, that the migration is idempotent, and that it is registered
- * after m0009 so the sequential runner backfills before dropping. Uses the
- * same fake-assistant-DB + real in-memory gateway-DB pattern as the
- * m0007/m0009 tests.
+ * Verifies that the whole migration is gated on m0009's one_time_migrations
+ * checkpoint (no purge, no drop until the backfill is recorded as done), that
+ * phantom a2a rows (copied into the gateway by m0007) are purged from gateway
+ * `ingress_invites`, that the assistant `assistant_ingress_invites` table is
+ * dropped via the IPC db proxy, that an IPC failure returns "skip" (runner
+ * retries next boot) while the a2a purge still applies, that the migration is
+ * idempotent, and that it is registered after m0009. Uses the same
+ * fake-assistant-DB + real in-memory gateway-DB pattern as the m0007/m0009
+ * tests.
  */
 
 import {
@@ -59,11 +60,12 @@ import {
   getGatewayDb,
   resetGatewayDb,
 } from "../db/connection.js";
-import { contacts, ingressInvites } from "../db/schema.js";
+import { contacts, ingressInvites, oneTimeMigrations } from "../db/schema.js";
 import { MIGRATIONS } from "../db/data-migrations/index.js";
 import {
   up as m0010Up,
   down as m0010Down,
+  M0009_CHECKPOINT_KEY,
 } from "../db/data-migrations/m0010-drop-assistant-ingress-invites.js";
 
 beforeAll(async () => {
@@ -74,7 +76,9 @@ beforeEach(() => {
   const db = getGatewayDb();
   db.delete(ingressInvites).run();
   db.delete(contacts).run();
+  db.delete(oneTimeMigrations).run();
   fakeAssistantDb.reset();
+  checkpointM0009();
 });
 
 afterAll(() => {
@@ -82,6 +86,17 @@ afterAll(() => {
 });
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
+
+function checkpointM0009(): void {
+  getGatewayDb()
+    .insert(oneTimeMigrations)
+    .values({ key: M0009_CHECKPOINT_KEY, ranAt: 1_000 })
+    .run();
+}
+
+function uncheckpointM0009(): void {
+  getGatewayDb().delete(oneTimeMigrations).run();
+}
 
 function seedGatewayContact(id: string): void {
   getGatewayDb()
@@ -128,6 +143,27 @@ function gatewayInviteIds(): string[] {
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 describe("m0010-drop-assistant-ingress-invites", () => {
+  test("skips entirely (no purge, no drop) when m0009 is not checkpointed", async () => {
+    uncheckpointM0009();
+    seedGatewayContact("c1");
+    seedGatewayInvite({ id: "a2a-1", sourceChannel: "a2a" });
+    seedGatewayInvite({ id: "tg-1", sourceChannel: "telegram" });
+
+    const result = await m0010Up();
+
+    expect(result).toBe("skip");
+    // The backfill source table and the a2a rows are untouched.
+    expect(fakeAssistantDb.hasInvitesTable).toBe(true);
+    expect(fakeAssistantDb.dropCalls).toBe(0);
+    expect(gatewayInviteIds()).toEqual(["a2a-1", "tg-1"]);
+
+    // Once the checkpoint lands, the same boot-retry path completes.
+    checkpointM0009();
+    expect(await m0010Up()).toBe("done");
+    expect(fakeAssistantDb.hasInvitesTable).toBe(false);
+    expect(gatewayInviteIds()).toEqual(["tg-1"]);
+  });
+
   test("purges phantom a2a rows and drops the assistant table", async () => {
     seedGatewayContact("c1");
     seedGatewayInvite({ id: "a2a-1", sourceChannel: "a2a" });
@@ -184,9 +220,9 @@ describe("m0010-drop-assistant-ingress-invites", () => {
     expect(fakeAssistantDb.hasInvitesTable).toBe(false);
   });
 
-  test("is registered after m0009 so the backfill reads the table before the drop", () => {
+  test("is registered after m0009 and gates on m0009's registered checkpoint key", () => {
     const keys = MIGRATIONS.map((m) => m.key);
-    const backfillIndex = keys.indexOf("m0009-invite-fields-backfill");
+    const backfillIndex = keys.indexOf(M0009_CHECKPOINT_KEY);
     const dropIndex = keys.indexOf("m0010-drop-assistant-ingress-invites");
 
     expect(backfillIndex).toBeGreaterThanOrEqual(0);
