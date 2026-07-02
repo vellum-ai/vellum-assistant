@@ -130,7 +130,9 @@ export interface ChatSessionActions {
   /** Seed (or resync) the snapshot from a freshly fetched server snapshot,
    *  replaying the buffered event tail with `seq > snapshot.seq` onto it so
    *  events that raced the fetch aren't lost. A gap (evicted tail) falls back
-   *  to the fetched snapshot alone. */
+   *  to the fetched snapshot alone — except when the fetch is anchor-less
+   *  (`seq` null) while the live view has already folded seq-stamped events;
+   *  such a fetch is provably behind the stream and is dropped instead. */
   seedSnapshot: (conversationId: string, snapshot: PaginatedHistoryResult) => void;
   /** Fold one live stream event into the snapshot (no-op until seeded; the
    *  seed's replay covers anything that arrived first). Idempotent by `seq`. */
@@ -318,6 +320,27 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
 
   // --- Materialized snapshot ---
   seedSnapshot: (conversationId, snapshot) => {
+    // Anchor-less regression guard. `seq: null` means the daemon has not yet
+    // durably persisted any stream content for this conversation — typically a
+    // fresh conversation's first turn, where the partial-persist debounce
+    // (1s) outlives a short reply, so every mid-turn `/messages` fetch comes
+    // back with no anchor. With no anchor there is no cursor to replay the
+    // buffered tail from, so taking such a fetch wholesale would wipe every
+    // event the live view has already folded: the streamed text vanishes and
+    // the following deltas rebuild only the suffix until the turn-end reseed
+    // restores the full reply (the mid-turn "vanishing prefix" flicker). A
+    // live view that has folded seq-stamped events is a superset of anything
+    // an anchor-less fetch can hold, so keep it and drop the fetch. The
+    // snapshot reset on conversation switch guarantees a non-null live view
+    // belongs to `conversationId`.
+    const current = get().snapshot;
+    if (snapshot.seq == null && current !== null && typeof current.seq === "number") {
+      recordDiagnostic("history_seed_skipped_anchorless", {
+        conversationId,
+        liveSeq: current.seq,
+      });
+      return;
+    }
     const tail = getSseEnvelopesSince(conversationId, snapshot.seq ?? null);
     const resolved = resolveSnapshot(snapshot, tail);
     set((s) => ({
