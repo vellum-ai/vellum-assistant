@@ -117,6 +117,24 @@ describe("useEffectiveChatPlugins", () => {
     expect(result.current.plugins.map((p) => p.name)).toEqual(["a", "b", "c"]);
   });
 
+  test("existing chat whose detail is still loading → isResolved false", async () => {
+    // Never resolves: an existing conversation whose detail GET is still pending.
+    conversationImpl = () =>
+      new Promise<{ data: ConversationsByIdGetResponse }>(() => {});
+    // A scoped draft stash exists, but a still-loading existing chat must NOT
+    // fall back to it (that would show the wrong scope until the GET lands).
+    useConversationStore
+      .getState()
+      .setPendingDraftPlugins(CONVERSATION_ID, new Set(["a"]));
+
+    const { result } = renderEffective();
+
+    // Installed list loads; the conversation detail stays pending.
+    await waitFor(() => expect(result.current.total).toBe(3));
+
+    expect(result.current.isResolved).toBe(false);
+  });
+
   test("sent conversation with enabledPlugins ['a'] → only 'a' selected", async () => {
     conversationImpl = () => Promise.resolve(conversationWith(["a"]));
     // A conflicting draft stash must lose to the loaded server row.

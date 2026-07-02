@@ -31,6 +31,7 @@ const effectiveRef = {
     selectedCount: 0,
     total: 0,
     isDefault: true,
+    isResolved: true,
   },
 };
 mock.module(
@@ -50,6 +51,7 @@ function setEffective(
     selectedCount: overrides.selectedCount ?? selected.length,
     total: overrides.total ?? plugins.length,
     isDefault: overrides.isDefault ?? false,
+    isResolved: overrides.isResolved ?? true,
   };
 }
 
@@ -67,6 +69,7 @@ beforeEach(() => {
     selectedCount: 0,
     total: 0,
     isDefault: true,
+    isResolved: true,
   };
 });
 
@@ -77,6 +80,20 @@ afterEach(() => {
 describe("InChatPluginPill", () => {
   test("renders nothing when no plugins are installed", () => {
     setEffective([], { total: 0 });
+    const { container } = renderPill();
+    expect(container.textContent).toBe("");
+  });
+
+  test("renders nothing while the chat's scope is still resolving", () => {
+    // An existing chat whose detail hasn't loaded — don't show the default
+    // scope; wait until it's known.
+    setEffective(
+      [
+        { name: "a", label: "Alpha", selected: true },
+        { name: "b", label: "Beta", selected: true },
+      ],
+      { isResolved: false },
+    );
     const { container } = renderPill();
     expect(container.textContent).toBe("");
   });

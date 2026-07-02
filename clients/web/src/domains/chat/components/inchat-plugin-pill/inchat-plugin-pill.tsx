@@ -33,7 +33,7 @@ export function InChatPluginPill({
   assistantId,
   conversationId,
 }: InChatPluginPillProps) {
-  const { plugins, selectedCount, total } = useEffectiveChatPlugins(
+  const { plugins, selectedCount, total, isResolved } = useEffectiveChatPlugins(
     assistantId,
     conversationId,
   );
@@ -46,8 +46,10 @@ export function InChatPluginPill({
     navigate(routes.plugins);
   }, [navigate]);
 
-  // No plugins installed for this assistant — nothing to summarize.
-  if (total === 0) {
+  // Nothing to summarize (no installed plugins), or the chat's scope isn't known
+  // yet (an existing chat's detail is still loading) — wait rather than show the
+  // default/all-selected scope for an explicitly scoped chat.
+  if (total === 0 || !isResolved) {
     return null;
   }
 

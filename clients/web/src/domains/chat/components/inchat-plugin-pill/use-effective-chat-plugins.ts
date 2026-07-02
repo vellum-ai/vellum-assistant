@@ -40,6 +40,12 @@ export interface UseEffectiveChatPluginsResult {
   total: number;
   /** True when the chat has no explicit set — every installed plugin selected. */
   isDefault: boolean;
+  /**
+   * True once the chat's scope is known (row loaded, confirmed absent, or a
+   * draft context). False while an existing chat's detail is still loading — so
+   * consumers can wait rather than show the default/all-selected scope.
+   */
+  isResolved: boolean;
 }
 
 const EMPTY_RESULT: UseEffectiveChatPluginsResult = {
@@ -47,6 +53,7 @@ const EMPTY_RESULT: UseEffectiveChatPluginsResult = {
   selectedCount: 0,
   total: 0,
   isDefault: true,
+  isResolved: true,
 };
 
 /** Installed-tier ordering: alphabetical by name (mirrors the Plugins tab's `sortPlugins`). */
@@ -82,23 +89,41 @@ export function useEffectiveChatPlugins(
     enabled: Boolean(assistantId),
   });
 
-  const { data: convData } = useQuery({
+  const convEnabled = Boolean(assistantId) && Boolean(conversationId);
+  const convQuery = useQuery({
     ...conversationsByIdGetOptions({
       path: { assistant_id: assistantId ?? "", id: conversationId ?? "" },
     }),
-    enabled: Boolean(assistantId) && Boolean(conversationId),
+    enabled: convEnabled,
   });
+  const convData = convQuery.data;
+  const convIsError = convQuery.isError;
+  const convIsSuccess = convQuery.isSuccess;
 
   return useMemo(() => {
     const installed = installedData?.plugins ?? [];
-    if (installed.length === 0) return EMPTY_RESULT;
+    if (installed.length === 0) {
+      return EMPTY_RESULT;
+    }
 
-    // The explicit scope for this chat, or `null` when the chat is at its
-    // default (every installed plugin selected). A loaded server row is the
-    // source of truth; without one, fall back to the composer draft stash.
+    const conversation = convData?.conversation as
+      | ConversationWithEnabledPlugins
+      | undefined;
+
+    // The chat's scope is known once the conversation detail settles: a loaded
+    // row, a confirmed 404/no-row, or a draft context (no conversationId /
+    // disabled query). While an existing chat's detail is still pending, the
+    // scope is unknown — `isResolved` is false so the pill waits instead of
+    // showing the draft/default (all plugins) for an explicitly scoped chat.
+    const rowKnownAbsent =
+      !convEnabled || convIsError || (convIsSuccess && !conversation);
+    const isResolved = Boolean(conversation) || rowKnownAbsent;
+
+    // The explicit scope for this chat, or `null` at its default (every
+    // installed plugin selected). A loaded row is the source of truth; when the
+    // row is known absent, fall back to the composer draft stash.
     let explicit: Set<string> | null;
-    if (convData?.conversation) {
-      const conversation = convData.conversation as ConversationWithEnabledPlugins;
+    if (conversation) {
       explicit = conversation.enabledPlugins
         ? new Set(conversation.enabledPlugins)
         : null;
@@ -127,6 +152,15 @@ export function useEffectiveChatPlugins(
       selectedCount,
       total: plugins.length,
       isDefault,
+      isResolved,
     };
-  }, [installedData?.plugins, convData, conversationId, pendingDraftPlugins]);
+  }, [
+    installedData?.plugins,
+    convData,
+    convIsError,
+    convIsSuccess,
+    convEnabled,
+    conversationId,
+    pendingDraftPlugins,
+  ]);
 }
