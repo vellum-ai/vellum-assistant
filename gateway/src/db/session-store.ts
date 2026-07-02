@@ -228,20 +228,28 @@ export function findPendingSessionForChannel(
   return row ? rowToSession(row) : null;
 }
 
+export type ConsumeSessionResult =
+  | { consumed: true; consumedAt: number }
+  | { consumed: false };
+
 /**
  * Mark a session consumed. The status guard ensures atomicity under
  * concurrent consumers — only the first wins; later attempts (or attempts
  * on already-consumed/revoked/expired-status rows) see zero changes and
- * return false, preserving one-time-code semantics.
+ * return `{consumed: false}`, preserving one-time-code semantics.
+ *
+ * On success, `consumedAt` is the exact `updated_at` written by the UPDATE,
+ * so callers anchoring recency checks (ATL-514) never re-sample the clock.
  */
 export function consumeSession(
   id: string,
   actorExternalUserId: string,
   actorChatId: string,
-): boolean {
+): ConsumeSessionResult {
   // Raw client because drizzle's bun-sqlite run() does not surface the
   // changes count needed for the single-consumer guarantee.
   const raw = (getGatewayDb() as unknown as { $client: Database }).$client;
+  const consumedAt = Date.now();
   const changes = raw
     .prepare(
       `UPDATE channel_verification_sessions
@@ -252,9 +260,9 @@ export function consumeSession(
        WHERE id = ?
          AND status IN (${INTERCEPTABLE_STATUSES_SQL})`,
     )
-    .run(actorExternalUserId, actorChatId, Date.now(), id).changes;
+    .run(actorExternalUserId, actorChatId, consumedAt, id).changes;
 
-  return changes > 0;
+  return changes > 0 ? { consumed: true, consumedAt } : { consumed: false };
 }
 
 // ---------------------------------------------------------------------------

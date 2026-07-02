@@ -7,8 +7,9 @@
  * and wire-shaped responses. The key security property pinned here: secrets
  * are minted gateway-side and only their SHA-256 hashes are persisted.
  *
- * `verification_sessions_validate_consume` ships separately and is asserted
- * absent.
+ * `verification_sessions_validate_consume` registration/schema is pinned
+ * here; its validation, rate-limiting, and side-effect behavior is covered
+ * by gateway/src/__tests__/verification-session-consume.test.ts.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -21,6 +22,7 @@ import {
   CreateInboundSessionIpcResponseSchema,
   CreateOutboundSessionIpcResponseSchema,
   VERIFICATION_SESSIONS_IPC_METHODS,
+  ValidateConsumeSessionIpcResponseSchema,
   VerificationSessionSchema,
   hashVerificationSecret,
 } from "@vellumai/gateway-client";
@@ -114,27 +116,13 @@ afterEach(() => {
 });
 
 describe("route registration", () => {
-  test("registers exactly the 10 lifecycle methods, each with a schema", () => {
-    const lifecycleMethods = Object.values(METHODS).filter(
-      (m) => m !== METHODS.validateConsume,
-    );
+  test("registers all 11 verification_sessions_* methods, each with a schema", () => {
     expect(verificationSessionRoutes.map((r) => r.method).sort()).toEqual(
-      [...lifecycleMethods].sort(),
+      Object.values(METHODS).sort(),
     );
     for (const route of verificationSessionRoutes) {
       expect(route.schema).toBeDefined();
     }
-  });
-
-  test("validate_consume is not registered yet → 404 UNKNOWN_METHOD", async () => {
-    const res = await rpc(METHODS.validateConsume, {
-      channel: "telegram",
-      secret: "s",
-      actorExternalUserId: "u",
-      actorChatId: "c",
-    });
-    expect(res.statusCode).toBe(404);
-    expect(res.errorCode).toBe("UNKNOWN_METHOD");
   });
 });
 
@@ -380,6 +368,45 @@ describe("mutation routes: bind / update_status / update_delivery / revoke", () 
   });
 });
 
+describe("verification_sessions_validate_consume", () => {
+  test("round-trip: wrong code fails generically; correct code consumes once", async () => {
+    // Behavioral depth (side effects, rate limiting, ATL-514) is covered by
+    // verification-session-consume.test.ts — this pins the wire shape.
+    const created = CreateOutboundSessionIpcResponseSchema.parse(
+      await call(METHODS.createOutbound, {
+        channel: "telegram",
+        expectedExternalUserId: "tg-user-1",
+        expectedChatId: "tg-chat-1",
+      }),
+    );
+    const actor = {
+      channel: "telegram",
+      actorExternalUserId: "tg-user-1",
+      actorChatId: "tg-chat-1",
+    };
+
+    const bad = ValidateConsumeSessionIpcResponseSchema.parse(
+      await call(METHODS.validateConsume, { ...actor, secret: "000000" }),
+    );
+    expect(bad).toEqual({ success: false, reason: "invalid_or_expired" });
+
+    const ok = ValidateConsumeSessionIpcResponseSchema.parse(
+      await call(METHODS.validateConsume, { ...actor, secret: created.secret }),
+    );
+    expect(ok).toEqual({ success: true, verificationType: "guardian" });
+
+    const row = getRow(created.sessionId);
+    expect(row?.status).toBe("consumed");
+    expect(row?.consumedByExternalUserId).toBe("tg-user-1");
+
+    // One-time code: the replay fails.
+    const replay = ValidateConsumeSessionIpcResponseSchema.parse(
+      await call(METHODS.validateConsume, { ...actor, secret: created.secret }),
+    );
+    expect(replay.success).toBe(false);
+  });
+});
+
 describe("schema rejection", () => {
   test("malformed params → 400 BAD_REQUEST without touching the store", async () => {
     const badCalls: Array<[string, Record<string, unknown>]> = [
@@ -396,6 +423,8 @@ describe("schema rejection", () => {
         { channel: "phone", destinationAddress: "+15555550142", windowMs: -1 },
       ],
       [METHODS.revokePending, { channel: 42 }],
+      [METHODS.validateConsume, { channel: "phone", secret: "123456" }], // actor ids required
+      [METHODS.validateConsume, { channel: "phone", secret: "" }],
     ];
 
     for (const [method, params] of badCalls) {

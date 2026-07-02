@@ -378,7 +378,13 @@ async function applyGuardianSideEffects(params: {
   return true;
 }
 
-async function applyTrustedContactSideEffects(params: {
+/**
+ * Trusted-contact side effect for a consumed verification session:
+ * idempotent verified-channel upsert. Shared with the session service's
+ * validate+consume path so the write has exactly one implementation.
+ * Returns false when the authoritative gateway row is blocked/revoked.
+ */
+export async function applyTrustedContactSideEffects(params: {
   sourceChannel: string;
   canonicalUserId: string;
   actorChatId: string;

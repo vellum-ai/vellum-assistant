@@ -27,17 +27,17 @@
 
 import { existsSync } from "node:fs";
 
-import { createGuardianBinding } from "../auth/guardian-bootstrap.js";
 import { ipcCallAssistant } from "../ipc/assistant-client.js";
 import { noteIpcReachable, noteIpcTransportError } from "../ipc/ipc-health.js";
 import { getLogger } from "../logger.js";
 import { resolveIpcSocketPath } from "../ipc/socket-path.js";
-import {
-  getExistingGuardianBinding,
-  getMostRecentChannelGuardianTimestamp,
-  resolveCanonicalPrincipal,
-  revokeExistingChannelGuardian,
-} from "./binding-helpers.js";
+import { createPhoneGuardianBinding } from "./session-service.js";
+
+// The binding logic (ATL-514 recency check, deliberate-rebind semantics)
+// moved to the session service, which now also applies it synchronously at
+// consume time via verification_sessions_validate_consume. Re-exported here
+// for this module's tests until the poller is deleted.
+export { createPhoneGuardianBinding };
 
 const log = getLogger("outbound-voice-verification-sync");
 
@@ -151,72 +151,3 @@ async function syncOutboundVoiceVerifications(): Promise<void> {
   }
 }
 
-export async function createPhoneGuardianBinding(
-  phoneNumber: string,
-  chatId: string,
-  sessionUpdatedAt: number,
-): Promise<void> {
-  // Recency check (security backstop, ATL-514). The poller's lookback
-  // window can include sessions that were consumed legitimately at the
-  // time but have since been superseded — by manual revocation, or by a
-  // sibling binding path (e.g. inbound verification).
-  // `getExistingGuardianBinding` only checks active bindings, so without
-  // this guard we would reactivate a revoked binding or revoke an active
-  // one in favor of a stale session.
-  const lastBindingTs = await getMostRecentChannelGuardianTimestamp("phone");
-  if (lastBindingTs != null && sessionUpdatedAt <= lastBindingTs) {
-    log.warn(
-      { phoneNumber, sessionUpdatedAt, lastBindingTs },
-      "Outbound voice verification sync: session older than most recent binding event; skipping (replay-protection)",
-    );
-    return;
-  }
-
-  const canonicalPrincipal = await resolveCanonicalPrincipal(phoneNumber);
-  const existingBinding = await getExistingGuardianBinding("phone");
-
-  if (existingBinding) {
-    if (existingBinding.address === phoneNumber) {
-      // Idempotent — binding already exists for this number. Can happen
-      // on gateway restart when the in-memory cursor falls back to the
-      // 24h lookback and re-encounters an already-processed session, or
-      // if the poller fires twice before lastSyncAt advances.
-      log.info(
-        { phoneNumber },
-        "Outbound voice verification sync: binding already exists, skipping",
-      );
-      return;
-    }
-
-    // A different number holds the phone guardian binding — revoke it first.
-    //
-    // This is an intentional behavioral difference from the inbound path
-    // (twilio-voice-verify-callback.ts), which logs and skips on conflict.
-    // Outbound calls are guardian-initiated by definition: only the trusted
-    // guardian can command the assistant to dial a specific number with
-    // expected_phone_e164 set. So an outbound code-redemption is always a
-    // deliberate rebind. Inbound's conservative skip exists because anyone
-    // could call in with a stolen code; outbound has no such attack surface.
-    //
-    // The recency check above ensures we only rebind when the consumed
-    // session is newer than the current binding's last-touched timestamp.
-    log.warn(
-      { phoneNumber, existingGuardian: existingBinding.address },
-      "Outbound voice verification sync: revoking conflicting phone guardian binding",
-    );
-    await revokeExistingChannelGuardian("phone");
-  }
-
-  await createGuardianBinding({
-    channel: "phone",
-    externalUserId: phoneNumber,
-    deliveryChatId: chatId,
-    guardianPrincipalId: canonicalPrincipal,
-    verifiedVia: "challenge",
-  });
-
-  log.info(
-    { phoneNumber, canonicalPrincipal },
-    "Outbound voice verification sync: guardian phone binding created",
-  );
-}
