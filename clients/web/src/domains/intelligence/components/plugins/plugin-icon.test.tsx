@@ -1,6 +1,6 @@
 /**
- * Tests for `PluginIcon`: glyph defaulting by `external` and the `sm` / `md`
- * container sizing that matches `SkillIcon`.
+ * Tests for `PluginIcon`: the author `icon` emoji, glyph defaulting by
+ * `external`, and the `sm` / `md` container sizing that matches `SkillIcon`.
  *
  * Mounted via `@testing-library/react` (happy-dom — see
  * `clients/web/test-setup.ts`).
@@ -20,6 +20,11 @@ const PACKAGE = "\u{1F4E6}"; // 📦
 const PUZZLE = "\u{1F9E9}"; // 🧩
 
 describe("PluginIcon", () => {
+  test("renders the provided icon emoji", () => {
+    const { container } = render(<PluginIcon icon="🚀" />);
+    expect(container.textContent).toBe("🚀");
+  });
+
   test("defaults to 📦 when external", () => {
     const { container } = render(<PluginIcon external />);
     expect(container.textContent).toBe(PACKAGE);
