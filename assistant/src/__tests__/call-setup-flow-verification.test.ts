@@ -248,7 +248,7 @@ function createFlow(opts?: {
       attemptCalls.push(params);
       return attempt(params);
     },
-    resolveMidCallTrust: async (assistantId, fromNumber) => {
+    resolveMidCallTrustContext: async (assistantId, fromNumber) => {
       trustResolutions.push({ assistantId, fromNumber });
       return UPGRADED_TRUST;
     },
@@ -473,7 +473,7 @@ describe("CallSetupFlow verification sub-flows", () => {
         releaseTrust = resolve;
       });
       const { flow, results, spoken } = createFlow({
-        deps: { resolveMidCallTrust: () => gated },
+        deps: { resolveMidCallTrustContext: () => gated },
       });
       await flow.start(inboundVerificationOutcome, makeResolved());
 
@@ -504,7 +504,7 @@ describe("CallSetupFlow verification sub-flows", () => {
     test("trust re-resolution failure falls back to the setup-time trust", async () => {
       const { flow, results } = createFlow({
         deps: {
-          resolveMidCallTrust: async () => {
+          resolveMidCallTrustContext: async () => {
             throw new Error("gateway blip");
           },
         },

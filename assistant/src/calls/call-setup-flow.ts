@@ -7,9 +7,9 @@
  * completion) flow through injected deps so the flow is unit-testable and
  * independent of any wire protocol.
  *
- * Handles `normal_call`, `deny`, and the three verification actions
- * (`verification`, `outbound_verification`, `callee_verification`). Other
- * setup actions (invite redemption, name capture) throw
+ * Handles `normal_call`, `deny`, the three verification actions
+ * (`verification`, `outbound_verification`, `callee_verification`), and
+ * `invite_redemption`. Other setup actions (name capture) throw
  * {@link UnsupportedSetupFlowError}.
  */
 
@@ -42,7 +42,6 @@ import type {
 } from "./call-setup-flow-types.js";
 import type { fireCallTranscriptNotifier as fireCallTranscriptNotifierFn } from "./call-state.js";
 import type {
-  getCallSession as getCallSessionFn,
   recordCallEvent as recordCallEventFn,
   updateCallSession as updateCallSessionFn,
 } from "./call-store.js";
@@ -50,11 +49,14 @@ import type { finalizeCall as finalizeCallFn } from "./finalize-call.js";
 import { getInboundTrustVerdict } from "./inbound-trust-reader.js";
 import type { SetupOutcome, SetupResolved } from "./relay-setup-router.js";
 import {
+  attemptInviteCodeRedemption as attemptInviteCodeRedemptionImpl,
   attemptVerificationCode as attemptVerificationCodeImpl,
   parseDigitsFromSpeech,
 } from "./relay-verification.js";
 
 const log = getLogger("call-setup-flow");
+
+const INVITE_CODE_LENGTH = 6;
 
 // ── Errors ───────────────────────────────────────────────────────────
 
@@ -67,6 +69,13 @@ export class UnsupportedSetupFlowError extends Error {
 }
 
 // ── Dependencies ─────────────────────────────────────────────────────
+
+/** Structural subset of the call session that setup sub-flows read. */
+export interface SetupFlowCallSession {
+  conversationId: string;
+  initiatedFromConversationId?: string | null;
+  toNumber?: string;
+}
 
 /**
  * Side-effect surface injected into the flow. Sub-flows extend this
@@ -93,23 +102,32 @@ export interface CallSetupFlowDeps {
    */
   ttsPlaybackDelayMs?: number;
 
-  // ── Verification sub-flow deps ─────────────────────────────────────
+  // ── Verification / invite sub-flow deps ────────────────────────────
   // Optional so callers exercising only normal_call/deny need not supply
-  // them. Verification sub-flows resolve all of them up front at start()
-  // and throw on a missing side-effect dep (see requireVerificationDeps).
-  getCallSession?(id: string): ReturnType<typeof getCallSessionFn>;
+  // them. Each sub-flow resolves the deps it needs up front at start()
+  // and throws on a missing side-effect dep (see requireVerificationDeps
+  // and requireInviteDeps).
+  /** Look up the call session (used for its conversation/routing fields). */
+  getCallSession?(id: string): SetupFlowCallSession | null;
   finalizeCall?: typeof finalizeCallFn;
   addMessage?: typeof addMessageFn;
   addPointerMessage?: typeof addPointerMessageFn;
   fireCallTranscriptNotifier?: typeof fireCallTranscriptNotifierFn;
-  /** Human-readable guardian label for deterministic handoff copy. */
+  /** Human-readable guardian label for prompts and handoff copy. */
   resolveGuardianLabel?(): string;
   /** Assistant display name, or null when unavailable. */
   resolveAssistantLabel?(): string | null;
   /** Defaults to {@link attemptVerificationCodeImpl} (relay-verification). */
   attemptVerificationCode?: typeof attemptVerificationCodeImpl;
-  /** Defaults to {@link resolveMidCallTrustContext}. */
-  resolveMidCallTrust?(
+  /** Gateway-native invite claim. Defaults to relay-verification's. */
+  attemptInviteCodeRedemption?: typeof attemptInviteCodeRedemptionImpl;
+  /**
+   * Re-resolve caller trust after a successful mid-setup activation
+   * (verdict-first with local fallback). Defaults to
+   * {@link resolveMidCallTrustContext}; errors fail soft to the
+   * setup-time trust.
+   */
+  resolveMidCallTrustContext?(
     assistantId: string,
     fromNumber: string,
   ): Promise<TrustContext>;
@@ -127,8 +145,35 @@ type VerificationDeps = Required<
     | "resolveGuardianLabel"
     | "resolveAssistantLabel"
     | "attemptVerificationCode"
-    | "resolveMidCallTrust"
+    | "resolveMidCallTrustContext"
   >
+>;
+
+/** Invite-redemption deps with defaults applied and optionality removed. */
+type InviteDeps = Required<
+  Pick<
+    CallSetupFlowDeps,
+    | "getCallSession"
+    | "finalizeCall"
+    | "fireCallTranscriptNotifier"
+    | "resolveGuardianLabel"
+    | "resolveAssistantLabel"
+    | "attemptInviteCodeRedemption"
+    | "resolveMidCallTrustContext"
+  >
+>;
+
+/**
+ * Deps needed by the shared trusted-contact activation continuation —
+ * the common subset of {@link VerificationDeps} and {@link InviteDeps}.
+ */
+type ActivationDeps = Pick<
+  VerificationDeps,
+  | "getCallSession"
+  | "fireCallTranscriptNotifier"
+  | "resolveGuardianLabel"
+  | "resolveAssistantLabel"
+  | "resolveMidCallTrustContext"
 >;
 
 // ── Module helpers ───────────────────────────────────────────────────
@@ -211,24 +256,48 @@ type VerificationMode =
   | "outbound_verification"
   | "callee_verification";
 
+/** Sub-flows that collect a numeric code from the caller. */
+type CodeCollectionMode = VerificationMode | "invite_redemption";
+
+interface InviteRedemptionState {
+  assistantId: string;
+  fromNumber: string;
+  inviteeName: string | null;
+}
+
 export class CallSetupFlow implements SetupFlowInput {
   private state: SetupFlowState = "idle";
 
-  // ── Verification sub-flow state ─────────────────────────────────────
-  private vdeps: VerificationDeps | null = null;
-  private verificationMode: VerificationMode | null = null;
+  // ── Code-collection state (shared by verification + invite) ────────
+  private codeMode: CodeCollectionMode | null = null;
+  /** Shared digit buffer for code collection (DTMF + spoken digits). */
   private digitBuffer = "";
-  private verificationAttempts = 0;
-  private verificationMaxAttempts = 3;
-  private verificationCodeLength = 6;
-  private verificationAssistantId = "";
-  private verificationFromNumber = "";
-  private outboundVerificationSessionId: string | null = null;
-  private calleeVerificationCode: string | null = null;
+  private codeLength = 6;
   /** Setup-time trust, kept as the fallback when re-resolution fails. */
   private initialTrustContext: TrustContext | null = null;
   private trustReResolving = false;
   private deferredTranscripts: string[] = [];
+
+  // ── Verification sub-flow state ─────────────────────────────────────
+  private vdeps: VerificationDeps | null = null;
+  private verificationAttempts = 0;
+  private verificationMaxAttempts = 3;
+  private verificationAssistantId = "";
+  private verificationFromNumber = "";
+  private outboundVerificationSessionId: string | null = null;
+  private calleeVerificationCode: string | null = null;
+
+  // ── Invite-redemption sub-flow state ────────────────────────────────
+  private ideps: InviteDeps | null = null;
+  private invite: InviteRedemptionState | null = null;
+  /**
+   * In-flight dedupe guard: the gateway claim is async, and a repeated
+   * code (re-spoken / re-entered) arriving while it is pending must not
+   * fire a second redemption that would see the invite already consumed
+   * and wrongly fail the call. Set synchronously before awaiting and
+   * cleared in a finally.
+   */
+  private inviteRedemptionInFlight = false;
 
   constructor(
     private readonly callSessionId: string,
@@ -290,6 +359,10 @@ export class CallSetupFlow implements SetupFlowInput {
         );
         return;
 
+      case "invite_redemption":
+        this.startInviteRedemption(outcome, resolved);
+        return;
+
       default:
         throw new UnsupportedSetupFlowError(outcome.action);
     }
@@ -302,16 +375,16 @@ export class CallSetupFlow implements SetupFlowInput {
     if (!this.acceptsInput()) {
       return;
     }
-    if (this.verificationMode == null) {
+    if (this.codeMode == null) {
       return;
     }
     this.digitBuffer += digit;
-    if (this.digitBuffer.length < this.verificationCodeLength) {
+    if (this.digitBuffer.length < this.codeLength) {
       return;
     }
-    const enteredCode = this.digitBuffer.slice(0, this.verificationCodeLength);
+    const enteredCode = this.digitBuffer.slice(0, this.codeLength);
     this.digitBuffer = "";
-    this.submitVerificationCode(enteredCode);
+    this.submitCode(enteredCode);
   }
 
   /** Feed a final caller transcript to the active sub-flow. No-op while idle/completed. */
@@ -327,23 +400,21 @@ export class CallSetupFlow implements SetupFlowInput {
       this.deferredTranscripts.push(text);
       return;
     }
-    if (this.verificationMode == null) {
+    if (this.codeMode == null) {
       return;
     }
     // Callee verification is DTMF-only — the callee should be entering
     // digits on their keypad, not speaking.
-    if (this.verificationMode === "callee_verification") {
+    if (this.codeMode === "callee_verification") {
       return;
     }
     const spokenDigits = parseDigitsFromSpeech(text);
-    if (spokenDigits.length >= this.verificationCodeLength) {
-      this.submitVerificationCode(
-        spokenDigits.slice(0, this.verificationCodeLength),
-      );
+    if (spokenDigits.length >= this.codeLength) {
+      this.submitCode(spokenDigits.slice(0, this.codeLength));
     } else if (spokenDigits.length > 0) {
       void this.deps.speakSystemPrompt(
         this.transport,
-        `I heard ${spokenDigits.length} digits. Please enter all ${this.verificationCodeLength} digits of your code.`,
+        `I heard ${spokenDigits.length} digits. Please enter all ${this.codeLength} digits of your code.`,
       );
     }
   }
@@ -436,7 +507,7 @@ export class CallSetupFlow implements SetupFlowInput {
     void this.deps.speakSystemPrompt(
       this.transport,
       composeVerificationVoice(GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_CALL_INTRO, {
-        codeDigits: this.verificationCodeLength,
+        codeDigits: this.codeLength,
       }),
     );
   }
@@ -457,17 +528,17 @@ export class CallSetupFlow implements SetupFlowInput {
     );
     this.verificationAssistantId = resolved.assistantId;
 
-    const maxValue = Math.pow(10, this.verificationCodeLength);
+    const maxValue = Math.pow(10, this.codeLength);
     const code = randomInt(0, maxValue)
       .toString()
-      .padStart(this.verificationCodeLength, "0");
+      .padStart(this.codeLength, "0");
     this.calleeVerificationCode = code;
 
     this.deps.recordCallEvent(
       this.callSessionId,
       "callee_verification_started",
       {
-        codeLength: this.verificationCodeLength,
+        codeLength: this.codeLength,
         maxAttempts: this.verificationMaxAttempts,
       },
     );
@@ -499,7 +570,7 @@ export class CallSetupFlow implements SetupFlowInput {
     }
   }
 
-  /** Shared entry bookkeeping for the code-collection sub-flows. */
+  /** Shared entry bookkeeping for the verification code-collection sub-flows. */
   private enterCodeCollection(
     mode: VerificationMode,
     resolved: SetupResolved,
@@ -507,10 +578,10 @@ export class CallSetupFlow implements SetupFlowInput {
   ): VerificationDeps {
     const vdeps = this.requireVerificationDeps();
     this.vdeps = vdeps;
-    this.verificationMode = mode;
+    this.codeMode = mode;
     this.verificationAttempts = 0;
     this.verificationMaxAttempts = config.maxAttempts;
-    this.verificationCodeLength = config.codeLength;
+    this.codeLength = config.codeLength;
     this.digitBuffer = "";
     this.initialTrustContext = toTrustContext(
       resolved.actorTrust,
@@ -520,16 +591,18 @@ export class CallSetupFlow implements SetupFlowInput {
     return vdeps;
   }
 
-  /** Route a fully collected code to the active verification sub-flow. */
-  private submitVerificationCode(enteredCode: string): void {
+  /** Route a fully collected code to the active code-collection sub-flow. */
+  private submitCode(enteredCode: string): void {
     const handler =
-      this.verificationMode === "callee_verification"
-        ? this.handleCalleeCode(enteredCode)
-        : this.handleVerificationCode(enteredCode);
+      this.codeMode === "invite_redemption"
+        ? this.handleInviteCodeEntry(enteredCode)
+        : this.codeMode === "callee_verification"
+          ? this.handleCalleeCode(enteredCode)
+          : this.handleVerificationCode(enteredCode);
     handler.catch((err) =>
       log.error(
         { err, callSessionId: this.callSessionId },
-        "Verification code handling failed",
+        "Setup code handling failed",
       ),
     );
   }
@@ -552,7 +625,7 @@ export class CallSetupFlow implements SetupFlowInput {
       verificationFromNumber: fromNumber,
       enteredCode,
       isOutbound,
-      codeDigits: this.verificationCodeLength,
+      codeDigits: this.codeLength,
       verificationAttempts: this.verificationAttempts,
       verificationMaxAttempts: this.verificationMaxAttempts,
     });
@@ -563,7 +636,7 @@ export class CallSetupFlow implements SetupFlowInput {
     }
 
     if (result.outcome === "success") {
-      this.verificationMode = null;
+      this.codeMode = null;
       this.digitBuffer = "";
       this.verificationAttempts = 0;
 
@@ -578,7 +651,7 @@ export class CallSetupFlow implements SetupFlowInput {
           fromNumber,
         );
       } else if (result.verificationType === "trusted_contact") {
-        await this.continueAfterTrustedContactActivation({
+        await this.continueAfterTrustedContactActivation(vdeps, {
           assistantId,
           fromNumber,
           activationReason: "trusted_contact_verified",
@@ -602,7 +675,7 @@ export class CallSetupFlow implements SetupFlowInput {
     }
 
     if (result.outcome === "failure") {
-      this.verificationMode = null;
+      this.codeMode = null;
       this.verificationAttempts = result.attempts;
 
       this.deps.recordCallEvent(this.callSessionId, result.eventName, {
@@ -651,7 +724,7 @@ export class CallSetupFlow implements SetupFlowInput {
     }
 
     if (enteredCode === this.calleeVerificationCode) {
-      this.verificationMode = null;
+      this.codeMode = null;
       this.calleeVerificationCode = null;
       this.verificationAttempts = 0;
 
@@ -671,7 +744,7 @@ export class CallSetupFlow implements SetupFlowInput {
     this.verificationAttempts++;
 
     if (this.verificationAttempts >= this.verificationMaxAttempts) {
-      this.verificationMode = null;
+      this.codeMode = null;
 
       this.deps.recordCallEvent(
         this.callSessionId,
@@ -768,39 +841,41 @@ export class CallSetupFlow implements SetupFlowInput {
    * with `proceed-handoff-spoken` so the controller marks the next caller
    * turn as an opening ack.
    */
-  private async continueAfterTrustedContactActivation(params: {
-    assistantId: string;
-    fromNumber: string;
-    activationReason?:
-      | "invite_redeemed"
-      | "access_approved"
-      | "trusted_contact_verified";
-    /**
-     * Display name resolved from the bound contact (or, for outbound invite
-     * calls, the session's recorded invitee name). Greeting uses only the
-     * first whitespace-delimited token; an empty/blank value triggers the
-     * neutral "Hi there" greeting rather than substituting the channel
-     * address.
-     */
-    inviteeName?: string | null;
-  }): Promise<void> {
-    const vdeps = this.vdeps ?? this.requireVerificationDeps();
+  private async continueAfterTrustedContactActivation(
+    adeps: ActivationDeps,
+    params: {
+      assistantId: string;
+      fromNumber: string;
+      activationReason?:
+        | "invite_redeemed"
+        | "access_approved"
+        | "trusted_contact_verified";
+      /**
+       * Display name resolved from the bound contact (or, for outbound invite
+       * calls, the session's recorded invitee name). Greeting uses only the
+       * first whitespace-delimited token; an empty/blank value triggers the
+       * neutral "Hi there" greeting rather than substituting the channel
+       * address.
+       */
+      inviteeName?: string | null;
+    },
+  ): Promise<void> {
     const { assistantId, fromNumber } = params;
 
     this.deps.updateCallSession(this.callSessionId, { status: "in_progress" });
 
     const trustContext = await this.resolveTrustWithDeferral(
-      vdeps,
+      adeps,
       assistantId,
       fromNumber,
     );
 
-    const guardianLabel = vdeps.resolveGuardianLabel();
+    const guardianLabel = adeps.resolveGuardianLabel();
     let handoffText: string;
 
     if (params.activationReason === "invite_redeemed") {
       const firstName = firstToken(params.inviteeName);
-      const assistantName = vdeps.resolveAssistantLabel();
+      const assistantName = adeps.resolveAssistantLabel();
       if (firstName) {
         handoffText = assistantName
           ? `Great, I've verified that you are ${firstName}. It's nice to meet you! I'm ${assistantName}, ${guardianLabel}'s assistant. How can I help?`
@@ -819,9 +894,9 @@ export class CallSetupFlow implements SetupFlowInput {
     this.deps.recordCallEvent(this.callSessionId, "assistant_spoke", {
       text: handoffText,
     });
-    const session = vdeps.getCallSession(this.callSessionId);
+    const session = adeps.getCallSession(this.callSessionId);
     if (session) {
-      vdeps.fireCallTranscriptNotifier(
+      adeps.fireCallTranscriptNotifier(
         session.conversationId,
         this.callSessionId,
         "assistant",
@@ -843,13 +918,13 @@ export class CallSetupFlow implements SetupFlowInput {
    * trust context on failure so a resolution blip can never wedge the call.
    */
   private async resolveTrustWithDeferral(
-    vdeps: VerificationDeps,
+    adeps: ActivationDeps,
     assistantId: string,
     fromNumber: string,
   ): Promise<TrustContext> {
     this.trustReResolving = true;
     try {
-      return await vdeps.resolveMidCallTrust(assistantId, fromNumber);
+      return await adeps.resolveMidCallTrustContext(assistantId, fromNumber);
     } catch (err) {
       log.error(
         { err, callSessionId: this.callSessionId },
@@ -866,11 +941,11 @@ export class CallSetupFlow implements SetupFlowInput {
     vdeps: VerificationDeps,
     conversationId: string,
     event: Parameters<VerificationDeps["addPointerMessage"]>[1],
-    phoneNumber: string,
+    phoneNumber: string | undefined,
     extra?: Parameters<VerificationDeps["addPointerMessage"]>[3],
   ): void {
     vdeps
-      .addPointerMessage(conversationId, event, phoneNumber, extra)
+      .addPointerMessage(conversationId, event, phoneNumber ?? "", extra)
       .catch((err) => {
         log.warn(
           { conversationId, err },
@@ -920,7 +995,40 @@ export class CallSetupFlow implements SetupFlowInput {
       resolveAssistantLabel: d.resolveAssistantLabel!,
       attemptVerificationCode:
         d.attemptVerificationCode ?? attemptVerificationCodeImpl,
-      resolveMidCallTrust: d.resolveMidCallTrust ?? resolveMidCallTrustContext,
+      resolveMidCallTrustContext:
+        d.resolveMidCallTrustContext ?? resolveMidCallTrustContext,
+    };
+  }
+
+  /** Resolve the invite-redemption deps, applying defaults for the pure logic. */
+  private requireInviteDeps(): InviteDeps {
+    const d = this.deps;
+    const missing = (
+      [
+        ["getCallSession", d.getCallSession],
+        ["finalizeCall", d.finalizeCall],
+        ["fireCallTranscriptNotifier", d.fireCallTranscriptNotifier],
+        ["resolveGuardianLabel", d.resolveGuardianLabel],
+        ["resolveAssistantLabel", d.resolveAssistantLabel],
+      ] as const
+    )
+      .filter(([, dep]) => dep == null)
+      .map(([name]) => name);
+    if (missing.length > 0) {
+      throw new Error(
+        `CallSetupFlow invite deps missing: ${missing.join(", ")}`,
+      );
+    }
+    return {
+      getCallSession: d.getCallSession!,
+      finalizeCall: d.finalizeCall!,
+      fireCallTranscriptNotifier: d.fireCallTranscriptNotifier!,
+      resolveGuardianLabel: d.resolveGuardianLabel!,
+      resolveAssistantLabel: d.resolveAssistantLabel!,
+      attemptInviteCodeRedemption:
+        d.attemptInviteCodeRedemption ?? attemptInviteCodeRedemptionImpl,
+      resolveMidCallTrustContext:
+        d.resolveMidCallTrustContext ?? resolveMidCallTrustContext,
     };
   }
 
@@ -930,6 +1038,157 @@ export class CallSetupFlow implements SetupFlowInput {
       () => this.transport.endSession(reason),
       this.deps.ttsPlaybackDelayMs ?? getTtsPlaybackDelayMs(),
     );
+  }
+
+  // ── Invite redemption ───────────────────────────────────────────────
+
+  /**
+   * Enter the invite-redemption sub-flow for a caller with an active voice
+   * invite. Prompts the caller to enter their 6-digit invite code via DTMF
+   * or speech; the code is validated in a single attempt.
+   */
+  private startInviteRedemption(
+    outcome: Extract<SetupOutcome, { action: "invite_redemption" }>,
+    resolved: SetupResolved,
+  ): void {
+    const ideps = this.requireInviteDeps();
+    this.ideps = ideps;
+    this.codeMode = "invite_redemption";
+    this.codeLength = INVITE_CODE_LENGTH;
+    this.digitBuffer = "";
+    this.inviteRedemptionInFlight = false;
+    this.invite = {
+      assistantId: outcome.assistantId,
+      fromNumber: outcome.fromNumber,
+      inviteeName: outcome.inviteeName,
+    };
+    this.initialTrustContext = toTrustContext(
+      resolved.actorTrust,
+      resolved.otherPartyNumber,
+    );
+    this.state = "collecting_code";
+
+    this.deps.recordCallEvent(this.callSessionId, "invite_redemption_started", {
+      assistantId: outcome.assistantId,
+      codeLength: INVITE_CODE_LENGTH,
+      maxAttempts: 1,
+    });
+
+    const displayFriend = firstToken(outcome.inviteeName) ?? "there";
+    const displayGuardian = ideps.resolveGuardianLabel();
+
+    let promptText: string;
+    if (!resolved.isInbound) {
+      const assistantName = ideps.resolveAssistantLabel();
+      promptText = assistantName
+        ? `Hi ${displayFriend}, this is ${assistantName}, ${displayGuardian}'s assistant. To get started, please enter the 6-digit code that ${displayGuardian} shared with you.`
+        : `Hi ${displayFriend}, this is ${displayGuardian}'s assistant. To get started, please enter the 6-digit code that ${displayGuardian} shared with you.`;
+    } else {
+      promptText = `Welcome ${displayFriend}. Please enter the 6-digit code that ${displayGuardian} provided you to verify your identity.`;
+    }
+    void this.deps.speakSystemPrompt(this.transport, promptText);
+
+    log.info(
+      { callSessionId: this.callSessionId, assistantId: outcome.assistantId },
+      `${resolved.isInbound ? "Inbound" : "Outbound"} voice invite redemption started`,
+    );
+  }
+
+  /**
+   * Validate a fully-entered invite code, deduping concurrent attempts:
+   * a repeated code arriving while the async gateway redemption is still
+   * in flight is ignored.
+   */
+  private async handleInviteCodeEntry(enteredCode: string): Promise<void> {
+    const invite = this.invite;
+    const ideps = this.ideps;
+    if (!invite || !ideps) {
+      return;
+    }
+    if (this.inviteRedemptionInFlight) {
+      log.info(
+        { callSessionId: this.callSessionId },
+        "Ignoring repeated invite code — redemption already in flight",
+      );
+      return;
+    }
+    this.inviteRedemptionInFlight = true;
+
+    try {
+      await this.runInviteCodeRedemption(ideps, invite, enteredCode);
+    } finally {
+      this.inviteRedemptionInFlight = false;
+    }
+  }
+
+  private async runInviteCodeRedemption(
+    ideps: InviteDeps,
+    invite: InviteRedemptionState,
+    enteredCode: string,
+  ): Promise<void> {
+    const result = await ideps.attemptInviteCodeRedemption({
+      inviteRedemptionFromNumber: invite.fromNumber,
+      enteredCode,
+      guardianLabel: ideps.resolveGuardianLabel(),
+    });
+
+    // A concurrent path may have already reached a terminal result.
+    if (this.state === "completed") {
+      return;
+    }
+
+    if (result.outcome === "success") {
+      this.codeMode = null;
+      this.digitBuffer = "";
+
+      this.deps.recordCallEvent(
+        this.callSessionId,
+        "invite_redemption_succeeded",
+        { memberId: result.memberId, inviteId: result.inviteId },
+      );
+      log.info(
+        {
+          callSessionId: this.callSessionId,
+          memberId: result.memberId,
+          type: result.type,
+        },
+        "Voice invite redemption succeeded",
+      );
+
+      await this.continueAfterTrustedContactActivation(ideps, {
+        assistantId: invite.assistantId,
+        fromNumber: invite.fromNumber,
+        activationReason: "invite_redeemed",
+        inviteeName: invite.inviteeName,
+      });
+    } else {
+      this.codeMode = null;
+
+      this.deps.recordCallEvent(
+        this.callSessionId,
+        "invite_redemption_failed",
+        { attempts: 1 },
+      );
+      log.warn(
+        { callSessionId: this.callSessionId },
+        "Voice invite redemption failed — invalid or expired code",
+      );
+
+      this.deps.updateCallSession(this.callSessionId, {
+        status: "failed",
+        endedAt: Date.now(),
+        lastError: "Voice invite redemption failed — invalid or expired code",
+      });
+
+      const failSession = ideps.getCallSession(this.callSessionId);
+      if (failSession) {
+        ideps.finalizeCall(this.callSessionId, failSession.conversationId);
+      }
+
+      await this.deps.speakSystemPrompt(this.transport, result.ttsMessage);
+      this.endSessionAfterPlayback("Invite redemption failed");
+      this.complete({ kind: "ended", reason: "Invite redemption failed" });
+    }
   }
 
   // ── Internals ───────────────────────────────────────────────────────
