@@ -6,8 +6,9 @@ import { join, sep } from "node:path";
  * db_proxy surface guard: the assistant-DB proxy (`assistant-db-proxy.ts` +
  * the daemon-side `db-proxy` route) is a temporary raw-SQL bridge, slated for
  * removal with the verification-session source-of-truth move. This source scan
- * fails if any gateway file OUTSIDE the allowlist imports the proxy or calls
- * `ipcCallAssistant("db_proxy")`, so the surface can only shrink, never grow.
+ * fails if any gateway file OUTSIDE the allowlist imports the proxy or names
+ * either raw-SQL bridge method (`db_proxy` / `db_proxy_transaction`), so the
+ * surface can only shrink, never grow.
  *
  * The proxy currently serves three groups (the allowlist below):
  *   1. Verification-session + rate-limit state — dies with the session-SoT move.
@@ -67,8 +68,13 @@ function relPosix(file: string): string {
 // A static/dynamic import of the proxy module, or a direct db_proxy IPC call.
 const IMPORTS_PROXY =
   /(?:from|import)\s*\(?\s*["'][^"']*assistant-db-proxy(?:\.js)?["']/;
-// Matches both raw-SQL bridge methods: `db_proxy` and `db_proxy_transaction`.
-const CALLS_DB_PROXY = /ipcCallAssistant\(\s*["']db_proxy(?:_transaction)?["']/;
+// Matches an IPC call to either raw-SQL bridge method (`db_proxy` /
+// `db_proxy_transaction`) by the quoted method name itself, independent of the
+// callee identifier — so aliasing `ipcCallAssistant` or stashing it in a local
+// cannot slip a new raw-SQL caller past the guard. The method-name string only
+// appears at these call sites (verified: no bare-mention false positives in the
+// scanned tree).
+const CALLS_DB_PROXY = /["']db_proxy(?:_transaction)?["']/;
 
 /** True if `src` reaches the assistant-DB proxy (import or direct IPC call). */
 function usesDbProxy(src: string): boolean {
@@ -103,6 +109,13 @@ describe("db_proxy caller allowlist guard", () => {
     // The transaction variant of the same raw-SQL bridge is also caught.
     expect(
       usesDbProxy(`await ipcCallAssistant("db_proxy_transaction", { steps });`),
+    ).toBe(true);
+    // Aliased / indirected callees are caught via the method-name string.
+    expect(
+      usesDbProxy(`import { ipcCallAssistant as call } from "x";\ncall("db_proxy", { sql });`),
+    ).toBe(true);
+    expect(
+      usesDbProxy(`const M = "db_proxy_transaction";\nawait send(M, { steps });`),
     ).toBe(true);
     // Unrelated IPC methods and identifiers must NOT match.
     expect(
