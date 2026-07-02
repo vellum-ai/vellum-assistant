@@ -1,8 +1,8 @@
 /**
  * Contact upsert/lookup helpers for gateway-owned verification.
  *
- * All operations go through assistantDbQuery/assistantDbRun (raw SQL via
- * IPC proxy). No IPC routes are used — only the direct SQL executor.
+ * Identity/info READS go through typed daemon IPC (contacts-info-client);
+ * mirror WRITES still go through assistantDbRun (raw SQL via IPC proxy).
  *
  * These helpers cover the subset of contact operations needed by the
  * verification intercept flow. They are intentionally simpler than the
@@ -20,6 +20,10 @@ import {
   contactChannels as gwContactChannels,
   contacts as gwContacts,
 } from "../db/schema.js";
+import {
+  lookupContactChannelIdentity,
+  probeContactMirror,
+} from "../ipc/contacts-info-client.js";
 import { getLogger } from "../logger.js";
 import { resolveIpcSocketPath } from "../ipc/socket-path.js";
 import { canonicalizeInboundIdentity } from "./identity.js";
@@ -49,18 +53,18 @@ export async function findContactChannelByAddress(
   channelType: string,
   address: string,
 ): Promise<ContactChannelRow | null> {
-  const rows = await assistantDbQuery<ContactChannelRow>(
-    `SELECT cc.id AS channelId, cc.contact_id AS contactId,
-            cc.address,
-            cc.external_chat_id AS externalChatId,
-            c.display_name AS displayName
-     FROM contact_channels cc
-     JOIN contacts c ON c.id = cc.contact_id
-     WHERE cc.type = ? AND cc.address = ? COLLATE NOCASE
-     LIMIT 1`,
-    [channelType, address],
-  );
-  return rows[0] ?? null;
+  const channel = await lookupContactChannelIdentity({
+    type: channelType,
+    address,
+  });
+  if (!channel) return null;
+  return {
+    channelId: channel.id,
+    contactId: channel.contactId,
+    address: channel.address,
+    externalChatId: channel.externalChatId,
+    displayName: channel.displayName,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -288,29 +292,16 @@ export async function deleteContactIfOrphaned(
   const mirrorReachable = existsSync(socketPath);
   if (mirrorReachable) {
     try {
-      const mirrorChannels = await assistantDbQuery<{ id: string }>(
-        `SELECT id FROM contact_channels WHERE contact_id = ? LIMIT 1`,
-        [contactId],
-      );
-      if (mirrorChannels.length > 0) {
+      const probe = await probeContactMirror(contactId);
+      if (probe.hasChannels) {
         return;
       }
-      const mirrorRows = await assistantDbQuery<{
-        notes: string | null;
-        userFile: string | null;
-        contactType: string;
-      }>(
-        `SELECT notes, user_file AS userFile, contact_type AS contactType
-         FROM contacts WHERE id = ?`,
-        [contactId],
-      );
-      mirrorRowPresent = mirrorRows.length > 0;
+      mirrorRowPresent = probe.exists;
       if (mirrorRowPresent) {
-        const mirror = mirrorRows[0];
         const hasGuardianAuthoredData =
-          (mirror.notes && mirror.notes.trim().length > 0) ||
-          (mirror.userFile && mirror.userFile.trim().length > 0) ||
-          mirror.contactType !== "human";
+          (probe.notes && probe.notes.trim().length > 0) ||
+          (probe.userFile && probe.userFile.trim().length > 0) ||
+          probe.contactType !== "human";
         if (hasGuardianAuthoredData) {
           log.info(
             { contactId },
@@ -318,12 +309,7 @@ export async function deleteContactIfOrphaned(
           );
           return;
         }
-        const mirrorMetadata = await assistantDbQuery<{ contactId: string }>(
-          `SELECT contact_id AS contactId FROM assistant_contact_metadata
-           WHERE contact_id = ? LIMIT 1`,
-          [contactId],
-        );
-        if (mirrorMetadata.length > 0) {
+        if (probe.hasMetadata) {
           log.info(
             { contactId },
             "Keeping orphaned seed contact: assistant mirror carries contact metadata",
