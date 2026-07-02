@@ -181,6 +181,17 @@ export type UpsertVerifiedChannelIpcResponse = z.infer<
   typeof UpsertVerifiedChannelIpcResponseSchema
 >;
 
+export const CreateContactIpcResponseSchema = z.object({
+  contactId: z.string(),
+  // Gateway channel id for the (channelType, address) pair, resolved from the
+  // gateway DB (source of truth). Empty when the read-back found no row.
+  channelId: z.string(),
+});
+
+export type CreateContactIpcResponse = z.infer<
+  typeof CreateContactIpcResponseSchema
+>;
+
 export const MarkChannelRevokedIpcParamsSchema = z.object({
   contactChannelId: z.string().min(1),
   // Audit reason for the downgrade. The verification-revoke flow passes
@@ -263,9 +274,7 @@ export const ListContactsIpcParamsSchema = z
   .strict()
   .default({});
 
-export type ListContactsIpcParams = z.infer<
-  typeof ListContactsIpcParamsSchema
->;
+export type ListContactsIpcParams = z.infer<typeof ListContactsIpcParamsSchema>;
 
 export const ListContactsIpcResponseSchema = z.object({
   ok: z.boolean(),
@@ -288,9 +297,7 @@ export const GetContactIpcResponseSchema = z.object({
   assistantMetadata: AssistantContactMetadataSchema.optional(),
 });
 
-export type GetContactIpcResponse = z.infer<
-  typeof GetContactIpcResponseSchema
->;
+export type GetContactIpcResponse = z.infer<typeof GetContactIpcResponseSchema>;
 
 export const GetGuardianContactIpcParamsSchema = z
   .object({})

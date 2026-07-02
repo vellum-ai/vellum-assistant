@@ -16,6 +16,7 @@ import type {
   UserMessageEchoEvent,
 } from "@vellumai/assistant-api";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 
 /**
  * Resolve the conversation id for SSE handlers — events that carry it on
@@ -270,12 +271,30 @@ export function handleMessageComplete(
  * collapse on, so fall back to retiring the most recent optimistic user send,
  * mirroring the legacy echo correlation. A no-op for echoes with no matching
  * optimistic row (other clients' sends, synthetic prompts).
+ *
+ * Retiring the optimistic row is gated on the snapshot being seeded. The fold
+ * that materializes the echoed server row (`applyEnvelopeToSnapshot`, dispatched
+ * from the same `sse.event` in `use-event-stream`) is itself a no-op until the
+ * snapshot exists — so on the FIRST message of a freshly server-minted
+ * conversation, whose history hasn't loaded yet, clearing the optimistic row
+ * here would drop the only rendered copy and blank the message out until
+ * `seedSnapshot` lands (the staging first-message flicker). When the snapshot is
+ * unseeded we leave the optimistic row in place and let
+ * `pruneConfirmedOptimisticSends` retire it atomically on the reseed — the
+ * persisted row carries the same `clientMessageId`, so it matches there.
  */
 export function handleUserMessageEcho(
   event: UserMessageEchoEvent,
   ctx: StreamHandlerContext,
 ): void {
   if (event.clientMessageId) {
+    // No snapshot yet → the paired fold can't materialize this row, so retiring
+    // the overlay now would leave a render gap (the staging first-message
+    // flicker). Defer to the reseed's `pruneConfirmedOptimisticSends`, which
+    // matches the persisted row on this same `clientMessageId`.
+    if (!useChatSessionStore.getState().snapshot) {
+      return;
+    }
     ctx.clearOptimisticSend(event.clientMessageId);
     return;
   }

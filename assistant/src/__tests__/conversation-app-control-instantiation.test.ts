@@ -79,6 +79,8 @@ const mockSkillRefCount = new Map<string, number>();
 
 mock.module("../config/skills.js", () => ({
   loadSkillCatalog: () => mockCatalog,
+  // Pass-through: these tests don't exercise per-chat plugin scoping.
+  filterSkillsByEnabledPlugins: (skills: unknown) => skills,
 }));
 
 mock.module("../skills/active-skill-tools.js", () => ({

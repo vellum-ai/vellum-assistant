@@ -108,6 +108,7 @@ import {
   isConversationProcessing,
   type MessageRow,
   provenanceFromTrustContext,
+  setConversationEnabledPlugins,
   setConversationInferenceProfile,
 } from "../../persistence/conversation-crud.js";
 import {
@@ -122,7 +123,10 @@ import { getConfiguredProvider } from "../../providers/provider-send-message.js"
 import type { Provider } from "../../providers/types.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { getSubagentManager } from "../../subagent/index.js";
-import { normalizeImageBase64 } from "../../util/image-conversion.js";
+import {
+  isHeicFilename,
+  normalizeImageBase64,
+} from "../../util/image-conversion.js";
 import { getLogger } from "../../util/logger.js";
 import {
   getWorkspaceDir,
@@ -951,34 +955,36 @@ export function handleListMessages({
       );
       if (linked.length > 0) {
         msgAttachments = linked.map((a) => {
-          if (a.mimeType.startsWith("image/")) {
-            const full = getAttachmentById(a.id, { hydrateFileData: true });
-            // Stored HEIF/HEIC content is hydrated as JPEG display data —
-            // Chromium-based clients cannot decode HEIF. Filename and
-            // sizeBytes keep describing the stored file, which
-            // /attachments/:id/content serves verbatim for downloads.
-            const display = full?.dataBase64
-              ? normalizeImageBase64(a.mimeType, full.dataBase64)
+          // Hydrate image rows for inline thumbnails. Legacy HEIC can be
+          // stored under application/octet-stream (empty File.type fallback),
+          // so `.heic`/`.heif` rows are hydrated by filename too;
+          // normalizeImageBase64 sniffs the bytes and rewrites only genuine
+          // HEIF, which Chromium-based clients cannot decode. Filename and
+          // sizeBytes keep describing the stored original, which
+          // /attachments/:id/content serves verbatim for downloads.
+          const isImage = a.mimeType.startsWith("image/");
+          const isLegacyHeic = !isImage && isHeicFilename(a.originalFilename);
+          const full =
+            isImage || isLegacyHeic
+              ? getAttachmentById(a.id, { hydrateFileData: true })
               : null;
-            return {
-              id: a.id,
-              filename: a.originalFilename,
-              mimeType: display?.mimeType ?? a.mimeType,
-              sizeBytes: a.sizeBytes,
-              kind: a.kind,
-              ...(display ? { data: display.dataBase64 } : {}),
-              ...(a.thumbnailBase64
-                ? { thumbnailData: a.thumbnailBase64 }
-                : {}),
-              fileBacked: true,
-            };
-          }
+          const display = full?.dataBase64
+            ? normalizeImageBase64(a.mimeType, full.dataBase64)
+            : null;
+          // Image rows carry data even when unconverted (thumbnails); a
+          // non-image row only becomes renderable once conversion yields a
+          // JPEG, so it stays metadata-only when conversion is unavailable.
+          const useDisplay =
+            display && (isImage || display.converted) ? display : null;
           return {
             id: a.id,
             filename: a.originalFilename,
-            mimeType: a.mimeType,
+            mimeType: useDisplay?.mimeType ?? a.mimeType,
             sizeBytes: a.sizeBytes,
-            kind: a.kind,
+            kind: useDisplay?.converted
+              ? classifyKind(useDisplay.mimeType)
+              : a.kind,
+            ...(useDisplay ? { data: useDisplay.dataBase64 } : {}),
             ...(a.thumbnailBase64 ? { thumbnailData: a.thumbnailBase64 } : {}),
             fileBacked: true,
           };
@@ -1296,6 +1302,7 @@ export async function handleSendMessage(
     clientId?: string;
     clientMessageId?: string;
     inferenceProfile?: string | null;
+    enabledPlugins?: string[] | null;
     riskThreshold?: string;
     onboarding?: {
       tools: string[];
@@ -1354,6 +1361,18 @@ export async function handleSendMessage(
         `Profile "${requestedInferenceProfile}" is not defined in llm.profiles`,
       );
     }
+  }
+  // `undefined` leaves the stored scope untouched; `null` clears it to the
+  // default; `[]` scopes the chat to no plugins.
+  const requestedEnabledPlugins = body.enabledPlugins;
+  if (
+    requestedEnabledPlugins != null &&
+    (!Array.isArray(requestedEnabledPlugins) ||
+      requestedEnabledPlugins.some((p) => typeof p !== "string"))
+  ) {
+    throw new BadRequestError(
+      "enabledPlugins must be an array of strings or null",
+    );
   }
   if (
     requestedRiskThreshold !== undefined &&
@@ -1583,6 +1602,14 @@ export async function handleSendMessage(
       sessionId: null,
       expiresAt: null,
     });
+  }
+
+  if (requestedEnabledPlugins !== undefined) {
+    setConversationEnabledPlugins(
+      mapping.conversationId,
+      requestedEnabledPlugins,
+    );
+    conversation.setEnabledPlugins(requestedEnabledPlugins);
   }
 
   // Store pre-chat onboarding context on the conversation when this is the
@@ -2914,6 +2941,13 @@ export const ROUTES: RouteDefinition[] = [
         )
         .optional(),
       inferenceProfile: z.string().nullable().optional(),
+      enabledPlugins: z
+        .array(z.string())
+        .nullable()
+        .optional()
+        .describe(
+          "Plugin ids that scope this conversation to a subset of installed plugins (first-party defaults are always available). When present on a message, it sets/updates the conversation's plugin scope (the web client sends it only on the first message of a new chat). null clears the scope to default (all enabled plugins); omitting the field leaves the existing scope unchanged.",
+        ),
       riskThreshold: z.enum(VALID_RISK_THRESHOLDS).optional(),
       hidden: z
         .boolean()

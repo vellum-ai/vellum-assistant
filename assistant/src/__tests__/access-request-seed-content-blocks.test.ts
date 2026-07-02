@@ -153,11 +153,67 @@ describe("buildAccessRequestSeedContentBlocks", () => {
     );
   });
 
-  test("surface block includes approve/reject actions when requestId present", () => {
-    const surface = surfaceOf(buildAccessRequestSeedContentBlocks(basePayload));
+  test("surface block renders introduction actions for a workspace member (no code option)", () => {
+    // Explicit positive signals: users.info resolved a regular member.
+    const surface = surfaceOf(
+      buildAccessRequestSeedContentBlocks({
+        ...basePayload,
+        isStranger: false,
+        isRestricted: false,
+      }),
+    );
     expect(surface.actions).toEqual([
-      { id: "apr:req-123:approve_once", label: "Approve", style: "primary" },
-      { id: "apr:req-123:reject", label: "Reject", style: "destructive" },
+      { id: "apr:req-123:trust", label: "Trust", style: "primary" },
+      {
+        id: "apr:req-123:leave_unverified",
+        label: "Leave unverified",
+        style: "secondary",
+      },
+      { id: "apr:req-123:block", label: "Block", style: "destructive" },
+    ]);
+  });
+
+  test("surface block leads with the handshake for an external Slack user", () => {
+    const surface = surfaceOf(
+      buildAccessRequestSeedContentBlocks({ ...basePayload, isStranger: true }),
+    );
+    // Unknown signals (users.info failure) render the same handshake-led
+    // shape — absent platform vouching must never yield one-tap Trust.
+    const unknownSignals = surfaceOf(
+      buildAccessRequestSeedContentBlocks(basePayload),
+    );
+    expect(unknownSignals.actions?.map((a) => a.id)).toEqual(
+      surface.actions?.map((a) => a.id) ?? [],
+    );
+    expect(surface.actions).toEqual([
+      {
+        id: "apr:req-123:verify_code",
+        label: "Verify with a code",
+        style: "primary",
+      },
+      { id: "apr:req-123:trust", label: "Trust anyway", style: "secondary" },
+      {
+        id: "apr:req-123:leave_unverified",
+        label: "Leave unverified",
+        style: "secondary",
+      },
+      { id: "apr:req-123:block", label: "Block", style: "destructive" },
+    ]);
+  });
+
+  test("surface block never offers the code option for a bot", () => {
+    const surface = surfaceOf(
+      buildAccessRequestSeedContentBlocks({
+        ...basePayload,
+        isBot: true,
+        isStranger: true,
+      }),
+    );
+    const ids = (surface.actions ?? []).map((a) => a.id);
+    expect(ids).toEqual([
+      "apr:req-123:trust",
+      "apr:req-123:leave_unverified",
+      "apr:req-123:block",
     ]);
   });
 

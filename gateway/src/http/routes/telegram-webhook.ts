@@ -402,8 +402,8 @@ export function createTelegramWebhookHandler(
               );
             });
           }
-        } else if (result.verificationIntercepted) {
-          // Verification handled — no error, no forward needed
+        } else if (result.verificationIntercepted || result.inviteIntercepted) {
+          // Verification/invite handled at the gateway — no forward needed
         } else if (!result.forwarded) {
           tlog.error(
             { updateId: payload.update_id },
@@ -724,7 +724,7 @@ export function createTelegramWebhookHandler(
         return respond({ ok: true });
       }
 
-      if (result.verificationIntercepted) {
+      if (result.verificationIntercepted || result.inviteIntercepted) {
         return respond({ ok: true });
       }
 

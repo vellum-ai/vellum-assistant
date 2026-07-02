@@ -318,6 +318,21 @@ function stampPackageManager(installDir: string): void {
   }
 }
 
+/**
+ * Ensure the install dir has its own package.json before any `bun add`.
+ * Without one, bun walks up and adopts the nearest ancestor project — a stray
+ * ~/package.json makes the install land in $HOME/node_modules and exit 0,
+ * leaving the install dir empty while every retry repeats the same escape.
+ */
+function anchorInstallDir(installDir: string): void {
+  const pkgPath = path.join(installDir, "package.json");
+  if (existsSync(pkgPath)) return;
+  writeFileAtomicSync(
+    pkgPath,
+    `${JSON.stringify({ name: "vellum-cli-install", private: true }, null, 2)}\n`,
+  );
+}
+
 /** Spawn the bundled bun with `args` in `cwd` and await its exit. */
 function runBun(args: string[], cwd: string): Promise<void> {
   const bunPath = getBundledBunPath();
@@ -376,6 +391,8 @@ async function bunInstallCli(): Promise<void> {
     rmSync(nodeModulesDir, { recursive: true, force: true });
     rmSync(path.join(installDir, "bun.lock"), { force: true });
   }
+
+  anchorInstallDir(installDir);
 
   if (PINNED_CLI_VERSION) {
     // Pinned: prefer the seeded frozen lockfile, else resolve the exact version.

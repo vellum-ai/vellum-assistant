@@ -112,7 +112,7 @@ Examples:
               : `Resource monitor started (PID ${res.pid})`,
           );
           log.info(
-            "Enabled monitoring.enabled; it will be respawned on the next assistant start",
+            "Enabled monitoring.enabled; it will also be respawned automatically on future assistant starts",
           );
         });
 

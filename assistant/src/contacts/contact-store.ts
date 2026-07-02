@@ -118,7 +118,6 @@ function parseChannel(
     address: row.address,
     isPrimary: row.isPrimary,
     externalChatId: row.externalChatId,
-    inviteId: row.inviteId,
     lastSeenAt: row.lastSeenAt,
     interactionCount: row.interactionCount,
     lastInteraction: row.lastInteraction,
@@ -163,7 +162,6 @@ interface SyncChannelData {
   policy?: ChannelPolicy;
   verifiedAt?: number | null;
   verifiedVia?: string | null;
-  inviteId?: string | null;
   revokedReason?: string | null;
   blockedReason?: string | null;
 }
@@ -373,7 +371,6 @@ function syncChannels(
       if (ch.isPrimary !== undefined) updateSet.isPrimary = ch.isPrimary;
       if (ch.externalChatId !== undefined)
         updateSet.externalChatId = ch.externalChatId;
-      if (ch.inviteId !== undefined) updateSet.inviteId = ch.inviteId;
 
       if (Object.keys(updateSet).length > 0) {
         updateSet.updatedAt = now;
@@ -398,7 +395,6 @@ function syncChannels(
         };
         if (ch.externalChatId !== undefined)
           reassignSet.externalChatId = ch.externalChatId;
-        if (ch.inviteId !== undefined) reassignSet.inviteId = ch.inviteId;
 
         db.update(contactChannels)
           .set(reassignSet)
@@ -418,7 +414,6 @@ function syncChannels(
         address: ch.address,
         isPrimary: ch.isPrimary ?? false,
         externalChatId: ch.externalChatId ?? null,
-        inviteId: ch.inviteId ?? null,
         createdAt: now,
         updatedAt: now,
       })

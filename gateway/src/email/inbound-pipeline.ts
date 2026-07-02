@@ -19,7 +19,7 @@ import { normalizeEmailWebhook } from "./normalize.js";
  * their own outcome — the pipeline proceeds regardless of send success.
  */
 export type EmailReplySender = (args: {
-  kind: "verification" | "denial";
+  kind: "verification" | "invite" | "denial";
   from: string;
   to: string;
   subject: string;
@@ -159,6 +159,24 @@ export async function runEmailInboundPipeline(
       }
       mark();
       return Response.json({ ok: true, verificationIntercepted: true });
+    }
+
+    // Invite redemption replies get the same always-deliver treatment: the
+    // gateway consumed the message, so this reply is the sender's only
+    // feedback.
+    if (result.inviteIntercepted && result.inviteReplyText) {
+      if (sendReply) {
+        await sendReply({
+          kind: "invite",
+          from: recipientAddress,
+          to: senderAddress,
+          subject: replySubject,
+          text: result.inviteReplyText,
+          inReplyTo: vellumPayload.messageId,
+        });
+      }
+      mark();
+      return Response.json({ ok: true, inviteIntercepted: true });
     }
 
     const processed = processInboundResult(

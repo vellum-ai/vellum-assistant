@@ -64,6 +64,7 @@ interface AttachmentPayload {
   data?: string;
   filename?: string;
   mimeType: string;
+  kind?: string;
   thumbnailData?: string;
 }
 
@@ -77,6 +78,7 @@ function insertLegacyAttachmentRow(
   filename: string,
   mimeType: string,
   dataBase64: string,
+  kind = "image",
 ): string {
   const id = randomUUID();
   rawRun(
@@ -86,7 +88,7 @@ function insertLegacyAttachmentRow(
     filename,
     mimeType,
     Buffer.from(dataBase64, "base64").length,
-    "image",
+    kind,
     dataBase64,
     Date.now(),
   );
@@ -266,6 +268,36 @@ describe("handleListMessages HEIC display normalization", () => {
     expect(attachments[0].data).toBe(heicB64);
   });
 
+  test("octet-stream HEIC stays metadata-only when conversion is unavailable", async () => {
+    const conv = createConversation();
+    const msg = await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([{ type: "text", text: "photo" }]),
+    );
+    // Web-uploader fallback for an empty File.type: HEIC bytes land under
+    // application/octet-stream and classify as a document. Fake header bytes
+    // never convert, so the row must stay metadata-only rather than ship
+    // unrenderable bytes as display data.
+    const heicB64 = fakeHeifHeaderBytes().toString("base64");
+    insertLegacyAttachmentRow(
+      msg.id,
+      "IMG_3.HEIC",
+      "application/octet-stream",
+      heicB64,
+      "document",
+    );
+
+    const response = handleListMessages(createTestArgs(conv.id));
+    const body = response as { messages: MessagePayload[] };
+
+    const attachments = body.messages[0].attachments!;
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0].mimeType).toBe("application/octet-stream");
+    expect(attachments[0].kind).toBe("document");
+    expect(attachments[0].data).toBeUndefined();
+  });
+
   describe.skipIf(process.platform !== "darwin")(
     "real conversion (sips)",
     () => {
@@ -297,6 +329,40 @@ describe("handleListMessages HEIC display normalization", () => {
         // Metadata keeps describing the stored original, which the content
         // endpoint serves verbatim for downloads.
         expect(attachments[0].filename).toBe("IMG_2.HEIC");
+      });
+
+      test("legacy octet-stream HEIC rows hydrate as JPEG display data", async () => {
+        const heic = makeHeicFixtureBytes();
+        expect(heic).not.toBeNull();
+
+        const conv = createConversation();
+        const msg = await addMessage(
+          conv.id,
+          "user",
+          JSON.stringify([{ type: "text", text: "photo" }]),
+        );
+        // Real HEIC bytes stored under application/octet-stream (empty
+        // File.type fallback) and classified as a document — the row is
+        // detected by its filename extension and converted for display.
+        insertLegacyAttachmentRow(
+          msg.id,
+          "IMG_4.HEIC",
+          "application/octet-stream",
+          heic!.toString("base64"),
+          "document",
+        );
+
+        const response = handleListMessages(createTestArgs(conv.id));
+        const body = response as { messages: MessagePayload[] };
+
+        const attachments = body.messages[0].attachments!;
+        expect(attachments).toHaveLength(1);
+        expect(attachments[0].mimeType).toBe("image/jpeg");
+        expect(attachments[0].data!.startsWith("/9j/")).toBe(true);
+        // The converted row presents as an image so clients render it inline.
+        expect(attachments[0].kind).toBe("image");
+        // The stored original filename is preserved for verbatim download.
+        expect(attachments[0].filename).toBe("IMG_4.HEIC");
       });
     },
   );

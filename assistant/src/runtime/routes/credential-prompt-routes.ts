@@ -48,6 +48,12 @@ const CredentialPromptParams = z.object({
 
 export type CredentialPromptResult = {
   ok: boolean;
+  /**
+   * True when the user explicitly dismissed the secure prompt. This is a valid
+   * outcome, not a failure — the CLI surfaces it as an informational message
+   * and a distinct exit code rather than an error.
+   */
+  cancelled?: boolean;
   error?: string;
   service?: string;
   field?: string;
@@ -76,11 +82,19 @@ async function handleCredentialPrompt({ body = {} }: RouteHandlerArgs) {
   });
 
   if (!result.value) {
-    const reason =
-      result.error === "unsupported_channel"
-        ? "No connected client supports secure credential entry"
-        : "User cancelled the credential prompt";
-    return { ok: false, error: reason };
+    if (result.error === "unsupported_channel") {
+      return {
+        ok: false,
+        error: "No connected client supports secure credential entry",
+      };
+    }
+    // An explicit user cancel is a valid flow, not a failure. Keep it distinct
+    // from a timeout (no response in the permission window) so the CLI can exit
+    // with the user-interrupt convention instead of a generic error.
+    if (result.reason === "timed_out") {
+      return { ok: false, error: "The credential prompt timed out" };
+    }
+    return { ok: false, cancelled: true, error: "Cancelled by the user" };
   }
 
   const persisted = await persistPromptedCredential({
@@ -142,6 +156,7 @@ export const ROUTES: RouteDefinition[] = [
     requestBody: CredentialPromptParams,
     responseBody: z.object({
       ok: z.boolean(),
+      cancelled: z.boolean().optional(),
       error: z.string().optional(),
       service: z.string().optional(),
       field: z.string().optional(),

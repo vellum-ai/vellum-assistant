@@ -398,6 +398,16 @@ export interface VerifiedChannelRow {
   verifiedVia: string | null;
 }
 
+const VERIFIED_CHANNEL_PROJECTION = {
+  id: gwContactChannels.id,
+  contactId: gwContactChannels.contactId,
+  type: gwContactChannels.type,
+  address: gwContactChannels.address,
+  status: gwContactChannels.status,
+  verifiedAt: gwContactChannels.verifiedAt,
+  verifiedVia: gwContactChannels.verifiedVia,
+};
+
 /**
  * Read the authoritative gateway channel row by the logical key
  * (type, address) COLLATE NOCASE. Used to project an upsert result back to the
@@ -408,15 +418,7 @@ export function getGatewayChannelByKey(
   address: string,
 ): VerifiedChannelRow | null {
   const row = getGatewayDb()
-    .select({
-      id: gwContactChannels.id,
-      contactId: gwContactChannels.contactId,
-      type: gwContactChannels.type,
-      address: gwContactChannels.address,
-      status: gwContactChannels.status,
-      verifiedAt: gwContactChannels.verifiedAt,
-      verifiedVia: gwContactChannels.verifiedVia,
-    })
+    .select(VERIFIED_CHANNEL_PROJECTION)
     .from(gwContactChannels)
     .where(
       and(
@@ -426,6 +428,39 @@ export function getGatewayChannelByKey(
     )
     .get();
   return row ?? null;
+}
+
+/**
+ * Read the authoritative gateway channel row by `(type, externalChatId)`.
+ * Fallback member resolution for callers that only carry a delivery chat id
+ * (no actor external id).
+ *
+ * `(type, externalChatId)` is non-unique, so among multiple matches the row
+ * bound to `preferredContactId` wins, then an `active` row — a stale
+ * revoked/foreign row must not shadow the membership-relevant one.
+ */
+export function getGatewayChannelByExternalChatId(
+  type: string,
+  externalChatId: string,
+  preferredContactId?: string,
+): VerifiedChannelRow | null {
+  const rows = getGatewayDb()
+    .select(VERIFIED_CHANNEL_PROJECTION)
+    .from(gwContactChannels)
+    .where(
+      and(
+        eq(gwContactChannels.type, type),
+        eq(gwContactChannels.externalChatId, externalChatId),
+      ),
+    )
+    .all();
+  if (rows.length === 0) {
+    return null;
+  }
+  const score = (row: VerifiedChannelRow) =>
+    (row.contactId === preferredContactId ? 2 : 0) +
+    (row.status === "active" ? 1 : 0);
+  return rows.reduce((best, row) => (score(row) > score(best) ? row : best));
 }
 
 // ---------------------------------------------------------------------------
@@ -457,6 +492,13 @@ export async function upsertVerifiedContactChannel(params: {
   verifiedVia?: string;
   contactId?: string;
   allowRevokedReactivation?: boolean;
+  /**
+   * When true, assistant-mirror (IPC) failures are logged, never thrown — the
+   * result reflects the gateway ACL write alone. Used post-claim by invite
+   * redemption, where the mirror is best-effort and a throw would regress an
+   * already-consumed invite to a non-intercepted path.
+   */
+  softMirrorFailures?: boolean;
 }): Promise<{ verified: boolean }> {
   const now = Date.now();
   const {
@@ -468,6 +510,21 @@ export async function upsertVerifiedContactChannel(params: {
     allowRevokedReactivation,
   } = params;
   const verifiedVia = params.verifiedVia ?? "challenge";
+  const mirrorSoft = params.softMirrorFailures === true;
+  const runMirror = async (
+    op: () => Promise<unknown>,
+    what: string,
+  ): Promise<void> => {
+    try {
+      await op();
+    } catch (mirrorErr) {
+      if (!mirrorSoft) throw mirrorErr;
+      log.warn(
+        { err: mirrorErr, sourceChannel },
+        `Assistant mirror ${what} failed (soft); gateway ACL result stands`,
+      );
+    }
+  };
 
   const address =
     canonicalizeInboundIdentity(sourceChannel, params.externalUserId) ??
@@ -476,18 +533,30 @@ export async function upsertVerifiedContactChannel(params: {
 
   // Resolve the existing channel's identity (id, parent contact) only. The
   // ACL/status decision is owned by the gateway pre-check below; the most
-  // recently updated mirror row is preferred.
-  const existing = await assistantDbQuery<{
-    channelId: string;
-    contactId: string;
-  }>(
-    `SELECT cc.id AS channelId, cc.contact_id AS contactId
-     FROM contact_channels cc
-     WHERE cc.type = ? AND cc.address = ? COLLATE NOCASE
-     ORDER BY cc.updated_at DESC
-     LIMIT 1`,
-    [sourceChannel, address],
-  );
+  // recently updated mirror row is preferred. In soft mode a failed lookup
+  // falls through to the create path: the gateway write resolves by logical
+  // key either way, and the mirror writes below are soft too.
+  let existing: { channelId: string; contactId: string }[];
+  try {
+    existing = await assistantDbQuery<{
+      channelId: string;
+      contactId: string;
+    }>(
+      `SELECT cc.id AS channelId, cc.contact_id AS contactId
+       FROM contact_channels cc
+       WHERE cc.type = ? AND cc.address = ? COLLATE NOCASE
+       ORDER BY cc.updated_at DESC
+       LIMIT 1`,
+      [sourceChannel, address],
+    );
+  } catch (mirrorErr) {
+    if (!mirrorSoft) throw mirrorErr;
+    log.warn(
+      { err: mirrorErr, sourceChannel },
+      "Assistant mirror lookup failed (soft); proceeding gateway-only",
+    );
+    existing = [];
+  }
 
   // The gateway is the source of truth: a blocked/revoked gateway row rejects
   // the verification, gating BOTH the existing-channel update and the
@@ -588,13 +657,17 @@ export async function upsertVerifiedContactChannel(params: {
 
     // Activate the assistant mirror. ACL columns are gateway-owned; only
     // identity/info columns are written here.
-    await assistantDbRun(
-      `UPDATE contact_channels
-       SET address = ?,
-           external_chat_id = ?,
-           updated_at = ?
-       WHERE id = ?`,
-      [address, externalChatId, now, row.channelId],
+    await runMirror(
+      () =>
+        assistantDbRun(
+          `UPDATE contact_channels
+           SET address = ?,
+               external_chat_id = ?,
+               updated_at = ?
+           WHERE id = ?`,
+          [address, externalChatId, now, row.channelId],
+        ),
+      "update",
     );
 
     return { verified: true };
@@ -678,21 +751,23 @@ export async function upsertVerifiedContactChannel(params: {
 
   // Create the assistant mirror. OR IGNORE for idempotency under retries; if the
   // channel insert fails mid-flight, the orphan contact row is harmless.
-  await assistantDbRun(
-    `INSERT OR IGNORE INTO contacts (id, display_name, created_at, updated_at)
-     VALUES (?, ?, ?, ?)`,
-    [contactId, contactDisplayName, now, now],
-  );
+  await runMirror(async () => {
+    await assistantDbRun(
+      `INSERT OR IGNORE INTO contacts (id, display_name, created_at, updated_at)
+       VALUES (?, ?, ?, ?)`,
+      [contactId, contactDisplayName, now, now],
+    );
 
-  // ACL columns are gateway-owned; the mirror carries identity/info only and
-  // relies on the schema defaults (status='unverified', policy='allow').
-  await assistantDbRun(
-    `INSERT OR IGNORE INTO contact_channels
-       (id, contact_id, type, address, is_primary, external_chat_id,
-        interaction_count, created_at, updated_at)
-     VALUES (?, ?, ?, ?, 0, ?, 0, ?, ?)`,
-    [channelId, contactId, sourceChannel, address, externalChatId, now, now],
-  );
+    // ACL columns are gateway-owned; the mirror carries identity/info only and
+    // relies on the schema defaults (status='unverified', policy='allow').
+    await assistantDbRun(
+      `INSERT OR IGNORE INTO contact_channels
+         (id, contact_id, type, address, is_primary, external_chat_id,
+          interaction_count, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 0, ?, 0, ?, ?)`,
+      [channelId, contactId, sourceChannel, address, externalChatId, now, now],
+    );
+  }, "create");
 
   return { verified: true };
 }
@@ -708,9 +783,12 @@ export async function upsertVerifiedContactChannel(params: {
  *
  * - Existing channel: updates display name, external_chat_id.
  *   Status and policy live in the gateway DB and are left unchanged so
- *   blocked/revoked channels stay that way.
- * - New channel: inserts contact + channel. ACL columns (status, policy) are
- *   gateway-owned; the gateway DB seeds status='unverified', policy='allow'.
+ *   blocked/revoked channels stay that way. `contactType`/`notes` are also
+ *   left unchanged so guardian-authored edits are never clobbered.
+ * - New channel: inserts contact + channel, classified via `contactType`
+ *   (default 'human') and seeded with `notes` when provided. ACL columns
+ *   (status, policy) are gateway-owned; the gateway DB seeds
+ *   status='unverified', policy='allow'.
  *
  * Dual-writes to both the assistant DB (identity/info mirror) and the gateway
  * DB (ACL source of truth). Skips silently when the assistant IPC socket is
@@ -722,6 +800,10 @@ export async function upsertContactChannel(params: {
   externalChatId?: string;
   displayName?: string;
   username?: string;
+  /** Classification for a newly created contact (e.g. 'assistant' for bot senders). */
+  contactType?: "human" | "assistant";
+  /** Notes seeded onto a newly created contact (e.g. bot/app provenance). */
+  notes?: string;
 }): Promise<void> {
   const { path: socketPath } = resolveIpcSocketPath("assistant");
   if (!existsSync(socketPath)) return;
@@ -789,9 +871,17 @@ export async function upsertContactChannel(params: {
   const channelId = crypto.randomUUID();
 
   await assistantDbRun(
-    `INSERT OR IGNORE INTO contacts (id, display_name, created_at, updated_at)
-     VALUES (?, ?, ?, ?)`,
-    [contactId, contactDisplayName, now, now],
+    `INSERT OR IGNORE INTO contacts
+       (id, display_name, notes, contact_type, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [
+      contactId,
+      contactDisplayName,
+      params.notes ?? null,
+      params.contactType ?? "human",
+      now,
+      now,
+    ],
   );
   // ACL columns are gateway-owned; the mirror carries identity/info only and
   // relies on the schema defaults (status='unverified', policy='allow').

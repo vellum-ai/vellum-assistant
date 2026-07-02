@@ -733,7 +733,7 @@ export function requestSecretStandalone(params: {
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
       pendingInteractions.resolve(requestId, "cancelled");
-      resolve({ value: null, delivery: "store" });
+      resolve({ value: null, delivery: "store", reason: "timed_out" });
     }, config.timeouts.permissionTimeoutSec * 1000);
     pendingInteractions.register(requestId, {
       conversationId: params.conversationId,

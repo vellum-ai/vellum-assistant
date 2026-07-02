@@ -16,7 +16,13 @@
  * loading / empty presentation while the turn is still streaming.
  */
 
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  Fragment,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { ArrowRight, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
@@ -219,12 +225,35 @@ export function MeetingCreatedStep({
 // Looking you up (loading carousel)
 // ---------------------------------------------------------------------------
 
-const LOOKING_MESSAGES = [
+// Rotating status lines shown while the web-research turn settles in the
+// background. They loop until `ready`, so the copy is pure flavor — it never
+// gates progress. The personality rewrite is NOT narrated here: it runs
+// decoupled and is finished off in the dedicated FinishingUpStep, so this quick
+// loader isn't held hostage to the persona turn.
+const WEB_SEARCH_MESSAGES = [
   "Searching the web to get to know you…",
   "Reading public profiles…",
+  "Skimming the highlights…",
   "Connecting the dots…",
-  "Almost there…",
+  "Piecing it together…",
 ];
+
+// Persona-rewrite lines, shown by FinishingUpStep while the personality turn
+// wraps up right before the chat handoff.
+const PERSONALITY_MESSAGES = [
+  "Updating my personality…",
+  "Finding my voice…",
+  "Getting into character…",
+];
+
+// Shared closing line both carousels settle on.
+const LOOKING_CLOSING_MESSAGE = "Almost there…";
+
+/** The web-search carousel: search lines, then the shared closer. */
+const LOOKING_MESSAGES = [...WEB_SEARCH_MESSAGES, LOOKING_CLOSING_MESSAGE];
+
+/** The finishing carousel: persona lines, then the shared closer. */
+const FINISHING_MESSAGES = [...PERSONALITY_MESSAGES, LOOKING_CLOSING_MESSAGE];
 
 /** How long each rotating message lingers before advancing to the next. */
 const LOOKING_MESSAGE_INTERVAL_MS = 2800;
@@ -243,9 +272,9 @@ export function LookingYouUpStep({
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
   /**
-   * The research turn has settled (results are ready, or there were none). Until
-   * then the carousel keeps rotating — looping the messages — so we never land
-   * on an empty "this is what I found" page.
+   * The web-research turn has settled (results are ready, or there were none).
+   * Until then the carousel keeps rotating — looping the messages — so we never
+   * land on an empty "this is what I found" page.
    */
   ready: boolean;
 }) {
@@ -296,13 +325,6 @@ export function LookingYouUpStep({
 // ---------------------------------------------------------------------------
 // Finishing up (personality-rewrite loading carousel)
 // ---------------------------------------------------------------------------
-
-const FINISHING_MESSAGES = [
-  "Updating my personality…",
-  "Finding my voice…",
-  "Getting into character…",
-  "Almost ready…",
-];
 
 /**
  * Terminal loading carousel shown after "Let's chat" while the personality

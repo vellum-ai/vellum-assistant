@@ -20,7 +20,10 @@ import {
   initMessagesLexicalIndex,
   MESSAGES_LEXICAL_COLLECTION,
 } from "../../../persistence/embeddings/messages-lexical-index.js";
-import { initQdrantClient } from "../../../persistence/embeddings/qdrant-client.js";
+import {
+  clearRebuildSentinel,
+  initQdrantClient,
+} from "../../../persistence/embeddings/qdrant-client.js";
 import { createQdrantManager } from "../../../persistence/embeddings/qdrant-manager.js";
 import {
   enqueueMemoryJob,
@@ -102,6 +105,10 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
         const { migrated } = await qdrantClient.ensureCollection();
         if (migrated && isMemoryEnabled()) {
           enqueueMemoryJob("rebuild_index", {});
+          // Clear the on-disk sentinel the ensure-path writes before its
+          // destructive delete: now that rebuild_index is queued, the
+          // cross-boot signal can retire. No-op if no sentinel was written.
+          await clearRebuildSentinel();
           log.info(
             "Qdrant collection was migrated — enqueued rebuild_index job",
           );

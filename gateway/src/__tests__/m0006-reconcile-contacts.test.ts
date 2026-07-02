@@ -55,17 +55,22 @@ const fakeAssistantDb = {
   channels: new Map<string, FakeChannel>(),
   hasContactsTable: true,
   hasChannelsTable: true,
+  hasInviteIdColumn: true,
   reset(): void {
     this.contacts.clear();
     this.channels.clear();
     this.hasContactsTable = true;
     this.hasChannelsTable = true;
+    this.hasInviteIdColumn = true;
   },
 };
 
 mock.module("../db/assistant-db-proxy.js", () => ({
   assistantDbQuery: mock(async (sql: string) => {
     const lower = sql.toLowerCase();
+    if (lower.includes("pragma_table_info('contact_channels')")) {
+      return fakeAssistantDb.hasInviteIdColumn ? [{ "1": 1 }] : [];
+    }
     if (lower.includes("sqlite_master") && lower.includes("'contacts'")) {
       return fakeAssistantDb.hasContactsTable ? [{ "1": 1 }] : [];
     }
@@ -76,7 +81,16 @@ mock.module("../db/assistant-db-proxy.js", () => ({
       return Array.from(fakeAssistantDb.contacts.values());
     }
     if (lower.includes("from contact_channels")) {
-      return Array.from(fakeAssistantDb.channels.values());
+      // Mirror SQLite: referencing the dropped column errors; the NULL alias
+      // is not a column reference.
+      const columnRefs = lower.replaceAll("null as invite_id", "");
+      if (!fakeAssistantDb.hasInviteIdColumn && columnRefs.includes("invite_id")) {
+        throw new Error("no such column: invite_id");
+      }
+      const rows = Array.from(fakeAssistantDb.channels.values());
+      return fakeAssistantDb.hasInviteIdColumn
+        ? rows
+        : rows.map((ch) => ({ ...ch, invite_id: null }));
     }
     return [];
   }),
@@ -282,6 +296,22 @@ describe("m0006-reconcile-contacts-from-assistant", () => {
 
     expect(gatewayContactIds()).toEqual(["new-c"]);
     expect(gatewayChannelIds()).toEqual(["ch-new"]);
+  });
+
+  test("completes when assistant contact_channels lacks the invite_id column", async () => {
+    fakeAssistantDb.hasInviteIdColumn = false;
+    seedAssistantContact({ id: "c1" });
+    seedAssistantChannel({ id: "ch1", contactId: "c1" });
+
+    const result = await m0006Up();
+
+    expect(result).toBe("done");
+    expect(gatewayContactIds()).toEqual(["c1"]);
+    expect(gatewayChannelIds()).toEqual(["ch1"]);
+    const ch = getGatewayDb().$client
+      .prepare("SELECT invite_id FROM contact_channels WHERE id = ?")
+      .get("ch1") as { invite_id: string | null };
+    expect(ch.invite_id).toBeNull();
   });
 
   test("returns done when assistant DB has no contacts table", async () => {
