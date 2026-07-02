@@ -44,8 +44,8 @@ import {
 import { getLogger } from "../util/logger.js";
 import { runApprovalConversationTurn } from "./approval-conversation-turn.js";
 import {
-  APPROVAL_ACTION_SET,
   type ApprovalAction,
+  isApprovalAction,
 } from "./channel-approval-types.js";
 import type {
   ApprovalConversationContext,
@@ -146,8 +146,6 @@ export interface GuardianReplyResult {
 // Callback data parser — format: "apr:<requestId>:<action>"
 // ---------------------------------------------------------------------------
 
-const VALID_ACTIONS: ReadonlySet<string> = APPROVAL_ACTION_SET;
-
 const LEGACY_CALLBACK_MAP: Record<string, string> = {
   approve_10m: "approve_once",
   approve_conversation: "approve_once",
@@ -167,10 +165,10 @@ function parseCallbackAction(data: string): ParsedCallback | null {
   const requestId = parts[1];
   const rawAction = parts.slice(2).join(":");
   const action = LEGACY_CALLBACK_MAP[rawAction] ?? rawAction;
-  if (!requestId || !VALID_ACTIONS.has(action)) {
+  if (!requestId || !isApprovalAction(action)) {
     return null;
   }
-  return { requestId, action: action as ApprovalAction };
+  return { requestId, action };
 }
 
 // ---------------------------------------------------------------------------
@@ -659,8 +657,13 @@ export async function routeGuardianReply(
       };
     }
 
-    // Decision-bearing disposition from the engine
-    const decisionAction = engineResult.disposition as ApprovalAction;
+    // Decision-bearing disposition from the engine. The engine's allowed
+    // actions are a subset of ApprovalAction; an out-of-vocabulary
+    // disposition is not consumed as a decision.
+    if (!isApprovalAction(engineResult.disposition)) {
+      return notConsumed();
+    }
+    const decisionAction = engineResult.disposition;
 
     // Resolve the target request
     const targetId =
@@ -869,8 +872,11 @@ const EXPLICIT_INTRODUCTION_PHRASES: ReadonlyMap<string, ApprovalAction> =
     ["trust", "trust"],
     ["trust them", "trust"],
     ["verify", "verify_code"],
+    ["verify them", "verify_code"],
     ["block", "block"],
+    ["block them", "block"],
     ["ban", "block"],
+    ["ban them", "block"],
   ]);
 
 /**
@@ -879,7 +885,7 @@ const EXPLICIT_INTRODUCTION_PHRASES: ReadonlyMap<string, ApprovalAction> =
  *
  * For `access_request` targets the introduction-card verbs are recognized
  * first, and the generic rejection vocabulary maps to `leave_unverified`
- * (its historical deny semantics).
+ *.
  *
  * Exported for tests.
  */
@@ -916,7 +922,7 @@ export function inferDecisionActionFromFreeText(
 /**
  * Introduction-card verbs for `access_request` requests. `trust` / `verify` /
  * `block` map to their card actions; the generic reject vocabulary maps to
- * leave-unverified (its historical deny semantics).
+ * leave-unverified (deny without revoking).
  */
 const CODE_TRUST_PATTERNS = /^(trust|trusted)\b/i;
 const CODE_VERIFY_PATTERNS = /^(verify|verification|code|handshake)\b/i;

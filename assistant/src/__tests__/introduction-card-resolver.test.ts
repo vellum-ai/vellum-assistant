@@ -85,9 +85,13 @@ mock.module("../runtime/channel-verification-service.js", () => ({
   },
 }));
 
-// Card withdrawal is a cosmetic projection — keep the import graph light.
+// Card withdrawal is a cosmetic projection — record calls, skip the real
+// surface round-trips.
+const withdrawCalls: Array<Record<string, unknown>> = [];
 mock.module("../approvals/guardian-card-withdrawal.js", () => ({
-  withdrawGuardianRequestCards: async () => {},
+  withdrawGuardianRequestCards: async (params: Record<string, unknown>) => {
+    withdrawCalls.push(params);
+  },
 }));
 
 import { applyCanonicalGuardianDecision } from "../approvals/guardian-decision-primitive.js";
@@ -114,6 +118,7 @@ function resetState(): void {
   seedCalls.length = 0;
   blockCalls.length = 0;
   sessionMints.length = 0;
+  withdrawCalls.length = 0;
   activateOutcome = { status: "activated" };
   blockOutcome = { revoked: true };
 }
@@ -265,6 +270,8 @@ describe("introduction card decisions", () => {
     expect(blockCalls).toHaveLength(1);
     expect(blockCalls[0].externalUserId).toBe("U-REQUESTER");
     expect(seedCalls).toHaveLength(0);
+    // The terminal decision projects onto the delivered cards.
+    expect(withdrawCalls).toHaveLength(1);
   });
 
   test("block failure surfaces as a resolver failure (fail closed)", async () => {
@@ -286,6 +293,9 @@ describe("introduction card decisions", () => {
     // The request is reopened: a failed block must not leave a `denied` row
     // that permanently suppresses re-prompts without the revoke landing.
     expect(getCanonicalGuardianRequest(req.id)?.status).toBe("pending");
+    // The reopened request keeps its cards — withdrawing them would strip
+    // the guardian's only button path to retry.
+    expect(withdrawCalls).toHaveLength(0);
   });
 
   test("refused trust activation surfaces as a resolver failure (fail closed)", async () => {
@@ -306,6 +316,7 @@ describe("introduction card decisions", () => {
     expect(result.resolverFailureReason).toBe("trust_activation_refused");
     // The request is reopened: the sender is not actually trusted.
     expect(getCanonicalGuardianRequest(req.id)?.status).toBe("pending");
+    expect(withdrawCalls).toHaveLength(0);
   });
 
   test("introduction actions are rejected for non-access-request kinds", async () => {

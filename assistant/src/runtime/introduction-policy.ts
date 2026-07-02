@@ -49,20 +49,33 @@ export interface RequesterIdentitySignals {
   isRestricted?: boolean;
 }
 
-function compactSignals(record: {
-  isBot?: unknown;
-  isStranger?: unknown;
-  isRestricted?: unknown;
-}): RequesterIdentitySignals {
-  return {
-    ...(typeof record.isBot === "boolean" ? { isBot: record.isBot } : {}),
-    ...(typeof record.isStranger === "boolean"
-      ? { isStranger: record.isStranger }
-      : {}),
-    ...(typeof record.isRestricted === "boolean"
-      ? { isRestricted: record.isRestricted }
-      : {}),
-  };
+const SIGNAL_KEYS = [
+  "isBot",
+  "isStranger",
+  "isRestricted",
+] as const satisfies ReadonlyArray<keyof RequesterIdentitySignals>;
+
+/**
+ * Coerce an untrusted value to a tri-state identity-signal boolean: explicit
+ * booleans pass through (both are positive platform resolutions), everything
+ * else is unknown. Shared by the persisted-signal parser and the
+ * access-request payload schema so the tri-state rule cannot drift.
+ */
+export function coerceSignalBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function compactSignals(
+  record: Partial<Record<(typeof SIGNAL_KEYS)[number], unknown>>,
+): RequesterIdentitySignals {
+  const compact: RequesterIdentitySignals = {};
+  for (const key of SIGNAL_KEYS) {
+    const value = coerceSignalBoolean(record[key]);
+    if (value !== undefined) {
+      compact[key] = value;
+    }
+  }
+  return compact;
 }
 
 /**
@@ -90,13 +103,7 @@ export function parseRequesterSignals(
     if (typeof parsed !== "object" || parsed === null) {
       return {};
     }
-    return compactSignals(
-      parsed as {
-        isBot?: unknown;
-        isStranger?: unknown;
-        isRestricted?: unknown;
-      },
-    );
+    return compactSignals(parsed as Record<string, unknown>);
   } catch {
     return {};
   }
@@ -206,13 +213,19 @@ export function resolveTrustBinding(
 // Signal-driven action list
 // ---------------------------------------------------------------------------
 
-/** A single introduction-card action option, shared by every card renderer. */
+/**
+ * A single introduction-card action option, shared by every card renderer.
+ * `emphasis` is the surface-agnostic weight each renderer translates to its
+ * platform token (Slack `primary`/`danger`, Surface `primary`/`destructive`),
+ * so the emphasis policy lives here rather than per renderer.
+ */
 export interface IntroductionActionOption {
   id: Extract<
     ApprovalAction,
     "trust" | "verify_code" | "leave_unverified" | "block"
   >;
   label: string;
+  emphasis: "primary" | "secondary" | "destructive";
 }
 
 /**
@@ -253,15 +266,19 @@ export function buildIntroductionActions(
   signals: RequesterIdentitySignals,
 ): IntroductionActionOption[] {
   const tail: IntroductionActionOption[] = [
-    { id: "leave_unverified", label: "Leave unverified" },
-    { id: "block", label: "Block" },
+    {
+      id: "leave_unverified",
+      label: "Leave unverified",
+      emphasis: "secondary",
+    },
+    { id: "block", label: "Block", emphasis: "destructive" },
   ];
   if (isHandshakeOffered(sourceChannel, signals)) {
     return [
-      { id: "verify_code", label: "Verify with a code" },
-      { id: "trust", label: "Trust anyway" },
+      { id: "verify_code", label: "Verify with a code", emphasis: "primary" },
+      { id: "trust", label: "Trust anyway", emphasis: "secondary" },
       ...tail,
     ];
   }
-  return [{ id: "trust", label: "Trust" }, ...tail];
+  return [{ id: "trust", label: "Trust", emphasis: "primary" }, ...tail];
 }

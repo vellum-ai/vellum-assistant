@@ -4,10 +4,10 @@
 import type { ChannelId } from "../../channels/types.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import {
-  APPROVAL_ACTION_SET,
   type ApprovalAction,
   type ApprovalDecisionResult,
   type ApprovalUIMetadata,
+  isApprovalAction,
 } from "../channel-approval-types.js";
 
 /** Canonicalize assistantId for channel ingress paths. */
@@ -36,8 +36,6 @@ export function requiredDecisionKeywords(
 // Callback data parser — format: "apr:<requestId>:<action>"
 // ---------------------------------------------------------------------------
 
-const VALID_ACTIONS: ReadonlySet<string> = APPROVAL_ACTION_SET;
-
 /** Map legacy callback actions to canonical ones for in-flight buttons. */
 const LEGACY_CALLBACK_MAP: Record<string, string> = {
   approve_10m: "approve_once",
@@ -56,7 +54,7 @@ export function parseCallbackData(
   const requestId = parts[1];
   const rawAction = parts.slice(2).join(":");
   const action = LEGACY_CALLBACK_MAP[rawAction] ?? rawAction;
-  if (!requestId || !VALID_ACTIONS.has(action)) {
+  if (!requestId || !isApprovalAction(action)) {
     return null;
   }
   const source =
@@ -67,7 +65,7 @@ export function parseCallbackData(
         : sourceChannel === "vellum"
           ? ("vellum_surface" as const)
           : ("telegram_button" as const);
-  return { action: action as ApprovalAction, source, requestId };
+  return { action, source, requestId };
 }
 
 // ---------------------------------------------------------------------------

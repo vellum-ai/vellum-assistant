@@ -326,9 +326,11 @@ describe("access-request instruction enforcement", () => {
     ] as NotificationChannel[]);
 
     expect(decision.fallbackUsed).toBe(true);
-    expect(decision.renderedCopy.vellum?.body).toContain("A1B2C3");
-    expect(decision.renderedCopy.vellum?.body).toContain("trust");
-    expect(decision.renderedCopy.vellum?.body).toContain("block");
+    // Directive form, not prose mentions: the guardian must be able to reply
+    // with these exact code+verb tokens.
+    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 trust"');
+    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 reject"');
+    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 block"');
     expect(decision.renderedCopy.vellum?.body).toContain("open invite flow");
   });
 
@@ -359,9 +361,9 @@ describe("access-request instruction enforcement", () => {
     ] as NotificationChannel[]);
 
     expect(decision.fallbackUsed).toBe(false);
-    expect(decision.renderedCopy.vellum?.body).toContain("A1B2C3");
-    expect(decision.renderedCopy.vellum?.body).toContain("trust");
-    expect(decision.renderedCopy.vellum?.body).toContain("block");
+    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 trust"');
+    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 reject"');
+    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 block"');
     expect(decision.renderedCopy.vellum?.body).toContain("open invite flow");
   });
 

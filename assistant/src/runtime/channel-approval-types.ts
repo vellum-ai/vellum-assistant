@@ -52,8 +52,16 @@ export const APPROVAL_ACTION_SET: ReadonlySet<string> = new Set(
 );
 
 /**
- * Introduction-card actions (LUM-2670). Only meaningful for `access_request`
- * requests: the guardian sets the contact's trust level directly on the card.
+ * Type predicate tying the runtime membership check to the `ApprovalAction`
+ * type, so wire-input validation sites never need an `as` cast.
+ */
+export function isApprovalAction(value: string): value is ApprovalAction {
+  return APPROVAL_ACTION_SET.has(value);
+}
+
+/**
+ * Introduction-card actions. Only meaningful for `access_request` requests:
+ * the guardian sets the contact's trust level directly on the card.
  */
 export const INTRODUCTION_ACTION_SET: ReadonlySet<string> = new Set([
   "trust",

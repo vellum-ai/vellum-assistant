@@ -374,11 +374,12 @@ export async function enforceIngressAcl(
           assistantId,
           canonicalAssistantId,
         });
-        if (inviteResult)
+        if (inviteResult) {
           return {
             resolvedMember: null,
             earlyResponse: inviteResult,
           };
+        }
       }
 
       // ── 6-digit invite code intercept (non-member) ──
@@ -400,11 +401,12 @@ export async function enforceIngressAcl(
           assistantId,
           canonicalAssistantId,
         });
-        if (codeInterceptResult)
+        if (codeInterceptResult) {
           return {
             resolvedMember: null,
             earlyResponse: codeInterceptResult,
           };
+        }
       }
 
       // ── Policy-aware non-member bypass ──
@@ -451,9 +453,12 @@ export async function enforceIngressAcl(
 
         // Slack-specific: send a verification challenge directly to the
         // user's DM instead of requiring guardian-mediated approval. The
-        // user can reply with the code in the DM to self-verify.
+        // user can reply with the code in the DM to self-verify. Bots are
+        // excluded — a bot cannot return a code, so it goes straight to the
+        // guardian-notify lane and its introduction card offers direct trust.
         if (
           sourceChannel === "slack" &&
+          isBot !== true &&
           (canonicalSenderId ?? rawSenderId) &&
           !terminallyDenied &&
           !isCallbackInteraction
@@ -719,11 +724,12 @@ export async function enforceIngressAcl(
             assistantId,
             canonicalAssistantId,
           });
-          if (inviteResult)
+          if (inviteResult) {
             return {
               resolvedMember: null,
               earlyResponse: inviteResult,
             };
+          }
         }
 
         // ── 6-digit invite code intercept (inactive member) ──
@@ -749,11 +755,12 @@ export async function enforceIngressAcl(
             assistantId,
             canonicalAssistantId,
           });
-          if (codeInterceptResult)
+          if (codeInterceptResult) {
             return {
               resolvedMember: null,
               earlyResponse: codeInterceptResult,
             };
+          }
         }
 
         // ── Policy-aware inactive-member bypass ──
@@ -818,9 +825,11 @@ export async function enforceIngressAcl(
 
           // Slack-specific: re-verify inactive members via DM challenge
           // (same as non-member path). Blocked members are excluded —
-          // the guardian made an explicit decision to block them.
+          // the guardian made an explicit decision to block them. Bots are
+          // excluded — a bot cannot return a code.
           if (
             sourceChannel === "slack" &&
+            isBot !== true &&
             resolvedMember.status !== "blocked" &&
             (canonicalSenderId ?? rawSenderId) &&
             !terminallyDenied &&

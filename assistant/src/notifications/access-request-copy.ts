@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import {
   buildIntroductionActions,
+  coerceSignalBoolean,
   type IntroductionActionOption,
   isHandshakeOffered,
 } from "../runtime/introduction-policy.js";
@@ -26,14 +27,11 @@ const optStr = z
   .transform((v) => (typeof v === "string" ? v : undefined));
 
 /**
- * Accepts boolean or any other type — coerces non-booleans to undefined.
- * Explicit `false` is preserved: for identity signals it is a positive
- * platform resolution ("Slack vouches this is a regular member"), distinct
- * from an absent (unknown) signal.
+ * Tri-state identity-signal boolean (see `coerceSignalBoolean`): explicit
+ * `false` is preserved as a positive platform resolution, everything
+ * non-boolean is unknown.
  */
-const optBool = z
-  .unknown()
-  .transform((v) => (typeof v === "boolean" ? v : undefined));
+const optBool = z.unknown().transform(coerceSignalBoolean);
 
 export const AccessRequestPayloadSchema = z.object({
   requestId: optStr,

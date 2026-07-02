@@ -102,18 +102,14 @@ function resolveAccessRequestCard(
   const parsed = parseAccessRequestPayload(payload);
   const view = buildAccessRequestCardView(parsed);
 
-  // Signal-driven introduction actions: the first action is the emphasized
-  // default; Block is destructive; the rest stay secondary.
+  // Signal-driven introduction actions; the emphasis (primary lead,
+  // destructive Block) is resolved by introduction-policy and maps 1:1 onto
+  // the Surface style vocabulary.
   const actions: ApprovalCardActionOption[] =
-    buildIntroductionActionsForPayload(parsed).map((action, index) => ({
+    buildIntroductionActionsForPayload(parsed).map((action) => ({
       id: action.id,
       label: action.label,
-      style:
-        action.id === "block"
-          ? ("destructive" as const)
-          : index === 0
-            ? ("primary" as const)
-            : ("secondary" as const),
+      style: action.emphasis,
     }));
 
   const metadata: Array<{ label: string; value: string }> = [];

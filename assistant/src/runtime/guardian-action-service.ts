@@ -13,16 +13,12 @@ import {
 } from "../contacts/canonical-guardian-store.js";
 import {
   APPROVAL_ACTION_IDS,
-  APPROVAL_ACTION_SET,
-  type ApprovalAction,
+  isApprovalAction,
 } from "./channel-approval-types.js";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-/** Canonical set of valid guardian actions, shared across all entrypoints. */
-const VALID_GUARDIAN_ACTIONS: ReadonlySet<string> = APPROVAL_ACTION_SET;
 
 /**
  * Legacy actions that map to canonical ones during client rollout.
@@ -83,7 +79,7 @@ export async function processGuardianDecision(
 
   // 1. Canonicalize legacy actions, then validate
   const action = LEGACY_ACTION_MAP[params.action] ?? params.action;
-  if (!VALID_GUARDIAN_ACTIONS.has(action)) {
+  if (!isApprovalAction(action)) {
     return {
       ok: false,
       error: "invalid_action",
@@ -108,7 +104,7 @@ export async function processGuardianDecision(
   // 3. Apply the canonical decision
   const canonicalResult = await applyCanonicalGuardianDecision({
     requestId,
-    action: action as ApprovalAction,
+    action,
     actorContext: {
       actorPrincipalId: actorContext.actorPrincipalId,
       actorExternalUserId: undefined, // Desktop path — no channel-native ID

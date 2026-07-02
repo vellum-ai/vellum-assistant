@@ -40,14 +40,27 @@ const log = getLogger("notif-adapter-slack");
 // Slack Card block builders for approval notifications
 // ---------------------------------------------------------------------------
 
+/** Translate a surface-agnostic emphasis into Slack's button style token. */
+function slackStyleForEmphasis(
+  emphasis: "primary" | "secondary" | "destructive",
+): { style: "primary" | "danger" } | Record<string, never> {
+  switch (emphasis) {
+    case "primary":
+      return { style: "primary" };
+    case "destructive":
+      return { style: "danger" };
+    case "secondary":
+      return {};
+  }
+}
+
 /**
  * Build action buttons for a Slack Card block from approval metadata.
  *
- * Emphasis is positional: the first action is the recommended default and
- * renders `primary`; destructive actions render `danger`; everything else
- * stays Slack's default style. For introduction cards the ordering comes
- * from the signal-driven action list, so emphasis shifts with identity
- * confidence.
+ * Actions carrying an `emphasis` (introduction cards) render it directly, so
+ * emphasis policy stays in introduction-policy.ts. Actions without one (tool
+ * approvals) fall back to positional styling: first action `primary`,
+ * `reject` `danger`.
  */
 function buildCardActions(approval: ApprovalUIMetadata): Button[] {
   return approval.actions.map((action, index) => ({
@@ -55,11 +68,13 @@ function buildCardActions(approval: ApprovalUIMetadata): Button[] {
     text: { type: "plain_text", text: action.label, emoji: true },
     action_id: `apr:${approval.requestId}:${action.id}`,
     value: `apr:${approval.requestId}:${action.id}`,
-    ...(action.id === "reject" || action.id === "block"
-      ? { style: "danger" }
-      : index === 0
-        ? { style: "primary" }
-        : {}),
+    ...(action.emphasis
+      ? slackStyleForEmphasis(action.emphasis)
+      : action.id === "reject"
+        ? { style: "danger" }
+        : index === 0
+          ? { style: "primary" }
+          : {}),
   }));
 }
 

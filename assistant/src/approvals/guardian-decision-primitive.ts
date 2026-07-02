@@ -422,16 +422,27 @@ export async function applyCanonicalGuardianDecision(
   // cosmetic projection, so awaiting its Slack round-trips would only add
   // latency to the decision response that interactive callers wait on. The
   // projector never throws; the `.catch` is a defensive backstop.
-  void withdrawGuardianRequestCards({
-    request: resolved,
-    status: targetStatus,
-    originChannel: actorContext.channel,
-  }).catch((err) => {
-    log.warn(
-      { err, requestId },
-      "Cross-surface card withdrawal failed (non-fatal)",
-    );
-  });
+  //
+  // A failed resolver may have reopened the request to `pending` (an
+  // access-request gateway persist that never landed). Withdrawing the cards
+  // then would stamp every surface with a terminal status the row no longer
+  // has and strip the buttons the guardian needs to retry — so cards are only
+  // withdrawn while the row is actually terminal.
+  const rowForWithdrawal = resolverFailed
+    ? getCanonicalGuardianRequest(requestId)
+    : resolved;
+  if (rowForWithdrawal && rowForWithdrawal.status !== "pending") {
+    void withdrawGuardianRequestCards({
+      request: resolved,
+      status: targetStatus,
+      originChannel: actorContext.channel,
+    }).catch((err) => {
+      log.warn(
+        { err, requestId },
+        "Cross-surface card withdrawal failed (non-fatal)",
+      );
+    });
+  }
 
   log.info(
     {
