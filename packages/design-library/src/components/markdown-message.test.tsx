@@ -35,30 +35,26 @@ describe("MarkdownMessage", () => {
     expect(html).toContain("text-body-medium-default");
   });
 
-  test("blockquotes render with default markdown quote styling", () => {
+  test("blockquotes render as universal inset quote blocks", () => {
     const html = renderToStaticMarkup(
       createElement(MarkdownMessage, {
         content: "> This is quoted.\n\nReply text.",
-      }),
-    );
-
-    expect(html).toContain("italic");
-    expect(html).toContain("text-stone-600");
-    expect(html).not.toContain("rounded-md");
-    expect(html).not.toContain("bg-[var(--surface-sunken)]");
-  });
-
-  test("quotePreview blockquotes render as compact quote previews", () => {
-    const html = renderToStaticMarkup(
-      createElement(MarkdownMessage, {
-        content: "> This is quoted.\n\nReply text.",
-        blockquoteVariant: "quotePreview",
       }),
     );
 
     expect(html).toContain("rounded-md");
     expect(html).toContain("bg-[var(--surface-sunken)]");
-    expect(html).not.toContain(" italic ");
+    expect(html).toContain("mx-0");
+    expect(html).toContain("flex");
+    expect(html).toContain("gap-3");
+    expect(html).toContain("h-5");
+    expect(html).toContain("w-0.5");
+    expect(html).toContain("rounded-full");
+    expect(html).toContain("min-w-0");
+    expect(html).toContain("flex-1");
+    expect(html).toContain("text-[var(--content-secondary)]");
+    expect(html).not.toContain("text-stone-600");
+    expect(html).not.toContain("italic");
   });
 
   test("ordered list beginning at a non-1 number preserves its start", () => {
