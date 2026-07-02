@@ -261,15 +261,14 @@ export interface ResolveStreamingTranscriberOptions {
    */
   diarize?: DiarizePreference;
   /**
-   * Emit `final` events only at utterance boundaries on providers that
-   * otherwise commit multiple `is_final` segments per utterance
-   * (Deepgram — also enables its `utterance_end_ms` endpointing).
-   * Ignored by providers whose finals already align with pause
-   * boundaries (google-gemini emits finals at turn completion,
-   * openai-whisper on stop). Providers that can neither gate nor align
-   * (xAI emits a `final` per committed segment) resolve to `null` so
-   * the caller falls back to batch transcription. Used by telephony
-   * call ingestion. Default: false.
+   * Emit `final` events only at utterance boundaries. Supported only by
+   * providers whose catalog `telephonyMode` is `"realtime-ws"` (Deepgram,
+   * where it also enables `utterance_end_ms` endpointing). All other
+   * providers resolve to `null` so the caller falls back to per-turn
+   * batch transcription — e.g. openai-whisper fires `final` only from
+   * `stop()` (end-of-stream, not end-of-utterance) and xAI emits a
+   * `final` per committed segment. Used by telephony call ingestion.
+   * Default: false.
    */
   utteranceBoundaryFinals?: boolean;
 }
@@ -289,8 +288,8 @@ export interface ResolveStreamingTranscriberOptions {
  * - No credentials are configured for the resolved provider.
  * - No streaming adapter exists for the configured provider.
  * - `diarize` is `"required"` but the configured provider cannot diarize.
- * - `utteranceBoundaryFinals` is set but the configured provider commits
- *   per-segment finals with no boundary gating (xAI).
+ * - `utteranceBoundaryFinals` is set but the configured provider's catalog
+ *   `telephonyMode` is not `"realtime-ws"`.
  */
 export async function resolveStreamingTranscriber(
   options: ResolveStreamingTranscriberOptions = {},
@@ -310,6 +309,26 @@ export async function resolveStreamingTranscriber(
   // Verify the provider supports the daemon-streaming boundary.
   if (!supportsBoundary(provider as SttProviderId, "daemon-streaming")) {
     return null;
+  }
+
+  // Boundary-requiring callers (telephony) can only stream on providers
+  // whose catalog telephonyMode is "realtime-ws" (Deepgram gates finals on
+  // utterance boundaries). Everything else fires `final` either only from
+  // stop() — end-of-stream, not end-of-utterance (openai-whisper) — or per
+  // committed segment (xAI), so streaming would yield no replies until
+  // hangup, or mid-sentence replies. Resolve to null so the caller falls
+  // back to per-turn batch transcription.
+  if (options.utteranceBoundaryFinals) {
+    const telephonyMode = getProviderEntry(
+      provider as SttProviderId,
+    )?.telephonyMode;
+    if (telephonyMode !== "realtime-ws") {
+      log.warn(
+        { providerId: provider, telephonyMode },
+        "utterance-boundary finals requested but the configured STT provider has no realtime telephony streaming — falling back to batch transcription",
+      );
+      return null;
+    }
   }
 
   // Resolve diarization capability against the catalog. For `"required"`
@@ -363,9 +382,9 @@ interface CreateStreamingTranscriberOptions {
   diarize?: boolean;
   /**
    * Whether `final` events should be gated on utterance boundaries.
-   * Only forwarded to providers that commit multiple segments per
-   * utterance (Deepgram). Ignored by adapters whose finals already
-   * align with pause boundaries.
+   * Only forwarded to Deepgram; the resolver never sets this for
+   * providers without realtime telephony streaming (they resolve to
+   * `null` instead).
    */
   utteranceBoundaryFinals?: boolean;
 }
@@ -418,17 +437,6 @@ async function createStreamingTranscriber(
       });
     }
     case "xai": {
-      // The xAI adapter emits a `final` for every committed `is_final`
-      // segment; segments are not utterance-aligned and the adapter has no
-      // boundary gating, so a boundary-requiring caller (telephony) would
-      // reply mid-sentence. Resolve to null so it falls back to batch.
-      if (options.utteranceBoundaryFinals) {
-        log.warn(
-          { providerId },
-          "utterance-boundary finals requested but the xAI streaming adapter commits per-segment finals — falling back to batch transcription",
-        );
-        return null;
-      }
       const { XAIRealtimeTranscriber } = await import("./xai-realtime.js");
       return new XAIRealtimeTranscriber(apiKey, {
         sampleRate: options.sampleRate,

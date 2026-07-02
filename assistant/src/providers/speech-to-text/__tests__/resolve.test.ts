@@ -830,7 +830,7 @@ describe("resolveStreamingTranscriber diarize preference", () => {
     expect(transcriber).toBeNull();
     expect(xaiCtorCalls).toHaveLength(0);
     expect(loggerWarnings).toHaveLength(1);
-    expect(loggerWarnings[0]!.message).toContain("per-segment finals");
+    expect(loggerWarnings[0]!.message).toContain("falling back to batch");
     expect(
       (loggerWarnings[0]!.data as { providerId?: unknown }).providerId,
     ).toBe("xai");
@@ -851,7 +851,7 @@ describe("resolveStreamingTranscriber diarize preference", () => {
     expect(options.utteranceEndMs).toBe(1000);
   });
 
-  test("utteranceBoundaryFinals with google-gemini still resolves (finals already pause-aligned)", async () => {
+  test("utteranceBoundaryFinals with google-gemini returns null (catalog telephonyMode is batch-only)", async () => {
     mockProviderKeys["gemini"] = "gemini-key";
     mockConfig = buildConfig({ provider: "google-gemini" });
 
@@ -859,17 +859,36 @@ describe("resolveStreamingTranscriber diarize preference", () => {
       utteranceBoundaryFinals: true,
     });
 
-    expect(transcriber).not.toBeNull();
-    expect(geminiCtorCalls).toHaveLength(1);
+    expect(transcriber).toBeNull();
+    expect(geminiCtorCalls).toHaveLength(0);
+    expect(loggerWarnings).toHaveLength(1);
+    expect(
+      (loggerWarnings[0]!.data as { providerId?: unknown }).providerId,
+    ).toBe("google-gemini");
   });
 
-  test("utteranceBoundaryFinals with openai-whisper still resolves (finals already pause-aligned)", async () => {
+  test("utteranceBoundaryFinals with openai-whisper returns null with a warning (finals fire only on stop — end-of-stream, not utterance boundary)", async () => {
     mockProviderKeys["openai"] = "openai-key";
     mockConfig = buildConfig({ provider: "openai-whisper" });
 
     const transcriber = await resolveStreamingTranscriber({
       utteranceBoundaryFinals: true,
     });
+
+    expect(transcriber).toBeNull();
+    expect(whisperCtorCalls).toHaveLength(0);
+    expect(loggerWarnings).toHaveLength(1);
+    expect(loggerWarnings[0]!.message).toContain("falling back to batch");
+    expect(
+      (loggerWarnings[0]!.data as { providerId?: unknown }).providerId,
+    ).toBe("openai-whisper");
+  });
+
+  test("openai-whisper still resolves a streaming transcriber without utteranceBoundaryFinals", async () => {
+    mockProviderKeys["openai"] = "openai-key";
+    mockConfig = buildConfig({ provider: "openai-whisper" });
+
+    const transcriber = await resolveStreamingTranscriber();
 
     expect(transcriber).not.toBeNull();
     expect(whisperCtorCalls).toHaveLength(1);

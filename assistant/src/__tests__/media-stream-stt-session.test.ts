@@ -899,6 +899,97 @@ describe("MediaStreamSttSession", () => {
       session.dispose();
     });
 
+    test("unexpected provider close mid-call falls back to batch for subsequent turns", async () => {
+      const onTranscriptFinal = jest.fn();
+      const { session, fake } = await startStreamingSession(
+        { onTranscriptFinal },
+        { turnDetector: { silenceThresholdMs: 300 } },
+      );
+
+      // Provider closes the stream without the session asking it to.
+      fake.emit({ type: "closed" });
+
+      // A subsequent caller turn must be transcribed via batch.
+      session.handleMessage(makeMediaMessage());
+      jest.advanceTimersByTime(400);
+      await flushAsync();
+
+      expect(resolveBatchTranscriber).toHaveBeenCalledTimes(1);
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
+      expect(onTranscriptFinal).toHaveBeenCalledWith(
+        "hello world",
+        expect.any(Number),
+      );
+
+      session.dispose();
+    });
+
+    test("deliberate stop does not trigger batch fallback on close", async () => {
+      const onStop = jest.fn();
+      const onTranscriptFinal = jest.fn();
+      const { session, fake } = await startStreamingSession(
+        { onStop, onTranscriptFinal },
+        { turnDetector: { silenceThresholdMs: 300 } },
+      );
+
+      session.handleMessage(makeStopMessage());
+      fake.emit({ type: "closed" });
+
+      // Late media after the stop must not be batch-transcribed.
+      session.handleMessage(makeMediaMessage());
+      jest.advanceTimersByTime(400);
+      await flushAsync();
+
+      expect(onStop).toHaveBeenCalledTimes(1);
+      expect(resolveTelephonySttCapability).not.toHaveBeenCalled();
+      expect(resolveBatchTranscriber).not.toHaveBeenCalled();
+      expect(onTranscriptFinal).not.toHaveBeenCalled();
+
+      session.dispose();
+    });
+
+    test("close after dispose does not trigger batch fallback", async () => {
+      const { session, fake } = await startStreamingSession();
+
+      session.dispose();
+      fake.emit({ type: "closed" });
+
+      expect(resolveTelephonySttCapability).not.toHaveBeenCalled();
+    });
+
+    test("turn completed during transcriber startup is transcribed on batch fallback", async () => {
+      const fake = new FakeStreamingTranscriber({ deferStart: true });
+      (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
+
+      const onTranscriptFinal = jest.fn();
+      const session = new MediaStreamSttSession(
+        { turnDetector: { silenceThresholdMs: 300 } },
+        { onTranscriptFinal },
+      );
+
+      session.handleMessage(makeStartMessage());
+      await flushAsync();
+
+      // Speech arrives and the local VAD completes the turn while the
+      // provider session is still starting.
+      session.handleMessage(makeMediaMessage());
+      jest.advanceTimersByTime(400);
+      await flushAsync();
+      expect(onTranscriptFinal).not.toHaveBeenCalled();
+
+      // Startup then fails — the completed turn must not be stranded.
+      fake.failStart(new Error("connect timeout"));
+      await flushAsync();
+
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
+      expect(onTranscriptFinal).toHaveBeenCalledWith(
+        "hello world",
+        expect.any(Number),
+      );
+
+      session.dispose();
+    });
+
     test("falls back to batch when the streaming transcriber fails to start", async () => {
       const fake = new FakeStreamingTranscriber({ deferStart: true });
       (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
