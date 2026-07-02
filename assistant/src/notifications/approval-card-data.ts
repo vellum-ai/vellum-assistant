@@ -196,10 +196,12 @@ function extractToolApprovalCard(
 
   const isGrant = p.requestKind === "tool_grant_request";
 
+  // Who is asking is a fact the guardian weighs, so the row always renders:
+  // an unresolvable requester surfaces as "Unknown" rather than a silently
+  // missing row. In practice the producers always carry at least the raw
+  // channel user ID — this placeholder covers defensive/lenient parses.
   const metadata: Array<{ label: string; value: string }> = [];
-  if (requester) {
-    metadata.push({ label: "Requested by", value: requester });
-  }
+  metadata.push({ label: "Requested by", value: requester ?? "Unknown" });
   const sourceChannel = nonEmpty(p.sourceChannel);
   if (sourceChannel) {
     metadata.push({ label: "Source", value: sourceChannel });
@@ -210,9 +212,9 @@ function extractToolApprovalCard(
     : "No additional context available.";
 
   // Fallback text with request-code instructions for older clients.
-  const requesterNote = requester ? ` (requested by ${requester})` : "";
   const baseFallback =
-    p.questionText ?? `Approve tool: ${toolName}${requesterNote}`;
+    p.questionText ??
+    `Approve tool: ${toolName} (requested by ${requester ?? "Unknown"})`;
   let fallbackText = baseFallback;
   const requestCode = nonEmpty(p.requestCode);
   if (requestCode) {

@@ -117,13 +117,14 @@ export const LongToolContext: Story = {
 };
 
 export const MinimalToolApproval: Story = {
-  name: "Minimal info (no metadata, no source)",
+  name: "Minimal info (unknown requester, no source)",
   render: () => (
     <SurfaceRouter
       surface={toolApprovalSurface("req-ta-004", "Tool Approval", {
         title: "unknown tool",
         subtitle: "Requires your approval to run",
         body: "No additional context available.",
+        metadata: [{ label: "Requested by", value: "Unknown" }],
       })}
       onAction={() => {}}
     />

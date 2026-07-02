@@ -116,7 +116,7 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     expect(metadata).toContainEqual({ label: "Requested by", value: "Bob" });
   });
 
-  test("omits the Requested by row when no requesterIdentifier", () => {
+  test("shows Requested by: Unknown when no requesterIdentifier", () => {
     const payload = { ...toolApprovalPayload, requesterIdentifier: undefined };
     const blocks = buildToolApprovalSeedContentBlocks(payload)!;
     const data = (blocks[0] as Record<string, unknown>).data as Record<
@@ -125,7 +125,18 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     >;
     expect(data.title).toBe("bash");
     const metadata = data.metadata as Array<{ label: string; value: string }>;
-    expect(metadata.some((m) => m.label === "Requested by")).toBe(false);
+    expect(metadata).toContainEqual({
+      label: "Requested by",
+      value: "Unknown",
+    });
+
+    // The plain-text fallback carries the same placeholder.
+    const noQuestion = { ...payload, questionText: undefined };
+    const fallbackBlocks = buildToolApprovalSeedContentBlocks(noQuestion)!;
+    const textBlock = fallbackBlocks[1] as Record<string, unknown>;
+    expect(textBlock.text).toContain(
+      "Approve tool: bash (requested by Unknown)",
+    );
   });
 
   test("card subtitle is tool-framed for both tool_approval and tool_grant_request", () => {
