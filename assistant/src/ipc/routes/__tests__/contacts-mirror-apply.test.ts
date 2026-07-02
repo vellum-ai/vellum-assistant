@@ -10,9 +10,9 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { handleContactsMirrorApply } from "../contacts-mirror-ipc-routes.js";
 import { getSqlite } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
+import { handleContactsMirrorApply } from "../contacts-mirror-ipc-routes.js";
 
 await initializeDb();
 
