@@ -56,12 +56,17 @@ describe("AcpAgentProcess.recentStderr", () => {
     expect(indices).toEqual(sorted);
   });
 
-  test("keeps at least the newest line even when it alone exceeds the cap", () => {
+  test("keeps the newest line but truncates it to the cap when it alone exceeds it", () => {
     const proc = newProcess();
     const huge = "y".repeat(8192);
     feed(proc, huge);
 
-    expect(proc.recentStderr()).toBe(huge);
+    // The newest line is preserved (not dropped) but capped so one oversized
+    // chunk can't blow the ring budget or make the failure-path stderr scan
+    // super-linear on huge input.
+    const retained = proc.recentStderr();
+    expect(retained.length).toBe(4096);
+    expect(retained).toBe("y".repeat(4096));
   });
 
   test("recentStderr is pure: repeated reads do not clear the buffer", () => {
