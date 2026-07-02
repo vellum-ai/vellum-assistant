@@ -349,6 +349,73 @@ export const channelAdmissionPolicy = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// Channel verification sessions (gateway-owned)
+// ---------------------------------------------------------------------------
+//
+// Recreated deliberately after m0011 dropped the old write-only mirror.
+// Column names mirror the assistant table 1:1 so the m0012 backfill can
+// copy rows unchanged. Accessed via db/session-store.ts.
+
+export const channelVerificationSessions = sqliteTable(
+  "channel_verification_sessions",
+  {
+    id: text("id").primaryKey(),
+    channel: text("channel").notNull(),
+    challengeHash: text("challenge_hash").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+    status: text("status").notNull().default("pending"),
+    sourceConversationId: text("source_conversation_id"),
+    consumedByExternalUserId: text("consumed_by_external_user_id"),
+    consumedByChatId: text("consumed_by_chat_id"),
+    // Outbound session: expected-identity binding
+    expectedExternalUserId: text("expected_external_user_id"),
+    expectedChatId: text("expected_chat_id"),
+    expectedPhoneE164: text("expected_phone_e164"),
+    identityBindingStatus: text("identity_binding_status").default("bound"),
+    // Outbound session: delivery tracking
+    destinationAddress: text("destination_address"),
+    lastSentAt: integer("last_sent_at"),
+    sendCount: integer("send_count").default(0),
+    nextResendAt: integer("next_resend_at"),
+    // Session configuration
+    codeDigits: integer("code_digits").default(6),
+    maxAttempts: integer("max_attempts").default(3),
+    // Distinguishes guardian verification from trusted contact verification
+    verificationPurpose: text("verification_purpose").default("guardian"),
+    // Telegram bootstrap deep-link token hash
+    bootstrapTokenHash: text("bootstrap_token_hash"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_gw_verification_sessions_lookup").on(
+      table.channel,
+      table.challengeHash,
+      table.status,
+    ),
+    index("idx_gw_verification_sessions_active").on(
+      table.channel,
+      table.status,
+    ),
+    index("idx_gw_verification_sessions_identity").on(
+      table.channel,
+      table.expectedExternalUserId,
+      table.expectedChatId,
+      table.status,
+    ),
+    index("idx_gw_verification_sessions_destination").on(
+      table.channel,
+      table.destinationAddress,
+    ),
+    index("idx_gw_verification_sessions_bootstrap").on(
+      table.channel,
+      table.bootstrapTokenHash,
+      table.status,
+    ),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // Guardian verification rate limits
 // ---------------------------------------------------------------------------
 
