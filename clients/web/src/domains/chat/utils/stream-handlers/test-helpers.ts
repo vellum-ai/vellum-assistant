@@ -41,7 +41,6 @@ export function makeCtx(
     streamContext: { assistantId: "ast-1", conversationId: "conv-1" },
     assistantId: "ast-1",
     setOptimisticSends: mock(() => {}),
-    clearOptimisticSend: mock(() => {}),
     turnActions: {
       requestSend: mock(() => {}),
       acceptSend: mock(() => {}),
