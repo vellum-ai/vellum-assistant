@@ -475,12 +475,17 @@ export function commitStagedSkillInstall(
 
   // Final pristineness gate: when the caller pinned an expected hash, verify
   // the live copy still matches it immediately before the swap. This closes
-  // the check-then-overwrite window — a user edit made any time after the
+  // the check-then-overwrite window — a change made any time after the
   // caller's initial check (including during the catalog fetch and staged
   // download, which can run in the background after the load-path timeout)
-  // aborts the swap instead of discarding their change.
-  if (expectedContentHash !== undefined && existsSync(skillDir)) {
-    if (computeSkillHash(skillDir) !== expectedContentHash) {
+  // aborts the swap instead of clobbering it. A now-missing directory counts
+  // as a concurrent modification too: the user deleted/uninstalled the skill
+  // mid-refresh, so swapping the staged copy in would resurrect it.
+  if (expectedContentHash !== undefined) {
+    if (
+      !existsSync(skillDir) ||
+      computeSkillHash(skillDir) !== expectedContentHash
+    ) {
       rmSync(stagedDir, { recursive: true, force: true });
       throw new ConcurrentSkillModificationError(skillId);
     }
@@ -572,6 +577,15 @@ export async function installSkillLocally(
         installSource = "platform";
         await fetchAndExtractSkill(skillId, stagedDir);
       } catch (err) {
+        // Refresh of an existing install (expectedContentHash set): the live
+        // copy may already be the platform-fetched newer version, so falling
+        // back to the older bundled copy would silently downgrade it — the
+        // pre-swap hash guard only confirms the live copy is unchanged, not
+        // that the staged content is newer. Abort instead and keep the
+        // current instructions; the next load retries the fetch.
+        if (expectedContentHash !== undefined) {
+          throw err;
+        }
         log.warn(
           { err, skillId },
           "Platform fetch for newer catalog entry failed; installing bundled copy",

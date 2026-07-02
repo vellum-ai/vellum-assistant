@@ -8,6 +8,7 @@
  * newer, and must never overwrite user-modified or non-catalog installs.
  */
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -231,6 +232,56 @@ describe("refreshInstalledSkillIfStale", () => {
     expect(readFileSync(join(skillDir, "SKILL.md"), "utf-8")).toContain(
       "User edit during refresh.",
     );
+  });
+
+  test("does not downgrade to bundled content when the refresh fetch fails", async () => {
+    // Current install is platform-fetched content newer than any bundle.
+    const skillDir = writeInstalledSkill("Current platform body.");
+    // Catalog advertises an even newer version, but the tarball fetch fails.
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url.endsWith("/v1/skills/")) {
+        return Response.json({
+          skills: [{ id: "demo-skill", updatedAt: NEW_STAMP }],
+        });
+      }
+      // Tarball endpoint is down.
+      return new Response("upstream error", { status: 502 });
+    }) as unknown as typeof fetch;
+
+    // Refresh fails (does not fall back to an older bundled copy); the
+    // current instructions are left in place for the next load to retry.
+    expect(await refreshInstalledSkillIfStale("demo-skill")).toBe("failed");
+    expect(readFileSync(join(skillDir, "SKILL.md"), "utf-8")).toContain(
+      "Current platform body.",
+    );
+  });
+
+  test("does not resurrect a skill deleted mid-refresh", async () => {
+    const skillDir = writeInstalledSkill("Old body.");
+    const archive = gzipSync(
+      makeTar([{ name: "SKILL.md", content: skillMarkdown("New body.") }]),
+    );
+    // Simulate the user uninstalling the skill during the fetch window.
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url.endsWith("/v1/skills/")) {
+        return Response.json({
+          skills: [{ id: "demo-skill", updatedAt: NEW_STAMP }],
+        });
+      }
+      if (url.includes("/v1/skills/demo-skill")) {
+        rmSync(skillDir, { recursive: true, force: true });
+        return new Response(archive);
+      }
+      return new Response("not found", { status: 404 });
+    }) as unknown as typeof fetch;
+
+    expect(await refreshInstalledSkillIfStale("demo-skill")).toBe(
+      "skipped_locally_modified",
+    );
+    // The deletion stands — the staged copy was not swapped into place.
+    expect(existsSync(join(skillDir, "SKILL.md"))).toBe(false);
   });
 
   test("falls back to installedAt for installs that predate catalogUpdatedAt", async () => {

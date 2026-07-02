@@ -15,7 +15,10 @@ import {
   autoInstallFromCatalog,
   resolveCatalog,
 } from "../../skills/catalog-install.js";
-import { refreshInstalledSkillIfStale } from "../../skills/catalog-refresh.js";
+import {
+  refreshInstalledSkillIfStale,
+  type SkillRefreshOutcome,
+} from "../../skills/catalog-refresh.js";
 import {
   collectAllMissing,
   indexCatalogById,
@@ -61,6 +64,24 @@ const INLINE_COMMAND_CLEANUP_STUB =
 const SKILL_REFRESH_WAIT_MS = 2_000;
 
 const log = getLogger("skill-load");
+
+/**
+ * Trigger a staleness refresh for a catalog-installed skill, waiting at most
+ * `SKILL_REFRESH_WAIT_MS`. Returns `"refreshed"` when the on-disk copy was
+ * replaced within the window (caller should re-read it), or `"pending"`/any
+ * skip outcome otherwise. Best-effort — `refreshInstalledSkillIfStale` never
+ * throws and no-ops for non-catalog-managed skills.
+ */
+async function refreshCatalogSkillBounded(
+  skillId: string,
+): Promise<SkillRefreshOutcome | "pending"> {
+  return Promise.race([
+    refreshInstalledSkillIfStale(skillId),
+    new Promise<"pending">((resolve) => {
+      setTimeout(() => resolve("pending"), SKILL_REFRESH_WAIT_MS);
+    }),
+  ]);
+}
 
 /**
  * Attempt to load and parse TOOLS.json from a skill directory.
@@ -229,12 +250,7 @@ export const skillLoadTool = {
     // window still lands for the next load. `managed` is the source catalog
     // installs resolve as; other sources are never catalog-managed.
     if (!cleanupMode && skill.source === "managed") {
-      const outcome = await Promise.race([
-        refreshInstalledSkillIfStale(skill.id),
-        new Promise<"pending">((resolve) => {
-          setTimeout(() => resolve("pending"), SKILL_REFRESH_WAIT_MS);
-        }),
-      ]);
+      const outcome = await refreshCatalogSkillBounded(skill.id);
       if (outcome === "refreshed") {
         const reloaded = loadSkillBySelector(selector);
         if (reloaded.skill) {
@@ -454,6 +470,14 @@ export const skillLoadTool = {
         childLines.push(
           `  - ${child.id}: ${child.displayName} - ${child.description} (${child.skillFilePath})`,
         );
+
+        // Included children are read directly here rather than through
+        // skill_load, so refresh a stale managed include before reading its
+        // body — otherwise a parent load would inject the child's old
+        // instructions even after a fix was published for the child.
+        if (!cleanupMode && child.source === "managed") {
+          await refreshCatalogSkillBounded(childId);
+        }
 
         // Load the included skill's body content
         const childLoaded = loadSkillBySelector(childId);
