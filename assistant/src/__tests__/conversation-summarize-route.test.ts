@@ -63,6 +63,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
   batchSetDisplayOrders: () => {},
   countConversationsByScheduleJobId: () => 0,
   deleteConversation: () => ({ segmentIds: [], deletedSummaryIds: [] }),
+  extractImageSourcePaths: () => undefined,
   forkConversation: () => ({ id: "forked" }),
   getConversation: getConversationMock,
   provenanceFromTrustContext: (ctx: unknown) =>
@@ -247,10 +248,17 @@ describe("POST /v1/conversations/summarize", () => {
 
     // Card persisted as an assistant message and pushed onto in-memory history.
     expect(addMessageMock).toHaveBeenCalledTimes(1);
-    const [convId, role, content] = addMessageMock.mock.calls[0];
+    const [convId, role, content, options] = addMessageMock.mock.calls[0];
     expect(convId).toBe("conv-summarize-test");
     expect(role).toBe("assistant");
     expect(content).toContain("Conversation summarized");
+    // Metadata mirrors the /compact card shape (channel keys + provenance);
+    // interface keys are omitted because the route receives no interface id.
+    expect(options?.metadata).toEqual({
+      provenanceTrustClass: "unknown",
+      userMessageChannel: "vellum",
+      assistantMessageChannel: "vellum",
+    });
     expect(ctx.messages).toHaveLength(1);
 
     // Turn-style SSE events: full text delta, then message_complete with the
@@ -335,12 +343,12 @@ describe("POST /v1/conversations/summarize", () => {
     expect(content).toContain(
       "Summarization skipped — Nothing to summarize before this message",
     );
-    expect(
-      broadcastEvents.some((e) => e.type === "conversation_error"),
-    ).toBe(false);
-    expect(
-      broadcastEvents.some((e) => e.type === "message_complete"),
-    ).toBe(true);
+    expect(broadcastEvents.some((e) => e.type === "conversation_error")).toBe(
+      false,
+    );
+    expect(broadcastEvents.some((e) => e.type === "message_complete")).toBe(
+      true,
+    );
     expect(ctx.conversation.isProcessing()).toBe(false);
     expect(ctx.drainQueue).toHaveBeenCalledTimes(1);
   });

@@ -107,12 +107,30 @@ export function formatCompactResult(result: ContextWindowResult): string {
 }
 
 /**
+ * User-facing copy for the compactor's internal skip-reason strings, keyed by
+ * the exact `ContextWindowResult.reason` values reachable from the
+ * "summarize up to here" path. Unknown reasons fall back to the raw string.
+ */
+const SUMMARIZE_SKIP_REASON_COPY: Record<string, string> = {
+  "fixed boundary out of range": "nothing to summarize before this point",
+  "tail_start at head — nothing to compact":
+    "nothing to summarize before this point",
+  "no messages to compact": "nothing to summarize",
+  "compaction disabled": "summarization is disabled in the assistant's config",
+  "provider error": "the summary could not be generated — try again",
+  "unparseable response": "the summary could not be generated — try again",
+};
+
+/**
  * Format the result of a "summarize up to here" compaction into a user-facing
  * card.
  */
 export function formatSummarizeUpToResult(result: ContextWindowResult): string {
   if (!result.compacted) {
-    return `Summarization skipped — ${result.reason ?? "nothing to summarize"}.`;
+    const reason = result.reason
+      ? (SUMMARIZE_SKIP_REASON_COPY[result.reason] ?? result.reason)
+      : "nothing to summarize";
+    return `Summarization skipped — ${reason}.`;
   }
   const saved =
     result.previousEstimatedInputTokens - result.estimatedInputTokens;
