@@ -1001,9 +1001,9 @@ async function initiateVerificationChallenge(params: {
   }
 
   try {
-    // ifNoneActive makes the check+mint atomic gateway-side: a concurrent
-    // duplicate webhook loses the claim and gets a conflict instead of
-    // revoking the winner's challenge.
+    // Sender-scoped atomic claim: a concurrent duplicate webhook from the
+    // SAME sender loses and gets a conflict instead of revoking the winner's
+    // challenge; a different sender may still supersede (revoke-prior).
     const session = await createOutboundSessionConditional({
       channel: sourceChannel,
       expectedExternalUserId: senderUserId,
@@ -1011,7 +1011,7 @@ async function initiateVerificationChallenge(params: {
       identityBindingStatus: "bound",
       destinationAddress: senderUserId,
       verificationPurpose: "trusted_contact",
-      ifNoneActive: true,
+      ifNoneActiveForExternalUserId: senderUserId,
     });
     if ("conflict" in session) {
       log.debug(

@@ -102,6 +102,20 @@ mock.module("../channels/gateway-verification-sessions.js", () => ({
   createOutboundSession: async (
     params: Parameters<typeof createOutboundSession>[0],
   ) => createOutboundSession(params),
+  createOutboundSessionConditional: async ({
+    ifNoneActiveForExternalUserId,
+    ...params
+  }: Parameters<typeof createOutboundSession>[0] & {
+    ifNoneActiveForExternalUserId?: string;
+  }) => {
+    if (ifNoneActiveForExternalUserId !== undefined) {
+      const active = findActiveSession(params.channel);
+      if (active?.expectedExternalUserId === ifNoneActiveForExternalUserId) {
+        return { conflict: true as const, reason: "active_session_exists" };
+      }
+    }
+    return createOutboundSession(params);
+  },
   getPendingSession: async (channel: string) => getPendingSession(channel),
   findActiveSession: async (channel: string) => findActiveSession(channel),
 }));

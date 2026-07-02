@@ -90,10 +90,12 @@ mock.module("../channels/gateway-verification-sessions.js", () => ({
   createOutboundSessionConditional: async ({
     requireSourceSessionPending: _guard,
     ifNoneActive: _ifNoneActive,
+    ifNoneActiveForExternalUserId: _ifNoneActiveFor,
     ...params
   }: Parameters<typeof createOutboundSession>[0] & {
     requireSourceSessionPending?: string;
     ifNoneActive?: boolean;
+    ifNoneActiveForExternalUserId?: string;
   }) => createOutboundSession(params),
   updateSessionDelivery: async (
     ...args: Parameters<typeof updateSessionDelivery>

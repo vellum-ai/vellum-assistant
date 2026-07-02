@@ -211,6 +211,9 @@ export const CreateOutboundSessionIpcParamsSchema = z.object({
   // Mint only if the channel has no active (pending_bootstrap /
   // awaiting_response, non-expired) session.
   ifNoneActive: z.boolean().optional(),
+  // Sender-scoped variant: mint unless the channel's active session is bound
+  // to this expectedExternalUserId (a different sender may supersede).
+  ifNoneActiveForExternalUserId: z.string().min(1).optional(),
 });
 
 export type CreateOutboundSessionIpcParams = z.infer<

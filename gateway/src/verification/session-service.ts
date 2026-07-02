@@ -193,11 +193,16 @@ export type GuardedCreateOutboundSessionResult =
  *   second claim of the same deep-link token conflicts).
  * - `ifNoneActive`: create-if-absent. Conflicts when the channel already has
  *   an active (pending_bootstrap / awaiting_response, non-expired) session.
+ * - `ifNoneActiveForExternalUserId`: sender-scoped create-if-absent.
+ *   Conflicts only when the channel's active session is bound to the same
+ *   expectedExternalUserId — a different sender's session may be superseded
+ *   (the unguarded revoke-prior semantics apply).
  */
 export function createOutboundSessionGuarded(
   params: Parameters<typeof createOutboundSession>[0] & {
     requireSourceSessionPending?: string;
     ifNoneActive?: boolean;
+    ifNoneActiveForExternalUserId?: string;
   },
 ): GuardedCreateOutboundSessionResult {
   if (params.requireSourceSessionPending !== undefined) {
@@ -213,6 +218,16 @@ export function createOutboundSessionGuarded(
 
   if (params.ifNoneActive && findActiveSession(params.channel) !== null) {
     return { conflict: true, reason: "active_session_exists" };
+  }
+
+  if (params.ifNoneActiveForExternalUserId !== undefined) {
+    const active = findActiveSession(params.channel);
+    if (
+      active !== null &&
+      active.expectedExternalUserId === params.ifNoneActiveForExternalUserId
+    ) {
+      return { conflict: true, reason: "active_session_exists" };
+    }
   }
 
   return createOutboundSession(params);

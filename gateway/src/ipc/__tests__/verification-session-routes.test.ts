@@ -293,6 +293,39 @@ describe("verification_sessions_create_outbound", () => {
     );
     expect(getRow(result.sessionId)?.status).toBe("awaiting_response");
   });
+
+  test("ifNoneActiveForExternalUserId: conflicts on same sender, supersedes a different sender", async () => {
+    const first = CreateOutboundSessionIpcResponseSchema.parse(
+      await call(METHODS.createOutbound, {
+        channel: "slack",
+        expectedExternalUserId: "slack-user-1",
+        expectedChatId: "slack-user-1",
+      }),
+    );
+
+    // Same sender: conflict; the winner's code survives untouched.
+    expect(
+      await call(METHODS.createOutbound, {
+        channel: "slack",
+        expectedExternalUserId: "slack-user-1",
+        expectedChatId: "slack-user-1",
+        ifNoneActiveForExternalUserId: "slack-user-1",
+      }),
+    ).toEqual({ conflict: true, reason: "active_session_exists" });
+    expect(getRow(first.sessionId)?.status).toBe("awaiting_response");
+
+    // Different sender: supersedes (revoke-prior semantics apply).
+    const second = CreateOutboundSessionIpcResponseSchema.parse(
+      await call(METHODS.createOutbound, {
+        channel: "slack",
+        expectedExternalUserId: "slack-user-2",
+        expectedChatId: "slack-user-2",
+        ifNoneActiveForExternalUserId: "slack-user-2",
+      }),
+    );
+    expect(getRow(second.sessionId)?.status).toBe("awaiting_response");
+    expect(getRow(first.sessionId)?.status).toBe("revoked");
+  });
 });
 
 describe("verification_sessions_create_inbound", () => {
