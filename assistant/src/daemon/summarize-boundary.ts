@@ -1,6 +1,36 @@
 import type { MessageRow } from "../persistence/conversation-crud.js";
 import { UserError } from "../util/errors.js";
-import { startsNewTurn } from "./conversation.js";
+import { isToolResultBlock } from "./conversation-history.js";
+
+/**
+ * Whether a persisted message starts a new conversation turn. A turn is
+ * delimited by a "real" user message; a user message whose content is entirely
+ * tool_result blocks is a continuation within the current turn, and assistant
+ * messages never start one. Mirrors the turn-boundary definition used by
+ * `getAssistantMessageIdsInTurn`/`getTurnTimeBounds` and the agent loop's
+ * per-turn `turnCount++`, so counting these reconstructs `turnCount` on load.
+ */
+export function startsNewTurn(role: string, content: string): boolean {
+  if (role !== "user") return false;
+  try {
+    const parsed = JSON.parse(content);
+    if (
+      Array.isArray(parsed) &&
+      parsed.length > 0 &&
+      parsed.every(
+        (block: unknown) =>
+          block != null &&
+          typeof block === "object" &&
+          isToolResultBlock(block as Record<string, unknown>),
+      )
+    ) {
+      return false;
+    }
+  } catch {
+    // Non-JSON content is a plain user message — a turn boundary.
+  }
+  return true;
+}
 
 /**
  * Resolves a client-addressed message id to a turn-snapped row boundary for
