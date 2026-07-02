@@ -20,7 +20,6 @@ import {
   createOutboundSession,
   resolveBootstrapToken,
   updateSessionDelivery,
-  updateSessionStatus,
 } from "../../../channels/gateway-verification-sessions.js";
 import type { ChannelId } from "../../../channels/types.js";
 import { sendTelegramReply } from "../../../messaging/providers/telegram-bot/send.js";
@@ -143,18 +142,18 @@ export async function handleBootstrapIntercept(
 
   let newSession: CreateOutboundSessionResult;
   try {
-    // Bind the pending_bootstrap session to the sender's identity
+    // Bind the pending_bootstrap session to the sender's identity. Binding
+    // leaves status untouched, so a failure anywhere before the mint keeps
+    // the token resolvable and the deep link retryable.
     await bindSessionIdentity(
       bootstrapSession.id,
       rawSenderId,
       conversationExternalId,
     );
 
-    // Transition bootstrap session to awaiting_response
-    await updateSessionStatus(bootstrapSession.id, "awaiting_response");
-
-    // Create a new identity-bound outbound session with a fresh secret.
-    // The old bootstrap session is auto-revoked by createOutboundSession.
+    // Mint the identity-bound replacement with a fresh secret. The gateway
+    // revokes the bootstrap session in the same call, so a successful mint
+    // is what consumes the token — no separate status transition needed.
     newSession = await createOutboundSession({
       channel: sourceChannel,
       expectedExternalUserId: rawSenderId,

@@ -3,10 +3,12 @@
  * gateway-backed session client.
  *
  * Covers: the happy-path /start gv_<token> handoff (resolve → bind →
- * status transition → fresh identity-bound session → delivery tracking),
- * fall-through for unresolvable tokens, ACL-threaded session reuse (no
- * second gateway lookup), and the gateway-unreachable posture (handled
- * "unavailable" response — never fall-through to normal processing).
+ * fresh identity-bound session → delivery tracking; the mint revokes the
+ * bootstrap session gateway-side), fall-through for unresolvable tokens,
+ * ACL-threaded session reuse (no second gateway lookup), the
+ * gateway-unreachable posture (handled "unavailable" response — never
+ * fall-through to normal processing), and retryability: any failure before
+ * the mint leaves the original session pending_bootstrap.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -121,9 +123,9 @@ describe("handleBootstrapIntercept", () => {
     // Raw token (gv_ prefix stripped); hashing is gateway-side.
     expect(resolveCalls).toEqual([["telegram", "token123"]]);
     expect(bindCalls).toEqual([["bootstrap-session-1", "user-42", "chat-123"]]);
-    expect(updateStatusCalls).toEqual([
-      ["bootstrap-session-1", "awaiting_response"],
-    ]);
+    // The mint revokes the bootstrap session gateway-side; no separate
+    // status transition — that would make a mint failure unretryable.
+    expect(updateStatusCalls).toHaveLength(0);
     expect(createCalls).toEqual([
       {
         channel: "telegram",
@@ -192,7 +194,7 @@ describe("handleBootstrapIntercept", () => {
     expect(telegramReplies[0].text).toContain("tap the link again");
   });
 
-  test("gateway unreachable during the session handoff returns a handled unavailable response", async () => {
+  test("gateway unreachable on identity bind leaves the session pending_bootstrap and responds unavailable", async () => {
     bindThrows = true;
 
     const result = await handleBootstrapIntercept(makeParams());
@@ -200,11 +202,13 @@ describe("handleBootstrapIntercept", () => {
     expect(result).toMatchObject({
       verificationOutcome: "bootstrap_unavailable",
     });
+    // Nothing moved the session out of pending_bootstrap — re-tap retries.
+    expect(updateStatusCalls).toHaveLength(0);
     expect(createCalls).toHaveLength(0);
     expect(telegramReplies).toHaveLength(1);
   });
 
-  test("gateway unreachable on session creation returns a handled unavailable response", async () => {
+  test("gateway unreachable on session creation leaves the session pending_bootstrap and responds unavailable", async () => {
     createThrows = true;
 
     const result = await handleBootstrapIntercept(makeParams());
@@ -212,6 +216,10 @@ describe("handleBootstrapIntercept", () => {
     expect(result).toMatchObject({
       verificationOutcome: "bootstrap_unavailable",
     });
+    // Bind ran but binding never changes status, so the token is still
+    // resolvable and the deep link remains retryable.
+    expect(bindCalls).toHaveLength(1);
+    expect(updateStatusCalls).toHaveLength(0);
     expect(updateDeliveryCalls).toHaveLength(0);
     expect(telegramReplies).toHaveLength(1);
   });
