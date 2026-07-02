@@ -695,4 +695,55 @@ describe("enforceIngressAcl — callback interactions never spawn stranger-lane 
     expect(createOutboundSessionCalls.length).toBe(1);
     expect(accessRequestCalls.length).toBe(1);
   });
+
+  test("a Slack bot never receives the self-verify challenge — guardian is notified directly", async () => {
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceChannel: "slack",
+        canonicalSenderId: "U123BOT",
+        rawSenderId: "U123BOT",
+        sourceMetadata: {
+          ...withVerdict({
+            trustClass: "unknown",
+            canonicalSenderId: "U123BOT",
+          }),
+          isBot: true,
+        } as SourceMetadata,
+      }),
+    );
+
+    expect(result.earlyResponse).toBeDefined();
+    // No verification session is minted — a bot cannot return a code.
+    expect(createOutboundSessionCalls.length).toBe(0);
+    expect(accessRequestCalls.length).toBe(1);
+  });
+
+  test("identity signals from sourceMetadata are forwarded to the access request", async () => {
+    await enforceIngressAcl(
+      makeParams({
+        sourceChannel: "slack",
+        canonicalSenderId: "U123BOT",
+        rawSenderId: "U123BOT",
+        sourceMetadata: {
+          ...withVerdict({
+            trustClass: "unknown",
+            canonicalSenderId: "U123BOT",
+          }),
+          isBot: true,
+          isStranger: true,
+          isRestricted: true,
+        } as SourceMetadata,
+      }),
+    );
+
+    expect(accessRequestCalls.length).toBe(1);
+    const call = accessRequestCalls[0] as {
+      isBot?: boolean;
+      isStranger?: boolean;
+      isRestricted?: boolean;
+    };
+    expect(call.isBot).toBe(true);
+    expect(call.isStranger).toBe(true);
+    expect(call.isRestricted).toBe(true);
+  });
 });

@@ -38,27 +38,29 @@ const WHATSAPP_BUTTON_TITLE_MAX_LEN = 20;
 // WhatsApp supports a maximum of 3 reply buttons
 const WHATSAPP_MAX_BUTTONS = 3;
 
+// Actions always preserved when the button cap forces a cut: the deny-intent
+// pair (reject/block) and the persistent approve variant.
+const WHATSAPP_PINNED_ACTION_IDS = new Set([
+  "reject",
+  "block",
+  "approve_always",
+]);
+
 /**
  * Select up to WHATSAPP_MAX_BUTTONS actions for WhatsApp interactive buttons.
- * When there are more actions than the cap allows, this ensures that `reject`
- * and `approve_always` are always preserved (they are the most important
- * decisions), with remaining slots filled by other approve variants in order.
+ * When there are more actions than the cap allows, the pinned decisions are
+ * preserved (the guardian must always have a refuse/block path), with the
+ * remaining slots filled in order.
  */
 function selectWhatsAppButtons(
   actions: Array<{ id: string; label: string }>,
 ): Array<{ id: string; label: string }> {
   if (actions.length <= WHATSAPP_MAX_BUTTONS) return actions;
 
-  // Always preserve reject and approve_always when present
-  const pinned = actions.filter(
-    (a) => a.id === "reject" || a.id === "approve_always",
-  );
-  const rest = actions.filter(
-    (a) => a.id !== "reject" && a.id !== "approve_always",
-  );
+  const pinned = actions.filter((a) => WHATSAPP_PINNED_ACTION_IDS.has(a.id));
+  const rest = actions.filter((a) => !WHATSAPP_PINNED_ACTION_IDS.has(a.id));
   const slotsForRest = WHATSAPP_MAX_BUTTONS - pinned.length;
-  const selected = [...rest.slice(0, slotsForRest), ...pinned];
-  return selected;
+  return [...rest.slice(0, slotsForRest), ...pinned];
 }
 
 export async function sendWhatsAppReply(

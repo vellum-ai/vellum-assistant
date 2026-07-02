@@ -70,6 +70,14 @@ export type ApprovalCardBlock = z.infer<typeof ApprovalCardBlockSchema>;
 
 // ── Public types ────────────────────────────────────────────────────────────
 
+/** A card action option resolved from the request's domain (id + label + style). */
+export interface ApprovalCardActionOption {
+  /** Canonical action id — becomes the `apr:<requestId>:<id>` callback. */
+  id: string;
+  label: string;
+  style?: SurfaceAction["style"];
+}
+
 export interface ApprovalCardParams {
   /** Prefix for `surfaceId` — combined with `requestId` to form e.g. "access-request-abc123". */
   surfaceIdPrefix: string;
@@ -83,8 +91,13 @@ export interface ApprovalCardParams {
   body: string;
   /** Key-value metadata grid rendered below the body. */
   metadata: Array<{ label: string; value: string }>;
-  /** When present, Approve/Reject buttons are wired with `apr:<requestId>:*` action IDs. */
+  /** When present, action buttons are wired with `apr:<requestId>:*` action IDs. */
   requestId?: string;
+  /**
+   * Domain-specific action set (e.g. the signal-driven introduction-card
+   * actions). When absent, the generic Approve/Reject pair is rendered.
+   */
+  actions?: ApprovalCardActionOption[];
   /** Plain-text content for the fallback `text` block. */
   fallbackText: string;
 }
@@ -113,19 +126,17 @@ export function buildApprovalCardBlocks(
     fallbackText,
   } = params;
 
+  const actionOptions: ApprovalCardActionOption[] = params.actions ?? [
+    { id: "approve_once", label: "Approve", style: "primary" },
+    { id: "reject", label: "Reject", style: "destructive" },
+  ];
+
   const actions: SurfaceAction[] | undefined = requestId
-    ? [
-        {
-          id: `apr:${requestId}:approve_once`,
-          label: "Approve",
-          style: "primary",
-        },
-        {
-          id: `apr:${requestId}:reject`,
-          label: "Reject",
-          style: "destructive",
-        },
-      ]
+    ? actionOptions.map((option) => ({
+        id: `apr:${requestId}:${option.id}`,
+        label: option.label,
+        ...(option.style ? { style: option.style } : {}),
+      }))
     : undefined;
 
   const data: CardSurfaceData = {
