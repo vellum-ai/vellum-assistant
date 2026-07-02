@@ -51,6 +51,7 @@ import {
   getOrCreateConversation as getOrCreateActiveConversation,
   mergeConversationOptions,
 } from "./conversation-store.js";
+import { getDbMigrationReadiness } from "./daemon-readiness.js";
 import type { ConversationCreateOptions } from "./handlers/shared.js";
 import { HostAppControlProxy } from "./host-app-control-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
@@ -290,6 +291,19 @@ export async function processMessage(
   content: string,
   options?: ProcessMessageOptions,
 ): Promise<{ messageId: string; assistantMessageId?: string }> {
+  // Defense-in-depth: never run a turn against a not-yet-migrated schema.
+  // The HTTP send path is already gated by dbMigrationUnavailableForPath and
+  // the background sweeps are deferred until migrations report ready, but this
+  // is the shared sink for every message caller (sweeps, scheduler, pointer,
+  // future IPC callers), so guard it directly. Migrations run async during
+  // startup, so a caller can reach here before the tables exist.
+  const migrationReadiness = getDbMigrationReadiness();
+  if (!migrationReadiness.ready) {
+    throw new Error(
+      `Cannot process message: database migrations ${migrationReadiness.state}`,
+    );
+  }
+
   const { conversation, attachments } = await prepareConversationForMessage(
     conversationId,
     content,

@@ -11,6 +11,14 @@
  * is ready, runs data migrations and other deferred tasks. The gateway keeps
  * readiness and regular traffic closed until this completes, preventing auth
  * traffic from racing with data migrations.
+ *
+ * The assistant now runs its own DB migrations asynchronously during startup,
+ * so "reachable" is not "ready": the `health` route answers (it is exempt from
+ * the assistant's migration-readiness gate) while the schema is still being
+ * built. We therefore wait until `health` reports migrations ready before
+ * running the guardian-binding backfill / data migrations / voice syncs — all
+ * of which write to assistant tables over IPC and would otherwise hit a
+ * "no such table" error on a warm-pool claim.
  */
 
 import type { Database } from "bun:sqlite";
@@ -32,14 +40,45 @@ function getRawDb(drizzleDb: GatewayDb): Database {
   return (drizzleDb as unknown as { $client: Database }).$client;
 }
 
+/**
+ * Shape of the assistant `health` response we care about. `dbMigrations` is
+ * present only while migrations are NOT ready (running/not_started/failed); a
+ * healthy response omits it. See assistant `getDetailedHealth`.
+ */
+export interface AssistantHealth {
+  status?: string;
+  dbMigrations?: { ready?: boolean; state?: string };
+}
+
+/**
+ * Whether a `health` response indicates DB migrations have finished. A
+ * successful call only means the assistant is reachable — the `health` method
+ * is exempt from the assistant's migration-readiness gate, so it answers while
+ * the schema is still being built. `dbMigrations` is absent on a healthy
+ * response and carries `ready: false` while still migrating/failed.
+ */
+export function assistantReportsMigrationsReady(
+  health: AssistantHealth | null | undefined,
+): boolean {
+  return (
+    health?.dbMigrations === undefined || health.dbMigrations.ready === true
+  );
+}
+
 export async function waitForAssistant(): Promise<boolean> {
   const deadline = Date.now() + MAX_WAIT_MS;
 
   while (Date.now() < deadline) {
     try {
-      await ipcCallAssistant("health");
-      log.info("Assistant is ready");
-      return true;
+      const health = (await ipcCallAssistant("health")) as AssistantHealth;
+      if (assistantReportsMigrationsReady(health)) {
+        log.info("Assistant is ready");
+        return true;
+      }
+      log.info(
+        { state: health.dbMigrations?.state },
+        "Assistant reachable but DB migrations not ready — waiting",
+      );
     } catch (err) {
       if (!(err instanceof IpcTransportError)) throw err;
       // Transport error during startup is expected — keep polling.

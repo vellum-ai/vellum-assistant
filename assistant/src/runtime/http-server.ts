@@ -180,6 +180,7 @@ export class RuntimeHttpServer {
 
   private retrySweepTimer: ReturnType<typeof setInterval> | null = null;
   private sweepInProgress = false;
+  private sweepsStarted = false;
 
   private readonly liveVoiceSessionManager: LiveVoiceSessionManager;
   private router: HttpRouter;
@@ -448,7 +449,13 @@ export class RuntimeHttpServer {
       },
     });
 
-    this.startBackgroundSweeps();
+    // Background sweeps are intentionally NOT started here. The HTTP server
+    // binds early in startup (so /healthz answers ASAP) — before DB migrations
+    // run. The sweeps touch the ORM (retry sweep → processMessage, guardian
+    // expiry, profile reaper), so starting them now would race async migrations
+    // and hit "no such table". The daemon calls
+    // startRuntimeHttpServerBackgroundSweeps() only after migrations report
+    // ready (setDbReady). See daemon/lifecycle.ts.
 
     log.info(
       "Running in gateway-only ingress mode. Direct webhook routes disabled.",
@@ -483,9 +490,14 @@ export class RuntimeHttpServer {
   /**
    * Start background sweep timers: retry sweep for failed channel events,
    * guardian approval/action expiry sweeps, and canonical guardian expiry.
-   * Extracted from start() to allow future callers to defer sweep startup.
+   *
+   * These all touch the ORM, so the daemon defers this until DB migrations
+   * report ready (see daemon/lifecycle.ts). Idempotent — safe to call once
+   * per ready transition; repeat calls are no-ops.
    */
-  private startBackgroundSweeps(): void {
+  startBackgroundSweeps(): void {
+    if (this.sweepsStarted) return;
+    this.sweepsStarted = true;
     if (!this.retrySweepTimer) {
       this.retrySweepTimer = setInterval(() => {
         if (this.sweepInProgress) return;
@@ -1139,6 +1151,16 @@ export async function startRuntimeHttpServer(): Promise<void> {
     );
     instance = null;
   }
+}
+
+/**
+ * Start the runtime HTTP server's ORM-touching background sweeps. Called by the
+ * daemon once DB migrations report ready, so the sweeps (retry sweep, guardian
+ * expiry, profile reaper) never run against a not-yet-migrated schema. No-op if
+ * the HTTP server failed to bind (IPC-only mode) or sweeps already started.
+ */
+export function startRuntimeHttpServerBackgroundSweeps(): void {
+  instance?.startBackgroundSweeps();
 }
 
 /** Stop the runtime HTTP server singleton if one is running; no-op otherwise. */

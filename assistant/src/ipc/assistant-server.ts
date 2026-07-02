@@ -33,6 +33,7 @@ import { createServer, type Server, type Socket } from "node:net";
 
 import { ensureSocketDir, SocketWatchdog } from "@vellumai/ipc-server-utils";
 
+import { getDbMigrationReadiness } from "../daemon/daemon-readiness.js";
 import { findLocalGuardianPrincipalIdFromStore } from "../runtime/local-actor-identity.js";
 import { RouteError } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/index.js";
@@ -61,6 +62,22 @@ import { ensureSocketPathFree } from "./socket-cleanup.js";
 import { resolveIpcSocketPath } from "./socket-path.js";
 
 const log = getLogger("assistant-ipc-server");
+
+// IPC methods that must stay answerable while DB migrations are still running.
+// Everything else touches the ORM (shared ROUTES handlers, db_proxy, invite
+// methods) and is gated on migration readiness so it can't hit a not-yet-
+// created table. This mirrors the HTTP transport's exempt set
+// (`DB_MIGRATION_READINESS_EXEMPT_ENDPOINTS` in runtime/http-server.ts) — the
+// two must stay in sync — plus the `$cancel` control method, which only aborts
+// an in-flight request and never reads the DB. `health`/`healthz` in
+// particular MUST stay exempt so the gateway can poll them to observe when
+// migrations finish (see gateway/src/post-assistant-ready.ts).
+const DB_MIGRATION_READINESS_EXEMPT_IPC_METHODS = new Set([
+  "health",
+  "healthz",
+  "ps",
+  "$cancel",
+]);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -358,6 +375,16 @@ export class AssistantIpcServer {
       return;
     }
 
+    // Gate ORM-touching methods on DB migration readiness. Migrations now run
+    // asynchronously during startup, so the IPC server can be answering before
+    // the schema exists; dispatching a handler that calls getDb()/getSqlite()
+    // would hit a "no such table" error.
+    const migrationGate = this.dbMigrationGateResponse(req.method, req.id);
+    if (migrationGate) {
+      this.sendResponse(socket, reader, migrationGate);
+      return;
+    }
+
     void binary;
 
     // Skip AbortController for the $cancel meta-method itself
@@ -405,6 +432,31 @@ export class AssistantIpcServer {
       log.warn({ err, method: req.method }, "IPC handler error");
       this.sendResponse(socket, reader, this.buildErrorResponse(req.id, err));
     }
+  }
+
+  /**
+   * Returns a retryable 503 error envelope when an ORM-touching IPC method is
+   * called while DB migrations are not ready, or `null` when the call may
+   * proceed. Exempt methods (health/healthz/ps/$cancel) always return `null` so
+   * the gateway can poll `health` to observe when migrations finish (see
+   * gateway/src/post-assistant-ready.ts). Carrying `statusCode` maps this to an
+   * `IpcHandlerError` (not an `IpcTransportError`) on the gateway client, so the
+   * warm-pool claim path waits and retries instead of failing hard.
+   */
+  private dbMigrationGateResponse(
+    method: string,
+    id: string,
+  ): IpcResponse | null {
+    if (DB_MIGRATION_READINESS_EXEMPT_IPC_METHODS.has(method)) return null;
+    const readiness = getDbMigrationReadiness();
+    if (readiness.ready) return null;
+    return {
+      id,
+      error: `Database migrations ${readiness.state}; IPC method '${method}' is temporarily unavailable`,
+      statusCode: 503,
+      errorCode: "DB_MIGRATIONS_UNAVAILABLE",
+      errorDetails: readiness,
+    };
   }
 
   private buildErrorResponse(id: string, err: unknown): IpcResponse {

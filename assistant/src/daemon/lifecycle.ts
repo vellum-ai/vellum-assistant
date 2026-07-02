@@ -63,7 +63,10 @@ import {
   initAuthSigningKey,
   resolveSigningKey,
 } from "../runtime/auth/token-service.js";
-import { startRuntimeHttpServer } from "../runtime/http-server.js";
+import {
+  startRuntimeHttpServer,
+  startRuntimeHttpServerBackgroundSweeps,
+} from "../runtime/http-server.js";
 import { warmLocalGuardianPrincipalCache } from "../runtime/local-actor-identity.js";
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
 import {
@@ -302,6 +305,11 @@ export async function runDaemon(): Promise<void> {
     if (migrationsOk) {
       setDbReady(true);
       log.info("Daemon startup: DB initialized");
+      // Now that migrations have created the schema, start the HTTP server's
+      // ORM-touching background sweeps (retry sweep, guardian expiry, profile
+      // reaper). The server binds earlier, before migrations run, so these are
+      // deferred to here to avoid racing async migrations into a missing table.
+      startRuntimeHttpServerBackgroundSweeps();
     } else {
       setDbMigrationFailed();
       log.error(
