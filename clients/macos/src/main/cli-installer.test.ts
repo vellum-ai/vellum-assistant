@@ -19,12 +19,15 @@ const mockBunVersion = "1.3.11";
 // Set a known value so `path.join(process.resourcesPath, "bun")` works.
 Object.defineProperty(process, "resourcesPath", { value: mockResourcesPath, writable: true });
 
+let mockAppVersion = "0.10.4";
+
 mock.module("electron", () => ({
   app: {
     getPath: (name: string) => {
       if (name === "userData") return userDataPath;
       return "/tmp";
     },
+    getVersion: () => mockAppVersion,
     isPackaged: true,
   },
 }));
@@ -42,6 +45,8 @@ let readdirSyncError: Error | null = null;
 let writeFileSyncError: Error | null = null;
 // Contents returned by readFileSync (the install package.json stampPackageManager reads).
 let readFileSyncReturn = '{"dependencies":{"vellum":"latest"}}';
+// Per-path overrides for readFileSync. Falls back to `readFileSyncReturn`.
+const readFileSyncByPath: Record<string, string> = {};
 let readFileSyncError: Error | null = null;
 let renameSyncError: Error | null = null;
 const chmodSyncCalls: Array<[string, number]> = [];
@@ -70,9 +75,9 @@ mock.module("node:fs", () => ({
     if (readdirSyncError) throw readdirSyncError;
     return readdirSyncReturn;
   },
-  readFileSync: (_p: string, _enc?: string) => {
+  readFileSync: (p: string, _enc?: string) => {
     if (readFileSyncError) throw readFileSyncError;
-    return readFileSyncReturn;
+    return p in readFileSyncByPath ? readFileSyncByPath[p] : readFileSyncReturn;
   },
   renameSync: (src: string, dst: string) => {
     if (renameSyncError) throw renameSyncError;
@@ -138,8 +143,10 @@ afterEach(() => {
   readdirSyncError = null;
   writeFileSyncError = null;
   readFileSyncReturn = '{"dependencies":{"vellum":"latest"}}';
+  for (const key of Object.keys(readFileSyncByPath)) delete readFileSyncByPath[key];
   readFileSyncError = null;
   renameSyncError = null;
+  mockAppVersion = "0.10.4";
   chmodSyncCalls.length = 0;
   mkdirSyncCalls.length = 0;
   rmSyncCalls.length = 0;
@@ -746,6 +753,88 @@ describe("ensureCliInstalled", () => {
     existsSyncByPath[cliBinPath] = true;
     lastChild.emit("close", 0);
     await retry;
+  });
+});
+
+// --- stale CLI refresh (LUM-2603) ---
+
+describe("stale CLI refresh", () => {
+  const vellumPkgPath = `${latestInstallDir}/node_modules/vellum/package.json`;
+
+  test("floats an installed CLI that is behind the app version", async () => {
+    existsSyncDefault = true;
+    readFileSyncByPath[vellumPkgPath] = '{"version":"0.10.3"}';
+    mockAppVersion = "0.10.4";
+
+    const promise = ensureCliInstalled();
+    lastChild.emit("close", 0);
+    await promise;
+
+    expect(spawnCalls).toHaveLength(1);
+    const [cmd, args, opts] = spawnCalls[0];
+    expect(cmd).toBe(`${mockResourcesPath}/bun`);
+    expect(args).toEqual(["add", "vellum@latest", "--ignore-scripts"]);
+    expect((opts as { cwd: string }).cwd).toBe(latestInstallDir);
+  });
+
+  test("refreshes at most once per session", async () => {
+    existsSyncDefault = true;
+    readFileSyncByPath[vellumPkgPath] = '{"version":"0.10.3"}';
+    mockAppVersion = "0.10.4";
+
+    const p1 = ensureCliInstalled();
+    lastChild.emit("close", 0);
+    await p1;
+    // Registry still serves 0.10.3 (npm lagging the app release) — the
+    // version gap persists, but no second install should spawn this session.
+    await ensureCliInstalled();
+
+    expect(spawnCalls).toHaveLength(1);
+  });
+
+  test("no refresh when the installed CLI matches the app version", async () => {
+    existsSyncDefault = true;
+    readFileSyncByPath[vellumPkgPath] = '{"version":"0.10.4"}';
+    mockAppVersion = "0.10.4";
+
+    await ensureCliInstalled();
+
+    expect(spawnCalls).toHaveLength(0);
+  });
+
+  test("no refresh when the installed CLI is ahead of the app version", async () => {
+    existsSyncDefault = true;
+    readFileSyncByPath[vellumPkgPath] = '{"version":"0.11.0"}';
+    mockAppVersion = "0.10.4";
+
+    await ensureCliInstalled();
+
+    expect(spawnCalls).toHaveLength(0);
+  });
+
+  test("a failed refresh keeps the existing install and resolves", async () => {
+    existsSyncDefault = true;
+    readFileSyncByPath[vellumPkgPath] = '{"version":"0.10.3"}';
+    mockAppVersion = "0.10.4";
+
+    const promise = ensureCliInstalled();
+    lastChild.stderr.emit("data", Buffer.from("network error"));
+    lastChild.emit("close", 1);
+
+    await expect(promise).resolves.toBeUndefined();
+  });
+
+  test("skips refresh when the install dir has no package.json", async () => {
+    // `bun add` without a local package.json walks up the directory tree —
+    // leave this state to the (re)install path rather than refresh it.
+    existsSyncDefault = true;
+    existsSyncByPath[`${latestInstallDir}/package.json`] = false;
+    readFileSyncByPath[vellumPkgPath] = '{"version":"0.10.3"}';
+    mockAppVersion = "0.10.4";
+
+    await ensureCliInstalled();
+
+    expect(spawnCalls).toHaveLength(0);
   });
 });
 

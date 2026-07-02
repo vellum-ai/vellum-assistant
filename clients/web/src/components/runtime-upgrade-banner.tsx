@@ -26,6 +26,7 @@ import {
   LOCAL_RUNTIME_RELEASES_FETCH_LIMIT,
   RUNTIME_RELEASES_REFETCH_INTERVAL_MS,
 } from "@/lib/local-runtime-upgrade";
+import { checkForUpdates } from "@/runtime/auto-update";
 import { isLocalModeHostAvailable } from "@/runtime/local-mode-host";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
@@ -212,6 +213,9 @@ export function RuntimeUpgradeBanner({
       } else {
         await localUpgrade.upgrade();
         toast.success("Update complete — assistant is healthy.");
+        // A release often pairs the runtime bump with an app-shell update;
+        // check now so one restart covers both (LUM-2603).
+        void checkForUpdates();
       }
       setDismissedScope(`${assistantId}:${targetVersion}`);
     } catch (err) {
@@ -337,6 +341,9 @@ function usePlatformRuntimeUpgrade({
           targetVersionRef.current = null;
           setIsPollingUpgrade(false);
           toast.success("Update complete — assistant is healthy.");
+          // Same pairing as the local path: pull any app-shell update now
+          // so one restart covers both (LUM-2603).
+          void checkForUpdates();
         });
         return false as const;
       }

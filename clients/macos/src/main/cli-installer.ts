@@ -333,6 +333,58 @@ function anchorInstallDir(installDir: string): void {
   );
 }
 
+/** Version of the installed `vellum` meta-package, or null when unreadable. */
+function getInstalledCliVersion(): string | null {
+  try {
+    const pkg = JSON.parse(
+      readFileSync(
+        path.join(getCliInstallDir(), "node_modules", "vellum", "package.json"),
+        "utf8",
+      ),
+    );
+    return typeof pkg.version === "string" ? pkg.version : null;
+  } catch {
+    return null;
+  }
+}
+
+// One refresh attempt per app session — enough to catch up after an app
+// update without re-hitting the registry on every CLI action.
+let cliRefreshAttempted = false;
+
+/**
+ * Whether the installed CLI should be floated forward. An app update bumps
+ * the app version while an unpinned install keeps whatever the dist-tag
+ * resolved to at install time, so the two drift apart until reinstalled
+ * (LUM-2603). Requires the install dir's package.json so `bun add` reuses
+ * the existing project instead of walking up the directory tree.
+ */
+function cliRefreshNeeded(): boolean {
+  if (PINNED_CLI_VERSION || cliRefreshAttempted) return false;
+  if (!existsSync(path.join(getCliInstallDir(), "package.json"))) return false;
+  const installed = getInstalledCliVersion();
+  return installed !== null && compareVersions(installed, app.getVersion()) < 0;
+}
+
+/**
+ * Float a stale install to the current dist-tag. Non-fatal — a failed
+ * refresh keeps the existing working install and retries next launch.
+ */
+async function refreshStaleCli(): Promise<void> {
+  const installDir = getCliInstallDir();
+  const spec = `vellum@${getCliDistTag()}`;
+  log.info(
+    `[cli-installer] installed CLI ${getInstalledCliVersion()} is behind app ${app.getVersion()}; refreshing to ${spec}`,
+  );
+  try {
+    await runBun(["add", spec, "--ignore-scripts"], installDir);
+    stampPackageManager(installDir);
+    writeCliLocator();
+  } catch (err) {
+    log.warn("[cli-installer] CLI refresh failed; keeping existing install:", err);
+  }
+}
+
 /** Spawn the bundled bun with `args` in `cwd` and await its exit. */
 function runBun(args: string[], cwd: string): Promise<void> {
   const bunPath = getBundledBunPath();
@@ -428,9 +480,10 @@ async function bunInstallCli(): Promise<void> {
 // Singleton promise prevents concurrent installs from corrupting node_modules.
 let cliInstallPromise: Promise<void> | null = null;
 
-/** Reset the install lock. Exposed for testing only. */
+/** Reset the install lock and refresh marker. Exposed for testing only. */
 export function _resetInstallLock(): void {
   cliInstallPromise = null;
+  cliRefreshAttempted = false;
 }
 
 /**
@@ -447,7 +500,18 @@ export async function ensureCliInstalled(): Promise<void> {
     // the upgrade path returns here without reinstalling, so an existing user's
     // package.json would otherwise stay unmarked and exposed to npm drift.
     // Skipped for local builds that run the repo CLI source.
-    if (getLocalCliEntry() === null) stampPackageManager(getCliInstallDir());
+    if (getLocalCliEntry() === null) {
+      stampPackageManager(getCliInstallDir());
+      // Float a stale install forward after an app update (LUM-2603). Shares
+      // the install lock so nothing spawns the CLI mid-rewrite.
+      if (cliRefreshNeeded()) {
+        cliRefreshAttempted = true;
+        cliInstallPromise ??= refreshStaleCli().finally(() => {
+          cliInstallPromise = null;
+        });
+      }
+      if (cliInstallPromise) await cliInstallPromise;
+    }
     return;
   }
 
