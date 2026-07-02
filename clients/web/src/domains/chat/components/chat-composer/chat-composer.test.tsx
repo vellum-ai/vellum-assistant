@@ -25,6 +25,7 @@ import {
   computeGhostSuffix,
   shouldSubmitOnEnter,
 } from "@/domains/chat/components/chat-composer/chat-composer-utils";
+import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 
 let mockIsMobile = false;
 mock.module("@/hooks/use-is-mobile", () => ({
@@ -230,6 +231,20 @@ describe("shouldSubmitOnEnter — guards still preventDefault but skip submit", 
       shouldSubmitOnEnter(ENTER, false, {
         input: "",
         canSendAttachments: true,
+        hasStagedQuotes: false,
+        sendDisabled: false,
+        attachmentsUploadingCount: 0,
+        cmdEnterMode: false,
+      }),
+    ).toBe("submit");
+  });
+
+  test("input is empty but staged quote context is ready", () => {
+    expect(
+      shouldSubmitOnEnter(ENTER, false, {
+        input: "",
+        canSendAttachments: false,
+        hasStagedQuotes: true,
         sendDisabled: false,
         attachmentsUploadingCount: 0,
         cmdEnterMode: false,
@@ -410,6 +425,10 @@ beforeEach(() => {
     attachmentLastError: null,
     restoredDraftConversationId: null,
   });
+  useQuoteReplyStore.setState({
+    stagedQuotes: [],
+    replyBubble: null,
+  });
 });
 
 /**
@@ -584,6 +603,21 @@ describe("ChatComposer — disabled submit guard", () => {
   test("empty input + no attachments disables the submit button", () => {
     const html = renderComposer({ input: "", canSendAttachments: false });
     expect(sendButtonHasDisabledAttr(html)).toBe(true);
+  });
+
+  test("empty input with staged quote context leaves the submit button enabled", () => {
+    useQuoteReplyStore.setState({
+      stagedQuotes: [
+        {
+          id: "quote-1",
+          quotedText: "quoted context",
+          replyText: "use this context",
+          sourceMessageId: "msg-1",
+        },
+      ],
+    });
+    const html = renderComposer({ input: "", canSendAttachments: false });
+    expect(sendButtonHasDisabledAttr(html)).toBe(false);
   });
 
   test("ready (input + not disabled + nothing uploading) leaves the button enabled", () => {
