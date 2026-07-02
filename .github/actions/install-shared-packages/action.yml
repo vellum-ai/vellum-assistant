@@ -1,13 +1,12 @@
 name: Install shared packages
 description: >
   Run `bun install --frozen-lockfile` in each listed directory so the
-  packages a CI job consumes have their own node_modules populated. The repo
-  uses per-package file: deps with no Bun workspaces (see the root AGENTS.md),
-  and Bun resolves a file: dep to its real path — so a consumer's typecheck
-  only resolves a shared package's own deps if that package was installed in
-  place. The required set is job-specific: it covers both shared packages a
-  job links against and sibling source dirs it imports across the tree (e.g.
-  the assistant typechecks against `skills/` and `gateway/` source).
+  packages a CI job consumes have their own node_modules populated. Used by
+  jobs for NON-workspace-member consumers (macOS/Electron), which still take
+  `file:` deps on workspace members: bun resolves a file: dep to its real
+  path, so the consumer's typecheck only resolves a shared package's own
+  deps if that package's node_modules exists. Listed member directories
+  resolve to the workspace root install, which populates them.
 
   As a guard against the easy-to-miss transitive case, this action fails if a
   listed `packages/*` entry declares a `file:` dependency on another
