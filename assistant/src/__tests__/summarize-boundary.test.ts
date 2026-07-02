@@ -34,6 +34,19 @@ function userToolResult(id: string): MessageRow {
   );
 }
 
+// A tool_result row carrying an injected system_notice, the shape the agent
+// loop emits after a post-tool hook.
+function userToolResultWithSystemNotice(id: string): MessageRow {
+  return row(
+    id,
+    "user",
+    JSON.stringify([
+      { type: "tool_result", tool_use_id: "toolu-1", content: "ok" },
+      { type: "text", text: "<system_notice>progress check</system_notice>" },
+    ]),
+  );
+}
+
 // Two full turns: [user, assistant, user, assistant].
 const twoTurns: MessageRow[] = [
   userText("msg-1", "Hi, I am Alice"),
@@ -66,6 +79,28 @@ describe("resolveSummarizeBoundary", () => {
     ];
     // Anchoring on the tool-result row (or anything after it) snaps past it
     // to the real user message that started the turn.
+    expect(resolveSummarizeBoundary(rows, "msg-5", 0)).toEqual({
+      boundaryRowIndex: 2,
+    });
+    expect(resolveSummarizeBoundary(rows, "msg-6", 0)).toEqual({
+      boundaryRowIndex: 2,
+    });
+  });
+
+  test("tool_result + system_notice user rows are continuations, not turn starts", () => {
+    const rows: MessageRow[] = [
+      userText("msg-1", "First question from Alice"),
+      assistantText("msg-2", "Working on it"),
+      userText("msg-3", "Second question"),
+      assistantText("msg-4", "Running a tool"),
+      userToolResultWithSystemNotice("msg-5"),
+      assistantText("msg-6", "Tool finished"),
+    ];
+    // The tool_result row also carries a system_notice text block, so it is not
+    // "entirely tool_result" — but it is still a mid-turn continuation. The
+    // backward snap must pass it and land on the real user message that started
+    // the turn, never leaving the kept tail beginning on an orphaned
+    // tool_result whose tool_use was summarized away.
     expect(resolveSummarizeBoundary(rows, "msg-5", 0)).toEqual({
       boundaryRowIndex: 2,
     });

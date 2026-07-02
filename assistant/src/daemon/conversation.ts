@@ -938,9 +938,7 @@ export class Conversation {
     // message, matching the agent loop's per-turn `turnCount++`. Counted from
     // the full unsliced history so it survives compaction and is independent of
     // the viewer's trust class.
-    this.turnCount = allDbMessages.filter((m) =>
-      startsNewTurn(m.role, m.content),
-    ).length;
+    this.turnCount = allDbMessages.filter((m) => startsNewTurn(m)).length;
 
     const conv = getConversation(this.conversationId);
     this.conversationType = conv?.conversationType ?? undefined;
