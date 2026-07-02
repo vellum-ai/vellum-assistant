@@ -35,6 +35,9 @@ function makePlugin(
     readme: "# Readme heading",
     ref: "main",
     artifact: null,
+    icon: null,
+    hasIcon: false,
+    iconVersion: null,
     ...overrides,
   };
 }
@@ -256,6 +259,21 @@ describe("PluginDetailMobile", () => {
     );
 
     expect(document.body.textContent).toContain(PACKAGE);
+    expect(document.body.textContent).not.toContain(PUZZLE);
+  });
+
+  test("renders the author emoji when the plugin declares one, overriding the origin glyph", () => {
+    hookState.plugin = makePlugin({
+      icon: "\u{1F3A8}", // 🎨
+      source: { kind: "github", repo: "vellum-ai/level-up", ref: "main" },
+    });
+
+    render(
+      <PluginDetailMobile assistantId="asst-1" name="test-plugin" onBack={() => {}} />,
+    );
+
+    expect(document.body.textContent).toContain("\u{1F3A8}");
+    expect(document.body.textContent).not.toContain(PACKAGE);
     expect(document.body.textContent).not.toContain(PUZZLE);
   });
 

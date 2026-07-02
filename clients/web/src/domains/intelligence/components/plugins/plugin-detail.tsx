@@ -186,7 +186,11 @@ function Header({
         {resolvedExternal === undefined ? (
           <span aria-hidden className="h-8 w-8 shrink-0" />
         ) : (
-          <PluginIcon external={resolvedExternal} size="md" />
+          <PluginIcon
+            external={resolvedExternal}
+            icon={plugin?.icon ?? undefined}
+            size="md"
+          />
         )}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
