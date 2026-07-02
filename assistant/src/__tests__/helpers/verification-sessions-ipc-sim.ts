@@ -13,19 +13,10 @@
 
 import { VERIFICATION_SESSIONS_IPC_METHODS } from "@vellumai/gateway-client";
 
-import {
-  bindSessionIdentity,
-  countRecentSendsToDestination,
-  createInboundVerificationSession,
-  createOutboundSession,
-  findActiveSession,
-  getPendingSession,
-  resolveBootstrapToken,
-  revokePendingSessions,
-  updateSessionDelivery,
-  updateSessionStatus,
-  validateAndConsumeVerification,
-} from "../../runtime/channel-verification-service.js";
+// Lazy import per AGENTS.md "Test machinery isolation": production runtime
+// must not load at helper-import time, only at call time inside a test.
+type VerificationService =
+  typeof import("../../runtime/channel-verification-service.js");
 
 const METHOD_SET = new Set<string>(
   Object.values(VERIFICATION_SESSIONS_IPC_METHODS),
@@ -35,10 +26,26 @@ export function isVerificationSessionsIpcMethod(method: string): boolean {
   return METHOD_SET.has(method);
 }
 
-export function handleVerificationSessionsIpc(
+export async function handleVerificationSessionsIpc(
   method: string,
   params: Record<string, unknown> = {},
-): unknown {
+): Promise<unknown> {
+  const svc: VerificationService = await import(
+    "../../runtime/channel-verification-service.js"
+  );
+  const {
+    bindSessionIdentity,
+    countRecentSendsToDestination,
+    createInboundVerificationSession,
+    createOutboundSession,
+    findActiveSession,
+    getPendingSession,
+    resolveBootstrapToken,
+    revokePendingSessions,
+    updateSessionDelivery,
+    updateSessionStatus,
+    validateAndConsumeVerification,
+  } = svc;
   const M = VERIFICATION_SESSIONS_IPC_METHODS;
   const p = params as Record<string, never>;
   switch (method) {
