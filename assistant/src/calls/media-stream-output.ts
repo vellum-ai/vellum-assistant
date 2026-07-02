@@ -92,6 +92,15 @@ export class MediaStreamOutput implements CallTransport {
   private playbackVersion = 0;
 
   /**
+   * One-shot callback fired when the next batch of audio frames is
+   * actually sent to Twilio. Armed by the call controller so it can
+   * flip to `speaking` only when real outbound audio starts. Cleared
+   * by the playback flush (barge-in) so a wiped queue never fires a
+   * stale signal.
+   */
+  private audioStartCallback: (() => void) | null = null;
+
+  /**
    * The media-stream transport requires WAV (PCM) audio because its
    * mu-law transcoder cannot decode compressed formats (mp3, opus).
    */
@@ -142,6 +151,24 @@ export class MediaStreamOutput implements CallTransport {
   sendPlayUrl(url: string): void {
     if (this.state === "closed") return;
     this.enqueuePlayback({ type: "fetch-url", url });
+  }
+
+  /**
+   * Arm a one-shot audio-start signal. The callback fires when the next
+   * batch of audio frames is sent to Twilio, then disarms. Pass `null`
+   * to disarm.
+   */
+  setAudioStartCallback(cb: (() => void) | null): void {
+    this.audioStartCallback = cb;
+  }
+
+  /**
+   * Discard accumulated text that has not yet been queued for synthesis.
+   * The call controller invokes this when it aborts an in-flight turn so
+   * the aborted turn's unsent text cannot leak into the next turn.
+   */
+  discardPendingText(): void {
+    this.textBuffer = "";
   }
 
   /**
@@ -228,6 +255,12 @@ export class MediaStreamOutput implements CallTransport {
    * 1. Sends a Twilio `clear` command to flush Twilio's outbound buffer.
    * 2. Aborts any in-flight TTS synthesis or URL fetch.
    * 3. Drains the internal playback queue so no further frames are sent.
+   *
+   * Text still accumulating for an in-flight LLM turn (`textBuffer`) is
+   * preserved: a barge-in signal that the controller ignores (turn still
+   * processing, no audio yet) must not truncate the pending response.
+   * The controller discards that text via {@link discardPendingText}
+   * when it actually aborts the turn.
    */
   clearAudio(): void {
     if (this.state === "closed") return;
@@ -302,12 +335,17 @@ export class MediaStreamOutput implements CallTransport {
 
   /**
    * Flush the playback queue and abort in-flight work. Increments the
-   * playback version so any stale async work is discarded.
+   * playback version so any stale async work is discarded, and disarms
+   * the pending audio-start signal so flushed items never fire it.
+   *
+   * Deliberately preserves `textBuffer`: text still accumulating for an
+   * in-flight LLM turn is owned by the call controller, which discards
+   * it via {@link discardPendingText} only when the turn is aborted.
    */
   private flushPlaybackQueue(): void {
     this.playbackQueue.length = 0;
-    this.textBuffer = "";
     this.playbackVersion++;
+    this.audioStartCallback = null;
     if (this.activePlaybackAbort) {
       this.activePlaybackAbort.abort();
       this.activePlaybackAbort = null;
@@ -362,9 +400,16 @@ export class MediaStreamOutput implements CallTransport {
   }
 
   /**
-   * Send an array of pre-encoded base64 audio frames to Twilio.
+   * Send an array of pre-encoded base64 audio frames to Twilio. Fires
+   * the one-shot audio-start signal before the first frame goes out.
    */
   private sendFrames(frames: string[]): void {
+    if (frames.length === 0) return;
+    const audioStartCallback = this.audioStartCallback;
+    if (audioStartCallback) {
+      this.audioStartCallback = null;
+      audioStartCallback();
+    }
     for (const frame of frames) {
       this.sendAudioPayload(frame);
     }

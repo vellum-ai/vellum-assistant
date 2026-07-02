@@ -336,6 +336,148 @@ describe("MediaStreamOutput", () => {
     });
   });
 
+  describe("audio-start signal", () => {
+    function makePlayableWav(): Buffer {
+      const samples = Array.from({ length: 400 }, (_, i) =>
+        Math.round(Math.sin(i * 0.1) * 10000),
+      );
+      return makeWavBuffer(samples);
+    }
+
+    test("fires once when the first audio frame of a synthesize item is sent", async () => {
+      mockSynthesize.mockResolvedValue({
+        audio: makePlayableWav(),
+        contentType: "audio/wav",
+      });
+
+      const { ws, sent } = createMockWs();
+      const output = new MediaStreamOutput(ws, "stream-1");
+
+      let fired = 0;
+      let mediaSentWhenFired = -1;
+      output.setAudioStartCallback(() => {
+        fired++;
+        mediaSentWhenFired = sent.filter(
+          (s) => JSON.parse(s).event === "media",
+        ).length;
+      });
+
+      output.sendTextToken("hello world", true);
+      await drain();
+
+      const mediaMessages = sent.filter((s) => JSON.parse(s).event === "media");
+      expect(mediaMessages.length).toBeGreaterThan(1);
+      // Fired exactly once, before any media frame went out.
+      expect(fired).toBe(1);
+      expect(mediaSentWhenFired).toBe(0);
+    });
+
+    test("one-shot: does not fire again for a subsequent item until re-armed", async () => {
+      mockSynthesize.mockResolvedValue({
+        audio: makePlayableWav(),
+        contentType: "audio/wav",
+      });
+
+      const { ws } = createMockWs();
+      const output = new MediaStreamOutput(ws, "stream-1");
+
+      let fired = 0;
+      output.setAudioStartCallback(() => fired++);
+
+      output.sendTextToken("first", true);
+      await drain();
+      expect(fired).toBe(1);
+
+      // Second item without re-arming — signal already consumed.
+      output.sendTextToken("second", true);
+      await drain();
+      expect(fired).toBe(1);
+
+      // Re-armed — fires again for the next item.
+      output.setAudioStartCallback(() => fired++);
+      output.sendTextToken("third", true);
+      await drain();
+      expect(fired).toBe(2);
+    });
+
+    test("cleared on clearAudio: flushed playback never fires the signal", async () => {
+      // Slow synthesis so clearAudio lands while the item is in flight.
+      mockSynthesize.mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(
+              () =>
+                resolve({ audio: makePlayableWav(), contentType: "audio/wav" }),
+              200,
+            ),
+          ),
+      );
+
+      const { ws } = createMockWs();
+      const output = new MediaStreamOutput(ws, "stream-1");
+
+      let fired = 0;
+      output.setAudioStartCallback(() => fired++);
+
+      output.sendTextToken("interrupted response", true);
+      output.clearAudio();
+
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(fired).toBe(0);
+    });
+
+    test("an empty end-of-turn (mark only) does not fire the signal", async () => {
+      const { ws } = createMockWs();
+      const output = new MediaStreamOutput(ws, "stream-1");
+
+      let fired = 0;
+      output.setAudioStartCallback(() => fired++);
+
+      output.sendTextToken("", true);
+      await drain();
+      expect(fired).toBe(0);
+    });
+  });
+
+  describe("buffered text lifecycle", () => {
+    test("clearAudio preserves text accumulating for an in-flight turn", async () => {
+      const wav = makeWavBuffer([1000, 2000, 3000, 4000]);
+      mockSynthesize.mockResolvedValue({
+        audio: wav,
+        contentType: "audio/wav",
+      });
+
+      const { ws } = createMockWs();
+      const output = new MediaStreamOutput(ws, "stream-1");
+
+      // Tokens buffered mid-turn; a barge-in signal the controller ignores
+      // (turn still processing) flushes queued audio but must not truncate
+      // the pending response text.
+      output.sendTextToken("hello ", false);
+      output.clearAudio();
+      output.sendTextToken("world", true);
+      await drain();
+
+      expect(mockSynthesize).toHaveBeenCalledTimes(1);
+      expect(mockSynthesize.mock.calls[0][0].text).toBe("hello world");
+    });
+
+    test("discardPendingText drops accumulated text so no synthesis occurs", async () => {
+      const { ws, sent } = createMockWs();
+      const output = new MediaStreamOutput(ws, "stream-1");
+
+      output.sendTextToken("stale partial response", false);
+      output.discardPendingText();
+      output.sendTextToken("", true);
+      await drain();
+
+      expect(mockSynthesize).not.toHaveBeenCalled();
+      // Only the end-of-turn mark goes out.
+      expect(sent).toHaveLength(1);
+      expect(JSON.parse(sent[0]).event).toBe("mark");
+    });
+  });
+
   describe("setStreamSid / getStreamSid", () => {
     test("updates the stream SID used in subsequent commands", () => {
       const { ws, sent } = createMockWs();

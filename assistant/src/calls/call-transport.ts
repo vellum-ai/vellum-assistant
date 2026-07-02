@@ -39,4 +39,25 @@ export interface CallTransport {
    * WAV from TTS providers and the audio store.
    */
   readonly requiresWavAudio?: boolean;
+
+  /**
+   * Arm a one-shot callback invoked when the transport sends the first
+   * audio frame of queued playback to the caller.
+   *
+   * Transports that buffer text and synthesize asynchronously (e.g.
+   * media-stream) implement this so the controller can flip to the
+   * `speaking` state only when real outbound audio starts, rather than
+   * when tokens are merely buffered. Passing `null` disarms the signal.
+   * Transports that emit audio immediately may omit this.
+   */
+  setAudioStartCallback?(cb: (() => void) | null): void;
+
+  /**
+   * Discard any buffered, not-yet-queued text held by the transport.
+   *
+   * Called by the controller when it aborts an in-flight turn so the
+   * aborted turn's unsent text cannot leak into the next turn's
+   * synthesis. Transports that don't buffer text may omit this.
+   */
+  discardPendingText?(): void;
 }

@@ -3240,6 +3240,151 @@ describe("call-controller", () => {
       await turnPromise.catch(() => {});
     });
 
+    test("buffering transport (media-stream): streamed tokens do not flip to speaking; barge-in is rejected and the turn still delivers", async () => {
+      // Simulates the media-stream transport: sendTextToken(.., false)
+      // only buffers; audio starts later. The controller must stay in
+      // `processing` until the transport's audio-start signal fires, so
+      // VAD speech-start during generation cannot abort a silent turn.
+      let releaseTurn!: () => void;
+      const completeGate = new Promise<void>((r) => {
+        releaseTurn = r;
+      });
+
+      mockStartVoiceTurn.mockImplementation(
+        async (opts: {
+          onTextDelta: (t: string) => void;
+          onComplete: () => void;
+          signal?: AbortSignal;
+        }) => {
+          opts.onTextDelta("Hello");
+          opts.onTextDelta(" caller");
+          opts.signal?.addEventListener("abort", () => releaseTurn());
+          await completeGate;
+          opts.onComplete();
+          return { turnId: "run-buffered", abort: () => releaseTurn() };
+        },
+      );
+
+      const { relay, controller } = setupController();
+      let audioStartCallback: (() => void) | null = null;
+      relay.setAudioStartCallback = (cb) => {
+        audioStartCallback = cb;
+      };
+
+      const turnPromise = controller.handleCallerUtterance("Hi");
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+
+      // Tokens were emitted (buffered by the transport) but no audio has
+      // started — the controller must still be processing.
+      expect(
+        relay.sentTokens.filter((t) => !t.last && t.token.length > 0).length,
+      ).toBeGreaterThan(0);
+      expect(controller.getState()).toBe("processing");
+      expect(audioStartCallback).not.toBeNull();
+
+      // VAD speech-start mid-generation → barge-in rejected, turn intact.
+      expect(controller.handleBargeIn()).toBe(false);
+      expect(controller.getState()).toBe("processing");
+
+      // The turn completes and delivers its end-of-turn signal.
+      releaseTurn();
+      await turnPromise;
+      const endTokens = relay.sentTokens.filter(
+        (t) => t.last === true && t.token === "",
+      );
+      expect(endTokens.length).toBe(1);
+
+      controller.destroy();
+    });
+
+    test("buffering transport: audio-start signal flips to speaking and barge-in is accepted", async () => {
+      let releaseTurn!: () => void;
+      const completeGate = new Promise<void>((r) => {
+        releaseTurn = r;
+      });
+
+      mockStartVoiceTurn.mockImplementation(
+        async (opts: {
+          onTextDelta: (t: string) => void;
+          onComplete: () => void;
+          signal?: AbortSignal;
+        }) => {
+          opts.onTextDelta("Hello");
+          opts.signal?.addEventListener("abort", () => releaseTurn());
+          await completeGate;
+          opts.onComplete();
+          return { turnId: "run-buffered-2", abort: () => releaseTurn() };
+        },
+      );
+
+      const { relay, controller } = setupController();
+      let audioStartCallback: (() => void) | null = null;
+      let discardedPendingText = 0;
+      relay.setAudioStartCallback = (cb) => {
+        audioStartCallback = cb;
+      };
+      relay.discardPendingText = () => {
+        discardedPendingText++;
+      };
+
+      const turnPromise = controller.handleCallerUtterance("Hi");
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      expect(controller.getState()).toBe("processing");
+
+      // Transport reports real outbound audio started → speaking.
+      audioStartCallback!();
+      expect(controller.getState()).toBe("speaking");
+
+      // Barge-in now aborts the turn, discards the transport's buffered
+      // text, and returns the controller to idle.
+      expect(controller.handleBargeIn()).toBe(true);
+      expect(controller.getState()).toBe("idle");
+      expect(discardedPendingText).toBeGreaterThan(0);
+
+      controller.destroy();
+      await turnPromise.catch(() => {});
+    });
+
+    test("buffering transport: stale audio-start signal from a superseded run does not flip state", async () => {
+      let releaseTurn!: () => void;
+      const completeGate = new Promise<void>((r) => {
+        releaseTurn = r;
+      });
+
+      mockStartVoiceTurn.mockImplementation(
+        async (opts: {
+          onTextDelta: (t: string) => void;
+          onComplete: () => void;
+          signal?: AbortSignal;
+        }) => {
+          opts.onTextDelta("Hello");
+          opts.signal?.addEventListener("abort", () => releaseTurn());
+          await completeGate;
+          opts.onComplete();
+          return { turnId: "run-buffered-3", abort: () => releaseTurn() };
+        },
+      );
+
+      const { relay, controller } = setupController();
+      let audioStartCallback: (() => void) | null = null;
+      relay.setAudioStartCallback = (cb) => {
+        audioStartCallback = cb;
+      };
+
+      const turnPromise = controller.handleCallerUtterance("Hi");
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      const staleCallback = audioStartCallback!;
+
+      // Supersede the run (hard interrupt), then fire the stale signal.
+      controller.handleInterrupt();
+      expect(controller.getState()).toBe("idle");
+      staleCallback();
+      expect(controller.getState()).toBe("idle");
+
+      controller.destroy();
+      await turnPromise.catch(() => {});
+    });
+
     test("handleBargeIn returns true and interrupts when controller is speaking", async () => {
       // Create a turn that holds the speaking state long enough to test barge-in
       let resolveComplete: () => void;

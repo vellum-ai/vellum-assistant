@@ -487,6 +487,10 @@ export class CallController {
       this.activeSynthesisAbort.abort();
       this.activeSynthesisAbort = null;
     }
+    // Drop the aborted turn's unsent buffered text on transports that
+    // accumulate tokens (media-stream), so it cannot leak into the next
+    // turn's synthesis.
+    this.transport.discardPendingText?.();
   }
 
   private formatCallerUtterance(
@@ -636,7 +640,7 @@ export class CallController {
       if (useSynthesizedPath) {
         synthesizedTextBuffer += cleaned;
       } else {
-        this.beginSpeaking(runVersion);
+        this.beginSpeakingOnAudioStart(runVersion);
         this.transport.sendTextToken(cleaned, false);
       }
     };
@@ -825,9 +829,11 @@ export class CallController {
         // Superseded/aborted while synthesis was pending — don't start playing
         // a stale response after the caller has already moved on.
         if (!this.isCurrentRun(runVersion)) return;
-        // Audio is now actually reaching the caller — flip to `speaking` so
-        // barge-in can interrupt (it stays `processing` until this point).
-        this.beginSpeaking(runVersion);
+        // Audio is now reaching the caller (or, on transports with an
+        // audio-start signal, will be the moment the first fetched frame
+        // goes out) — flip to `speaking` so barge-in can interrupt (it
+        // stays `processing` until this point).
+        this.beginSpeakingOnAudioStart(runVersion);
         this.transport.sendPlayUrl(url);
         playUrlSent = true;
       };
@@ -921,7 +927,7 @@ export class CallController {
           !this.transport.requiresWavAudio &&
           this.isCurrentRun(runVersion)
         ) {
-          this.beginSpeaking(runVersion);
+          this.beginSpeakingOnAudioStart(runVersion);
           this.transport.sendTextToken(text, false);
         }
       }
@@ -1281,7 +1287,31 @@ export class CallController {
    */
   private beginSpeaking(runVersion: number): void {
     if (!this.isCurrentRun(runVersion)) return;
-    if (this.state === "processing") this.state = "speaking";
+    if (this.state === "processing") {
+      this.state = "speaking";
+    }
+  }
+
+  /**
+   * Flip to `speaking` when outbound audio genuinely starts.
+   *
+   * Transports that buffer text and synthesize asynchronously (e.g.
+   * media-stream) expose an audio-start signal; on those, the flip is
+   * deferred until the transport reports the first audio frame actually
+   * went out — otherwise a turn whose tokens are merely buffered (no
+   * audible output yet) would be barge-in-abortable, leaving the caller
+   * with silence. Transports without the signal emit audio immediately,
+   * so the flip happens inline. Both paths stay gated by isCurrentRun
+   * via {@link beginSpeaking}.
+   */
+  private beginSpeakingOnAudioStart(runVersion: number): void {
+    if (this.transport.setAudioStartCallback) {
+      this.transport.setAudioStartCallback(() =>
+        this.beginSpeaking(runVersion),
+      );
+    } else {
+      this.beginSpeaking(runVersion);
+    }
   }
 
   private isCurrentRun(runVersion: number): boolean {
