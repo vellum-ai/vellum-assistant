@@ -1,8 +1,9 @@
 /**
- * INFO telemetry (interactionCount/lastInteraction/lastSeenAt) is local, not
- * ACL: the gateway's handle-inbound mirror writes it to the assistant DB, and
- * model-facing turn context reads it back. These tests assert the daemon-native
- * read paths (getContact / searchContacts) re-hydrate and aggregate it.
+ * Interaction telemetry (interactionCount/lastInteraction/lastSeenAt) is
+ * gateway-owned: reads source it from the stamped trust verdict and the gateway
+ * rich-read relay, and the assistant DB no longer carries the columns. These
+ * tests assert the daemon-native read paths (getContact / searchContacts /
+ * findContactInfoById) surface no telemetry.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -43,63 +44,39 @@ function insertChannel(params: {
   contactId: string;
   type: string;
   address: string;
-  interactionCount: number;
-  lastInteraction: number | null;
-  lastSeenAt?: number | null;
 }): void {
   const now = Date.now();
   getSqlite().run(
-    "INSERT INTO contact_channels (id, contact_id, type, address, is_primary, interaction_count, last_interaction, last_seen_at, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?)",
-    [
-      params.id,
-      params.contactId,
-      params.type,
-      params.address,
-      params.interactionCount,
-      params.lastInteraction,
-      params.lastSeenAt ?? null,
-      now,
-      now,
-    ],
+    "INSERT INTO contact_channels (id, contact_id, type, address, is_primary, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?)",
+    [params.id, params.contactId, params.type, params.address, now, now],
   );
 }
 
-describe("contact interaction INFO aggregation", () => {
+const TELEMETRY_KEYS = ["interactionCount", "lastInteraction", "lastSeenAt"];
+
+describe("contact-store surfaces no interaction telemetry", () => {
   beforeEach(() => {
     resetContactTables();
   });
 
-  test("getContact sums interaction_count and takes the latest last_interaction across channels", () => {
+  test("getContact returns no telemetry fields on the contact or its channels", () => {
     insertContact("ct_1", "Alice");
     insertChannel({
       id: "ch_a",
       contactId: "ct_1",
       type: "phone",
       address: "+15550100",
-      interactionCount: 3,
-      lastInteraction: 1900,
-      lastSeenAt: 1850,
-    });
-    insertChannel({
-      id: "ch_b",
-      contactId: "ct_1",
-      type: "email",
-      address: "alice@example.com",
-      interactionCount: 4,
-      lastInteraction: 2100,
-      lastSeenAt: 2050,
     });
 
     const contact = getContact("ct_1");
     expect(contact).not.toBeNull();
-    expect(contact!.interactionCount).toBe(7);
-    expect(contact!.lastInteraction).toBe(2100);
-
-    // Per-channel INFO is hydrated too.
-    const phone = contact!.channels.find((c) => c.type === "phone");
-    expect(phone?.interactionCount).toBe(3);
-    expect(phone?.lastInteraction).toBe(1900);
-    expect(phone?.lastSeenAt).toBe(1850);
+    for (const key of TELEMETRY_KEYS) {
+      expect(key in contact!).toBe(false);
+    }
+    const phone = contact!.channels.find((c) => c.type === "phone")!;
+    for (const key of TELEMETRY_KEYS) {
+      expect(key in phone).toBe(false);
+    }
   });
 
   test("findContactInfoById returns the notes-only INFO shape (telemetry is gateway-owned)", () => {
@@ -109,52 +86,28 @@ describe("contact interaction INFO aggregation", () => {
       contactId: "ct_2",
       type: "phone",
       address: "+15550200",
-      interactionCount: 5,
-      lastInteraction: 1000,
     });
 
     const info = findContactInfoById("ct_2");
-    // Interaction telemetry is no longer surfaced here — it is gateway-owned
-    // (carried on the trust verdict / gateway rich reads).
     expect(info).not.toBeNull();
     expect(Object.keys(info!)).toEqual(["notes"]);
     expect(info!.notes).toBeNull();
   });
 
-  test("lastInteraction is null when no channel has interacted", () => {
-    insertContact("ct_3", "Carol");
-    insertChannel({
-      id: "ch_d",
-      contactId: "ct_3",
-      type: "phone",
-      address: "+15550300",
-      interactionCount: 0,
-      lastInteraction: null,
-    });
-
-    const contact = getContact("ct_3");
-    expect(contact!.interactionCount).toBe(0);
-    expect(contact!.lastInteraction).toBeNull();
-  });
-
-  test("filtered searchContacts carries channel INFO fields", () => {
+  test("filtered searchContacts carries no telemetry fields", () => {
     insertContact("ct_4", "Dana");
     insertChannel({
       id: "ch_e",
       contactId: "ct_4",
       type: "phone",
       address: "+15550400",
-      interactionCount: 9,
-      lastInteraction: 3000,
-      lastSeenAt: 2900,
     });
 
     const results = searchContacts({ query: "Dana", limit: 10 });
     expect(results).toHaveLength(1);
-    expect(results[0].interactionCount).toBe(9);
-    expect(results[0].lastInteraction).toBe(3000);
-    const ch = results[0].channels[0];
-    expect(ch.interactionCount).toBe(9);
-    expect(ch.lastSeenAt).toBe(2900);
+    for (const key of TELEMETRY_KEYS) {
+      expect(key in results[0]).toBe(false);
+      expect(key in results[0].channels[0]).toBe(false);
+    }
   });
 });

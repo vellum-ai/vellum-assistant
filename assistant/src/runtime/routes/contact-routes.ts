@@ -229,13 +229,15 @@ async function relayListContacts(limit: number, role: ContactRole | undefined) {
  * been overlaid. `interactionCount` widens to nullable (contact + channel level)
  * because the gateway hydration can fail-soft to null.
  */
-type ContactWithGatewayTelemetry = Omit<
-  ContactWithChannels,
-  "interactionCount" | "channels"
-> & {
+type ContactWithGatewayTelemetry = Omit<ContactWithChannels, "channels"> & {
   interactionCount: number | null;
+  lastInteraction: number | null;
   channels: Array<
-    Omit<ContactChannel, "interactionCount"> & { interactionCount: number | null }
+    ContactChannel & {
+      lastSeenAt: number | null;
+      interactionCount: number | null;
+      lastInteraction: number | null;
+    }
   >;
 };
 
