@@ -343,13 +343,12 @@ export interface Injector {
 export type PluginRouteRegistration = SkillRoute;
 
 /**
- * A single background-job-handler contribution: a job `type` string paired with
- * the {@link JobHandler} that processes it. Plugins contribute these via the
- * `jobHandlers` field; bootstrap registers them into the global job-handler
- * registry, and the general job worker's registration entry
- * (`jobs/register-job-handlers.ts`) forwards the union into the worker dispatch
- * table. `type` must be globally unique across every plugin — dispatch is a
- * keyed lookup. See `plugins/job-handler-registry.ts`.
+ * A single background-job-handler entry: a job `type` string paired with the
+ * {@link JobHandler} that processes it. The memory plugin's handler list
+ * (`plugins/defaults/memory/job-handlers.ts`) is an array of these, registered
+ * directly into the worker's dispatch table from the plugin's `init` hook.
+ * `type` must be globally unique across every registered handler — dispatch is a
+ * keyed lookup.
  */
 export interface JobHandlerEntry {
   /** The job-queue type string this handler processes (globally unique). */
@@ -408,15 +407,6 @@ export interface Plugin {
    * injectors sharing an `order`. See `plugins/injector-registry.ts`.
    */
   injectors?: readonly Injector[];
-  /**
-   * Background-job handlers contributed to the general job worker. Bootstrap
-   * registers these into the global job-handler registry before `init()` runs,
-   * symmetric with `tools`/`routes`/`injectors`; the general worker's
-   * registration entry (`jobs/register-job-handlers.ts`) forwards the union into
-   * the worker dispatch table. Each `type` must be globally unique across every
-   * plugin. See `plugins/job-handler-registry.ts`.
-   */
-  jobHandlers?: readonly JobHandlerEntry[];
 }
 
 // ─── Errors ──────────────────────────────────────────────────────────────────

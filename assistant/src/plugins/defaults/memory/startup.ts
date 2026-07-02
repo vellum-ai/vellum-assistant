@@ -8,9 +8,10 @@
  * the daemon accepts requests without waiting on Qdrant. Each step contains its
  * own failure so a memory-subsystem problem never blocks boot.
  *
- * The jobs worker itself (and its handler-dispatch registration) is daemon-
- * owned — started in `lifecycle.ts` after `initializePlugins()`, not here — so
- * handler registration is guaranteed before the worker's first job claim.
+ * Job-handler registration happens in the plugin's `init` hook, synchronously,
+ * before this is kicked off — so the memory handlers are guaranteed to be in the
+ * dispatch table before the jobs worker started near the end of this function
+ * claims its first job.
  */
 
 import { join } from "node:path";
@@ -32,6 +33,7 @@ import {
   enqueueMemoryJob,
   isMemoryEnabled,
 } from "../../../persistence/jobs-store.js";
+import { startMemoryJobsWorker } from "../../../persistence/jobs-worker.js";
 import { getLogger } from "../../../util/logger.js";
 import { getWorkspaceDir } from "../../../util/platform.js";
 import { resolveQdrantUrl } from "./embeddings.js";
@@ -205,6 +207,16 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
       );
     }
   }
+
+  // `startMemoryJobsWorker` starts the in-process supervisor (which owns the
+  // synchronous runner and stands down when an out-of-process worker is live)
+  // and spawns the out-of-process worker at boot when `memory.worker.enabled`
+  // is set. Shutdown stops whichever worker is actually running — see
+  // shutdown-handlers.ts. The memory job handlers were registered synchronously
+  // by the plugin's `init` hook before this function was kicked off, so the
+  // dispatch table is populated before the worker's first claim.
+  log.info("Daemon startup: starting memory worker");
+  startMemoryJobsWorker();
 
   // Seed capability graph nodes (new memory graph system)
   try {

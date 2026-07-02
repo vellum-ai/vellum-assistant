@@ -110,17 +110,19 @@ mock.module("../persistence/db-maintenance.js", () => ({
   maybeRunDbMaintenance: () => {},
 }));
 
-import { registerMemoryJobHandlers } from "../jobs/register-job-handlers.js";
+import { registerDomainJobHandlers } from "../jobs/register-job-handlers.js";
 import { getMemoryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { _resetQdrantBreaker } from "../persistence/embeddings/qdrant-circuit-breaker.js";
 import { enqueueMemoryJob } from "../persistence/jobs-store.js";
 import { runMemoryJobsOnce } from "../persistence/jobs-worker.js";
 import { memoryJobs } from "../persistence/schema/index.js";
+import { registerMemoryPluginJobHandlers } from "../plugins/defaults/memory/job-handler-registration.js";
 
 describe("memory jobs worker lane scheduling", () => {
   beforeAll(async () => {
-    registerMemoryJobHandlers();
+    registerDomainJobHandlers();
+    registerMemoryPluginJobHandlers();
     await initializeDb();
   });
 

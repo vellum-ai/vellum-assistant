@@ -186,6 +186,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../persistence/job-handlers/message-lexical.js",
     "../../../persistence/job-utils.js",
     "../../../persistence/jobs-store.js",
+    "../../../persistence/jobs-worker.js",
     "../../../persistence/memory-lifecycle-hooks.js",
     "../../../persistence/message-content.js",
     "../../../persistence/raw-query.js",

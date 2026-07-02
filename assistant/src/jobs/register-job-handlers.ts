@@ -14,46 +14,27 @@ import {
 } from "../persistence/job-handlers/message-lexical.js";
 import { backfillLexicalIndexJob } from "../persistence/job-handlers/message-lexical-backfill.js";
 import { registerJobHandler } from "../persistence/jobs-worker.js";
-import {
-  registerDefaultPluginJobHandlers,
-  registerDefaultPluginPersistenceHooks,
-} from "../plugins/defaults/index.js";
-import { getRegisteredJobHandlers } from "../plugins/job-handler-registry.js";
 import { conversationAnalyzeJob } from "../runtime/services/conversation-analyze-job.js";
 
 /**
- * Register every background-job handler into the worker's dispatch table
- * (`registerJobHandler` in `persistence/jobs-worker`).
+ * Register the background-job handlers for domains that are not plugins
+ * (persistence cleanup, message-content lexical indexing, conversations, media,
+ * home, runtime) into the worker's dispatch table (`registerJobHandler` in
+ * `persistence/jobs-worker`).
  *
- * Plugin-contributed handlers (memory, and any future plugin) flow through the
- * global job-handler registry; the remaining handlers belong to domains that are
- * not plugins (persistence cleanup, conversations, media, home, runtime) and are
- * wired here directly.
+ * Plugin-contributed handlers are registered by the plugins themselves — the
+ * memory plugin registers its handlers directly in its `init` hook (and the
+ * standalone worker process self-registers them). This function owns only the
+ * host's own handlers.
  *
  * Idempotent: registering a type twice overwrites with the same handler, so
  * repeated calls (e.g. from the daemon supervisor and the standalone worker
  * process) are safe.
  */
-export function registerMemoryJobHandlers(): void {
-  // Forward plugin-contributed job handlers into the worker. Ensure the default
-  // plugins' contributions are in the registry first: the standalone worker
-  // process does not run plugin bootstrap, so it must self-register the defaults
-  // here. Idempotent — on the daemon path bootstrap has already registered them
-  // (plus any user plugins, which this union also picks up).
-  registerDefaultPluginJobHandlers();
-  // The standalone worker runs fork-based memory retrospectives, which carry
-  // per-conversation memory state through the persistence-lifecycle seam. The
-  // daemon wires that seam at bootstrap; the worker must self-register it here
-  // too, or `onConversationForked` is the no-op and the retrospective fork
-  // silently drops the carried activation/injection/graph/retrospective state.
-  registerDefaultPluginPersistenceHooks();
-  for (const { type, handler } of getRegisteredJobHandlers()) {
-    registerJobHandler(type, handler);
-  }
-
-  // Non-plugin domain handlers. Each is registered behind an arrow that reads
-  // the imported binding at dispatch time rather than capturing it eagerly, so a
-  // per-test `mock.module` of the underlying handler is honored.
+export function registerDomainJobHandlers(): void {
+  // Each handler is registered behind an arrow that reads the imported binding
+  // at dispatch time rather than capturing it eagerly, so a per-test
+  // `mock.module` of the underlying handler is honored.
   registerJobHandler("prune_old_conversations", (job, config) =>
     pruneOldConversationsJob(job, config),
   );

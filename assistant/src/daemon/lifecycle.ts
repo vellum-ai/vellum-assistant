@@ -15,7 +15,7 @@ import { backfillRelationshipStateIfMissing } from "../home/relationship-state-w
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { startCliIpcServer } from "../ipc/assistant-server.js";
 import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
-import { registerMemoryJobHandlers } from "../jobs/register-job-handlers.js";
+import { registerDomainJobHandlers } from "../jobs/register-job-handlers.js";
 import { startMonitoring } from "../monitoring/control.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
@@ -24,7 +24,6 @@ import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { startEmbeddingRuntimeManager } from "../persistence/embeddings/embedding-runtime-manager.js";
 import { maybeEnqueueLexicalBackfillOnUpgrade } from "../persistence/job-handlers/message-lexical-backfill.js";
-import { startMemoryJobsWorker } from "../persistence/jobs-worker.js";
 import { startConsentRefresh } from "../platform/consent-cache.js";
 import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
@@ -569,21 +568,22 @@ export async function runDaemon(): Promise<void> {
   // happens at the process level.
   await startCes(config);
 
+  // Register the host's non-plugin job handlers (persistence cleanup, lexical
+  // indexing, conversations, media, home, runtime) into the worker dispatch
+  // table before plugins boot. The memory plugin registers its own handlers and
+  // starts the jobs worker inside its `init` hook (run by initializePlugins
+  // below), so the domain handlers must be present first — otherwise the worker
+  // could claim a queued domain job against an empty table and fail it as an
+  // unknown type.
+  registerDomainJobHandlers();
+
   // Bring up the plugin layer: install the runtime bridge, register the
   // first-party defaults, load user plugins, and run every plugin's
   // `init()`. Ordering is load-bearing (defaults register ahead of user
   // plugins so they compose innermost) and plugin failures are contained so
-  // they can't block daemon startup.
+  // they can't block daemon startup. The memory plugin's `init` hook registers
+  // its job handlers and starts the jobs worker here.
   await initializePlugins();
-
-  // Wire the job-handler dispatch table and start the jobs worker here until
-  // scheduling/job-handling becomes a pluggable surface each plugin owns. Both
-  // live on this path, in order: registration must happen-before the worker's
-  // first claim, or a queued job is dispatched against an empty table and
-  // failed as an unknown type. Runs after initializePlugins() so every plugin's
-  // handlers are present.
-  registerMemoryJobHandlers();
-  startMemoryJobsWorker();
 
   // Initialize providers before Qdrant so HTTP routes can begin accepting
   // requests while Qdrant initializes, then best-effort sync the workspace
