@@ -83,9 +83,13 @@ export interface ApprovalCardParams {
   surfaceIdPrefix: string;
   /** Top-level card title shown in the surface header (e.g. "Access Request", "Tool approval"). */
   cardTitle: string;
-  /** Primary line inside the card (typically the requester's display name). */
-  requesterName: string;
-  /** Secondary line below the requester name (e.g. "Requesting access to the assistant"). */
+  /**
+   * Primary line inside the card — the subject of the decision: the
+   * requester's display name for access requests, the tool name for tool
+   * approvals.
+   */
+  primaryLine: string;
+  /** Secondary line below the primary line (e.g. "Requesting access to the assistant"). */
   subtitle: string;
   /** Markdown body — blockquotes, warnings, links, etc. */
   body: string;
@@ -118,7 +122,7 @@ export function buildApprovalCardBlocks(
   const {
     surfaceIdPrefix,
     cardTitle,
-    requesterName,
+    primaryLine,
     subtitle,
     body,
     metadata,
@@ -140,7 +144,7 @@ export function buildApprovalCardBlocks(
     : undefined;
 
   const data: CardSurfaceData = {
-    title: requesterName,
+    title: primaryLine,
     subtitle,
     body,
     metadata,

@@ -152,7 +152,7 @@ function resolveAccessRequestCard(
   return {
     surfaceIdPrefix: ACCESS_REQUEST_SURFACE_PREFIX,
     cardTitle: "Access Request",
-    requesterName: view.displayName,
+    primaryLine: view.displayName,
     subtitle: "Requesting access to the assistant",
     body,
     metadata,
@@ -193,7 +193,13 @@ function isLenientToolApproval(payload: LenientToolApprovalPayload): boolean {
   );
 }
 
-/** Shape a tool-approval/grant payload (strict or lenient) into card params. */
+/**
+ * Shape a tool-approval/grant payload (strict or lenient) into card params.
+ *
+ * The card is about the tool: the primary line names the tool awaiting
+ * approval. The requester appears only as metadata context, never as the
+ * subject of the decision.
+ */
 function extractToolApprovalCard(
   p: GuardianQuestionPayload | LenientToolApprovalPayload,
 ): ApprovalCardParams {
@@ -202,12 +208,16 @@ function extractToolApprovalCard(
   const rawRequester = nonEmpty(p.requesterIdentifier);
   const requester = rawRequester
     ? sanitizeIdentityField(rawRequester)
-    : "Someone";
+    : undefined;
 
   const isGrant = p.requestKind === "tool_grant_request";
 
+  // Who is asking is a fact the guardian weighs, so the row always renders:
+  // an unresolvable requester surfaces as "Unknown" rather than a silently
+  // missing row. In practice the producers always carry at least the raw
+  // channel user ID — this placeholder covers defensive/lenient parses.
   const metadata: Array<{ label: string; value: string }> = [];
-  metadata.push({ label: "Tool", value: toolName });
+  metadata.push({ label: "Requested by", value: requester ?? "Unknown" });
   const sourceChannel = nonEmpty(p.sourceChannel);
   if (sourceChannel) {
     metadata.push({ label: "Source", value: sourceChannel });
@@ -219,7 +229,8 @@ function extractToolApprovalCard(
 
   // Fallback text with request-code instructions for older clients.
   const baseFallback =
-    p.questionText ?? `${requester} is requesting approval to use ${toolName}`;
+    p.questionText ??
+    `Approve tool: ${toolName} (requested by ${requester ?? "Unknown"})`;
   let fallbackText = baseFallback;
   const requestCode = nonEmpty(p.requestCode);
   if (requestCode) {
@@ -238,10 +249,8 @@ function extractToolApprovalCard(
   return {
     surfaceIdPrefix: TOOL_APPROVAL_SURFACE_PREFIX,
     cardTitle: isGrant ? "Tool Grant Request" : "Tool Approval",
-    requesterName: requester,
-    subtitle: isGrant
-      ? "Requesting permission to use this tool"
-      : "Requesting approval to run this tool",
+    primaryLine: toolName,
+    subtitle: "Requires your approval to run",
     body,
     metadata,
     requestId: nonEmpty(p.requestId),
