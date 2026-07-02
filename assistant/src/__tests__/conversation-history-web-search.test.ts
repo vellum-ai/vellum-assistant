@@ -622,6 +622,13 @@ describe("web_search_tool_result structural guard", () => {
     "context/post-turn-tool-result-truncation.ts",
     "context/tool-result-spool.ts",
 
+    // Outbound sanitize bundle: the media-strip and AX-tree transforms
+    // operate on locally-executed tool results (media contentBlocks and
+    // <ax-tree> text), which web_search_tool_result blocks never carry.
+    // Web-search blocks are handled by the bundle's own third transform
+    // (stripHistoricalWebSearchResults), so nothing is silently dropped.
+    "context/outbound-sanitize.ts",
+
     // Anthropic provider type guards define API-specific discriminants.
     // It has a separate isWebSearchToolResultBlock for the other type.
     "providers/anthropic/client.ts",
