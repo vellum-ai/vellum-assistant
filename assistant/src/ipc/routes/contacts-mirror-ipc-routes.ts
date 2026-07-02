@@ -3,10 +3,9 @@
  * assistant IPC socket (`ipcCallAssistant`).
  *
  * The gateway DB owns the ACL verdict; these handlers write only the local
- * identity/info mirror (contact + channel display fields). They replace the
- * gateway's former raw `assistantDbRun` single-row mirror writes, running on
- * top of the `contact-store` upsert/delete primitives, which write info-only
- * columns and never touch the gateway-owned ACL columns.
+ * identity/info mirror (contact + channel display fields), running on top of
+ * the `contact-store` upsert/delete primitives, which write info-only columns
+ * and never touch the gateway-owned ACL columns.
  *
  * No HTTP surface: registered directly on the IPC server (see
  * `assistant-server.ts`), never in the shared `ROUTES` array.
@@ -72,7 +71,7 @@ export function handleContactsMirrorUpsertChannel({
     refreshDisplayName: params.refreshDisplayName,
     reassignConflictingChannels: params.reassignConflictingChannels,
     // The mirror never seeds a persona file: a mirror-created contact keeps
-    // user_file NULL, matching the gateway's former raw INSERT.
+    // user_file NULL: the mirror never seeds a persona file.
     userFileOnCreate: null,
   });
   return { ok: true };
@@ -88,8 +87,8 @@ const UpsertContactParamsSchema = z.object({
 /**
  * Upsert an identity/display contact row (no channel). Used where the gateway
  * creates a contact whose channel is bound separately (e.g. the guardian
- * contact-prompt bootstrap). `userFile` is left null to match the gateway's
- * former raw INSERT — the mirror never seeds a persona file.
+ * contact-prompt bootstrap). `userFile` is left null — the mirror never seeds
+ * a persona file.
  */
 export function handleContactsMirrorUpsertContact({
   body = {},
