@@ -2114,6 +2114,95 @@ describe("handleCreateInvite (gateway-native mint)", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  test("layers daemon-composed presentation fields onto the HTTP create response", async () => {
+    contactStoreCreateInviteMock = makeEchoCreateInviteMock();
+    ipcCallAssistantMock = mock(
+      async (method: string, params: unknown): Promise<unknown> => {
+        if (method !== "invites_compose_presentation") return {};
+        const { invite } = (
+          params as { body: { invite: Record<string, unknown> } }
+        ).body;
+        return {
+          invite: {
+            ...invite,
+            share: {
+              url: "https://t.me/example_bot?start=tok",
+              displayText: "Join on Telegram",
+            },
+            guardianInstruction: "Send the link to your friend.",
+            channelHandle: "@example_bot",
+          },
+        };
+      },
+    );
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleCreateInvite(
+      new Request("http://localhost:7830/v1/contacts/invites", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ contactId: "ct_1", sourceChannel: "telegram" }),
+      }),
+    );
+
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    // Presentation fields reach direct gateway HTTP callers.
+    expect(body.invite.share.url).toBe("https://t.me/example_bot?start=tok");
+    expect(body.invite.guardianInstruction).toBe(
+      "Send the link to your friend.",
+    );
+    expect(body.invite.channelHandle).toBe("@example_bot");
+    // Composition merges onto (not replaces) the one-time minted payload.
+    expect(body.invite.token).toBe(body.rawToken);
+    expect(/^\d{6}$/.test(body.invite.inviteCode)).toBe(true);
+
+    // Exactly one composition, carrying the mint result the daemon needs.
+    const composeCalls = ipcCallAssistantMock.mock.calls.filter(
+      (c) => c[0] === "invites_compose_presentation",
+    );
+    expect(composeCalls).toHaveLength(1);
+    const composeBody = (
+      composeCalls[0][1] as {
+        body: { contactId?: string; rawToken?: string };
+      }
+    ).body;
+    expect(composeBody.contactId).toBe("ct_1");
+    expect(composeBody.rawToken).toBe(body.rawToken);
+  });
+
+  test("returns the raw minted payload when the daemon presentation IPC fails", async () => {
+    contactStoreCreateInviteMock = makeEchoCreateInviteMock();
+    ipcCallAssistantMock = mock(async (method: string): Promise<unknown> => {
+      if (method === "invites_compose_presentation") {
+        throw new Error("daemon unreachable");
+      }
+      return {};
+    });
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleCreateInvite(
+      new Request("http://localhost:7830/v1/contacts/invites", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ contactId: "ct_1", sourceChannel: "telegram" }),
+      }),
+    );
+
+    // Presentation is best-effort UX; the create itself must still succeed
+    // with the one-time secrets.
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(typeof body.rawToken).toBe("string");
+    expect(body.invite.token).toBe(body.rawToken);
+    expect(body.invite.share).toBeUndefined();
+    expect(body.invite.guardianInstruction).toBeUndefined();
+    expect(body.invite.channelHandle).toBeUndefined();
+  });
+
   test("mints an identity-bound voiceCode for phone invites — no token, passthrough fields stored", async () => {
     contactStoreGetContactMock = mock(() => ({
       id: "ct_1",

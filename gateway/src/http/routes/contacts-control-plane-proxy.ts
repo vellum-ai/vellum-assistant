@@ -210,7 +210,9 @@ const DEFAULT_INVITE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
  * (`token` / `inviteCode` / `voiceCode`) are returned exactly once on the
  * invite payload and never persisted — only their hashes reach the row.
  * Presentation fields (share link, guardian instruction, channel handle) are
- * daemon-owned and layered on by the daemon's create relay.
+ * daemon-owned and layered on by each create transport exactly once: the
+ * daemon's create relay composes in-process; the gateway HTTP handler
+ * composes via the `invites_compose_presentation` daemon IPC.
  *
  * Throws InviteNativeError(404) when the contact is unknown, (400) on invalid
  * voice parameters, and (500) when the gateway write fails.
@@ -332,6 +334,38 @@ export async function createInviteNative(
     createdAt: row.createdAt,
   };
   return { invite, rawToken };
+}
+
+/**
+ * Layer the daemon-owned presentation fields (share link, guardian
+ * instruction, channel handle) onto a gateway-minted invite payload via the
+ * `invites_compose_presentation` daemon IPC. Best-effort: presentation is
+ * display-only UX, so a daemon failure logs and returns the raw minted
+ * payload — invite creation never fails because composition failed.
+ */
+async function composePresentationBestEffort(params: {
+  contactId?: string;
+  invite: Record<string, unknown>;
+  rawToken?: string;
+}): Promise<Record<string, unknown>> {
+  try {
+    const result = (await ipcCallAssistant("invites_compose_presentation", {
+      body: params,
+    })) as { invite?: Record<string, unknown> } | null;
+    if (result?.invite && typeof result.invite === "object") {
+      return result.invite;
+    }
+    log.warn(
+      { inviteId: params.invite.id },
+      "create_invite: daemon presentation response missing invite (best-effort)",
+    );
+  } catch (err) {
+    log.warn(
+      { err, inviteId: params.invite.id },
+      "create_invite: daemon presentation composition failed (best-effort)",
+    );
+  }
+  return params.invite;
 }
 
 /**
@@ -1574,9 +1608,11 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
      * POST /v1/contacts/invites — gateway-native invite create.
      *
      * The gateway mints the secrets and writes the single canonical invite
-     * row in its own DB (no assistant round-trip). The response carries the
-     * one-time plaintext secrets; daemon-owned presentation (share link,
-     * guardian instruction) is layered on by the daemon's create relay.
+     * row in its own DB. The response carries the one-time plaintext secrets
+     * plus the daemon-owned presentation fields (share link, guardian
+     * instruction, channel handle), composed best-effort via the
+     * `invites_compose_presentation` daemon IPC — a daemon failure degrades
+     * to the raw minted payload rather than failing the create.
      */
     async handleCreateInvite(req: Request): Promise<Response> {
       let body: unknown;
@@ -1599,8 +1635,13 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
 
       try {
         const result = await createInviteNative(parsed.value);
+        const invite = await composePresentationBestEffort({
+          contactId: parsed.value.contactId,
+          invite: result.invite,
+          rawToken: result.rawToken,
+        });
         return Response.json(
-          { ok: true, invite: result.invite, rawToken: result.rawToken },
+          { ok: true, invite, rawToken: result.rawToken },
           { status: 201 },
         );
       } catch (err) {

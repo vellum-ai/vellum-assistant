@@ -22,7 +22,11 @@
  *                sourceConversationId?: string }
  *     returns: { invite: Record<string, unknown>; rawToken?: string }
  *              (the gateway's one-time minted payload — row fields plus the
- *              plaintext token/inviteCode/voiceCode, never fetchable later)
+ *              plaintext token/inviteCode/voiceCode, never fetchable later.
+ *              RAW: the daemon relay layers the presentation fields on
+ *              in-process after this call; only the gateway HTTP create
+ *              handler composes via the daemon's
+ *              `invites_compose_presentation` IPC)
  *
  *   invites_revoke
  *     params : { id: string }

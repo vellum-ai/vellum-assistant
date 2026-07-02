@@ -25,7 +25,10 @@ import { ROUTES as contactRoutes } from "../../../runtime/routes/contact-routes.
 import { INVITE_IPC_METHODS } from "../invite-ipc-routes.js";
 import { routeDefinitionsToIpcMethods } from "../route-adapter.js";
 
-const INVITE_IPC_OPERATION_IDS = ["invite_redeemed"] as const;
+const INVITE_IPC_OPERATION_IDS = [
+  "invite_redeemed",
+  "invites_compose_presentation",
+] as const;
 
 // Redemption is gateway-native: the daemon must expose NO redeem IPC methods
 // (the daemon redeem route relays to the gateway's `invites_redeem` instead).
@@ -63,5 +66,40 @@ describe("invite IPC-only methods", () => {
     for (const operationId of INVITE_IPC_OPERATION_IDS) {
       expect(schemaIds.has(operationId)).toBe(false);
     }
+  });
+});
+
+// Wiring-only coverage: composition behavior itself is unit-tested against
+// the real `composeInvitePresentation` in `invite-routes-http.test.ts`, and
+// the gateway HTTP merge is covered in the gateway proxy suite. Asserting
+// only merge-retention here keeps this file independent of the
+// `invite-service` module mocks other suites install in a shared bun process.
+describe("invites_compose_presentation", () => {
+  test("returns an { invite } envelope preserving the one-time mint payload", async () => {
+    const result = (await INVITE_IPC_METHODS.invites_compose_presentation({
+      body: {
+        contactId: "ct-1",
+        invite: {
+          id: "inv-1",
+          sourceChannel: "phone",
+          friendName: "Sam Example",
+          voiceCode: "123456",
+        },
+      },
+    })) as { invite: Record<string, unknown> };
+
+    expect(result.invite.id).toBe("inv-1");
+    expect(result.invite.voiceCode).toBe("123456");
+    expect(result.invite.friendName).toBe("Sam Example");
+  });
+
+  test("rejects a payload without an invite object", async () => {
+    await expect(
+      Promise.resolve(
+        INVITE_IPC_METHODS.invites_compose_presentation({
+          body: { contactId: "ct-1" },
+        }),
+      ),
+    ).rejects.toThrow();
   });
 });

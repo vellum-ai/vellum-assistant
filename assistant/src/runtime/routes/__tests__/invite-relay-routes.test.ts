@@ -49,11 +49,29 @@ const triggerInviteCallMock = mock(
   async (_params: Record<string, unknown>) => triggerInviteCallResult,
 );
 
+// Presentation composition is daemon-owned: the create relay invokes it
+// exactly once on the gateway's raw mint payload. Passthrough by default so
+// the relay-shape tests observe the gateway payload unchanged.
+let composeInvitePresentationResult:
+  | ((params: { invite: Record<string, unknown> }) => Record<string, unknown>)
+  | undefined;
+const composeInvitePresentationMock = mock(
+  async (params: {
+    contactId?: string;
+    invite: Record<string, unknown>;
+    rawToken?: string;
+  }) =>
+    composeInvitePresentationResult
+      ? composeInvitePresentationResult(params)
+      : params.invite,
+);
+
 const actualInviteService = await import("../../invite-service.js");
 
 mock.module("../../invite-service.js", () => ({
   ...actualInviteService,
   triggerInviteCall: triggerInviteCallMock,
+  composeInvitePresentation: composeInvitePresentationMock,
   // Deterministic guardian label so the voice-create passthrough is assertable
   // (the real resolver reads the guardian persona file).
   resolveInviteGuardianName: () => "Guardian Name",
@@ -75,6 +93,8 @@ describe("invite relay routes", () => {
     ipcCallPersistentMock.mockClear();
     triggerInviteCallResult = { ok: true, data: { callSid: "CA000" } };
     triggerInviteCallMock.mockClear();
+    composeInvitePresentationResult = undefined;
+    composeInvitePresentationMock.mockClear();
   });
 
   describe("handleListInvites", () => {
@@ -136,6 +156,36 @@ describe("invite relay routes", () => {
       expect(result).toEqual({
         ok: true,
         invite: { id: "i9", token: "tok-9" },
+        rawToken: "tok-9",
+      });
+    });
+
+    test("composes presentation daemon-side exactly once on the relayed mint payload", async () => {
+      ipcResult = { invite: { id: "i9", token: "tok-9" }, rawToken: "tok-9" };
+      composeInvitePresentationResult = (params) => ({
+        ...params.invite,
+        share: { url: "https://t.me/example_bot?start=tok-9" },
+        guardianInstruction: "Send the link to your friend.",
+      });
+
+      const result = await handleCreateInvite({
+        body: { contactId: "c1", sourceChannel: "telegram" },
+      });
+
+      expect(composeInvitePresentationMock).toHaveBeenCalledTimes(1);
+      expect(composeInvitePresentationMock.mock.calls[0][0]).toEqual({
+        contactId: "c1",
+        invite: { id: "i9", token: "tok-9" },
+        rawToken: "tok-9",
+      });
+      expect(result).toEqual({
+        ok: true,
+        invite: {
+          id: "i9",
+          token: "tok-9",
+          share: { url: "https://t.me/example_bot?start=tok-9" },
+          guardianInstruction: "Send the link to your friend.",
+        },
         rawToken: "tok-9",
       });
     });
