@@ -52,6 +52,7 @@ import {
   getConversation,
   getMessages,
   resolveOverrideProfile,
+  setConversationEnabledPlugins,
   setConversationHistoryStrippedAt,
   setConversationProcessingStartedAt,
 } from "../persistence/conversation-crud.js";
@@ -334,9 +335,10 @@ export class Conversation {
   /**
    * Per-conversation plugin scope mirrored from the DB row. `null` means no
    * per-chat restriction (all globally-enabled plugins apply). Hydrated on load
-   * and kept in sync by {@link setEnabledPlugins} so the live instance is the
-   * source of truth; later tool/skill/hook filters intersect their candidate
-   * set against this via `getEffectiveEnabledPluginSet`.
+   * and kept in sync by {@link setEnabledPlugins}, which also persists the value
+   * back to the row, so the live instance is the source of truth; later
+   * tool/skill/hook filters intersect their candidate set against this via
+   * `getEffectiveEnabledPluginSet`.
    * @internal
    */
   enabledPlugins: string[] | null = null;
@@ -1378,8 +1380,15 @@ export class Conversation {
     this.subagentAllowedTools = tools;
   }
 
+  /**
+   * Set the conversation's per-chat plugin scope, updating both the live
+   * instance (source of truth for the current turn) and the persisted
+   * `enabled_plugins` row so the scope survives a reload. `null` clears the
+   * per-chat restriction. Callers do not persist separately.
+   */
   setEnabledPlugins(plugins: string[] | null): void {
     this.enabledPlugins = plugins;
+    setConversationEnabledPlugins(this.conversationId, plugins);
   }
 
   setIsSubagent(value: boolean): void {

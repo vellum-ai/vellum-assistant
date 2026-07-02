@@ -108,7 +108,6 @@ import {
   isConversationProcessing,
   type MessageRow,
   provenanceFromTrustContext,
-  setConversationEnabledPlugins,
   setConversationInferenceProfile,
 } from "../../persistence/conversation-crud.js";
 import {
@@ -1605,10 +1604,8 @@ export async function handleSendMessage(
   }
 
   if (requestedEnabledPlugins !== undefined) {
-    setConversationEnabledPlugins(
-      mapping.conversationId,
-      requestedEnabledPlugins,
-    );
+    // setEnabledPlugins persists the scope to the conversation row as well as
+    // updating the live instance, so no separate DB write is needed here.
     conversation.setEnabledPlugins(requestedEnabledPlugins);
   }
 
