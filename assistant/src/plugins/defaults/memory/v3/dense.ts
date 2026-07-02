@@ -69,12 +69,17 @@ export async function denseLaneScored(
 ): Promise<DenseHitScored[]> {
   if (k <= 0) return [];
 
-  if (!(await isEmbeddingDimensionAvailable(config))) {
-    return [];
-  }
-
   let points: Array<{ payload?: unknown; score?: number }>;
   try {
+    // Inside the try so a rejecting probe (e.g. a transient credential-store
+    // error surfacing through getProviderKeyAsync) degrades to `[]` instead of
+    // throwing — the orchestrator calls this lane in an unguarded Promise.all
+    // that relies on the `[]` contract, so one throw would discard the sibling
+    // lanes too. The check itself skips the embed on a dimension mismatch.
+    if (!(await isEmbeddingDimensionAvailable(config))) {
+      return [];
+    }
+
     const { vectors } = await embedWithBackend(config, [query]);
     const vector = vectors[0];
     if (!vector || vector.length === 0) return [];

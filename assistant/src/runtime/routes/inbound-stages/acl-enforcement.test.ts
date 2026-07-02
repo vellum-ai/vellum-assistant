@@ -54,12 +54,14 @@ mock.module("../../gateway-client.js", () => ({
 
 const accessRequestCalls: unknown[] = [];
 let accessRequestDeniedForTest = false;
+let approvalHandshakeForTest = false;
 mock.module("../../access-request-helper.js", () => ({
   notifyGuardianOfAccessRequest: (params: unknown) => {
     accessRequestCalls.push(params);
     return { notified: true };
   },
   isAccessRequestDenied: () => accessRequestDeniedForTest,
+  isApprovalHandshakeInProgress: () => approvalHandshakeForTest,
 }));
 
 // Invite transport: by default no adapter (no token). Per-test override below.
@@ -96,6 +98,25 @@ mock.module("../../../persistence/delivery-status.js", () => ({
   markProcessed: () => {},
 }));
 
+// Verification session service: track challenge minting so the callback
+// exemption (LUM-2673) can assert no session is created for button presses.
+const createOutboundSessionCalls: unknown[] = [];
+mock.module("../../channel-verification-service.js", () => ({
+  createOutboundSession: (params: unknown) => {
+    createOutboundSessionCalls.push(params);
+    return {
+      sessionId: "session-1",
+      secret: "123456",
+      challengeHash: "hash",
+      expiresAt: Date.now() + 600_000,
+      ttlSeconds: 600,
+    };
+  },
+  findActiveSession: () => null,
+  getPendingSession: () => null,
+  resolveBootstrapToken: () => null,
+}));
+
 import type { AclEnforcementParams } from "./acl-enforcement.js";
 import { enforceIngressAcl } from "./acl-enforcement.js";
 
@@ -116,6 +137,7 @@ function makeParams(
     replyCallbackUrl: "http://localhost/deliver",
     assistantId: "assistant-1",
     externalMessageId: "msg-1",
+    isCallbackInteraction: false,
     ...overrides,
   };
 }
@@ -143,7 +165,9 @@ beforeEach(() => {
   findContactChannelCalls.length = 0;
   deliverReplyCalls.length = 0;
   accessRequestCalls.length = 0;
+  createOutboundSessionCalls.length = 0;
   accessRequestDeniedForTest = false;
+  approvalHandshakeForTest = false;
   inviteTokenForTest = undefined;
   guardianDeliveryList = [];
 });
@@ -179,6 +203,123 @@ describe("enforceIngressAcl — verdict-sourced member resolution", () => {
     expect(result.resolvedMember).not.toBeNull();
     expect(result.resolvedMember!.status).toBe("active");
     expect(findContactChannelCalls.length).toBe(0);
+  });
+
+  test("member-less guardian verdict is admitted and never fires an access request", async () => {
+    // A guardian classified by principal reaches this channel with NO
+    // per-channel member row: trustClass is "guardian" but the verdict
+    // carries no contactId/channelId/status/policy. The guardian
+    // short-circuit must admit them instead of routing them into the
+    // stranger branch, which fires notifyGuardianOfAccessRequest at the
+    // guardian themselves.
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceMetadata: withVerdict({
+          trustClass: "guardian",
+          canonicalSenderId: "sender-1",
+          guardianPrincipalId: "p-1",
+        }),
+      }),
+    );
+
+    expect(result.earlyResponse).toBeUndefined();
+    expect(result.resolvedMember).toBeNull();
+    expect(accessRequestCalls.length).toBe(0);
+    expect(deliverReplyCalls.length).toBe(0);
+  });
+
+  test("guardian verdict with an inactive (pending) member row is still admitted", async () => {
+    // Guardian by principal whose same-channel row is pending: the
+    // inactive-member deny gate must not challenge or deny the guardian.
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceMetadata: withVerdict(
+          memberVerdict({
+            trustClass: "guardian",
+            status: "pending",
+            guardianPrincipalId: "p-1",
+          }),
+        ),
+      }),
+    );
+
+    expect(result.earlyResponse).toBeUndefined();
+    expect(result.resolvedMember).not.toBeNull();
+    expect(accessRequestCalls.length).toBe(0);
+    expect(deliverReplyCalls.length).toBe(0);
+  });
+
+  test("guardian verdict with an explicit policy-deny member row is denied, not admitted", async () => {
+    // An explicit per-channel policy deny on the guardian's own row is
+    // honored like blocked/revoked — the guardian short-circuit must not
+    // bypass it. Accurate policy_deny reason, no stranger-lane side effects.
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceMetadata: withVerdict(
+          memberVerdict({
+            trustClass: "guardian",
+            policy: "deny",
+            guardianPrincipalId: "p-1",
+          }),
+        ),
+      }),
+    );
+
+    expect(result.earlyResponse).toMatchObject({
+      accepted: true,
+      denied: true,
+      reason: "policy_deny",
+    });
+    expect(accessRequestCalls.length).toBe(0);
+    expect(deliverReplyCalls.length).toBe(0);
+  });
+
+  test("contradictory guardian verdict with a blocked member row fails safe", async () => {
+    // The gateway never classifies a blocked row as guardian; a verdict
+    // claiming both is malformed. Soft-deny with no stranger-lane side
+    // effects.
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceMetadata: withVerdict(
+          memberVerdict({
+            trustClass: "guardian",
+            status: "blocked",
+            policy: "deny",
+          }),
+        ),
+      }),
+    );
+
+    expect(result.earlyResponse).toMatchObject({
+      accepted: true,
+      denied: true,
+      reason: "not_a_member",
+    });
+    expect(accessRequestCalls.length).toBe(0);
+    expect(deliverReplyCalls.length).toBe(0);
+  });
+
+  test("unrecognized trust class fails safe: denied with no stranger-lane side effects", async () => {
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceMetadata: withVerdict({
+          // Deliberately out-of-contract wire data (version skew / malformed
+          // payload) — the cast is the point of the test.
+          trustClass: "totally_new_class" as TrustVerdict["trustClass"],
+          canonicalSenderId: "sender-1",
+        }),
+      }),
+    );
+
+    expect(result.earlyResponse).toMatchObject({
+      accepted: true,
+      denied: true,
+      reason: "not_a_member",
+    });
+    // Fail-safe, never fail-stranger: no access-request card, no
+    // verification challenge, no canned reply.
+    expect(accessRequestCalls.length).toBe(0);
+    expect(deliverReplyCalls.length).toBe(0);
   });
 });
 
@@ -475,5 +616,119 @@ describe("enforceIngressAcl — a terminal deny suppresses re-prompting, not adm
     expect(result.earlyResponse!.denied).toBe(true);
     // `unverified` maps to `pending` at the API-facing member layer.
     expect(result.earlyResponse!.reason).toBe("member_pending");
+  });
+});
+
+describe("enforceIngressAcl — callback interactions never spawn stranger-lane side effects (LUM-2673)", () => {
+  test("a stranger callback is denied without creating an access request", async () => {
+    const result = await enforceIngressAcl(
+      makeParams({
+        canonicalSenderId: "stranger-1",
+        rawSenderId: "stranger-1",
+        trimmedContent: "apr:req-1:approve_once",
+        sourceMetadata: withVerdict({
+          trustClass: "unknown",
+          canonicalSenderId: "stranger-1",
+        }),
+        isCallbackInteraction: true,
+      }),
+    );
+
+    expect(result.earlyResponse).toBeDefined();
+    expect(result.earlyResponse!.reason).toBe("not_a_member");
+    expect(accessRequestCalls.length).toBe(0);
+    expect(createOutboundSessionCalls.length).toBe(0);
+    // The deny reply still goes out so the click isn't a silent no-op.
+    expect(deliverReplyCalls.length).toBe(1);
+  });
+
+  test("a Slack stranger callback initiates no verification challenge", async () => {
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceChannel: "slack",
+        canonicalSenderId: "U123STRANGER",
+        rawSenderId: "U123STRANGER",
+        trimmedContent: "apr:req-1:approve_once",
+        sourceMetadata: withVerdict({
+          trustClass: "unknown",
+          canonicalSenderId: "U123STRANGER",
+        }),
+        isCallbackInteraction: true,
+      }),
+    );
+
+    expect(result.earlyResponse).toBeDefined();
+    expect(result.earlyResponse!.reason).toBe("not_a_member");
+    expect(createOutboundSessionCalls.length).toBe(0);
+    expect(accessRequestCalls.length).toBe(0);
+  });
+
+  test("a Slack unverified-member callback initiates no challenge and no access request", async () => {
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceChannel: "slack",
+        canonicalSenderId: "U123MEMBER",
+        rawSenderId: "U123MEMBER",
+        trimmedContent: "apr:req-1:approve_once",
+        sourceMetadata: withVerdict(
+          memberVerdict({
+            status: "unverified",
+            canonicalSenderId: "U123MEMBER",
+            address: "U123MEMBER",
+            type: "slack",
+          }),
+        ),
+        isCallbackInteraction: true,
+      }),
+    );
+
+    expect(result.earlyResponse).toBeDefined();
+    expect(result.earlyResponse!.reason).toBe("member_pending");
+    expect(createOutboundSessionCalls.length).toBe(0);
+    expect(accessRequestCalls.length).toBe(0);
+  });
+
+  test("a callback inside the approval handshake window gets next-step copy, not a denial", async () => {
+    approvalHandshakeForTest = true;
+
+    const result = await enforceIngressAcl(
+      makeParams({
+        canonicalSenderId: "stranger-1",
+        rawSenderId: "stranger-1",
+        trimmedContent: "apr:req-1:approve_once",
+        sourceMetadata: withVerdict({
+          trustClass: "unknown",
+          canonicalSenderId: "stranger-1",
+        }),
+        isCallbackInteraction: true,
+      }),
+    );
+
+    expect(result.earlyResponse).toBeDefined();
+    expect(result.earlyResponse!.reason).toBe("not_a_member");
+    expect(accessRequestCalls.length).toBe(0);
+    expect(deliverReplyCalls.length).toBe(1);
+    const payload = deliverReplyCalls[0].payload as { text: string };
+    expect(payload.text).toContain("approved");
+    expect(payload.text).toContain("verification code");
+  });
+
+  test("a Slack stranger MESSAGE still gets the challenge + access request (control)", async () => {
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceChannel: "slack",
+        canonicalSenderId: "U123STRANGER",
+        rawSenderId: "U123STRANGER",
+        sourceMetadata: withVerdict({
+          trustClass: "unknown",
+          canonicalSenderId: "U123STRANGER",
+        }),
+      }),
+    );
+
+    expect(result.earlyResponse).toBeDefined();
+    expect(result.earlyResponse!.reason).toBe("verification_challenge_sent");
+    expect(createOutboundSessionCalls.length).toBe(1);
+    expect(accessRequestCalls.length).toBe(1);
   });
 });

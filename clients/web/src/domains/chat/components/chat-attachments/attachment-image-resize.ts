@@ -54,6 +54,26 @@ export function shouldAutoResizeImageAttachment(file: Pick<File, "name" | "size"
   return isAutoResizableImage(file) && file.size > IMAGE_AUTO_RESIZE_TARGET_BYTES;
 }
 
+export function isHeicAttachment(file: Pick<File, "name" | "type">): boolean {
+  const mimeType = file.type.trim().toLowerCase();
+  if (mimeType === "image/heic" || mimeType === "image/heif") {
+    return true;
+  }
+
+  const extension = file.name.split(".").pop()?.trim().toLowerCase();
+  return extension === "heic" || extension === "heif";
+}
+
+/**
+ * HEIC/HEIF is converted regardless of size — Chromium cannot decode it, so
+ * compatibility (not byte savings) is the goal. Conversion only succeeds where
+ * the browser decodes HEIC (WebKit: Safari, the iOS app); on Chromium it fails
+ * fast and the original uploads for the daemon to normalize.
+ */
+export function shouldPrepareImageAttachment(file: Pick<File, "name" | "size" | "type">): boolean {
+  return shouldAutoResizeImageAttachment(file) || isHeicAttachment(file);
+}
+
 export function filenameForResizedImage(name: string): string {
   const fallback = "attachment";
   const trimmedName = name.trim() || fallback;
@@ -68,7 +88,7 @@ export function filenameForResizedImage(name: string): string {
 export async function prepareImageAttachmentForUpload(
   file: File,
 ): Promise<ImageAttachmentResizeResult> {
-  if (!shouldAutoResizeImageAttachment(file)) {
+  if (!shouldPrepareImageAttachment(file)) {
     return { status: "unchanged", file };
   }
 
@@ -100,7 +120,10 @@ export async function prepareImageAttachmentForUpload(
     } catch {
       resizedBlob = null;
     }
-    if (!resizedBlob || resizedBlob.size >= file.size) {
+    // A JPEG re-encode of a small HEIC is often larger than the source; for
+    // HEIC the size regression is acceptable because the output must be
+    // renderable, not smaller.
+    if (!resizedBlob || (!isHeicAttachment(file) && resizedBlob.size >= file.size)) {
       return {
         status: "failed",
         error: "Couldn't resize this image for upload. Try a smaller image.",

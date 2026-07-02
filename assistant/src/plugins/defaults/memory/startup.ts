@@ -23,7 +23,10 @@ import {
   initMessagesLexicalIndex,
   MESSAGES_LEXICAL_COLLECTION,
 } from "../../../persistence/embeddings/messages-lexical-index.js";
-import { initQdrantClient } from "../../../persistence/embeddings/qdrant-client.js";
+import {
+  clearRebuildSentinel,
+  initQdrantClient,
+} from "../../../persistence/embeddings/qdrant-client.js";
 import { createQdrantManager } from "../../../persistence/embeddings/qdrant-manager.js";
 import {
   enqueueMemoryJob,
@@ -32,7 +35,6 @@ import {
 import { getLogger } from "../../../util/logger.js";
 import { getWorkspaceDir } from "../../../util/platform.js";
 import { resolveQdrantUrl } from "./embeddings.js";
-import { maybeEnqueueLexicalBackfillOnUpgrade } from "./job-handlers/backfill-lexical-index.js";
 import { sweepConceptPageFrontmatter } from "./v2/frontmatter-sweep.js";
 import {
   maybeRebuildMemoryV2Concepts,
@@ -105,6 +107,10 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
         const { migrated } = await qdrantClient.ensureCollection();
         if (migrated && isMemoryEnabled()) {
           enqueueMemoryJob("rebuild_index", {});
+          // Clear the on-disk sentinel the ensure-path writes before its
+          // destructive delete: now that rebuild_index is queued, the
+          // cross-boot signal can retire. No-op if no sentinel was written.
+          await clearRebuildSentinel();
           log.info(
             "Qdrant collection was migrated — enqueued rebuild_index job",
           );
@@ -199,14 +205,6 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
       );
     }
   }
-
-  // One-time, self-healing backfill of existing messages into the Qdrant
-  // lexical index (`messages_lexical`) on upgrade, so a later read-path flip to
-  // the lexical backend never opens onto an empty index. Enqueue-only and
-  // checkpoint-guarded — the indexing runs off the event loop via the memory
-  // worker started just above; see the function's docstring for the guards and
-  // the deliberate exception it makes to the "no work at daemon startup" rule.
-  maybeEnqueueLexicalBackfillOnUpgrade();
 
   // Seed capability graph nodes (new memory graph system)
   try {

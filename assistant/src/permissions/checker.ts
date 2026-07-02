@@ -27,6 +27,7 @@ import {
   getWorkspacePluginsDir,
   getWorkspaceRoutesDir,
   getWorkspaceToolsDir,
+  getWorkspaceWorkflowsDir,
 } from "../util/platform.js";
 import {
   type ApprovalContext,
@@ -311,6 +312,7 @@ function buildFileContext(): FileContext {
     pluginsDir: resolveRealPath(getWorkspacePluginsDir()),
     toolsDir: resolveRealPath(getWorkspaceToolsDir()),
     routesDir: resolveRealPath(getWorkspaceRoutesDir()),
+    workflowsDir: resolveRealPath(getWorkspaceWorkflowsDir()),
     actorTokenSigningKeyPath: join(protectedDir, "actor-token-signing-key"),
     skillSourceDirs: getSkillRoots(config.skills.load.extraDirs).map(
       resolveRealPath,

@@ -38,7 +38,6 @@ enum WorkOSAuth {
         challenge: String,
         state: String,
         loginHint: String?,
-        providerHint: String?,
         intent: String?
     ) -> URL? {
         var components = URLComponents(string: "\(apiBaseURL)/user_management/authorize")
@@ -50,7 +49,7 @@ enum WorkOSAuth {
             URLQueryItem(name: "code_challenge", value: challenge),
             URLQueryItem(name: "code_challenge_method", value: "S256"),
             URLQueryItem(name: "state", value: state),
-            URLQueryItem(name: "provider", value: nonEmpty(providerHint) ?? "authkit"),
+            URLQueryItem(name: "provider", value: "authkit"),
         ]
         if let loginHint = nonEmpty(loginHint) {
             items.append(URLQueryItem(name: "login_hint", value: loginHint))

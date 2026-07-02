@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { afterAll, describe, expect, mock, test } from "bun:test";
 
 import type { AssistantConfig } from "../../config/types.js";
 import type { ReconcileAction } from "../../persistence/embeddings/reconcile-decision.js";
@@ -6,6 +6,52 @@ import {
   type ReconcileDeps,
   reconcileEmbeddingIdentity,
 } from "../embedding-reconcile.js";
+
+// Snapshot the real collaborator modules BEFORE any `mock.module` stub is
+// installed in `withDefaultDepsMocks`. `mock.module` is process-global and Bun
+// does not revert it (neither `mock.restore()` nor an `afterAll` re-mock) for
+// test files that load LATER in the same `bun test` run — notably the v3
+// `section-dense-store` suite, which imports the real module and asserts on its
+// create/index call counts. So every stub below DELEGATES to the real
+// implementation unless this file's default-deps tests are actively running
+// (`defaultDepsMockActive`, cleared in the `afterAll` below). Mirrors
+// `plugins/defaults/memory/v3/__tests__/shadow-plugin.test.ts`.
+//
+// Snapshot into plain objects NOW: a module namespace is a live view, so reading
+// a real export AFTER its stub is installed would resolve back to the stub.
+const realJobsStore = { ...(await import("../../persistence/jobs-store.js")) };
+const realMemoryV3Gate = {
+  ...(await import("../../config/memory-v3-gate.js")),
+};
+const realV2Qdrant = {
+  ...(await import("../../plugins/defaults/memory/v2/qdrant.js")),
+};
+const realLoader = { ...(await import("../../config/loader.js")) };
+const realSectionDenseStore = {
+  ...(await import("../../plugins/defaults/memory/v3/section-dense-store.js")),
+};
+
+let defaultDepsMockActive = false;
+
+afterAll(() => {
+  // Deactivate the delegating stubs so sibling suites that load later in a
+  // shared `bun test` process (e.g. section-dense-store.test.ts) observe the
+  // real modules instead of these spies.
+  defaultDepsMockActive = false;
+});
+
+/**
+ * Wrap a collaborator export so it routes to `active` while this file's
+ * default-deps tests run and to the real implementation otherwise. The choice is
+ * made at CALL time, so the stub keeps delegating to the real module for sibling
+ * suites that captured their import bindings while it was installed.
+ */
+function delegate<F extends (...args: never[]) => unknown>(
+  active: (...args: Parameters<F>) => unknown,
+  real: F,
+): (...args: Parameters<F>) => unknown {
+  return (...args) => (defaultDepsMockActive ? active(...args) : real(...args));
+}
 
 function fakeConfig(
   provider = "auto",
@@ -270,10 +316,16 @@ describe("reconcileEmbeddingIdentity", () => {
 // section-collection lifecycle without touching Qdrant, a backend, or config I/O.
 
 /**
- * Reset and re-install the mocks for the collaborator modules `defaultDeps`
- * pulls in, then re-import the module under test so its default deps close over
- * the freshly-mocked collaborators. Returns the spies plus a `defaultDeps`
- * factory bound to the re-imported module.
+ * Install the collaborator-module stubs `defaultDeps` pulls in, then re-import
+ * the module under test so its default deps close over them. Returns the spies
+ * plus a `defaultDeps` factory bound to the re-imported module.
+ *
+ * Each stub DELEGATES to the real module unless this file's default-deps tests
+ * are actively running (`defaultDepsMockActive`, set here and cleared in the
+ * file-level `afterAll`), so the process-global `mock.module` overrides do not
+ * leak into sibling suites that load later in the same `bun test` run. The
+ * delegation is decided at CALL time, so it stays correct regardless of when a
+ * later file captured its import bindings.
  */
 async function withDefaultDepsMocks(opts: {
   v3Live: boolean;
@@ -289,28 +341,59 @@ async function withDefaultDepsMocks(opts: {
     recreateConceptPageCollection: mock(async () => {}),
   };
 
+  defaultDepsMockActive = true;
+
   mock.module("../../persistence/jobs-store.js", () => ({
-    enqueueMemoryJob: spies.enqueueMemoryJob,
-    hasActiveJobOfType: spies.hasActiveJobOfType,
+    ...realJobsStore,
+    enqueueMemoryJob: delegate(
+      spies.enqueueMemoryJob,
+      realJobsStore.enqueueMemoryJob,
+    ),
+    hasActiveJobOfType: delegate(
+      spies.hasActiveJobOfType,
+      realJobsStore.hasActiveJobOfType,
+    ),
   }));
   mock.module("../../config/memory-v3-gate.js", () => ({
-    isMemoryV3Live: () => opts.v3Live,
+    ...realMemoryV3Gate,
+    isMemoryV3Live: delegate(
+      () => opts.v3Live,
+      realMemoryV3Gate.isMemoryV3Live,
+    ),
   }));
   mock.module("../../plugins/defaults/memory/v2/qdrant.js", () => ({
-    ensureConceptPageCollection: spies.ensureConceptPageCollection,
-    recreateConceptPageCollection: spies.recreateConceptPageCollection,
+    ...realV2Qdrant,
+    ensureConceptPageCollection: delegate(
+      spies.ensureConceptPageCollection,
+      realV2Qdrant.ensureConceptPageCollection,
+    ),
+    recreateConceptPageCollection: delegate(
+      spies.recreateConceptPageCollection,
+      realV2Qdrant.recreateConceptPageCollection,
+    ),
   }));
   mock.module("../../config/loader.js", () => ({
-    loadRawConfig: () => ({}),
-    saveRawConfig: () => {},
-    setNestedValue: () => {},
-    invalidateConfigCache: () => {},
+    ...realLoader,
+    loadRawConfig: delegate(() => ({}), realLoader.loadRawConfig),
+    saveRawConfig: delegate(() => undefined, realLoader.saveRawConfig),
+    setNestedValue: delegate(() => undefined, realLoader.setNestedValue),
+    invalidateConfigCache: delegate(
+      () => undefined,
+      realLoader.invalidateConfigCache,
+    ),
   }));
   mock.module(
     "../../plugins/defaults/memory/v3/section-dense-store.js",
     () => ({
-      ensureSectionCollection: spies.ensureSectionCollection,
-      recreateSectionCollection: spies.recreateSectionCollection,
+      ...realSectionDenseStore,
+      ensureSectionCollection: delegate(
+        spies.ensureSectionCollection,
+        realSectionDenseStore.ensureSectionCollection,
+      ),
+      recreateSectionCollection: delegate(
+        spies.recreateSectionCollection,
+        realSectionDenseStore.recreateSectionCollection,
+      ),
     }),
   );
 

@@ -195,6 +195,7 @@ mock.module("../persistence/jobs-store.js", () => ({
     automatic: "automatic",
     manual: "manual",
   },
+  MESSAGE_LEXICAL_JOB_TYPES: [],
   resetRunningJobsToPending: mock(() => 0),
   SLOW_LLM_JOB_TYPES: [],
   upsertAutoAnalysisJob: mock(() => "job-auto-analysis"),

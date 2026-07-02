@@ -1,6 +1,7 @@
 import { QdrantClient } from "@qdrant/js-client-rest";
 
 import type { AssistantConfig } from "../../config/types.js";
+import { getLogger } from "../../util/logger.js";
 import {
   resolveBackendDimension,
   selectEmbeddingBackend,
@@ -8,6 +9,8 @@ import {
 import { isEmbeddingBillingBreakerOpen } from "./embedding-billing-breaker.js";
 import type { EmbeddingProviderName } from "./embedding-types.js";
 import { resolveQdrantUrl } from "./qdrant-client.js";
+
+const log = getLogger("embedding-identity");
 
 // Inlined rather than imported from `memory/v2/qdrant.ts`: the persistence
 // layer must not import from the memory feature layer (enforced by
@@ -28,6 +31,7 @@ export interface BackendDimensionProbe {
  * reconcile defers rather than committing on a measurement it could not take:
  *   - the billing breaker is open (treated as "backend down");
  *   - no backend is configured/selectable;
+ *   - backend selection throws (e.g. a transient credential-store error);
  *   - the measurement probe throws (provider unreachable).
  *
  * Delegates the dimension measurement to {@link resolveBackendDimension}, the
@@ -40,12 +44,20 @@ export async function probeBackendDimension(
 ): Promise<BackendDimensionProbe | null> {
   if (isEmbeddingBillingBreakerOpen()) return null;
 
-  const { backend } = await selectEmbeddingBackend(config);
-  if (!backend) return null;
+  try {
+    const { backend } = await selectEmbeddingBackend(config);
+    if (!backend) return null;
 
-  const dim = await resolveBackendDimension(backend);
-  if (dim == null) return null;
-  return { provider: backend.provider, model: backend.model, dim };
+    const dim = await resolveBackendDimension(backend);
+    if (dim == null) return null;
+    return { provider: backend.provider, model: backend.model, dim };
+  } catch (err) {
+    // `selectEmbeddingBackend` resolves provider credentials and can reject on a
+    // non-timeout credential-store error; the reconcile relies on a null return
+    // to defer, so honor the never-throws contract and treat it as degraded.
+    log.warn({ err }, "Embedding-dimension probe failed; treating as degraded");
+    return null;
+  }
 }
 
 /**

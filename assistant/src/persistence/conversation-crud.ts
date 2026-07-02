@@ -72,6 +72,7 @@ import {
   copyForkMessagesViaSubprocess,
   type ForkIdPair,
 } from "./fork-message-copy.js";
+import { enqueueLexicalIndexForMessage } from "./job-handlers/message-lexical.js";
 import { getMemoryPersistenceHooks } from "./memory-lifecycle-hooks.js";
 import {
   rawExec,
@@ -1684,6 +1685,12 @@ export async function addMessage(
   const message = inserted;
 
   if (!skipIndexing) {
+    // Message-content lexical indexing is host infrastructure, invoked
+    // directly (not through the memory hook seam, whose active side effects go
+    // inert while the memory plugin is disabled — search indexing must not).
+    // The direct write seams (streaming finalize, import, edit) enqueue for
+    // themselves; this covers the plain addMessage path.
+    enqueueLexicalIndexForMessage(message.id);
     try {
       const parsed = metadata
         ? messageMetadataSchema.safeParse(metadata)
@@ -2620,12 +2627,6 @@ export async function clearAll(): Promise<{
   // Delete in dependency order. Cascades handle memory_segments and
   // tool_invocations, but we explicitly clear non-cascading memory
   // tables too.
-  //
-  // FTS virtual tables are cleared before their base tables. If an FTS
-  // table is corrupted, the DELETE will fail — we drop the associated
-  // triggers so that the subsequent base-table DELETEs don't also fail
-  // (SQLite triggers are atomic with the triggering statement, so a
-  // corrupted FTS table would roll back every base-table DELETE).
   await runOrThrow("DELETE FROM memory_segments");
   await runOrThrow("DELETE FROM memory_summaries");
   await runOrThrow("DELETE FROM memory_embeddings");
@@ -2640,21 +2641,6 @@ export async function clearAll(): Promise<{
   await runOrThrow("DELETE FROM attachments");
   await runOrThrow("DELETE FROM tool_invocations");
   await runOrThrow("DELETE FROM skill_loaded_events");
-  let messagesFtsCorrupted = false;
-  const ftsResult = await runAsyncSqlite(
-    "DELETE FROM messages_fts",
-    "clearAll:messages-fts",
-  );
-  if (!ftsResult.ok) {
-    log.warn(
-      { error: ftsResult.error, backend: ftsResult.backend },
-      "clearAll: failed to clear messages_fts — dropping triggers so base-table cleanup can proceed",
-    );
-    rawExec("DROP TRIGGER IF EXISTS messages_fts_ai");
-    rawExec("DROP TRIGGER IF EXISTS messages_fts_ad");
-    rawExec("DROP TRIGGER IF EXISTS messages_fts_au");
-    messagesFtsCorrupted = true;
-  }
   await runOrThrow("DELETE FROM messages");
   await runOrThrow("DELETE FROM conversations");
 
@@ -2666,26 +2652,6 @@ export async function clearAll(): Promise<{
     "conversations_clear_all",
     Date.now(),
   );
-
-  // Rebuild corrupted FTS tables and restore triggers after all base-table
-  // DELETEs have completed. Dropping the virtual table clears the corruption,
-  // and recreating it + triggers means subsequent writes maintain FTS
-  // consistency without requiring a daemon restart.
-  if (messagesFtsCorrupted) {
-    rawExec("DROP TABLE IF EXISTS messages_fts");
-    rawExec(
-      `CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(message_id UNINDEXED, content)`,
-    );
-    rawExec(
-      `CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN INSERT INTO messages_fts(message_id, content) VALUES (new.id, new.content); END`,
-    );
-    rawExec(
-      `CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN DELETE FROM messages_fts WHERE message_id = old.id; END`,
-    );
-    rawExec(
-      `CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE ON messages BEGIN DELETE FROM messages_fts WHERE message_id = old.id; INSERT INTO messages_fts(message_id, content) VALUES (new.id, new.content); END`,
-    );
-  }
 
   // Let the memory feature drop its bulk per-message index (e.g. the whole
   // lexical Qdrant collection) — a "delete all" leaves no ids to key

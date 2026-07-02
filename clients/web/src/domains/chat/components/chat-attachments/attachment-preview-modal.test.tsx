@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 
@@ -99,5 +99,17 @@ describe("AttachmentPreviewModal content loading", () => {
     renderModal(ATTACHMENT);
 
     expect(await screen.findByText("Failed to load preview.")).toBeDefined();
+  });
+
+  test("falls back to the non-image card when the fetched image can't be decoded", async () => {
+    renderModal(ATTACHMENT);
+
+    const img = await screen.findByAltText("photo.png");
+    fireEvent.error(img);
+
+    // The broken image is replaced by the non-image fallback card (file icon +
+    // download), so an undecodable full-size image never shows a broken glyph.
+    expect(screen.queryByAltText("photo.png")).toBeNull();
+    expect(screen.getByText("Download")).toBeDefined();
   });
 });
