@@ -21269,6 +21269,16 @@ paths:
                         icon:
                           description: Author-declared emoji icon from the plugin's package.json vellum.icon; absent when none.
                           type: string
+                        hasIcon:
+                          description:
+                            Whether the plugin ships a valid author-bundled `icon.png` (PNG magic + dimensions + size validated).
+                            Drives whether a client fetches the bundled icon.
+                          type: boolean
+                        iconVersion:
+                          description:
+                            Content hash of the validated `icon.png`; present only when `hasIcon` is true. Use it as a cache-buster for
+                            the bundled-icon endpoint.
+                          type: string
                       required:
                         - id
                         - name
@@ -21442,6 +21452,18 @@ paths:
                       - type: string
                       - type: "null"
                     description: Author-declared emoji icon from the plugin's `package.json` `vellum.icon`, or null when none.
+                  hasIcon:
+                    type: boolean
+                    description:
+                      Whether the locally installed copy ships a valid author-bundled `icon.png` (PNG magic + dimensions + size
+                      validated). Always false when the plugin is not installed.
+                  iconVersion:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description:
+                      Content hash of the validated `icon.png`; null when `hasIcon` is false. Use it as a cache-buster for the
+                      bundled-icon endpoint.
                 required:
                   - name
                   - installed
@@ -21454,6 +21476,8 @@ paths:
                   - ref
                   - artifact
                   - icon
+                  - hasIcon
+                  - iconVersion
                 additionalProperties: false
         "400":
           description: The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).

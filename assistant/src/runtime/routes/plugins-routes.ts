@@ -144,6 +144,18 @@ const pluginInfoSchema = z.object({
     .describe(
       "Author-declared emoji icon from the plugin's package.json vellum.icon; absent when none.",
     ),
+  hasIcon: z
+    .boolean()
+    .optional()
+    .describe(
+      "Whether the plugin ships a valid author-bundled `icon.png` (PNG magic + dimensions + size validated). Drives whether a client fetches the bundled icon.",
+    ),
+  iconVersion: z
+    .string()
+    .optional()
+    .describe(
+      "Content hash of the validated `icon.png`; present only when `hasIcon` is true. Use it as a cache-buster for the bundled-icon endpoint.",
+    ),
 });
 
 const pluginsListResponseSchema = z.object({
@@ -285,6 +297,17 @@ const pluginDetailsResponseSchema = z.object({
     .nullable()
     .describe(
       "Author-declared emoji icon from the plugin's `package.json` `vellum.icon`, or null when none.",
+    ),
+  hasIcon: z
+    .boolean()
+    .describe(
+      "Whether the locally installed copy ships a valid author-bundled `icon.png` (PNG magic + dimensions + size validated). Always false when the plugin is not installed.",
+    ),
+  iconVersion: z
+    .string()
+    .nullable()
+    .describe(
+      "Content hash of the validated `icon.png`; null when `hasIcon` is false. Use it as a cache-buster for the bundled-icon endpoint.",
     ),
 });
 
@@ -671,6 +694,8 @@ interface PluginView {
   issues?: string[];
   category?: string | null;
   icon?: string;
+  hasIcon: boolean;
+  iconVersion?: string;
 }
 
 function projectPlugin(entry: InstalledPluginInfo): PluginView {
@@ -685,12 +710,16 @@ function projectPlugin(entry: InstalledPluginInfo): PluginView {
     description: entry.packageJson?.description ?? null,
     version: entry.packageJson?.version ?? null,
     path: entry.target,
+    hasIcon: entry.hasIcon,
   };
   if (entry.issues.length > 0) {
     view.issues = [...entry.issues];
   }
   if (entry.packageJson?.icon !== undefined) {
     view.icon = entry.packageJson.icon;
+  }
+  if (entry.iconVersion !== undefined) {
+    view.iconVersion = entry.iconVersion;
   }
   return view;
 }
