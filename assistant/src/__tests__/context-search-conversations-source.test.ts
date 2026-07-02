@@ -188,6 +188,7 @@ describe("searchConversationSource", () => {
       content: "privatetoken belongs to legacy private history.",
     });
     rawRun(
+      "test:markPrivate",
       "UPDATE conversations SET conversation_type = 'private' WHERE id = ?",
       legacyPrivate.conversation.id,
     );
@@ -213,6 +214,7 @@ describe("searchConversationSource", () => {
       content: "東京 appears in a private conversation.",
     });
     rawRun(
+      "test:markPrivate",
       "UPDATE conversations SET conversation_type = 'private' WHERE id = ?",
       legacyPrivate.conversation.id,
     );
@@ -230,6 +232,7 @@ describe("searchConversationSource", () => {
       content: "includetoken appears in archived history.",
     });
     rawRun(
+      "test:markArchived",
       "UPDATE conversations SET archived_at = ? WHERE id = ?",
       Date.now(),
       archived.conversation.id,
@@ -596,6 +599,7 @@ describe("searchConversationSource with the qdrant backend", () => {
       content: "derivedtoken belongs to legacy private history.",
     });
     rawRun(
+      "test:markPrivate",
       "UPDATE conversations SET conversation_type = 'private' WHERE id = ?",
       legacyPrivate.conversation.id,
     );
@@ -684,6 +688,7 @@ function seedConversation(opts: {
   };
 
   rawRun(
+    "test:seedConversation",
     `
     INSERT INTO conversations (
       id,
@@ -704,6 +709,7 @@ function seedConversation(opts: {
     opts.memoryScopeId ?? "default",
   );
   rawRun(
+    "test:seedMessage",
     `
     INSERT INTO messages (
       id,

@@ -394,6 +394,7 @@ export function listConversationsByTitlePrefix(
     created_at: number;
   }
   const rows = rawAll<Row>(
+    "conversation:listByTitlePrefix",
     `SELECT c.id, c.title,
             (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) AS message_count,
             c.created_at
@@ -518,6 +519,7 @@ function likeContentMatchConvIds(query: string): string[] {
     conversation_id: string;
   }
   const rows = rawAll<ConvIdRow>(
+    "conversation:likeContentMatchConvIds",
     `
     SELECT DISTINCT m.conversation_id
     FROM messages m
@@ -541,6 +543,7 @@ function likeContentMatchMessages(
   limit: number,
 ): ConversationSearchMsgRow[] {
   return rawAll<ConversationSearchMsgRow>(
+    "conversation:likeContentMatchMessages",
     `
     SELECT id, role, content, created_at
     FROM messages
@@ -689,6 +692,7 @@ export async function searchConversations(
       }
       const placeholders = candidateIds.map(() => "?").join(",");
       const visibleRows = rawAll<CandidateRow>(
+        "conversation:search:visibleCandidates",
         `
         SELECT m.id, m.conversation_id
         FROM messages m
@@ -728,6 +732,7 @@ export async function searchConversations(
         conversation_id: string;
       }
       const ftsRows = rawAll<ConvIdRow>(
+        "conversation:search:ftsConvIds",
         `
         SELECT DISTINCT m.conversation_id
         FROM messages_fts f
@@ -777,6 +782,7 @@ export async function searchConversations(
     updated_at: number;
   }
   const matchingConversations = rawAll<ConvRow>(
+    "conversation:search:matchingConvs",
     `SELECT id, title, updated_at FROM conversations
      WHERE id IN (${placeholders})
      ORDER BY updated_at DESC
@@ -799,6 +805,7 @@ export async function searchConversations(
       if (candidateIds.length > 0) {
         const msgPlaceholders = candidateIds.map(() => "?").join(",");
         matchingMsgs = rawAll<ConversationSearchMsgRow>(
+          "conversation:search:qdrantMsgs",
           `
           SELECT id, role, content, created_at
           FROM messages
@@ -814,6 +821,7 @@ export async function searchConversations(
     } else if (ftsMatch && backend !== "qdrant") {
       try {
         matchingMsgs = rawAll<ConversationSearchMsgRow>(
+          "conversation:search:ftsMsgs",
           `
           SELECT m.id, m.role, m.content, m.created_at
           FROM messages_fts f

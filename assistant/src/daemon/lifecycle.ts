@@ -21,6 +21,7 @@ import { clearStaleProcessingFlags } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { startEmbeddingRuntimeManager } from "../persistence/embeddings/embedding-runtime-manager.js";
+import { registerSlowQueryTelemetry } from "../persistence/slow-query-telemetry.js";
 import { startConsentRefresh } from "../platform/consent-cache.js";
 import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";
 import { runMemoryStartup } from "../plugins/defaults/memory/startup.js";
@@ -601,6 +602,7 @@ export async function runDaemon(): Promise<void> {
   startDiskPressureGuardForLifecycle();
   startOrphanReaper();
   startEventLoopWatchdog();
+  registerSlowQueryTelemetry();
 
   registerWatcherProviders();
   registerMessagingProviders();

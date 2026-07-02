@@ -219,6 +219,7 @@ export function pruneOldConversationsJob(
   const cutoffMs = Date.now() - retentionDays * 86_400_000;
 
   const stale = rawAll<{ id: string }>(
+    "cleanup:pruneOldConversations:stale",
     `SELECT id FROM conversations WHERE updated_at < ? ORDER BY updated_at ASC LIMIT ?`,
     cutoffMs,
     PRUNE_BATCH_LIMIT,
@@ -232,6 +233,7 @@ export function pruneOldConversationsJob(
       // Re-check staleness inside the transaction to avoid racing with a conversation
       // that became active again between the initial SELECT and this DELETE.
       const still = rawAll<{ id: string }>(
+        "cleanup:pruneOldConversations:recheck",
         `SELECT id FROM conversations WHERE id = ? AND updated_at < ?`,
         id,
         cutoffMs,
@@ -240,12 +242,32 @@ export function pruneOldConversationsJob(
 
       // Non-cascading tables. llm_request_logs lives in the dedicated logs
       // connection, so it is deleted there (outside this main-DB transaction).
-      rawLogsRun(`DELETE FROM llm_request_logs WHERE conversation_id = ?`, id);
-      rawRun(`DELETE FROM tool_invocations WHERE conversation_id = ?`, id);
-      rawRun(`DELETE FROM messages WHERE conversation_id = ?`, id);
-      rawRun(`DELETE FROM skill_loaded_events WHERE conversation_id = ?`, id);
+      rawLogsRun(
+        "cleanup:pruneOldConversations:logs",
+        `DELETE FROM llm_request_logs WHERE conversation_id = ?`,
+        id,
+      );
+      rawRun(
+        "cleanup:pruneOldConversations:toolInv",
+        `DELETE FROM tool_invocations WHERE conversation_id = ?`,
+        id,
+      );
+      rawRun(
+        "cleanup:pruneOldConversations:messages",
+        `DELETE FROM messages WHERE conversation_id = ?`,
+        id,
+      );
+      rawRun(
+        "cleanup:pruneOldConversations:skills",
+        `DELETE FROM skill_loaded_events WHERE conversation_id = ?`,
+        id,
+      );
       // Conversation row deletion cascades to remaining dependent tables
-      rawRun(`DELETE FROM conversations WHERE id = ?`, id);
+      rawRun(
+        "cleanup:pruneOldConversations:conv",
+        `DELETE FROM conversations WHERE id = ?`,
+        id,
+      );
       pruned++;
     });
   }

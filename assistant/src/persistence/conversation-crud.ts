@@ -672,6 +672,7 @@ export function createConversation(
   try {
     db.insert(conversations).values(conversation).run();
     rawRun(
+      "conversation:create:setGroup",
       "UPDATE conversations SET group_id = ?, is_pinned = ? WHERE id = ?",
       effectiveGroupId,
       effectiveGroupId === "system:pinned" ? 1 : 0,
@@ -709,6 +710,7 @@ export function countConversationsByScheduleJobId(
 ): number {
   return (
     rawGet<{ c: number }>(
+      "conversation:countByScheduleJobId",
       "SELECT COUNT(*) AS c FROM conversations WHERE schedule_job_id = ?",
       scheduleJobId,
     )?.c ?? 0
@@ -769,6 +771,7 @@ export function getConversationSource(conversationId: string): string | null {
 function getConversationGroupId(conversationId: string): string | null {
   ensureGroupMigration();
   const row = rawGet<{ group_id: string | null }>(
+    "conversation:getGroupId",
     "SELECT group_id FROM conversations WHERE id = ?",
     conversationId,
   );
@@ -2233,6 +2236,7 @@ export function archiveConversation(id: string): boolean {
   }
   const now = Date.now();
   rawRun(
+    "conversation:archive",
     "UPDATE conversations SET archived_at = ?, updated_at = ? WHERE id = ?",
     now,
     now,
@@ -2248,6 +2252,7 @@ export function unarchiveConversation(id: string): boolean {
   }
   const now = Date.now();
   rawRun(
+    "conversation:unarchive",
     "UPDATE conversations SET archived_at = NULL, updated_at = ? WHERE id = ?",
     now,
     id,
@@ -2266,6 +2271,7 @@ export function setConversationProcessingStartedAt(
   startedAt: number | null,
 ): void {
   rawRun(
+    "conversation:setProcessingStartedAt",
     "UPDATE conversations SET processing_started_at = ? WHERE id = ?",
     startedAt,
     id,
@@ -2281,6 +2287,7 @@ export function setConversationProcessingStartedAt(
  */
 export function clearStaleProcessingFlags(): number {
   return rawRun(
+    "conversation:clearStaleProcessingFlags",
     "UPDATE conversations SET processing_started_at = NULL WHERE processing_started_at IS NOT NULL",
   );
 }
@@ -2299,6 +2306,7 @@ export function isConversationProcessing(id: string): boolean {
     return inMemory;
   }
   const row = rawGet<{ processing_started_at: number | null }>(
+    "conversation:isProcessing",
     "SELECT processing_started_at FROM conversations WHERE id = ?",
     id,
   );
@@ -2318,6 +2326,7 @@ export function isConversationProcessing(id: string): boolean {
  */
 export function getConversationPersistedSeq(id: string): number | null {
   const row = rawGet<{ seq: number | null }>(
+    "conversation:getPersistedSeq",
     "SELECT seq FROM conversations WHERE id = ?",
     id,
   );
@@ -2339,6 +2348,7 @@ export function recordConversationPersistedSeq(id: string, seq: number): void {
     return;
   }
   rawRun(
+    "conversation:recordPersistedSeq",
     "UPDATE conversations SET seq = ? WHERE id = ? AND (seq IS NULL OR seq < ?)",
     seq,
     id,
@@ -2370,6 +2380,7 @@ export function setConversationSurfaced(
   const now = Date.now();
   const surfacedAt = surfaced ? now : null;
   rawRun(
+    "conversation:setSurfaced",
     "UPDATE conversations SET surfaced_at = ?, updated_at = ? WHERE id = ?",
     surfacedAt,
     now,
@@ -2575,6 +2586,7 @@ export function setLastNotifiedInferenceProfile(
   profileKey: string | null,
 ): void {
   rawRun(
+    "conversation:setLastNotifiedProfile",
     "UPDATE conversations SET last_notified_inference_profile = ? WHERE id = ?",
     profileKey,
     conversationId,
@@ -2598,9 +2610,15 @@ export async function clearAll(): Promise<{
   messages: number;
 }> {
   const msgCount =
-    rawGet<{ c: number }>("SELECT COUNT(*) AS c FROM messages")?.c ?? 0;
+    rawGet<{ c: number }>(
+      "conversation:clearAll:countMessages",
+      "SELECT COUNT(*) AS c FROM messages",
+    )?.c ?? 0;
   const convCount =
-    rawGet<{ c: number }>("SELECT COUNT(*) AS c FROM conversations")?.c ?? 0;
+    rawGet<{ c: number }>(
+      "conversation:clearAll:countConvs",
+      "SELECT COUNT(*) AS c FROM conversations",
+    )?.c ?? 0;
 
   // Each DELETE goes through `runAsyncSqlite`. The original code threw
   // on rawExec failure; mirror that here by throwing when the async
@@ -2632,9 +2650,12 @@ export async function clearAll(): Promise<{
   // memory_jobs and llm_request_logs each live in their own dedicated
   // connection; clear them directly on those connections rather than through a
   // sqlite3 subprocess.
-  rawMemoryRun("DELETE FROM memory_jobs");
+  rawMemoryRun("conversation:clearAll:memoryJobs", "DELETE FROM memory_jobs");
   await runOrThrow("DELETE FROM memory_checkpoints");
-  rawLogsRun("DELETE FROM llm_request_logs");
+  rawLogsRun(
+    "conversation:clearAll:requestLogs",
+    "DELETE FROM llm_request_logs",
+  );
   await runOrThrow("DELETE FROM llm_usage_events");
   await runOrThrow("DELETE FROM message_attachments");
   await runOrThrow("DELETE FROM attachments");
@@ -2661,6 +2682,7 @@ export async function clearAll(): Promise<{
   // Record audit event — lifecycle_events is NOT deleted by clearAll(),
   // so this survives the wipe and provides a permanent trail.
   rawRun(
+    "conversation:clearAll:auditEvent",
     `INSERT INTO lifecycle_events (id, event_name, created_at) VALUES (?, ?, ?)`,
     uuid(),
     "conversations_clear_all",
@@ -3112,6 +3134,7 @@ export function getConversationRecentProvenanceTrustClass(
   | "unknown"
   | undefined {
   const row = rawGet<{ metadata: string | null }>(
+    "conversation:getProvenanceTrustClass",
     `SELECT metadata FROM messages
      WHERE conversation_id = ? AND role = 'user' AND metadata IS NOT NULL
      ORDER BY created_at DESC LIMIT 1`,
@@ -3148,6 +3171,7 @@ export function batchSetDisplayOrders(
           safeGroupId = "system:all";
         } else if (
           !rawGet<{ id: string }>(
+            "conversation:batchSetDisplayOrders:groupCheck",
             "SELECT id FROM conversation_groups WHERE id = ?",
             safeGroupId,
           )
@@ -3163,6 +3187,7 @@ export function batchSetDisplayOrders(
           safeGroupId === "system:background" ||
           safeGroupId === "system:scheduled";
         rawRun(
+          "conversation:batchSetDisplayOrders:group",
           `UPDATE conversations SET display_order = ?, is_pinned = ?, group_id = ?${
             clearsSurfaced ? ", surfaced_at = NULL" : ""
           } WHERE id = ?`,
@@ -3174,12 +3199,14 @@ export function batchSetDisplayOrders(
       } else if (update.isPinned === undefined) {
         // Only displayOrder provided — preserve existing pin state and group.
         rawRun(
+          "conversation:batchSetDisplayOrders:orderOnly",
           "UPDATE conversations SET display_order = ? WHERE id = ?",
           update.displayOrder,
           update.id,
         );
       } else if (update.isPinned) {
         rawRun(
+          "conversation:batchSetDisplayOrders:pin",
           "UPDATE conversations SET display_order = ?, is_pinned = 1, group_id = 'system:pinned' WHERE id = ?",
           update.displayOrder,
           update.id,
@@ -3188,6 +3215,7 @@ export function batchSetDisplayOrders(
         // Restore system group from source/conversationType when unpinning,
         // instead of clearing to NULL (which would lose provenance).
         rawRun(
+          "conversation:batchSetDisplayOrders:unpin",
           `UPDATE conversations SET display_order = ?, is_pinned = 0,
            group_id = CASE WHEN group_id = 'system:pinned' THEN
              CASE
@@ -3231,6 +3259,7 @@ export function getDisplayMetaForConversations(
       is_pinned: number | null;
       group_id: string | null;
     }>(
+      "conversation:getDisplayMeta",
       "SELECT display_order, is_pinned, group_id FROM conversations WHERE id = ?",
       id,
     );

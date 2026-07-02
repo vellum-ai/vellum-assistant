@@ -1,7 +1,10 @@
 import { Database } from "bun:sqlite";
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import {
+  reportSlowQuery,
+  setSlowQueryTelemetrySink,
+  SLOW_QUERY_CHECK_NAME,
   SLOW_QUERY_THRESHOLD_MS,
   type SlowQueryEvent,
   wrapSqliteForSlowQueryLogging,
@@ -186,5 +189,69 @@ describe("slow-query-log", () => {
   test("wraps in place and returns the same Database instance", () => {
     const db = new Database(":memory:");
     expect(wrapSqliteForSlowQueryLogging(db)).toBe(db);
+  });
+});
+
+describe("slow-query telemetry sink", () => {
+  afterEach(() => setSlowQueryTelemetrySink(undefined));
+
+  test("check name is stable", () => {
+    expect(SLOW_QUERY_CHECK_NAME).toBe("slow_sqlite_query");
+  });
+
+  test("reportSlowQuery forwards the event to the registered sink", () => {
+    const seen: SlowQueryEvent[] = [];
+    setSlowQueryTelemetrySink((e) => seen.push(e));
+
+    const event: SlowQueryEvent = {
+      durationMs: 500,
+      sql: "SELECT 1",
+      label: "test:probe",
+    };
+    reportSlowQuery(event);
+
+    expect(seen).toEqual([event]);
+  });
+
+  test("clearing the sink stops delivery", () => {
+    const seen: SlowQueryEvent[] = [];
+    setSlowQueryTelemetrySink((e) => seen.push(e));
+    setSlowQueryTelemetrySink(undefined);
+
+    reportSlowQuery({ durationMs: 500, sql: "SELECT 1" });
+
+    expect(seen).toHaveLength(0);
+  });
+
+  test("a throwing sink never escapes reportSlowQuery", () => {
+    setSlowQueryTelemetrySink(() => {
+      throw new Error("telemetry boom");
+    });
+
+    expect(() =>
+      reportSlowQuery({ durationMs: 500, sql: "SELECT 1" }),
+    ).not.toThrow();
+  });
+
+  test("the wrapper's default path routes slow queries to the sink", () => {
+    const seen: SlowQueryEvent[] = [];
+    setSlowQueryTelemetrySink((e) => seen.push(e));
+
+    // No onSlowQuery override, so the wrapper uses the production reportSlowQuery,
+    // which fans out to the telemetry sink.
+    const db = new Database(":memory:");
+    db.exec("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)");
+    wrapSqliteForSlowQueryLogging(db, {
+      thresholdMs: 100,
+      now: fakeClock(0, 400),
+    });
+
+    db.label("schedule::claimDue")
+      .query("INSERT INTO t (v) VALUES (?)")
+      .run("a");
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0].durationMs).toBe(400);
+    expect(seen[0].label).toBe("schedule::claimDue");
   });
 });

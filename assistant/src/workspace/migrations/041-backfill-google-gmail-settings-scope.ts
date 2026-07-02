@@ -22,6 +22,7 @@ export const backfillGoogleGmailSettingsScopeMigration: WorkspaceMigration = {
     let row: { defaultScopes: string } | null;
     try {
       row = rawGet<{ defaultScopes: string }>(
+        "migration041:selectGoogleProvider",
         `SELECT defaultScopes FROM oauth_providers WHERE provider = 'google'`,
       );
     } catch {
@@ -44,6 +45,7 @@ export const backfillGoogleGmailSettingsScopeMigration: WorkspaceMigration = {
     scopes.push(GMAIL_SETTINGS_BASIC_SCOPE);
 
     rawRun(
+      "migration041:updateScopes",
       `UPDATE oauth_providers SET defaultScopes = ?, updatedAt = ? WHERE provider = 'google'`,
       JSON.stringify(scopes),
       new Date().toISOString(),

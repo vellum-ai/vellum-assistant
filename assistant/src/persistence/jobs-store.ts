@@ -795,6 +795,7 @@ export function failStalledJobs(timeoutMs: number): number {
   const now = Date.now();
   const cutoff = now - timeoutMs;
   const stalled = rawMemoryAll<{ id: string; type: string }>(
+    "jobs:failStalledJobs:select",
     `
     SELECT id, type
     FROM memory_jobs
@@ -827,11 +828,14 @@ export function failStalledJobs(timeoutMs: number): number {
 }
 
 export function getMemoryJobCounts(): Record<string, number> {
-  const rows = rawMemoryAll<{ status: string; c: number }>(`
+  const rows = rawMemoryAll<{ status: string; c: number }>(
+    "jobs:getMemoryJobCounts",
+    `
     SELECT status, COUNT(*) AS c
     FROM memory_jobs
     GROUP BY status
-  `);
+  `,
+  );
   const counts: Record<string, number> = {
     pending: 0,
     running: 0,

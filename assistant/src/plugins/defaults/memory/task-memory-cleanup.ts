@@ -35,6 +35,7 @@ function cancelJobsByPayloadIds(
     const chunk = ids.slice(i, i + ID_CHUNK_SIZE);
     const placeholders = chunk.map(() => "?").join(", ");
     affected += rawMemoryRun(
+      "taskMemory:cancelJobsByPayloadIds",
       `UPDATE memory_jobs
           SET status = 'failed',
               last_error = ?,
@@ -62,6 +63,7 @@ export function isConversationFailed(conversationId: string): boolean {
   // which is a monotonically increasing epoch timestamp) has an error status.
   // Note: cron_runs.id is a UUID v4 (random), so we cannot use MAX(id).
   const row = rawGet<{ found: number }>(
+    "taskMemory:isConversationFailed",
     `SELECT 1 AS found
        FROM (
          SELECT 1 FROM task_runs WHERE conversation_id = ? AND status = 'failed'
@@ -98,6 +100,7 @@ export function invalidateAssistantInferredItemsForConversation(
   cancelPendingExtractionJobsForConversation(conversationId);
 
   const affected = rawRun(
+    "taskMemory:invalidateInferredNodes",
     `UPDATE memory_graph_nodes
         SET fidelity = 'gone',
             last_accessed = ?
@@ -164,6 +167,7 @@ export function cancelPendingJobsForConversation(
 
   // Jobs keyed by messageId: embed_attachment
   const messageIds = rawAll<{ id: string }>(
+    "taskMemory:cancelJobs:messageIds",
     `SELECT id FROM messages WHERE conversation_id = ?`,
     conversationId,
   ).map((r) => r.id);
@@ -171,6 +175,7 @@ export function cancelPendingJobsForConversation(
 
   // Jobs keyed by conversationId: graph_extract, build_conversation_summary
   total += rawMemoryRun(
+    "taskMemory:cancelJobs:byConversation",
     `UPDATE memory_jobs
         SET status = 'failed',
             last_error = ?,
@@ -184,6 +189,7 @@ export function cancelPendingJobsForConversation(
 
   // Jobs keyed by segmentId: embed_segment (segments belong to the conversation)
   const segmentIds = rawAll<{ id: string }>(
+    "taskMemory:cancelJobs:segmentIds",
     `SELECT id FROM memory_segments WHERE conversation_id = ?`,
     conversationId,
   ).map((r) => r.id);
@@ -191,6 +197,7 @@ export function cancelPendingJobsForConversation(
 
   // Jobs keyed by nodeId: embed_graph_node (nodes sourced from this conversation)
   const nodeIds = rawAll<{ id: string }>(
+    "taskMemory:cancelJobs:nodeIds",
     `SELECT mgn.id
        FROM memory_graph_nodes mgn, json_each(mgn.source_conversations) jc
       WHERE jc.value = ?`,
@@ -219,6 +226,7 @@ function cancelPendingExtractionJobsForConversation(
 ): number {
   const now = Date.now();
   const cancelled = rawMemoryRun(
+    "taskMemory:cancelExtractionJobs",
     `UPDATE memory_jobs
         SET status = 'failed',
             last_error = 'conversation_failed',

@@ -280,6 +280,7 @@ function searchWithFts(
   excludedConversationId: string,
 ): ConversationEvidenceRow[] {
   return rawAll<ConversationEvidenceRow>(
+    "convSearch:searchWithFts",
     `
     SELECT
       m.id AS message_id,
@@ -322,6 +323,7 @@ function searchByIds(
 ): ConversationEvidenceRow[] {
   const placeholders = messageIds.map(() => "?").join(", ");
   return rawAll<ConversationEvidenceRow>(
+    "convSearch:searchByIds",
     `
     SELECT
       m.id AS message_id,
@@ -355,6 +357,7 @@ function searchWithLike(
   excludedConversationId: string,
 ): ConversationEvidenceRow[] {
   return rawAll<ConversationEvidenceRow>(
+    "convSearch:searchWithLike",
     `
     SELECT
       m.id AS message_id,

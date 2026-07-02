@@ -79,6 +79,7 @@ function rowToRecord(r: SubagentRow): SubagentRecord {
  */
 export function upsertSubagentRecord(rec: SubagentRecord): void {
   rawRun(
+    "subagent:upsertRecord",
     `INSERT INTO subagents (
        id, parent_conversation_id, conversation_id, label, objective, role,
        is_fork, send_result_to_user, status, error, created_at, started_at,
@@ -113,10 +114,12 @@ export function upsertSubagentRecord(rec: SubagentRecord): void {
 
 /** Load every persisted subagent record. Used once at startup to rehydrate. */
 export function loadAllSubagentRecords(): SubagentRecord[] {
-  return rawAll<SubagentRow>(`SELECT * FROM subagents`).map(rowToRecord);
+  return rawAll<SubagentRow>("subagent:loadAll", `SELECT * FROM subagents`).map(
+    rowToRecord,
+  );
 }
 
 /** Delete a subagent record once the manager is fully done with it. */
 export function deleteSubagentRecord(id: string): void {
-  rawRun(`DELETE FROM subagents WHERE id = ?`, id);
+  rawRun("subagent:deleteRecord", `DELETE FROM subagents WHERE id = ?`, id);
 }

@@ -98,6 +98,7 @@ interface AttachmentRow {
 function getAttachmentRow(attachmentId: string): AttachmentRow | null {
   return (
     rawGet<AttachmentRow>(
+      "attachments:getAttachmentRow",
       `SELECT
          id,
          original_filename AS originalFilename,
@@ -122,6 +123,7 @@ function getMessageConversationContext(
 ): { conversationId: string; conversationCreatedAt: number } | null {
   return (
     rawGet<{ conversationId: string; conversationCreatedAt: number }>(
+      "attachments:getMessageConversationContext",
       `SELECT
          m.conversation_id AS conversationId,
          c.created_at AS conversationCreatedAt
@@ -135,6 +137,7 @@ function getMessageConversationContext(
 
 function listLinkedConversationIds(attachmentId: string): string[] {
   return rawAll<{ conversationId: string }>(
+    "attachments:listLinkedConversationIds",
     `SELECT DISTINCT m.conversation_id AS conversationId
      FROM message_attachments ma
      JOIN messages m ON m.id = ma.message_id
@@ -165,6 +168,7 @@ function cloneAttachmentRow(row: AttachmentRow): AttachmentRow {
 
   if (row.sourcePath) {
     rawRun(
+      "attachments:cloneAttachmentRow",
       `UPDATE attachments SET source_path = ? WHERE id = ?`,
       row.sourcePath,
       clonedId,
@@ -202,6 +206,7 @@ function persistAttachmentFilePath(
 ): void {
   if (sourcePath) {
     rawRun(
+      "attachments:persistFilePath:withSource",
       `UPDATE attachments
        SET file_path = ?, data_base64 = '', source_path = COALESCE(source_path, ?)
        WHERE id = ?`,
@@ -213,6 +218,7 @@ function persistAttachmentFilePath(
   }
 
   rawRun(
+    "attachments:persistFilePath:plain",
     `UPDATE attachments SET file_path = ?, data_base64 = '' WHERE id = ?`,
     targetPath,
     attachmentId,
@@ -236,7 +242,11 @@ function materializeAttachmentIntoConversation(
     dirname(row.filePath) === attachDir
   ) {
     if (row.dataBase64) {
-      rawRun(`UPDATE attachments SET data_base64 = '' WHERE id = ?`, row.id);
+      rawRun(
+        "attachments:materialize:clearData",
+        `UPDATE attachments SET data_base64 = '' WHERE id = ?`,
+        row.id,
+      );
     }
     return;
   }
@@ -583,7 +593,12 @@ export function uploadFileBackedAttachment(
     })
     .run();
 
-  rawRun(`UPDATE attachments SET source_path = ? WHERE id = ?`, filePath, id);
+  rawRun(
+    "attachments:uploadFileBacked:sourcePath",
+    `UPDATE attachments SET source_path = ? WHERE id = ?`,
+    filePath,
+    id,
+  );
 
   return {
     id,
@@ -621,6 +636,7 @@ export function getSourcePathsForAttachments(
   if (attachmentIds.length === 0) return new Map();
   const placeholders = attachmentIds.map(() => "?").join(", ");
   const rows = rawAll<{ id: string; source_path: string }>(
+    "attachments:getSourcePaths",
     `SELECT id, source_path FROM attachments WHERE id IN (${placeholders}) AND source_path IS NOT NULL`,
     ...attachmentIds,
   );
@@ -638,6 +654,7 @@ export function getFilePathBySourcePath(
 ): string | null {
   try {
     const row = rawGet<{ file_path: string | null }>(
+      "attachments:getFilePathBySourcePath",
       `SELECT a.file_path FROM attachments a
        JOIN message_attachments ma ON ma.attachment_id = a.id
        JOIN messages m ON m.id = ma.message_id
@@ -731,6 +748,7 @@ export function uploadAttachment(
 
   if (sourcePath) {
     rawRun(
+      "attachments:uploadAttachment:sourcePath",
       `UPDATE attachments SET source_path = ? WHERE id = ?`,
       sourcePath,
       record.id,
@@ -794,6 +812,7 @@ export function attachInlineAttachmentToMessage(
 
   if (options?.sourcePath) {
     rawRun(
+      "attachments:attachInline:sourcePath",
       `UPDATE attachments SET source_path = ? WHERE id = ?`,
       options.sourcePath,
       id,
@@ -854,6 +873,7 @@ export function attachFileBackedAttachmentToMessage(
     .run();
 
   rawRun(
+    "attachments:attachFileBacked:source",
     `UPDATE attachments SET source_path = ? WHERE id = ?`,
     sourceFilePath,
     id,
@@ -1098,6 +1118,7 @@ export function deleteOrphanAttachments(candidateIds: string[]): number {
   // Identify truly orphaned attachment IDs first (not referenced by any message)
   const placeholders = candidateIds.map(() => "?").join(", ");
   const orphanIds = rawAll<{ id: string }>(
+    "attachments:deleteOrphan:select",
     `SELECT id FROM attachments WHERE id IN (${placeholders}) AND id NOT IN (SELECT attachment_id FROM message_attachments)`,
     ...candidateIds,
   ).map((row) => row.id);
@@ -1119,6 +1140,7 @@ export function deleteOrphanAttachments(candidateIds: string[]): number {
   // remain intact alongside their DB rows, so nothing is left inconsistent.
   const orphanPlaceholders = orphanIds.map(() => "?").join(", ");
   const deletedCount = rawRun(
+    "attachments:deleteOrphan:delete",
     `DELETE FROM attachments WHERE id IN (${orphanPlaceholders})`,
     ...orphanIds,
   );
