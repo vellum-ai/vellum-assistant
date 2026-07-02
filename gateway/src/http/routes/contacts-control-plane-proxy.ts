@@ -124,23 +124,23 @@ const VALID_CONTACT_TYPES = ["human", "assistant"] as const;
 
 /**
  * Strip code/token hashes from a gateway invite row before returning it over
- * HTTP. `inviteCodeHash` / `voiceCodeHash` are unsalted SHA-256 of 6-digit
- * codes; returning either lets any list-capable caller brute-force the ~10^6
- * keyspace offline and redeem an active invite. `tokenHash` is stripped for
- * consistency (list/revoke responses never carry hashes). All invite
- * responses MUST go through this.
+ * HTTP. `inviteCodeHash` and `voiceCodeHash` are unsalted SHA-256 of a
+ * 6-digit code; returning either lets any list-capable caller brute-force the
+ * ~10^6 keyspace offline and redeem an active invite. `tokenHash` is the
+ * redemption secret for link invites. All invite responses MUST go through
+ * this.
  */
 function sanitizeInviteRow<
   T extends {
     inviteCodeHash?: unknown;
-    voiceCodeHash?: unknown;
     tokenHash?: unknown;
+    voiceCodeHash?: unknown;
   },
->(row: T): Omit<T, "inviteCodeHash" | "voiceCodeHash" | "tokenHash"> {
+>(row: T): Omit<T, "inviteCodeHash" | "tokenHash" | "voiceCodeHash"> {
   const {
-    inviteCodeHash: _omitCode,
-    voiceCodeHash: _omitVoice,
-    tokenHash: _omitToken,
+    inviteCodeHash: _code,
+    tokenHash: _token,
+    voiceCodeHash: _voice,
     ...rest
   } = row;
   return rest;
