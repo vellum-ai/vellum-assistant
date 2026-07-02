@@ -1,6 +1,8 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
 import {
   handleAssistantTextDelta,
   handleAssistantThinkingDelta,
@@ -333,7 +335,26 @@ describe("handleMessageComplete", () => {
 });
 
 describe("handleUserMessageEcho", () => {
-  it("clears the optimistic send correlated by clientMessageId when present", () => {
+  const seededSnapshot: PaginatedHistoryResult = {
+    messages: [],
+    hasMore: false,
+    oldestTimestamp: null,
+    oldestMessageId: null,
+    seq: 1,
+  };
+
+  // The handler reads the real chat-session store to decide whether the paired
+  // snapshot fold has somewhere to land. Reset it around each case so state
+  // never leaks between tests.
+  beforeEach(() => {
+    useChatSessionStore.setState({ snapshot: null, optimisticSends: [] });
+  });
+  afterEach(() => {
+    useChatSessionStore.setState({ snapshot: null, optimisticSends: [] });
+  });
+
+  it("clears the optimistic send correlated by clientMessageId when the snapshot is seeded", () => {
+    useChatSessionStore.setState({ snapshot: seededSnapshot });
     const ctx = makeCtx();
     handleUserMessageEcho(
       {
@@ -345,6 +366,25 @@ describe("handleUserMessageEcho", () => {
       ctx,
     );
     expect(ctx.clearOptimisticSend).toHaveBeenCalledWith("client-1");
+  });
+
+  it("does NOT clear the optimistic send when the snapshot is unseeded (first-message flicker guard)", () => {
+    // Regression: the first message of a freshly server-minted conversation has
+    // no history snapshot yet, so `applyEnvelopeToSnapshot` no-ops. Clearing the
+    // overlay here would blank the message out until `seedSnapshot` lands. The
+    // reseed's `pruneConfirmedOptimisticSends` retires it instead.
+    expect(useChatSessionStore.getState().snapshot).toBeNull();
+    const ctx = makeCtx();
+    handleUserMessageEcho(
+      {
+        type: "user_message_echo",
+        text: "Hello",
+        messageId: "msg-1",
+        clientMessageId: "client-1",
+      },
+      ctx,
+    );
+    expect(ctx.clearOptimisticSend).not.toHaveBeenCalled();
   });
 
   it("retires the most recent optimistic user send when the echo carries no nonce", () => {
