@@ -33,15 +33,13 @@ mock.module("../config/loader.js", () => ({
   },
 }));
 
-// `resolveTurnInboundActorContext` reads INFO (contact notes / interaction
-// count) via a local contactId join. Stub the join so the actor-context tests
-// can stage it without standing up the contacts schema.
+// `resolveTurnInboundActorContext` reads the INFO `notes` field via a local
+// contactId join (interaction count now comes from the gateway verdict). Stub
+// the join so the actor-context tests can stage it without standing up the
+// contacts schema.
 const realContactStoreForAssemblyTest =
   await import("../contacts/contact-store.js");
-let contactInfoById: Record<
-  string,
-  { notes: string | null; interactionCount: number }
-> = {};
+let contactInfoById: Record<string, { notes: string | null }> = {};
 mock.module("../contacts/contact-store.js", () => ({
   ...realContactStoreForAssemblyTest,
   findContactInfoById: (contactId: string) =>
@@ -1592,15 +1590,13 @@ describe("resolveTurnInboundActorContext", () => {
   });
 
   /**
-   * INFO fields (contact notes, interaction count) are joined locally by the
-   * verdict-stamped contact ID, not re-resolved through the ACL store.
+   * The INFO `notes` field is joined locally by the verdict-stamped contact ID,
+   * while the interaction count is gateway-owned and carried on the verdict
+   * (never re-resolved through the ACL store or the local aggregation).
    */
-  test("populates INFO via the local contactId join", () => {
-    // GIVEN a contact whose INFO is available by id
-    contactInfoById["contact-42"] = {
-      notes: "prefers async updates",
-      interactionCount: 7,
-    };
+  test("notes come from the local join; interaction count from the verdict", () => {
+    // GIVEN a contact whose notes are available by id
+    contactInfoById["contact-42"] = { notes: "prefers async updates" };
     const trustContext: TrustContext = {
       sourceChannel: "telegram",
       trustClass: "trusted_contact",
@@ -1609,16 +1605,40 @@ describe("resolveTurnInboundActorContext", () => {
       requesterContactId: "contact-42",
       memberStatus: "active",
       memberPolicy: "allow",
+      // Gateway-owned interaction telemetry, stamped from the trust verdict.
+      requesterInteractionCount: 7,
     };
 
     // WHEN the inbound actor context is resolved
     const actorContext = resolveTurnInboundActorContext(trustContext);
 
-    // THEN INFO comes from the local join and ACL stays verdict-derived
+    // THEN notes come from the local join, the count from the verdict, and ACL
+    // stays verdict-derived
     expect(actorContext?.contactNotes).toBe("prefers async updates");
     expect(actorContext?.contactInteractionCount).toBe(7);
     expect(actorContext?.memberStatus).toBe("active");
     expect(resolveActorTrustCalls).toBe(0);
+  });
+
+  /**
+   * A verdict without member telemetry (unknown sender) leaves the interaction
+   * count undefined rather than reviving a local assistant-DB read.
+   */
+  test("interaction count is undefined when the verdict carries none", () => {
+    contactInfoById["contact-99"] = { notes: "some note" };
+    const trustContext: TrustContext = {
+      sourceChannel: "telegram",
+      trustClass: "trusted_contact",
+      requesterExternalUserId: "tg-999",
+      requesterChatId: "chat-9",
+      requesterContactId: "contact-99",
+      // No requesterInteractionCount stamped.
+    };
+
+    const actorContext = resolveTurnInboundActorContext(trustContext);
+
+    expect(actorContext?.contactNotes).toBe("some note");
+    expect(actorContext?.contactInteractionCount).toBeUndefined();
   });
 });
 

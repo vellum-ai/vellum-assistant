@@ -259,6 +259,11 @@ export const ListContactsIpcParamsSchema = z
   .object({
     limit: z.number().optional(),
     role: z.string().optional(),
+    // Restrict the read to these contact ids (any order). Used by the daemon to
+    // batch-hydrate gateway-owned telemetry onto daemon-native filtered/search
+    // results without re-implementing search in the gateway. When present,
+    // `role`/`limit` filtering is bypassed — the id set is the filter.
+    ids: z.array(z.string()).optional(),
   })
   .strict()
   .default({});

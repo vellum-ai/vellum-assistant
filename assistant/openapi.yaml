@@ -5165,7 +5165,9 @@ paths:
                           - type: number
                           - type: "null"
                       interactionCount:
-                        type: number
+                        anyOf:
+                          - type: number
+                          - type: "null"
                       createdAt:
                         type: number
                       updatedAt:
@@ -5206,7 +5208,9 @@ paths:
                                 - type: number
                                 - type: "null"
                             interactionCount:
-                              type: number
+                              anyOf:
+                                - type: number
+                                - type: "null"
                             lastInteraction:
                               anyOf:
                                 - type: number
@@ -5325,7 +5329,9 @@ paths:
                             - type: number
                             - type: "null"
                         interactionCount:
-                          type: number
+                          anyOf:
+                            - type: number
+                            - type: "null"
                         createdAt:
                           type: number
                         updatedAt:
@@ -5366,7 +5372,9 @@ paths:
                                   - type: number
                                   - type: "null"
                               interactionCount:
-                                type: number
+                                anyOf:
+                                  - type: number
+                                  - type: "null"
                               lastInteraction:
                                 anyOf:
                                   - type: number
@@ -5454,7 +5462,9 @@ paths:
                           - type: number
                           - type: "null"
                       interactionCount:
-                        type: number
+                        anyOf:
+                          - type: number
+                          - type: "null"
                       createdAt:
                         type: number
                       updatedAt:
@@ -5495,7 +5505,9 @@ paths:
                                 - type: number
                                 - type: "null"
                             interactionCount:
-                              type: number
+                              anyOf:
+                                - type: number
+                                - type: "null"
                             lastInteraction:
                               anyOf:
                                 - type: number
@@ -5853,7 +5865,9 @@ paths:
                           - type: number
                           - type: "null"
                       interactionCount:
-                        type: number
+                        anyOf:
+                          - type: number
+                          - type: "null"
                       createdAt:
                         type: number
                       updatedAt:
@@ -5894,7 +5908,9 @@ paths:
                                 - type: number
                                 - type: "null"
                             interactionCount:
-                              type: number
+                              anyOf:
+                                - type: number
+                                - type: "null"
                             lastInteraction:
                               anyOf:
                                 - type: number
@@ -6047,7 +6063,9 @@ paths:
                         - type: number
                         - type: "null"
                     interactionCount:
-                      type: number
+                      anyOf:
+                        - type: number
+                        - type: "null"
                     createdAt:
                       type: number
                     updatedAt:
@@ -6088,7 +6106,9 @@ paths:
                               - type: number
                               - type: "null"
                           interactionCount:
-                            type: number
+                            anyOf:
+                              - type: number
+                              - type: "null"
                           lastInteraction:
                             anyOf:
                               - type: number

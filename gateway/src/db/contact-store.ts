@@ -149,28 +149,38 @@ export class ContactStore {
   async listContactsWithInfo(opts?: {
     limit?: number;
     role?: string;
+    ids?: string[];
   }): Promise<ContactWithInfo[]> {
-    const effectiveLimit = Math.min(opts?.limit ?? 50, 200);
-    const conditions = [];
-    if (opts?.role) conditions.push(eq(contacts.role, opts.role));
+    // Explicit id set: the caller has already selected/filtered the contacts
+    // (e.g. daemon-native search) and only needs the gateway-owned shape for
+    // them. Skip the role/limit query entirely — the ids ARE the filter.
+    let contactIds: string[];
+    if (opts?.ids) {
+      contactIds = [...new Set(opts.ids)].slice(0, 200);
+      if (contactIds.length === 0) return [];
+    } else {
+      const effectiveLimit = Math.min(opts?.limit ?? 50, 200);
+      const conditions = [];
+      if (opts?.role) conditions.push(eq(contacts.role, opts.role));
 
-    // Step 1: Select contact IDs with the limit applied to CONTACTS (not
-    // joined channel rows). The daemon path limits contact rows before
-    // fetching channels — we match that to avoid returning fewer contacts
-    // than expected when contacts have multiple channels.
-    const contactRows = this.db
-      .select({ id: contacts.id })
-      .from(contacts)
-      .where(conditions.length === 1 ? conditions[0] : undefined)
-      .orderBy(
-        sql`${contacts.role} = 'guardian' DESC`,
-        desc(contacts.updatedAt),
-      )
-      .limit(effectiveLimit)
-      .all();
+      // Step 1: Select contact IDs with the limit applied to CONTACTS (not
+      // joined channel rows). The daemon path limits contact rows before
+      // fetching channels — we match that to avoid returning fewer contacts
+      // than expected when contacts have multiple channels.
+      const contactRows = this.db
+        .select({ id: contacts.id })
+        .from(contacts)
+        .where(conditions.length === 1 ? conditions[0] : undefined)
+        .orderBy(
+          sql`${contacts.role} = 'guardian' DESC`,
+          desc(contacts.updatedAt),
+        )
+        .limit(effectiveLimit)
+        .all();
 
-    if (contactRows.length === 0) return [];
-    const contactIds = contactRows.map((r) => r.id);
+      if (contactRows.length === 0) return [];
+      contactIds = contactRows.map((r) => r.id);
+    }
 
     // Step 2: Fetch contacts + their channels (no limit — all channels for
     // the selected contacts).
@@ -293,10 +303,12 @@ export class ContactStore {
    * channels joined to assistant-DB info fields.
    *
    * Filters: `role` (gateway DB), `limit` (default 50, capped 200 to mirror
-   * the daemon's listContacts). The daemon serves contactType-filtered list
-   * reads natively (filtering in SQL before the limit) so a tight limit doesn't
-   * under-return and an assistant-DB outage degrades rather than dropping every
-   * row — the relay never carries a contactType filter.
+   * the daemon's listContacts), or an explicit `ids` set (the daemon's telemetry
+   * hydration for its native search/contactType reads — bypasses role/limit).
+   * The daemon serves contactType-filtered list reads natively (filtering in SQL
+   * before the limit) so a tight limit doesn't under-return and an assistant-DB
+   * outage degrades rather than dropping every row — the relay never carries a
+   * contactType filter.
    *
    * Thin adapter over `listContactsWithInfo` (shared assembly/soft-fail logic),
    * projected down to the ContactRead subset.
@@ -307,10 +319,12 @@ export class ContactStore {
   async listContactsRich(opts?: {
     limit?: number;
     role?: string;
+    ids?: string[];
   }): Promise<ContactRead[]> {
     const withInfo = await this.listContactsWithInfo({
       limit: opts?.limit,
       role: opts?.role,
+      ids: opts?.ids,
     });
     return withInfo.map((c) => this.toContactRead(c));
   }
