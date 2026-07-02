@@ -10,7 +10,7 @@ import type { GatewayInboundEvent } from "../types.js";
 /**
  * Resolved Slack user info for populating actor fields.
  */
-interface SlackUserInfo {
+export interface SlackUserInfo {
   displayName: string;
   username: string;
   timezone?: string;
@@ -603,6 +603,36 @@ export type NormalizedSlackEvent = {
   /** Present when the sender is a bot/app rather than a person. */
   botSender?: SlackBotSenderInfo;
 };
+
+/**
+ * Merge a freshly resolved user profile into an already-normalized event.
+ *
+ * Normalization uses a cache-only user lookup, so a cold cache can leave the
+ * actor unenriched. Besides display/trust fields, this re-runs bot-sender
+ * classification against the original event: a bot user whose message carries
+ * no top-level `bot_id` is only detectable via the profile's `is_bot`, which
+ * is unavailable until this fetch completes.
+ */
+export function enrichNormalizedActor(
+  normalized: NormalizedSlackEvent,
+  userInfo: SlackUserInfo,
+): void {
+  const actor = normalized.event.actor;
+  Object.assign(actor, slackUserActorFields(userInfo));
+  if (!normalized.botSender) {
+    const botSender = slackBotSenderInfo(
+      normalized.event.raw as {
+        bot_id?: string;
+        bot_profile?: SlackBotProfile;
+      },
+      userInfo,
+    );
+    if (botSender) {
+      normalized.botSender = botSender;
+      actor.isBot = true;
+    }
+  }
+}
 
 /**
  * Normalize a Slack DM (`message` with `channel_type: "im"`) into the

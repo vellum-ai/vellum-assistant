@@ -8,6 +8,7 @@ import {
   normalizeSlackAppMention,
   normalizeSlackMessageEdit,
   normalizeSlackMessageDelete,
+  enrichNormalizedActor,
   slackBotContactNote,
   type SlackBlockActionsPayload,
   type SlackReactionAddedEvent,
@@ -1661,5 +1662,75 @@ describe("slackBotContactNote", () => {
     expect(slackBotContactNote({ botId: "B0AGENT" })).toBe(
       "Automated Slack bot — messages from this contact are sent by an app, not a person.",
     );
+  });
+});
+
+describe("enrichNormalizedActor", () => {
+  it("classifies an is_bot-only sender as a bot after profile resolution", () => {
+    const config = makeConfig();
+    // No bot_id on the event and no cached profile — normalization alone
+    // cannot detect the bot.
+    const normalized = normalizeSlackDirectMessage(
+      makeDmEvent({ user: "UBOT99" }),
+      "evt-enrich-1",
+      config,
+    );
+    expect(normalized).not.toBeNull();
+    expect(normalized!.botSender).toBeUndefined();
+
+    enrichNormalizedActor(normalized!, {
+      displayName: "Peer Assistant",
+      username: "peer-assistant",
+      isBot: true,
+    });
+
+    expect(normalized!.event.actor.isBot).toBe(true);
+    expect(normalized!.event.actor.displayName).toBe("Peer Assistant");
+    expect(normalized!.botSender).toEqual({ botName: "Peer Assistant" });
+  });
+
+  it("does not classify a human sender as a bot", () => {
+    const config = makeConfig();
+    const normalized = normalizeSlackDirectMessage(
+      makeDmEvent(),
+      "evt-enrich-2",
+      config,
+    );
+    expect(normalized).not.toBeNull();
+
+    enrichNormalizedActor(normalized!, {
+      displayName: "Alice",
+      username: "alice",
+    });
+
+    expect(normalized!.event.actor.isBot).toBeUndefined();
+    expect(normalized!.event.actor.displayName).toBe("Alice");
+    expect(normalized!.botSender).toBeUndefined();
+  });
+
+  it("preserves an existing botSender derived from bot_id", () => {
+    const config = makeConfig();
+    const normalized = normalizeSlackDirectMessage(
+      makeDmEvent({
+        user: "UBOT99",
+        bot_id: "B0AGENT",
+        bot_profile: { name: "Peer Assistant", app_id: "A0EXAMPLE" },
+      }),
+      "evt-enrich-3",
+      config,
+    );
+    expect(normalized).not.toBeNull();
+
+    enrichNormalizedActor(normalized!, {
+      displayName: "Peer Assistant",
+      username: "peer-assistant",
+      isBot: true,
+    });
+
+    expect(normalized!.botSender).toEqual({
+      botId: "B0AGENT",
+      botName: "Peer Assistant",
+      appId: "A0EXAMPLE",
+    });
   });
 });
