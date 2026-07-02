@@ -192,13 +192,22 @@ interface BusyConversationSpies {
   enqueuedMetadata: () => Record<string, unknown> | undefined;
   denyAllCount: () => number;
   abortCount: () => number;
+  agentLoopOptions: () => Record<string, unknown> | undefined;
 }
 
-/** A live, mid-turn conversation with a pending tool confirmation. */
-function makeBusyConversation(): BusyConversationSpies {
+/**
+ * A live conversation with a pending tool confirmation. `processing: true`
+ * models a mid-turn conversation (queue branch); `false` an idle one whose
+ * confirmation outlived its turn (e.g. a guardian approval awaiting a
+ * channel reply).
+ */
+function makeConversationWithPendingConfirmation(
+  processing: boolean,
+): BusyConversationSpies {
   let enqueuedMetadata: Record<string, unknown> | undefined;
   let denyAllCount = 0;
   let abortCount = 0;
+  let agentLoopOptions: Record<string, unknown> | undefined;
   const conversation = {
     conversationId: CONV_ID,
     messages: [],
@@ -222,7 +231,7 @@ function makeBusyConversation(): BusyConversationSpies {
     getTurnChannelContext: () => null,
     getTurnInterfaceContext: () => null,
     ensureActorScopedHistory: async () => {},
-    isProcessing: () => true,
+    isProcessing: () => processing,
     setProcessing: () => {},
     hasAnyPendingConfirmation: () => true,
     denyAllPendingConfirmations: () => {
@@ -236,7 +245,13 @@ function makeBusyConversation(): BusyConversationSpies {
       id: "persisted-user-id",
       deduplicated: false,
     }),
-    runAgentLoop: async () => undefined,
+    runAgentLoop: async (
+      _content: string,
+      _messageId: string,
+      options?: Record<string, unknown>,
+    ) => {
+      agentLoopOptions = options;
+    },
     setPreactivatedSkillIds: () => {},
     drainQueue: async () => {},
     warmPromptCache: () => {},
@@ -255,7 +270,12 @@ function makeBusyConversation(): BusyConversationSpies {
     enqueuedMetadata: () => enqueuedMetadata,
     denyAllCount: () => denyAllCount,
     abortCount: () => abortCount,
+    agentLoopOptions: () => agentLoopOptions,
   };
+}
+
+function makeBusyConversation(): BusyConversationSpies {
+  return makeConversationWithPendingConfirmation(true);
 }
 
 function makeRequest(extras: Record<string, unknown> = {}) {
@@ -343,5 +363,45 @@ describe("hidden sends queued behind an in-flight turn", () => {
     expect(spies.enqueuedMetadata()?.hidden).toBeUndefined();
     // The typed message supersedes: pending confirmations are auto-denied.
     expect(spies.denyAllCount()).toBe(1);
+  });
+});
+
+describe("hidden sends to an idle conversation with a pending confirmation", () => {
+  test("do NOT auto-deny the confirmation and mark the turn as a hidden prompt", async () => {
+    const spies = makeConversationWithPendingConfirmation(false);
+    setConversation(CONV_ID, spies.conversation);
+    registerConfirmation();
+
+    const res = await callHandler(
+      (args) => handleSendMessage(args, makeDeps(spies.conversation)),
+      makeRequest({ hidden: true }),
+      undefined,
+      202,
+    );
+
+    expect(res.status).toBe(202);
+    // The confirmation that outlived its turn (e.g. a guardian approval
+    // awaiting a channel reply) survives the machine signal...
+    expect(spies.denyAllCount()).toBe(0);
+    // ...and the turn is flagged so prompt-as-user-speech consumers (title
+    // generation) skip it.
+    expect(spies.agentLoopOptions()?.isHiddenPrompt).toBe(true);
+  });
+
+  test("visible sends to the same state keep the idle auto-deny cleanup", async () => {
+    const spies = makeConversationWithPendingConfirmation(false);
+    setConversation(CONV_ID, spies.conversation);
+    registerConfirmation();
+
+    const res = await callHandler(
+      (args) => handleSendMessage(args, makeDeps(spies.conversation)),
+      makeRequest({ content: "hello again" }),
+      undefined,
+      202,
+    );
+
+    expect(res.status).toBe(202);
+    expect(spies.denyAllCount()).toBe(1);
+    expect(spies.agentLoopOptions()?.isHiddenPrompt).toBeUndefined();
   });
 });

@@ -2066,7 +2066,11 @@ export async function handleSendMessage(
   // before dispatching, so an idle conversation with lingering confirmations
   // (e.g. the user never responded to a tool-approval prompt) must deny
   // them before starting the new turn.
-  if (conversation.hasAnyPendingConfirmation()) {
+  // Hidden sends are machine signals, not user decisions — like the queue
+  // branch's supersede bypass above, they must not deny confirmations that
+  // outlived a turn (e.g. a guardian approval still awaiting a channel
+  // reply). The next visible send performs the cleanup instead.
+  if (body.hidden !== true && conversation.hasAnyPendingConfirmation()) {
     for (const interaction of pendingInteractions.getByConversation(
       mapping.conversationId,
     )) {
@@ -2465,6 +2469,7 @@ export async function handleSendMessage(
       onEvent: broadcastMessage,
       isInteractive,
       isUserMessage: true,
+      ...(body.hidden === true ? { isHiddenPrompt: true } : {}),
     })
     .catch((err) => {
       log.error(
