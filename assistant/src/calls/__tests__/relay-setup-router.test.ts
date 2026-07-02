@@ -87,7 +87,6 @@ function makeChannel(overrides: Partial<ContactChannel> = {}): ContactChannel {
     address: "+12025550142",
     isPrimary: true,
     externalChatId: null,
-    inviteId: null,
     lastSeenAt: null,
     interactionCount: 0,
     lastInteraction: null,

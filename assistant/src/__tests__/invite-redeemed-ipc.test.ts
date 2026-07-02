@@ -1,8 +1,8 @@
 /**
  * Tests for the IPC-only `invite_redeemed` info-mirror handler: the gateway
  * fires it best-effort after a gateway-native redemption, and the daemon
- * upserts the local contact/channel identity row (including inviteId).
- * Repeated delivery of the same outcome must be idempotent.
+ * upserts the local contact/channel identity row. Repeated delivery of the
+ * same outcome must be idempotent.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -66,9 +66,6 @@ describe("handleInviteRedeemed (invite_redeemed)", () => {
     expect(found).not.toBeNull();
     expect(found!.contact.id).toBe("contact-target-1");
     expect(found!.channel.externalChatId).toBe("chat-sender");
-    // The local contact_channels.invite_id column persists until the ACL
-    // column drop; the mirror carries it through.
-    expect(found!.channel.inviteId).toBe("inv-1");
   });
 
   test("is idempotent for repeated delivery of the same outcome", () => {

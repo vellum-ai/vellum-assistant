@@ -3,9 +3,8 @@
  *
  * Three CLI invite handlers (list/create/revoke) are thin relays to the gateway
  * IPC methods via `ipcCallPersistent`. These tests assert each relays with the
- * correct method + params, returns the parsed gateway response, never writes the
- * assistant invite store directly, and surfaces a relayed IpcCallError with its
- * statusCode. `invites_redeem` and `invites_trigger_call` stay daemon-local: the
+ * correct method + params, returns the parsed gateway response, and surfaces a
+ * relayed IpcCallError with its statusCode. `invites_redeem` and `invites_trigger_call` stay daemon-local: the
  * gateway delegates the actual provider call to the daemon-local handler, so
  * relaying it back would loop gateway→assistant→gateway.
  */
@@ -43,22 +42,6 @@ mock.module("../../../ipc/gateway-client.js", () => ({
   ipcCallPersistent: ipcCallPersistentMock,
 }));
 
-// Guard: fail loudly if any relayed handler still writes the assistant invite
-// store directly. The relayed CLI paths must go through the gateway only, so we
-// spy on the store's write functions and assert they are never invoked.
-const actualInviteStore = await import("../../../persistence/invite-store.js");
-
-const inviteStoreCall = mock(() => {
-  throw new Error("invite-store write must not happen on relayed CLI paths");
-});
-
-mock.module("../../../persistence/invite-store.js", () => ({
-  ...actualInviteStore,
-  createInvite: inviteStoreCall,
-  listInvites: inviteStoreCall,
-  revokeInvite: inviteStoreCall,
-}));
-
 // `invites_trigger_call` is daemon-local: the handler invokes the local
 // `triggerInviteCall` provider logic directly (never `ipcCallPersistent`).
 let triggerInviteCallResult: unknown = { ok: true, data: { callSid: "CA000" } };
@@ -90,7 +73,6 @@ describe("invite relay routes", () => {
     ipcResult = {};
     ipcError = undefined;
     ipcCallPersistentMock.mockClear();
-    inviteStoreCall.mockClear();
     triggerInviteCallResult = { ok: true, data: { callSid: "CA000" } };
     triggerInviteCallMock.mockClear();
   });
@@ -111,7 +93,6 @@ describe("invite relay routes", () => {
         },
       ]);
       expect(result).toEqual({ ok: true, invites: [{ id: "i1" }] });
-      expect(inviteStoreCall).not.toHaveBeenCalled();
     });
 
     test("omits absent filters", async () => {
@@ -157,7 +138,6 @@ describe("invite relay routes", () => {
         invite: { id: "i9", token: "tok-9" },
         rawToken: "tok-9",
       });
-      expect(inviteStoreCall).not.toHaveBeenCalled();
     });
 
     test("omits rawToken when the gateway returns none", async () => {
@@ -215,7 +195,6 @@ describe("invite relay routes", () => {
         ok: true,
         invite: { id: "i3", status: "revoked" },
       });
-      expect(inviteStoreCall).not.toHaveBeenCalled();
     });
   });
 

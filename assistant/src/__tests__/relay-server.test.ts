@@ -40,8 +40,9 @@ mock.module("../util/logger.js", () => ({
 
 // Voice-invite detection and redemption go through the gateway over IPC
 // (`get_active_voice_invite` / `redeem_voice_invite`), and the redemption
-// engine claims the canonical row before mutating. Model the gateway against
-// the locally seeded invite rows so tests don't attempt a real socket connect.
+// engine claims the canonical row before mutating. Model the gateway's
+// `ingress_invites` store as an in-memory list so tests don't attempt a real
+// socket connect.
 //
 // `inviteClaimCalls` counts gateway claims so concurrency tests can assert that
 // a repeated code does NOT launch a second claim. `inviteClaimGate`, when set,
@@ -49,6 +50,56 @@ mock.module("../util/logger.js", () => ({
 // second code arrives while the first redemption is still awaiting the gateway.
 // `voiceInviteIpcError`, when set, makes the voice-invite IPC methods throw so
 // tests can pin fail-soft detection and fail-closed redemption.
+interface GatewayVoiceInvite {
+  id: string;
+  contactId: string;
+  expectedExternalUserId: string | null;
+  voiceCodeHash: string | null;
+  voiceCodeDigits: number | null;
+  friendName: string | null;
+  guardianName: string | null;
+  maxUses: number;
+  useCount: number;
+  status: "active" | "redeemed";
+  expiresAt: number;
+}
+
+let gatewayVoiceInvites: GatewayVoiceInvite[] = [];
+
+/** Seed an active voice invite into the modeled gateway store. */
+function seedGatewayVoiceInvite(params: {
+  contactId: string;
+  maxUses?: number;
+  expiresInMs?: number;
+  expectedExternalUserId?: string;
+  voiceCodeHash?: string;
+  voiceCodeDigits?: number;
+  friendName?: string;
+  guardianName?: string;
+}): GatewayVoiceInvite {
+  const invite: GatewayVoiceInvite = {
+    id: randomUUID(),
+    contactId: params.contactId,
+    expectedExternalUserId: params.expectedExternalUserId ?? null,
+    voiceCodeHash: params.voiceCodeHash ?? null,
+    voiceCodeDigits: params.voiceCodeDigits ?? null,
+    friendName: params.friendName ?? null,
+    guardianName: params.guardianName ?? null,
+    maxUses: params.maxUses ?? 1,
+    useCount: 0,
+    status: "active",
+    expiresAt: Date.now() + (params.expiresInMs ?? 7 * 24 * 60 * 60 * 1000),
+  };
+  gatewayVoiceInvites.push(invite);
+  return invite;
+}
+
+function findActiveGatewayVoiceInvites(caller: string): GatewayVoiceInvite[] {
+  return gatewayVoiceInvites.filter(
+    (i) => i.status === "active" && i.expectedExternalUserId === caller,
+  );
+}
+
 let inviteClaimCalls = 0;
 let inviteClaimGate: Promise<void> | null = null;
 let voiceInviteIpcError = false;
@@ -56,15 +107,13 @@ mock.module("../ipc/gateway-client.js", () => ({
   ipcCall: async (method: string, params?: Record<string, unknown>) => {
     if (method === "get_active_voice_invite") {
       if (voiceInviteIpcError) throw new Error("gateway unreachable");
-      // Model the gateway read from the seeded local rows: bound-contact
-      // displayName preferred, invite friendName fallback.
-      const { findActiveVoiceInvites } =
-        await import("../persistence/invite-store.js");
+      // Model the gateway read: bound-contact displayName preferred, invite
+      // friendName fallback.
       const { getContact } = await import("../contacts/contact-store.js");
       const now = Date.now();
-      const invite = findActiveVoiceInvites({
-        expectedExternalUserId: params?.callerExternalUserId as string,
-      }).find((i) => !i.expiresAt || i.expiresAt > now);
+      const invite = findActiveGatewayVoiceInvites(
+        params?.callerExternalUserId as string,
+      ).find((i) => i.expiresAt > now);
       if (!invite) return { invite: null };
       return {
         invite: {
@@ -82,18 +131,13 @@ mock.module("../ipc/gateway-client.js", () => ({
       if (voiceInviteIpcError) {
         throw new Error("gateway unreachable");
       }
-      // Model the gateway redemption engine against the locally seeded rows
-      // (identical semantics: identity-bound candidates, code hash, expiry,
-      // then the atomic claim that consumes the use).
-      const { findActiveVoiceInvites, recordInviteUse } =
-        await import("../persistence/invite-store.js");
-      const { hashVoiceCode } = await import("../util/voice-code.js");
+      // Model the gateway redemption engine (identical semantics:
+      // identity-bound candidates, code hash, expiry, then the atomic claim
+      // that consumes the use).
       const caller = params?.callerExternalUserId as string;
       const codeHash = hashVoiceCode(params?.code as string);
       const now = Date.now();
-      const invite = findActiveVoiceInvites({
-        expectedExternalUserId: caller,
-      }).find(
+      const invite = findActiveGatewayVoiceInvites(caller).find(
         (i) =>
           i.voiceCodeHash === codeHash &&
           i.expiresAt > now &&
@@ -108,8 +152,14 @@ mock.module("../ipc/gateway-client.js", () => ({
       if (inviteClaimGate) {
         await inviteClaimGate;
       }
-      if (!recordInviteUse({ inviteId: invite.id, externalUserId: caller })) {
+      // A concurrent claim that consumed the last use flips the row off
+      // `active`, so this claim observes it and fails.
+      if (invite.status !== "active") {
         return { ok: false, reason: "invalid_or_expired" };
+      }
+      invite.useCount += 1;
+      if (invite.useCount >= invite.maxUses) {
+        invite.status = "redeemed";
       }
       return {
         ok: true,
@@ -476,6 +526,11 @@ mock.module("../daemon/conversation-store.js", () => ({
 // ── Import source modules after all mocks ────────────────────────────
 
 import {
+  generateInviteCode as generateVoiceCode,
+  hashInviteCode as hashVoiceCode,
+} from "@vellumai/gateway-client";
+
+import {
   registerCallCompletionNotifier,
   unregisterCallCompletionNotifier,
 } from "../calls/call-state.js";
@@ -502,14 +557,12 @@ import { upsertContact } from "../contacts/contact-store.js";
 import { addMessage, getMessages } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { createInvite } from "../persistence/invite-store.js";
 import { resetTestTables } from "../persistence/raw-query.js";
 import { conversations } from "../persistence/schema/index.js";
 import {
   createOutboundSession,
   getGuardianBinding,
 } from "../runtime/channel-verification-service.js";
-import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 import { deriveGuardianDeliveries } from "./helpers/derive-guardian-delivery.js";
@@ -605,7 +658,6 @@ function resetTables() {
     "tool_invocations",
     "messages",
     "conversations",
-    "assistant_ingress_invites",
     "channel_verification_sessions",
     "channel_guardian_rate_limits",
     "canonical_guardian_requests",
@@ -614,6 +666,7 @@ function resetTables() {
     "contacts",
   );
   resetGatewayAclStore();
+  gatewayVoiceInvites = [];
   ensuredConvIds = new Set();
 }
 
@@ -2547,8 +2600,7 @@ describe("relay-server", () => {
     // The invitee's name is read from the bound contact's displayName.
     const code = generateVoiceCode(6);
     const codeHash = hashVoiceCode(code);
-    createInvite({
-      sourceChannel: "phone",
+    seedGatewayVoiceInvite({
       contactId: createTargetContact("Alice"),
       maxUses: 1,
       expectedExternalUserId: "+15558887777",
@@ -2623,8 +2675,7 @@ describe("relay-server", () => {
     // Bound contact's displayName is used; guardian label is resolved at runtime.
     const code = generateVoiceCode(6);
     const codeHash = hashVoiceCode(code);
-    createInvite({
-      sourceChannel: "phone",
+    seedGatewayVoiceInvite({
       contactId: createTargetContact("Carol"),
       maxUses: 1,
       expectedExternalUserId: "+15558886666",
@@ -2707,8 +2758,7 @@ describe("relay-server", () => {
 
     const code = generateVoiceCode(6);
     const codeHash = hashVoiceCode(code);
-    createInvite({
-      sourceChannel: "phone",
+    seedGatewayVoiceInvite({
       contactId: createTargetContact("Eve"),
       maxUses: 1,
       expectedExternalUserId: "+15558885555",
@@ -2803,8 +2853,7 @@ describe("relay-server", () => {
       toNumber: "+15551111111",
     });
     const priorCode = generateVoiceCode(6);
-    createInvite({
-      sourceChannel: "phone",
+    seedGatewayVoiceInvite({
       contactId: createTargetContact("Ivan"),
       maxUses: 1,
       expectedExternalUserId: "+15558883333",
@@ -2846,8 +2895,7 @@ describe("relay-server", () => {
       toNumber: "+15551111111",
     });
     const freshCode = generateVoiceCode(6);
-    createInvite({
-      sourceChannel: "phone",
+    seedGatewayVoiceInvite({
       contactId: createTargetContact("Kim"),
       maxUses: 1,
       expectedExternalUserId: "+15558882222",
@@ -2941,8 +2989,7 @@ describe("relay-server", () => {
     // A live invite row exists for this caller, but the gateway read throws —
     // detection must fall to the unverified-caller flow, never block setup.
     const code = generateVoiceCode(6);
-    createInvite({
-      sourceChannel: "phone",
+    seedGatewayVoiceInvite({
       contactId: createTargetContact("Frank"),
       maxUses: 1,
       expectedExternalUserId: "+15558884444",
@@ -2985,8 +3032,7 @@ describe("relay-server", () => {
     });
 
     const code = generateVoiceCode(6);
-    createInvite({
-      sourceChannel: "phone",
+    seedGatewayVoiceInvite({
       contactId: createTargetContact("Gina"),
       maxUses: 1,
       expectedExternalUserId: "+15558881111",
@@ -5066,8 +5112,7 @@ describe("relay-server", () => {
     // The legacy friendName column carries an out-of-date free-text label
     // ("Stale Name") to prove the greeting reads from the contact, not the
     // legacy column.
-    createInvite({
-      sourceChannel: "phone",
+    seedGatewayVoiceInvite({
       contactId: createTargetContact("Carolina Flaherty"),
       maxUses: 1,
       expectedExternalUserId: "+15557776666",
@@ -5201,8 +5246,7 @@ describe("relay-server", () => {
     const codeHash = hashVoiceCode(code);
     // displayName is whitespace-only — greeting falls back to "Hi there"
     // rather than substituting the channel address.
-    createInvite({
-      sourceChannel: "phone",
+    seedGatewayVoiceInvite({
       contactId: createTargetContact("   "),
       maxUses: 1,
       expectedExternalUserId: "+15557775555",
@@ -5266,8 +5310,7 @@ describe("relay-server", () => {
 
     const code = generateVoiceCode(6);
     const codeHash = hashVoiceCode(code);
-    createInvite({
-      sourceChannel: "phone",
+    seedGatewayVoiceInvite({
       contactId: createTargetContact("   "),
       maxUses: 1,
       expectedExternalUserId: "+15557774444",
@@ -6222,8 +6265,7 @@ describe("relay-server", () => {
     });
 
     const code = generateVoiceCode(6);
-    createInvite({
-      sourceChannel: "phone",
+    seedGatewayVoiceInvite({
       contactId: createTargetContact("Alice"),
       maxUses: 1,
       expectedExternalUserId: "+15558887777",

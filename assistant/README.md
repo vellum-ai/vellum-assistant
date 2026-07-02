@@ -309,7 +309,6 @@ Guardian verification and ingress contact management are complementary but indep
 | `src/runtime/trust-context-resolver.ts`             | Actor role classification: guardian / non-guardian / unverified_channel                                                          |
 | `src/runtime/routes/inbound-message-handler.ts`     | Ingress ACL enforcement, verification-code intercept, escalation creation                                                        |
 | `src/contacts/contact-store.ts`                     | Contact + channel CRUD: `findContactChannel`, `upsertContact`, `updateChannelStatus`, `searchContacts`                           |
-| `src/memory/invite-store.ts`                        | Invite lifecycle: `createInvite`, `redeemInvite` (atomically creates member record)                                              |
 | `src/memory/channel-verification-sessions.ts`       | Guardian binding types and verification challenge persistence                                                                    |
 | `src/memory/guardian-approvals.ts`                  | Approval request persistence                                                                                                     |
 | `src/runtime/verification-outbound-actions.ts`      | Shared business logic for outbound verification (start/resend/cancel)                                                            |
@@ -422,7 +421,6 @@ If no guardian binding exists, escalation fails closed — the message is denied
 
 | File                                                | Purpose                                                                                                          |
 | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `src/memory/invite-store.ts`                        | CRUD for invite tokens with SHA-256 hashing and expiry                                                           |
 | `src/contacts/contact-store.ts`                     | Contact + channel CRUD with policy enforcement                                                                   |
 | `src/daemon/handlers/config-inbox.ts`               | HTTP handlers for invite operations                                                                              |
 | `src/runtime/routes/channel-routes.ts`              | ACL enforcement point — member lookup, policy check, escalation creation                                         |

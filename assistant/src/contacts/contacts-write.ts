@@ -40,7 +40,6 @@ export function upsertContactChannel(params: {
   externalChatId?: string;
   displayName?: string;
   username?: string;
-  inviteId?: string;
   contactId?: string;
 }): ContactWriteResult | null {
   let address: string;
@@ -74,7 +73,6 @@ export function upsertContactChannel(params: {
         type: params.sourceChannel,
         address,
         externalChatId: params.externalChatId ?? null,
-        inviteId: params.inviteId ?? null,
       },
     ],
     // When a specific contactId is provided, reassign conflicting channels from

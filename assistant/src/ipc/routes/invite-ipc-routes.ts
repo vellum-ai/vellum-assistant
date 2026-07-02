@@ -19,8 +19,7 @@ import type { RouteHandlerArgs } from "../../runtime/routes/types.js";
  * Best-effort local info mirror for a gateway-native invite redemption.
  *
  * The gateway owns the ACL outcome; this handler only upserts the local
- * contact/channel identity row from the outcome's identity fields (including
- * `inviteId`, which the local `contact_channels` schema still carries).
+ * contact/channel identity row from the outcome's identity fields.
  * `upsertContactChannel` is an idempotent upsert and fires
  * `notifyContactsChanged()` internally, so repeated delivery of the same
  * outcome is safe.
@@ -33,7 +32,6 @@ export function handleInviteRedeemed({ body = {} }: RouteHandlerArgs) {
     externalChatId: outcome.memberExternalChatId,
     displayName: outcome.displayName,
     username: outcome.username,
-    inviteId: outcome.inviteId,
     contactId: outcome.contactId,
   });
   return { ok: true };
