@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "predev": "bun run postinstall && bun run openapi-ts && node scripts/copy-skill-assets.mjs",
-    "dev": "bun run scripts/ensure-fresh-vite.ts && bun --bun vite",
+    "dev": "bun --bun vite",
     "prebuild": "node scripts/copy-skill-assets.mjs",
     "build": "bun --bun vite build",
     "preview": "bun --bun vite preview",
@@ -62,6 +62,7 @@
     "@tiptap/pm": "3.23.5",
     "@tiptap/react": "3.23.5",
     "@tiptap/starter-kit": "3.23.5",
+    "@vellumai/assistant-api": "workspace:*",
     "@vellumai/design-library": "workspace:*",
     "@vellumai/ipc-contract": "workspace:*",
     "@vellumai/local-mode": "workspace:*",

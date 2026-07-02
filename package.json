@@ -3,6 +3,7 @@
   "private": true,
   "workspaces": [
     "assistant",
+    "assistant/src/api",
     "cli",
     "clients/macos",
     "clients/web",

@@ -84,6 +84,13 @@
         "@resvg/resvg-js-darwin-x64": "2.6.2",
       },
     },
+    "assistant/src/api": {
+      "name": "@vellumai/assistant-api",
+      "version": "0.0.0-source",
+      "dependencies": {
+        "zod": "4.3.6",
+      },
+    },
     "cli": {
       "name": "@vellumai/cli",
       "version": "0.10.4",
@@ -173,6 +180,7 @@
         "@tiptap/pm": "3.23.5",
         "@tiptap/react": "3.23.5",
         "@tiptap/starter-kit": "3.23.5",
+        "@vellumai/assistant-api": "workspace:*",
         "@vellumai/design-library": "workspace:*",
         "@vellumai/ipc-contract": "workspace:*",
         "@vellumai/local-mode": "workspace:*",
@@ -1545,6 +1553,8 @@
     "@valibot/to-json-schema": ["@valibot/to-json-schema@1.7.1", "", { "peerDependencies": { "valibot": "^1.4.0" } }, "sha512-3qkmU6KXWh8GIThEAW3kuRHPQBMjWkKy+Ppz3WkUucx53DTpOa6siMn4xDGSOhlVyMrDaJTCTMLYPZVAIk1P0A=="],
 
     "@vellumai/assistant": ["@vellumai/assistant@workspace:assistant"],
+
+    "@vellumai/assistant-api": ["@vellumai/assistant-api@workspace:assistant/src/api"],
 
     "@vellumai/assistant-client": ["@vellumai/assistant-client@workspace:packages/assistant-client"],
 
