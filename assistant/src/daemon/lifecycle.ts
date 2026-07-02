@@ -1,7 +1,7 @@
 import { config as dotenvConfig } from "dotenv";
 
 import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
-import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
+import { TwilioVoiceProvider } from "../calls/twilio-provider.js";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import { setIngressPublicBaseUrl, validateEnv } from "../config/env.js";
 import { loadConfig, mergeDefaultWorkspaceConfig } from "../config/loader.js";
@@ -423,7 +423,7 @@ export async function runDaemon(): Promise<void> {
     }
 
     try {
-      const twilioProvider = new TwilioConversationRelayProvider();
+      const twilioProvider = new TwilioVoiceProvider();
       await reconcileCallsOnStartup(twilioProvider, log);
     } catch (err) {
       log.warn({ err }, "Call recovery failed — continuing startup");
