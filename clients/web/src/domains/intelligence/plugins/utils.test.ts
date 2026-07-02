@@ -87,6 +87,17 @@ describe("mergePlugins", () => {
     expect(row.description).toBeUndefined();
     expect(row.version).toBeUndefined();
   });
+
+  test("carries an installed plugin's author icon onto the row", () => {
+    const [installedRow, catalogRow] = mergePlugins(
+      [installed({ name: "alpha", icon: "🚀" })],
+      [catalog({ name: "beta" })],
+    );
+
+    expect(installedRow.icon).toBe("🚀");
+    // Catalog rows carry no icon (the search endpoint has none).
+    expect(catalogRow.icon).toBeUndefined();
+  });
 });
 
 describe("matchesQuery", () => {

@@ -43,6 +43,12 @@ export interface PluginListItem {
    * predate the enable/disable surface (version-skew safeguard).
    */
   enabled?: boolean;
+  /**
+   * Author-declared emoji (`package.json` `vellum.icon`), shown in the row
+   * icon. Installed rows only — the catalog endpoint carries none. `undefined`
+   * when the plugin declares no icon; the row falls back to 📦/🧩.
+   */
+  icon?: string;
 }
 
 /** Generated element type for an installed plugin (`pluginsGet`). */
@@ -68,6 +74,7 @@ interface InstalledPluginSource {
   path?: string;
   issues?: string[];
   enabled?: boolean;
+  icon?: string;
 }
 
 interface CatalogPluginSource {

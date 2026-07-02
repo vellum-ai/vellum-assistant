@@ -66,6 +66,7 @@ export function PluginListRow({
         <PluginIcon
           size="sm"
           external={item.external}
+          icon={item.icon}
           className={dimmed ? "opacity-50" : undefined}
         />
         <div className="min-w-0 flex-1">
