@@ -8,7 +8,6 @@ import {
 } from "../../persistence/conversation-crud.js";
 import { publishMessageReactionUpdated } from "../../runtime/sync/message-reaction-events.js";
 import { isSingleEmoji } from "../../util/emoji.js";
-import { registerTool } from "../registry.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -159,5 +158,3 @@ export const sendReactionTool = {
     return executeSendReaction(input, context);
   },
 } satisfies ToolDefinition;
-
-registerTool(sendReactionTool);

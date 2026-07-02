@@ -7,6 +7,7 @@
  */
 
 import { getConfig } from "../config/loader.js";
+import { isMessageReactionsEnabled } from "../config/message-reactions-gate.js";
 import {
   isCesSecureInstallEnabled,
   isCesToolsEnabled,
@@ -68,7 +69,6 @@ export const eagerModuleToolNames: string[] = [
   "skill_load",
   "request_system_permission",
   "notify_parent",
-  "send_reaction",
 ];
 
 // ── Explicit tool instances ─────────────────────────────────────────
@@ -96,7 +96,6 @@ export const explicitTools: ToolDefinition[] = [
   recallTool,
   notifyParentTool,
   askQuestionTool,
-  sendReactionTool,
   // NOTE: external skill tools (registered via registerExternalTools in
   // registry.ts) are intentionally NOT included here. `explicitTools` is a
   // module-level const whose value is fixed at first evaluation, so
@@ -117,6 +116,30 @@ export const cesTools: ToolDefinition[] = [
   runAuthenticatedCommandTool,
   manageSecureCommandTool,
 ];
+
+// ── Message-reaction tools (feature-flag gated) ─────────────────────
+// Registered only when the `message-reactions` flag is enabled, both at
+// startup (initializeTools) and after the async gateway flag fetch
+// resolves (syncFlagGatedTools).
+
+/** All message-reaction tools - stable references for the manifest snapshot. */
+export const messageReactionTools: ToolDefinition[] = [sendReactionTool];
+
+/**
+ * Return message-reaction tools only if the `message-reactions` flag is
+ * enabled. Returns an empty array when the flag is disabled so callers
+ * can unconditionally iterate the result.
+ */
+export function getMessageReactionToolsIfEnabled(): ToolDefinition[] {
+  try {
+    if (isMessageReactionsEnabled(getConfig())) {
+      return messageReactionTools;
+    }
+  } catch {
+    // Config not yet loaded (e.g. during test setup) - gated tools stay off.
+  }
+  return [];
+}
 
 /**
  * Return CES tools only if the CES feature flag is enabled.

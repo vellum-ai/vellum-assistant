@@ -8,6 +8,10 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { ConversationMessageSchema } from "../api/responses/conversation-message.js";
 import {
+  clearCachedOverrides,
+  setCachedOverrides,
+} from "../config/feature-flag-cache.js";
+import {
   addMessage,
   appendMessageReaction,
   createConversation,
@@ -24,6 +28,11 @@ import type { ToolContext } from "../tools/types.js";
 import { isSingleEmoji } from "../util/emoji.js";
 
 await initializeDb();
+
+// The `message-reactions` flag defaults off; these tests exercise the
+// enabled paths, so force it on via the override cache. The flag-off
+// behavior has its own describe block below.
+setCachedOverrides({ "message-reactions": true }, { fromGateway: false });
 
 // Observe published events through a real hub subscription (the tool
 // broadcasts `message_reaction_updated` via `broadcastMessage`).
@@ -407,6 +416,31 @@ describe("message_reactions_set route", () => {
         emoji: "not an emoji",
       }),
     ).rejects.toThrow("single Unicode emoji");
+  });
+});
+
+describe("message-reactions flag off", () => {
+  beforeEach(resetState);
+
+  test("route 404s when the flag is off", async () => {
+    clearCachedOverrides();
+    try {
+      const conv = createConversation();
+      const target = await addMessage(
+        conv.id,
+        "assistant",
+        JSON.stringify([{ type: "text", text: "hello" }]),
+      );
+      expect(
+        setReaction({
+          conversationId: conv.id,
+          messageId: target.id,
+          emoji: "👍",
+        }),
+      ).rejects.toThrow("not enabled");
+    } finally {
+      setCachedOverrides({ "message-reactions": true }, { fromGateway: false });
+    }
   });
 });
 

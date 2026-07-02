@@ -16,6 +16,8 @@
 import { z } from "zod";
 
 import { ConversationMessageReactionSchema } from "../../api/responses/conversation-message.js";
+import { getConfig } from "../../config/loader.js";
+import { isMessageReactionsEnabled } from "../../config/message-reactions-gate.js";
 import {
   addMessage,
   appendMessageReaction,
@@ -93,6 +95,12 @@ async function handleSetMessageReaction({ body = {} }: RouteHandlerArgs): Promis
   messageId: string;
   reactions: MessageReaction[];
 }> {
+  // Flag-off reads as endpoint-absent (404), which the web client already
+  // treats as "this assistant doesn't support reactions".
+  if (!isMessageReactionsEnabled(getConfig())) {
+    throw new NotFoundError("Message reactions are not enabled");
+  }
+
   const conversationId = body.conversationId as string | undefined;
   const messageId = body.messageId as string | undefined;
   const emoji = typeof body.emoji === "string" ? body.emoji.trim() : undefined;

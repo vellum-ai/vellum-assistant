@@ -6,6 +6,7 @@ import { Popover } from "@vellumai/design-library";
 import {
   hasUserReaction,
   QUICK_REACTION_EMOJI,
+  useMessageReactionsEnabled,
   useReactionsSupported,
   useUserReactionToggle,
 } from "@/domains/chat/hooks/use-message-reactions";
@@ -108,6 +109,7 @@ export function MessageHoverActions({
   // only mount (and only touch TanStack Query) for bookmarkable rows; that
   // keeps the flag-off and no-conversation paths free of any query client.
   const bookmarksEnabled = useBookmarksEnabled();
+  const reactionsEnabled = useMessageReactionsEnabled();
   const canBookmark =
     bookmarksEnabled &&
     Boolean(conversationId) &&
@@ -192,7 +194,8 @@ export function MessageHoverActions({
         />
       )}
 
-      {role === "assistant" &&
+      {reactionsEnabled &&
+        role === "assistant" &&
         conversationId &&
         message.id &&
         !message.isOptimistic && (

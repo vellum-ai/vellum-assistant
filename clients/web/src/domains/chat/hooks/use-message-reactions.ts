@@ -16,6 +16,7 @@ import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcr
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { messagereactionsPost } from "@/generated/daemon/sdk.gen";
 import { captureError } from "@/lib/sentry/capture-error";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 /** Actor recorded on reactions the user places from this client. */
@@ -45,6 +46,11 @@ function markReactionsUnsupported(): void {
 function subscribeToSupport(listener: () => void): () => void {
   supportListeners.add(listener);
   return () => supportListeners.delete(listener);
+}
+
+/** Whether the `message-reactions` client feature flag is enabled. */
+export function useMessageReactionsEnabled(): boolean {
+  return useClientFeatureFlagStore.use.messageReactions();
 }
 
 /** False once the connected assistant has answered 404 to a reaction write. */
