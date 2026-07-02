@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Maximize2, Minimize2, RotateCcw } from "lucide-react";
+import { Maximize2, Minimize2, RotateCcw, ZoomIn, ZoomOut } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { VIRTUAL_CENTER } from "@/domains/intelligence/components/constellation-view/constants";
@@ -9,7 +9,7 @@ import { Button } from "@vellumai/design-library";
 import { buildForceLayout } from "./build-force-layout";
 import { ConceptDetailPanel, type ConceptDetailNode } from "./concept-detail-panel";
 import { ConceptGraphLegend } from "./concept-graph-legend";
-import { NODE_KIND_COLORS } from "./constants";
+import { EDGE_LEARNED_COLOR, NODE_KIND_COLORS } from "./constants";
 import type { ConceptNodeKind, GraphLayoutNode } from "./types";
 
 const NODE_KIND_ORDER: ConceptNodeKind[] = [
@@ -18,8 +18,6 @@ const NODE_KIND_ORDER: ConceptNodeKind[] = [
   "capability",
   "other",
 ];
-/** amber, matches EDGE_LEARNED_COLOR in constants — used with canvas globalAlpha. */
-const EDGE_LEARNED_RGB = "rgb(233, 162, 59)";
 
 // Rotation / projection tuning.
 const AUTO_YAW_PER_SEC = 0.13;
@@ -121,7 +119,7 @@ export function ConceptGraphView({
   // Framed by the 92nd percentile of node distances so a few fringe/orphan
   // nodes can't shrink the whole mass into the middle of the viewport.
   const massRadius = useMemo(() => {
-    if (layout.nodes.length === 0) return 1;
+    if (layout.nodes.length === 0) {return 1;}
     const dists = layout.nodes
       .map((n) => {
         const dx = n.x - VIRTUAL_CENTER.x;
@@ -140,12 +138,14 @@ export function ConceptGraphView({
     pitch: 0.32,
     zoom: 1,
     hoveredId: null as string | null,
-    selectedId: null as string | null,
     dragging: false,
     moved: false,
     lastX: 0,
     lastY: 0,
     lastInteractAt: -Infinity,
+    // Set by every input that changes the scene; lets the reduced-motion
+    // render path skip redrawing identical frames.
+    dirty: true,
   });
   const projectedRef = useRef<Projected[]>([]);
   const colorsRef = useRef<Colors>({ content: "#e5e7eb", tertiary: "#8792a0" });
@@ -158,9 +158,9 @@ export function ConceptGraphView({
 
   const labelFor = useCallback(
     (id: string | null): string | null => {
-      if (!id) return null;
+      if (!id) {return null;}
       const node = layout.nodes.find((n) => n.id === id);
-      if (!node) return null;
+      if (!node) {return null;}
       return node.summary ? `${node.label} — ${node.summary}` : node.label;
     },
     [layout.nodes],
@@ -171,18 +171,25 @@ export function ConceptGraphView({
     v.yaw = 0.5;
     v.pitch = 0.32;
     v.zoom = 1;
-    v.selectedId = null;
     v.lastInteractAt = -Infinity;
+    v.dirty = true;
     setFocusLabel(null);
   }, []);
 
+  const zoomBy = useCallback((factor: number) => {
+    const v = view.current;
+    v.zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, v.zoom * factor));
+    v.lastInteractAt = performance.now();
+    v.dirty = true;
+  }, []);
+
   useEffect(() => {
-    if (!ready) return;
+    if (!ready) {return;}
     const canvas = canvasRef.current;
     const container = containerRef.current;
-    if (!canvas || !container) return;
+    if (!canvas || !container) {return;}
     const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    if (!ctx) {return;}
 
     // Capture the current layout for the loop; the effect re-runs (cancelling
     // this loop) whenever the data changes, so these never go stale.
@@ -207,6 +214,7 @@ export function ConceptGraphView({
       canvas.style.width = `${cssW}px`;
       canvas.style.height = `${cssH}px`;
       colorsRef.current = resolveColors(container);
+      view.current.dirty = true;
     };
     applySize();
     const ro = new ResizeObserver(applySize);
@@ -221,7 +229,17 @@ export function ConceptGraphView({
       const colors = colorsRef.current;
 
       const idle = !v.dragging && t - v.lastInteractAt > IDLE_RESUME_MS;
-      if (idle && !reduceMotion) v.yaw += AUTO_YAW_PER_SEC * dt;
+      if (idle && !reduceMotion) {
+        v.yaw += AUTO_YAW_PER_SEC * dt;
+      }
+
+      // With reduced motion there is no auto-rotation, so the scene is static
+      // between inputs — don't re-project and redraw identical frames.
+      if (reduceMotion && !v.dirty) {
+        raf = requestAnimationFrame(render);
+        return;
+      }
+      v.dirty = false;
 
       const cosY = Math.cos(v.yaw);
       const sinY = Math.sin(v.yaw);
@@ -236,7 +254,7 @@ export function ConceptGraphView({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, cssW, cssH);
 
-      const activeId = v.selectedId ?? v.hoveredId;
+      const activeId = v.hoveredId;
       const neighbors = activeId ? adj.get(activeId) : undefined;
       const isLit = (id: string) =>
         !activeId || id === activeId || (neighbors?.has(id) ?? false);
@@ -270,21 +288,21 @@ export function ConceptGraphView({
       // Painter's order: far → near.
       const order = proj.map((_, i) => i).sort((a, b) => proj[a].depth - proj[b].depth);
       const posById = new Map<string, (typeof proj)[number]>();
-      for (const p of proj) posById.set(p.node.id, p);
+      for (const p of proj) {posById.set(p.node.id, p);}
 
       // Edges (behind nodes).
       ctx.lineCap = "round";
       for (const e of edges) {
         const a = posById.get(e.fromId);
         const b = posById.get(e.toId);
-        if (!a || !b) continue;
+        if (!a || !b) {continue;}
         const learned = e.kind === "learned";
         const incident = activeId != null && (e.fromId === activeId || e.toId === activeId);
         const depth = (a.depth + b.depth) / 2;
         let alpha = (learned ? 0.34 : 0.28) * (0.4 + 0.6 * depth);
-        if (activeId != null) alpha = incident ? 0.9 : isLit(e.fromId) && isLit(e.toId) ? alpha : 0.05;
+        if (activeId != null) {alpha = incident ? 0.9 : isLit(e.fromId) && isLit(e.toId) ? alpha : 0.05;}
         ctx.globalAlpha = alpha;
-        ctx.strokeStyle = learned ? EDGE_LEARNED_RGB : colors.tertiary;
+        ctx.strokeStyle = learned ? EDGE_LEARNED_COLOR : colors.tertiary;
         ctx.lineWidth = (incident ? 2 : 1) * (0.6 + 0.6 * depth);
         ctx.setLineDash(learned ? [4, 4] : []);
         ctx.beginPath();
@@ -335,7 +353,7 @@ export function ConceptGraphView({
           activeId != null
             ? isLit(node.id)
             : node.degree >= HUB_LABEL_DEGREE && p.depth > 0.55;
-        if (!showLabel) continue;
+        if (!showLabel) {continue;}
         ctx.globalAlpha = (node.id === activeId ? 1 : 0.85) * (0.4 + 0.6 * p.depth);
         ctx.fillStyle = colors.content;
         const label = node.label.length > 22 ? `${node.label.slice(0, 21)}…` : node.label;
@@ -382,8 +400,8 @@ export function ConceptGraphView({
   };
 
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
-    if ((e.target as HTMLElement).closest("[data-graph-control]")) return;
+    if (e.button !== 0) {return;}
+    if ((e.target as HTMLElement).closest("[data-graph-control]")) {return;}
     const v = view.current;
     v.dragging = true;
     v.moved = false;
@@ -399,19 +417,23 @@ export function ConceptGraphView({
       if (v.dragging) {
         const dx = e.clientX - v.lastX;
         const dy = e.clientY - v.lastY;
-        if (Math.abs(dx) > 2 || Math.abs(dy) > 2) v.moved = true;
+        if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
+          v.moved = true;
+        }
         v.yaw += dx * DRAG_SENSITIVITY;
         v.pitch = Math.max(-PITCH_CLAMP, Math.min(PITCH_CLAMP, v.pitch + dy * DRAG_SENSITIVITY));
         v.lastX = e.clientX;
         v.lastY = e.clientY;
         v.lastInteractAt = performance.now();
+        v.dirty = true;
         return;
       }
       const { x, y } = localPoint(e);
       const hit = hitTest(x, y);
       if (hit !== v.hoveredId) {
         v.hoveredId = hit;
-        if (v.selectedId == null) setFocusLabel(labelFor(hit));
+        v.dirty = true;
+        setFocusLabel(labelFor(hit));
       }
     },
     [hitTest, labelFor],
@@ -420,13 +442,15 @@ export function ConceptGraphView({
   const onPointerUp = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       const v = view.current;
-      if (!v.dragging) return;
+      if (!v.dragging) {
+        return;
+      }
       v.dragging = false;
       v.lastInteractAt = performance.now();
-      try {
-        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-      } catch {
-        /* already released */
+      v.dirty = true;
+      const el = e.currentTarget as HTMLElement;
+      if (el.hasPointerCapture(e.pointerId)) {
+        el.releasePointerCapture(e.pointerId);
       }
       if (!v.moved) {
         const { x, y } = localPoint(e);
@@ -434,9 +458,10 @@ export function ConceptGraphView({
         if (hit) {
           // Click a node → open its concept page in the detail drawer.
           const n = layout.nodes.find((nn) => nn.id === hit);
-          if (n) setOpenNode({ id: n.id, label: n.label, updatedAtMs: n.updatedAtMs });
+          if (n) {
+            setOpenNode({ id: n.id, label: n.label, updatedAtMs: n.updatedAtMs });
+          }
         } else {
-          v.selectedId = null;
           setFocusLabel(null);
         }
       }
@@ -444,16 +469,29 @@ export function ConceptGraphView({
     [hitTest, layout.nodes],
   );
 
+  // Hover is only ever rewritten by moves inside the container, so without
+  // this the highlight + tooltip would stay pinned after the pointer leaves.
+  const onPointerLeave = useCallback(() => {
+    const v = view.current;
+    if (v.dragging || v.hoveredId == null) {
+      return;
+    }
+    v.hoveredId = null;
+    v.dirty = true;
+    setFocusLabel(null);
+  }, []);
+
   useEffect(() => {
     const el = containerRef.current;
-    if (!el || !ready) return;
+    if (!el || !ready) {return;}
     const onWheel = (e: WheelEvent) => {
       // Let the detail drawer scroll natively instead of zooming the graph.
-      if ((e.target as HTMLElement).closest?.("[data-graph-panel]")) return;
+      if ((e.target as HTMLElement).closest?.("[data-graph-panel]")) {return;}
       e.preventDefault();
       const v = view.current;
       v.zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, v.zoom * (1 - e.deltaY / 500)));
       v.lastInteractAt = performance.now();
+      v.dirty = true;
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
@@ -528,7 +566,21 @@ export function ConceptGraphView({
           drag to rotate · scroll to zoom
         </div>
 
-        <div data-graph-control className="absolute right-4 top-4">
+        <div data-graph-control className="absolute right-4 top-4 flex flex-col gap-1">
+          <Button
+            variant="ghost"
+            iconOnly={<ZoomIn />}
+            onClick={() => zoomBy(1.25)}
+            aria-label="Zoom in"
+            tooltip="Zoom in"
+          />
+          <Button
+            variant="ghost"
+            iconOnly={<ZoomOut />}
+            onClick={() => zoomBy(0.8)}
+            aria-label="Zoom out"
+            tooltip="Zoom out"
+          />
           <Button
             variant="ghost"
             iconOnly={<RotateCcw />}
@@ -556,6 +608,7 @@ export function ConceptGraphView({
       onPointerMove={ready ? onPointerMove : undefined}
       onPointerUp={ready ? onPointerUp : undefined}
       onPointerCancel={ready ? onPointerUp : undefined}
+      onPointerLeave={ready ? onPointerLeave : undefined}
     >
       {onToggleFullscreen ? (
         <div className="absolute left-4 top-4 z-10" data-graph-control>

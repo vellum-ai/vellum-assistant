@@ -188,16 +188,21 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
   // The concept graph only exists when the active backend exposes one (memory-v3)
   // AND the memory-concept-graph flag is on; otherwise the endpoint reports
   // `unsupported` and we fall back to the skills constellation, so this pane is
-  // never empty on backends/assistants without the graph.
+  // never empty on backends/assistants without the graph. A failed graph fetch
+  // (daemon predating the route, transient error) falls back the same way
+  // rather than stranding the pane on the graph's error state.
   const graphQuery = useQuery(memoryGraphOptions(assistantId));
-  const useSkillsFallback = graphQuery.data?.kind === "unsupported";
+  const useSkillsFallback =
+    graphQuery.data?.kind === "unsupported" || graphQuery.isError;
+  // Fetched in parallel with the graph probe so the fallback constellation
+  // renders populated as soon as it is chosen, not one round-trip later.
   const skillsQuery = useQuery({
     ...skillsGetOptions({
       path: { assistant_id: assistantId },
       query: { kind: "installed" },
     }),
     select: (data): SkillInfo[] => data.skills,
-    enabled: Boolean(assistantId) && useSkillsFallback,
+    enabled: Boolean(assistantId),
   });
 
   useEffect(() => {

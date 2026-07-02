@@ -14,13 +14,17 @@ import {
   assertHasResponse,
   extractErrorMessage,
 } from "@/utils/api-errors";
-import type { MemoryGraph, MemoryGraphResult } from "./types";
+import type { MemoryGraphResult } from "./types";
 
 const FAILURE_MESSAGE = "Failed to load the memory graph.";
 
 export function memoryGraphOptions(assistantId: string) {
   return queryOptions<MemoryGraphResult>({
     queryKey: ["memory-graph", assistantId] as const,
+    // The daemon rebuilds the whole graph per request (page reads + a
+    // selection-log scan), and the graph only changes on the timescale of
+    // memory writes — don't refire it on every window refocus.
+    staleTime: 5 * 60_000,
     queryFn: async (): Promise<MemoryGraphResult> => {
       const { data, error, response } = await memorygraphGet({
         path: { assistant_id: assistantId },
@@ -40,7 +44,7 @@ export function memoryGraphOptions(assistantId: string) {
         return { kind: "unsupported" };
       }
 
-      return { kind: "ready", graph: data as MemoryGraph };
+      return { kind: "ready", graph: data };
     },
   });
 }
