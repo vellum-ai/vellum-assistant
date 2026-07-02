@@ -359,8 +359,6 @@ describe("actorTrustContextFromVerdict", () => {
     // INFO fields must be null/default placeholders.
     expect(memberRecord!.contact.notes).toBeNull();
     expect(memberRecord!.contact.userFile).toBeNull();
-    expect(memberRecord!.contact.interactionCount).toBe(0);
-    expect(memberRecord!.contact.lastInteraction).toBeNull();
   });
 
   test("guardian member verdict maps role guardian + principalId", () => {
@@ -473,9 +471,6 @@ describe("toTrustContext member grounding", () => {
       address: "+15550100",
       isPrimary: true,
       externalChatId: null,
-      lastSeenAt: null,
-      interactionCount: 0,
-      lastInteraction: null,
       updatedAt: null,
       createdAt: 0,
     };
@@ -487,8 +482,6 @@ describe("toTrustContext member grounding", () => {
       displayName: "Frank",
       notes: null,
       role: "contact",
-      lastInteraction: null,
-      interactionCount: 0,
       createdAt: 0,
       updatedAt: 0,
       contactType: "human",

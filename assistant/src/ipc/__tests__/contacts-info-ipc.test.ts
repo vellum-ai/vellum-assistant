@@ -63,7 +63,7 @@ function insertChannel(params: {
 }): void {
   const now = Date.now();
   getSqlite().run(
-    "INSERT INTO contact_channels (id, contact_id, type, address, is_primary, external_chat_id, interaction_count, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, 0, ?, ?)",
+    "INSERT INTO contact_channels (id, contact_id, type, address, is_primary, external_chat_id, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?, ?)",
     [
       params.id,
       params.contactId,

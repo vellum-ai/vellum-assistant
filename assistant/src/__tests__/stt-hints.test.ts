@@ -319,8 +319,6 @@ function makeContact(displayName: string): ContactWithChannels {
     displayName,
     notes: null,
     role: "contact",
-    lastInteraction: null,
-    interactionCount: 0,
     createdAt: now,
     updatedAt: now,
     contactType: "human",

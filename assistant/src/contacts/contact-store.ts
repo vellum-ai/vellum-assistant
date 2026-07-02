@@ -97,8 +97,6 @@ function parseContact(row: typeof contacts.$inferSelect): Contact {
     // gateway-owned; the serve layer stamps the real role from the gateway
     // guardian id set.
     role: "contact",
-    lastInteraction: null,
-    interactionCount: 0,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     contactType: row.contactType,
@@ -116,9 +114,6 @@ function parseChannel(
     address: row.address,
     isPrimary: row.isPrimary,
     externalChatId: row.externalChatId,
-    lastSeenAt: row.lastSeenAt,
-    interactionCount: row.interactionCount,
-    lastInteraction: row.lastInteraction,
     updatedAt: row.updatedAt,
     createdAt: row.createdAt,
   };
@@ -137,16 +132,7 @@ function getChannelsForContact(contactId: string): ContactChannel[] {
 
 function withChannels(contact: Contact): ContactWithChannels {
   const channels = getChannelsForContact(contact.id);
-  // INFO telemetry aggregated from channel rows (not ACL): sum interaction
-  // counts, take the most recent interaction across channels.
-  const interactionCount = channels.reduce(
-    (sum, ch) => sum + ch.interactionCount,
-    0,
-  );
-  const lastInteraction =
-    channels.reduce((max, ch) => Math.max(max, ch.lastInteraction ?? 0), 0) ||
-    null;
-  return { ...contact, interactionCount, lastInteraction, channels };
+  return { ...contact, channels };
 }
 
 // ── Channel data type for syncChannels ───────────────────────────────
