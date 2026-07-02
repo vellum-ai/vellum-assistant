@@ -55,7 +55,12 @@ class FakeConversation {
   }
 }
 
-const CONTACT_CONTEXT: TrustContext = {
+const TRUSTED_CONTACT_CONTEXT: TrustContext = {
+  sourceChannel: "vellum",
+  trustClass: "trusted_contact",
+};
+
+const UNVERIFIED_CONTACT_CONTEXT: TrustContext = {
   sourceChannel: "vellum",
   trustClass: "unverified_contact",
 };
@@ -82,16 +87,43 @@ describe("elevatePointerConversationToGuardian", () => {
     expect(conv.trustContext).toBeUndefined();
   });
 
-  test("restores the prior non-memory trust context after the turn", async () => {
-    const conv = new FakeConversation({ trustContext: CONTACT_CONTEXT });
+  test("does not elevate a trusted_contact context (no guardian history leak)", async () => {
+    const conv = new FakeConversation({
+      trustContext: TRUSTED_CONTACT_CONTEXT,
+    });
+    // A contact load filters guardian history to empty; it must stay empty.
     expect(conv.visibleHistory).toEqual([]);
 
     const restore = await elevatePointerConversationToGuardian(conv);
-    expect(conv.trustContext).toBe(INTERNAL_GUARDIAN_TRUST_CONTEXT);
-    expect(conv.visibleHistory).toEqual(["m1", "m2", "m3"]);
+
+    // No elevation and no rehydration — guardian-only history is never
+    // surfaced into a contact conversation.
+    expect(conv.setTrustContextCalls).toEqual([]);
+    expect(conv.ensureCalls).toBe(0);
+    expect(conv.trustContext).toBe(TRUSTED_CONTACT_CONTEXT);
+    expect(conv.visibleHistory).toEqual([]);
 
     restore();
-    expect(conv.trustContext).toBe(CONTACT_CONTEXT);
+    expect(conv.setTrustContextCalls).toEqual([]);
+    expect(conv.trustContext).toBe(TRUSTED_CONTACT_CONTEXT);
+  });
+
+  test("does not elevate an unverified_contact context (no guardian history leak)", async () => {
+    const conv = new FakeConversation({
+      trustContext: UNVERIFIED_CONTACT_CONTEXT,
+    });
+    expect(conv.visibleHistory).toEqual([]);
+
+    const restore = await elevatePointerConversationToGuardian(conv);
+
+    expect(conv.setTrustContextCalls).toEqual([]);
+    expect(conv.ensureCalls).toBe(0);
+    expect(conv.trustContext).toBe(UNVERIFIED_CONTACT_CONTEXT);
+    expect(conv.visibleHistory).toEqual([]);
+
+    restore();
+    expect(conv.setTrustContextCalls).toEqual([]);
+    expect(conv.trustContext).toBe(UNVERIFIED_CONTACT_CONTEXT);
   });
 
   test("no-ops for a conversation that already has memory access", async () => {
