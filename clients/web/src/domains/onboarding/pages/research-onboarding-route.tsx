@@ -232,6 +232,7 @@ export function ResearchOnboardingRoute() {
     start: startHatch,
     ready: hatchReady,
     assistantId: hatchedAssistantId,
+    error: hatchError,
     awaitReady: awaitHatchReady,
   } = useBackgroundHatch();
   const research = useResearchRunner();
@@ -649,6 +650,7 @@ export function ResearchOnboardingRoute() {
           <LetsChatTomorrowStep
             assistantId={hatchedAssistantId}
             assistantReady={hatchReady}
+            hatchError={hatchError}
             onConnected={handleCheckinConnected}
             missingCalendarScope={missingCalendarScope}
             onRetry={() => setMissingCalendarScope(false)}

@@ -117,4 +117,21 @@ describe("LetsChatTomorrowStep", () => {
     // No skip affordance while the assistant is still waking up.
     expect(screen.queryByText("Skip for now")).toBeNull();
   });
+
+  test("keeps a skip escape path when the hatch fails to become ready", () => {
+    const onSkip = mock(() => {});
+    renderStep({
+      assistantReady: false,
+      hatchError: "Setup timed out",
+      onSkip,
+    });
+
+    // The connect action can never enable, so skip must stay reachable rather
+    // than trapping the user behind a spinner that never resolves.
+    const skip = screen.getByText("Skip for now");
+    expect(skip).toBeDefined();
+
+    fireEvent.click(skip);
+    expect(onSkip).toHaveBeenCalledTimes(1);
+  });
 });
