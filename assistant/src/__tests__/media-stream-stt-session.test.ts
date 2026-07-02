@@ -990,6 +990,69 @@ describe("MediaStreamSttSession", () => {
       session.dispose();
     });
 
+    test("multiple turns completed during transcriber startup are transcribed in order on batch fallback", async () => {
+      const fake = new FakeStreamingTranscriber({ deferStart: true });
+      (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
+
+      // Echo the audio byte count so each turn's transcript is
+      // distinguishable and ordering is observable.
+      const transcribe = jest.fn(async (req: SttTranscribeRequest) => ({
+        text: `bytes-${req.audio.length}`,
+      }));
+      (resolveBatchTranscriber as jest.Mock).mockResolvedValue({
+        providerId: "openai-whisper",
+        boundaryId: "daemon-batch",
+        transcribe,
+      });
+
+      const onTranscriptFinal = jest.fn();
+      const session = new MediaStreamSttSession(
+        { turnDetector: { silenceThresholdMs: 300 } },
+        { onTranscriptFinal },
+      );
+
+      session.handleMessage(makeStartMessage());
+      await flushAsync();
+
+      // Turn 1: one speech chunk, completed by the local VAD while the
+      // provider session is still starting.
+      session.handleMessage(makeMediaMessage());
+      jest.advanceTimersByTime(400);
+      await flushAsync();
+
+      // Turn 2: two speech chunks, also completed during startup.
+      session.handleMessage(makeMediaMessage());
+      session.handleMessage(makeMediaMessage());
+      jest.advanceTimersByTime(400);
+      await flushAsync();
+
+      expect(onTranscriptFinal).not.toHaveBeenCalled();
+
+      // Startup then fails — BOTH completed turns must be transcribed,
+      // in completion order.
+      fake.failStart(new Error("connect timeout"));
+      await flushAsync();
+
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(2);
+      const sizes = transcribe.mock.calls.map(
+        ([req]: [SttTranscribeRequest]) => req.audio.length,
+      );
+      // Turn 2 carried twice the audio of turn 1 (net of WAV header).
+      expect(sizes[0]).toBeLessThan(sizes[1]);
+      expect(onTranscriptFinal).toHaveBeenNthCalledWith(
+        1,
+        `bytes-${sizes[0]}`,
+        expect.any(Number),
+      );
+      expect(onTranscriptFinal).toHaveBeenNthCalledWith(
+        2,
+        `bytes-${sizes[1]}`,
+        expect.any(Number),
+      );
+
+      session.dispose();
+    });
+
     test("falls back to batch when the streaming transcriber fails to start", async () => {
       const fake = new FakeStreamingTranscriber({ deferStart: true });
       (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
