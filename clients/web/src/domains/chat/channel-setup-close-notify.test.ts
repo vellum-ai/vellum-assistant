@@ -41,7 +41,10 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
     return Promise.resolve({
       data: {
         accepted: true,
-        conversationId: opts.body.conversationId ?? "c-minted",
+        // Echo whichever version-gated wire field carried the id, like the
+        // daemon does.
+        conversationId:
+          opts.body.conversationId ?? opts.body.conversationKey ?? "c-minted",
         ...(postQueued ? { queued: true, requestId: "r1" } : { messageId: "m1" }),
       },
       error: undefined,
@@ -125,7 +128,9 @@ describe("notifyChannelSetupClosed", () => {
     expect(postCalls).toHaveLength(0);
   });
 
-  test("signals the turn store to expect a reply on an immediate send", async () => {
+  test("signals the turn store to expect a reply on an immediate send to the active conversation", async () => {
+    useConversationStore.getState().setActiveConversationId("c1");
+
     await notifyChannelSetupClosed({
       channel: "slack",
       assistantId: "a1",
@@ -134,6 +139,27 @@ describe("notifyChannelSetupClosed", () => {
     });
 
     expect(useTurnStore.getState().phase).toBe("thinking");
+  });
+
+  test("does not start a local turn when the user switched to another conversation", async () => {
+    // The marker still goes to the originating conversation, but the
+    // singleton turn store belongs to the on-screen chat — starting a turn
+    // there would strand it in "thinking" (its SSE filter drops the
+    // originating conversation's completion events).
+    useConversationStore.getState().setActiveConversationId("c-other");
+
+    await notifyChannelSetupClosed({
+      channel: "slack",
+      assistantId: "a1",
+      assistantName: "Vellum",
+      conversationId: "c1",
+    });
+
+    expect(postCalls).toHaveLength(1);
+    expect(
+      postCalls[0]?.body.conversationId ?? postCalls[0]?.body.conversationKey,
+    ).toBe("c1");
+    expect(useTurnStore.getState().phase).not.toBe("thinking");
   });
 
   test("does not start a turn for a queued send (the in-flight turn's SSE drives it)", async () => {

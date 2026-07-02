@@ -71,8 +71,14 @@ export async function notifyChannelSetupClosed(
     }
     // Only an immediately-processed message starts a turn now; a queued one
     // is dequeued behind the in-flight turn, whose SSE events already drive
-    // the turn store.
-    if (!result.queued) {
+    // the turn store. The turn store is a singleton scoped to the on-screen
+    // conversation, so also require the notified conversation to be the
+    // active one — if the user switched chats while the drawer was open, the
+    // active chat's SSE filter would drop the originating conversation's
+    // completion events and leave it stuck in "thinking".
+    const activeConversationId =
+      useConversationStore.getState().activeConversationId;
+    if (!result.queued && result.conversationId === activeConversationId) {
       useTurnStore.getState().requestSend();
     }
   } catch (err) {
