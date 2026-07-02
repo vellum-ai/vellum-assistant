@@ -81,4 +81,18 @@ describe("deriveFailureError", () => {
       "real failure detail",
     );
   });
+
+  test("a stray unmatched brace before the JSON does not block extraction", () => {
+    const stderr =
+      `some log { unmatched brace here\n` +
+      `... {"type":"error","error":{"message":"The real error"}} ...`;
+    expect(deriveFailureError("Internal error", stderr)).toBe("The real error");
+  });
+
+  test("braces inside a JSON string literal don't throw off the scan", () => {
+    const stderr = `{"error":{"message":"unexpected } brace {in} the text"}}`;
+    expect(deriveFailureError("Internal error", stderr)).toBe(
+      "unexpected } brace {in} the text",
+    );
+  });
 });
