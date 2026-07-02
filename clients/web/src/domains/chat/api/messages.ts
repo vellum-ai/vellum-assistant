@@ -463,21 +463,25 @@ export async function uploadChatAttachment(
   };
 }
 
-/** Optional fields for {@link postChatMessage}. */
-export interface PostChatMessageOptions {
-  /** Server-assigned attachment ids from `uploadChatAttachment`. */
-  attachmentIds?: string[];
+/**
+ * Optional fields for {@link postChatMessage}.
+ *
+ * The wire-bound fields are Picked from the generated request body so they
+ * can never drift from the daemon's schema; `onboarding` stays the domain
+ * type because it is normalized (`normalizePreChatOnboardingContext`) before
+ * it reaches the wire.
+ */
+export type PostChatMessageOptions = Pick<
+  MessagesPostData["body"],
+  | "attachmentIds"
+  | "clientMessageId"
+  | "inferenceProfile"
+  | "enabledPlugins"
+  | "hidden"
+> & {
   /** PreChat onboarding context — see the `postChatMessage` docs. */
   onboarding?: PreChatOnboardingContext;
-  /** Client-generated idempotency nonce for echo dedup. */
-  clientMessageId?: string;
-  /** Per-conversation model profile for a freshly minted conversation. */
-  inferenceProfile?: string | null;
-  /** Per-chat plugin selection for a freshly minted conversation. */
-  enabledPlugins?: string[] | null;
-  /** Persist the message but suppress it from the transcript. */
-  hidden?: boolean;
-}
+};
 
 /**
  * Send a user message without polling for the response.

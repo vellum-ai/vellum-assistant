@@ -15,17 +15,13 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import * as sdkGen from "@/generated/daemon/sdk.gen";
+import type { MessagesPostData } from "@/generated/daemon/types.gen";
 
-interface MessagesPostCall {
-  path: { assistant_id: string };
-  body: {
-    content: string;
-    hidden?: boolean;
-    conversationId?: string;
-    conversationKey?: string | null;
-  };
+// The generated request type is the source of truth for the wire shape the
+// mock receives — no handwritten duplicate to drift.
+type MessagesPostCall = Pick<MessagesPostData, "path" | "body"> & {
   throwOnError: false;
-}
+};
 
 let postCalls: MessagesPostCall[] = [];
 let postShouldThrow = false;
