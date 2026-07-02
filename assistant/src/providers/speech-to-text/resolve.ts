@@ -260,6 +260,14 @@ export interface ResolveStreamingTranscriberOptions {
    * See {@link DiarizePreference} for semantics.
    */
   diarize?: DiarizePreference;
+  /**
+   * Emit `final` events only at utterance boundaries on providers that
+   * otherwise commit multiple `is_final` segments per utterance
+   * (Deepgram — also enables its `utterance_end_ms` endpointing).
+   * Ignored by providers whose finals already align with pause
+   * boundaries. Used by telephony call ingestion. Default: false.
+   */
+  utteranceBoundaryFinals?: boolean;
 }
 
 /**
@@ -323,8 +331,17 @@ export async function resolveStreamingTranscriber(
   return createStreamingTranscriber(apiKey, provider as SttProviderId, {
     sampleRate: options.sampleRate,
     diarize: enableDiarization,
+    utteranceBoundaryFinals: options.utteranceBoundaryFinals ?? false,
   });
 }
+
+/**
+ * Deepgram `utterance_end_ms` used when utterance-boundary finals are
+ * requested. Deepgram requires >= 1000 ms; this is the pause length after
+ * which an `UtteranceEnd` frame confirms the utterance is complete even
+ * when `speech_final` endpointing never fired (e.g. background noise).
+ */
+const UTTERANCE_BOUNDARY_END_MS = 1_000;
 
 /**
  * Options forwarded to individual streaming adapter constructors.
@@ -338,6 +355,13 @@ interface CreateStreamingTranscriberOptions {
    * support.
    */
   diarize?: boolean;
+  /**
+   * Whether `final` events should be gated on utterance boundaries.
+   * Only forwarded to providers that commit multiple segments per
+   * utterance (Deepgram). Ignored by adapters whose finals already
+   * align with pause boundaries.
+   */
+  utteranceBoundaryFinals?: boolean;
 }
 
 /**
@@ -361,6 +385,12 @@ async function createStreamingTranscriber(
       return new DeepgramRealtimeTranscriber(apiKey, {
         sampleRate: options.sampleRate,
         ...(options.diarize ? { diarize: true } : {}),
+        ...(options.utteranceBoundaryFinals
+          ? {
+              utteranceBoundaryFinals: true,
+              utteranceEndMs: UTTERANCE_BOUNDARY_END_MS,
+            }
+          : {}),
       });
     }
     case "google-gemini": {
