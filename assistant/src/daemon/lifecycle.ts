@@ -154,6 +154,13 @@ export async function runDaemon(): Promise<void> {
   // legacy local opt-out hard-disable via closeSentry().
   initSentry();
 
+  // Signal handlers install before any blocking startup work — a boot that
+  // inherits a large WAL can spend minutes inside `initializeDb()`, and
+  // without handlers a SIGTERM in that window is the default hard kill.
+  // Handlers run a minimal exit path until `setStartupComplete()` below
+  // switches them to the full graceful shutdown.
+  installShutdownHandlers();
+
   ensureDataDir();
 
   // Recover from any streaming `.vbundle` import that was interrupted by a
@@ -719,12 +726,12 @@ export async function runDaemon(): Promise<void> {
 
   startHeartbeatService();
 
-  installShutdownHandlers();
-
   // The critical startup await-chain has completed and the daemon can serve
   // requests, so latch readiness before logging "Daemon started". Any fatal
   // failure earlier in startup propagates out of runDaemon before this line,
-  // so the latch is never set on a failed start.
+  // so the latch is never set on a failed start. The latch also switches the
+  // signal handlers installed at the top of startup from their minimal
+  // early-exit mode to the full graceful shutdown.
   setStartupComplete();
 
   log.info(
