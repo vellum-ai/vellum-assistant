@@ -2,22 +2,21 @@
  * `assistant schedules worker` CLI subgroup.
  *
  * Manages the schedule worker as its own OS process — separate from the
- * assistant's main event loop. Script-mode schedules (shell commands, no LLM)
- * run there, so expensive scheduled scripts do not compete with user-facing
- * traffic and keep running during a main-thread freeze. Non-script schedule
- * modes always run in the assistant, whose agent pipeline they depend on.
+ * assistant's main event loop. Scheduled jobs run there, so expensive
+ * scheduled work does not compete with user-facing traffic and keeps running
+ * during a main-thread freeze.
  *
  * Subcommands:
  *
  *   - `start`  — spawn the worker process and enable
  *     `schedules.worker.enabled`, so the assistant's scheduler leaves
- *     script-mode schedules to the worker.
+ *     schedule execution to the worker.
  *   - `stop`   — SIGTERM the worker process and disable
- *     `schedules.worker.enabled`, handing script-mode schedules back to the
+ *     `schedules.worker.enabled`, handing schedule execution back to the
  *     assistant's scheduler.
  *   - `status` — report the worker process state, the
  *     `schedules.worker.enabled` config value, and whether the assistant's
- *     in-process scheduler is currently the script-mode runner.
+ *     in-process scheduler is currently executing schedules.
  *
  * All three are thin IPC wrappers (transport: "ipc"): the assistant owns the
  * worker process so it is spawned as a *child of the assistant* — which is
@@ -55,7 +54,7 @@ interface StatusResponse {
   status: "running" | "not_running";
   pid?: number;
   workerEnabled: boolean;
-  inProcessScriptRunner: WorkerProcessState;
+  inProcessScheduler: WorkerProcessState;
 }
 
 // ---------------------------------------------------------------------------
@@ -71,15 +70,14 @@ export function registerSchedulesWorkerCommand(schedules: Command): void {
       worker.addHelpText(
         "after",
         `
-The schedule worker runs script-mode schedules in a separate OS process so
-expensive scheduled scripts execute off the assistant's main event loop. The
-assistant owns the process, so it is spawned as a child of the assistant and
-shows up in \`assistant ps\`. Non-script schedules (execute/notify/wake/
-workflow) always run in the assistant itself.
+The schedule worker runs scheduled jobs in a separate OS process so expensive
+scheduled work executes off the assistant's main event loop. The assistant
+owns the process, so it is spawned as a child of the assistant and shows up
+in \`assistant ps\`.
 
 \`start\` enables schedules.worker.enabled and \`stop\` disables it, so the
-assistant's scheduler hands script-mode schedules to the worker (start) or
-takes them back (stop) without a restart.
+assistant's scheduler hands schedule execution to the worker (start) or takes
+it back (stop) without a restart.
 
 Examples:
   $ assistant schedules worker start
@@ -110,7 +108,7 @@ Examples:
               : `Schedule worker started (PID ${res.pid})`,
           );
           log.info(
-            "Enabled schedules.worker.enabled; the assistant's scheduler will leave script-mode schedules to the worker",
+            "Enabled schedules.worker.enabled; the assistant's scheduler will leave schedule execution to the worker",
           );
         });
 
@@ -137,14 +135,14 @@ Examples:
             log.info("Schedule worker process was not running");
           }
           log.info(
-            "Disabled schedules.worker.enabled; the assistant's scheduler will run script-mode schedules again",
+            "Disabled schedules.worker.enabled; the assistant's scheduler will run schedules again",
           );
         });
 
       worker
         .command("status")
         .description(
-          "Report worker process state, schedules.worker.enabled, and the in-process script runner",
+          "Report worker process state, schedules.worker.enabled, and the in-process scheduler",
         )
         .option("--json", "Emit raw JSON instead of a formatted summary")
         .action(async (_opts: { json?: boolean }, cmd: Command) => {
@@ -164,12 +162,12 @@ Examples:
             log.info("Schedule worker process is not running");
           }
           log.info(`schedules.worker.enabled: ${res.workerEnabled}`);
-          if (res.inProcessScriptRunner.status === "running") {
+          if (res.inProcessScheduler.status === "running") {
             log.info(
-              `In-process script runner is running (PID ${res.inProcessScriptRunner.pid})`,
+              `In-process scheduler is running (PID ${res.inProcessScheduler.pid})`,
             );
           } else {
-            log.info("In-process script runner is not running");
+            log.info("In-process scheduler is not running");
           }
         });
     },

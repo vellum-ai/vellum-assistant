@@ -3,16 +3,15 @@ import { z } from "zod";
 /**
  * Schedule worker process configuration.
  *
- * The schedule worker runs script-mode schedules (shell commands, no LLM) as a
- * separate OS process — a child of the assistant — so expensive scheduled
- * scripts execute off the assistant's main event loop and keep running during
- * a main-thread freeze. The assistant's scheduler re-reads the flag on every
- * tick: while it is set, the in-process scheduler leaves script-mode schedules
- * to the worker (spawned at startup when set); while it is unset, the
- * in-process scheduler runs every mode itself. Non-script modes (execute,
- * notify, wake, workflow) always run in the assistant, whose agent pipeline
- * they depend on. `assistant schedules worker start`/`stop` flip the flag (and
- * spawn/stop the worker process) to switch modes at runtime without a restart.
+ * The schedule worker runs scheduled jobs as a separate OS process — a child
+ * of the assistant — so expensive scheduled work executes off the assistant's
+ * main event loop and keeps running during a main-thread freeze. The
+ * assistant's scheduler re-reads the flag on every tick: while it is set, the
+ * in-process scheduler leaves schedule execution to the worker (spawned at
+ * startup when set); while it is unset, the in-process scheduler runs
+ * schedules itself. `assistant schedules worker start`/`stop` flip the flag
+ * (and spawn/stop the worker process) to switch modes at runtime without a
+ * restart.
  */
 export const ScheduleWorkerConfigSchema = z
   .object({
@@ -20,7 +19,7 @@ export const ScheduleWorkerConfigSchema = z
       .boolean({ error: "schedules.worker.enabled must be a boolean" })
       .default(false)
       .describe(
-        "Whether script-mode schedules run in a separate schedule worker OS process instead of the assistant's in-process scheduler. When set, the assistant spawns the worker at startup and its own scheduler skips script-mode schedules. `assistant schedules worker start`/`stop` flip this flag at runtime.",
+        "Whether scheduled jobs run in a separate schedule worker OS process instead of the assistant's in-process scheduler. When set, the assistant spawns the worker at startup and its own scheduler stands down from executing schedules. `assistant schedules worker start`/`stop` flip this flag at runtime.",
       ),
   })
   .describe("Schedule worker process configuration");

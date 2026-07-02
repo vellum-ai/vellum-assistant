@@ -79,7 +79,7 @@ to 'execute' mode — notify/script/wake schedules are created via the
 in-assistant schedule_create tool, but can be inspected and updated here.
 
 The 'worker' subgroup manages the schedule worker process, which runs
-script-mode schedules in a separate OS process when enabled.
+scheduled jobs in a separate OS process when enabled.
 
 Examples:
   $ assistant schedules list

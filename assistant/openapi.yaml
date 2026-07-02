@@ -24356,7 +24356,7 @@ paths:
       summary: Start the schedule worker
       description:
         Spawns (or reuses) the schedule worker process as a child of the daemon and enables
-        schedules.worker.enabled, so script-mode schedules run out of process.
+        schedules.worker.enabled, so scheduled jobs run out of process.
       tags:
         - system
       responses:
@@ -24388,7 +24388,7 @@ paths:
       summary: Schedule worker status
       description:
         Reports the schedule worker process state, schedules.worker.enabled, and whether the daemon's in-process
-        scheduler is currently the script-mode runner.
+        scheduler is currently executing schedules.
       tags:
         - system
       responses:
@@ -24408,7 +24408,7 @@ paths:
                     type: number
                   workerEnabled:
                     type: boolean
-                  inProcessScriptRunner:
+                  inProcessScheduler:
                     type: object
                     properties:
                       status:
@@ -24424,14 +24424,14 @@ paths:
                 required:
                   - status
                   - workerEnabled
-                  - inProcessScriptRunner
+                  - inProcessScheduler
                 additionalProperties: false
   /v1/schedules/worker/stop:
     post:
       operationId: schedules_worker_stop_post
       summary: Stop the schedule worker
       description:
-        Disables schedules.worker.enabled (handing script-mode schedules back to the in-process scheduler) and
+        Disables schedules.worker.enabled (handing schedule execution back to the in-process scheduler) and
         SIGTERMs the schedule worker process if it is running.
       tags:
         - system

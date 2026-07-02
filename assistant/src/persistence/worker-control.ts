@@ -18,23 +18,27 @@ import {
   type WorkerProcessStatus,
 } from "../util/worker-process.js";
 
-export type MemoryWorkerStatus = WorkerProcessStatus;
-
 /**
  * Inspect the PID file to determine whether the worker process is alive.
  * A stale PID file (pointing at a dead process) is cleaned up and reported
  * as not_running.
  */
-export function probeMemoryWorker(): MemoryWorkerStatus {
+export function probeMemoryWorker(): WorkerProcessStatus {
   return probeWorkerPidFile(getMemoryWorkerPidPath());
 }
 
 export class MemoryWorkerSpawnError extends WorkerProcessSpawnError {}
 
 /**
- * Spawn options for the memory worker. Beyond the generic semantics
- * documented on {@link SpawnWorkerProcessOptions}, two flags carry
- * queue-ownership consequences specific to the memory worker:
+ * Spawn the memory worker as a background process. If a worker is already
+ * running, returns its PID with `alreadyRunning: true` rather than spawning a
+ * second one. Throws {@link MemoryWorkerSpawnError} if the child crashes
+ * during startup or never writes its PID file within the wait window (i.e.
+ * failed to start).
+ *
+ * Beyond the generic option semantics documented on
+ * {@link SpawnWorkerProcessOptions}, two flags carry queue-ownership
+ * consequences specific to the memory worker:
  *
  *   - `terminateOnTimeout` — callers that leave `memory.worker.enabled` off
  *     on failure (the CLI `memory worker start`) MUST set this: otherwise the
@@ -47,17 +51,8 @@ export class MemoryWorkerSpawnError extends WorkerProcessSpawnError {}
  *     command); `false` for the daemon (the worker appears in `assistant ps`
  *     and is torn down with the daemon).
  */
-export type SpawnMemoryWorkerOptions = SpawnWorkerProcessOptions;
-
-/**
- * Spawn the memory worker as a background process. If a worker is already
- * running, returns its PID with `alreadyRunning: true` rather than spawning a
- * second one. Throws {@link MemoryWorkerSpawnError} if the child crashes
- * during startup or never writes its PID file within the wait window (i.e.
- * failed to start).
- */
 export async function spawnMemoryWorkerProcess(
-  opts: SpawnMemoryWorkerOptions = {},
+  opts: SpawnWorkerProcessOptions = {},
 ): Promise<{
   pid: number;
   alreadyRunning: boolean;
@@ -84,6 +79,6 @@ export async function spawnMemoryWorkerProcess(
  * whether anything was stopped. Only throws if `process.kill` itself fails
  * (e.g. EPERM) — a not-running worker is a no-op.
  */
-export function stopMemoryWorkerProcess(): MemoryWorkerStatus {
+export function stopMemoryWorkerProcess(): WorkerProcessStatus {
   return stopWorkerProcess(getMemoryWorkerPidPath());
 }

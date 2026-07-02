@@ -21,11 +21,11 @@ import { getLogger } from "../util/logger.js";
 import { runWatchersOnce } from "../watcher/engine.js";
 import { normalizeCapabilityManifest } from "../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
-import { handleScheduleExecutionFailure } from "./execution-failure.js";
 import { hasSetConstructs } from "./recurrence-engine.js";
+import { applyRetryDecision, decideRetry } from "./retry-policy.js";
+import { runScript, type ScriptResult } from "./run-script.js";
 import {
   claimDueSchedules,
-  type ClaimDueSchedulesOptions,
   completeOneShot,
   completeScheduleRun,
   createScheduleRun,
@@ -33,12 +33,17 @@ import {
   failOneShotPermanently,
   getLastScheduleConversationId,
   listSchedules,
+  resetRetryCount,
   retryOneShot,
   type RoutingIntent,
+  type ScheduleJob,
+  scheduleRetry,
   setScheduleRunConversationId,
 } from "./schedule-store.js";
-import { runScriptScheduleJob } from "./script-schedule-runner.js";
-import { startScheduleWorkerIfEnabled } from "./worker-control.js";
+import {
+  startScheduleWorkerIfEnabled,
+  stopScheduleWorker,
+} from "./worker-control.js";
 
 const log = getLogger("scheduler");
 
@@ -181,14 +186,45 @@ const TICK_INTERVAL_MS = 15_000;
  */
 const WAKE_MAX_RETRIES = 20;
 
+/**
+ * Apply retry policy on schedule-execution failure. Retries are scheduled by
+ * `applyRetryDecision`; once retries are exhausted, the `emitAlert` callback
+ * fires an `activity.failed` notification so the user sees that a job
+ * permanently failed rather than just silently disappearing.
+ */
+async function handleExecutionFailure(params: {
+  job: ScheduleJob;
+  errorMsg: string;
+  isOneShot: boolean;
+}): Promise<void> {
+  const decision = decideRetry(params.job);
+  await applyRetryDecision({
+    job: params.job,
+    isOneShot: params.isOneShot,
+    errorMsg: params.errorMsg,
+    decision,
+    scheduleRetry,
+    failOneShotPermanently,
+    resetRetryCount,
+    emitAlert: (_title, _summary, dedupKey) =>
+      emitScheduleActivityFailed({
+        jobId: params.job.id,
+        jobName: params.job.name,
+        errorMessage: params.errorMsg,
+        dedupKey,
+      }),
+    log,
+  });
+}
+
 /** The running scheduler, retained so shutdown can stop it. */
 let instance: SchedulerHandle | null = null;
 
 export function startScheduler(): SchedulerHandle {
-  // When the schedule worker owns script-mode schedules, spawn it now as a
-  // child of the daemon so it is running immediately. Fire-and-forget — a
-  // worker failure must never block boot, and every tick below re-reads the
-  // flag so ownership stays consistent either way.
+  // When the schedule worker owns schedule execution, spawn it now as a child
+  // of the daemon so it is running immediately. Fire-and-forget — a worker
+  // failure must never block boot, and every tick below re-reads the flag so
+  // ownership stays consistent either way.
   startScheduleWorkerIfEnabled();
 
   let stopped = false;
@@ -236,8 +272,14 @@ export function startScheduler(): SchedulerHandle {
   return instance;
 }
 
-/** Stop the running scheduler if one was started; no-op otherwise. */
+/**
+ * Stop the running scheduler if one was started, and SIGTERM the schedule
+ * worker process if one is running. The worker stop is keyed off live state
+ * rather than config: it may have been spawned at startup or out of band via
+ * `assistant schedules worker start`.
+ */
 export function stopScheduler(): void {
+  stopScheduleWorker();
   if (!instance) {
     return;
   }
@@ -256,11 +298,11 @@ export async function runScheduleOnce(): Promise<number> {
 }
 
 /**
- * True while the schedule worker process owns script-mode schedules. Read
- * from config on every call so a runtime `assistant schedules worker
- * start`/`stop` switches ownership without a restart.
+ * True while the schedule worker process owns schedule execution. Read from
+ * config on every call so a runtime `assistant schedules worker start`/`stop`
+ * switches ownership without a restart.
  */
-function scheduleWorkerOwnsScriptMode(): boolean {
+function scheduleWorkerOwnsSchedules(): boolean {
   return getConfig().schedules?.worker?.enabled === true;
 }
 
@@ -269,6 +311,17 @@ export async function runScheduleDueWorkOnce(
 ): Promise<SchedulerDueWorkResult> {
   const now = options.now ?? Date.now();
   const minStartBudgetMs = options.minStartBudgetMs ?? 0;
+  // While `schedules.worker.enabled` is set, the schedule worker process owns
+  // schedule execution: this process leaves every due schedule unclaimed so
+  // exactly one process runs them, and reports none of them as its own
+  // pending work. The flag is re-read from config every tick, so `assistant
+  // schedules worker start`/`stop` switch ownership without a restart.
+  // Watchers and sequences below always run in the daemon.
+  const workerOwnsSchedules = scheduleWorkerOwnsSchedules();
+  const countStillPending = (at: number): number =>
+    options.includeStillPending && !workerOwnsSchedules
+      ? countDueScheduleJobs(at)
+      : 0;
   const result: SchedulerDueWorkResult = {
     claimed: 0,
     completed: 0,
@@ -276,17 +329,12 @@ export async function runScheduleDueWorkOnce(
     skipped: 0,
     stillPending: 0,
   };
-  const mark = (status: "completed" | "failed" | "skipped") => {
-    result[status] += 1;
-  };
 
   if (
     options.deadlineAt != null &&
     options.deadlineAt - Date.now() < minStartBudgetMs
   ) {
-    result.stillPending = options.includeStillPending
-      ? countDueScheduleJobs(now)
-      : 0;
+    result.stillPending = countStillPending(now);
     result.skipped = result.stillPending;
     return result;
   }
@@ -302,21 +350,74 @@ export async function runScheduleDueWorkOnce(
         "Schedule tick skipped during disk pressure cleanup mode",
       );
     }
-    result.stillPending = options.includeStillPending
-      ? countDueScheduleJobs(now)
-      : 0;
+    result.stillPending = countStillPending(now);
     return result;
   }
 
   // ── Schedules (recurring cron/RRULE + one-shot) ─────────────────────
-  // While `schedules.worker.enabled` is set, the schedule worker process owns
-  // script-mode schedules — leave them unclaimed here so exactly one process
-  // executes them. The flag is re-read from config every tick, so `assistant
-  // schedules worker start`/`stop` switch ownership without a restart.
-  const claimOptions: ClaimDueSchedulesOptions = scheduleWorkerOwnsScriptMode()
-    ? { excludeModes: ["script"] }
-    : {};
-  const jobs = await claimDueSchedules(now, claimOptions);
+  if (!workerOwnsSchedules) {
+    const schedules = await runDueSchedulesOnce(now);
+    result.claimed = schedules.claimed;
+    result.completed += schedules.completed;
+    result.failed += schedules.failed;
+    result.skipped += schedules.skipped;
+  }
+
+  // ── Watchers (event-driven polling) ────────────────────────────────
+  try {
+    const watcherProcessed = await runWatchersOnce(emitWatcherNotifySignal);
+    result.completed += watcherProcessed;
+  } catch (err) {
+    log.error({ err }, "Watcher tick failed");
+  }
+
+  // ── Sequences (multi-step outreach) ──────────────────────────────
+  try {
+    const sequenceProcessed = await runSequencesOnce();
+    result.completed += sequenceProcessed;
+  } catch (err) {
+    log.error({ err }, "Sequence engine tick failed");
+  }
+
+  result.stillPending = countStillPending(Date.now());
+  const processed = result.completed + result.failed + result.skipped;
+  if (processed > 0) {
+    log.info({ processed }, "Schedule tick complete");
+  }
+  return result;
+}
+
+/**
+ * Claim and execute every due schedule (all modes: notify, script, wake,
+ * workflow, execute). Called from the daemon's tick while
+ * `schedules.worker.enabled` is off, and from the schedule worker process's
+ * tick while it is on. Claims are atomic in the schedule store, so a process
+ * whose view of the flag lags a tick behind cannot double-run a job another
+ * process already claimed.
+ */
+export async function runDueSchedulesOnce(
+  now: number = Date.now(),
+): Promise<Omit<SchedulerDueWorkResult, "stillPending">> {
+  const result = { claimed: 0, completed: 0, failed: 0, skipped: 0 };
+  const mark = (status: "completed" | "failed" | "skipped") => {
+    result[status] += 1;
+  };
+
+  const diskPressureGate = checkDiskPressureBackgroundGate("background-work");
+  if (diskPressureGate.action === "skip") {
+    if (shouldLogDiskPressureBackgroundSkip("scheduler-schedules")) {
+      log.warn(
+        {
+          source: "schedule",
+          ...diskPressureBackgroundSkipLogFields(diskPressureGate),
+        },
+        "Due-schedule run skipped during disk pressure cleanup mode",
+      );
+    }
+    return result;
+  }
+
+  const jobs = await claimDueSchedules(now);
   result.claimed = jobs.length;
   for (const job of jobs) {
     const isOneShot = job.expression == null;
@@ -363,7 +464,7 @@ export async function runScheduleDueWorkOnce(
           status: "error",
           error: errorMsg,
         });
-        await handleScheduleExecutionFailure({ job, errorMsg, isOneShot });
+        await handleExecutionFailure({ job, errorMsg, isOneShot });
         failed = true;
       }
       mark(failed ? "failed" : "completed");
@@ -372,7 +473,52 @@ export async function runScheduleDueWorkOnce(
 
     // ── Script mode (shell command, no LLM) ────────────────────────
     if (job.mode === "script") {
-      mark(await runScriptScheduleJob(job));
+      if (!job.script) {
+        log.warn(
+          { jobId: job.id, name: job.name },
+          "Script schedule has no script command — skipping",
+        );
+        mark("skipped");
+        continue;
+      }
+      const runId = await createScheduleRun(job.id, `script:${job.id}`);
+      let failed = false;
+      try {
+        log.info(
+          { jobId: job.id, name: job.name, isOneShot },
+          "Executing script schedule",
+        );
+        const result: ScriptResult = await runScript(job.script, {
+          timeoutMs: job.timeoutMs ?? undefined,
+          scheduleRunId: runId,
+          scheduleId: job.id,
+        });
+        await completeScheduleRun(runId, {
+          status: result.exitCode === 0 ? "ok" : "error",
+          output: result.stdout || undefined,
+          error: result.stderr || undefined,
+        });
+        if (result.exitCode === 0) {
+          if (isOneShot) {
+            await completeOneShot(job.id);
+          }
+        } else {
+          const errorMsg =
+            result.stderr || "Script exited with non-zero status";
+          await handleExecutionFailure({ job, errorMsg, isOneShot });
+          failed = true;
+        }
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        log.warn(
+          { err, jobId: job.id, name: job.name, isOneShot },
+          "Script schedule execution failed",
+        );
+        await completeScheduleRun(runId, { status: "error", error: errorMsg });
+        await handleExecutionFailure({ job, errorMsg, isOneShot });
+        failed = true;
+      }
+      mark(failed ? "failed" : "completed");
       continue;
     }
 
@@ -479,7 +625,7 @@ export async function runScheduleDueWorkOnce(
           status: "error",
           error: errorMsg,
         });
-        await handleScheduleExecutionFailure({ job, errorMsg, isOneShot });
+        await handleExecutionFailure({ job, errorMsg, isOneShot });
         failed = true;
       }
       mark(failed ? "failed" : "completed");
@@ -560,7 +706,7 @@ export async function runScheduleDueWorkOnce(
           "Workflow schedule trigger failed",
         );
         await completeScheduleRun(runId, { status: "error", error: errorMsg });
-        await handleScheduleExecutionFailure({ job, errorMsg, isOneShot });
+        await handleExecutionFailure({ job, errorMsg, isOneShot });
         failed = true;
       }
       mark(failed ? "failed" : "completed");
@@ -630,7 +776,7 @@ export async function runScheduleDueWorkOnce(
             conversationId: result.conversationId,
             errorMessage,
           });
-          await handleScheduleExecutionFailure({
+          await handleExecutionFailure({
             job,
             errorMsg: errorMessage,
             isOneShot,
@@ -678,7 +824,7 @@ export async function runScheduleDueWorkOnce(
           conversationId: fallbackConversation.id,
           errorMessage: message,
         });
-        await handleScheduleExecutionFailure({
+        await handleExecutionFailure({
           job,
           errorMsg: message,
           isOneShot,
@@ -828,7 +974,7 @@ export async function runScheduleDueWorkOnce(
           : "Schedule execution failed",
       );
       await completeScheduleRun(runId, { status: "error", error: errorMsg });
-      await handleScheduleExecutionFailure({
+      await handleExecutionFailure({
         job,
         errorMsg: errorMsg ?? "Schedule run failed",
         isOneShot,
@@ -853,41 +999,13 @@ export async function runScheduleDueWorkOnce(
     }
   }
 
-  // ── Watchers (event-driven polling) ────────────────────────────────
-  try {
-    const watcherProcessed = await runWatchersOnce(emitWatcherNotifySignal);
-    result.completed += watcherProcessed;
-  } catch (err) {
-    log.error({ err }, "Watcher tick failed");
-  }
-
-  // ── Sequences (multi-step outreach) ──────────────────────────────
-  try {
-    const sequenceProcessed = await runSequencesOnce();
-    result.completed += sequenceProcessed;
-  } catch (err) {
-    log.error({ err }, "Sequence engine tick failed");
-  }
-
-  if (options.includeStillPending) {
-    result.stillPending = countDueScheduleJobs(Date.now());
-  }
-  const processed = result.completed + result.failed + result.skipped;
-  if (processed > 0) {
-    log.info({ processed }, "Schedule tick complete");
-  }
   return result;
 }
 
 function countDueScheduleJobs(now: number): number {
-  // Script-mode schedules the worker process owns are not this process's
-  // pending work — counting them would keep drain-due leases reporting
-  // stillPending for jobs the daemon deliberately leaves unclaimed.
-  const excludeScript = scheduleWorkerOwnsScriptMode();
   return listSchedules({ enabledOnly: true }).filter(
     (job) =>
       job.status === "active" &&
-      !(excludeScript && job.mode === "script") &&
       Number.isFinite(job.nextRunAt) &&
       job.nextRunAt > 0 &&
       job.nextRunAt <= now,
@@ -898,10 +1016,8 @@ function countDueScheduleJobs(now: number): number {
  * Emit an `activity.failed` notification for a failed scheduled task run.
  * Mirrors the shape `runBackgroundJob` produces for its own failures so the
  * home feed and native notifications stay consistent regardless of which
- * code path executed the work. Distinct from the retries-exhausted alert in
- * `execution-failure.ts`, which fires once when the retry policy has given
- * up — this one fires per failed task run. Fire-and-forget — a notification
- * failure must never break scheduler operation.
+ * code path executed the work. Fire-and-forget — a notification failure
+ * must never break scheduler operation.
  */
 function emitTaskActivityFailed(args: {
   taskId: string;
@@ -933,6 +1049,46 @@ function emitTaskActivityFailed(args: {
         conversationId: args.conversationId,
       },
       "Failed to emit activity.failed notification for scheduled task",
+    );
+  });
+}
+
+/**
+ * Emit an `activity.failed` notification for a schedule whose retries have
+ * been exhausted. Distinct from `emitTaskActivityFailed` (which fires per
+ * failed task run) — this one fires once when the retry policy has given
+ * up, so the dedupeKey caller is the per-attempt key passed in by
+ * `applyRetryDecision` (already includes the job id and a timestamp).
+ */
+function emitScheduleActivityFailed(args: {
+  jobId: string;
+  jobName: string;
+  errorMessage: string;
+  dedupKey: string;
+}): void {
+  emitNotificationSignal({
+    sourceChannel: "scheduler",
+    sourceContextId: args.jobId,
+    sourceEventName: "activity.failed",
+    dedupeKey: args.dedupKey,
+    contextPayload: {
+      jobName: `schedule:${args.jobName}`,
+      errorMessage: args.errorMessage,
+      errorKind: "exception",
+    },
+    attentionHints: {
+      requiresAction: false,
+      urgency: "medium",
+      isAsyncBackground: true,
+      visibleInSourceNow: false,
+    },
+  }).catch((emitErr) => {
+    log.warn(
+      {
+        err: emitErr instanceof Error ? emitErr.message : String(emitErr),
+        jobId: args.jobId,
+      },
+      "Failed to emit activity.failed notification for exhausted schedule",
     );
   });
 }

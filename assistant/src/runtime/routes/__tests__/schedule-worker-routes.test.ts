@@ -132,7 +132,7 @@ describe("schedules_worker_stop", () => {
 });
 
 describe("schedules_worker_status", () => {
-  test("reports a running worker with the flag on and the in-process runner standing down", async () => {
+  test("reports a running worker with the flag on and the in-process scheduler standing down", async () => {
     workerProbe = { status: "running", pid: 321 };
     configEnabled = true;
 
@@ -142,11 +142,11 @@ describe("schedules_worker_status", () => {
       status: "running",
       pid: 321,
       workerEnabled: true,
-      inProcessScriptRunner: { status: "not_running" },
+      inProcessScheduler: { status: "not_running" },
     });
   });
 
-  test("reports the daemon as the script runner when the flag is off", async () => {
+  test("reports the daemon as the schedule runner when the flag is off", async () => {
     workerProbe = { status: "not_running" };
     configEnabled = false;
 
@@ -155,7 +155,7 @@ describe("schedules_worker_status", () => {
     expect(res).toEqual({
       status: "not_running",
       workerEnabled: false,
-      inProcessScriptRunner: { status: "running", pid: process.pid },
+      inProcessScheduler: { status: "running", pid: process.pid },
     });
   });
 });

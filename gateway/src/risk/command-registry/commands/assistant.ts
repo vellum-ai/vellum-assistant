@@ -640,12 +640,13 @@ const riskOverrides: AssistantRiskOverride[] = [
   {
     path: "schedules worker start",
     risk: "medium",
-    reason: "Spawns a background process that runs script-mode schedules",
+    reason: "Spawns a background process that runs scheduled jobs",
   },
   {
     path: "schedules worker stop",
-    risk: "low",
-    reason: "Sends SIGTERM to the schedule worker process",
+    risk: "medium",
+    reason:
+      "Disables schedules.worker.enabled and sends SIGTERM to the schedule worker process",
   },
   {
     path: "schedules worker status",

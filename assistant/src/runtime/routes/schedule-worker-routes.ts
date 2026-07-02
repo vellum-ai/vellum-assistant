@@ -65,24 +65,24 @@ const statusResponseSchema = z.object({
   status: z.enum(["running", "not_running"]),
   pid: z.number().optional(),
   workerEnabled: z.boolean(),
-  inProcessScriptRunner: workerStatusSchema,
+  inProcessScheduler: workerStatusSchema,
 });
 
 /**
  * Start (or reuse) the schedule worker process as a child of the daemon, then
- * enable `schedules.worker.enabled` so the daemon's scheduler leaves
- * script-mode schedules to it. The flag is only enabled once the worker is
- * confirmed up — on spawn failure it is left untouched so the in-process
- * scheduler keeps running script schedules rather than standing down for a
- * worker that never came up.
+ * enable `schedules.worker.enabled` so the daemon's scheduler leaves schedule
+ * execution to it. The flag is only enabled once the worker is confirmed up —
+ * on spawn failure it is left untouched so the in-process scheduler keeps
+ * running schedules rather than standing down for a worker that never came
+ * up.
  */
 async function startScheduleWorker() {
   let result: { pid: number; alreadyRunning: boolean };
   try {
     // `detached: false` parents the worker to the daemon. `terminateOnTimeout`
     // matches the leave-the-flag-off-on-failure contract below: a worker that
-    // came up late would otherwise run script schedules alongside the
-    // in-process scheduler.
+    // came up late would otherwise run schedules alongside the in-process
+    // scheduler.
     result = await spawnScheduleWorkerProcess({
       detached: false,
       terminateOnTimeout: true,
@@ -107,9 +107,9 @@ async function startScheduleWorker() {
 }
 
 /**
- * Disable `schedules.worker.enabled` (handing script-mode schedules back to
- * the in-process scheduler) and SIGTERM the worker process if it is running.
- * A worker that is not running is not an error — flipping the flag alone
+ * Disable `schedules.worker.enabled` (handing schedule execution back to the
+ * in-process scheduler) and SIGTERM the worker process if it is running. A
+ * worker that is not running is not an error — flipping the flag alone
  * restores in-process execution.
  */
 function stopScheduleWorker() {
@@ -133,20 +133,20 @@ function stopScheduleWorker() {
 
 /**
  * Report the worker process state, the `schedules.worker.enabled` config
- * value, and whether the daemon's own scheduler is currently the script-mode
- * runner.
+ * value, and whether the daemon's own scheduler is currently executing
+ * schedules.
  *
- * The in-process scheduler runs script-mode schedules exactly when the flag
- * is off (it excludes script mode from its claims while the flag is on). This
- * handler runs inside the daemon — the very process that is (or isn't) the
- * in-process runner — so the runner's state is derived directly from config,
- * with the daemon's own PID, rather than read back from a marker file.
+ * The in-process scheduler executes schedules exactly when the flag is off
+ * (it stands down from claiming while the flag is on). This handler runs
+ * inside the daemon — the very process that is (or isn't) the in-process
+ * scheduler — so its state is derived directly from config, with the
+ * daemon's own PID, rather than read back from a marker file.
  */
 function scheduleWorkerStatus() {
   const worker = probeScheduleWorker();
   const workerEnabled = getConfigReadOnly().schedules.worker.enabled;
 
-  const inProcessScriptRunner: {
+  const inProcessScheduler: {
     status: "running" | "not_running";
     pid?: number;
   } = workerEnabled
@@ -157,7 +157,7 @@ function scheduleWorkerStatus() {
     status: worker.status,
     ...(worker.pid != null ? { pid: worker.pid } : {}),
     workerEnabled,
-    inProcessScriptRunner,
+    inProcessScheduler,
   };
 }
 
@@ -173,7 +173,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: startScheduleWorker,
     summary: "Start the schedule worker",
     description:
-      "Spawns (or reuses) the schedule worker process as a child of the daemon and enables schedules.worker.enabled, so script-mode schedules run out of process.",
+      "Spawns (or reuses) the schedule worker process as a child of the daemon and enables schedules.worker.enabled, so scheduled jobs run out of process.",
     tags: ["system"],
     responseBody: startResponseSchema,
   },
@@ -188,7 +188,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: stopScheduleWorker,
     summary: "Stop the schedule worker",
     description:
-      "Disables schedules.worker.enabled (handing script-mode schedules back to the in-process scheduler) and SIGTERMs the schedule worker process if it is running.",
+      "Disables schedules.worker.enabled (handing schedule execution back to the in-process scheduler) and SIGTERMs the schedule worker process if it is running.",
     tags: ["system"],
     responseBody: stopResponseSchema,
   },
@@ -203,7 +203,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: scheduleWorkerStatus,
     summary: "Schedule worker status",
     description:
-      "Reports the schedule worker process state, schedules.worker.enabled, and whether the daemon's in-process scheduler is currently the script-mode runner.",
+      "Reports the schedule worker process state, schedules.worker.enabled, and whether the daemon's in-process scheduler is currently executing schedules.",
     tags: ["system"],
     responseBody: statusResponseSchema,
   },

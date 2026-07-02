@@ -1,16 +1,5 @@
 import { Cron } from "croner";
-import {
-  and,
-  asc,
-  desc,
-  eq,
-  inArray,
-  isNull,
-  lt,
-  lte,
-  notInArray,
-  sql,
-} from "drizzle-orm";
+import { and, asc, desc, eq, isNull, lt, lte, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../persistence/db-connection.js";
@@ -454,24 +443,6 @@ export async function deleteSchedule(id: string): Promise<boolean> {
   return deleted;
 }
 
-export interface ClaimDueSchedulesOptions {
-  /** Claim only schedules whose mode is in this set. */
-  includeModes?: ScheduleMode[];
-  /** Claim every mode except these. Ignored when `includeModes` is set. */
-  excludeModes?: ScheduleMode[];
-}
-
-/** Candidate-query mode condition for {@link claimDueSchedules}, if any. */
-function modeCondition(options: ClaimDueSchedulesOptions) {
-  if (options.includeModes && options.includeModes.length > 0) {
-    return inArray(scheduleJobs.mode, options.includeModes);
-  }
-  if (options.excludeModes && options.excludeModes.length > 0) {
-    return notInArray(scheduleJobs.mode, options.excludeModes);
-  }
-  return undefined;
-}
-
 /**
  * Claim due schedules atomically. Handles both recurring and one-shot schedules.
  *
@@ -481,16 +452,8 @@ function modeCondition(options: ClaimDueSchedulesOptions) {
  *
  * For one-shot schedules: transition status from 'active' to 'firing' where
  * next_run_at <= now and enabled = true and cron_expression IS NULL.
- *
- * `options` narrows the claim by mode: the in-process scheduler excludes
- * `script` while the schedule worker owns it, and the worker claims only
- * `script`. The claim updates themselves stay keyed on id + optimistic lock,
- * so two claimers with disjoint mode sets never contend on the same row.
  */
-export async function claimDueSchedules(
-  now: number,
-  options: ClaimDueSchedulesOptions = {},
-): Promise<ScheduleJob[]> {
+export async function claimDueSchedules(now: number): Promise<ScheduleJob[]> {
   const db = getDb();
   const claimed: ScheduleJob[] = [];
 
@@ -503,7 +466,6 @@ export async function claimDueSchedules(
         eq(scheduleJobs.enabled, true),
         lte(scheduleJobs.nextRunAt, now),
         sql`${scheduleJobs.cronExpression} IS NOT NULL`,
-        modeCondition(options),
       ),
     )
     .orderBy(asc(scheduleJobs.nextRunAt))
@@ -586,7 +548,6 @@ export async function claimDueSchedules(
         eq(scheduleJobs.status, "active"),
         lte(scheduleJobs.nextRunAt, now),
         eq(scheduleJobs.enabled, true),
-        modeCondition(options),
       ),
     )
     .orderBy(asc(scheduleJobs.nextRunAt))

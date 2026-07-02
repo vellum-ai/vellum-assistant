@@ -22,20 +22,16 @@ import {
 
 const log = getLogger("monitoring-control");
 
-export type MonitoringWorkerStatus = WorkerProcessStatus;
-
 /**
  * Read the PID file and report liveness. A missing or malformed file reports
  * not_running; a file pointing at a dead process is cleaned up and reported as
  * not_running.
  */
-export function probeMonitoringWorker(): MonitoringWorkerStatus {
+export function probeMonitoringWorker(): WorkerProcessStatus {
   return probeWorkerPidFile(getMonitoringPidPath());
 }
 
 export class MonitoringWorkerSpawnError extends WorkerProcessSpawnError {}
-
-export type SpawnMonitoringWorkerOptions = SpawnWorkerProcessOptions;
 
 /**
  * Spawn the resource monitor as a background process. If a monitor is already
@@ -44,7 +40,7 @@ export type SpawnMonitoringWorkerOptions = SpawnWorkerProcessOptions;
  * during startup or never writes its PID file within the wait window.
  */
 export async function spawnMonitoringWorkerProcess(
-  opts: SpawnMonitoringWorkerOptions = {},
+  opts: SpawnWorkerProcessOptions = {},
 ): Promise<{ pid: number; alreadyRunning: boolean }> {
   try {
     return await spawnWorkerProcess({
@@ -66,7 +62,7 @@ export async function spawnMonitoringWorkerProcess(
  * status observed before signalling. Only throws if `process.kill` itself fails
  * (e.g. EPERM) — a not-running monitor is a no-op.
  */
-export function stopMonitoringWorkerProcess(): MonitoringWorkerStatus {
+export function stopMonitoringWorkerProcess(): WorkerProcessStatus {
   return stopWorkerProcess(getMonitoringPidPath());
 }
 

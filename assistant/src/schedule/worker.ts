@@ -3,23 +3,23 @@
  *
  * Spawned by `assistant schedules worker start` (and at daemon startup when
  * `schedules.worker.enabled` is set). Loads config, writes a PID file, and
- * claims + executes due script-mode schedules on a fixed tick until
- * SIGTERM/SIGINT.
+ * claims + executes due schedules (all modes) on a fixed tick until
+ * SIGTERM/SIGINT. While the flag is set, the daemon's in-process scheduler
+ * leaves schedules to this process.
  *
  * Running as a separate process — off the assistant's main event loop — is
- * the point: expensive scheduled scripts (long builds, backups, exports)
- * execute here without competing with user-facing traffic, and keep running
- * during a main-thread freeze in the daemon. Non-script schedule modes
- * (execute, notify, wake, workflow) stay in the daemon, whose agent pipeline
- * they depend on.
+ * the point: expensive scheduled jobs execute here without competing with
+ * user-facing traffic, and keep running during a main-thread freeze in the
+ * daemon.
  */
 
 import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 
 import { getConfig } from "../config/loader.js";
+import { initializeTools } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
 import { getScheduleWorkerPidPath } from "../util/platform.js";
-import { runScriptSchedulesOnce } from "./script-schedule-runner.js";
+import { runDueSchedulesOnce } from "./scheduler.js";
 
 const log = getLogger("schedule-worker-process");
 
@@ -37,7 +37,7 @@ function cleanupPidFile(): void {
   }
 }
 
-function main(): void {
+async function main(): Promise<void> {
   // Load config up front so a broken config fails the spawn (before the PID
   // file is written) instead of surfacing on the first tick.
   getConfig();
@@ -47,6 +47,20 @@ function main(): void {
   writeFileSync(pidPath, String(process.pid), { flag: "w" });
   log.info({ pid: process.pid, pidPath }, "Schedule worker process started");
 
+  // Populate the tool registry (core built-ins + workspace tools). The daemon
+  // does this at startup; this standalone process has to do it itself so
+  // workflow schedules pass the core-tools readiness gate and agent-executed
+  // schedules run with their tools. Best-effort — a tool-registry failure
+  // must not take the worker down with it.
+  try {
+    await initializeTools();
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to initialize tools in schedule worker; continuing degraded",
+    );
+  }
+
   let stopped = false;
   let tickRunning = false;
   const tick = async () => {
@@ -55,7 +69,8 @@ function main(): void {
     }
     tickRunning = true;
     try {
-      const processed = await runScriptSchedulesOnce();
+      const result = await runDueSchedulesOnce();
+      const processed = result.completed + result.failed + result.skipped;
       if (processed > 0) {
         log.info({ processed }, "Schedule worker tick complete");
       }
@@ -109,10 +124,8 @@ function main(): void {
   });
 }
 
-try {
-  main();
-} catch (err) {
+void main().catch((err) => {
   log.error({ err }, "Schedule worker process failed to start");
   cleanupPidFile();
   process.exit(1);
-}
+});

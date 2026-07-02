@@ -22,38 +22,33 @@ import {
 
 const log = getLogger("schedule-worker-control");
 
-export type ScheduleWorkerStatus = WorkerProcessStatus;
-
 /**
  * Inspect the PID file to determine whether the schedule worker process is
  * alive. A stale PID file (pointing at a dead process) is cleaned up and
  * reported as not_running.
  */
-export function probeScheduleWorker(): ScheduleWorkerStatus {
+export function probeScheduleWorker(): WorkerProcessStatus {
   return probeWorkerPidFile(getScheduleWorkerPidPath());
 }
 
 export class ScheduleWorkerSpawnError extends WorkerProcessSpawnError {}
 
 /**
- * Spawn options for the schedule worker. Beyond the generic semantics
- * documented on {@link SpawnWorkerProcessOptions}: callers whose failure path
- * leaves `schedules.worker.enabled` off (the start route) should set
- * `terminateOnTimeout` so a worker reported as failed cannot come up later
- * and run script schedules alongside the daemon's scheduler; the daemon's
- * boot spawn leaves the flag on, so a late worker there is the desired sole
- * script runner and passes `false`.
- */
-export type SpawnScheduleWorkerOptions = SpawnWorkerProcessOptions;
-
-/**
  * Spawn the schedule worker as a background process. If a worker is already
  * running, returns its PID with `alreadyRunning: true` rather than spawning a
  * second one. Throws {@link ScheduleWorkerSpawnError} if the child crashes
  * during startup or never writes its PID file within the wait window.
+ *
+ * Beyond the generic option semantics documented on
+ * {@link SpawnWorkerProcessOptions}: callers whose failure path leaves
+ * `schedules.worker.enabled` off (the start route) should set
+ * `terminateOnTimeout` so a worker reported as failed cannot come up later
+ * and run schedules alongside the daemon's scheduler; the daemon's boot
+ * spawn leaves the flag on, so a late worker there is the desired sole
+ * schedule runner and passes `false`.
  */
 export async function spawnScheduleWorkerProcess(
-  opts: SpawnScheduleWorkerOptions = {},
+  opts: SpawnWorkerProcessOptions = {},
 ): Promise<{ pid: number; alreadyRunning: boolean }> {
   try {
     return await spawnWorkerProcess({
@@ -75,7 +70,7 @@ export async function spawnScheduleWorkerProcess(
  * Returns the status observed before signalling. Only throws if
  * `process.kill` itself fails (e.g. EPERM) — a not-running worker is a no-op.
  */
-export function stopScheduleWorkerProcess(): ScheduleWorkerStatus {
+export function stopScheduleWorkerProcess(): WorkerProcessStatus {
   return stopWorkerProcess(getScheduleWorkerPidPath());
 }
 
@@ -84,7 +79,7 @@ export function stopScheduleWorkerProcess(): ScheduleWorkerStatus {
  * daemon (`detached: false`, so it appears in `assistant ps` and is torn down
  * on shutdown) when `schedules.worker.enabled` is set. Fire-and-forget — a
  * worker failure must never block boot. The flag stays on either way, so a
- * worker that comes up late is the desired sole script runner
+ * worker that comes up late is the desired sole schedule runner
  * (`terminateOnTimeout` is deliberately not set).
  */
 export function startScheduleWorkerIfEnabled(): void {
