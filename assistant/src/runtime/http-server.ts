@@ -502,9 +502,13 @@ export class RuntimeHttpServer {
       this.retrySweepTimer = setInterval(() => {
         if (this.sweepInProgress) return;
         this.sweepInProgress = true;
-        sweepFailedEvents(processMessage).finally(() => {
-          this.sweepInProgress = false;
-        });
+        void sweepFailedEvents(processMessage)
+          .catch((err) => {
+            log.error({ err }, "Failed channel event retry sweep failed");
+          })
+          .finally(() => {
+            this.sweepInProgress = false;
+          });
       }, 30_000);
     }
 

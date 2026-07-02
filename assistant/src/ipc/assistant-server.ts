@@ -683,10 +683,8 @@ function injectLocalActorHeader(
     return args;
   }
 
-  // Defensive: the guardian lookup queries the contacts table, which may
-  // not yet exist on a very early boot path or in test fixtures that don't
-  // initialize the DB. A failure here must not block IPC dispatch — routes
-  // that require the header will fail-closed on their own.
+  // Defensive: a failure here must not block IPC dispatch. Routes that require
+  // the header fail closed on their own.
   let localActor: string | undefined;
   try {
     localActor = findLocalGuardianPrincipalIdFromStore();

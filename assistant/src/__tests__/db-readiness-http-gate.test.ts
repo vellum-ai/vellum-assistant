@@ -1,3 +1,4 @@
+import { createServer } from "node:net";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
@@ -136,7 +137,7 @@ describe("DB migration readiness HTTP gate", () => {
   });
 
   async function startServer(): Promise<void> {
-    server = new RuntimeHttpServer({ port: 0 });
+    server = new RuntimeHttpServer({ port: await getFreePort() });
     await server.start();
     port = server.actualPort;
   }
@@ -146,3 +147,20 @@ describe("DB migration readiness HTTP gate", () => {
     return `http://127.0.0.1:${port}/v1${pathname}`;
   }
 });
+
+function getFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const probe = createServer();
+    probe.once("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      const address = probe.address();
+      probe.close(() => {
+        if (address && typeof address === "object") {
+          resolve(address.port);
+        } else {
+          reject(new Error("Failed to allocate free port"));
+        }
+      });
+    });
+  });
+}
