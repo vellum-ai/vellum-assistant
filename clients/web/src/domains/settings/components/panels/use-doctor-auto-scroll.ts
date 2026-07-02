@@ -38,11 +38,6 @@ export interface UseDoctorAutoScrollReturn {
  * fighting them and surface a "Go to Newest" affordance so they can
  * catch up on their own.
  *
- * The previous implementation force-scrolled on every `message_delta`
- * with no escape hatch, which made mobile (Android web) sessions
- * disorienting — the viewport snapped back to the bottom mid-drag with
- * no way to read earlier content until the response finished.
- *
  * The hook owns the scroll element via a callback ref + state rather
  * than a plain ref object. The messages div is only rendered once a
  * session is active (it is absent in the idle/loading branches), so a
@@ -142,8 +137,15 @@ export function useDoctorAutoScroll(
     if (!scrollEl) {
       return;
     }
+    // Instant rather than smooth: a smooth catch-up animation emits
+    // intermediate scroll events that classify() would see as "scrolled
+    // away" (distance from bottom > 64px mid-animation), flipping
+    // isPinnedRef back to false before the scroll settles. A
+    // message_delta landing during the animation would then skip the
+    // auto-follow effect and leave the user behind the stream. Instant
+    // has no intermediate events, so the pinned flag stays true.
     isPinnedRef.current = true;
-    scrollEl.scrollTo({ top: scrollEl.scrollHeight, behavior: "smooth" });
+    scrollEl.scrollTo({ top: scrollEl.scrollHeight, behavior: "auto" });
     setShowScrollToLatest(false);
   }, [scrollEl]);
 

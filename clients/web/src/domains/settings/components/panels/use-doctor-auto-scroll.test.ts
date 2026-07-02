@@ -271,8 +271,7 @@ describe("useDoctorAutoScroll", () => {
     expect(result.current.showScrollToLatest).toBe(true);
   });
 
-  test("resets pinned state when a new scroll element attaches", () => {
-    // First transcript — user scrolls away (un-pinned).
+  test("resets pinned state when a new scroll element attaches", () => {    // First transcript — user scrolls away (un-pinned).
     const { el: el1 } = createScrollElement({
       scrollTop: 4200,
       scrollHeight: 5000,
@@ -317,5 +316,56 @@ describe("useDoctorAutoScroll", () => {
     // also fires on el2 (auto-follow), but we assert the user-visible
     // contract: the pill is hidden on the fresh transcript.
     expect(result.current.showScrollToLatest).toBe(false);
+  });
+
+  test("catch-up during an active stream keeps auto-follow engaged", () => {
+    // The regression: a smooth scrollToLatest emits intermediate scroll
+    // events >64px from the bottom, which classify() would flip to
+    // unpinned before the scroll settles — so a delta landing during the
+    // animation skips auto-follow. Instant scrollToLatest has no
+    // intermediate events, so the pinned flag stays true and the next
+    // delta auto-follows.
+    const { el, scrollToCalls } = createScrollElement({
+      scrollTop: 4200,
+      scrollHeight: 5000,
+      clientHeight: 800,
+    });
+    document.body.appendChild(el);
+
+    const { result, rerender } = renderHook(
+      (entries: ReadonlyArray<unknown>) => useDoctorAutoScroll(entries),
+      { initialProps: [{}] as ReadonlyArray<unknown> },
+    );
+
+    act(() => {
+      result.current.scrollContainerRef(el);
+    });
+
+    // User scrolls away (un-pinned), pill visible.
+    act(() => {
+      el.scrollTop = 1000; // distance from bottom = 3200
+      el.dispatchEvent(new Event("scroll"));
+    });
+    expect(result.current.showScrollToLatest).toBe(true);
+
+    // User taps "Go to Newest". scrollToLatest is instant, so no
+    // intermediate scroll events fire. Pinned flag stays true.
+    act(() => {
+      result.current.scrollToLatest();
+    });
+    expect(result.current.showScrollToLatest).toBe(false);
+
+    const callsBefore = scrollToCalls.length;
+
+    // A streaming delta lands immediately after catch-up. scrollHeight
+    // grows; the growth effect should auto-follow because we're pinned.
+    act(() => {
+      (el as any).scrollHeight = 6000;
+      rerender([{}, {}] as ReadonlyArray<unknown>);
+    });
+
+    expect(scrollToCalls.length).toBeGreaterThan(callsBefore);
+    const last = scrollToCalls.at(-1);
+    expect(last!.top).toBe(6000);
   });
 });
