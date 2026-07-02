@@ -285,6 +285,100 @@ describe("notification decision fallback copy", () => {
     expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 reject"');
     expect(decision.renderedCopy.vellum?.body).not.toContain("<your answer>");
   });
+
+  test("slack approval copy is stripped of request-code instructions instead of enforced", async () => {
+    const signal = makeSignal({
+      contextPayload: {
+        requestId: "req-grant-slack-1",
+        questionText: "Approve tool: bash — ls /tmp (requested by Alice)",
+        requestCode: "A1B2C3",
+        requestKind: "tool_grant_request",
+        toolName: "bash",
+      },
+    });
+
+    const decision = await evaluateSignal(signal, [
+      "vellum",
+      "slack",
+    ] as NotificationChannel[]);
+
+    expect(decision.fallbackUsed).toBe(true);
+    // Vellum keeps the code-reply directive.
+    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 approve"');
+    // Slack renders Approve/Reject buttons — no code anywhere in its copy.
+    expect(decision.renderedCopy.slack?.body).toBe(
+      "Approve tool: bash — ls /tmp (requested by Alice)",
+    );
+    expect(decision.renderedCopy.slack?.body).not.toContain("A1B2C3");
+  });
+
+  test("slack copy strips LLM-authored approval-code phrasing for approval requests", async () => {
+    configuredProvider = {
+      sendMessage: async () => ({ content: [] }),
+    };
+    extractedToolUse = {
+      name: "record_notification_decision",
+      input: {
+        shouldNotify: true,
+        selectedChannels: ["slack"],
+        reasoningSummary: "LLM decision",
+        renderedCopy: {
+          slack: {
+            title: "Tool Grant Request",
+            body: "Alice is asking to run ls /tmp.",
+            deliveryText:
+              'Alice is asking to run ls /tmp.\nApproval code: A1B2C3\nReference code: A1B2C3. Reply "A1B2C3 approve" or "A1B2C3 reject".',
+          },
+        },
+        dedupeKey: "guardian-question-slack-llm-test",
+        confidence: 0.9,
+      },
+    };
+
+    const signal = makeSignal({
+      contextPayload: {
+        requestId: "req-grant-slack-2",
+        questionText: "Approve tool: bash — ls /tmp (requested by Alice)",
+        requestCode: "A1B2C3",
+        requestKind: "tool_grant_request",
+        toolName: "bash",
+      },
+    });
+
+    const decision = await evaluateSignal(signal, [
+      "slack",
+    ] as NotificationChannel[]);
+
+    expect(decision.fallbackUsed).toBe(false);
+    expect(decision.renderedCopy.slack?.deliveryText).toBe(
+      "Alice is asking to run ls /tmp.",
+    );
+    expect(decision.renderedCopy.slack?.body).toBe(
+      "Alice is asking to run ls /tmp.",
+    );
+  });
+
+  test("slack answer-mode questions keep code instructions (no buttons render)", async () => {
+    const signal = makeSignal({
+      contextPayload: {
+        requestId: "req-pending-slack-1",
+        questionText: "What is the gate code?",
+        requestCode: "A1B2C3",
+        requestKind: "pending_question",
+        callSessionId: "call-1",
+        activeGuardianRequestCount: 1,
+      },
+    });
+
+    const decision = await evaluateSignal(signal, [
+      "slack",
+    ] as NotificationChannel[]);
+
+    expect(decision.fallbackUsed).toBe(true);
+    expect(decision.renderedCopy.slack?.body).toContain(
+      '"A1B2C3 <your answer>"',
+    );
+  });
 });
 
 // ── Access-request instruction enforcement ──────────────────────────────

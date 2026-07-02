@@ -1,4 +1,9 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
+import {
+  contextBridge,
+  ipcRenderer,
+  webUtils,
+  type IpcRendererEvent,
+} from "electron";
 
 import type {
   Lockfile,
@@ -402,6 +407,19 @@ const bridge: VellumBridge = {
         ipcRenderer.send("vellum:fileOpen:unsubscribe");
         ipcRenderer.off("vellum:fileOpen:event", handler);
       };
+    },
+  },
+  paths: {
+    // Synchronous — `webUtils.getPathForFile` runs entirely inside the
+    // preload's renderer context (no IPC hop), which is required because
+    // `File` objects can't be serialized across the renderer↔main boundary.
+    getPathForFile: (file: File): string | null => {
+      try {
+        const path = webUtils.getPathForFile(file);
+        return path ? path : null;
+      } catch {
+        return null;
+      }
     },
   },
   feedback: {

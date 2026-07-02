@@ -69,6 +69,10 @@ import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh";
 import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript";
 import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll";
 import { useIsNativePlatform } from "@/runtime/native-auth";
+import {
+  resolveDroppedDirectories,
+  WEB_FOLDER_DROP_ERROR,
+} from "@/domains/chat/components/chat-attachments/handle-folder-drop";
 import { Button } from "@vellumai/design-library";
 import { Link, useLocation, useNavigate } from "react-router";
 import {
@@ -663,11 +667,24 @@ export function ChatMainPanel({
     },
     [addChatAttachmentFiles, activeModelSupportsVision, visionGateActive],
   );
+  const handleDroppedDirectories = useCallback((directories: File[]) => {
+    const { resolvedPaths, unresolvedCount } =
+      resolveDroppedDirectories(directories);
+    if (resolvedPaths.length > 0) {
+      useComposerStore.getState().addPathReferences(resolvedPaths);
+    }
+    if (unresolvedCount > 0) {
+      useComposerStore.setState({
+        attachmentLastError: WEB_FOLDER_DROP_ERROR,
+      });
+    }
+  }, []);
   const {
     isDragOver: isAttachmentDragOver,
     dropHandlers: attachmentDropHandlers,
   } = useChatAttachmentDropZone({
     onFiles: handleDroppedFiles,
+    onDirectories: handleDroppedDirectories,
     disabled: typingDisabled || !assistantId,
   });
 
