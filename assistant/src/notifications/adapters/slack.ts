@@ -40,14 +40,26 @@ const log = getLogger("notif-adapter-slack");
 // Slack Card block builders for approval notifications
 // ---------------------------------------------------------------------------
 
-/** Build action buttons for a Slack Card block from approval metadata. */
+/**
+ * Build action buttons for a Slack Card block from approval metadata.
+ *
+ * Emphasis is positional: the first action is the recommended default and
+ * renders `primary`; destructive actions render `danger`; everything else
+ * stays Slack's default style. For introduction cards the ordering comes
+ * from the signal-driven action list, so emphasis shifts with identity
+ * confidence.
+ */
 function buildCardActions(approval: ApprovalUIMetadata): Button[] {
-  return approval.actions.map((action) => ({
+  return approval.actions.map((action, index) => ({
     type: "button",
     text: { type: "plain_text", text: action.label, emoji: true },
     action_id: `apr:${approval.requestId}:${action.id}`,
     value: `apr:${approval.requestId}:${action.id}`,
-    ...(action.id === "reject" ? { style: "danger" } : { style: "primary" }),
+    ...(action.id === "reject" || action.id === "block"
+      ? { style: "danger" }
+      : index === 0
+        ? { style: "primary" }
+        : {}),
   }));
 }
 
@@ -63,7 +75,9 @@ function buildAccessRequestSubtitle(view: AccessRequestCardView): string {
     parts.push(`(@${view.username})`);
   }
 
-  if (view.sourceChannel) parts.push(`via ${view.sourceChannel}`);
+  if (view.sourceChannel) {
+    parts.push(`via ${view.sourceChannel}`);
+  }
 
   return truncate(parts.join(" "), 150);
 }
@@ -111,7 +125,9 @@ function buildRequesterIdBlock(
   view: AccessRequestCardView,
 ): ContextBlock | undefined {
   const safeExternalId = view.externalId;
-  if (!safeExternalId) return undefined;
+  if (!safeExternalId) {
+    return undefined;
+  }
 
   if (safeExternalId === view.displayName || safeExternalId === view.username) {
     return undefined;
@@ -171,10 +187,14 @@ function buildAccessRequestCardBlocks(
   }
 
   const sourceContext = buildSourceContextBlock(view);
-  if (sourceContext) blocks.push(sourceContext);
+  if (sourceContext) {
+    blocks.push(sourceContext);
+  }
 
   const idBlock = buildRequesterIdBlock(view);
-  if (idBlock) blocks.push(idBlock);
+  if (idBlock) {
+    blocks.push(idBlock);
+  }
 
   blocks.push({
     type: "context",
@@ -240,7 +260,9 @@ function buildToolApprovalCardBlocks(
     },
     actions: buildCardActions(approval),
   };
-  if (subtitle) card.subtitle = { type: "mrkdwn", text: subtitle };
+  if (subtitle) {
+    card.subtitle = { type: "mrkdwn", text: subtitle };
+  }
   blocks.push(card);
 
   // When the message exceeds the card body limit, show the full text in a

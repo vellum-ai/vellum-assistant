@@ -17,6 +17,7 @@ import type { ApprovalUIMetadata } from "../runtime/channel-approval-types.js";
 import { getLogger } from "../util/logger.js";
 import {
   buildAccessRequestContractText,
+  buildIntroductionActionsForPayload,
   parseAccessRequestPayload,
 } from "./access-request-copy.js";
 import { isGuardianSensitiveEvent } from "./adapters/macos.js";
@@ -59,27 +60,43 @@ function resolveApprovalContext(
   signal: NotificationSignal,
 ): ApprovalUIMetadata | undefined {
   const payload = signal.contextPayload;
-  if (!payload) return undefined;
+  if (!payload) {
+    return undefined;
+  }
 
   if (signal.sourceEventName === "ingress.access_request") {
     const requestId = nonEmpty(
       typeof payload.requestId === "string" ? payload.requestId : undefined,
     );
-    if (!requestId) return undefined;
+    if (!requestId) {
+      return undefined;
+    }
+    // Introduction card: the action set is signal-driven (workspace member /
+    // bot / external), never the generic Approve/Reject pair. The first
+    // action is the emphasized default; no code option is ever offered for a
+    // bot.
     return {
       requestId,
-      actions: APPROVAL_ACTIONS,
+      actions: buildIntroductionActionsForPayload(
+        parseAccessRequestPayload(payload),
+      ),
       plainTextFallback: buildAccessRequestContractText(payload),
     };
   }
 
   if (signal.sourceEventName === "guardian.question") {
     const parsed = parseGuardianQuestionPayload(payload);
-    if (!parsed) return undefined;
+    if (!parsed) {
+      return undefined;
+    }
     const { mode } = resolveGuardianInstructionModeFromPayload(parsed);
-    if (mode !== "approval") return undefined;
+    if (mode !== "approval") {
+      return undefined;
+    }
     const requestId = nonEmpty(parsed.requestId);
-    if (!requestId) return undefined;
+    if (!requestId) {
+      return undefined;
+    }
 
     // Extract tool context so channel adapters can render structured
     // approval cards without re-parsing contextPayload.
@@ -184,8 +201,12 @@ export class NotificationBroadcaster {
     // event fires immediately, before slower channel sends (e.g. Telegram 30s
     // timeout) can delay it past the macOS deep-link retry window.
     const orderedChannels = [...decision.selectedChannels].sort((a, b) => {
-      if (a === "vellum") return -1;
-      if (b === "vellum") return 1;
+      if (a === "vellum") {
+        return -1;
+      }
+      if (b === "vellum") {
+        return 1;
+      }
       return 0;
     });
 
@@ -552,7 +573,9 @@ export class NotificationBroadcaster {
 function resolveSourceConversationId(
   sourceContextId: string | undefined,
 ): string | undefined {
-  if (!sourceContextId) return undefined;
+  if (!sourceContextId) {
+    return undefined;
+  }
   try {
     return getConversation(sourceContextId) ? sourceContextId : undefined;
   } catch {

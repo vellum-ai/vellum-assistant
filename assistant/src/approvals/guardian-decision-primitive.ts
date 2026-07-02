@@ -17,7 +17,9 @@
  *   - Decision authorization is purely principal-based:
  *     actor.guardianPrincipalId === request.guardianPrincipalId (strict equality)
  *   - Decisions are first-response-wins (CAS-like stale protection)
- *   - Only `approve_once` and `reject` are valid actions
+ *   - Valid actions are the `ApprovalAction` union; the introduction-card
+ *     actions (trust / verify_code / leave_unverified / block) are scoped to
+ *     `access_request` requests only
  *   - Scoped grant minting only on explicit approve for requests with tool metadata
  */
 
@@ -27,7 +29,12 @@ import {
   getCanonicalGuardianRequest,
   resolveCanonicalGuardianRequest,
 } from "../contacts/canonical-guardian-store.js";
-import type { ApprovalAction } from "../runtime/channel-approval-types.js";
+import {
+  APPROVAL_ACTION_SET,
+  type ApprovalAction,
+  DENYING_ACTION_SET,
+  INTRODUCTION_ACTION_SET,
+} from "../runtime/channel-approval-types.js";
 import { getLogger } from "../util/logger.js";
 import { mintGrantFromDecision } from "./approval-primitive.js";
 import { withdrawGuardianRequestCards } from "./guardian-card-withdrawal.js";
@@ -122,11 +129,13 @@ export function mintCanonicalRequestGrant(params: {
 // Canonical guardian decision primitive
 // ---------------------------------------------------------------------------
 
-/** Valid actions for canonical guardian decisions. */
-const VALID_CANONICAL_ACTIONS: ReadonlySet<ApprovalAction> = new Set([
-  "approve_once",
-  "reject",
-]);
+/**
+ * Valid actions for canonical guardian decisions. The introduction-card
+ * actions (`trust` / `verify_code` / `leave_unverified` / `block`) are only
+ * valid for `access_request` requests — kind scoping is enforced after the
+ * request lookup.
+ */
+const VALID_CANONICAL_ACTIONS: ReadonlySet<string> = APPROVAL_ACTION_SET;
 
 export interface ApplyCanonicalGuardianDecisionParams {
   /** The canonical request ID to resolve. */
@@ -226,6 +235,30 @@ export async function applyCanonicalGuardianDecision(
     };
   }
 
+  // 2b-ii. Introduction-card actions set a contact's trust level and are only
+  // meaningful for access requests. Rejecting them for every other kind keeps
+  // e.g. a handcrafted `apr:<toolApprovalId>:trust` callback from resolving a
+  // tool approval.
+  if (
+    INTRODUCTION_ACTION_SET.has(action) &&
+    request.kind !== "access_request"
+  ) {
+    log.warn(
+      {
+        event: "canonical_decision_action_kind_mismatch",
+        requestId,
+        action,
+        kind: request.kind,
+      },
+      "Introduction-card action rejected for non-access-request kind",
+    );
+    return {
+      applied: false,
+      reason: "invalid_action",
+      detail: `action ${action} is only valid for access_request`,
+    };
+  }
+
   // 2c. Principal-based authorization: actor.guardianPrincipalId must match
   // request.guardianPrincipalId for any applied decision. This is the single
   // authorization gate — principal identity must always match.
@@ -299,8 +332,11 @@ export async function applyCanonicalGuardianDecision(
 
   // 3. CAS resolve: atomically transition from 'pending' to terminal status
   const effectiveAction: ApprovalAction = action;
-  const targetStatus: CanonicalRequestStatus =
-    effectiveAction === "reject" ? "denied" : "approved";
+  const targetStatus: CanonicalRequestStatus = DENYING_ACTION_SET.has(
+    effectiveAction,
+  )
+    ? "denied"
+    : "approved";
 
   const resolved = resolveCanonicalGuardianRequest(requestId, "pending", {
     status: targetStatus,
@@ -367,7 +403,7 @@ export async function applyCanonicalGuardianDecision(
   // would allow the tool to execute without the intended resolver action
   // (e.g. answerCall) having succeeded.
   let grantMinted = false;
-  if (effectiveAction !== "reject" && !resolverFailed) {
+  if (targetStatus === "approved" && !resolverFailed) {
     const grantResult = mintCanonicalRequestGrant({
       request: resolved,
       actorChannel: actorContext.channel,

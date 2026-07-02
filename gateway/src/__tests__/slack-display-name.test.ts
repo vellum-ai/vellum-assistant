@@ -53,10 +53,8 @@ const {
 } = await import("../slack/normalize.js");
 const { handleInbound } = await import("../handlers/handle-inbound.js");
 const { initGatewayDb, resetGatewayDb } = await import("../db/connection.js");
-const {
-  initAdmissionPolicyCache,
-  resetAdmissionPolicyCache,
-} = await import("../risk/admission-policy-cache.js");
+const { initAdmissionPolicyCache, resetAdmissionPolicyCache } =
+  await import("../risk/admission-policy-cache.js");
 import type { SlackAppMentionEvent } from "../slack/normalize.js";
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
@@ -142,6 +140,29 @@ describe("resolveSlackUser", () => {
     expect(info!.timezone).toBe("America/New_York");
     expect(info!.timezoneLabel).toBe("Eastern Daylight Time");
     expect(info!.timezoneOffsetSeconds).toBe(-14400);
+    // Workspace human: no bot signal.
+    expect(info!.isBot).toBeUndefined();
+  });
+
+  test("resolves the is_bot signal for bot users", async () => {
+    fetchMock = mock(async () => {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          user: {
+            name: "shard-bot",
+            real_name: "Shard",
+            is_bot: true,
+            profile: { display_name: "Shard" },
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+
+    const info = await resolveSlackUser("U-BOT", "xoxb-token");
+    expect(info).not.toBeUndefined();
+    expect(info!.isBot).toBe(true);
   });
 
   test("falls back to real_name when display_name is empty", async () => {
