@@ -1,6 +1,5 @@
 import packageJson from "../package.json" with { type: "json" };
 import {
-  TWILIO_CONNECT_ACTION_WEBHOOK_PATH,
   TWILIO_MEDIA_STREAM_WEBHOOK_PATH,
   TWILIO_STATUS_WEBHOOK_PATH,
   TWILIO_VOICE_WEBHOOK_PATH,
@@ -386,63 +385,6 @@ export function buildSchema(): Record<string, unknown> {
           responses: {
             "200": {
               description: "Status callback processed",
-            },
-            "403": {
-              description: "Twilio signature validation failed",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "405": {
-              description: "Method not allowed",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "413": {
-              description: "Webhook payload too large",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "502": {
-              description: "Failed to forward to runtime",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-          },
-        },
-      },
-      [TWILIO_CONNECT_ACTION_WEBHOOK_PATH]: {
-        post: {
-          summary: "Twilio connect-action webhook",
-          description:
-            "Receives Twilio ConversationRelay connect-action callbacks, validates the X-Twilio-Signature, and forwards to the assistant runtime.",
-          operationId: "twilioConnectActionWebhook",
-          security: [{ TwilioSignature: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/x-www-form-urlencoded": {
-                schema: {
-                  type: "object",
-                  additionalProperties: { type: "string" },
-                },
-              },
-            },
-          },
-          responses: {
-            "200": {
-              description: "Connect-action callback processed",
             },
             "403": {
               description: "Twilio signature validation failed",

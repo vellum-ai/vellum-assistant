@@ -15585,16 +15585,6 @@ paths:
                     required:
                       - skipped
                     additionalProperties: false
-  /v1/internal/twilio/connect-action:
-    post:
-      operationId: internal_twilio_connectaction_post
-      summary: Internal Twilio connect-action
-      description: Gateway-to-runtime forwarding for ConversationRelay connect-action callback.
-      tags:
-        - internal
-      responses:
-        "200":
-          description: Successful response
   /v1/internal/twilio/status:
     post:
       operationId: internal_twilio_status_post

@@ -101,7 +101,7 @@ This document enumerates every observed communication permutation between the th
 
 - **Protocol:** `http`
 - **Auth:** JWT Bearer (service token)
-- **Description:** Gateway forwards validated Twilio voice/status/connect-action webhooks to the assistant's internal Twilio endpoints.
+- **Description:** Gateway forwards validated Twilio voice/status webhooks to the assistant's internal Twilio endpoints.
 
 **Caller files:**
 - `gateway/src/runtime/client.ts`

@@ -3,7 +3,6 @@ process.title = "vellum-gateway";
 import { randomBytes } from "node:crypto";
 
 import {
-  TWILIO_CONNECT_ACTION_WEBHOOK_PATH,
   TWILIO_MEDIA_STREAM_WEBHOOK_PATH,
   TWILIO_STATUS_WEBHOOK_PATH,
   TWILIO_VOICE_WEBHOOK_PATH,
@@ -39,7 +38,6 @@ import { createTelegramWebhookHandler } from "./http/routes/telegram-webhook.js"
 import { createAudioProxyHandler } from "./http/routes/audio-proxy.js";
 import { createTwilioVoiceWebhookHandler } from "./http/routes/twilio-voice-webhook.js";
 import { createTwilioStatusWebhookHandler } from "./http/routes/twilio-status-webhook.js";
-import { createTwilioConnectActionWebhookHandler } from "./http/routes/twilio-connect-action-webhook.js";
 import { createTwilioVoiceVerifyCallbackHandler } from "./http/routes/twilio-voice-verify-callback.js";
 import {
   createTwilioMediaWebsocketHandler,
@@ -447,8 +445,6 @@ async function main() {
     config,
     twilioValidationCaches,
   );
-  const handleTwilioConnectActionWebhook =
-    createTwilioConnectActionWebhookHandler(config, twilioValidationCaches);
   const handleTwilioVoiceVerifyCallback =
     createTwilioVoiceVerifyCallbackHandler(config, twilioValidationCaches);
   const handleTwilioMediaWs = createTwilioMediaWebsocketHandler(config, {
@@ -604,10 +600,6 @@ async function main() {
     {
       path: TWILIO_STATUS_WEBHOOK_PATH,
       handler: (req) => handleTwilioStatusWebhook(req),
-    },
-    {
-      path: TWILIO_CONNECT_ACTION_WEBHOOK_PATH,
-      handler: (req) => handleTwilioConnectActionWebhook(req),
     },
     {
       path: "/webhooks/twilio/voice-verify",

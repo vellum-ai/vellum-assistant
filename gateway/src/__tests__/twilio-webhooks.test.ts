@@ -49,8 +49,6 @@ const { createTwilioVoiceWebhookHandler } =
   await import("../http/routes/twilio-voice-webhook.js");
 const { createTwilioStatusWebhookHandler } =
   await import("../http/routes/twilio-status-webhook.js");
-const { createTwilioConnectActionWebhookHandler } =
-  await import("../http/routes/twilio-connect-action-webhook.js");
 
 const AUTH_TOKEN = "test-twilio-auth-token";
 
@@ -431,64 +429,6 @@ describe("Twilio status webhook", () => {
 
     const res = await handler(req);
     expect(res.status).toBe(502);
-  });
-});
-
-describe("Twilio connect-action webhook", () => {
-  test("rejects invalid signature with 403", async () => {
-    const handler = createTwilioConnectActionWebhookHandler(
-      makeConfig(),
-      makeCaches(),
-    );
-    const invalidSignature = "wrong";
-    const req = new Request(
-      "http://localhost:7830/webhooks/twilio/connect-action",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          "X-Twilio-Signature": invalidSignature,
-        },
-        body: "CallSid=CA123",
-      },
-    );
-    const res = await handler(req);
-    expect(res.status).toBe(403);
-    expectFailureDiagnosticLog({
-      webhookKind: "connect-action",
-      invalidSignature,
-      candidateCount: 1,
-      candidateSources: ["raw_request"],
-      candidateUrls: ["http://localhost:7830/webhooks/twilio/connect-action"],
-    });
-  });
-
-  test("forwards valid signed request to runtime", async () => {
-    const twiml = '<?xml version="1.0" encoding="UTF-8"?><Response/>';
-    fetchMock = mock(
-      async () =>
-        new Response(twiml, {
-          status: 200,
-          headers: { "Content-Type": "text/xml" },
-        }),
-    );
-
-    const handler = createTwilioConnectActionWebhookHandler(
-      makeConfig(),
-      makeCaches(),
-    );
-    const url = "http://localhost:7830/webhooks/twilio/connect-action";
-    const params = { CallSid: "CA123" };
-    const req = buildSignedRequest(url, params, AUTH_TOKEN);
-
-    const res = await handler(req);
-    expect(res.status).toBe(200);
-
-    const body = await res.text();
-    expect(body).toBe(twiml);
-
-    const calledUrl = (fetchMock.mock.calls[0] as unknown[])[0] as string;
-    expect(calledUrl).toContain("/v1/internal/twilio/connect-action");
   });
 });
 
