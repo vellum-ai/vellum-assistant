@@ -12,7 +12,7 @@
  * `verification_sessions_validate_consume` route): rate limiting, identity
  * binding, the status-guarded atomic consume, and the in-engine role side
  * effects (guardian phone binding / trusted-contact channel upsert) that
- * replace the outbound-voice-verification-sync poller.
+ * replaced the old gateway polling loop for outbound voice sessions.
  */
 
 import { randomBytes, randomUUID } from "node:crypto";
@@ -203,10 +203,9 @@ const CONSUME_FAILURE: ValidateConsumeSessionResult = {
  * Side effects are applied here, in the engine, because trust-graph writes
  * must never happen in the (potentially prompt-injected) daemon:
  * - guardian purpose on phone with an expected number (the outbound voice
- *   shape): create the phone guardian binding synchronously — this replaces
- *   the outbound-voice-verification-sync poller. A blocked authoritative
- *   gateway row rejects the verification first (mirrors the text guardian
- *   path).
+ *   shape): create the phone guardian binding synchronously. A blocked
+ *   authoritative gateway row rejects the verification first (mirrors the
+ *   text guardian path).
  * - trusted_contact purpose: upsert the verified contact channel; a
  *   blocked/revoked authoritative gateway row rejects the verification even
  *   though the code matched (mirrors text-verification).
@@ -296,9 +295,9 @@ export async function validateAndConsumeSession(
     }
 
     // Guardian purpose on the outbound voice shape (an expected phone number
-    // is only ever set by startOutboundVoice) — exactly the filter the
-    // retired poller used. Bind synchronously at consume time, anchored on
-    // the persisted consume timestamp (never a fresh clock sample).
+    // is only ever set by startOutboundVoice). Bind synchronously at consume
+    // time, anchored on the persisted consume timestamp (never a fresh clock
+    // sample).
     await createPhoneGuardianBinding(
       actorExternalUserId,
       actorChatId,
@@ -311,9 +310,8 @@ export async function validateAndConsumeSession(
 
 /**
  * Create the guardian phone binding for a consumed outbound voice
- * verification session. Called synchronously at consume time (and, until the
- * poller is deleted, by outbound-voice-verification-sync replays — both are
- * idempotent here).
+ * verification session. Called synchronously at consume time; idempotent
+ * under IPC retries.
  *
  * `sessionUpdatedAt` is the session's persisted consume timestamp (the
  * `updated_at` written by the consume UPDATE); it anchors the recency check
@@ -325,7 +323,7 @@ export async function createPhoneGuardianBinding(
   sessionUpdatedAt: number,
 ): Promise<void> {
   // Recency check (security backstop, ATL-514) — retained as the
-  // idempotency/replay guard under IPC retries, poller replays, and gateway
+  // idempotency/replay guard under IPC retries and gateway
   // restarts: a consumed session can have been superseded by manual
   // revocation or a sibling binding path (e.g. inbound verification).
   // `getExistingGuardianBinding` only checks active bindings, so without
@@ -345,9 +343,8 @@ export async function createPhoneGuardianBinding(
 
   if (existingBinding) {
     if (existingBinding.address === phoneNumber) {
-      // Idempotent — binding already exists for this number. Can happen on
-      // an IPC retry of the consume, or when the poller re-encounters an
-      // already-processed session after a gateway restart.
+      // Idempotent — binding already exists for this number (e.g. an IPC
+      // retry of the consume).
       log.info(
         { phoneNumber },
         "Phone guardian binding already exists, skipping",

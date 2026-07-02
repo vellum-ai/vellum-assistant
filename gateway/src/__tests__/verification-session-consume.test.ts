@@ -10,9 +10,8 @@
  *   under concurrent attempts, and never yields two bindings;
  * - anti-oracle failures: lockout, wrong code, expiry, identity mismatch,
  *   and blocked actors all return the same machine-readable reason;
- * - guardian phone binding happens synchronously at consume time (no
- *   poller), with the ATL-514 recency guard and deliberate-rebind
- *   semantics ported from outbound-voice-verification-sync;
+ * - guardian phone binding happens synchronously at consume time, with the
+ *   ATL-514 recency guard and deliberate-rebind semantics;
  * - trusted-contact consume upserts the verified channel idempotently and
  *   fails closed on a blocked authoritative gateway row.
  */
@@ -277,8 +276,8 @@ describe("guardian consume — synchronous phone binding", () => {
     expect(row?.consumedByExternalUserId).toBe(PHONE);
     expect(row?.consumedByChatId).toBe(PHONE);
 
-    // The binding exists immediately after the call returns — the poller's
-    // job happened in-engine, synchronously.
+    // The binding exists immediately after the call returns — applied
+    // in-engine, synchronously.
     expect(activeGuardianPhoneBindings()).toEqual([{ address: PHONE }]);
   });
 
@@ -349,8 +348,8 @@ describe("guardian consume — synchronous phone binding", () => {
 
   test("ATL-514: a binding event newer than the consume blocks the (stale) binding", async () => {
     // A guardian binding for this number was revoked AFTER this session will
-    // be consumed (clock-skewed future timestamp models the poller-lookback /
-    // retry replay shape). The consume itself succeeds — the session is
+    // be consumed (clock-skewed future timestamp models the IPC-retry
+    // replay shape). The consume itself succeeds — the session is
     // legitimately spent — but the stale side effect must not reactivate the
     // revoked binding.
     seedGuardianPhoneBinding({

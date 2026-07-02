@@ -8,10 +8,7 @@
  * timer scheduling, etc.).
  */
 
-import {
-  getGuardianBinding,
-  validateAndConsumeVerification,
-} from "../runtime/channel-verification-service.js";
+import { validateAndConsumeVerification } from "../channels/gateway-verification-sessions.js";
 import {
   composeVerificationVoice,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
@@ -69,7 +66,6 @@ export function parseDigitsFromSpeech(transcript: string): string {
 // ── Guardian code verification ─────────────────────────────────────────
 
 interface VerificationCallParams {
-  verificationAssistantId: string;
   verificationFromNumber: string;
   enteredCode: string;
   isOutbound: boolean;
@@ -84,12 +80,6 @@ type VerificationCallResult =
       verificationType: "guardian" | "trusted_contact";
       /** Event name to record */
       eventName: CallEventType;
-      /** For guardian type: whether a binding conflict was detected */
-      bindingConflict?: {
-        existingGuardian: string;
-      };
-      /** For guardian type when no conflict: the canonical principal to use */
-      canonicalPrincipal?: string;
       /** For outbound success: the TTS text to play */
       ttsMessage?: string;
     }
@@ -108,7 +98,9 @@ type VerificationCallResult =
 
 /**
  * Core logic for validating an entered code against the pending voice
- * guardian challenge. Returns a structured result describing what happened
+ * guardian challenge. The gateway validates and consumes the session and
+ * applies role side effects (guardian binding / trusted-contact channel
+ * upsert) in-engine. Returns a structured result describing what happened
  * so the caller can apply side-effects (state mutations, TTS, session
  * updates) without this function needing access to the relay connection.
  */
@@ -116,7 +108,6 @@ export async function attemptVerificationCode(
   params: VerificationCallParams,
 ): Promise<VerificationCallResult> {
   const {
-    verificationAssistantId,
     verificationFromNumber,
     enteredCode,
     isOutbound,
@@ -125,7 +116,7 @@ export async function attemptVerificationCode(
     verificationMaxAttempts,
   } = params;
 
-  const result = validateAndConsumeVerification(
+  const result = await validateAndConsumeVerification(
     "phone",
     enteredCode,
     verificationFromNumber,
@@ -136,33 +127,6 @@ export async function attemptVerificationCode(
     const eventName = isOutbound
       ? "outbound_voice_verification_succeeded"
       : "voice_verification_succeeded";
-
-    // Resolve binding conflict and canonical principal for guardian type
-    let bindingConflict: { existingGuardian: string } | undefined;
-    let canonicalPrincipal: string | undefined;
-
-    if (result.verificationType === "guardian") {
-      const existingBinding = await getGuardianBinding(
-        verificationAssistantId,
-        "phone",
-      );
-      if (
-        existingBinding &&
-        existingBinding.guardianExternalUserId !== verificationFromNumber
-      ) {
-        bindingConflict = {
-          existingGuardian: existingBinding.guardianExternalUserId,
-        };
-      } else {
-        // Resolve canonical principal from the vellum channel binding
-        const vellumBinding = await getGuardianBinding(
-          verificationAssistantId,
-          "vellum",
-        );
-        canonicalPrincipal =
-          vellumBinding?.guardianPrincipalId ?? verificationFromNumber;
-      }
-    }
 
     let ttsMessage: string | undefined;
     if (isOutbound) {
@@ -176,8 +140,6 @@ export async function attemptVerificationCode(
       outcome: "success",
       verificationType: result.verificationType,
       eventName,
-      bindingConflict,
-      canonicalPrincipal,
       ttsMessage,
     };
   }
