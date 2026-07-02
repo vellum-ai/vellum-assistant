@@ -178,6 +178,31 @@ describe("handleListMessages in-memory queue", () => {
     expect(att?.id).toBe("req-att:attachment:0");
   });
 
+  test("filters hidden queued messages from the snapshot, keeping positions contiguous", async () => {
+    // A hidden send (e.g. the channel-setup wizard-close marker) that queued
+    // behind an in-flight turn must not surface as a queued bubble on a
+    // reload/reconnect fetch; visible siblings keep 1-based positions.
+    const conv = createConversation();
+    registerLiveConversation(conv.id, [
+      makeQueued({
+        requestId: "req-hidden",
+        content:
+          "[User action on channel_setup surface: closed the slack setup wizard]",
+        metadata: { hidden: true },
+      }),
+      makeQueued({ requestId: "req-visible", content: "a real message" }),
+    ]);
+
+    const response = handleListMessages({
+      queryParams: { conversationId: conv.id },
+    });
+    const body = response as { messages: MessagePayload[] };
+
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0].id).toBe("req-visible");
+    expect(body.messages[0].queuePosition).toBe(1);
+  });
+
   test("does not append queued messages to an older-history page", async () => {
     // GIVEN history requested with beforeTimestamp (older page)
     const conv = createConversation();

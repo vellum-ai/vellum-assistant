@@ -178,6 +178,16 @@ export const messageMetadataSchema = z
     provenanceRequesterIdentifier: z.string().optional(),
     automated: z.boolean().optional(),
     /**
+     * Transcript-suppression flag: the row is a machine signal (e.g. the
+     * channel-setup wizard-close marker, the onboarding greeting kickoff),
+     * persisted and LLM-visible but never rendered as a user message. Test
+     * with {@link isHiddenMessageMetadata} — hidden rows are filtered from
+     * list-messages and queued snapshots, skip the user_message_echo, and
+     * are excluded from search/memory indexing and other consumers that
+     * treat message text as organic user input.
+     */
+    hidden: z.boolean().optional(),
+    /**
      * Structured terminal record stamped onto a `<background_event
      * source="background-tool">` wake so the web can rebuild the inline
      * bash/host_bash card from history after a daemon restart.
@@ -211,6 +221,19 @@ export const messageMetadataSchema = z
 
 /** Validated shape of a persisted message's `metadata` column. */
 export type MessageMetadata = z.infer<typeof messageMetadataSchema>;
+
+/**
+ * Shared predicate for the transcript-suppression flag on user-message
+ * metadata (see the `hidden` field on {@link messageMetadataSchema}). One
+ * definition so the sites that must agree — echo suppression, list-messages
+ * filtering, queued-snapshot filtering, indexing exclusion, and downstream
+ * consumers of message text — cannot drift.
+ */
+export function isHiddenMessageMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): boolean {
+  return metadata?.hidden === true;
+}
 
 /**
  * Parse a persisted message's metadata JSON against {@link messageMetadataSchema}
@@ -1694,7 +1717,9 @@ export async function addMessage(
 
   const message = inserted;
 
-  if (!skipIndexing) {
+  // Hidden rows are machine signals suppressed from the transcript — they
+  // must not surface as search excerpts or be embedded into memory either.
+  if (!skipIndexing && !isHiddenMessageMetadata(metadata)) {
     // Message-content lexical indexing is host infrastructure, invoked
     // directly (not through the memory hook seam, whose active side effects go
     // inert while the memory plugin is disabled — search indexing must not).
