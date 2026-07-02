@@ -148,10 +148,10 @@ export interface DisplayMessage {
   /** True for daemon-injected ACP-run lifecycle notifications; suppressed from
    *  the transcript like {@link isSubagentNotification}. */
   isAcpNotification?: boolean;
-  /** True for the backgrounded bash/host_bash completion wake
-   *  (`<background_event source="background-tool">`); suppressed from the
-   *  transcript like {@link isSubagentNotification} — the inline card shows it. */
-  isBackgroundToolNotification?: boolean;
+  /** True for any wake trigger row (`<background_event source="...">`, e.g.
+   *  defer/schedule/webhook/background-tool); suppressed from the transcript
+   *  like {@link isSubagentNotification} — the wake card shows it instead. */
+  isBackgroundEventNotification?: boolean;
 }
 
 /**

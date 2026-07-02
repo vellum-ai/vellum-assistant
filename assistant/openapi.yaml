@@ -18054,7 +18054,7 @@ paths:
                           required:
                             - acpSessionId
                           additionalProperties: false
-                        backgroundToolNotification:
+                        backgroundEventNotification:
                           type: boolean
                         backgroundToolCompletion:
                           type: object
