@@ -78,7 +78,7 @@ export const MemoryGraphNodeDetailSchema = z.object({
   found: z.boolean(),
   /** Display title (humanized id). */
   title: z.string().optional(),
-  /** Markdown body of the concept page (frontmatter already stripped). */
+  /** Markdown-rendered node body (memory-v3: the concept page's markdown, frontmatter stripped). */
   content: z.string().optional(),
 });
 export type MemoryGraphNodeDetail = z.infer<typeof MemoryGraphNodeDetailSchema>;

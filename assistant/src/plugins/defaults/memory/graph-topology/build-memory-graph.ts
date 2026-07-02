@@ -21,6 +21,8 @@ import { getDb } from "../../../../persistence/db-connection.js";
 import { getWorkspaceDir } from "../../../../util/platform.js";
 import { getPageIndex, type PageIndexEntry } from "../v2/page-index.js";
 import { readPage, renderPageContent } from "../v2/page-store.js";
+import { isSkillSlug } from "../v2/skill-store.js";
+import { isCapabilitySlug } from "../v3/capabilities.js";
 import { buildEdgeGraph } from "../v3/edge.js";
 import { computeLearnedEdgeGraph } from "../v3/learned-edges.js";
 import type { Slug } from "../v3/types.js";
@@ -43,6 +45,18 @@ const BACKEND_MEMORY_V3 = "memory-v3";
  * are kept and `truncated` is set.
  */
 const DEFAULT_MAX_NODES = 750;
+/**
+ * Viz-density scaling of the retrieval lane's learned-edges thresholds. The
+ * graph deliberately admits weaker co-selection associations than retrieval
+ * (half the pair-count requirement, 40% of the NPMI floor, and at least
+ * {@link GRAPH_LEARNED_MIN_MAX_PER_PAGE} neighbors per page) so it reads as a
+ * connected web instead of scattered orphans. Retuning
+ * `memory.v3.learnedEdges` for retrieval quality therefore also shifts graph
+ * density — by these factors.
+ */
+const GRAPH_LEARNED_MIN_COUNT_FACTOR = 0.5;
+const GRAPH_LEARNED_NPMI_FLOOR_FACTOR = 0.4;
+const GRAPH_LEARNED_MIN_MAX_PER_PAGE = 14;
 
 /** Adjacency as produced by `buildEdgeGraph` / `computeLearnedEdgeGraph`:
  * source → (target → curated description | undefined). */
@@ -58,22 +72,26 @@ function undirectedKey(a: string, b: string): string {
 function humanizeSlug(slug: string): string {
   const last = slug.split("/").pop() ?? slug;
   const words = last.replace(/[-_]+/g, " ").trim();
-  if (!words) return slug;
+  if (!words) {return slug;}
   return words.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 /** Node taxonomy tag used for coloring. Synthetic capability slugs (skills /
  * CLI commands) carry `modifiedAt: 0`; real concept pages carry a file mtime. */
 function nodeKind(entry: PageIndexEntry): string {
-  if (entry.slug.startsWith("skills/")) return "skill";
-  if (entry.modifiedAt <= 0) return "capability";
+  if (isSkillSlug(entry.slug)) {
+    return "skill";
+  }
+  if (entry.modifiedAt <= 0) {
+    return "capability";
+  }
   return "concept";
 }
 
 /** A real concept page: on-disk (has an mtime) and not a synthetic skill or
  * CLI-command capability slug. The graph shows concepts only. */
 function isConceptEntry(entry: PageIndexEntry): boolean {
-  return entry.modifiedAt > 0 && !entry.slug.startsWith("skills/");
+  return entry.modifiedAt > 0 && !isCapabilitySlug(entry.slug);
 }
 
 export interface AssembleMemoryGraphInput {
@@ -114,16 +132,16 @@ export function assembleMemoryGraph(
 
   // Static link edges — directed, authored/structural.
   for (const [source, out] of staticAdjacency) {
-    if (!nodeIds.has(source)) continue;
+    if (!nodeIds.has(source)) {continue;}
     for (const [target, description] of out) {
-      if (!nodeIds.has(target)) continue;
+      if (!nodeIds.has(target)) {continue;}
       const edge: MemoryGraphEdge = {
         source,
         target,
         kind: "link",
         directed: true,
       };
-      if (description) edge.description = description;
+      if (description) {edge.description = description;}
       edges.push(edge);
       staticPairs.add(undirectedKey(source, target));
       bump(source);
@@ -135,11 +153,11 @@ export function assembleMemoryGraph(
   if (learnedAdjacency) {
     const emitted = new Set<string>();
     for (const [source, out] of learnedAdjacency) {
-      if (!nodeIds.has(source)) continue;
+      if (!nodeIds.has(source)) {continue;}
       for (const target of out.keys()) {
-        if (!nodeIds.has(target)) continue;
+        if (!nodeIds.has(target)) {continue;}
         const key = undirectedKey(source, target);
-        if (staticPairs.has(key) || emitted.has(key)) continue;
+        if (staticPairs.has(key) || emitted.has(key)) {continue;}
         emitted.add(key);
         const [a, b] = key.split("\t") as [string, string];
         edges.push({ source: a, target: b, kind: "learned", directed: false });
@@ -156,8 +174,8 @@ export function assembleMemoryGraph(
       kind: nodeKind(entry),
       weight: degree.get(entry.slug) ?? 0,
     };
-    if (entry.summary) node.summary = entry.summary;
-    if (entry.modifiedAt > 0) node.updatedAtMs = entry.modifiedAt;
+    if (entry.summary) {node.summary = entry.summary;}
+    if (entry.modifiedAt > 0) {node.updatedAtMs = entry.modifiedAt;}
     return node;
   });
 
@@ -200,7 +218,7 @@ export async function getMemoryGraph(
   // numeric fallbacks.
   const pageRaw = async (slug: Slug): Promise<string> => {
     const page = await readPage(workspaceDir, slug);
-    if (!page) throw new Error(`page not found: ${slug}`);
+    if (!page) {throw new Error(`page not found: ${slug}`);}
     return renderPageContent(page);
   };
 
@@ -208,8 +226,7 @@ export async function getMemoryGraph(
     hubDegree: config.memory.v3.edge.hubDegree,
   });
 
-  // Viz-tuned learned edges: deliberately looser than the retrieval lane so the
-  // graph reads as a connected web instead of scattered orphans. This endpoint
+  // Viz-tuned learned edges (see the GRAPH_LEARNED_* constants): this endpoint
   // is visualization-only, so surfacing weaker co-selection associations (and a
   // little extra edge noise) is a fair trade. Floors keep the thresholds sane
   // even when the retrieval config is aggressive or disables the lane.
@@ -218,9 +235,9 @@ export async function getMemoryGraph(
     { db: getDb() },
     {
       halfLifeMs: learned.halfLifeDays * DAY_MS,
-      minCount: Math.max(1, learned.minCount * 0.5),
-      npmiFloor: Math.max(0, learned.npmiFloor * 0.4),
-      maxPerPage: Math.max(learned.maxPerPage, 14),
+      minCount: Math.max(1, learned.minCount * GRAPH_LEARNED_MIN_COUNT_FACTOR),
+      npmiFloor: Math.max(0, learned.npmiFloor * GRAPH_LEARNED_NPMI_FLOOR_FACTOR),
+      maxPerPage: Math.max(learned.maxPerPage, GRAPH_LEARNED_MIN_MAX_PER_PAGE),
       now: Date.now(),
       windowMs: LEARNED_EDGES_WINDOW_DAYS * DAY_MS,
       knownSlugs: new Set(conceptEntries.map((e) => e.slug)),
@@ -249,11 +266,11 @@ export async function getMemoryGraphNode(
     !isMemoryConceptGraphEnabled(config) ||
     !isMemoryV3Live(config) ||
     !id ||
-    id.startsWith("skills/")
+    isCapabilitySlug(id)
   ) {
     return { found: false };
   }
   const page = await readPage(getWorkspaceDir(), id).catch(() => null);
-  if (!page) return { found: false };
+  if (!page) {return { found: false };}
   return { found: true, title: humanizeSlug(id), content: page.body };
 }

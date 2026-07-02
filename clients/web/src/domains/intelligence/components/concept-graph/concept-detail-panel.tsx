@@ -19,7 +19,7 @@ interface ConceptDetailPanelProps {
 }
 
 function formatUpdated(ms: number | undefined): string | null {
-  if (!ms) return null;
+  if (!ms) {return null;}
   return new Date(ms).toLocaleDateString("en-GB", {
     day: "numeric",
     month: "short",
@@ -43,7 +43,7 @@ export function ConceptDetailPanel({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {onClose();}
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

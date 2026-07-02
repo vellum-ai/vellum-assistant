@@ -1,38 +1,20 @@
 /**
- * Client mirror of the backend-agnostic memory-graph contract
- * (`GET /v1/assistants/{id}/memory-graph`). Kept as hand-written domain types
- * so the graph components don't depend on generated SDK type names; the query
- * layer maps the SDK response onto these.
+ * Domain names for the backend-agnostic memory-graph contract
+ * (`GET /v1/assistants/{id}/memory-graph`). Derived from the generated SDK
+ * response types so they can't drift from the wire; the graph components
+ * import these instead of coupling to generated SDK type names. Field
+ * semantics are documented on the source-of-truth zod schemas in
+ * `assistant/src/plugins/defaults/memory/graph-topology/types.ts`.
  */
 
-export interface MemoryGraphNode {
-  id: string;
-  label: string;
-  summary?: string;
-  /** Backend taxonomy tag: memory-v3 emits "concept" | "skill" | "capability". */
-  kind?: string;
-  /** Relative importance / size hint (memory-v3: node degree). */
-  weight?: number;
-  updatedAtMs?: number;
-}
+import type {
+  MemorygraphGetResponse,
+  MemorygraphnodeGetResponse,
+} from "@/generated/daemon/types.gen";
 
-export interface MemoryGraphEdge {
-  source: string;
-  target: string;
-  /** memory-v3: "link" (authored/structural) | "learned" (co-selection). */
-  kind?: string;
-  weight?: number;
-  description?: string;
-  directed?: boolean;
-}
-
-export interface MemoryGraph {
-  backend: string | null;
-  supported: boolean;
-  nodes: MemoryGraphNode[];
-  edges: MemoryGraphEdge[];
-  truncated?: boolean;
-}
+export type MemoryGraph = MemorygraphGetResponse;
+export type MemoryGraphNode = MemoryGraph["nodes"][number];
+export type MemoryGraphEdge = MemoryGraph["edges"][number];
 
 /**
  * Two-state result. `unsupported` is a success-shaped outcome (the active
@@ -45,8 +27,4 @@ export type MemoryGraphResult =
   | { kind: "unsupported" };
 
 /** Detail for a single node — the concept's rendered markdown, fetched on open. */
-export interface MemoryGraphNodeDetail {
-  found: boolean;
-  title?: string;
-  content?: string;
-}
+export type MemoryGraphNodeDetail = MemorygraphnodeGetResponse;

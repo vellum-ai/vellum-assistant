@@ -61,7 +61,7 @@ export const ROUTES: RouteDefinition[] = [
       {
         name: "id",
         schema: { type: "string" },
-        description: "Node id (concept-page slug).",
+        description: "Node id from the graph payload (memory-v3: the concept-page slug).",
       },
     ],
     responseBody: MemoryGraphNodeDetailSchema,

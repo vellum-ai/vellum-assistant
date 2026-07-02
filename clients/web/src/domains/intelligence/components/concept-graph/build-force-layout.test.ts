@@ -87,7 +87,7 @@ describe("buildForceLayout", () => {
       for (let j = i + 1; j < layout.nodes.length; j++) {
         const a = layout.nodes[i];
         const b = layout.nodes[j];
-        // 3D separation — nodes live in a volume now.
+        // 3D separation — nodes occupy a volume, so distance includes z.
         const dist = Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
         // Allow a small epsilon below the exact sum of radii.
         expect(dist).toBeGreaterThanOrEqual(a.radius + b.radius - 0.5);

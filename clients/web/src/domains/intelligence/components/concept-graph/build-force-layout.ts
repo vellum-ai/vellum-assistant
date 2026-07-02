@@ -66,7 +66,7 @@ export function buildForceLayout(
   const center = opts.center ?? VIRTUAL_CENTER;
   const raw = graph.nodes;
   const n = raw.length;
-  if (n === 0) return { nodes: [], edges: [] };
+  if (n === 0) {return { nodes: [], edges: [] };}
 
   const indexById = new Map<string, number>();
   raw.forEach((node, i) => indexById.set(node.id, i));
@@ -201,7 +201,7 @@ export function buildForceLayout(
         let dz = bj.z - bi.z;
         let dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
         const min = radii[i] + radii[j] + COLLISION_GAP;
-        if (dist >= min) continue;
+        if (dist >= min) {continue;}
         if (dist < 0.01) {
           dx = (j - i) * 0.1 + 0.1;
           dy = 0.1;
@@ -221,7 +221,7 @@ export function buildForceLayout(
         moved = true;
       }
     }
-    if (!moved) break;
+    if (!moved) {break;}
   }
 
   const nodes: GraphLayoutNode[] = raw.map((node, i) => {
@@ -235,8 +235,8 @@ export function buildForceLayout(
       kind: toNodeKind(node.kind),
       degree: degree[i],
     };
-    if (node.summary) out.summary = node.summary;
-    if (node.updatedAtMs !== undefined) out.updatedAtMs = node.updatedAtMs;
+    if (node.summary) {out.summary = node.summary;}
+    if (node.updatedAtMs !== undefined) {out.updatedAtMs = node.updatedAtMs;}
     return out;
   });
 
@@ -248,7 +248,7 @@ export function buildForceLayout(
       kind: toEdgeKind(e.kind),
       directed: e.directed ?? false,
     };
-    if (e.description) out.description = e.description;
+    if (e.description) {out.description = e.description;}
     return out;
   });
 
