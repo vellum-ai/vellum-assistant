@@ -17,7 +17,6 @@
  * — the hooks stay registered but are filtered out on the next turn.
  */
 
-import { resolveConversationPluginScope } from "../daemon/conversation-plugin-scope.js";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import { getUserHooksFor } from "../plugins/mtime-cache.js";
 import type { HookFunction } from "../plugins/types.js";
@@ -102,9 +101,19 @@ export async function getHooksFor<TCtx = unknown>(
   name: string,
   options?: { conversationId?: string },
 ): Promise<HookFunction<TCtx>[]> {
-  const effectiveEnabledPlugins = options?.conversationId
-    ? resolveConversationPluginScope(options.conversationId)
-    : null;
+  // Resolve the per-chat scope through a lazy import: a static import of the
+  // daemon resolver would add `hooks/ → daemon/conversation-tool-setup` to the
+  // module-init graph and perturb the capability-seed init order. Importing at
+  // call time keeps that edge out of module evaluation (this only runs at
+  // hook-dispatch, well after boot). The module is cached after the first load.
+  let effectiveEnabledPlugins: Set<string> | null = null;
+  if (options?.conversationId) {
+    const { resolveConversationPluginScope } =
+      await import("../daemon/conversation-plugin-scope.js");
+    effectiveEnabledPlugins = resolveConversationPluginScope(
+      options.conversationId,
+    );
+  }
   // First-party defaults from the hook registry, filtered by the `.disabled`
   // sentinel at read time. This is what makes `assistant plugins disable
   // default-*` take effect immediately in a running assistant: the hooks stay
