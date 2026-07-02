@@ -237,9 +237,9 @@ async function finishRedemption(
   // The claim above consumed the use; from here the redemption must never
   // regress to a thrown engine error (the intercept would fall through and
   // forward the raw code to the runtime on an already-consumed invite).
-  // Assistant-mirror failures are soft inside the helper; anything else that
-  // throws post-claim is logged and the redemption still succeeds — the
-  // daemon `invite_redeemed` event and self-heal cover the mirror.
+  // Assistant-mirror failures are soft inside the helper; a gateway-side ACL
+  // failure yields the failed outcome (no access was granted, so a success
+  // reply would be wrong), and cosmetic lookups degrade without failing.
 
   // The target contact's curated displayName wins over the raw
   // transport-provided name.
@@ -260,7 +260,7 @@ async function finishRedemption(
   // member-write-relay passes: an invite may reactivate a revoked member;
   // blocked actors are still refused inside the helper.
   const address = externalUserId ?? externalChatId!;
-  let verified = true;
+  let verified = false;
   try {
     ({ verified } = await upsertVerifiedContactChannel({
       sourceChannel,
@@ -274,17 +274,21 @@ async function finishRedemption(
       softMirrorFailures: true,
     }));
   } catch (err) {
+    // Assistant-mirror failures are soft inside the helper, so a throw here
+    // is a gateway-side failure: no access was granted. Fail closed rather
+    // than telling the sender they're in.
     log.error(
       { err, sourceChannel, inviteId: invite.id },
-      "Invite redemption: ACL upsert threw post-claim; use already consumed — treating as redeemed",
+      "Invite redemption: ACL upsert threw post-claim; use already consumed — failing closed",
     );
   }
   if (!verified) {
-    // The authoritative write was refused (a block landed under the race).
-    // The claimed use is wasted — same semantics as the daemon engine.
+    // The authoritative write was refused or failed (e.g. a block landed
+    // under the race). The claimed use is wasted — same semantics as the
+    // daemon engine.
     log.warn(
       { sourceChannel, inviteId: invite.id },
-      "Invite redemption: gateway channel upsert refused after claim",
+      "Invite redemption: gateway channel upsert did not verify after claim",
     );
     return failed("invalid_token");
   }

@@ -11,6 +11,8 @@
 
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { sql } from "drizzle-orm";
+
 import { hashInviteCode, hashInviteToken } from "@vellumai/gateway-client";
 
 // The engine's ACL side effect (upsertVerifiedContactChannel) dual-writes an
@@ -40,6 +42,7 @@ mock.module("../ipc/assistant-client.js", () => ({
     return {};
   },
 }));
+
 
 await import("./test-preload.js");
 
@@ -520,6 +523,35 @@ describe("post-claim failure isolation", () => {
     expect(result.status).toBe("redeemed");
     expect(inviteRow(inviteId).useCount).toBe(1);
     expect(gwChannel("U_SENDER")?.status).toBe("active");
+  });
+
+  test("gateway-side ACL upsert throw fails closed: no access, no redeemed reply, no mirror event", async () => {
+    seedContact("c1");
+    const inviteId = seedInvite();
+    // Force a genuine gateway-side failure inside the ACL upsert while
+    // leaving reads (membership gate, claim) intact: abort channel writes.
+    const db = getGatewayDb();
+    db.run(
+      sql`CREATE TRIGGER fail_channel_inserts BEFORE INSERT ON contact_channels BEGIN SELECT RAISE(ABORT, 'gateway write failed'); END`,
+    );
+    db.run(
+      sql`CREATE TRIGGER fail_channel_updates BEFORE UPDATE ON contact_channels BEGIN SELECT RAISE(ABORT, 'gateway write failed'); END`,
+    );
+
+    let result;
+    try {
+      result = await redeemInviteByCode({ code: CODE, ...IDENTITY });
+    } finally {
+      db.run(sql`DROP TRIGGER fail_channel_inserts`);
+      db.run(sql`DROP TRIGGER fail_channel_updates`);
+    }
+
+    // The use is consumed (claim committed), but no channel was activated —
+    // telling the sender they're in would be wrong.
+    expect(result.status).toBe("failed");
+    expect(inviteRow(inviteId).useCount).toBe(1);
+    expect(gwChannel("U_SENDER")).toBeUndefined();
+    expect(inviteRedeemedEvents()).toHaveLength(0);
   });
 });
 
