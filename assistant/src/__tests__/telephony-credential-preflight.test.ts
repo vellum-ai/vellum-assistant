@@ -222,6 +222,45 @@ describe("resolveTelephonyCredentialReadiness", () => {
     expect(readiness.userMessage).toContain("text-to-speech");
   });
 
+  test("fish-audio keyed but referenceId-less with no fallback → not-ready naming the reference ID", async () => {
+    ttsCapability = {
+      status: "not-playable",
+      providerId: "fish-audio",
+      reason: "missing-fish-audio-reference-id",
+    };
+
+    const readiness = await resolveTelephonyCredentialReadiness();
+    expect(readiness.status).toBe("not-ready");
+    if (readiness.status !== "not-ready") {
+      throw new Error("expected not-ready");
+    }
+    expect(fallbackScanCalls).toEqual(["fish-audio" as TtsProviderId]);
+    expect(readiness.missing).toEqual([
+      {
+        kind: "tts",
+        providerId: "fish-audio",
+        reason:
+          'TTS provider "fish-audio" has no Fish Audio reference ID configured (services.tts.providers.fish-audio.referenceId) and no playable fallback provider is available',
+      },
+    ]);
+    expect(readiness.userMessage).toContain("Fish Audio voice reference ID");
+    expect(readiness.userMessage).toContain(
+      "services.tts.providers.fish-audio.referenceId",
+    );
+  });
+
+  test("fish-audio referenceId-less but a playable fallback exists → ready", async () => {
+    ttsCapability = {
+      status: "not-playable",
+      providerId: "fish-audio",
+      reason: "missing-fish-audio-reference-id",
+    };
+    fallbackProviderId = "elevenlabs";
+
+    const readiness = await resolveTelephonyCredentialReadiness();
+    expect(readiness).toEqual({ status: "ready" });
+  });
+
   test("TTS unsupported-format with no fallback → not-ready with a tts entry", async () => {
     ttsCapability = {
       status: "not-playable",

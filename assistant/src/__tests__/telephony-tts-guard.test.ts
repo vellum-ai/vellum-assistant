@@ -292,14 +292,27 @@ describe("resolveTelephonyTtsCapability", () => {
     expect(capability).toEqual({ status: "playable", providerId: "deepgram" });
   });
 
-  test("wav provider with a resolvable key is playable", async () => {
+  test("wav provider with a resolvable key and referenceId is playable", async () => {
     testConfig.services.tts.provider = "fish-audio";
+    testConfig.services.tts.providers["fish-audio"].referenceId = "ref-123";
     storedKeys["fish-audio"] = "fa-key";
 
     const capability = await resolveTelephonyTtsCapability();
     expect(capability).toEqual({
       status: "playable",
       providerId: "fish-audio",
+    });
+  });
+
+  test("fish-audio with a key but no referenceId is not playable (missing-fish-audio-reference-id)", async () => {
+    testConfig.services.tts.provider = "fish-audio";
+    storedKeys["fish-audio"] = "fa-key";
+
+    const capability = await resolveTelephonyTtsCapability();
+    expect(capability).toEqual({
+      status: "not-playable",
+      providerId: "fish-audio",
+      reason: "missing-fish-audio-reference-id",
     });
   });
 
@@ -394,6 +407,22 @@ describe("resolveCallTtsProvider with preferWav", () => {
     storedKeys["compressed-only"] = "co-key";
     storedKeys["elevenlabs"] = "el-key";
     registerStubProvider("compressed-only", async () => {
+      throw new Error("should not be used");
+    });
+    registerStubProvider("elevenlabs", async () => {
+      return { audio: Buffer.from("x"), contentType: "audio/pcm" };
+    });
+
+    const result = await resolveCallTtsProvider({ preferWav: true });
+    expect(result.provider?.id).toBe("elevenlabs");
+    expect(result.audioFormat).toBe("wav");
+  });
+
+  test("falls back when configured fish-audio has a key but no referenceId", async () => {
+    testConfig.services.tts.provider = "fish-audio";
+    storedKeys["fish-audio"] = "fa-key";
+    storedKeys["elevenlabs"] = "el-key";
+    registerStubProvider("fish-audio", async () => {
       throw new Error("should not be used");
     });
     registerStubProvider("elevenlabs", async () => {
