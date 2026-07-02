@@ -38,6 +38,7 @@ import {
   resolveCanonicalPrincipal,
   revokeExistingChannelGuardian,
 } from "./binding-helpers.js";
+import { gatewayChannelStatus } from "./contact-helpers.js";
 import { checkIdentityMatch } from "./identity-match.js";
 import {
   isRateLimited,
@@ -203,7 +204,9 @@ const CONSUME_FAILURE: ValidateConsumeSessionResult = {
  * must never happen in the (potentially prompt-injected) daemon:
  * - guardian purpose on phone with an expected number (the outbound voice
  *   shape): create the phone guardian binding synchronously — this replaces
- *   the outbound-voice-verification-sync poller.
+ *   the outbound-voice-verification-sync poller. A blocked authoritative
+ *   gateway row rejects the verification first (mirrors the text guardian
+ *   path).
  * - trusted_contact purpose: upsert the verified contact channel; a
  *   blocked/revoked authoritative gateway row rejects the verification even
  *   though the code matched (mirrors text-verification).
@@ -273,6 +276,21 @@ export async function validateAndConsumeSession(
       return CONSUME_FAILURE;
     }
   } else if (channel === "phone" && session.expectedPhoneE164 != null) {
+    // Mirrors the text guardian path's gateway-status guard: a blocked
+    // authoritative row must not report success — createGuardianBinding
+    // leaves blocked rows untouched, so without this guard a blocked-number
+    // rebind would revoke the current guardian and bind nobody. Checked
+    // after consume (same ordering as the text path); revoked rows stay
+    // rebindable here — outbound rebinds are guardian-initiated and the
+    // ATL-514 recency guard covers staleness.
+    if (gatewayChannelStatus(channel, actorExternalUserId) === "blocked") {
+      log.warn(
+        { channel, actorExternalUserId },
+        "Guardian phone binding rejected: gateway channel is blocked",
+      );
+      return CONSUME_FAILURE;
+    }
+
     // Guardian purpose on the outbound voice shape (an expected phone number
     // is only ever set by startOutboundVoice) — exactly the filter the
     // retired poller used. Bind synchronously at consume time.

@@ -372,6 +372,66 @@ describe("guardian consume — synchronous phone binding", () => {
     ]);
   });
 
+  test("blocked actor: correct code fails closed, existing guardian is not revoked", async () => {
+    seedGuardianPhoneBinding({
+      contactId: "c-current",
+      address: OLD_GUARDIAN_PHONE,
+      status: "active",
+      updatedAt: Date.now() - 60_000,
+    });
+
+    const now = Date.now();
+    getGatewayDb()
+      .insert(contacts)
+      .values({
+        id: "c-blocked",
+        displayName: "Blocked",
+        role: "contact",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    getGatewayDb()
+      .insert(contactChannels)
+      .values({
+        id: "ch-blocked",
+        contactId: "c-blocked",
+        type: "phone",
+        address: PHONE,
+        isPrimary: false,
+        status: "blocked",
+        policy: "deny",
+        interactionCount: 0,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    const { sessionId, secret } = createPhoneGuardianSession(PHONE);
+    const result = await validateAndConsumeSession(
+      "phone",
+      secret,
+      PHONE,
+      PHONE,
+    );
+
+    // Same generic failure (anti-oracle), the one-time code is spent, the
+    // current guardian keeps the binding, and no binding is created for the
+    // blocked number.
+    expect(result).toEqual(GENERIC_FAILURE);
+    expect(sessionRow(sessionId)?.status).toBe("consumed");
+    expect(activeGuardianPhoneBindings()).toEqual([
+      { address: OLD_GUARDIAN_PHONE },
+    ]);
+    const channel = getGatewayDb()
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, "ch-blocked"))
+      .get();
+    expect(channel?.status).toBe("blocked");
+    expect(channel?.policy).toBe("deny");
+  });
+
   test("guardian consume on a non-phone channel applies no side effect", async () => {
     const { sessionId, secret } = createOutboundSession({
       channel: "telegram",
