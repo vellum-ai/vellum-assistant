@@ -5,7 +5,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { getSqliteFrom } from "../../db-connection.js";
 import * as schema from "../../schema.js";
-import { migrateDropAssistantIngressInvites } from "../314-drop-assistant-ingress-invites.js";
+import { migrateDropContactChannelInviteId } from "../314-drop-contact-channels-invite-id.js";
 
 function createTestDb() {
   const sqlite = new Database(":memory:");
@@ -58,26 +58,19 @@ function columnNames(raw: Database, table: string): Set<string> {
   return new Set(cols.map((c) => c.name));
 }
 
-describe("migration 314 — drop assistant_ingress_invites + contact_channels.invite_id", () => {
-  test("drops the table and the invite_id column, preserving channel data", () => {
+describe("migration 314 — drop contact_channels.invite_id", () => {
+  test("drops the invite_id column, preserving channel data", () => {
     const db = createTestDb();
     const raw = getSqliteFrom(db);
     bootstrapLegacyTables(raw);
 
-    raw.run(
-      `INSERT INTO assistant_ingress_invites
-         (id, source_channel, token_hash, contact_id, expires_at, created_at, updated_at)
-       VALUES ('inv-1', 'telegram', 'hash-1', 'ct-1', 9999999999999, 1000, 1000)`,
-    );
     raw.run(
       `INSERT INTO contact_channels
          (id, contact_id, type, address, external_chat_id, invite_id, interaction_count, created_at)
        VALUES ('ch-1', 'ct-1', 'telegram', 'user-1', 'chat-1', 'inv-1', 7, 1000)`,
     );
 
-    migrateDropAssistantIngressInvites(db);
-
-    expect(tableExists(raw, "assistant_ingress_invites")).toBe(false);
+    migrateDropContactChannelInviteId(db);
 
     const cols = columnNames(raw, "contact_channels");
     expect(cols.has("invite_id")).toBe(false);
@@ -111,19 +104,40 @@ describe("migration 314 — drop assistant_ingress_invites + contact_channels.in
     });
   });
 
+  test("leaves assistant_ingress_invites intact (gateway m0010 drops it after the m0009 backfill)", () => {
+    const db = createTestDb();
+    const raw = getSqliteFrom(db);
+    bootstrapLegacyTables(raw);
+
+    raw.run(
+      `INSERT INTO assistant_ingress_invites
+         (id, source_channel, token_hash, contact_id, expires_at, created_at, updated_at)
+       VALUES ('inv-1', 'telegram', 'hash-1', 'ct-1', 9999999999999, 1000, 1000)`,
+    );
+
+    migrateDropContactChannelInviteId(db);
+
+    expect(tableExists(raw, "assistant_ingress_invites")).toBe(true);
+    const invite = raw
+      .prepare(
+        `SELECT token_hash FROM assistant_ingress_invites WHERE id = 'inv-1'`,
+      )
+      .get() as { token_hash: string };
+    expect(invite.token_hash).toBe("hash-1");
+  });
+
   test("is idempotent — re-running after the drop does not throw", () => {
     const db = createTestDb();
     const raw = getSqliteFrom(db);
     bootstrapLegacyTables(raw);
 
-    migrateDropAssistantIngressInvites(db);
-    expect(() => migrateDropAssistantIngressInvites(db)).not.toThrow();
+    migrateDropContactChannelInviteId(db);
+    expect(() => migrateDropContactChannelInviteId(db)).not.toThrow();
 
-    expect(tableExists(raw, "assistant_ingress_invites")).toBe(false);
     expect(columnNames(raw, "contact_channels").has("invite_id")).toBe(false);
   });
 
-  test("no-ops on a fresh schema where neither artifact exists", () => {
+  test("no-ops on a fresh schema without the invite_id column", () => {
     const db = createTestDb();
     const raw = getSqliteFrom(db);
     raw.exec(/*sql*/ `
@@ -136,7 +150,7 @@ describe("migration 314 — drop assistant_ingress_invites + contact_channels.in
       )
     `);
 
-    expect(() => migrateDropAssistantIngressInvites(db)).not.toThrow();
-    expect(tableExists(raw, "assistant_ingress_invites")).toBe(false);
+    expect(() => migrateDropContactChannelInviteId(db)).not.toThrow();
+    expect(columnNames(raw, "contact_channels").has("invite_id")).toBe(false);
   });
 });
