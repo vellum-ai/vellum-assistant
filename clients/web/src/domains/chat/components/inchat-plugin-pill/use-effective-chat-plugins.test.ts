@@ -19,6 +19,7 @@ import type {
   PluginsGetResponse,
 } from "@/generated/daemon/types.gen";
 import { useConversationStore } from "@/stores/conversation-store";
+import { ApiError } from "@/utils/api-errors";
 
 const ASSISTANT_ID = "asst-1";
 const CONVERSATION_ID = "conv-1";
@@ -68,9 +69,9 @@ function conversationWith(
   };
 }
 
-/** Default conversation read: reject, standing in for a draft with no server row. */
+/** Default conversation read: reject with a 404, standing in for a draft with no server row. */
 function noServerRow(): Promise<{ data: ConversationsByIdGetResponse }> {
-  return Promise.reject(new Error("404 — no server row"));
+  return Promise.reject(new ApiError(404, "no server row"));
 }
 
 function renderEffective(conversationId: string | undefined = CONVERSATION_ID) {
@@ -130,6 +131,21 @@ describe("useEffectiveChatPlugins", () => {
     const { result } = renderEffective();
 
     // Installed list loads; the conversation detail stays pending.
+    await waitFor(() => expect(result.current.total).toBe(3));
+
+    expect(result.current.isResolved).toBe(false);
+  });
+
+  test("existing chat whose detail fails with a non-404 error → isResolved false", async () => {
+    // A transient failure (500 / network / auth), not a confirmed missing row:
+    // the scope stays unknown so a scoped chat isn't rendered as all-active.
+    conversationImpl = () => Promise.reject(new ApiError(500, "server error"));
+    useConversationStore
+      .getState()
+      .setPendingDraftPlugins(CONVERSATION_ID, new Set(["a"]));
+
+    const { result } = renderEffective();
+
     await waitFor(() => expect(result.current.total).toBe(3));
 
     expect(result.current.isResolved).toBe(false);

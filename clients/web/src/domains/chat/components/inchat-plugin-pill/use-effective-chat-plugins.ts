@@ -8,6 +8,7 @@ import type {
 } from "@/generated/daemon/types.gen";
 import { installedPluginsQueryOptions } from "@/lib/installed-plugins-query";
 import { useConversationStore } from "@/stores/conversation-store";
+import { ApiError } from "@/utils/api-errors";
 
 /** Generated element type for an installed plugin (`pluginsGet`). */
 type InstalledPlugin = PluginsGetResponse["plugins"][number];
@@ -97,8 +98,13 @@ export function useEffectiveChatPlugins(
     enabled: convEnabled,
   });
   const convData = convQuery.data;
-  const convIsError = convQuery.isError;
   const convIsSuccess = convQuery.isSuccess;
+  // Only a confirmed 404 (row genuinely absent) lets us fall back to the
+  // draft/default scope. Other failures (500 / network / auth / org-readiness)
+  // leave the scope unknown so an explicitly scoped chat isn't rendered as
+  // all-active after a transient error.
+  const rowIs404 =
+    convQuery.error instanceof ApiError && convQuery.error.status === 404;
 
   return useMemo(() => {
     const installed = installedData?.plugins ?? [];
@@ -112,11 +118,12 @@ export function useEffectiveChatPlugins(
 
     // The chat's scope is known once the conversation detail settles: a loaded
     // row, a confirmed 404/no-row, or a draft context (no conversationId /
-    // disabled query). While an existing chat's detail is still pending, the
-    // scope is unknown — `isResolved` is false so the pill waits instead of
-    // showing the draft/default (all plugins) for an explicitly scoped chat.
+    // disabled query). While the detail is still pending — or failed with a
+    // non-404 error — the scope is unknown, so `isResolved` is false and the
+    // pill waits instead of showing the draft/default (all plugins) for an
+    // explicitly scoped chat.
     const rowKnownAbsent =
-      !convEnabled || convIsError || (convIsSuccess && !conversation);
+      !convEnabled || rowIs404 || (convIsSuccess && !conversation);
     const isResolved = Boolean(conversation) || rowKnownAbsent;
 
     // The explicit scope for this chat, or `null` at its default (every
@@ -157,7 +164,7 @@ export function useEffectiveChatPlugins(
   }, [
     installedData?.plugins,
     convData,
-    convIsError,
+    rowIs404,
     convIsSuccess,
     convEnabled,
     conversationId,
