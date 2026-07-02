@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { isValidE164, normalizePhoneNumber } from "../util/phone.js";
+import { normalizePhoneNumber } from "../util/phone.js";
 
 describe("normalizePhoneNumber", () => {
   test("already E.164 — returned as-is", () => {
@@ -53,19 +53,5 @@ describe("normalizePhoneNumber", () => {
 
   test("empty string — returns null", () => {
     expect(normalizePhoneNumber("")).toBeNull();
-  });
-});
-
-describe("isValidE164", () => {
-  test("valid E.164 number", () => {
-    expect(isValidE164("+15551234567")).toBe(true);
-  });
-
-  test("missing + prefix", () => {
-    expect(isValidE164("5551234567")).toBe(false);
-  });
-
-  test("too short", () => {
-    expect(isValidE164("+123")).toBe(false);
   });
 });

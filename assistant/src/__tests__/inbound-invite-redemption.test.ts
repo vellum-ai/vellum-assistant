@@ -1,9 +1,12 @@
 /**
- * Integration tests for the inbound invite redemption intercept.
+ * Integration tests pinning that the daemon performs NO local invite
+ * interception on inbound text messages.
  *
- * Validates that non-members with valid `/start iv_<token>` payloads are
- * granted access without guardian approval, and that invalid/expired/revoked
- * tokens produce the correct deterministic refusal messages.
+ * Invite 6-digit codes and `/start iv_<token>` deep links are redeemed at
+ * gateway ingress and never forwarded to the daemon. Any such message that
+ * reaches the runtime was already judged a non-invite by the gateway, so the
+ * daemon must treat it as a normal message: non-members flow through the
+ * standard ACL deny lane with no redemption attempt or invite lookup.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -32,18 +35,14 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
   listCredentialMetadata: () => [],
 }));
 
-const emitSignalCalls: Array<Record<string, unknown>> = [];
 mock.module("../notifications/emit-signal.js", () => ({
-  emitNotificationSignal: async (params: Record<string, unknown>) => {
-    emitSignalCalls.push(params);
-    return {
-      signalId: "mock-signal-id",
-      deduplicated: false,
-      dispatched: true,
-      reason: "mock",
-      deliveryResults: [],
-    };
-  },
+  emitNotificationSignal: async () => ({
+    signalId: "mock-signal-id",
+    deduplicated: false,
+    dispatched: true,
+    reason: "mock",
+    deliveryResults: [],
+  }),
 }));
 
 const deliverReplyCalls: Array<{
@@ -64,110 +63,25 @@ mock.module("../runtime/approval-message-composer.js", () => ({
   composeApprovalMessageGenerative: async () => "mock generative message",
 }));
 
-// Stub the gateway IPC so redemption claims + activation relays resolve
-// deterministically without a running gateway socket.
-const gatewayIpcCalls: Array<{
-  method: string;
-  params?: Record<string, unknown>;
-}> = [];
+// There is no daemon-side redemption service to spy on — the daemon has no
+// local redemption code path at all (redemption is gateway-native). These
+// tests pin the observable behavior instead: the sender never becomes a
+// member.
+
+// Stub the gateway IPC so ACL reads resolve deterministically without a
+// running gateway socket.
 mock.module("../ipc/gateway-client.js", () => ({
-  ipcCallPersistent: async (
-    method: string,
-    params?: Record<string, unknown>,
-  ) => {
-    gatewayIpcCalls.push({ method, params });
-    if (method === "contacts_get_rich") {
-      return richContactForId(params?.contactId as string);
-    }
-    if (method === "record_invite_redemption") {
-      return { ok: true, updated: true, mirrored: true };
-    }
-    if (method === "upsert_verified_channel") {
-      return { ok: true, verified: true };
-    }
-    return undefined;
-  },
+  ipcCallPersistent: async () => undefined,
 }));
 
-// Serves contacts_get_rich (the gateway ACL read backing the gate-status
-// fallback) from the seeded local contact, so gate resolution sources status
-// from the gateway path rather than the local channel column.
-function richContactForId(contactId: string | undefined) {
-  if (!contactId) return undefined;
-  const contact = getContact(contactId);
-  if (!contact) return undefined;
-  // The gateway owns the ACL; tests seed it into the gateway ACL store. Source
-  // role/status/policy from there to build the gateway-rich response the
-  // production read parses (never the Phase-B-dropped assistant ACL columns).
-  return {
-    ok: true,
-    contact: {
-      id: contact.id,
-      displayName: contact.displayName,
-      role: gatewayContactRole(contact.id) ?? "contact",
-      interactionCount: contact.interactionCount,
-      createdAt: contact.createdAt,
-      updatedAt: contact.updatedAt,
-      channels: contact.channels.map((c) => {
-        const acl = gatewayChannelAcl(c.id);
-        return {
-          id: c.id,
-          contactId: c.contactId,
-          type: c.type,
-          address: c.address,
-          isPrimary: c.isPrimary,
-          externalUserId: c.externalChatId,
-          status: acl.status,
-          policy: acl.policy,
-          verifiedAt: acl.verifiedAt,
-          verifiedVia: null,
-          lastSeenAt: null,
-          interactionCount: 0,
-          lastInteraction: null,
-          revokedReason: null,
-          blockedReason: null,
-        };
-      }),
-    },
-  };
-}
-
-/** Read a channel's seeded ACL view from the gateway ACL store. */
-function gatewayChannelAcl(channelId: string): {
-  status: string;
-  policy: string;
-  verifiedAt: number | null;
-} {
-  const row = gatewayAclByChannelId(channelId);
-  return {
-    status: row?.status ?? "unverified",
-    policy: row?.policy ?? "allow",
-    verifiedAt: row?.verifiedAt ?? null,
-  };
-}
-
-/** The seeded gateway role for any of a contact's channels. */
-function gatewayContactRole(contactId: string): string | undefined {
-  return gatewayAclRows().find((r) => r.contactId === contactId)?.role;
-}
-
-import {
-  findContactChannel,
-  getContact,
-  upsertContact,
-} from "../contacts/contact-store.js";
+import { findContactChannel } from "../contacts/contact-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { createInvite, revokeInvite } from "../persistence/invite-store.js";
 import {
   handleChannelInbound,
   seedContactChannel,
 } from "./helpers/channel-test-adapter.js";
-import {
-  gatewayAclByChannelId,
-  gatewayAclRows,
-  resetGatewayAclStore,
-} from "./helpers/gateway-acl-store.js";
+import { resetGatewayAclStore } from "./helpers/gateway-acl-store.js";
 
 await initializeDb();
 
@@ -175,26 +89,18 @@ await initializeDb();
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Create a throwaway contact and return its ID, for use as the invite's contactId. */
-function createTargetContact(displayName = "Test Contact"): string {
-  return upsertContact({ displayName, role: "contact" }).id;
-}
-
 const TEST_BEARER_TOKEN = "test-token";
 let msgCounter = 0;
 
 function resetState(): void {
   const db = getDb();
-  db.run("DELETE FROM assistant_ingress_invites");
   db.run("DELETE FROM channel_inbound_events");
   db.run("DELETE FROM conversations");
   db.run("DELETE FROM notification_events");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
   resetGatewayAclStore();
-  emitSignalCalls.length = 0;
   deliverReplyCalls.length = 0;
-  gatewayIpcCalls.length = 0;
   msgCounter = 0;
 }
 
@@ -205,14 +111,12 @@ function buildInboundRequest(overrides: Record<string, unknown> = {}): Request {
     interface: "telegram",
     conversationExternalId: "chat-invite-test",
     externalMessageId: `msg-invite-${Date.now()}-${msgCounter}`,
-    content: "/start iv_sometoken",
+    content: "hello there",
     actorExternalId: "user-invite-123",
     actorDisplayName: "Invite User",
     actorUsername: "invite_user",
     replyCallbackUrl: "http://localhost:7830/deliver/telegram",
-    sourceMetadata: {
-      commandIntent: { type: "start", payload: "iv_sometoken" },
-    },
+    sourceMetadata: {},
     ...overrides,
   };
 
@@ -227,7 +131,7 @@ function buildInboundRequest(overrides: Record<string, unknown> = {}): Request {
 }
 
 /**
- * Build a request with a specific invite token, using the structured
+ * Build a request carrying an invite token deep link, using the structured
  * commandIntent that the gateway produces for `/start <payload>`.
  */
 function buildInviteRequest(
@@ -247,115 +151,61 @@ function buildInviteRequest(
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("inbound invite redemption intercept", () => {
+describe("inbound invite messages — no daemon-side interception", () => {
   beforeEach(resetState);
 
-  test("non-member with valid invite token becomes active member without guardian approval", async () => {
-    const { rawToken } = createInvite({
-      sourceChannel: "telegram",
-      contactId: createTargetContact(),
-      maxUses: 5,
-    });
-
-    const req = buildInviteRequest(rawToken);
+  test("non-member /start iv_<valid token> is denied as a normal non-member, no redemption", async () => {
+    const req = buildInviteRequest("some-live-gateway-token");
     const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
     const json = (await resp.json()) as Record<string, unknown>;
 
+    // Standard non-member deny — no invite redemption surface in the response.
     expect(json.accepted).toBe(true);
-    expect(json.inviteRedemption).toBe("redeemed");
-    expect(json.memberId).toEqual(expect.any(String));
-    expect(json.denied).toBeUndefined();
+    expect(json.denied).toBe(true);
+    expect(json.reason).toBe("not_a_member");
+    expect(json.inviteRedemption).toBeUndefined();
+    expect(json.memberId).toBeUndefined();
 
-    // The local mirror persists the member identity row; the gateway owns the
-    // active ACL verdict.
-    const result = findContactChannel({
-      channelType: "telegram",
-      address: "user-invite-123",
-    });
-    expect(result).not.toBeNull();
-
-    // The activation is written to the gateway via upsert_verified_channel.
+    // The sender was NOT made a member.
     expect(
-      gatewayIpcCalls.some((c) => c.method === "upsert_verified_channel"),
-    ).toBe(true);
+      findContactChannel({
+        channelType: "telegram",
+        address: "user-invite-123",
+      }),
+    ).toBeNull();
 
-    // Verify a welcome reply was delivered
+    // The standard ACL rejection reply was delivered.
     expect(deliverReplyCalls.length).toBe(1);
-    const replyText = (deliverReplyCalls[0].payload as Record<string, unknown>)
-      .text;
-    expect(replyText).toContain("Welcome! You've been granted access.");
+    const replyText = String(
+      (deliverReplyCalls[0].payload as Record<string, unknown>).text,
+    );
+    expect(replyText).toMatch(/approved|tried talking to me/);
   });
 
-  test("non-member with invalid token gets refusal text", async () => {
-    const req = buildInviteRequest("completely-bogus-token-xyz");
+  test("non-member bare 6-digit message is denied as a normal message", async () => {
+    const req = buildInboundRequest({ content: "123456" });
     const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
     const json = (await resp.json()) as Record<string, unknown>;
 
+    // The gateway already judged this message a non-invite; the daemon
+    // treats it as any other non-member message.
     expect(json.accepted).toBe(true);
     expect(json.denied).toBe(true);
-    expect(json.inviteRedemption).toBe("invalid_token");
+    expect(json.reason).toBe("not_a_member");
+    expect(json.inviteRedemption).toBeUndefined();
 
-    // Verify refusal reply was delivered
-    expect(deliverReplyCalls.length).toBe(1);
-    const replyText = (deliverReplyCalls[0].payload as Record<string, unknown>)
-      .text;
-    expect(replyText).toContain("no longer valid");
-
-    // Verify the user was NOT made a member
-    const result = findContactChannel({
-      channelType: "telegram",
-      address: "user-invite-123",
-    });
-    expect(result).toBeNull();
-  });
-
-  test("non-member with expired token gets appropriate message", async () => {
-    const { rawToken } = createInvite({
-      sourceChannel: "telegram",
-      contactId: createTargetContact(),
-      maxUses: 1,
-      expiresInMs: -1, // already expired
-    });
-
-    const req = buildInviteRequest(rawToken);
-    const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
-    const json = (await resp.json()) as Record<string, unknown>;
-
-    expect(json.accepted).toBe(true);
-    expect(json.denied).toBe(true);
-    expect(json.inviteRedemption).toBe("expired");
-
-    expect(deliverReplyCalls.length).toBe(1);
-    const replyText = (deliverReplyCalls[0].payload as Record<string, unknown>)
-      .text;
-    expect(replyText).toContain("no longer valid");
-  });
-
-  test("non-member with revoked token gets refusal text", async () => {
-    const { rawToken, invite } = createInvite({
-      sourceChannel: "telegram",
-      contactId: createTargetContact(),
-      maxUses: 5,
-    });
-    revokeInvite(invite.id);
-
-    const req = buildInviteRequest(rawToken);
-    const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
-    const json = (await resp.json()) as Record<string, unknown>;
-
-    expect(json.accepted).toBe(true);
-    expect(json.denied).toBe(true);
-    expect(json.inviteRedemption).toBe("revoked");
-
-    expect(deliverReplyCalls.length).toBe(1);
-    const replyText = (deliverReplyCalls[0].payload as Record<string, unknown>)
-      .text;
-    expect(replyText).toContain("no longer valid");
+    // No membership granted.
+    expect(
+      findContactChannel({
+        channelType: "telegram",
+        address: "user-invite-123",
+      }),
+    ).toBeNull();
   });
 
   test("existing /start gv_<token> guardian bootstrap flow is unaffected", async () => {
-    // Send a /start gv_ command — should not be intercepted by the invite flow.
-    // Without a valid bootstrap session, it should be denied at the ACL gate.
+    // Send a /start gv_ command — without a valid bootstrap session it is
+    // denied at the ACL gate like any other non-member message.
     const req = buildInboundRequest({
       content: "/start gv_some_bootstrap_token",
       sourceMetadata: {
@@ -365,52 +215,11 @@ describe("inbound invite redemption intercept", () => {
     const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
     const json = (await resp.json()) as Record<string, unknown>;
 
-    // Should be denied as a non-member (bootstrap token is invalid/no session)
     expect(json.denied).toBe(true);
     expect(json.reason).toBe("not_a_member");
-    // Should NOT have invite redemption fields
-    expect(json.inviteRedemption).toBeUndefined();
   });
 
-  test("duplicate Telegram webhook deliveries do not double-redeem", async () => {
-    const { rawToken } = createInvite({
-      sourceChannel: "telegram",
-      contactId: createTargetContact(),
-      maxUses: 5,
-    });
-
-    const sharedMessageId = `msg-dedup-${Date.now()}`;
-    const makeReq = () =>
-      buildInviteRequest(rawToken, {
-        externalMessageId: sharedMessageId,
-      });
-
-    // First delivery
-    const resp1 = await handleChannelInbound(
-      makeReq(),
-      undefined,
-      TEST_BEARER_TOKEN,
-    );
-    const json1 = (await resp1.json()) as Record<string, unknown>;
-    expect(json1.inviteRedemption).toBe("redeemed");
-
-    // Second delivery (duplicate webhook)
-    const resp2 = await handleChannelInbound(
-      makeReq(),
-      undefined,
-      TEST_BEARER_TOKEN,
-    );
-    const json2 = (await resp2.json()) as Record<string, unknown>;
-    // Dedup kicks in — the message is treated as a duplicate and no second
-    // redemption attempt occurs.
-    expect(json2.duplicate).toBe(true);
-
-    // Only one welcome reply was delivered
-    expect(deliverReplyCalls.length).toBe(1);
-  });
-
-  test("existing active member sending normal message is unaffected", async () => {
-    // Pre-create an active member
+  test("existing active member sending a normal message is unaffected", async () => {
     seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "user-active-member",
@@ -419,116 +228,38 @@ describe("inbound invite redemption intercept", () => {
       policy: "allow",
     });
 
-    // Active member sends a normal message (no invite token)
     const req = buildInboundRequest({
       content: "Hello, just a normal message!",
       actorExternalId: "user-active-member",
       conversationExternalId: "chat-active",
-      sourceMetadata: {},
     });
-    const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
-    const json = (await resp.json()) as Record<string, unknown>;
-
-    // Should be accepted normally, not denied, not invite-redeemed
-    expect(json.accepted).toBe(true);
-    expect(json.denied).toBeUndefined();
-    expect(json.inviteRedemption).toBeUndefined();
-  });
-
-  test("channel mismatch returns appropriate message", async () => {
-    // Create an invite for voice, but try to redeem via Telegram
-    const { rawToken } = createInvite({
-      sourceChannel: "phone",
-      contactId: createTargetContact(),
-      maxUses: 5,
-    });
-
-    const req = buildInviteRequest(rawToken);
     const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
     const json = (await resp.json()) as Record<string, unknown>;
 
     expect(json.accepted).toBe(true);
-    expect(json.denied).toBe(true);
-    expect(json.inviteRedemption).toBe("channel_mismatch");
-
-    expect(deliverReplyCalls.length).toBe(1);
-    const replyText = (deliverReplyCalls[0].payload as Record<string, unknown>)
-      .text;
-    expect(replyText).toContain("not valid for this channel");
+    expect(json.denied).toBeUndefined();
   });
 
-  test("already-active member with invite token gets acknowledgement", async () => {
-    const { rawToken } = createInvite({
-      sourceChannel: "telegram",
-      contactId: createTargetContact(),
-      maxUses: 5,
-    });
-
-    // Pre-create an active member that will click the invite link
+  test("active member sending a bare 6-digit message is processed as a normal message", async () => {
     seedContactChannel({
       sourceChannel: "telegram",
-      externalUserId: "user-already-active",
-      externalChatId: "chat-invite-test",
+      externalUserId: "user-active-member",
+      externalChatId: "chat-active",
       status: "active",
       policy: "allow",
     });
-
-    const req = buildInviteRequest(rawToken, {
-      actorExternalId: "user-already-active",
+    // Even when a live gateway invite's code would match, the daemon does not
+    // intercept — the message flows to normal processing.
+    const req = buildInboundRequest({
+      content: "654321",
+      actorExternalId: "user-active-member",
+      conversationExternalId: "chat-active",
     });
     const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
     const json = (await resp.json()) as Record<string, unknown>;
 
-    // Active members pass through the ACL gate, so the invite intercept
-    // does not fire. The message proceeds to normal processing.
     expect(json.accepted).toBe(true);
     expect(json.denied).toBeUndefined();
-  });
-
-  test("reactivation via invite preserves existing guardian-managed member display name", async () => {
-    // Pre-create a revoked member named "Jeff" — the invite should preserve
-    // that guardian-assigned name rather than overwriting with the Telegram name.
-    seedContactChannel({
-      sourceChannel: "telegram",
-      externalUserId: "user-invite-123",
-      externalChatId: "chat-invite-test",
-      status: "revoked",
-      policy: "allow",
-      displayName: "Jeff",
-    });
-
-    // Look up the contact that the seed created so we can use
-    // its ID as the invite's contactId (satisfies the FK constraint).
-    const existing = findContactChannel({
-      channelType: "telegram",
-      address: "user-invite-123",
-      externalChatId: "chat-invite-test",
-    });
-    const targetContactId = existing!.contact.id;
-
-    const { rawToken } = createInvite({
-      sourceChannel: "telegram",
-      contactId: targetContactId,
-      maxUses: 5,
-    });
-
-    const req = buildInviteRequest(rawToken, {
-      actorDisplayName: "Noa Flaherty",
-    });
-    const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
-    const json = (await resp.json()) as Record<string, unknown>;
-
-    expect(json.accepted).toBe(true);
-    expect(json.inviteRedemption).toBe("redeemed");
-
-    const result = findContactChannel({
-      channelType: "telegram",
-      address: "user-invite-123",
-      externalChatId: "chat-invite-test",
-    });
-    expect(result).not.toBeNull();
-    // The gateway owns reactivation; the local mirror preserves the
-    // guardian-assigned display name rather than the raw platform identity.
-    expect(result!.contact.displayName).toBe("Jeff");
+    expect(json.inviteRedemption).toBeUndefined();
   });
 });

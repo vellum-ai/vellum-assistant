@@ -35,10 +35,6 @@ mock.module("../config/env-registry.js", () => ({
   getIsPlatform: () => false,
 }));
 
-mock.module("../channels/config.js", () => ({
-  getChannelInvitePolicy: () => ({ codeRedemptionEnabled: false }),
-}));
-
 mock.module("../calls/twilio-rest.js", () => ({
   hasTwilioCredentials: () => false,
 }));

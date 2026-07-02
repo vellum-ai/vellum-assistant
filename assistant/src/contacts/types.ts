@@ -55,7 +55,6 @@ export interface ContactChannel {
   address: string;
   isPrimary: boolean;
   externalChatId: string | null;
-  inviteId: string | null;
   // INFO telemetry (not ACL): interaction stats written locally by the gateway's
   // handle-inbound mirror. Model-facing turn context reads these.
   lastSeenAt: number | null;

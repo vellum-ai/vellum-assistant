@@ -421,6 +421,8 @@ import { migrateLlmRequestLogLatencyBreakdown } from "./migrations/310-llm-reque
 import { migrateCreateSubagentsTable } from "./migrations/311-create-subagents-table.js";
 import { migrateDropInboxConversationStateTable } from "./migrations/312-drop-inbox-conversation-state-table.js";
 import { migrateDropMessagesFts } from "./migrations/313-drop-messages-fts.js";
+import { migrateCreateA2aInvitesTable } from "./migrations/314-create-a2a-invites.js";
+import { migrateDropContactChannelInviteId } from "./migrations/315-drop-contact-channels-invite-id.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1313,4 +1315,6 @@ export const migrationSteps: MigrationStep[] = [
   migrateCreateSubagentsTable,
   migrateDropInboxConversationStateTable,
   migrateDropMessagesFts,
+  migrateCreateA2aInvitesTable,
+  migrateDropContactChannelInviteId,
 ];

@@ -23,6 +23,7 @@ import {
 } from "../runtime/client.js";
 import type { RuntimeInboundResponse } from "../runtime/client.js";
 import type { GatewayInboundEvent } from "../types.js";
+import { tryInviteRedemptionIntercept } from "../verification/invite-redemption.js";
 import { tryTextVerificationIntercept } from "../verification/text-verification.js";
 
 const log = getLogger("handle-inbound");
@@ -33,6 +34,9 @@ export type InboundResult = {
   verificationIntercepted?: boolean;
   /** Reply text when the verification intercept couldn't deliver (no replyCallbackUrl). */
   verificationReplyText?: string;
+  inviteIntercepted?: boolean;
+  /** Reply text when the invite intercept couldn't deliver (no replyCallbackUrl). */
+  inviteReplyText?: string;
   runtimeResponse?: RuntimeInboundResponse;
   rejectionReason?: string;
 };
@@ -157,15 +161,11 @@ export async function handleInbound(
     };
   }
 
-  const transportHints = normalizeTransportHints(
-    options?.transportMetadata?.hints,
-  );
-  const transportUxBrief = options?.transportMetadata?.uxBrief?.trim();
-  const sourceChannelName = event.source.channelName?.trim();
-
   // ── Per-actor trust verdict ──
   // Resolved from the gateway ACL DB and stamped on sourceMetadata for the
-  // runtime to consume.
+  // runtime to consume. Runs after the verification intercept (messages it
+  // consumes never pay resolution cost) and before the invite intercept,
+  // which gates on the resolved class.
   let trustVerdict: TrustVerdict | undefined;
   try {
     trustVerdict = await resolveTrustVerdict({
@@ -180,6 +180,45 @@ export async function handleInbound(
       canonicalSenderIdFor(event.sourceChannel, event.actor.actorExternalId),
     );
   }
+
+  // ── Invite redemption intercept ──
+  // Bare 6-digit invite codes and `/start iv_<token>` deep links from
+  // non-member senders are redeemed at the gateway; the runtime never sees
+  // them. A code that matches no invite falls through as a normal message.
+  const inviteResult = await tryInviteRedemptionIntercept({
+    sourceChannel: event.sourceChannel,
+    messageContent: event.message.content,
+    commandIntent: options?.sourceMetadata?.commandIntent,
+    actorExternalUserId: event.actor.actorExternalId,
+    actorChatId: event.message.conversationExternalId,
+    actorDisplayName: event.actor.displayName,
+    actorUsername: event.actor.username,
+    replyCallbackUrl: options?.replyCallbackUrl,
+    assistantId: routing.assistantId,
+    trustVerdict,
+  });
+
+  if (inviteResult.intercepted) {
+    log.info(
+      {
+        sourceChannel: event.sourceChannel,
+        outcome: inviteResult.outcome,
+      },
+      "Invite redemption intercepted — not forwarding to runtime",
+    );
+    return {
+      forwarded: false,
+      rejected: false,
+      inviteIntercepted: true,
+      inviteReplyText: inviteResult.pendingReplyText,
+    };
+  }
+
+  const transportHints = normalizeTransportHints(
+    options?.transportMetadata?.hints,
+  );
+  const transportUxBrief = options?.transportMetadata?.uxBrief?.trim();
+  const sourceChannelName = event.source.channelName?.trim();
 
   try {
     const response = await forwardToRuntime(

@@ -1,3 +1,4 @@
+import { isInviteCodeRedemptionEnabled } from "@vellumai/gateway-client";
 import {
   normalizePublicBaseUrl,
   resolveTwilioPublicBaseUrl,
@@ -5,7 +6,6 @@ import {
 
 import { resolveTwilioPhoneNumber } from "../calls/twilio-config.js";
 import { hasTwilioCredentials } from "../calls/twilio-rest.js";
-import { getChannelInvitePolicy } from "../channels/config.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getNestedValue, loadRawConfig } from "../config/loader.js";
 import { credentialKey } from "../security/credential-key.js";
@@ -168,7 +168,6 @@ const telegramProbe: ChannelProbe = {
 const emailProbe: ChannelProbe = {
   channel: "email",
   async runLocalChecks(): Promise<ReadinessCheckResult[]> {
-    const invitePolicy = getChannelInvitePolicy("email");
     return [
       check(
         "platform_email",
@@ -178,7 +177,7 @@ const emailProbe: ChannelProbe = {
       ),
       check(
         "invite_policy",
-        invitePolicy.codeRedemptionEnabled,
+        isInviteCodeRedemptionEnabled("email"),
         "Email invite code redemption is enabled",
         "Email invite code redemption is disabled",
       ),
@@ -218,7 +217,6 @@ const whatsappProbe: ChannelProbe = {
   channel: "whatsapp",
   async runLocalChecks(): Promise<ReadinessCheckResult[]> {
     const displayNumber = resolveWhatsAppDisplayNumber();
-    const invitePolicy = getChannelInvitePolicy("whatsapp");
     return [
       await checkCredential(
         "whatsapp_phone_number_id",
@@ -252,7 +250,7 @@ const whatsappProbe: ChannelProbe = {
       ),
       check(
         "invite_policy",
-        invitePolicy.codeRedemptionEnabled,
+        isInviteCodeRedemptionEnabled("whatsapp"),
         "WhatsApp invite code redemption is enabled",
         "WhatsApp invite code redemption is disabled",
       ),
