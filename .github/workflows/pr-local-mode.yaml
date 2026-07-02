@@ -4,6 +4,9 @@ on:
   pull_request:
     types: [synchronize, opened, reopened]
     paths:
+      - 'package.json'
+      - 'bun.lock'
+      - 'patches/**'
       - 'packages/local-mode/**'
       - 'packages/environments/**'
       - '.github/workflows/pr-local-mode.yaml'
