@@ -1539,6 +1539,27 @@ export async function runAgentLoopImpl(
       const config = getConfig();
       const maxWait = config.workspaceGit?.turnCommitMaxWaitMs ?? 4000;
       const deadlineMs = Date.now() + maxWait;
+
+      // Commit app changes first, scoped to the apps subtree, so app edits keep
+      // their own per-app commit message. The workspace turn commit below then
+      // captures everything else. Both target the same workspace repo, so this
+      // must land before the workspace commit's `git add -A` would otherwise
+      // sweep the app files up under the generic turn message.
+      const appOutcome = await raceWithTimeout(
+        commitAppTurnChanges(ctx.conversationId, ctx.turnCount),
+        maxWait,
+      );
+      if (appOutcome === "timed_out") {
+        rlog.warn(
+          {
+            turnNumber: ctx.turnCount,
+            maxWaitMs: maxWait,
+            conversationId: ctx.conversationId,
+          },
+          "App turn commit timed out — continuing without waiting (commit still runs in background)",
+        );
+      }
+
       const commitTurnChangesFn = ctx.commitTurnChanges ?? commitTurnChanges;
       const commitPromise = commitTurnChangesFn(
         ctx.workingDir,
@@ -1558,9 +1579,6 @@ export async function runAgentLoopImpl(
           "Turn-boundary commit timed out — continuing without waiting (commit still runs in background)",
         );
       }
-
-      // Commit app changes (fire-and-forget — apps repo is separate from workspace)
-      void commitAppTurnChanges(ctx.conversationId, ctx.turnCount);
 
       // Recompute relationship-state.json at turn boundary (fire-and-forget).
       // The writer swallows its own errors, but we still guard with catch()

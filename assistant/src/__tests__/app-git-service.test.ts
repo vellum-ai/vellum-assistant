@@ -49,6 +49,7 @@ describe("App Git Service", () => {
     const appsDir = getAppsDir();
     await commitAppTurnChanges("test-session", 1);
 
+    // The apps-subtree .gitignore keeps previews/records out of the workspace repo.
     const gitignore = readFileSync(join(appsDir, ".gitignore"), "utf-8");
     expect(gitignore).toContain("*.preview");
     expect(gitignore).toContain("*/records/");
@@ -64,9 +65,11 @@ describe("App Git Service", () => {
     // Wait to make sure no fire-and-forget commit happens
     await new Promise((resolve) => setTimeout(resolve, 500));
 
-    const appsDir = getAppsDir();
-    // No git repo should exist yet since no turn commit was triggered
-    expect(existsSync(join(appsDir, ".git"))).toBe(false);
+    // The workspace repo (which tracks the apps subtree) should not be
+    // initialized by a bare mutation — only a turn commit triggers git work.
+    expect(existsSync(join(testDataDir, ".git"))).toBe(false);
+    // No nested repo is ever created inside the apps directory.
+    expect(existsSync(join(getAppsDir(), ".git"))).toBe(false);
   });
 
   test("commitAppTurnChanges creates a single commit for multiple mutations", async () => {
@@ -83,8 +86,7 @@ describe("App Git Service", () => {
     // All mutations happened, now commit at turn boundary
     await commitAppTurnChanges("session-1", 1);
 
-    const appsDir = getAppsDir();
-    const commits = getGitLog(appsDir);
+    const commits = getGitLog(testDataDir);
 
     // On a fresh repo the first turn's files may be absorbed into the
     // "Initial commit" created by WorkspaceGitService.ensureInitialized.
@@ -107,13 +109,12 @@ describe("App Git Service", () => {
     });
     await commitAppTurnChanges("session-1", 1);
 
-    const appsDir = getAppsDir();
-    const commitsBefore = getGitLog(appsDir);
+    const commitsBefore = getGitLog(testDataDir);
 
     // No mutations — turn commit should be a no-op
     await commitAppTurnChanges("session-1", 2);
 
-    const commitsAfter = getGitLog(appsDir);
+    const commitsAfter = getGitLog(testDataDir);
     expect(commitsAfter.length).toBe(commitsBefore.length);
   });
 
@@ -133,8 +134,7 @@ describe("App Git Service", () => {
     deleteApp(app.id);
     await commitAppTurnChanges("session-1", 2);
 
-    const appsDir = getAppsDir();
-    const commits = getGitLog(appsDir);
+    const commits = getGitLog(testDataDir);
     expect(commits[0]).toContain("update ");
   });
 });

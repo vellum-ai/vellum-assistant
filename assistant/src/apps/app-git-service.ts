@@ -1,26 +1,29 @@
 /**
  * Git-backed version control for user-defined apps.
  *
- * Initializes a git repository in the apps directory (~/.vellum/apps/) and
- * commits after every app mutation (create, update, delete, file write/edit).
- * Commits are fire-and-forget -- they never block the caller.
+ * App files live under the apps directory (workspace/data/apps/), which is
+ * itself tracked by the workspace git repository. Rather than maintaining a
+ * second, nested repository inside the apps directory, this module records
+ * app history as commits in the workspace repo, scoped to the apps subtree.
  *
- * Also exposes query methods (history, diff, file-at-version, restore) for
- * browsing and reverting app version history.
+ * `commitAppTurnChanges` commits just the apps subtree at each turn boundary
+ * (so app edits keep their own per-app commit message), while the workspace
+ * turn commit captures everything else. Query methods (history, diff,
+ * file-at-version, restore) read/write the same workspace repo, scoping git
+ * pathspecs to the apps subtree.
  *
  * Reuses WorkspaceGitService for all git operations (mutex, circuit breaker,
  * lazy init, etc.).
  *
- * NOTE: After the 010-app-dir-rename migration, git pathspecs use dirName
- * (slug) instead of appId (UUID). History queries will only return commits
- * made after the migration rename. Commits before the migration used UUID-
- * based paths and are not visible through the current slug-based pathspecs.
+ * NOTE: History queries scope pathspecs by dirName (slug), not appId (UUID).
+ * See the 010-app-dir-rename migration.
  */
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 import { getLogger } from "../util/logger.js";
+import { getWorkspaceDir } from "../util/platform.js";
 import { getWorkspaceGitService } from "../workspace/git-service.js";
 import { getAppsDir, resolveAppDir } from "./app-store.js";
 
@@ -59,6 +62,25 @@ export interface AppVersion {
 }
 
 // ---------------------------------------------------------------------------
+// Workspace-repo scoping helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * The apps directory expressed as a git pathspec relative to the workspace
+ * repo root (e.g. "data/apps"). App commits and history queries scope to this
+ * subtree so they only ever touch app files within the shared workspace repo.
+ */
+function appsSubtree(): string {
+  const rel = relative(getWorkspaceDir(), getAppsDir());
+  return rel.split(/[\\/]/).join("/");
+}
+
+/** git service for the workspace repo (the single repo that tracks apps). */
+function workspaceGit() {
+  return getWorkspaceGitService(getWorkspaceDir());
+}
+
+// ---------------------------------------------------------------------------
 // Gitignore management
 // ---------------------------------------------------------------------------
 
@@ -66,8 +88,13 @@ export interface AppVersion {
  * Patterns excluded from app version tracking.
  * - *.preview -- large base64 preview images
  * - records directories -- user data (form submissions), not app code
+ * - dist directories -- regenerable build output; tracking it would churn the
+ *   workspace repo on every recompile and pollute app history with bundles
+ *
+ * Written to a .gitignore inside the apps directory so the workspace repo
+ * (which tracks the apps subtree) skips these paths.
  */
-const APP_GITIGNORE_RULES = ["*.preview", "*/records/"];
+const APP_GITIGNORE_RULES = ["*.preview", "*/records/", "*/dist/"];
 
 /**
  * Ensure the apps directory .gitignore contains app-specific exclusion rules.
@@ -132,12 +159,55 @@ function validateRelativePath(path: string): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Commit-message derivation
+// ---------------------------------------------------------------------------
+
+/**
+ * Derive a fallback commit subject from the staged app files when no explicit
+ * change summary was provided. Reads app names from their .json definitions.
+ */
+function deriveAppCommitSubject(
+  appsDir: string,
+  subtree: string,
+  stagedFiles: string[],
+): string {
+  const prefix = subtree.endsWith("/") ? subtree : `${subtree}/`;
+  const dirNames = [
+    ...new Set(
+      stagedFiles.map((f) => {
+        const rel = f.startsWith(prefix) ? f.slice(prefix.length) : f;
+        return rel.split("/")[0].replace(/\.json$/, "");
+      }),
+    ),
+  ].filter(Boolean);
+
+  const appNames = dirNames.map((dirName) => {
+    try {
+      const jsonPath = join(appsDir, `${dirName}.json`);
+      const raw = readFileSync(jsonPath, "utf-8");
+      const app = JSON.parse(raw) as { name?: string };
+      return app.name || dirName;
+    } catch {
+      return dirName;
+    }
+  });
+
+  if (appNames.length === 0) return "update apps";
+  if (appNames.length === 1) return `update ${appNames[0]}`;
+  if (appNames.length <= 3) return `update ${appNames.join(", ")}`;
+  return `update ${appNames.length} apps`;
+}
+
 /**
  * Commit app changes at turn boundaries.
  *
- * Called once per agent turn (after all tool calls complete). Only creates
- * a commit if there are actual changes in the apps directory, so multiple
+ * Commits only the apps subtree of the workspace repo. Only creates a commit
+ * if there are actual staged changes under the apps subtree, so multiple
  * mutations within a single turn are batched into one version.
+ *
+ * Runs before the workspace turn commit so app edits keep their own per-app
+ * message; anything the workspace commit later sweeps up is everything else.
  *
  * Fire-and-forget safe: errors are logged but never thrown.
  */
@@ -151,44 +221,54 @@ export async function commitAppTurnChanges(
     const appsDir = getAppsDir();
     ensureAppGitignoreRules(appsDir);
 
-    const gitService = getWorkspaceGitService(appsDir);
+    const subtree = appsSubtree();
+    const gitService = workspaceGit();
 
-    await gitService.commitIfDirty((status) => {
-      if (changeSummary) {
-        return {
-          message: changeSummary,
-          metadata: { conversationId, turnNumber },
-        };
+    await gitService.runWithMutex(async (exec) => {
+      // Stage only the apps subtree so this commit stays scoped to app files.
+      // The workspace repo's index is empty between commits, so committing the
+      // index below records exactly these app changes.
+      await exec(["add", "--", subtree]);
+
+      // Nothing staged under the apps subtree -> skip (no empty commit).
+      // `diff --cached --quiet` exits 0 when clean, 1 when there are changes.
+      try {
+        await exec(["diff", "--cached", "--quiet", "--", subtree]);
+        return;
+      } catch (err) {
+        if ((err as { code?: number }).code !== 1) throw err;
+        // exit 1 => staged app changes exist; proceed to commit.
       }
 
-      // Fallback: derive app names from changed file paths
-      const allFiles = [
-        ...new Set([...status.staged, ...status.modified, ...status.untracked]),
-      ];
-      const dirNames = [
-        ...new Set(allFiles.map((f) => f.split("/")[0].replace(/\.json$/, ""))),
-      ];
-      const appNames = dirNames.map((dirName) => {
+      // Only needed for the fallback subject; a hiccup here must not abort the
+      // commit, so fall back to an empty list (=> "update apps").
+      let stagedFiles: string[] = [];
+      if (!changeSummary) {
         try {
-          const jsonPath = join(appsDir, `${dirName}.json`);
-          const raw = readFileSync(jsonPath, "utf-8");
-          const app = JSON.parse(raw) as { name?: string };
-          return app.name || dirName;
+          const { stdout } = await exec([
+            "diff",
+            "--cached",
+            "--name-only",
+            "--",
+            subtree,
+          ]);
+          stagedFiles = stdout
+            .split("\n")
+            .map((f) => f.trim())
+            .filter(Boolean);
         } catch {
-          return dirName;
+          // keep stagedFiles empty
         }
-      });
-      const subject =
-        appNames.length === 1
-          ? `update ${appNames[0]}`
-          : appNames.length <= 3
-            ? `update ${appNames.join(", ")}`
-            : `update ${appNames.length} apps`;
+      }
 
-      return {
-        message: subject,
-        metadata: { conversationId, turnNumber },
-      };
+      const subject =
+        changeSummary ?? deriveAppCommitSubject(appsDir, subtree, stagedFiles);
+      const message =
+        `${subject}\n\n` +
+        `conversationId: ${JSON.stringify(conversationId)}\n` +
+        `turnNumber: ${JSON.stringify(turnNumber)}`;
+
+      await exec(["commit", "-m", message]);
     });
   } catch (err) {
     log.error(
@@ -206,10 +286,7 @@ export async function commitAppTurnChanges(
  * Get the commit history for a specific app.
  *
  * Scopes `git log` to files belonging to this app using dirName-based
- * pathspecs: {dirName}.json, {dirName}/.
- *
- * Note: After the 010 migration, only commits made after the rename are
- * visible. Pre-migration commits used UUID-based paths.
+ * pathspecs within the apps subtree: {subtree}/{dirName}.json, {subtree}/{dirName}/.
  */
 export async function getAppHistory(
   appId: string,
@@ -218,8 +295,8 @@ export async function getAppHistory(
   validateAppId(appId);
   const { dirName } = resolveAppDir(appId);
   const safeLimit = Math.max(1, Math.min(Math.floor(limit) || 50, 500));
-  const appsDir = getAppsDir();
-  const gitService = getWorkspaceGitService(appsDir);
+  const subtree = appsSubtree();
+  const gitService = workspaceGit();
 
   // Format: hash<TAB>unix-seconds<TAB>subject line
   const { stdout } = await gitService.runReadOnlyGit([
@@ -227,8 +304,8 @@ export async function getAppHistory(
     `--max-count=${safeLimit}`,
     "--format=%H\t%at\t%s",
     "--",
-    `${dirName}.json`,
-    `${dirName}/`,
+    `${subtree}/${dirName}.json`,
+    `${subtree}/${dirName}/`,
   ]);
 
   if (!stdout.trim()) return [];
@@ -260,16 +337,16 @@ export async function getAppDiff(
   if (toCommit) validateCommitHash(toCommit);
 
   const { dirName } = resolveAppDir(appId);
-  const appsDir = getAppsDir();
-  const gitService = getWorkspaceGitService(appsDir);
+  const subtree = appsSubtree();
+  const gitService = workspaceGit();
 
   const range = toCommit ? `${fromCommit}..${toCommit}` : `${fromCommit}..HEAD`;
   const { stdout } = await gitService.runReadOnlyGit([
     "diff",
     range,
     "--",
-    `${dirName}.json`,
-    `${dirName}/`,
+    `${subtree}/${dirName}.json`,
+    `${subtree}/${dirName}/`,
   ]);
 
   return stdout;
@@ -288,12 +365,12 @@ export async function getAppFileAtVersion(
   validateCommitHash(commitHash);
 
   const { dirName } = resolveAppDir(appId);
-  const appsDir = getAppsDir();
-  const gitService = getWorkspaceGitService(appsDir);
+  const subtree = appsSubtree();
+  const gitService = workspaceGit();
 
   const { stdout } = await gitService.runReadOnlyGit([
     "show",
-    `${commitHash}:${dirName}/${path}`,
+    `${commitHash}:${subtree}/${dirName}/${path}`,
   ]);
 
   return stdout;
@@ -318,7 +395,8 @@ export async function restoreAppVersion(
 
   const { dirName } = resolveAppDir(appId);
   const appsDir = getAppsDir();
-  const gitService = getWorkspaceGitService(appsDir);
+  const subtree = appsSubtree();
+  const gitService = workspaceGit();
 
   await gitService.runWithMutex(async (exec) => {
     // Checkout the app's files at the target commit.
@@ -328,8 +406,8 @@ export async function restoreAppVersion(
       commitHash,
       "--no-overlay",
       "--",
-      `${dirName}.json`,
-      `${dirName}/`,
+      `${subtree}/${dirName}.json`,
+      `${subtree}/${dirName}/`,
     ]);
 
     // Read the app name and refresh updatedAt so the restored app
@@ -351,7 +429,12 @@ export async function restoreAppVersion(
     const shortHash = commitHash.substring(0, 7);
 
     // Stage only this app's files and commit atomically within the same mutex lock
-    await exec(["add", "--", `${dirName}.json`, `${dirName}/`]);
+    await exec([
+      "add",
+      "--",
+      `${subtree}/${dirName}.json`,
+      `${subtree}/${dirName}/`,
+    ]);
     await exec([
       "commit",
       "-m",
