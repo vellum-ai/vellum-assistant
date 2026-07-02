@@ -18,6 +18,13 @@
  * naming the specific query behind a freeze regardless of whether it came from
  * Drizzle or {@link ./raw-query}.
  *
+ * Attribution: raw-query callers attach a curated `.label()` (e.g.
+ * `"schedule:claimDue"`). Drizzle's fluent API has no chokepoint to label, so
+ * for any query without an explicit label the reporter derives a `caller` from
+ * the stack — `path:function:line` of the application frame that issued it —
+ * captured only on the slow path. Between the two, every slow query is
+ * attributable to its call site with no per-query annotation of Drizzle code.
+ *
  * This is pure instrumentation: return values, parameter binding, transactions,
  * savepoints, and error propagation are all preserved exactly. The fast path
  * adds only a `performance.now()` pair and a numeric compare — no allocation or
@@ -62,6 +69,65 @@ export interface SlowQueryEvent {
   rowCount?: number;
   /** Caller-supplied attribution tag, when the query was issued via `.label()`. */
   label?: string;
+  /**
+   * Auto-derived call site (`path:function:line`) for queries with no explicit
+   * `.label()` — notably every Drizzle query, which has no chokepoint to attach
+   * a label to. Captured from the stack only on the slow path.
+   */
+  caller?: string;
+}
+
+/**
+ * Stack frames matching these substrings are instrumentation/ORM/runtime plumbing,
+ * not the query's call site — skipped when deriving {@link SlowQueryEvent.caller}.
+ * Dependency frames (Drizzle et al.) live under `node_modules` or Bun's global
+ * install cache (`.bun/install/cache/drizzle-orm@x.y.z/…`), so both are skipped
+ * to land on the first application (`src/`) frame that issued the query.
+ */
+const CALLER_SKIP = [
+  "slow-query-log.ts",
+  "node_modules",
+  ".bun/install/cache",
+  "node:",
+  "bun:",
+];
+
+/** `src/`-relative path, or bare basename when the frame is outside `src/`. */
+function shortenStackFile(file: string): string {
+  const idx = file.lastIndexOf("/src/");
+  if (idx >= 0) return file.slice(idx + "/src/".length);
+  return file.split("/").pop() ?? file;
+}
+
+/**
+ * Best-effort attribution for a query with no explicit label: the first stack
+ * frame outside this module, Drizzle, and the runtime — i.e. the application
+ * code that issued the query. Returns e.g. `persistence/conversation-crud.ts:insertMessageCore:474`.
+ * Only called on the slow path (a query already past the threshold), so the
+ * `Error().stack` cost is incurred rarely.
+ */
+function callerFromStack(): string | undefined {
+  const stack = new Error().stack;
+  if (!stack) return undefined;
+  const lines = stack.split("\n");
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.includes("at ")) continue;
+    if (CALLER_SKIP.some((skip) => line.includes(skip))) continue;
+    // Bun renders frames as `at fn (file:line:col)`, `at file:line:col`, or
+    // (for some optimized frames) `at file:line` with no function or column.
+    const withFn = line.match(
+      /at (?:async )?([^\s(]+) \((.+?):(\d+)(?::\d+)?\)/,
+    );
+    if (withFn) {
+      return `${shortenStackFile(withFn[2])}:${withFn[1]}:${withFn[3]}`;
+    }
+    const noFn = line.match(/at (?:async )?(.+?):(\d+)(?::\d+)?$/);
+    if (noFn) {
+      return `${shortenStackFile(noFn[1])}:${noFn[2]}`;
+    }
+  }
+  return undefined;
 }
 
 /** Log a slow statement execution at WARN with its SQL and duration. */
@@ -132,12 +198,15 @@ export function wrapSqliteForSlowQueryLogging(
     durationMs: number,
     result: unknown,
   ): void => {
-    // Only ever called on the slow path, so building the payload here is fine.
+    // Only ever called on the slow path, so building the payload — including the
+    // stack walk for unlabeled (Drizzle) queries — is fine.
+    const caller = label === undefined ? callerFromStack() : undefined;
     onSlowQuery({
       durationMs,
       sql: sql.slice(0, SQL_PREVIEW_MAX),
       ...(Array.isArray(result) ? { rowCount: result.length } : {}),
       ...(label === undefined ? {} : { label }),
+      ...(caller === undefined ? {} : { caller }),
     });
   };
 

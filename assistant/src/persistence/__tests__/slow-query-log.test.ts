@@ -179,8 +179,31 @@ describe("slow-query-log", () => {
     expect(events).toHaveLength(2);
     expect(events[0].label).toBe("schedule::claimDue");
     expect(events[1].label).toBe("schedule::complete");
-    // Unlabeled queries carry no label field.
+    // A curated label suppresses the auto-derived caller.
+    expect(events[0].caller).toBeUndefined();
     expect(events[0].sql).toContain("INSERT INTO t");
+  });
+
+  test("an unlabeled query derives a caller from the stack", () => {
+    const events: SlowQueryEvent[] = [];
+    const db = new Database(":memory:");
+    db.exec("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    wrapSqliteForSlowQueryLogging(db, {
+      thresholdMs: 100,
+      now: fakeClock(0, 500),
+      onSlowQuery: (e) => events.push(e),
+    });
+
+    // No `.label()` — mirrors a Drizzle query, which has no chokepoint to label.
+    db.query("SELECT * FROM t").all();
+
+    expect(events).toHaveLength(1);
+    expect(events[0].label).toBeUndefined();
+    // The caller points at this test file (the application frame that issued it),
+    // not at slow-query-log.ts or bun:sqlite internals.
+    expect(events[0].caller).toBeDefined();
+    expect(events[0].caller).toContain("slow-query-log.test.ts");
+    expect(events[0].caller).not.toContain("slow-query-log.ts");
   });
 
   test("wraps in place and returns the same Database instance", () => {
