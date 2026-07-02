@@ -5,7 +5,6 @@ import { useNavigate } from "react-router";
 import {
   BottomSheet,
   Button,
-  PanelItem,
   Popover,
   Typography,
 } from "@vellumai/design-library";
@@ -56,9 +55,25 @@ export function InChatPluginPill({
   const label = selectedCount === 1 ? "1 plugin" : `${selectedCount} plugins`;
   const ariaLabel = `Chat plugins, ${selectedCount} active`;
 
-  // Read-only rows — the chat's active plugins, no toggle affordance.
+  // Read-only rows — the chat's active plugins, no toggle affordance. Rounded
+  // pills with the plugin name in body-medium-default / content-default (per
+  // the Figma), which PanelItem's lighter/secondary default doesn't match.
   const pluginRows = active.map((plugin) => (
-    <PanelItem key={plugin.name} icon={Plug} label={plugin.label} />
+    <div
+      key={plugin.name}
+      className="flex items-center gap-1 rounded-full py-2 pl-2 pr-2.5"
+    >
+      <Plug
+        aria-hidden
+        className="size-4 shrink-0 text-[var(--content-tertiary)]"
+      />
+      <Typography
+        variant="body-medium-default"
+        className="truncate text-[var(--content-default)]"
+      >
+        {plugin.label}
+      </Typography>
+    </div>
   ));
 
   const manageFooter = (
@@ -129,7 +144,7 @@ export function InChatPluginPill({
           </Typography>
         </div>
         {pluginRows.length > 0 ? (
-          <div className="max-h-[240px] overflow-y-auto px-2">{pluginRows}</div>
+          <div className="max-h-[240px] overflow-y-auto px-1">{pluginRows}</div>
         ) : null}
         {manageFooter}
       </Popover.Content>
