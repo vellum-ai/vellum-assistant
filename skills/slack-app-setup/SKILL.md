@@ -46,7 +46,7 @@ Call `ui_show` with `surface_type: "channel_setup"` and `data: { channel: "slack
 
 After `ui_show` returns success, tell the user:
 
-> I've opened the Slack setup wizard in the side panel. It will walk you through creating a Slack app, generating tokens, and connecting — complete the steps there. Ask me questions along the way, and let me know when you're done.
+> I've opened the Slack setup wizard in the side panel. It will walk you through creating a Slack app, generating tokens, and connecting — complete the steps there. The wizard will auto-notify me when you close it. If you run into issues along the way, ask me in chat.
 
 If the `ui_show` call fails, do NOT send that message — tell the user the wizard could not be opened and troubleshoot (e.g. no connected client) before retrying.
 
@@ -58,7 +58,7 @@ The wizard handles the entire flow: manifest URL generation, app-level token cre
 
 ## Step 3 — Verify completion
 
-When the user says they're done (or asks you to check), verify the connection:
+When you receive the wizard-closed notification (or the user asks you to check), verify the connection. The notification arrives as a message like `[User action on channel_setup panel: closed the slack setup wizard]` — closing the wizard drawer sends it automatically, so do not wait for the user to type a confirmation. If the user manually says they're done or asks you to check, proceed with the same verification.
 
 1. Run `assistant credentials list --search slack_channel` (via the bash tool). Confirm both `app_token` and `bot_token` are present.
 
@@ -75,7 +75,7 @@ When the user says they're done (or asks you to check), verify the connection:
 
    Extract `user` → botUsername, `team` → workspace from the JSON response. If `ok: false` or the call errors, fall back to `your bot` / `your workspace`.
 
-3. If either token is missing, tell the user which one and suggest they complete that step in the wizard (it should still be open in the side panel).
+3. If either token is missing, tell the user which one is missing and offer to re-open the wizard so they can complete that step (the wizard-closed notification means the side panel is no longer open — re-run Step 2's `ui_show` call if they accept).
 
 ## Step 4 — Verify identity (optional)
 
@@ -113,7 +113,7 @@ If identity was skipped → swap the last two lines for:
 
 - [ ] `assistant credentials list` was called and the existing-state branch was named explicitly (Step 1).
 - [ ] `ui_show` with `surface_type: "channel_setup"` was called and returned success before any message claiming the wizard is open (Step 2).
-- [ ] User confirmed completion and both tokens are verified present (Step 3).
+- [ ] The wizard-closed notification arrived (or the user asked to check) and both tokens are verified present (Step 3).
 - [ ] `guardian-verify-setup` was loaded and either completed or the user explicitly declined (Step 4).
 - [ ] Success message was posted with real bot identity values (Step 5).
 

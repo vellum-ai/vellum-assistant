@@ -89,6 +89,7 @@ export function handleOpenPanel(event: OpenPanelEvent): void {
       channel,
       assistantId: activeAssistantId,
       assistantName,
+      conversationId: event.conversationId,
     });
   }
 }
