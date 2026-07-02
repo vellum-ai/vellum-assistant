@@ -856,9 +856,9 @@ describe("loadConfig startup behavior", () => {
     );
     expect(raw.llm.profiles.balanced.effort).toBe("high");
     expect(raw.llm.profiles.balanced.source).toBe("managed");
-    // Quality serves Anthropic Opus, the most capable managed profile.
+    // Quality serves Anthropic Fable, the most capable managed profile.
     expect(raw.llm.profiles["quality-optimized"].provider).toBe("anthropic");
-    expect(raw.llm.profiles["quality-optimized"].model).toBe("claude-opus-4-8");
+    expect(raw.llm.profiles["quality-optimized"].model).toBe("claude-fable-5");
     // Speed is served by DeepSeek V4 Flash on Fireworks.
     expect(raw.llm.profiles["cost-optimized"].provider).toBe("fireworks");
     expect(raw.llm.profiles["cost-optimized"].model).toBe(
@@ -899,7 +899,7 @@ describe("loadConfig startup behavior", () => {
   test("reseed updates a source-less legacy canonical managed profile", () => {
     // Migration 052 seeded canonical profiles without a `source`. Such a
     // source-less `quality-optimized` is legacy managed, not user-owned, so it
-    // must still reseed to the latest template (Opus) and be tagged managed.
+    // must still reseed to the latest template (Fable) and be tagged managed.
     writeConfig({
       llm: {
         profiles: {
@@ -915,7 +915,7 @@ describe("loadConfig startup behavior", () => {
     mergeDefaultConfigAndSeedInferenceProfiles();
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
-    expect(raw.llm.profiles["quality-optimized"].model).toBe("claude-opus-4-8");
+    expect(raw.llm.profiles["quality-optimized"].model).toBe("claude-fable-5");
     expect(raw.llm.profiles["quality-optimized"].source).toBe("managed");
   });
 
@@ -1574,7 +1574,7 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
     expect(raw.llm.activeProfile).toBe("balanced");
-    // Balanced lives on `fireworks-managed`; `quality-optimized` (Opus on
+    // Balanced lives on `fireworks-managed`; `quality-optimized` (Fable on
     // `anthropic-managed`) is on a different connection, so selecting balanced at
     // hatch disables it. The default advisor falls to the only active managed
     // profile, `balanced`.
