@@ -14,6 +14,31 @@ export interface UpgradeOptions {
   force?: boolean;
 }
 
+// A trusted upgrade version is either the literal `latest` dist-tag or a semver
+// release tag (optionally `v`-prefixed, with optional pre-release/build
+// metadata). The pre-release/build identifier must start with an alphanumeric,
+// so `..` and empty identifiers are rejected. Because no `/`, `\`, `:`, `@` or
+// whitespace can pass, the value can never become a package-manager spec
+// (npm alias, tarball/git URL) or a path-traversal segment when the CLI writes
+// it into a generated `package.json` and installs/executes the local runtime.
+const UPGRADE_VERSION_PATTERN =
+  /^(?:latest|v?\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?(?:\+[0-9A-Za-z][0-9A-Za-z.-]*)?)$/;
+
+/**
+ * Whether `version` is a trusted upgrade identifier: the literal `latest`, or a
+ * semver release tag like `v1.2.3` / `1.2.3` / `0.6.0-staging.5`. Rejects
+ * package-manager specifiers (npm aliases, tarball or git URLs) and any
+ * path-traversal-like input.
+ *
+ * This is the host-bridge boundary guard: it runs in the shared library that
+ * backs both the Electron host and the web dev-server middleware, so a
+ * compromised/XSS'd renderer cannot smuggle an arbitrary package spec through
+ * `--version` before the CLI is even spawned.
+ */
+export function isValidUpgradeVersion(version: string): boolean {
+  return UPGRADE_VERSION_PATTERN.test(version);
+}
+
 function extractVersion(output: string): string | undefined {
   const versionPattern = "(v?[0-9]+(?:\\.[0-9]+)*(?:[-+][\\w.-]+)?)";
   const upgraded = output.match(
@@ -35,6 +60,18 @@ export function runUpgrade(
   options?: UpgradeOptions,
 ): Promise<UpgradeResult> {
   return new Promise((resolve) => {
+    // Reject an untrusted `--version` at the host boundary before spawning the
+    // CLI. `latest` (or the `--latest` flag) is always allowed; an explicit
+    // version must be a release tag. Preserves the never-reject contract.
+    if (options?.version && !isValidUpgradeVersion(options.version)) {
+      resolve({
+        ok: false,
+        status: 400,
+        error: `Invalid upgrade version '${options.version}': expected a release tag like v1.2.3 or 'latest'.`,
+      });
+      return;
+    }
+
     const args = [...invocation.baseArgs, "upgrade", assistantId];
     if (options?.latest) {
       args.push("--latest");

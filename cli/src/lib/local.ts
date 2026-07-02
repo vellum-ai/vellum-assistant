@@ -41,6 +41,28 @@ export interface LocalRuntimeInstall {
   installDir: string;
 }
 
+// A trusted local-runtime version is either the literal `latest` dist-tag or a
+// semver release tag (optionally `v`-prefixed, with optional pre-release/build
+// metadata). The pre-release/build identifier must start with an alphanumeric,
+// so `..` and empty identifiers are rejected. Because no `/`, `\`, `:`, `@` or
+// whitespace can pass, the value can never become a package-manager spec
+// (npm alias, tarball/git URL) or a path-traversal segment — both of which are
+// dangerous here since this string is written verbatim into a generated
+// `package.json` dependency spec (`bun install`) and used as a filesystem path
+// segment for the runtime install directory.
+const RUNTIME_VERSION_PATTERN =
+  /^(?:latest|v?\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?(?:\+[0-9A-Za-z][0-9A-Za-z.-]*)?)$/;
+
+/**
+ * Whether `version` is a trusted local-runtime identifier: the literal
+ * `latest`, or a semver release tag like `v1.2.3` / `1.2.3` /
+ * `0.6.0-staging.5`. Rejects package-manager specifiers (npm aliases, tarball
+ * or git URLs) and any path-traversal-like input.
+ */
+export function isValidRuntimeVersion(version: string): boolean {
+  return RUNTIME_VERSION_PATTERN.test(version);
+}
+
 function normalizeRuntimeVersion(version: string): string {
   return version === "latest" ? version : stripVersionPrefix(version);
 }
@@ -148,6 +170,17 @@ export function ensureLocalRuntime(
   version: string,
   options: { force?: boolean } = {},
 ): LocalRuntimeInstall {
+  // Reject anything that is not a trusted release identifier BEFORE it becomes
+  // a filesystem path segment or a `bun install` dependency spec. Without this,
+  // a package-manager spec (npm alias, tarball/git URL) or a `../`-laden string
+  // reaching this sink would install and then execute arbitrary attacker code
+  // as the local assistant runtime.
+  if (!isValidRuntimeVersion(version)) {
+    throw new Error(
+      `Invalid runtime version '${version}': expected a release tag like v1.2.3 or 'latest'.`,
+    );
+  }
+
   const normalizedVersion = normalizeRuntimeVersion(version);
   const displayVersion =
     normalizedVersion === "latest" ? "latest" : `v${normalizedVersion}`;
