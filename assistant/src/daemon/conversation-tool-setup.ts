@@ -18,6 +18,7 @@ import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import { getBindingByConversation } from "../persistence/external-conversation-store.js";
 import { DEFAULT_PLUGIN_NAMES } from "../plugins/defaults/default-plugin-names.js";
+import { isPluginDisabled } from "../plugins/disabled-state.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
@@ -129,20 +130,40 @@ export function resolveConversationAttribution(
  * filters intersect their candidate set against this; `null` is the no-op
  * sentinel (no intersection).
  *
- * The first-party default plugins are ALWAYS unioned into a non-null scope:
- * they are core runtime infrastructure (memory, turn-context, workspace
- * grounding, session framing, history repair, title generation, …), not
- * user-toggleable extensions. The per-chat pills only list user-INSTALLED
- * plugins (`/v1/plugins` = installed plugins), so without this union,
- * deselecting any pill would intersect the defaults out and silently disable
- * core behavior. Unioning here fixes every consumer (tools/skills/injectors/
- * hooks) at the single chokepoint.
+ * Enablement precedence, highest first:
+ *   1. Explicit per-conversation enable/disable — the `enabledPlugins`
+ *      allowlist. A plugin listed here is enabled for this chat even if it is
+ *      disabled at the workspace level; an installed plugin omitted from a
+ *      non-null list is disabled for this chat.
+ *   2. Explicit workspace enable/disable — the `.disabled` sentinel
+ *      (`assistant plugins disable <name>`), via {@link isPluginDisabled}.
+ *   3. Default plugins are enabled by default.
+ *
+ * The first-party default plugins are therefore unioned into a non-null scope
+ * unless they are disabled at the workspace level: they are core runtime
+ * infrastructure (memory, turn-context, workspace grounding, session framing,
+ * history repair, title generation, …), not user-toggleable extensions, and
+ * the per-chat pills only list user-INSTALLED plugins (`/v1/plugins`), so
+ * without this union deselecting any pill would intersect the defaults out and
+ * silently disable core behavior. A workspace-disabled default is left out so
+ * `assistant plugins disable default-*` still takes effect; a default the
+ * conversation explicitly enabled (rule 1) stays in regardless. Unioning here
+ * fixes every consumer (tools/skills/injectors/hooks) at the single chokepoint.
  */
 export function getEffectiveEnabledPluginSet(conv: {
   enabledPlugins?: string[] | null;
 }): Set<string> | null {
   if (conv.enabledPlugins == null) return null;
-  return new Set([...conv.enabledPlugins, ...DEFAULT_PLUGIN_NAMES]);
+  // Rule 1: the conversation's explicit selections always apply.
+  const effective = new Set(conv.enabledPlugins);
+  // Rules 2 + 3: add a default the conversation did not already decide, unless
+  // it is disabled at the workspace level.
+  for (const name of DEFAULT_PLUGIN_NAMES) {
+    if (!effective.has(name) && !isPluginDisabled(name)) {
+      effective.add(name);
+    }
+  }
+  return effective;
 }
 
 // ── createToolExecutor ───────────────────────────────────────────────

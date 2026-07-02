@@ -1,8 +1,9 @@
 /**
  * Tests for `gate-flag.ts` — the on/off predicate gating the memory-v3
  * per-turn injection gate. The assistant flag resolver is mocked so the test
- * asserts pure delegation: the predicate forwards `MEMORY_V3_INJECTION_GATE_FLAG`
- * and the config to `isAssistantFeatureFlagEnabled` and returns its boolean.
+ * asserts the composition: the predicate forwards `MEMORY_V3_INJECTION_GATE_FLAG`
+ * and the config to `isAssistantFeatureFlagEnabled` and ANDs its boolean with
+ * the `memory.v3.gate.enabled` config kill-switch.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -22,7 +23,9 @@ mock.module("../../../../../config/assistant-feature-flags.js", () => ({
 const { isMemoryV3InjectionGateEnabled, MEMORY_V3_INJECTION_GATE_FLAG } =
   await import("../gate-flag.js");
 
-const cfg = {} as AssistantConfig;
+// The predicate reads only `memory.v3.gate.enabled` from the config.
+const cfgWithGateEnabled = (enabled: boolean): AssistantConfig =>
+  ({ memory: { v3: { gate: { enabled } } } }) as AssistantConfig;
 
 describe("gate-flag", () => {
   beforeEach(() => {
@@ -33,9 +36,10 @@ describe("gate-flag", () => {
     expect(MEMORY_V3_INJECTION_GATE_FLAG).toBe("memory-v3-injection-gate");
   });
 
-  test("delegates to the resolver with the flag id + config and returns true", () => {
+  test("flag on + config enabled → true, resolver called with the flag id + config", () => {
     isAssistantFeatureFlagEnabled.mockReturnValue(true);
 
+    const cfg = cfgWithGateEnabled(true);
     expect(isMemoryV3InjectionGateEnabled(cfg)).toBe(true);
     expect(isAssistantFeatureFlagEnabled).toHaveBeenCalledTimes(1);
     expect(isAssistantFeatureFlagEnabled).toHaveBeenCalledWith(
@@ -47,10 +51,19 @@ describe("gate-flag", () => {
   test("returns false when the resolver returns false", () => {
     isAssistantFeatureFlagEnabled.mockReturnValue(false);
 
+    const cfg = cfgWithGateEnabled(true);
     expect(isMemoryV3InjectionGateEnabled(cfg)).toBe(false);
     expect(isAssistantFeatureFlagEnabled).toHaveBeenCalledWith(
       MEMORY_V3_INJECTION_GATE_FLAG,
       cfg,
+    );
+  });
+
+  test("config kill-switch: flag on + gate.enabled false → false", () => {
+    isAssistantFeatureFlagEnabled.mockReturnValue(true);
+
+    expect(isMemoryV3InjectionGateEnabled(cfgWithGateEnabled(false))).toBe(
+      false,
     );
   });
 });

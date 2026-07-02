@@ -105,6 +105,13 @@ export function trustContextFromVerdict(
     context.memberPolicy = member.policy;
   }
 
+  // Interaction telemetry is gateway-owned: carry the verdict's count straight
+  // through so turn assembly reads it from the verdict rather than the local
+  // assistant DB.
+  if (verdict.interactionCount !== undefined) {
+    context.requesterInteractionCount = verdict.interactionCount;
+  }
+
   return context;
 }
 
@@ -208,9 +215,6 @@ function memberRecordFromVerdict(
     address: verdict.address ?? "",
     isPrimary: false,
     externalChatId: verdict.externalChatId ?? null,
-    lastSeenAt: null,
-    interactionCount: 0,
-    lastInteraction: null,
     updatedAt: null,
     createdAt: 0,
   };
@@ -223,8 +227,6 @@ function memberRecordFromVerdict(
     displayName: member.displayName ?? "",
     notes: null,
     role,
-    lastInteraction: null,
-    interactionCount: 0,
     createdAt: 0,
     updatedAt: 0,
     contactType: "human",

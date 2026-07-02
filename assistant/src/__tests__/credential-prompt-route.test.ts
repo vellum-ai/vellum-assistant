@@ -117,6 +117,7 @@ function slackResult(
 
 type PromptResponse = {
   ok: boolean;
+  cancelled?: boolean;
   error?: string;
   service?: string;
   field?: string;
@@ -386,6 +387,74 @@ describe("credentials/prompt route", () => {
     expect(capturedMetadata).toBeDefined();
     expect(capturedMetadata!.allowedTools).toBeUndefined();
     expect(capturedMetadata!.allowedDomains).toBeUndefined();
+  });
+
+  test("flags an explicit user cancel distinctly from a failure", async () => {
+    /**
+     * A user dismissing the secure prompt is a valid flow, not an error. The
+     * route must mark it `cancelled: true` (so the CLI can exit with the
+     * user-interrupt convention) and must not persist anything.
+     */
+    // GIVEN the prompt resolves with no value because the user cancelled
+    secretResult = { value: null, delivery: "store", reason: "cancelled" };
+
+    // WHEN the route handles the prompt
+    const result = (await promptRoute!.handler({
+      body: { service: "stripe", field: "api_key", label: "Stripe API Key" },
+    })) as PromptResponse;
+
+    // THEN the outcome is flagged as a cancel, not a generic error
+    expect(result.ok).toBe(false);
+    expect(result.cancelled).toBe(true);
+    expect(result.error).toBe("Cancelled by the user");
+
+    // AND nothing was written to secure storage
+    expect(secureKeyWrites).toEqual([]);
+  });
+
+  test("reports a timeout as a failure, not a cancel", async () => {
+    /**
+     * A prompt that times out (no response in the permission window) is a real
+     * failure — it must NOT be flagged as a user cancel, so the CLI keeps the
+     * error exit code for it.
+     */
+    // GIVEN the prompt resolves with no value because it timed out
+    secretResult = { value: null, delivery: "store", reason: "timed_out" };
+
+    // WHEN the route handles the prompt
+    const result = (await promptRoute!.handler({
+      body: { service: "stripe", field: "api_key", label: "Stripe API Key" },
+    })) as PromptResponse;
+
+    // THEN it is a plain failure with no cancel flag
+    expect(result.ok).toBe(false);
+    expect(result.cancelled).toBeUndefined();
+    expect(result.error).toBe("The credential prompt timed out");
+  });
+
+  test("reports an undeliverable prompt as a failure, not a cancel", async () => {
+    /**
+     * When no connected client can render a secure prompt the value is null due
+     * to a delivery failure — this stays a hard error and is never a cancel.
+     */
+    // GIVEN the prompt could not be delivered to any client
+    secretResult = {
+      value: null,
+      delivery: "store",
+      error: "unsupported_channel",
+    };
+
+    // WHEN the route handles the prompt
+    const result = (await promptRoute!.handler({
+      body: { service: "stripe", field: "api_key", label: "Stripe API Key" },
+    })) as PromptResponse;
+
+    // THEN it is a plain failure with no cancel flag
+    expect(result.ok).toBe(false);
+    expect(result.cancelled).toBeUndefined();
+    expect(result.error).toBe(
+      "No connected client supports secure credential entry",
+    );
   });
 
   test("forwards provided allowed-tools/-domains to credential metadata", async () => {

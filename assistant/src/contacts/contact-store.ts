@@ -12,8 +12,6 @@ import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { notifyContactsChanged } from "./notify-contacts-changed.js";
 import type {
   AssistantContactMetadata,
-  ChannelPolicy,
-  ChannelStatus,
   Contact,
   ContactChannel,
   ContactRole,
@@ -99,8 +97,6 @@ function parseContact(row: typeof contacts.$inferSelect): Contact {
     // gateway-owned; the serve layer stamps the real role from the gateway
     // guardian id set.
     role: "contact",
-    lastInteraction: null,
-    interactionCount: 0,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     contactType: row.contactType,
@@ -118,9 +114,6 @@ function parseChannel(
     address: row.address,
     isPrimary: row.isPrimary,
     externalChatId: row.externalChatId,
-    lastSeenAt: row.lastSeenAt,
-    interactionCount: row.interactionCount,
-    lastInteraction: row.lastInteraction,
     updatedAt: row.updatedAt,
     createdAt: row.createdAt,
   };
@@ -139,31 +132,21 @@ function getChannelsForContact(contactId: string): ContactChannel[] {
 
 function withChannels(contact: Contact): ContactWithChannels {
   const channels = getChannelsForContact(contact.id);
-  // INFO telemetry aggregated from channel rows (not ACL): sum interaction
-  // counts, take the most recent interaction across channels.
-  const interactionCount = channels.reduce(
-    (sum, ch) => sum + ch.interactionCount,
-    0,
-  );
-  const lastInteraction =
-    channels.reduce((max, ch) => Math.max(max, ch.lastInteraction ?? 0), 0) ||
-    null;
-  return { ...contact, interactionCount, lastInteraction, channels };
+  return { ...contact, channels };
 }
 
 // ── Channel data type for syncChannels ───────────────────────────────
 
 interface SyncChannelData {
+  /** Explicit gateway-minted channel id. Lets the identity mirror key the
+   *  channel identically in both stores; omit to mint one. When a row with this
+   *  id already exists it is updated in place (address/owner rebind), so a
+   *  gateway re-auth is mirrored rather than colliding on the id. */
+  id?: string;
   type: string;
   address: string;
   isPrimary?: boolean;
   externalChatId?: string | null;
-  status?: ChannelStatus;
-  policy?: ChannelPolicy;
-  verifiedAt?: number | null;
-  verifiedVia?: string | null;
-  revokedReason?: string | null;
-  blockedReason?: string | null;
 }
 
 // ── CRUD ─────────────────────────────────────────────────────────────
@@ -182,21 +165,20 @@ export const getContactInternal = getContact;
 /** INFO-only contact fields, joined locally by contact ID. */
 export interface ContactInfo {
   notes: string | null;
-  interactionCount: number;
 }
 
 /**
- * Look up a contact's INFO fields (notes, interaction count) by ID.
+ * Look up a contact's INFO `notes` field by ID.
  *
- * Carries no ACL state (status/policy/verification) — those are owned by the
- * gateway-stamped trust verdict. Returns null when the contact does not exist.
+ * Carries no ACL state (status/policy/verification) or interaction telemetry —
+ * those are owned by the gateway (ACL via the stamped trust verdict, telemetry
+ * via the verdict/rich reads). Returns null when the contact does not exist.
  */
 export function findContactInfoById(contactId: string): ContactInfo | null {
   const contact = getContact(contactId);
   if (!contact) return null;
   return {
     notes: contact.notes,
-    interactionCount: contact.interactionCount,
   };
 }
 
@@ -221,6 +203,11 @@ export function upsertContact(params: {
   role?: ContactRole;
   contactType?: ContactType;
   userFile?: string | null;
+  /** userFile to seed ONLY when inserting a new contact; ignored on update so
+   *  an existing persona-file pointer is never clobbered. Used by the identity
+   *  mirror to create faithful null-user_file stubs. `userFile` takes
+   *  precedence when both are supplied. */
+  userFileOnCreate?: string | null;
   channels?: SyncChannelData[];
   /** When true, conflicting channels on other contacts are reassigned to this
    *  contact instead of being skipped. Used by invite redemption to bind a
@@ -310,7 +297,9 @@ export function upsertContact(params: {
   const resolvedUserFile =
     params.userFile !== undefined
       ? params.userFile
-      : generateUserFileSlug(params.displayName);
+      : params.userFileOnCreate !== undefined
+        ? params.userFileOnCreate
+        : generateUserFileSlug(params.displayName);
   db.insert(contacts)
     .values({
       id: contactId,
@@ -337,6 +326,16 @@ export function upsertContact(params: {
 }
 
 /**
+ * Delete a contact row (channels cascade via FK). Info-only: the gateway DB is
+ * the ACL source of truth, so this only removes the local identity mirror. A
+ * missing row is a harmless no-op.
+ */
+export function deleteContact(id: string): void {
+  getDb().delete(contacts).where(eq(contacts.id, id)).run();
+  notifyContactsChanged();
+}
+
+/**
  * Add new channels to a contact without removing existing ones.
  * When a channel already exists (same type+address), updates access/verification
  * fields if provided. Skips channels owned by a different contact.
@@ -350,6 +349,57 @@ function syncChannels(
   const db = getDb();
 
   for (const ch of channels) {
+    // Identity-mirror update-by-id: when the caller supplies the gateway's
+    // authoritative channel id and that row already exists, update it in place.
+    // The gateway can rebind the row's address (guardian re-auth) or owner
+    // (claimed channel) under a stable id, so a match by (contactId,type,address)
+    // would miss it and a fresh insert would collide on the primary key.
+    if (ch.id) {
+      const byId = db
+        .select()
+        .from(contactChannels)
+        .where(eq(contactChannels.id, ch.id))
+        .get();
+      if (byId) {
+        const crossContact = byId.contactId !== contactId;
+        // Never steal a channel the gateway left under another contact unless
+        // the caller opts into reassignment (mirrors the address-conflict path).
+        if (crossContact && !reassignConflicting) continue;
+
+        const updateSet: Record<string, unknown> = { updatedAt: now };
+        if (byId.address !== ch.address) {
+          // Rebinding to a new address: a DIFFERENT row may already hold
+          // (type, new-address), and idx_contact_channels_type_address would
+          // reject the move. Resolve it the same way the (contactId,type,address)
+          // path does — findConflictingChannel + the reassign gate. When
+          // reassigning, adopt the (type,address) identity onto this
+          // gateway-keyed row by removing the stale duplicate; otherwise leave
+          // the address so the existing mapping stands (onConflictDoNothing).
+          const conflicting = findConflictingChannel(db, ch.type, ch.address);
+          if (conflicting && conflicting.id !== ch.id) {
+            if (reassignConflicting) {
+              db.delete(contactChannels)
+                .where(eq(contactChannels.id, conflicting.id))
+                .run();
+              updateSet.address = ch.address;
+            }
+          } else {
+            updateSet.address = ch.address;
+          }
+        }
+        if (crossContact) updateSet.contactId = contactId;
+        if (ch.isPrimary !== undefined) updateSet.isPrimary = ch.isPrimary;
+        if (ch.externalChatId !== undefined)
+          updateSet.externalChatId = ch.externalChatId;
+
+        db.update(contactChannels)
+          .set(updateSet)
+          .where(eq(contactChannels.id, ch.id))
+          .run();
+        continue;
+      }
+    }
+
     // Match by (type, address) — the canonical identity for all channel types.
     // COLLATE NOCASE catches legacy rows that were lowercased by old write paths.
     const existing = db
@@ -395,6 +445,7 @@ function syncChannels(
         };
         if (ch.externalChatId !== undefined)
           reassignSet.externalChatId = ch.externalChatId;
+        if (ch.isPrimary !== undefined) reassignSet.isPrimary = ch.isPrimary;
 
         db.update(contactChannels)
           .set(reassignSet)
@@ -408,7 +459,7 @@ function syncChannels(
 
     db.insert(contactChannels)
       .values({
-        id: uuid(),
+        id: ch.id ?? uuid(),
         contactId,
         type: ch.type,
         address: ch.address,

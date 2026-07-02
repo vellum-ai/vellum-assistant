@@ -552,6 +552,7 @@ describe("syncMessageToDisk", () => {
     });
     const att = uploadAttachment("repair.png", "image/png", "iVBORw0K");
     rawRun(
+      "test:linkAttachment",
       `INSERT INTO message_attachments (id, message_id, attachment_id, position, created_at)
        VALUES (?, ?, ?, ?, ?)`,
       `manual-link-${msg.id}`,

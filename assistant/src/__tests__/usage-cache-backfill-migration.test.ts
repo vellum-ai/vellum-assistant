@@ -56,6 +56,7 @@ function insertUsageEvent(args: {
   pricingStatus?: string;
 }): void {
   rawRun(
+    "test:insertUsageEvent",
     /*sql*/ `
     INSERT INTO llm_usage_events (
       id,
@@ -99,6 +100,7 @@ function insertRequestLog(args: {
   // that ordering — the unqualified reads in the migration resolve to `main`
   // when a same-named table is present there.
   rawRun(
+    "test:insertRequestLog",
     /*sql*/ `
     INSERT INTO main.llm_request_logs (
       id,
@@ -260,6 +262,7 @@ describe("migrateBackfillUsageCacheAccounting", () => {
     );
 
     const targetRow = rawGet<UsageEventRow>(
+      "test:fetchTargetUsage",
       `SELECT
          input_tokens,
          output_tokens,
@@ -284,6 +287,7 @@ describe("migrateBackfillUsageCacheAccounting", () => {
     expect(targetRow?.estimated_cost_usd).not.toBe(flattenedHistoricalCost);
 
     const untouchedRow = rawGet<UsageEventRow>(
+      "test:fetchUntouchedUsage",
       `SELECT
          input_tokens,
          output_tokens,
@@ -359,6 +363,7 @@ describe("migrateBackfillUsageCacheAccounting", () => {
     );
 
     const targetRow = rawGet<UsageEventRow>(
+      "test:fetchTargetUsage",
       `SELECT
          input_tokens,
          output_tokens,

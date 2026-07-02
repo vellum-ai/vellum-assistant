@@ -73,12 +73,14 @@ afterEach(() => {
 
 describe("postChatMessage — onboarding wire format", () => {
   test("includes googleConnected and googleScopes when provided", async () => {
-    await postChatMessage("assistant-1", "conv-key", "Hello", [], {
-      tools: [],
-      tasks: [],
-      tone: "warm",
-      googleConnected: true,
-      googleScopes: ["https://mail.google.com/"],
+    await postChatMessage("assistant-1", "conv-key", "Hello", {
+      onboarding: {
+        tools: [],
+        tasks: [],
+        tone: "warm",
+        googleConnected: true,
+        googleScopes: ["https://mail.google.com/"],
+      },
     });
 
     expect(capturedBody).not.toBeNull();
@@ -90,10 +92,8 @@ describe("postChatMessage — onboarding wire format", () => {
   });
 
   test("omits googleConnected and googleScopes when not provided", async () => {
-    await postChatMessage("assistant-1", "conv-key", "Hello", [], {
-      tools: [],
-      tasks: [],
-      tone: "grounded",
+    await postChatMessage("assistant-1", "conv-key", "Hello", {
+      onboarding: { tools: [], tasks: [], tone: "grounded" },
     });
 
     const onboarding = (capturedBody as Record<string, unknown>)
@@ -114,14 +114,9 @@ describe("postChatMessage — onboarding wire format", () => {
 
 describe("postChatMessage — clientMessageId wire format", () => {
   test("sends the client nonce as the idempotency key when provided", async () => {
-    await postChatMessage(
-      "assistant-1",
-      "conv-key",
-      "Hello",
-      [],
-      undefined,
-      "nonce-123",
-    );
+    await postChatMessage("assistant-1", "conv-key", "Hello", {
+      clientMessageId: "nonce-123",
+    });
 
     expect(capturedBody).not.toBeNull();
     expect((capturedBody as Record<string, unknown>).clientMessageId).toBe(
@@ -141,16 +136,9 @@ describe("postChatMessage — clientMessageId wire format", () => {
 
 describe("postChatMessage — enabledPlugins wire format", () => {
   test("includes an explicit plugin selection verbatim", async () => {
-    await postChatMessage(
-      "assistant-1",
-      "conv-key",
-      "Hello",
-      [],
-      undefined,
-      undefined,
-      undefined,
-      ["alpha", "zeta"],
-    );
+    await postChatMessage("assistant-1", "conv-key", "Hello", {
+      enabledPlugins: ["alpha", "zeta"],
+    });
 
     expect(
       (capturedBody as Record<string, unknown>).enabledPlugins,
@@ -158,16 +146,9 @@ describe("postChatMessage — enabledPlugins wire format", () => {
   });
 
   test("includes an explicit empty selection (user disabled every plugin)", async () => {
-    await postChatMessage(
-      "assistant-1",
-      "conv-key",
-      "Hello",
-      [],
-      undefined,
-      undefined,
-      undefined,
-      [],
-    );
+    await postChatMessage("assistant-1", "conv-key", "Hello", {
+      enabledPlugins: [],
+    });
 
     // An empty array is a genuine "no plugins for this chat" selection, not a
     // missing one — it must reach the daemon, unlike the omitted-default case.
@@ -185,16 +166,9 @@ describe("postChatMessage — enabledPlugins wire format", () => {
   });
 
   test("omits enabledPlugins when null", async () => {
-    await postChatMessage(
-      "assistant-1",
-      "conv-key",
-      "Hello",
-      [],
-      undefined,
-      undefined,
-      undefined,
-      null,
-    );
+    await postChatMessage("assistant-1", "conv-key", "Hello", {
+      enabledPlugins: null,
+    });
 
     expect(
       (capturedBody as Record<string, unknown>).enabledPlugins,

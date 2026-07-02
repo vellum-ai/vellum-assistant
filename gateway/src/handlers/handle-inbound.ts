@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import {
   makeResolutionFailedVerdict,
   makeUnauthenticatedSenderVerdict,
@@ -6,8 +5,6 @@ import {
   type TrustVerdict,
 } from "@vellumai/gateway-client";
 import type { GatewayConfig } from "../config.js";
-import { ipcCallAssistant } from "../ipc/assistant-client.js";
-import { resolveIpcSocketPath } from "../ipc/socket-path.js";
 import { ContactStore } from "../db/contact-store.js";
 import { getLogger } from "../logger.js";
 import { resolveAdmissionPolicy } from "../risk/admission-policy-cache.js";
@@ -330,10 +327,9 @@ export async function handleInbound(
         : "Inbound event forwarded to runtime",
     );
 
-    // ── Contact channel interaction tracking (dual-write) ──
-    // Reads from the assistant DB (source of truth during migration),
-    // writes to both assistant DB and gateway DB. Fire-and-forget so
-    // IPC failures here cannot leak as unhandled rejections.
+    // ── Contact channel interaction tracking ──
+    // Fire-and-forget so write failures here cannot leak as unhandled
+    // rejections.
     if (!response.denied) {
       void touchContactChannelStats(event, response.duplicate).catch(() => {});
     }
@@ -354,71 +350,34 @@ export async function handleInbound(
 }
 
 // ---------------------------------------------------------------------------
-// Contact channel interaction tracking (dual-write helper)
+// Contact channel interaction tracking
 // ---------------------------------------------------------------------------
 
-interface DbProxyResult {
-  rows?: Array<Record<string, unknown>>;
-}
-
 /**
- * Look up the contact channel in the assistant DB and dual-write
- * interaction stats to both the assistant and gateway databases.
+ * Resolve the contact channel from the gateway store and write interaction
+ * stats to the gateway DB.
  *
- * Caller wraps in `.catch(() => {})` so IPC failures cannot surface as
- * unhandled rejections.
+ * Caller wraps in `.catch(() => {})` so failures cannot surface as unhandled
+ * rejections.
  */
 async function touchContactChannelStats(
   event: GatewayInboundEvent,
   duplicate: boolean,
 ): Promise<void> {
-  // Skip if the assistant IPC socket is not available (e.g. in tests).
-  const { path: socketPath } = resolveIpcSocketPath("assistant");
-  if (!existsSync(socketPath)) return;
-
   const canonicalActorId =
     canonicalizeInboundIdentity(
       event.sourceChannel,
       event.actor.actorExternalId,
     ) ?? event.actor.actorExternalId;
 
-  // Look up channel in assistant DB (source of truth), with
-  // externalChatId fallback for legacy/imported contacts.
-  let result = (await ipcCallAssistant("db_proxy", {
-    sql: "SELECT id FROM contact_channels WHERE type = ? AND address = ? COLLATE NOCASE LIMIT 1",
-    mode: "query",
-    bind: [event.sourceChannel, canonicalActorId],
-  })) as DbProxyResult;
-
-  if (!result.rows?.length) {
-    result = (await ipcCallAssistant("db_proxy", {
-      sql: "SELECT id FROM contact_channels WHERE type = ? AND external_chat_id = ? LIMIT 1",
-      mode: "query",
-      bind: [event.sourceChannel, event.message.conversationExternalId],
-    })) as DbProxyResult;
-  }
-
-  if (!result.rows?.length) return;
-
-  const channelId = result.rows[0].id as string;
-  const now = Date.now();
-
-  // Assistant DB writes
-  await ipcCallAssistant("db_proxy", {
-    sql: "UPDATE contact_channels SET last_seen_at = ?, updated_at = ? WHERE id = ?",
-    mode: "run",
-    bind: [now, now, channelId],
-  });
-  if (!duplicate) {
-    await ipcCallAssistant("db_proxy", {
-      sql: "UPDATE contact_channels SET last_interaction = ?, interaction_count = interaction_count + 1, updated_at = ? WHERE id = ?",
-      mode: "run",
-      bind: [now, now, channelId],
-    });
-  }
-
-  // Gateway DB writes
   const store = new ContactStore();
+  const channelId = store.findChannelIdByAddress(
+    event.sourceChannel,
+    canonicalActorId,
+    event.message.conversationExternalId,
+  );
+  if (!channelId) return;
+
   store.touchChannelLastSeen(channelId);
   if (!duplicate) {
     store.touchContactInteraction(channelId);

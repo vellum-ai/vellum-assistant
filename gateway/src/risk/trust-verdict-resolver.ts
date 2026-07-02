@@ -35,14 +35,18 @@ export interface ResolveTrustVerdictInput {
  * 4. Classify guardian > trusted_contact > unverified_contact > unknown.
  *
  * Guardian classification is by principal, not only by same-channel binding:
- * a sender whose identity maps to the guardian contact (via this channel's
- * member row, or via an active guardian channel on any channel type) is
- * classified `guardian` even without a same-channel guardian binding. A
- * blocked/revoked same-channel row always wins (stays `unknown`), a guardian
- * contact with no active channel anywhere never re-acquires the class, and a
- * matched guardian identity whose contact has NO principal is unresolved —
- * it yields a `resolutionFailed` verdict (consumer soft-denies, no
- * stranger-lane side effects) rather than `guardian` or `unknown`.
+ * a sender whose member row on THIS channel belongs to the guardian contact
+ * is classified `guardian` even without a same-channel guardian binding
+ * (e.g. the row is pending/unverified), provided that contact still holds an
+ * ACTIVE channel. Identity is proven only by the same-channel member row —
+ * external identifiers are channel-local namespaces, so a sender with no
+ * member row on this channel is a stranger regardless of address collisions
+ * with guardian channels on other channel types. A blocked/revoked
+ * same-channel row always wins (stays `unknown`), a guardian contact with no
+ * active channel anywhere never re-acquires the class, and a matched
+ * guardian identity whose contact has NO principal is unresolved — it yields
+ * a `resolutionFailed` verdict (consumer soft-denies, no stranger-lane side
+ * effects) rather than `guardian` or `unknown`.
  */
 export async function resolveTrustVerdict(
   input: ResolveTrustVerdictInput,
@@ -91,6 +95,8 @@ export async function resolveTrustVerdict(
           policy: gwContactChannels.policy,
           verifiedAt: gwContactChannels.verifiedAt,
           verifiedVia: gwContactChannels.verifiedVia,
+          interactionCount: gwContactChannels.interactionCount,
+          lastInteraction: gwContactChannels.lastInteraction,
           memberDisplayName: gwContacts.displayName,
           memberRole: gwContacts.role,
           memberPrincipalId: gwContacts.principalId,
@@ -129,25 +135,23 @@ export async function resolveTrustVerdict(
 
   // --- Guardian-by-principal (sender maps to the guardian contact) ---
   // The same-channel address match above fails for a guardian speaking on a
-  // channel where they hold no active guardian binding. Never route the
-  // guardian through the stranger lane: when the sender's identity maps to
-  // the guardian contact — via this channel's member row, or (with no member
-  // row) via the sender's address on any channel type — and that contact
-  // still holds an ACTIVE channel, classify `guardian`. Requiring an active
-  // channel means a fully revoked guardian never re-acquires the class. A
-  // non-guardian member row wins over any cross-channel address collision,
-  // so no identity filter is built for it.
-  const guardianIdentityFilter = memberRow
-    ? memberRow.memberRole === "guardian"
+  // channel where their row is not the active guardian binding (e.g. a
+  // pending/unverified row). When the sender's member row on THIS channel
+  // belongs to the guardian contact and that contact still holds an ACTIVE
+  // channel, classify `guardian`. Requiring an active channel means a fully
+  // revoked guardian never re-acquires the class. Identity is proven ONLY by
+  // the same-channel member row: external identifiers are channel-local
+  // namespaces, so a raw address match against guardian channels of OTHER
+  // channel types is not an identity proof — a sender with no member row on
+  // this channel stays in the stranger lane no matter what their address
+  // equals elsewhere.
+  const guardianIdentityFilter =
+    memberRow && memberRow.memberRole === "guardian"
       ? eq(gwContacts.id, memberRow.contactId)
-      : null
-    : sql`${gwContactChannels.address} = ${canonicalSenderId} COLLATE NOCASE`;
+      : null;
 
   const guardianIdentityMatch =
-    !isGuardian &&
-    canonicalSenderId &&
-    !memberDeniedByStatus &&
-    guardianIdentityFilter
+    !isGuardian && !memberDeniedByStatus && guardianIdentityFilter
       ? (db
           .select({
             principalId: gwContacts.principalId,
@@ -228,6 +232,8 @@ export async function resolveTrustVerdict(
     verdict.policy = memberRow.policy;
     verdict.verifiedAt = memberRow.verifiedAt;
     verdict.verifiedVia = memberRow.verifiedVia;
+    verdict.interactionCount = memberRow.interactionCount;
+    verdict.lastInteraction = memberRow.lastInteraction;
     verdict.memberDisplayName = memberRow.memberDisplayName;
   }
 

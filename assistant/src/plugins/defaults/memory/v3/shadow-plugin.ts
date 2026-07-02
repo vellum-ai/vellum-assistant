@@ -587,8 +587,9 @@ export async function observeTurn(
     if (cfg.memory.enabled === false) return null;
     const lanes = await getLanes(cfg);
     const v3 = cfg.memory.v3;
-    // Resolve the injection-gate flag once for the turn. The gate's tuning lives
-    // in `memory.v3.gate` (no `enabled`); the on/off comes from the feature flag.
+    // Resolve the effective gate enable once for the turn: the feature flag
+    // AND the `memory.v3.gate.enabled` config kill-switch. Tuning lives in
+    // `memory.v3.gate`.
     const gateEnabled = isMemoryV3InjectionGateEnabled(cfg);
     // Re-resolve the corpus-adaptive tuning each turn from the CURRENT config
     // (with the lane-build corpus-size signal) so a live config.json edit to a
@@ -623,9 +624,10 @@ export async function observeTurn(
         v3.selectorPromptPath,
         getWorkspaceDir(),
       ),
-      // Per-turn injection gate: the `memory.v3.gate` tuning plus the
-      // flag-derived `enabled`. The spread is the compile-time drift guard —
-      // if the gate schema and `V3GateConfig` diverge, this stops typechecking.
+      // Per-turn injection gate: the `memory.v3.gate` tuning with the raw
+      // config `enabled` overwritten by the effective enable (flag AND config).
+      // The spread is the compile-time drift guard — if the gate schema and
+      // `V3GateConfig` diverge, this stops typechecking.
       gateConfig: { ...v3.gate, enabled: gateEnabled },
     });
 

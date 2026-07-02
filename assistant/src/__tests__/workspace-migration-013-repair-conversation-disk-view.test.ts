@@ -357,6 +357,7 @@ describe("013-repair-conversation-disk-view migration", () => {
     writeFileSync(stalePath, "stale");
 
     rawRun(
+      "test:setAttachmentFilePath",
       `UPDATE attachments
        SET data_base64 = '', file_path = ?, source_path = NULL
        WHERE id = ?`,

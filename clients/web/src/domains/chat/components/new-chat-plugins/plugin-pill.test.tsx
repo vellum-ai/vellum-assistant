@@ -34,9 +34,9 @@ describe("PluginPill", () => {
       <PluginPill name="simple-memory" selected={false} onToggle={() => {}} />,
     );
 
-    expect(html).toContain("border-[var(--border-disabled)]");
-    expect(html).toContain("bg-[var(--surface-base)]");
-    expect(html).toContain("text-[var(--content-secondary)]");
+    // outlined variant (unselected): transparent bg, element border.
+    expect(html).toContain("border-[var(--border-element)]");
+    expect(html).toContain("bg-transparent");
   });
 
   test("applies the selected token classes", () => {
@@ -44,9 +44,9 @@ describe("PluginPill", () => {
       <PluginPill name="simple-memory" selected={true} onToggle={() => {}} />,
     );
 
-    expect(html).toContain("border-[var(--border-active)]");
-    expect(html).toContain("bg-[var(--surface-active)]");
-    expect(html).toContain("text-[var(--content-default)]");
+    // outlined + active: primary border, lifted surface.
+    expect(html).toContain("border-[var(--primary-base)]");
+    expect(html).toContain("bg-[var(--surface-lift)]");
   });
 
   test("invokes onToggle when the rendered button is clicked", () => {

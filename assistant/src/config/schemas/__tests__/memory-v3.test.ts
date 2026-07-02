@@ -27,6 +27,7 @@ describe("MemoryV3ConfigSchema", () => {
       edge: { hubDegree: 30, seedCount: 18, perSeed: 6, cap: 45 },
       entity: { enabled: true, idfFloor: 4, cap: 8 },
       gate: {
+        enabled: true,
         denseThreshold: 0.66,
         sparseThreshold: 0.35,
         sparseOnlyThreshold: 0.75,
@@ -137,6 +138,7 @@ describe("MemoryV3ConfigSchema", () => {
       gate: { denseThreshold: 0.6 },
     });
     expect(parsed.gate).toEqual({
+      enabled: true,
       denseThreshold: 0.6,
       sparseThreshold: 0.35,
       sparseOnlyThreshold: 0.75,
@@ -146,6 +148,16 @@ describe("MemoryV3ConfigSchema", () => {
       bm25NormK: null,
       bypassForCore: false,
     });
+  });
+
+  test("gate.enabled defaults true, accepts false, rejects non-booleans", () => {
+    expect(MemoryV3ConfigSchema.parse({}).gate.enabled).toBe(true);
+    expect(
+      MemoryV3ConfigSchema.parse({ gate: { enabled: false } }).gate.enabled,
+    ).toBe(false);
+    expect(() =>
+      MemoryV3ConfigSchema.parse({ gate: { enabled: "yes" } }),
+    ).toThrow();
   });
 
   test("gate.topK rejects zero and non-integers", () => {

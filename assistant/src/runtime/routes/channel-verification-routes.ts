@@ -14,9 +14,6 @@
  *   inbound code-match path (`gateway/src/verification/text-verification.ts`).
  * - The revoke/downgrade OUTCOME is relayed from the daemon via
  *   `ipcCallPersistent("mark_channel_revoked", …)` to `ContactStore.markChannelRevoked`.
- * - The `mark_channel_verified` IPC method exists as the daemon/CLI relay surface (symmetric with
- *   `mark_channel_revoked`) but has no caller: the trusted-contact CLI path sends codes only, and the
- *   outcome arrives via the inbound code-match path.
  */
 
 import { z } from "zod";

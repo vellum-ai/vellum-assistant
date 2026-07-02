@@ -108,7 +108,6 @@ import {
   type SlackChronologicalContext,
 } from "./conversation-runtime-assembly.js";
 import { markSurfaceCompleted } from "./conversation-surfaces.js";
-import { getEffectiveEnabledPluginSet } from "./conversation-tool-setup.js";
 import { runDeferredTurnTail } from "./conversation-turn-finalize.js";
 import { recordUsage } from "./conversation-usage.js";
 import { resolveTurnTimezoneContext } from "./date-context.js";
@@ -261,6 +260,13 @@ export async function runAgentLoopImpl(
     isInteractive?: boolean;
     isUserMessage?: boolean;
     titleText?: string;
+    /**
+     * True when the triggering message is a transcript-suppressed machine
+     * signal (`metadata.hidden`). Forwarded to the user-prompt-submit hook
+     * context so prompt-as-user-speech consumers (title generation) skip
+     * the turn.
+     */
+    isHiddenPrompt?: boolean;
     /**
      * LLM call-site identifier threaded into the per-call provider config.
      * Adapter callers (heartbeat, filing, scheduler, etc.) pass their own
@@ -903,6 +909,7 @@ export async function runAgentLoopImpl(
       userMessageId,
       requestId: reqId,
       prompt: options?.titleText ?? content,
+      isHiddenPrompt: options?.isHiddenPrompt === true,
       originalMessages: ctx.messages,
       latestMessages: ctx.messages,
       logger: rlog,
@@ -913,7 +920,6 @@ export async function runAgentLoopImpl(
     const finalUserPromptCtx = await runHook(
       HOOKS.USER_PROMPT_SUBMIT,
       userPromptCtx,
-      getEffectiveEnabledPluginSet(ctx),
     );
     latencyTracker.mark("prompt_hook_end");
     const runMessages = finalUserPromptCtx.latestMessages;

@@ -13,6 +13,7 @@ import type { ServerMessage } from "../daemon/message-protocol.js";
 import { SLACK_STREAM_MARKDOWN_LIMIT } from "../messaging/providers/slack/api.js";
 import { renderSlackBlocks } from "../messaging/providers/slack/render.js";
 import { getLogger } from "../util/logger.js";
+import { needsBoundarySpace } from "../util/text-spacing.js";
 import { deliverChannelReply } from "./gateway-client.js";
 import {
   hasDeliverableAssistantText,
@@ -132,6 +133,11 @@ export function createSlackReplySession(params: {
 
   let segmentBuffer = "";
   let deliveredSegmentCount = 0;
+  // Set when a tool-call or message boundary closes a text segment: the next
+  // segment's first delta is a fresh model response, so it is spaced off the
+  // prior segment when the model omitted the separating whitespace (matching
+  // `renderHistoryContent`'s `joinWithSpacing` on the durable delivery path).
+  let pendingSegmentBoundary = false;
 
   const taskProgressBySurfaceId = new Map<string, TaskProgressData>();
   let activeProgress: TaskProgressData | undefined;
@@ -305,6 +311,12 @@ export function createSlackReplySession(params: {
         return;
       }
       if (msg.type === "assistant_text_delta") {
+        if (pendingSegmentBoundary && msg.text.length > 0) {
+          if (needsBoundarySpace(rawText, msg.text)) {
+            rawText += " ";
+          }
+          pendingSegmentBoundary = false;
+        }
         rawText += msg.text;
         segmentBuffer += msg.text;
         scheduleFlush();
@@ -312,6 +324,7 @@ export function createSlackReplySession(params: {
       }
       if (msg.type === "tool_use_start" || msg.type === "message_complete") {
         countSegmentBoundary();
+        pendingSegmentBoundary = true;
       }
     },
 

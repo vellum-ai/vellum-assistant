@@ -194,6 +194,14 @@ export interface UserPromptSubmitContext {
    * attach turn-scoped metadata to the originating message (e.g. recording an
    * injected memory block so it survives a conversation reload) key off this
    * row id rather than the in-memory message arrays, whose entries carry no id.
+   *
+   * @deprecated This field is always identical to {@link requestId}; use
+   *   `requestId` instead. Every path that starts an agent loop persists the
+   *   triggering user message under the turn's request ID before running, so
+   *   the message row id and the request's correlation ID are the same UUID.
+   *   This holds for the standard submit, queue-drain, subagent, voice, wake,
+   *   and conversation-analysis paths alike. This field will be removed in a
+   *   future API version.
    */
   readonly userMessageId: string;
   /**
@@ -201,6 +209,10 @@ export interface UserPromptSubmitContext {
    * runtime injection forward it onto the injector turn context so the
    * assembled blocks are attributed to the originating request; it is fixed
    * for the turn and cannot be recovered from the message arrays.
+   *
+   * As of the requestId/userMessageId merge, this value is also the
+   * persisted row ID of the user message, so hooks that previously
+   * keyed off {@link userMessageId} can use `requestId` directly.
    */
   readonly requestId: string;
   /**
@@ -231,6 +243,13 @@ export interface UserPromptSubmitContext {
    * it from the message arrays.
    */
   readonly prompt: string;
+  /**
+   * True when the triggering message is a transcript-suppressed machine
+   * signal (`metadata.hidden` — e.g. the channel-setup wizard-close marker)
+   * rather than something the user typed. Hooks that treat `prompt` as
+   * user speech (e.g. title generation) should skip these turns.
+   */
+  readonly isHiddenPrompt?: boolean;
   /**
    * The user's original message list, immutable for the hook. Plugins
    * may snapshot or compare against this but MUST NOT mutate it.

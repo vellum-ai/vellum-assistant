@@ -130,7 +130,7 @@ describe("buildTranscriptItems", () => {
       ...textBody(
         '<background_event source="background-tool">Background command completed (id=bg-1, exit=0):</background_event>',
       ),
-      isBackgroundToolNotification: true,
+      isBackgroundEventNotification: true,
     });
     const assistant = makeMessage({
       id: "m3",

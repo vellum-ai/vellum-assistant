@@ -13,8 +13,6 @@ import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "b
 
 import { sql } from "drizzle-orm";
 
-import { hashInviteCode, hashInviteToken } from "@vellumai/gateway-client";
-
 // The engine's ACL side effect (upsertVerifiedContactChannel) dual-writes an
 // assistant-DB info mirror over IPC; stub it so tests never touch a socket.
 // The impls are mutable so tests can simulate a down/failing mirror. Spread
@@ -55,6 +53,9 @@ const { contacts, contactChannels, ingressInvites } = await import(
 const { ContactStore } = await import("../db/contact-store.js");
 const { redeemInviteByCode, redeemInviteByToken } = await import(
   "../verification/invite-redemption.js"
+);
+const { inviteRow, seedInvite } = await import(
+  "./helpers/contact-fixtures.js"
 );
 
 const CHANNEL = "telegram";
@@ -112,30 +113,6 @@ function seedChannel(args: {
       createdAt: now,
     })
     .run();
-}
-
-function seedInvite(
-  overrides: Partial<
-    Parameters<InstanceType<typeof ContactStore>["createInvite"]>[0]
-  > = {},
-): string {
-  const store = new ContactStore();
-  const id = overrides.id ?? crypto.randomUUID();
-  store.createInvite({
-    id,
-    sourceChannel: CHANNEL,
-    inviteCodeHash: hashInviteCode(CODE),
-    tokenHash: hashInviteToken(TOKEN),
-    contactId: "c1",
-    maxUses: 1,
-    expiresAt: Date.now() + 60_000,
-    ...overrides,
-  });
-  return id;
-}
-
-function inviteRow(id: string) {
-  return new ContactStore().getInviteById(id)!;
 }
 
 function gwChannel(address: string) {

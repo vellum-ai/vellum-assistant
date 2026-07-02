@@ -92,6 +92,7 @@ function insertMessage(
   createdAt = 1000,
 ): void {
   rawRun(
+    "test:insertMessage",
     "INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)",
     id,
     conversationId,
@@ -103,6 +104,7 @@ function insertMessage(
 
 function setConversationType(conversationId: string, type: string): void {
   rawRun(
+    "test:setConversationType",
     "UPDATE conversations SET conversation_type = ? WHERE id = ?",
     type,
     conversationId,
@@ -111,6 +113,7 @@ function setConversationType(conversationId: string, type: string): void {
 
 function archive(conversationId: string): void {
   rawRun(
+    "test:archiveConversation",
     "UPDATE conversations SET archived_at = ? WHERE id = ?",
     Date.now(),
     conversationId,
@@ -351,6 +354,7 @@ describe("searchConversations · qdrant lexical index", () => {
       conversationType: "background",
     });
     rawRun(
+      "test:setSurfaced",
       "UPDATE conversations SET surfaced_at = ? WHERE id = ?",
       Date.now(),
       surfaced.id,

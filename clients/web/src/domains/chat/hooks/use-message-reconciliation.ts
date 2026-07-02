@@ -13,6 +13,7 @@ import { recordLocalSeq } from "@/lib/streaming/local-seq";
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { selectTranscriptMessages } from "@/domains/chat/transcript/select-transcript-messages";
 import { conversationHistoryQueryKey } from "@/domains/chat/transcript/use-history-pagination";
+import { patchConversation } from "@/utils/conversation-cache";
 import {
   serverHasAssistantProgress,
   serverSnapshotHasNewContent,
@@ -95,6 +96,7 @@ export function useMessageReconciliation({
       serverMessages: ConversationMessage[],
       conversationId: string,
       serverSeq: number | null,
+      serverProcessing: boolean | undefined,
       authoritative = false,
     ): {
       changed: boolean;
@@ -132,17 +134,62 @@ export function useMessageReconciliation({
         0,
       );
 
+      // Adopt the daemon's authoritative `processing` flag when it reports the
+      // conversation idle but our rolling snapshot does not already reflect
+      // that. This is the sole path that samples the flag independently of the
+      // SSE stream, so it's the only place that learns a turn ended when the
+      // terminal event (`message_complete` / `assistant_activity_state(idle)`)
+      // was dropped on a disconnect. Propagating it lets the existing
+      // authoritative CLOSE-gate in `shouldShowThinkingIndicator` /
+      // `canStopGeneration` (`snapshotProcessing === false`) settle the turn —
+      // no client-side stuck-turn heuristic.
+      //
+      // The condition covers two stale-local states, both of which leave the
+      // close-gate starved on a value that is not `false`:
+      //   - `true`: a delta folded the flag on but the terminal event that
+      //     would fold it back off never arrived.
+      //   - `undefined`: the version sentinel. `nextProcessingState` returns
+      //     `undefined` forever once the snapshot seed lacked the flag, so no
+      //     amount of delta folding can ever lift it to a boolean — the reseed
+      //     is the only way to plant an authoritative `false` (which also cures
+      //     the sentinel so subsequent folds track the turn). A genuinely old
+      //     daemon can't reach here: it never emits a defined `serverProcessing
+      //     === false`, so the guard stays closed and prior behavior holds.
+      const localSnapshotProcessing =
+        useChatSessionStore.getState().snapshot?.processing;
+      const serverClearedProcessing =
+        serverProcessing === false && localSnapshotProcessing !== false;
+
       // Refresh the single source — history flows into the query cache and the
       // transcript (its union with the live turn) re-renders. No client-side
-      // merge: the server snapshot is authoritative for persisted history.
-      if (changed || authoritative) {
+      // merge: the server snapshot is authoritative for persisted history. A
+      // reseed also carries the fresh `processing: false` onto the snapshot, so
+      // a server-cleared turn reconciles through the same path as new content.
+      if (changed || authoritative || serverClearedProcessing) {
         const assistantId =
           useStreamStore.getState().streamContext?.assistantId ?? null;
         if (assistantId) {
           void queryClient.invalidateQueries({
             queryKey: conversationHistoryQueryKey(assistantId, conversationId),
           });
+          if (serverClearedProcessing) {
+            // Mirror the terminal handlers' cache patch so the conversation-row
+            // half of the processing state (sidebar dot, `activeConversation
+            // ?.isProcessing`) can't stay latched `true` after the server has
+            // gone idle. See `handleMessageComplete`.
+            patchConversation(queryClient, assistantId, conversationId, {
+              isProcessing: false,
+            });
+          }
         }
+      }
+
+      if (serverClearedProcessing) {
+        recordDiagnostic("reconciliation_processing_cleared", {
+          conversationId,
+          changed,
+          assistantProgress,
+        });
       }
 
       recordDiagnostic("reconciliation_applied", {
@@ -150,6 +197,7 @@ export function useMessageReconciliation({
         assistantProgress,
         messagesAdded,
         authoritative,
+        serverProcessing,
         oldestPageTimestamp: initialPageOldestTsRef.current,
         server: summarizeRuntimeMessages(serverMessages),
       });
@@ -165,8 +213,12 @@ export function useMessageReconciliation({
       conversationId: string,
       serverSeq: number | null,
     ): boolean =>
-      reconcileFromServerDetailed(serverMessages, conversationId, serverSeq)
-        .changed,
+      reconcileFromServerDetailed(
+        serverMessages,
+        conversationId,
+        serverSeq,
+        undefined,
+      ).changed,
     [reconcileFromServerDetailed],
   );
 
@@ -176,6 +228,7 @@ export function useMessageReconciliation({
       snapshotTurnId: string | null,
       snapshotConversationId: string,
       serverSeq: number | null,
+      serverProcessing: boolean | undefined,
       authoritative = false,
     ): ReconcileActiveConversationResult => {
       const { changed, assistantProgress, messagesAdded } =
@@ -183,6 +236,7 @@ export function useMessageReconciliation({
           serverMessages,
           snapshotConversationId,
           serverSeq,
+          serverProcessing,
           authoritative,
         );
 
@@ -202,12 +256,12 @@ export function useMessageReconciliation({
       //   - Same turn id we snapshotted at fetch time, and the store
       //     still says we're sending.
       //
-      // Trade-off: in the (rare) case where SSE missed `message_complete`
-      // but the server's persisted view exactly matches what local
-      // already rendered, this rescue cannot fire. The user would need
-      // to reload — but that scenario is also genuinely indistinguishable
-      // from "live mid-stream paused between deltas", so the safe call
-      // is to never auto-idle without positive structural evidence.
+      // The case where SSE missed the terminal event but the server's
+      // persisted view already matches what local rendered (`changed`
+      // false) is handled separately, upstream: `reconcileFromServerDetailed`
+      // adopts the server's `processing: false` onto the snapshot, and the
+      // `snapshotProcessing` CLOSE-gate in `shouldShowThinkingIndicator`
+      // settles the indicator without a content diff.
       const wasStuck =
         changed &&
         assistantProgress &&
@@ -297,11 +351,13 @@ export function useMessageReconciliation({
             if (epoch !== useStreamStore.getState().streamEpoch) return;
             const serverMessages = snapshot?.messages ?? [];
             const serverSeq = snapshot?.seq ?? null;
+            const serverProcessing = snapshot?.processing;
             recordDiagnostic("reconciliation_fetch", {
               assistantId: ctx.assistantId,
               conversationId: ctx.conversationId,
               epoch,
               stableCount,
+              serverProcessing,
               server: summarizeRuntimeMessages(serverMessages),
             });
 
@@ -310,6 +366,7 @@ export function useMessageReconciliation({
               snapshotTurnId,
               ctx.conversationId,
               serverSeq,
+              serverProcessing,
             );
             if (changed) {
               stableCount = 0;
@@ -393,6 +450,7 @@ export function useMessageReconciliation({
         );
         const serverMessages = snapshot?.messages ?? [];
         const serverSeq = snapshot?.seq ?? null;
+        const serverProcessing = snapshot?.processing;
         if (useConversationStore.getState().activeConversationId !== ctx.conversationId) return empty;
         // If the epoch changed during the fetch (e.g. page went hidden
         // and back), this reconciliation is stale — bail out.
@@ -401,6 +459,7 @@ export function useMessageReconciliation({
           assistantId: ctx.assistantId,
           conversationId: ctx.conversationId,
           epoch: snapshotEpoch,
+          serverProcessing,
           server: summarizeRuntimeMessages(serverMessages),
         });
         return reconcileFetchedMessages(
@@ -408,6 +467,7 @@ export function useMessageReconciliation({
           snapshotTurnId,
           ctx.conversationId,
           serverSeq,
+          serverProcessing,
           authoritative,
         );
       } catch (err) {

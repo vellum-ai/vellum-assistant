@@ -25,9 +25,6 @@ export const contactChannels = sqliteTable(
       .notNull()
       .default(false),
     externalChatId: text("external_chat_id"), // delivery/notification routing address (e.g., Telegram chat ID)
-    lastSeenAt: integer("last_seen_at"), // epoch ms
-    interactionCount: integer("interaction_count").notNull().default(0),
-    lastInteraction: integer("last_interaction"),
     updatedAt: integer("updated_at"), // epoch ms
     createdAt: integer("created_at").notNull(),
   },

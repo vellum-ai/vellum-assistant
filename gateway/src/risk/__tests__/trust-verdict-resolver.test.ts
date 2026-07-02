@@ -47,6 +47,8 @@ function insertChannel(args: {
   policy?: string;
   verifiedAt?: number | null;
   verifiedVia?: string | null;
+  interactionCount?: number;
+  lastInteraction?: number | null;
 }): void {
   const now = Date.now();
   getGatewayDb()
@@ -61,7 +63,8 @@ function insertChannel(args: {
       policy: args.policy ?? "allow",
       verifiedAt: args.verifiedAt ?? now,
       verifiedVia: args.verifiedVia ?? "challenge",
-      interactionCount: 0,
+      interactionCount: args.interactionCount ?? 0,
+      lastInteraction: args.lastInteraction ?? null,
       createdAt: now,
     })
     .run();
@@ -131,6 +134,8 @@ describe("resolveTrustVerdict", () => {
       externalChatId: "chat-member",
       status: "active",
       verifiedVia: "manual",
+      interactionCount: 7,
+      lastInteraction: 1699990000,
     });
 
     const verdict = await resolveTrustVerdict({
@@ -147,6 +152,9 @@ describe("resolveTrustVerdict", () => {
     expect(verdict.externalChatId).toBe("chat-member");
     expect(verdict.memberDisplayName).toBe("Trusted Member");
     expect(verdict.verifiedVia).toBe("manual");
+    // Interaction telemetry carried straight off the member channel row.
+    expect(verdict.interactionCount).toBe(7);
+    expect(verdict.lastInteraction).toBe(1699990000);
     // Guardian fields still populated from the channel binding.
     expect(verdict.guardianExternalUserId).toBe("U_GUARDIAN");
   });
@@ -184,6 +192,9 @@ describe("resolveTrustVerdict", () => {
     expect(verdict.channelId).toBeUndefined();
     expect(verdict.status).toBeUndefined();
     expect(verdict.guardianExternalUserId).toBeUndefined();
+    // No member channel → no interaction telemetry.
+    expect(verdict.interactionCount).toBeUndefined();
+    expect(verdict.lastInteraction).toBeUndefined();
   });
 
   test("no actorExternalId → unknown, canonicalSenderId null", async () => {
@@ -297,11 +308,12 @@ describe("resolveTrustVerdict", () => {
     expect(verdict.trustClass).toBe("guardian");
   });
 
-  test("guardian with no same-channel binding sends on another channel → guardian by principal", async () => {
-    // Guardian is bound (active) only on the vellum anchor channel; they send
-    // on telegram with the same identity. The same-channel binding lookup
-    // finds nothing, but the principal-level check maps the sender to the
-    // guardian contact — never the stranger lane.
+  test("memberless sender whose address collides with the guardian's address on another channel type stays unknown", async () => {
+    // ATL-958 regression: external identifiers are channel-local namespaces.
+    // A telegram sender with NO telegram member row whose id happens to equal
+    // the guardian's vellum address is NOT the guardian — raw cross-channel
+    // address equality must never confer the class (it would grant
+    // self-approval, unsandboxed shell, and memory access to a spoofable id).
     insertContact({
       id: "c-guardian",
       displayName: "Principal Guardian",
@@ -321,13 +333,11 @@ describe("resolveTrustVerdict", () => {
       actorExternalId: "GUARDIAN_ID",
     });
 
-    expect(verdict.trustClass).toBe("guardian");
-    expect(verdict.guardianPrincipalId).toBe("principal-1");
-    expect(verdict.guardianDisplayName).toBe("Principal Guardian");
-    // No same-channel binding → delivery fields stay absent.
+    expect(verdict.trustClass).toBe("unknown");
+    expect(verdict.resolutionFailed).toBeUndefined();
+    expect(verdict.guardianPrincipalId).toBeUndefined();
+    expect(verdict.guardianDisplayName).toBeUndefined();
     expect(verdict.guardianExternalUserId).toBeUndefined();
-    expect(verdict.guardianDeliveryChatId).toBeUndefined();
-    // No same-channel member row either.
     expect(verdict.contactId).toBeUndefined();
   });
 
@@ -398,38 +408,13 @@ describe("resolveTrustVerdict", () => {
     expect(verdict.status).toBe("blocked");
   });
 
-  test("guardian identity with a NULL principal is unresolved → resolutionFailed, not guardian", async () => {
-    // Pre-cutover artifact: an active guardian row whose contact has no
-    // principal. Classifying `guardian` would confer self-approving
-    // capabilities with nothing to authorize decisions against; classifying
-    // plain `unknown` would route the guardian through the stranger lane.
-    // The verdict is could-not-vouch instead: the consumer soft-denies with
-    // no stranger-lane side effects.
-    insertContact({
-      id: "c-guardian",
-      displayName: "Principal-less Guardian",
-      role: "guardian",
-      // principalId intentionally absent (NULL).
-    });
-    insertChannel({
-      id: "ch-guardian-vellum",
-      contactId: "c-guardian",
-      type: "vellum",
-      address: "GUARDIAN_ID",
-      status: "active",
-    });
-
-    const verdict = await resolveTrustVerdict({
-      channelType: CHANNEL,
-      actorExternalId: "GUARDIAN_ID",
-    });
-
-    expect(verdict.trustClass).toBe("unknown");
-    expect(verdict.resolutionFailed).toBe(true);
-    expect(verdict.guardianPrincipalId).toBeUndefined();
-  });
-
-  test("guardian identity via a pending member row with a NULL principal is also unresolved", async () => {
+  test("guardian identity via a pending member row with a NULL principal is unresolved → resolutionFailed, not guardian", async () => {
+    // Pre-cutover artifact: the sender's same-channel row belongs to a
+    // guardian contact that has no principal. Classifying `guardian` would
+    // confer self-approving capabilities with nothing to authorize decisions
+    // against; classifying plain `unknown` would route the guardian through
+    // the stranger lane. The verdict is could-not-vouch instead: the
+    // consumer soft-denies with no stranger-lane side effects.
     insertContact({
       id: "c-guardian",
       displayName: "Principal-less Guardian",
@@ -476,8 +461,9 @@ describe("resolveTrustVerdict", () => {
       policy: "deny",
     });
 
-    // Sender matches the revoked vellum address on telegram (no telegram row):
-    // the principal-level check requires an ACTIVE guardian channel → unknown.
+    // Sender matches the revoked vellum address on telegram (no telegram
+    // row): a memberless sender is a stranger — and even with a row, the
+    // principal-level check requires an ACTIVE guardian channel → unknown.
     const verdict = await resolveTrustVerdict({
       channelType: CHANNEL,
       actorExternalId: "OLD_GUARDIAN_ID",

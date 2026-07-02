@@ -3,9 +3,9 @@
  * handler.
  *
  * Validates that when a message mints/targets a conversation:
- * - `enabledPlugins: [...]` is persisted (setConversationEnabledPlugins) AND
- *   applied to the live conversation (setEnabledPlugins), observable via
- *   getEffectiveEnabledPluginSet.
+ * - `enabledPlugins: [...]` is applied to the live conversation via
+ *   `setEnabledPlugins`, which persists to the row (setConversationEnabledPlugins)
+ *   under the hood, observable via getEffectiveEnabledPluginSet.
  * - `[]` scopes the chat to no plugins (empty set).
  * - explicit `null` clears to the default (no per-chat restriction).
  * - omitting the field leaves the stored value untouched (no persist call).
@@ -227,8 +227,11 @@ function makeConversation() {
     setProcessing: (value: boolean) => {
       processing = value;
     },
+    // Mirrors the real Conversation.setEnabledPlugins, which persists to the
+    // row via setConversationEnabledPlugins as it updates the live instance.
     setEnabledPlugins: (plugins: string[] | null) => {
       enabledPlugins = plugins;
+      setConversationEnabledPluginsMock("conv-plugins-test", plugins);
     },
     hasAnyPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},

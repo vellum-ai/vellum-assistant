@@ -106,9 +106,9 @@ import {
   getMessagesPaginated,
   hasMessages,
   isConversationProcessing,
+  isHiddenMessageMetadata,
   type MessageRow,
   provenanceFromTrustContext,
-  setConversationEnabledPlugins,
   setConversationInferenceProfile,
 } from "../../persistence/conversation-crud.js";
 import {
@@ -349,8 +349,9 @@ function emitCannedMessageComplete(
 function isHiddenMessage(metadata: string | null): boolean {
   if (!metadata) return false;
   try {
-    const meta = JSON.parse(metadata) as { hidden?: unknown };
-    return meta?.hidden === true;
+    return isHiddenMessageMetadata(
+      JSON.parse(metadata) as Record<string, unknown>,
+    );
   } catch {
     return false;
   }
@@ -633,43 +634,51 @@ function buildQueuedMessagePayloads(
   const conversation = findConversation(conversationId);
   if (!conversation) return [];
 
-  return conversation.snapshotQueuedMessages().map((item, index) => {
-    const text = item.displayContent ?? item.content;
-    const attachments: RuntimeAttachmentMetadata[] = item.attachments.map(
-      (a, idx) => ({
-        id: a.id ?? `${item.requestId}:attachment:${idx}`,
-        filename: a.filename,
-        mimeType: a.mimeType,
-        sizeBytes:
-          a.sizeBytes ?? (a.data ? Math.floor((a.data.length * 3) / 4) : 0),
-        kind: classifyKind(a.mimeType),
-        ...(a.mimeType.startsWith("image/") && a.data ? { data: a.data } : {}),
-        ...(a.thumbnailData ? { thumbnailData: a.thumbnailData } : {}),
-      }),
-    );
+  // Hidden sends are suppressed from the transcript at every stage — echo,
+  // persisted row, and here the in-memory queue window: a latest-page fetch
+  // while the item still awaits drain must not surface it as a queued bubble.
+  return conversation
+    .snapshotQueuedMessages()
+    .filter((item) => !isHiddenMessageMetadata(item.metadata))
+    .map((item, index) => {
+      const text = item.displayContent ?? item.content;
+      const attachments: RuntimeAttachmentMetadata[] = item.attachments.map(
+        (a, idx) => ({
+          id: a.id ?? `${item.requestId}:attachment:${idx}`,
+          filename: a.filename,
+          mimeType: a.mimeType,
+          sizeBytes:
+            a.sizeBytes ?? (a.data ? Math.floor((a.data.length * 3) / 4) : 0),
+          kind: classifyKind(a.mimeType),
+          ...(a.mimeType.startsWith("image/") && a.data
+            ? { data: a.data }
+            : {}),
+          ...(a.thumbnailData ? { thumbnailData: a.thumbnailData } : {}),
+        }),
+      );
 
-    const contentBlocks: ConversationContentBlock[] = [];
-    if (text.length > 0) contentBlocks.push({ type: "text", text });
-    for (const attachment of attachments) {
-      contentBlocks.push({ type: "attachment", attachment });
-    }
+      const contentBlocks: ConversationContentBlock[] = [];
+      if (text.length > 0) contentBlocks.push({ type: "text", text });
+      for (const attachment of attachments) {
+        contentBlocks.push({ type: "attachment", attachment });
+      }
 
-    return {
-      // The queued message has no DB row yet; its requestId is the stable
-      // identifier the queued-message delete/steer endpoints key on.
-      id: item.requestId,
-      role: "user" as const,
-      content: text,
-      timestamp: new Date(item.sentAt).toISOString(),
-      attachments,
-      ...(contentBlocks.length > 0 ? { contentBlocks } : {}),
-      ...(item.clientMessageId
-        ? { clientMessageId: item.clientMessageId }
-        : {}),
-      queueStatus: "queued" as const,
-      queuePosition: index + 1,
-    };
-  });
+      return {
+        // The queued message has no DB row yet; its requestId is the stable
+        // identifier the queued-message delete/steer endpoints key on.
+        id: item.requestId,
+        role: "user" as const,
+        content: text,
+        timestamp: new Date(item.sentAt).toISOString(),
+        attachments,
+        ...(contentBlocks.length > 0 ? { contentBlocks } : {}),
+        ...(item.clientMessageId
+          ? { clientMessageId: item.clientMessageId }
+          : {}),
+        queueStatus: "queued" as const,
+        queuePosition: index + 1,
+      };
+    });
 }
 
 export function handleListMessages({
@@ -846,19 +855,19 @@ export function handleListMessages({
         }
       | undefined;
     let acpNotification: { acpSessionId: string; agent?: string } | undefined;
-    let backgroundToolNotification: boolean | undefined;
+    let backgroundEventNotification: boolean | undefined;
     let backgroundToolCompletion: ConversationMessage["backgroundToolCompletion"];
     if (msg.metadata) {
       try {
         const meta = JSON.parse(msg.metadata);
         if (typeof meta.sentAt === "number") sentAt = meta.sentAt;
-        // The backgrounded bash/host_bash completion wake persists a
-        // `<background_event source="background-tool">` row (see
-        // `persistWakeTriggerMessage`). Flag it so clients hide it from the
-        // transcript like a subagent/ACP notification — the inline card carries
-        // the status.
-        if (meta.backgroundEventSource === "background-tool") {
-          backgroundToolNotification = true;
+        // Every wake persists a `<background_event source="...">` trigger row
+        // (see `persistWakeTriggerMessage`) that the LLM reads. Flag any such
+        // row so clients hide it from the transcript like a subagent/ACP
+        // notification — the user-facing "Conversation Woke" card (or, for a
+        // backgrounded bash run, the inline terminal card) carries the status.
+        if (typeof meta.backgroundEventSource === "string") {
+          backgroundEventNotification = true;
         }
         // `persistWakeTriggerMessage` stamps the structured completion onto the
         // same wake row, letting the web rebuild a terminal inline card from
@@ -921,7 +930,7 @@ export function handleListMessages({
       sentAt,
       subagentNotification,
       acpNotification,
-      backgroundToolNotification,
+      backgroundEventNotification,
       backgroundToolCompletion,
       slackMessage,
       clientMessageId: msg.clientMessageId ?? undefined,
@@ -1116,8 +1125,8 @@ export function handleListMessages({
         ? { subagentNotification: m.subagentNotification }
         : {}),
       ...(m.acpNotification ? { acpNotification: m.acpNotification } : {}),
-      ...(m.backgroundToolNotification
-        ? { backgroundToolNotification: true }
+      ...(m.backgroundEventNotification
+        ? { backgroundEventNotification: true }
         : {}),
       ...(m.backgroundToolCompletion
         ? { backgroundToolCompletion: m.backgroundToolCompletion }
@@ -1605,10 +1614,6 @@ export async function handleSendMessage(
   }
 
   if (requestedEnabledPlugins !== undefined) {
-    setConversationEnabledPlugins(
-      mapping.conversationId,
-      requestedEnabledPlugins,
-    );
     conversation.setEnabledPlugins(requestedEnabledPlugins);
   }
 
@@ -1988,6 +1993,10 @@ export async function handleSendMessage(
         userMessageInterface: sourceInterface,
         assistantMessageInterface: sourceInterface,
         ...(body.automated === true ? { automated: true } : {}),
+        // Carry the transcript-suppression flag through the queue so a
+        // hidden send that lands mid-turn stays hidden when drained —
+        // the drain path persists this metadata and skips the echo.
+        ...(body.hidden === true ? { hidden: true } : {}),
       },
       isInteractive,
       sourceActorPrincipalId,
@@ -2009,21 +2018,34 @@ export async function handleSendMessage(
     // here must not turn the 202 response into a 500 — that would leave
     // the client showing "Failed to send" for a message the daemon will
     // process from the queue.
-    try {
-      // Supersede interactions left pending by the in-flight turn: auto-deny
-      // confirmations (with canonical/client sync) and steer to the enqueued
-      // message if an ask_question is parked. Centralized so the CLI signal
-      // path (signals/user-message.ts) gets identical handling.
-      supersedePendingInteractionsOnEnqueue(mapping.conversationId, requestId);
+    //
+    // Supersede encodes user intent — a typed message while a prompt is open
+    // means the user chose to move on. A hidden send is a machine signal
+    // (e.g. the channel-setup wizard-close marker), not a user decision: it
+    // must not auto-deny live approval prompts or steer a parked
+    // ask_question to a message the user never typed. Daemon-injected
+    // synthetic messages (subagent/ACP notifications) skip this path the
+    // same way by enqueuing directly.
+    if (body.hidden !== true) {
+      try {
+        // Supersede interactions left pending by the in-flight turn: auto-deny
+        // confirmations (with canonical/client sync) and steer to the enqueued
+        // message if an ask_question is parked. Centralized so the CLI signal
+        // path (signals/user-message.ts) gets identical handling.
+        supersedePendingInteractionsOnEnqueue(
+          mapping.conversationId,
+          requestId,
+        );
 
-      // Expire any orphaned canonical requests that survived without a
-      // matching in-memory pending interaction (e.g. prompter timeouts).
-      expireOrphanedCanonicalRequests(mapping.conversationId);
-    } catch (err) {
-      log.warn(
-        { err, conversationId: mapping.conversationId },
-        "Post-enqueue auto-deny failed — queued message unaffected",
-      );
+        // Expire any orphaned canonical requests that survived without a
+        // matching in-memory pending interaction (e.g. prompter timeouts).
+        expireOrphanedCanonicalRequests(mapping.conversationId);
+      } catch (err) {
+        log.warn(
+          { err, conversationId: mapping.conversationId },
+          "Post-enqueue auto-deny failed — queued message unaffected",
+        );
+      }
     }
 
     return {
@@ -2039,7 +2061,11 @@ export async function handleSendMessage(
   // before dispatching, so an idle conversation with lingering confirmations
   // (e.g. the user never responded to a tool-approval prompt) must deny
   // them before starting the new turn.
-  if (conversation.hasAnyPendingConfirmation()) {
+  // Hidden sends are machine signals, not user decisions — like the queue
+  // branch's supersede bypass above, they must not deny confirmations that
+  // outlived a turn (e.g. a guardian approval still awaiting a channel
+  // reply). The next visible send performs the cleanup instead.
+  if (body.hidden !== true && conversation.hasAnyPendingConfirmation()) {
     for (const interaction of pendingInteractions.getByConversation(
       mapping.conversationId,
     )) {
@@ -2438,6 +2464,7 @@ export async function handleSendMessage(
       onEvent: broadcastMessage,
       isInteractive,
       isUserMessage: true,
+      ...(body.hidden === true ? { isHiddenPrompt: true } : {}),
     })
     .catch((err) => {
       log.error(
@@ -2953,7 +2980,7 @@ export const ROUTES: RouteDefinition[] = [
         .boolean()
         .optional()
         .describe(
-          "When true, persist the user message but suppress it from the UI transcript (it stays in LLM-side history and still drives the turn). Used to prime a proactive assistant greeting without showing the triggering user message. Honored on the standard send path only.",
+          "When true, persist the user message but suppress it from the UI transcript (it stays in LLM-side history and still drives the turn). Used for machine signals the user never typed (proactive-greeting priming, channel-setup wizard close). Suppression covers the queued path too: a hidden send that lands mid-turn returns { queued: true, requestId } but never appears in list-messages queued snapshots, emits no echo, and does not supersede pending interactions. Honored on the standard send path only — slash-command content bypasses it.",
         ),
       onboarding: z
         .object({

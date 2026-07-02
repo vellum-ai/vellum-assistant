@@ -10,7 +10,7 @@ import type { ApprovalUIMetadata } from "../runtime/channel-approval-types.js";
  * quoted-preview body, action callback ids, source/permalink and requester-id
  * context blocks, the security-warning context block, and guardian
  * verification note that `buildApprovalNotificationBlocks` emits for an
- * access request.
+ * access request — plus the tool-approval card body/continuation split.
  */
 
 const APPROVAL: ApprovalUIMetadata = {
@@ -39,7 +39,9 @@ type Block = Record<string, unknown>;
 
 function card(blocks: unknown[]): Block {
   const c = (blocks as Block[]).find((b) => b.type === "card");
-  if (!c) throw new Error("no card block");
+  if (!c) {
+    throw new Error("no card block");
+  }
   return c;
 }
 
@@ -172,5 +174,90 @@ describe("Slack access-request card blocks", () => {
     expect(
       texts.some((t) => t.includes("haven't verified your identity on slack")),
     ).toBe(true);
+  });
+});
+
+const TOOL_APPROVAL: ApprovalUIMetadata = {
+  requestId: "req-456",
+  actions: [
+    { id: "approve_once", label: "Approve once" },
+    { id: "reject", label: "Reject" },
+  ],
+  plainTextFallback: 'Reply "ABC123 approve" or "ABC123 reject"',
+  permissionDetails: {
+    toolName: "bash",
+    riskLevel: "medium",
+    toolInput: { command: "ls /tmp" },
+    requesterIdentifier: "Alice",
+  },
+};
+
+function buildToolApprovalPayload(): ChannelDeliveryPayload {
+  return {
+    sourceEventName: "guardian.question",
+    copy: { title: "Guardian Question", body: "Approve tool: bash" },
+    urgency: "high",
+    approvalContext: TOOL_APPROVAL,
+  };
+}
+
+function sectionTexts(blocks: unknown[]): string[] {
+  return (blocks as Block[])
+    .filter((b) => b.type === "section")
+    .map((b) => text(b.text));
+}
+
+describe("Slack tool-approval card blocks", () => {
+  test("short message renders entirely in the card body with no companion section", () => {
+    const message = "Alice is requesting approval to run: ls /tmp";
+    const blocks = buildApprovalNotificationBlocks(
+      buildToolApprovalPayload(),
+      message,
+    );
+    expect(text(card(blocks).body)).toBe(message);
+    expect(sectionTexts(blocks)).toHaveLength(0);
+  });
+
+  test("card carries tool title and tool/requester subtitle", () => {
+    const c = card(
+      buildApprovalNotificationBlocks(buildToolApprovalPayload(), "msg"),
+    );
+    expect(text(c.title)).toBe("Tool Approval");
+    expect(text(c.subtitle)).toBe("bash — requested by Alice");
+  });
+
+  test("long message continues in a section without repeating the card body", () => {
+    const message = Array.from(
+      { length: 40 },
+      (_, i) => `word${String(i).padStart(2, "0")}`,
+    ).join(" "); // 279 chars of distinct words
+    const blocks = buildApprovalNotificationBlocks(
+      buildToolApprovalPayload(),
+      message,
+    );
+
+    const body = text(card(blocks).body);
+    expect(body.length).toBeLessThanOrEqual(200);
+    expect(body.endsWith(" ↓")).toBe(true);
+
+    const sections = sectionTexts(blocks);
+    expect(sections).toHaveLength(1);
+    const continuation = sections[0];
+
+    // Body + continuation reassemble the full message with nothing repeated
+    // and nothing lost — the guardian reads each word exactly once.
+    const bodyWords = body.replace(/ ↓$/, "").split(" ");
+    const continuationWords = continuation.replace(/^… /, "").split(" ");
+    expect([...bodyWords, ...continuationWords].join(" ")).toBe(message);
+  });
+
+  test("split lands on a word boundary", () => {
+    const message = `${"a".repeat(190)} ${"b".repeat(60)}`;
+    const blocks = buildApprovalNotificationBlocks(
+      buildToolApprovalPayload(),
+      message,
+    );
+    expect(text(card(blocks).body)).toBe(`${"a".repeat(190)} ↓`);
+    expect(sectionTexts(blocks)[0]).toBe(`… ${"b".repeat(60)}`);
   });
 });

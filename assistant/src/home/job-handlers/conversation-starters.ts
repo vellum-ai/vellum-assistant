@@ -109,6 +109,7 @@ function buildNewItemsDiff(scopeId: string): string {
     kind: string;
     content: string;
   }>(
+    "starters:buildNewItemsDiff",
     `SELECT type AS kind, content FROM memory_graph_nodes
      WHERE fidelity != 'gone' AND scope_id = ? AND created > ?
      ORDER BY created DESC LIMIT 20`,
