@@ -87,7 +87,9 @@ import {
  * but renders no user bubble, so the chat opens with the assistant proactively
  * greeting the user in the persona they just configured.
  */
-const LETS_CHAT_KICKOFF_MESSAGE = "hey, what's up";
+const LETS_CHAT_KICKOFF_MESSAGE = `You're about to begin your first conversation.
+Respond with a warm and engaging greeting. Be interesting, be real. This is your chance to get to know and impress the user.
+Keep it short! Don't use \`recall\` or read any files.`;
 
 /** Build the research subject from the collected form values. */
 function researchSubjectFrom(values: ResearchOnboardingValues): ResearchSubject {
