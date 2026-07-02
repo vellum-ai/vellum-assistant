@@ -24,6 +24,7 @@ import { readPage, renderPageContent } from "../v2/page-store.js";
 import { buildEdgeGraph } from "../v3/edge.js";
 import { computeLearnedEdgeGraph } from "../v3/learned-edges.js";
 import type { Slug } from "../v3/types.js";
+import { isMemoryConceptGraphEnabled } from "./flag.js";
 import type {
   MemoryGraph,
   MemoryGraphEdge,
@@ -183,7 +184,7 @@ export function assembleMemoryGraph(
 export async function getMemoryGraph(
   config: AssistantConfig,
 ): Promise<MemoryGraph> {
-  if (!isMemoryV3Live(config)) {
+  if (!isMemoryConceptGraphEnabled(config) || !isMemoryV3Live(config)) {
     return { backend: null, supported: false, nodes: [], edges: [] };
   }
 
@@ -244,7 +245,12 @@ export async function getMemoryGraphNode(
   config: AssistantConfig,
   id: string,
 ): Promise<MemoryGraphNodeDetail> {
-  if (!isMemoryV3Live(config) || !id || id.startsWith("skills/")) {
+  if (
+    !isMemoryConceptGraphEnabled(config) ||
+    !isMemoryV3Live(config) ||
+    !id ||
+    id.startsWith("skills/")
+  ) {
     return { found: false };
   }
   const page = await readPage(getWorkspaceDir(), id).catch(() => null);

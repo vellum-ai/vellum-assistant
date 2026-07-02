@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { Pencil } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -6,6 +7,10 @@ import { fetchAssistantIdentity } from "@/assistant/identity";
 import { AvatarManagementModal } from "@/components/avatar/avatar-management-modal";
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import { ConceptGraphView } from "@/domains/intelligence/components/concept-graph/concept-graph-view";
+import { ConstellationView } from "@/domains/intelligence/components/constellation-view/constellation-view";
+import { memoryGraphOptions } from "@/domains/intelligence/memory-graph/get-memory-graph";
+import type { SkillInfo } from "@/domains/intelligence/skills/types";
+import { skillsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { IdentityGetResponse } from "@/generated/daemon/types.gen";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { captureError } from "@/lib/sentry/capture-error";
@@ -180,6 +185,21 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
   const [modalOpen, setModalOpen] = useState(false);
   const [graphFullscreen, setGraphFullscreen] = useState(false);
 
+  // The concept graph only exists when the active backend exposes one (memory-v3)
+  // AND the memory-concept-graph flag is on; otherwise the endpoint reports
+  // `unsupported` and we fall back to the skills constellation, so this pane is
+  // never empty on backends/assistants without the graph.
+  const graphQuery = useQuery(memoryGraphOptions(assistantId));
+  const useSkillsFallback = graphQuery.data?.kind === "unsupported";
+  const skillsQuery = useQuery({
+    ...skillsGetOptions({
+      path: { assistant_id: assistantId },
+      query: { kind: "installed" },
+    }),
+    select: (data): SkillInfo[] => data.skills,
+    enabled: Boolean(assistantId) && useSkillsFallback,
+  });
+
   useEffect(() => {
     let cancelled = false;
 
@@ -187,7 +207,7 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
       fetchAssistantIdentity(assistantId),
       getAssistant(assistantId).catch(() => ({ ok: false as const, status: 0, error: {} })),
     ]).then(([identityData, assistantResult]) => {
-      if (cancelled) return;
+      if (cancelled) {return;}
       setIdentity(identityData);
       if (assistantResult.ok) {
         setAssistantCreatedAt(assistantResult.data.created);
@@ -196,7 +216,7 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
       }
       setLoadedAssistantId(assistantId);
     }).catch((err) => {
-      if (cancelled) return;
+      if (cancelled) {return;}
       captureError(err, { context: "identity_tab_load" });
     });
 
@@ -269,12 +289,24 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
       </div>
 
       <div className="min-h-[480px] min-w-0 flex-1 lg:min-h-0">
-        <ConceptGraphView
-          assistantId={assistantId}
-          className="h-full w-full"
-          isFullscreen={graphFullscreen}
-          onToggleFullscreen={() => setGraphFullscreen((v) => !v)}
-        />
+        {useSkillsFallback ? (
+          <ConstellationView
+            skills={skillsQuery.data ?? []}
+            components={components}
+            traits={traits}
+            customImageUrl={customImageUrl}
+            className="h-full w-full"
+            isFullscreen={graphFullscreen}
+            onToggleFullscreen={() => setGraphFullscreen((v) => !v)}
+          />
+        ) : (
+          <ConceptGraphView
+            assistantId={assistantId}
+            className="h-full w-full"
+            isFullscreen={graphFullscreen}
+            onToggleFullscreen={() => setGraphFullscreen((v) => !v)}
+          />
+        )}
       </div>
 
       <AvatarManagementModal
