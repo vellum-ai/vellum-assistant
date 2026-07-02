@@ -979,6 +979,55 @@ describe("ProfileEditorModal — invariant default profiles in view mode", () =>
     expect(topPSwitch().disabled).toBe(false);
   });
 
+  test("an invariant profile opened in edit mode keeps the lock (defense-in-depth)", () => {
+    // The daemon freezes invariant names regardless of `source`, so even if
+    // a parent opens a non-managed invariant profile in edit mode the lock
+    // must hold: locked label and Top P, no delete/recreate save path.
+    renderEdit({ ...invariantProfile, source: "user" });
+
+    expect(getInputByPlaceholder("e.g. Fast & Cheap").disabled).toBe(true);
+    expect(topPSwitch().disabled).toBe(true);
+
+    // The footer is the safe read-only footer: Save As New is offered and
+    // Save stays disarmed (no status change to flip on an active profile).
+    expect(getButton("Save As New")).not.toBeNull();
+    expect(getSaveBtn().disabled).toBe(true);
+  });
+
+  test("an invariant profile in edit mode saves an enable flip as a {status:'active'} merge, never delete/recreate", async () => {
+    const saveCalls: {
+      name: string;
+      entry: Record<string, unknown>;
+      options?: { mode?: "merge" | "replace" };
+    }[] = [];
+    const onSave = (
+      name: string,
+      entry: unknown,
+      options?: { mode?: "merge" | "replace" },
+    ) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown>, options });
+      return Promise.resolve();
+    };
+
+    renderEdit(
+      { ...invariantProfile, source: "user", status: "disabled" },
+      onSave,
+    );
+
+    const activeSwitch = findSwitchByLabel("Active");
+    expect(activeSwitch).not.toBeNull();
+    fireEvent.click(activeSwitch!);
+    fireEvent.click(getSaveBtn());
+
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    // The body is exactly {status:"active"} as a merge — the replace path
+    // (delete/recreate) is never taken for invariant profiles.
+    expect(saveCalls[0].entry).toEqual({ status: "active" });
+    expect(saveCalls[0].options?.mode).toBe("merge");
+  });
+
   test("Save As New from an invariant profile yields a fully editable create form", () => {
     renderView(invariantProfile);
 

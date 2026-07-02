@@ -259,6 +259,16 @@ describe("ManageProfilesModal — invariant default profiles in the list", () =>
         provider: "anthropic",
         model: "claude-opus-4-8",
       },
+      // Invariant but NOT managed — the daemon freezes invariant names
+      // regardless of `source`, so the UI must lock this one exactly like a
+      // managed default.
+      "default-user": {
+        label: "Default User",
+        source: "user",
+        invariant: true,
+        provider: "anthropic",
+        model: "claude-opus-4-8",
+      },
       "default-b": {
         label: "Default B",
         source: "managed",
@@ -311,5 +321,56 @@ describe("ManageProfilesModal — invariant default profiles in the list", () =>
     expect(configPatchBodies).toEqual([
       { llm: { profiles: { "default-b": { status: "active" } } } },
     ]);
+  });
+
+  test("an invariant profile with source 'user' has a disabled delete button and a View action", () => {
+    seedInvariantProfiles();
+    render(
+      <Wrapper>
+        <ManageProfilesModal isOpen assistantId="asst-1" onClose={() => {}} />
+      </Wrapper>,
+    );
+
+    // Delete is locked exactly like a managed profile — the daemon rejects
+    // deleting invariant names regardless of source.
+    const deleteBtn = document.querySelector<HTMLButtonElement>(
+      '[aria-label="Delete Default User"]',
+    );
+    expect(deleteBtn).not.toBeNull();
+    expect(deleteBtn!.disabled).toBe(true);
+
+    // The row action reads "View", not "Edit" — the editor opens read-only.
+    const row = deleteBtn!.closest("div.relative")!;
+    const actionBtn = Array.from(
+      row.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((b) => b.textContent?.trim() === "View" || b.textContent?.trim() === "Edit");
+    expect(actionBtn?.textContent?.trim()).toBe("View");
+  });
+
+  test("opening an invariant source-'user' profile lands in view mode with locked controls", async () => {
+    seedInvariantProfiles();
+    render(
+      <Wrapper>
+        <ManageProfilesModal isOpen assistantId="asst-1" onClose={() => {}} />
+      </Wrapper>,
+    );
+
+    const deleteBtn = document.querySelector<HTMLButtonElement>(
+      '[aria-label="Delete Default User"]',
+    )!;
+    const row = deleteBtn.closest("div.relative")!;
+    const viewBtn = Array.from(
+      row.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((b) => b.textContent?.trim() === "View")!;
+    fireEvent.click(viewBtn);
+
+    // The editor opened in view mode: the read-only footer offers Save As
+    // New, and the invariant lock disables the Display Name field.
+    await waitFor(() => {
+      expect(getButton("Save As New")).not.toBeNull();
+    });
+    expect(getInputByPlaceholder("e.g. Fast & Cheap").disabled).toBe(true);
+    // Save opens disarmed — nothing view mode permits editing has changed.
+    expect(getSaveBtn().disabled).toBe(true);
   });
 });

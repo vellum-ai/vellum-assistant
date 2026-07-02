@@ -177,17 +177,24 @@ export function ProfileListItem({
             </div>
           )}
           <div className="flex w-[92px] items-center justify-end gap-2">
+            {/* Invariant (default) profiles open in view mode and cannot be
+                deleted regardless of `source` — the daemon freezes invariant
+                names, so a managed-style lock applies here too. */}
             <Button variant="ghost" size="compact" onClick={onEditClick}>
-              {isManaged ? "View" : "Edit"}
+              {isManaged || isInvariant ? "View" : "Edit"}
             </Button>
             <Button
               variant="ghost"
               size="compact"
               iconOnly={<Trash2 />}
               aria-label={`Delete ${profile.label ?? profile.name}`}
-              disabled={isManaged || isDeleting}
+              disabled={isManaged || isInvariant || isDeleting}
               title={
-                isManaged ? "Managed profiles cannot be deleted" : undefined
+                isManaged
+                  ? "Managed profiles cannot be deleted"
+                  : isInvariant
+                    ? "Default profiles cannot be deleted"
+                    : undefined
               }
               onClick={onDeleteClick}
               tintColor="var(--system-negative-strong)"

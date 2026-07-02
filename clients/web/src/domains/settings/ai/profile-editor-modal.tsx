@@ -169,14 +169,19 @@ function ProfileEditorModalInner({
   const [effectiveMode, setEffectiveMode] = useState<
     "create" | "edit" | "view"
   >(mode);
-  const isReadOnly = effectiveMode === "view";
-  // Invariant (default) profiles are fully read-only in view mode: no label
-  // rename, no Top P override, no disabling — the only interactive control is
-  // the enable-only status toggle when the profile is disabled. Customization
+  // Invariant (default) profiles are fully locked outside create mode: no
+  // label rename, no Top P override, no disabling — the only interactive
+  // control is the enable-only status toggle when the profile is disabled.
+  // The daemon freezes invariant names regardless of `source`, so the lock
+  // must hold even if the parent opens the editor in edit mode. Customization
   // goes through "Save As New", which switches `effectiveMode` to "create" and
   // therefore drops the invariant lock on the duplicate.
   const isInvariant =
-    initialValues?.invariant === true && effectiveMode === "view";
+    initialValues?.invariant === true && effectiveMode !== "create";
+  // The invariant lock forces read-only handling even in edit mode, so Save
+  // takes the partial-merge path and never the delete/recreate cycle the
+  // daemon rejects for invariant profiles.
+  const isReadOnly = effectiveMode === "view" || isInvariant;
   const activeAssistantIsSelfHosted = useActiveAssistantIsSelfHosted();
 
   // Managed profiles open the editor in view mode (mode === "view") so they
@@ -967,7 +972,11 @@ function ProfileEditorModalInner({
       </Modal.Body>
 
       <Modal.Footer>
-        {effectiveMode === "view" ? (
+        {/* `isReadOnly` (not `effectiveMode === "view"`) picks the footer so
+            an invariant profile opened in edit mode still gets the safe
+            footer: Close, Save As New, and a Save gated by
+            `hasViewModeChanges` that only ever takes the merge path. */}
+        {isReadOnly ? (
           <>
             <Button
               variant="outlined"

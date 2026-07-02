@@ -211,9 +211,15 @@ export function ManageProfilesModal({
       </Modal.Root>
       <ProfileEditorModal
         isOpen={editorOpen}
+        // Managed profiles AND invariant (default-named) profiles open in
+        // view mode. The daemon freezes invariant names regardless of
+        // `source`, so an invariant profile with source !== "managed" must
+        // also take the view-mode partial-save path — edit mode's
+        // delete/recreate cycle would be rejected with a 400.
         mode={
           editingProfile
-            ? editingProfile.source === "managed"
+            ? editingProfile.source === "managed" ||
+              editingProfile.invariant === true
               ? "view"
               : "edit"
             : "create"
