@@ -6,7 +6,7 @@
  * gateway ingress and never forwarded to the daemon. Any such message that
  * reaches the runtime was already judged a non-invite by the gateway, so the
  * daemon must treat it as a normal message: non-members flow through the
- * standard ACL deny lane with no redemption attempt or invite-store lookup.
+ * standard ACL deny lane with no redemption attempt or invite lookup.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -66,7 +66,7 @@ mock.module("../runtime/approval-message-composer.js", () => ({
 // There is no daemon-side redemption service to spy on — the daemon has no
 // local redemption code path at all (redemption is gateway-native). These
 // tests pin the observable behavior instead: the sender never becomes a
-// member and the invite row is never consumed.
+// member.
 
 // Stub the gateway IPC so ACL reads resolve deterministically without a
 // running gateway socket.
@@ -74,14 +74,9 @@ mock.module("../ipc/gateway-client.js", () => ({
   ipcCallPersistent: async () => undefined,
 }));
 
-import {
-  findContactChannel,
-  upsertContact,
-} from "../contacts/contact-store.js";
+import { findContactChannel } from "../contacts/contact-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { createInvite, findById } from "../persistence/invite-store.js";
-import { hashVoiceCode } from "../util/voice-code.js";
 import {
   handleChannelInbound,
   seedContactChannel,
@@ -94,17 +89,11 @@ await initializeDb();
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Create a throwaway contact and return its ID, for use as the invite's contactId. */
-function createTargetContact(displayName = "Test Contact"): string {
-  return upsertContact({ displayName, role: "contact" }).id;
-}
-
 const TEST_BEARER_TOKEN = "test-token";
 let msgCounter = 0;
 
 function resetState(): void {
   const db = getDb();
-  db.run("DELETE FROM assistant_ingress_invites");
   db.run("DELETE FROM channel_inbound_events");
   db.run("DELETE FROM conversations");
   db.run("DELETE FROM notification_events");
@@ -166,13 +155,7 @@ describe("inbound invite messages — no daemon-side interception", () => {
   beforeEach(resetState);
 
   test("non-member /start iv_<valid token> is denied as a normal non-member, no redemption", async () => {
-    const { rawToken, invite } = createInvite({
-      sourceChannel: "telegram",
-      contactId: createTargetContact(),
-      maxUses: 5,
-    });
-
-    const req = buildInviteRequest(rawToken);
+    const req = buildInviteRequest("some-live-gateway-token");
     const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
     const json = (await resp.json()) as Record<string, unknown>;
 
@@ -183,16 +166,13 @@ describe("inbound invite messages — no daemon-side interception", () => {
     expect(json.inviteRedemption).toBeUndefined();
     expect(json.memberId).toBeUndefined();
 
-    // The sender was NOT made a member and the invite was not consumed.
+    // The sender was NOT made a member.
     expect(
       findContactChannel({
         channelType: "telegram",
         address: "user-invite-123",
       }),
     ).toBeNull();
-    const inviteAfter = findById(invite.id);
-    expect(inviteAfter!.useCount).toBe(0);
-    expect(inviteAfter!.status).toBe("active");
 
     // The standard ACL rejection reply was delivered.
     expect(deliverReplyCalls.length).toBe(1);
@@ -202,16 +182,8 @@ describe("inbound invite messages — no daemon-side interception", () => {
     expect(replyText).toMatch(/approved|tried talking to me/);
   });
 
-  test("non-member bare 6-digit message matching an active invite code is denied as a normal message", async () => {
-    const code = "123456";
-    const { invite } = createInvite({
-      sourceChannel: "telegram",
-      contactId: createTargetContact(),
-      maxUses: 5,
-      inviteCodeHash: hashVoiceCode(code),
-    });
-
-    const req = buildInboundRequest({ content: code });
+  test("non-member bare 6-digit message is denied as a normal message", async () => {
+    const req = buildInboundRequest({ content: "123456" });
     const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
     const json = (await resp.json()) as Record<string, unknown>;
 
@@ -222,14 +194,13 @@ describe("inbound invite messages — no daemon-side interception", () => {
     expect(json.reason).toBe("not_a_member");
     expect(json.inviteRedemption).toBeUndefined();
 
-    // No membership granted, invite untouched.
+    // No membership granted.
     expect(
       findContactChannel({
         channelType: "telegram",
         address: "user-invite-123",
       }),
     ).toBeNull();
-    expect(findById(invite.id)!.useCount).toBe(0);
   });
 
   test("existing /start gv_<token> guardian bootstrap flow is unaffected", async () => {
@@ -277,15 +248,8 @@ describe("inbound invite messages — no daemon-side interception", () => {
       status: "active",
       policy: "allow",
     });
-    // Even with a live invite whose code matches, the daemon does not
+    // Even when a live gateway invite's code would match, the daemon does not
     // intercept — the message flows to normal processing.
-    createInvite({
-      sourceChannel: "telegram",
-      contactId: createTargetContact(),
-      maxUses: 5,
-      inviteCodeHash: hashVoiceCode("654321"),
-    });
-
     const req = buildInboundRequest({
       content: "654321",
       actorExternalId: "user-active-member",

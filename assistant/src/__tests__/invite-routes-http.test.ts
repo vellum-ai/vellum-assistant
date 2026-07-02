@@ -71,17 +71,11 @@ import { upsertContact } from "../contacts/contact-store.js";
 import { getSqlite } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {
-  createInvite,
-  findById,
-  revokeInvite,
-} from "../persistence/invite-store.js";
-import {
   composeInvitePresentation,
   triggerInviteCall,
 } from "../runtime/invite-service.js";
 import { handleRedeemInvite as _handleRedeemInvite } from "../runtime/routes/contact-routes.js";
 import { RouteError } from "../runtime/routes/errors.js";
-import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 
 /**
  * Invite create/list/revoke/redeem are gateway-native (the daemon route
@@ -128,25 +122,7 @@ function createTargetContact(displayName = "Test Contact"): string {
   return upsertContact({ displayName, role: "contact" }).id;
 }
 
-/** Seed a local voice invite row (legacy mirror data — never read on redeem). */
-function seedVoiceInvite(
-  callerPhone = "+15551234567",
-  opts: { contactId?: string; maxUses?: number } = {},
-) {
-  const code = generateVoiceCode(6);
-  const { invite } = createInvite({
-    sourceChannel: "phone",
-    contactId: opts.contactId ?? createTargetContact(),
-    maxUses: opts.maxUses ?? 1,
-    expectedExternalUserId: callerPhone,
-    voiceCodeHash: hashVoiceCode(code),
-    voiceCodeDigits: 6,
-  });
-  return { invite, code };
-}
-
 function resetTables() {
-  getSqlite().run("DELETE FROM assistant_ingress_invites");
   getSqlite().run("DELETE FROM contact_channels");
   getSqlite().run("DELETE FROM contacts");
 }
@@ -208,7 +184,7 @@ describe("invite redeem relay routes", () => {
       memberId: "ct-target",
       inviteId: "inv-gw-2",
     };
-    const code = generateVoiceCode(6);
+    const code = "123456";
 
     const req = new Request("http://localhost/v1/contacts/invites/redeem", {
       method: "POST",
@@ -254,22 +230,22 @@ describe("invite redeem relay routes", () => {
     expect(body.error).toBe("invalid_or_expired");
   });
 
-  test("POST /v1/contacts/invites/redeem — gateway unreachable fails CLOSED (500, no local redemption)", async () => {
-    // A live local invite row exists, but the daemon never reads it — the
-    // gateway is the single redemption authority.
-    const { invite, code } = seedVoiceInvite("+15551234567");
+  test("POST /v1/contacts/invites/redeem — gateway unreachable fails CLOSED (500)", async () => {
+    // The gateway is the single redemption authority; a relay failure must
+    // surface as an error, never a locally-decided redemption.
     redeemRelay.error = new IpcCallError("gateway unreachable");
 
     const req = new Request("http://localhost/v1/contacts/invites/redeem", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ callerExternalUserId: "+15551234567", code }),
+      body: JSON.stringify({
+        callerExternalUserId: "+15551234567",
+        code: "123456",
+      }),
     });
 
     const res = await handleRedeemInvite(req);
     expect(res.status).toBe(500);
-    // Fail-closed: the local invite row was never consumed.
-    expect(findById(invite.id)!.useCount).toBe(0);
   });
 
   test("POST /v1/contacts/invites/redeem — missing token returns 400 without relaying", async () => {
@@ -309,18 +285,6 @@ describe("invite redeem relay routes", () => {
     expect(body.error).toContain("callerExternalUserId");
     // Rejected before any gateway round-trip.
     expect(redeemRelay.calls.length).toBe(0);
-  });
-
-  test("create + revoke round-trip against the local store", async () => {
-    const { invite } = createInvite({
-      sourceChannel: "telegram",
-      contactId: createTargetContact(),
-    });
-    expect(invite.status).toBe("active");
-
-    const revoked = revokeInvite(invite.id);
-    expect(revoked?.status).toBe("revoked");
-    expect(revoked?.id).toBe(invite.id);
   });
 });
 
@@ -435,10 +399,8 @@ describe("POST /v1/contacts/invites/:id/call", () => {
   });
 
   test("returns 400 when phoneNumber is missing (no local invite fallback)", async () => {
-    // A live local invite row exists, but the daemon never re-reads it — the
-    // gateway row is the lifecycle authority and supplies the call fields.
-    seedVoiceInvite("+15551234567");
-
+    // The gateway row is the lifecycle authority and supplies the call fields;
+    // the daemon has no invite store to fall back on.
     const res = await handleTriggerInviteCall({});
     const body = (await res.json()) as Record<string, unknown>;
 

@@ -526,8 +526,7 @@ Voice invites use a short numeric code (4-10 digits, default 6) instead of a URL
 | `src/runtime/routes/invite-routes.ts`               | HTTP API handlers for invite management including voice invite creation and redemption                             |
 | `src/runtime/routes/inbound-message-handler.ts`     | Invite token intercept in the inbound flow (unknown-contact and inactive-contact branches)                         |
 | `src/calls/relay-server.ts`                         | Voice relay state machine — `invite_redemption_pending` subflow (always-on canonical behavior)                     |
-| `src/util/voice-code.ts`                            | Cryptographic voice code generation and SHA-256 hashing                                                            |
-| `src/memory/invite-store.ts`                        | Invite persistence including `findActiveVoiceInvites` for identity-bound lookup                                    |
+| `src/calls/gateway-invite-reader.ts`                | Gateway IPC read of the active voice invite for a caller identity                                                  |
 
 ### Voice Inbound Security Model (Canonical)
 
