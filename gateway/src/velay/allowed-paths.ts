@@ -13,10 +13,10 @@
  * depending on the route shape:
  *
  *   - `^/webhooks/` — every webhook handler under `/webhooks/*` (Twilio voice,
- *     status, connect-action, voice-verify, Telegram, WhatsApp, email, Resend,
- *     Mailgun, OAuth callback). Provider-side signature validation is
- *     performed by the per-route handlers in the gateway runtime, not by
- *     Velay.
+ *     status, connect-action, voice-verify, the media-stream WebSocket
+ *     upgrade, Telegram, WhatsApp, email, Resend, Mailgun, OAuth callback).
+ *     Provider-side signature validation is performed by the per-route
+ *     handlers in the gateway runtime, not by Velay.
  *   - `^/v1/audio/` — Twilio fetches generated audio URLs directly on the
  *     public surface (see comment at `gateway/src/index.ts` audio route).
  *   - `^/v1/live-voice` — exact match for the Twilio media-stream WebSocket
