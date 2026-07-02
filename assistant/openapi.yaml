@@ -4133,6 +4133,8 @@ paths:
                       required:
                         - trustClass
                         - canonicalSenderId
+                    emailProvider:
+                      type: string
                     emailSubject:
                       type: string
                     emailRecipient:
