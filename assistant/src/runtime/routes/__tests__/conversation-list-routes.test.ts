@@ -46,6 +46,7 @@ function clearConversations(): void {
 function seedArchived(title: string): string {
   const conv = createConversation({ title });
   rawRun(
+    "test:archiveConversation",
     "UPDATE conversations SET archived_at = ? WHERE id = ?",
     Date.now(),
     conv.id,
@@ -154,8 +155,13 @@ describe("GET /v1/conversations — archiveStatus", () => {
     // GIVEN a pinned-but-archived row that would otherwise be force-included
     // on offset=0 of the active view.
     const pinned = createConversation("pinned-archived");
-    rawRun("UPDATE conversations SET is_pinned = 1 WHERE id = ?", pinned.id);
     rawRun(
+      "test:setPinned",
+      "UPDATE conversations SET is_pinned = 1 WHERE id = ?",
+      pinned.id,
+    );
+    rawRun(
+      "test:archiveConversation",
       "UPDATE conversations SET archived_at = ? WHERE id = ?",
       Date.now(),
       pinned.id,

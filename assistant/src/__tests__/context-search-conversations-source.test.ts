@@ -246,6 +246,7 @@ describe("searchConversationSource (qdrant lexical index)", () => {
       content: "derivedtoken belongs to legacy private history.",
     });
     rawRun(
+      "test:setPrivateType",
       "UPDATE conversations SET conversation_type = 'private' WHERE id = ?",
       legacyPrivate.conversation.id,
     );
@@ -278,6 +279,7 @@ describe("searchConversationSource (qdrant lexical index)", () => {
       content: "includetoken appears in archived history.",
     });
     rawRun(
+      "test:archiveConversation",
       "UPDATE conversations SET archived_at = ? WHERE id = ?",
       Date.now(),
       archived.conversation.id,
@@ -501,6 +503,7 @@ function seedConversation(opts: {
   };
 
   rawRun(
+    "test:insertConversation",
     `
     INSERT INTO conversations (
       id,
@@ -521,6 +524,7 @@ function seedConversation(opts: {
     opts.memoryScopeId ?? "default",
   );
   rawRun(
+    "test:insertMessage",
     `
     INSERT INTO messages (
       id,

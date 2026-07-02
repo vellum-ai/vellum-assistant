@@ -156,6 +156,7 @@ function recordUsageCostAt(
     { estimatedCostUsd, pricingStatus: "priced" },
   );
   rawRun(
+    "test:setUsageCreatedAt",
     "UPDATE llm_usage_events SET created_at = ? WHERE id = ?",
     createdAt,
     event.id,
@@ -174,6 +175,7 @@ function setScheduleRunWindow({
   status?: "ok" | "error" | "running";
 }) {
   rawRun(
+    "test:setCronRunWindow",
     "UPDATE cron_runs SET status = ?, started_at = ?, finished_at = ?, duration_ms = ?, created_at = ? WHERE id = ?",
     status,
     startedAt,
@@ -804,6 +806,7 @@ describe("schedule and heartbeat run metadata", () => {
     const runId = await createScheduleRun(job.id, conversation.id);
     await completeScheduleRun(runId, { status: "ok" });
     rawRun(
+      "test:setCronRunTimes",
       "UPDATE cron_runs SET started_at = ?, finished_at = ?, duration_ms = ?, created_at = ? WHERE id = ?",
       1000,
       2000,
@@ -849,6 +852,7 @@ describe("schedule and heartbeat run metadata", () => {
     });
     const archivedAt = 3000;
     rawRun(
+      "test:archiveConversation",
       "UPDATE conversations SET archived_at = ? WHERE id = ?",
       archivedAt,
       conversation.id,
@@ -926,6 +930,7 @@ describe("schedule and heartbeat run metadata", () => {
     const runId = insertPendingHeartbeatRun(900);
     startHeartbeatRun(runId);
     rawRun(
+      "test:setHeartbeatRunOk",
       "UPDATE heartbeat_runs SET status = 'ok', scheduled_for = ?, started_at = ?, finished_at = ?, duration_ms = ?, conversation_id = ?, created_at = ? WHERE id = ?",
       900,
       1000,
@@ -966,6 +971,7 @@ describe("schedule and heartbeat run metadata", () => {
     });
     const runId = insertPendingHeartbeatRun(1000);
     rawRun(
+      "test:setHeartbeatRunRunning",
       "UPDATE heartbeat_runs SET status = 'running', finished_at = NULL, conversation_id = ?, created_at = ? WHERE id = ?",
       conversation.id,
       1000,

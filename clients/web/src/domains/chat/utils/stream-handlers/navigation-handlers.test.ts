@@ -42,13 +42,15 @@ mock.module("@/domains/chat/api/surfaces", () => ({
 
 const { handleOpenPanel } =
   await import("@/domains/chat/utils/stream-handlers/navigation-handlers");
-const { useResolvedAssistantsStore } =
-  await import("@/stores/resolved-assistants-store");
 const { useViewerStore } = await import("@/stores/viewer-store");
 
-function makeCtx(): StreamHandlerContext {
+function makeCtx(
+  overrides: Partial<StreamHandlerContext> = {},
+): StreamHandlerContext {
   return {
+    assistantId: "ast-1",
     streamContext: { assistantId: "ast-1", conversationId: "conv-1" },
+    ...overrides,
   } as unknown as StreamHandlerContext;
 }
 
@@ -65,17 +67,17 @@ function makeEvent(overrides: Partial<OpenPanelEvent> = {}): OpenPanelEvent {
 
 beforeEach(() => {
   submitSurfaceActionCalls.length = 0;
-  useResolvedAssistantsStore.getState().clear();
 });
 
 describe("handleOpenPanel acknowledgment", () => {
   it("opens the channel setup drawer and acks", () => {
-    useResolvedAssistantsStore.getState().setActiveAssistantId("ast-1");
-
     handleOpenPanel(makeEvent(), makeCtx());
 
     expect(useViewerStore.getState().mainView).toBe("channel-setup");
     expect(useViewerStore.getState().activeChannelSetup?.channel).toBe("slack");
+    expect(useViewerStore.getState().activeChannelSetup?.conversationId).toBe(
+      "conv-1",
+    );
     expect(submitSurfaceActionCalls).toEqual([
       {
         assistantId: "ast-1",
@@ -87,10 +89,11 @@ describe("handleOpenPanel acknowledgment", () => {
     ]);
   });
 
-  it("nacks with a reason when no active assistant is resolved", () => {
-    useResolvedAssistantsStore.getState().setActiveAssistantId(null);
-
-    handleOpenPanel(makeEvent({ surfaceId: "surf-2" }), makeCtx());
+  it("nacks with a reason when the stream has no assistant", () => {
+    handleOpenPanel(
+      makeEvent({ surfaceId: "surf-2" }),
+      makeCtx({ assistantId: null }),
+    );
 
     expect(submitSurfaceActionCalls).toEqual([
       {
@@ -104,8 +107,6 @@ describe("handleOpenPanel acknowledgment", () => {
   });
 
   it("nacks unknown panel types instead of silently dropping them", () => {
-    useResolvedAssistantsStore.getState().setActiveAssistantId("ast-1");
-
     handleOpenPanel(
       makeEvent({ panelType: "not_a_real_panel", surfaceId: "surf-3" }),
       makeCtx(),
@@ -123,8 +124,6 @@ describe("handleOpenPanel acknowledgment", () => {
   });
 
   it("sends no ack for events without a surfaceId", () => {
-    useResolvedAssistantsStore.getState().setActiveAssistantId("ast-1");
-
     handleOpenPanel(makeEvent({ surfaceId: undefined }), makeCtx());
 
     expect(useViewerStore.getState().mainView).toBe("channel-setup");

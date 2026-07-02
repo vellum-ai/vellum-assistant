@@ -92,6 +92,7 @@ export function createComment(params: {
   const now = Date.now();
 
   rawRun(
+    "docComments:createComment",
     /*sql*/ `INSERT INTO document_comments
       (id, surface_id, conversation_id, author, content,
        anchor_start, anchor_end, anchor_text, parent_comment_id,
@@ -132,6 +133,7 @@ export function createComment(params: {
 
 export function getComment(id: string): CommentRecord | null {
   const row = rawGet<CommentRow>(
+    "docComments:getComment",
     /*sql*/ `SELECT * FROM document_comments WHERE id = ?`,
     id,
   );
@@ -162,6 +164,7 @@ export function listComments(
 
   const where = conditions.join(" AND ");
   const rows = rawAll<CommentRow>(
+    "docComments:listComments",
     /*sql*/ `SELECT * FROM document_comments WHERE ${where} ORDER BY created_at ASC`,
     ...params,
   );
@@ -172,6 +175,7 @@ export function listComments(
 export function resolveComment(id: string, resolvedBy: string): boolean {
   const now = Date.now();
   const changes = rawRun(
+    "docComments:resolveComment",
     /*sql*/ `UPDATE document_comments
       SET status = 'resolved', resolved_by = ?, resolved_at = ?, updated_at = ?
       WHERE id = ?`,
@@ -189,6 +193,7 @@ export function resolveComment(id: string, resolvedBy: string): boolean {
 export function reopenComment(id: string): boolean {
   const now = Date.now();
   const changes = rawRun(
+    "docComments:reopenComment",
     /*sql*/ `UPDATE document_comments
       SET status = 'open', resolved_by = NULL, resolved_at = NULL, updated_at = ?
       WHERE id = ?`,
@@ -204,6 +209,7 @@ export function reopenComment(id: string): boolean {
 export function updateCommentContent(id: string, content: string): boolean {
   const now = Date.now();
   const changes = rawRun(
+    "docComments:updateCommentContent",
     /*sql*/ `UPDATE document_comments SET content = ?, updated_at = ? WHERE id = ?`,
     content,
     now,
@@ -218,6 +224,7 @@ export function updateCommentContent(id: string, content: string): boolean {
 export function deleteComment(id: string): boolean {
   // Replies cascade-delete via the self-referential FK on parent_comment_id.
   const changes = rawRun(
+    "docComments:deleteComment",
     /*sql*/ `DELETE FROM document_comments WHERE id = ?`,
     id,
   );
@@ -229,6 +236,7 @@ export function deleteComment(id: string): boolean {
 
 export function getCommentCountForDocument(surfaceId: string): number {
   const row = rawGet<{ count: number }>(
+    "docComments:getCommentCount",
     /*sql*/ `SELECT COUNT(*) AS count FROM document_comments
       WHERE surface_id = ? AND status = 'open'`,
     surfaceId,

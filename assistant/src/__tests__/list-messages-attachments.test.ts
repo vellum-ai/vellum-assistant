@@ -82,6 +82,7 @@ function insertLegacyAttachmentRow(
 ): string {
   const id = randomUUID();
   rawRun(
+    "test:insertAttachment",
     `INSERT INTO attachments (id, original_filename, mime_type, size_bytes, kind, data_base64, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     id,

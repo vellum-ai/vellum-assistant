@@ -110,9 +110,13 @@ export function handleOpenPanel(
     typeof event.data?.channel === "string" ? event.data.channel : undefined;
   const channel =
     rawChannel && isSetupChannelId(rawChannel) ? rawChannel : "slack";
-  const { assistants, activeAssistantId } =
-    useResolvedAssistantsStore.getState();
-  if (!activeAssistantId) {
+  // The event's conversationId belongs to the assistant whose stream
+  // delivered it — pair the payload with that assistant, not whatever is
+  // active at arrival time, so a close-notify posted later can't mix
+  // assistant A's conversation with assistant B's message endpoint (a
+  // mid-switch race would otherwise 404 or mint a phantom conversation).
+  const streamAssistantId = ctx.assistantId;
+  if (!streamAssistantId) {
     recordDiagnostic("open_panel_failed", {
       panelType: event.panelType,
       reason: "no_active_assistant",
@@ -121,18 +125,20 @@ export function handleOpenPanel(
     reportOpenPanelOutcome(event, ctx, "nack", "no_active_assistant");
     return;
   }
+  const { assistants } = useResolvedAssistantsStore.getState();
   // The identity store carries the assistant's self-chosen name from
   // IDENTITY.md; the platform record name can be a placeholder
   // (e.g. "New Assistant"), so it is only a fallback.
   const identityName = useAssistantIdentityStore.getState().name;
   const assistantName =
     identityName?.trim() ||
-    assistants.find((a) => a.id === activeAssistantId)?.name ||
+    assistants.find((a) => a.id === streamAssistantId)?.name ||
     "Assistant";
   useViewerStore.getState().openChannelSetup({
     channel,
-    assistantId: activeAssistantId,
+    assistantId: streamAssistantId,
     assistantName,
+    conversationId: event.conversationId,
   });
   reportOpenPanelOutcome(event, ctx, "ack");
 }
