@@ -151,9 +151,18 @@ export class AcpAgentProcess {
    * so a single oversized line is not fully dropped.
    */
   private retainStderr(text: string): void {
+    // Cap a single oversized line: the "keep newest" rule below never evicts it,
+    // so an untruncated multi-MB chunk would blow the ring budget and make the
+    // failure-path stderr scan (deriveFailureError) super-linear on huge input.
+    // Keep the TAIL: the adapter's error JSON / last line sits at the end, and
+    // deriveFailureError reads from the end, so dropping the head is lossless.
+    const line =
+      text.length > STDERR_RETENTION_BYTES
+        ? text.slice(-STDERR_RETENTION_BYTES)
+        : text;
     this.stderrSeq += 1;
-    this.stderrRing.push({ seq: this.stderrSeq, text });
-    this.stderrRingBytes += Buffer.byteLength(text);
+    this.stderrRing.push({ seq: this.stderrSeq, text: line });
+    this.stderrRingBytes += Buffer.byteLength(line);
     while (
       this.stderrRingBytes > STDERR_RETENTION_BYTES &&
       this.stderrRing.length > 1
