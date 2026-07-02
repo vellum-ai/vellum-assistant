@@ -4,7 +4,7 @@ import type { FC, KeyboardEvent, MouseEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { attachmentsByIdContentGet } from "@/generated/daemon/sdk.gen";
+import { fetchAttachmentContentBlob } from "@/domains/chat/components/chat-attachments/download-attachment";
 import { Button, Typography } from "@vellumai/design-library";
 
 import { PdfPreview } from "@/domains/chat/components/chat-attachments/pdf-preview";
@@ -106,12 +106,8 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     // the same attachment reuses the fetched blob instead of refetching.
     queryKey: ["attachmentContent", assistantId, attachment.id],
     queryFn: async () => {
-      const { data, error } = await attachmentsByIdContentGet({
-        path: { assistant_id: assistantId!, id: attachment.id },
-        parseAs: "blob",
-        throwOnError: false,
-      });
-      if (error || !(data instanceof Blob)) {
+      const data = await fetchAttachmentContentBlob(assistantId!, attachment.id);
+      if (!data) {
         throw new Error("Failed to load file");
       }
       return data;
