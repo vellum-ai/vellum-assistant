@@ -223,6 +223,7 @@
   ],
   "patchedDependencies": {
     "@radix-ui/react-dismissable-layer@1.1.13": "clients/web/patches/@radix-ui%2Freact-dismissable-layer@1.1.13.patch",
+    "storybook@10.4.0": "patches/storybook@10.4.0.patch",
   },
   "overrides": {
     "@radix-ui/react-dismissable-layer": "1.1.13",
