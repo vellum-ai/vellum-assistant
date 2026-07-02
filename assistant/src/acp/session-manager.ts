@@ -18,6 +18,7 @@ import { getLogger } from "../util/logger.js";
 import { AcpAgentProcess } from "./agent-process.js";
 import { resolveAgentWithAutoInstall } from "./auto-install.js";
 import { VellumAcpClientHandler } from "./client-handler.js";
+import { deriveFailureError } from "./failure-error.js";
 import { prepareAgentEnv } from "./prepare-agent-env.js";
 import { formatResolveFailure } from "./resolve-agent.js";
 import { claudeResumeHint } from "./resume-hint.js";
@@ -963,6 +964,10 @@ export class AcpSessionManager {
     message: string,
   ): Promise<unknown> {
     log.info({ acpSessionId, messageLen: message.length }, "ACP firing prompt");
+    // Checkpoint stderr before the prompt so a failure derives only from stderr
+    // this prompt produced — not lines retained from startup, resume, or an
+    // earlier (possibly cancelled) prompt.
+    const stderrMark = entry.process.markStderr();
     const promptPromise = entry.process
       .prompt(acpProtocolSessionId, message)
       .then((response) => {
@@ -1081,17 +1086,26 @@ export class AcpSessionManager {
         // Same guards: entry must exist, prompt must be current, and status
         // must not have been set to "cancelled".
         if (current && current.currentPrompt === promptPromise) {
+          // The ack message is often a generic "Internal error"; recover the
+          // real cause from the adapter's retained stderr.
+          const failureMessage = deriveFailureError(
+            err.message,
+            current.process.stderrSince(stderrMark),
+          );
           if (current.state.status !== "cancelled") {
             current.state.status = "failed";
             current.state.completedAt = Date.now();
-            current.state.error = err.message;
+            current.state.error = failureMessage;
           }
           current.currentPrompt = null;
-          log.error({ acpSessionId, error: err.message }, "ACP prompt failed");
+          log.error(
+            { acpSessionId, error: err.message, failureMessage },
+            "ACP prompt failed",
+          );
           current.sendToVellum({
             type: "acp_session_error",
             acpSessionId,
-            error: err.message,
+            error: failureMessage,
           });
 
           // Persist the terminal row before teardown clears the buffer.
