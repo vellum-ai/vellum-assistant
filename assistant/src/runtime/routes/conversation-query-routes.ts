@@ -917,11 +917,11 @@ function rejectManagedProfileDeletion(body: Record<string, unknown>): void {
 /**
  * Enforce the default-profile invariants at the config-write choke point.
  *
- * Transitional: protects the *seeded* default profiles
- * (`INVARIANT_PROFILE_NAMES`) that live in workspace config. When the
- * code-defined default catalog lands (inference-config refactor M4), the
- * defaults stop living in workspace config, this guard becomes a no-op, and
- * it is removed in the M9 cleanup.
+ * Protects the *seeded* default profiles (`INVARIANT_PROFILE_NAMES`) that
+ * live in workspace config. The guard only has an effect while defaults are
+ * seeded there: it checks entries present in the OLD config, so if defaults
+ * stop being stored in workspace config it has nothing to protect and can be
+ * deleted along with the seeding.
  *
  * For each invariant name where the OLD raw config carries a plain-object
  * entry at `llm.profiles[name]`:
