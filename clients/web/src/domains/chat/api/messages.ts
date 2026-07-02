@@ -463,11 +463,27 @@ export async function uploadChatAttachment(
   };
 }
 
+/** Optional fields for {@link postChatMessage}. */
+export interface PostChatMessageOptions {
+  /** Server-assigned attachment ids from `uploadChatAttachment`. */
+  attachmentIds?: string[];
+  /** PreChat onboarding context — see the `postChatMessage` docs. */
+  onboarding?: PreChatOnboardingContext;
+  /** Client-generated idempotency nonce for echo dedup. */
+  clientMessageId?: string;
+  /** Per-conversation model profile for a freshly minted conversation. */
+  inferenceProfile?: string | null;
+  /** Per-chat plugin selection for a freshly minted conversation. */
+  enabledPlugins?: string[] | null;
+  /** Persist the message but suppress it from the transcript. */
+  hidden?: boolean;
+}
+
 /**
  * Send a user message without polling for the response.
  * Returns the assistant/conversation IDs needed to subscribe to events.
  *
- * The optional `onboarding` parameter carries PreChat onboarding context that
+ * The optional `onboarding` field carries PreChat onboarding context that
  * should be attached only to the FIRST message after PreChat completion. Callers
  * are responsible for the consume-once semantics: include `onboarding` on the
  * initial post and omit it on every subsequent message in the conversation.
@@ -488,13 +504,16 @@ export async function postChatMessage(
   assistantId: string,
   conversationId: string | null,
   content: string,
-  attachmentIds: string[] = [],
-  onboarding?: PreChatOnboardingContext,
-  clientMessageId?: string,
-  inferenceProfile?: string | null,
-  enabledPlugins?: string[] | null,
-  isHidden?: boolean,
+  options: PostChatMessageOptions = {},
 ): Promise<PostMessageResult> {
+  const {
+    attachmentIds = [],
+    onboarding,
+    clientMessageId,
+    inferenceProfile,
+    enabledPlugins,
+    hidden,
+  } = options;
   // Wire-field selection picks exactly one of `conversationId` (0.8.6+
   // strict internal-id lookup) or `conversationKey` (legacy
   // create-or-lookup). See `lib/backwards-compat/conversation-id-wire-field.ts`.
@@ -564,7 +583,7 @@ export async function postChatMessage(
   // Persist the message but suppress it from the transcript (it still drives the
   // turn LLM-side). Used by the research-onboarding "Let's chat" handoff to
   // prime a proactive assistant greeting without showing the triggering message.
-  if (isHidden) {
+  if (hidden) {
     body.hidden = true;
   }
   const normalizedOnboarding = onboarding
