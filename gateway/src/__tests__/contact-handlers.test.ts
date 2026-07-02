@@ -73,6 +73,29 @@ mock.module("../db/assistant-db-proxy.js", () => ({
   assistantDbExec: mock(async () => undefined),
 }));
 
+// resolveGatewayChannel resolves the assistant channel's (type,address) via the
+// typed identity-lookup IPC; serve it from the same fake channel store.
+mock.module("../ipc/contacts-info-client.js", () => ({
+  lookupContactChannelIdentity: mock(
+    async (selector: { channelId?: string }) => {
+      if (selector.channelId == null) return null;
+      const row = fakeAssistantDb.channels.get(selector.channelId);
+      return row
+        ? {
+            id: row.id,
+            contactId: row.contact_id,
+            type: row.type,
+            address: row.address,
+            externalChatId:
+              (row as { external_chat_id?: string | null }).external_chat_id ??
+              null,
+            displayName: null,
+          }
+        : null;
+    },
+  ),
+}));
+
 import { eq } from "drizzle-orm";
 
 import { contactRoutes } from "../ipc/contact-handlers.js";
