@@ -69,11 +69,18 @@ const log = getLogger("conversation-process");
  * progress card, not a chat turn. Skip the `user_message_echo` broadcast for
  * these so they never render as a live user bubble; the persisted row is
  * filtered from the rendered transcript on the client.
+ *
+ * Messages explicitly flagged `hidden` (a hidden `POST /messages` send that
+ * queued behind an in-flight turn, e.g. the channel-setup wizard-close
+ * marker) are suppressed the same way — the immediate route path already
+ * skips their echo, and the persisted `hidden` metadata keeps them out of
+ * the fetched transcript.
  */
-function isHiddenRunNotificationMessage(
+function isEchoSuppressedUserMessage(
   metadata: Record<string, unknown> | undefined,
 ): boolean {
   return (
+    metadata?.hidden === true ||
     metadata?.subagentNotification != null ||
     metadata?.acpNotification != null ||
     metadata?.backgroundEventSource === "background-tool"
@@ -521,6 +528,7 @@ async function drainSingleMessage(
             }
           : {}),
         ...(next.metadata?.automated ? { automated: true } : {}),
+        ...(next.metadata?.hidden === true ? { hidden: true } : {}),
         ...(Object.keys(drainImageSourcePaths).length > 0
           ? { imageSourcePaths: drainImageSourcePaths }
           : {}),
@@ -879,7 +887,7 @@ async function drainSingleMessage(
 
   // Broadcast the user message to all hub subscribers so passive devices
   // see the user turn before the assistant reply starts streaming.
-  if (!isHiddenRunNotificationMessage(next.metadata)) {
+  if (!isEchoSuppressedUserMessage(next.metadata)) {
     next.onEvent({
       type: "user_message_echo",
       text: resolvedContent,
@@ -1233,7 +1241,7 @@ async function drainBatch(
 
     // Broadcast the user message to all hub subscribers so passive devices
     // see each batched user turn before the assistant reply starts streaming.
-    if (!isHiddenRunNotificationMessage(qm.metadata)) {
+    if (!isEchoSuppressedUserMessage(qm.metadata)) {
       qm.onEvent({
         type: "user_message_echo",
         text: qmContent,

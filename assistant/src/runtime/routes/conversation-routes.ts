@@ -1988,6 +1988,10 @@ export async function handleSendMessage(
         userMessageInterface: sourceInterface,
         assistantMessageInterface: sourceInterface,
         ...(body.automated === true ? { automated: true } : {}),
+        // Carry the transcript-suppression flag through the queue so a
+        // hidden send that lands mid-turn stays hidden when drained —
+        // the drain path persists this metadata and skips the echo.
+        ...(body.hidden === true ? { hidden: true } : {}),
       },
       isInteractive,
       sourceActorPrincipalId,
