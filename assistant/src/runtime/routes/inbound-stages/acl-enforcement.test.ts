@@ -2,14 +2,14 @@
  * Unit tests for `enforceIngressAcl` consuming the gateway trust verdict.
  *
  * Drives the stage directly with a `sourceMetadata.trustVerdict` and mocks the
- * leaf I/O (contact store, gateway delivery, guardian notification, invite
- * transport) so the ACL decision logic is exercised in isolation.
+ * leaf I/O (contact store, gateway delivery, guardian notification) so the
+ * ACL decision logic is exercised in isolation.
  *
  * Covers: verdict-sourced member resolution, fail-closed deny on an ABSENT
- * verdict, hard-denies for blocked/revoked/policy, and the non-member invite
- * intercept still firing for a present stranger verdict.
+ * verdict, hard-denies for blocked/revoked/policy, and the stranger deny lane
+ * firing for a present stranger verdict.
  */
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { SourceMetadata, TrustVerdict } from "@vellumai/gateway-client";
 
@@ -62,40 +62,6 @@ mock.module("../../access-request-helper.js", () => ({
   isAccessRequestDenied: () => accessRequestDeniedForTest,
 }));
 
-// Invite transport: by default no adapter (no token). Per-test override below.
-let inviteTokenForTest: string | undefined;
-mock.module("../../channel-invite-transport.js", () => ({
-  getInviteAdapterRegistry: () => ({
-    get: () => ({
-      extractInboundToken: () => inviteTokenForTest,
-    }),
-  }),
-}));
-
-// Invite redemption: default to a successful redeem so the token intercept
-// short-circuits with an earlyResponse.
-mock.module("../../invite-redemption-service.js", () => ({
-  redeemInvite: async () => ({ ok: true, type: "redeemed", memberId: "m-1" }),
-  redeemInviteByCode: async () => ({
-    ok: true,
-    type: "redeemed",
-    memberId: "m-1",
-  }),
-}));
-
-mock.module("../../invite-redemption-templates.js", () => ({
-  getInviteRedemptionReply: () => "redeemed reply",
-}));
-
-mock.module("../../../persistence/delivery-crud.js", () => ({
-  recordInbound: () => ({ duplicate: false, eventId: "evt-1" }),
-  deleteInbound: () => {},
-}));
-
-mock.module("../../../persistence/delivery-status.js", () => ({
-  markProcessed: () => {},
-}));
-
 import type { AclEnforcementParams } from "./acl-enforcement.js";
 import { enforceIngressAcl } from "./acl-enforcement.js";
 
@@ -115,7 +81,6 @@ function makeParams(
     actorUsername: "sender_one",
     replyCallbackUrl: "http://localhost/deliver",
     assistantId: "assistant-1",
-    externalMessageId: "msg-1",
     ...overrides,
   };
 }
@@ -144,12 +109,7 @@ beforeEach(() => {
   deliverReplyCalls.length = 0;
   accessRequestCalls.length = 0;
   accessRequestDeniedForTest = false;
-  inviteTokenForTest = undefined;
   guardianDeliveryList = [];
-});
-
-afterEach(() => {
-  inviteTokenForTest = undefined;
 });
 
 describe("enforceIngressAcl — verdict-sourced member resolution", () => {
@@ -335,9 +295,8 @@ describe("enforceIngressAcl — hard denies from the verdict status/policy", () 
   });
 });
 
-describe("enforceIngressAcl — present stranger verdict flows through intercepts", () => {
-  test("present unknown/no-member verdict + invite token redeems via intercept", async () => {
-    inviteTokenForTest = "iv_token123";
+describe("enforceIngressAcl — present stranger verdict enters the stranger lane", () => {
+  test("present unknown/no-member verdict is denied via the stranger lane, not fail-closed", async () => {
     const strangerVerdict: TrustVerdict = {
       trustClass: "unknown",
       canonicalSenderId: "stranger-1",
@@ -351,10 +310,16 @@ describe("enforceIngressAcl — present stranger verdict flows through intercept
       }),
     );
 
-    // The invite token intercept fired — NOT a fail-closed deny.
-    expect(result.earlyResponse).toBeDefined();
-    expect(result.earlyResponse!.inviteRedemption).toBe("redeemed");
+    expect(result.earlyResponse).toMatchObject({
+      accepted: true,
+      denied: true,
+      reason: "not_a_member",
+    });
     expect(result.resolvedMember).toBeNull();
+    // Stranger-lane side effects fire (unlike a fail-closed deny): the
+    // guardian is notified and a canned reply is delivered.
+    expect(accessRequestCalls.length).toBe(1);
+    expect(deliverReplyCalls.length).toBe(1);
   });
 });
 
@@ -388,8 +353,7 @@ describe("enforceIngressAcl — fail-closed on absent verdict", () => {
 });
 
 describe("enforceIngressAcl — fail-closed on resolutionFailed verdict", () => {
-  test("resolutionFailed verdict → not_a_member deny, does not flow to intercepts", async () => {
-    inviteTokenForTest = "iv_token123";
+  test("resolutionFailed verdict → not_a_member deny with no stranger-lane side effects", async () => {
     const result = await enforceIngressAcl(
       makeParams({
         sourceMetadata: withVerdict({
@@ -404,16 +368,13 @@ describe("enforceIngressAcl — fail-closed on resolutionFailed verdict", () => 
     expect(result.earlyResponse).toBeDefined();
     expect(result.earlyResponse!.reason).toBe("not_a_member");
     expect(result.resolvedMember).toBeNull();
-    // Distinct from a stranger: no invite redemption, onboarding, or
-    // guardian notification fires.
-    expect(result.earlyResponse!.inviteRedemption).toBeUndefined();
+    // Distinct from a stranger: no onboarding or guardian notification fires.
     expect(deliverReplyCalls.length).toBe(0);
     expect(accessRequestCalls.length).toBe(0);
     expect(findContactChannelCalls.length).toBe(0);
   });
 
-  test("real unknown stranger (no resolutionFailed) still redeems via intercept", async () => {
-    inviteTokenForTest = "iv_token123";
+  test("real unknown stranger (no resolutionFailed) still enters the stranger lane", async () => {
     const result = await enforceIngressAcl(
       makeParams({
         sourceMetadata: withVerdict({
@@ -423,8 +384,11 @@ describe("enforceIngressAcl — fail-closed on resolutionFailed verdict", () => 
       }),
     );
 
-    expect(result.earlyResponse!.inviteRedemption).toBe("redeemed");
+    expect(result.earlyResponse!.reason).toBe("not_a_member");
     expect(result.resolvedMember).toBeNull();
+    // Stranger-lane side effects fire, unlike the resolutionFailed deny.
+    expect(accessRequestCalls.length).toBe(1);
+    expect(deliverReplyCalls.length).toBe(1);
   });
 });
 
