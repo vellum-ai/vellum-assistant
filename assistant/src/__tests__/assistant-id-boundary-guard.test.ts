@@ -91,7 +91,6 @@ describe("assistant ID boundary", () => {
       "runtime/verification-outbound-actions.ts",
       "daemon/handlers/config-channels.ts",
       "runtime/routes/channel-route-shared.ts",
-      "calls/relay-server.ts",
     ];
 
     const srcDir = join(import.meta.dir, "..");
