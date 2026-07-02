@@ -60,9 +60,11 @@ export interface ChatSessionState {
   // (`applyEvent`). `null` until seeded. This is the single source the transcript
   // renders from, overlaid with `optimisticSends`.
   snapshot: PaginatedHistoryResult | null;
-  // Optimistic user sends not yet confirmed by their `user_message_echo`.
-  // Held apart from `snapshot` so it's clear they're unconfirmed until an event
-  // clears them; rebased onto a fresh `snapshot` on resync.
+  // Optimistic user sends overlaid on the snapshot. Held apart from `snapshot`
+  // so it's clear they're client-owned: the `user_message_echo` handler retires
+  // a text-only send (or upgrades an attachment-carrying one, whose blob-URL
+  // previews only this list holds), and the reseed prunes whatever the server
+  // snapshot already represents.
   optimisticSends: DisplayMessage[];
 
   error: ChatError | null;
@@ -133,10 +135,8 @@ export interface ChatSessionActions {
   /** Fold one live stream event into the snapshot (no-op until seeded; the
    *  seed's replay covers anything that arrived first). Idempotent by `seq`. */
   applyEnvelopeToSnapshot: (envelope: AssistantEventEnvelope) => void;
-  /** Add an optimistic user send; cleared when its echo lands. */
+  /** Add an optimistic user send; retired by its echo or the reseed prune. */
   addOptimisticSend: (message: DisplayMessage) => void;
-  /** Drop the optimistic send correlated by `clientMessageId`. */
-  clearOptimisticSend: (clientMessageId: string) => void;
   /** Mutate the optimistic-send list (queue status, id swap, removal). */
   setOptimisticSends: (
     updater: DisplayMessage[] | ((prev: DisplayMessage[]) => DisplayMessage[]),
@@ -310,13 +310,6 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
 
   addOptimisticSend: (message) =>
     set((s) => ({ optimisticSends: [...s.optimisticSends, message] })),
-
-  clearOptimisticSend: (clientMessageId) =>
-    set((s) => ({
-      optimisticSends: s.optimisticSends.filter(
-        (m) => m.clientMessageId !== clientMessageId,
-      ),
-    })),
 
   setOptimisticSends: (updater) =>
     set((s) => ({ optimisticSends: applyUpdater(s.optimisticSends, updater) })),
