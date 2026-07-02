@@ -23,6 +23,7 @@ import { credentialKey } from "../credential-key.js";
 import { arePlatformFeaturesEnabled } from "../feature-flag-resolver.js";
 import { ipcCallAssistant } from "../ipc/assistant-client.js";
 import { getLogger } from "../logger.js";
+import { deleteContactIfOrphaned } from "../verification/contact-helpers.js";
 
 import { CURRENT_POLICY_EPOCH } from "./policy.js";
 import { mintToken } from "./token-service.js";
@@ -404,6 +405,15 @@ export async function createGuardianBinding(
       { err: mirrorErr },
       "Failed to mirror guardian binding identity to assistant DB",
     );
+  }
+
+  // The claim above can re-parent a channel that inbound seeding attached to
+  // a stub contact (first message from a then-unbound guardian identity).
+  // Garbage-collect that stub when the claim stripped its last channel, so
+  // the guardian doesn't end up with a duplicate of themselves in the
+  // Contacts pane (LUM-2672). Best-effort — never fails the binding.
+  if (claimableChannel && claimableChannel.contactId !== contactId) {
+    await deleteContactIfOrphaned(claimableChannel.contactId);
   }
 
   log.info(

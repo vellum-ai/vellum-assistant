@@ -33,7 +33,6 @@ export interface AuthorizeUrlOptions {
   challenge: string;
   state: string;
   loginHint?: string;
-  providerHint?: string;
 }
 
 export function buildAuthorizeUrl(options: AuthorizeUrlOptions): string {
@@ -46,7 +45,7 @@ export function buildAuthorizeUrl(options: AuthorizeUrlOptions): string {
   url.searchParams.set("code_challenge_method", "S256");
   url.searchParams.set("state", options.state);
   // No `prompt`: lets the browser's existing IdP session be reused.
-  url.searchParams.set("provider", options.providerHint || "authkit");
+  url.searchParams.set("provider", "authkit");
   if (options.loginHint) url.searchParams.set("login_hint", options.loginHint);
   return url.toString();
 }
