@@ -208,7 +208,10 @@ export function useStreamEventHandler(
       const isStreamingDelta =
         event.type === "assistant_text_delta" ||
         event.type === "assistant_thinking_delta";
-      if (!isStreamingDelta || !tailIsAssistant(store.snapshot?.messages ?? [])) {
+      if (
+        !isStreamingDelta ||
+        !tailIsAssistant(store.snapshot?.messages ?? [])
+      ) {
         recordDiagnostic(
           event.type === "assistant_text_delta"
             ? "sse_assistant_text_delta_start"
