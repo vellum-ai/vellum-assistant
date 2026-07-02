@@ -1,7 +1,13 @@
 /**
- * Tests that managed inference profiles ("quality-optimized", "balanced",
- * "cost-optimized") cannot be edited via the PUT profile route or deleted
- * via the PATCH config route.
+ * Tests the two layers protecting managed inference profiles:
+ *
+ * - Route-level managed guards: managed profiles can't be deleted via PATCH
+ *   and the PUT profile route restricts them to the label/status/topP
+ *   allowlist.
+ * - The commitConfigWrite invariant guard: the default profiles
+ *   ("quality-optimized", "balanced", "cost-optimized") are fully read-only
+ *   across PATCH/SET/PUT — the only writable transition is re-enabling a
+ *   disabled default.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -14,6 +20,11 @@ mock.module("../util/logger.js", () => ({
 
 let savedRaw: Record<string, unknown> | null = null;
 let rawConfig: Record<string, unknown>;
+// Counters so tests can assert whether `commitConfigWrite` ran its post-write
+// side effects: rejected writes must leave both at 0, allowed writes bump
+// each exactly once.
+let invalidateConfigCacheCalls = 0;
+let initializeProvidersCalls = 0;
 
 function makeDefaultRawConfig(): Record<string, unknown> {
   return {
@@ -76,13 +87,33 @@ mock.module("../config/loader.js", () => ({
   },
   getConfig: () => rawConfig,
   getDeploymentContextDefaults: () => ({}),
-  invalidateConfigCache: () => {},
+  invalidateConfigCache: () => {
+    invalidateConfigCacheCalls += 1;
+  },
+  setNestedValue: (
+    obj: Record<string, unknown>,
+    path: string,
+    value: unknown,
+  ) => {
+    const keys = path.split(".");
+    let current = obj;
+    for (let i = 0; i < keys.length - 1; i++) {
+      const key = keys[i]!;
+      if (current[key] == null || typeof current[key] !== "object") {
+        current[key] = {};
+      }
+      current = current[key] as Record<string, unknown>;
+    }
+    current[keys[keys.length - 1]!] = value;
+  },
   withSuppressedConfigDiskWrites: async (fn: () => unknown) => fn(),
   withSuppressedConfigDiskWritesSync: (fn: () => unknown) => fn(),
 }));
 
 mock.module("../providers/registry.js", () => ({
-  initializeProviders: async () => {},
+  initializeProviders: async () => {
+    initializeProvidersCalls += 1;
+  },
 }));
 
 mock.module("../persistence/embeddings/embedding-backend.js", () => ({
@@ -108,10 +139,33 @@ const replaceRoute = ROUTES.find(
 
 const patchRoute = ROUTES.find((r) => r.operationId === "config_patch")!;
 
+const setRoute = ROUTES.find((r) => r.operationId === "config_set")!;
+
 beforeEach(() => {
   rawConfig = makeDefaultRawConfig();
   savedRaw = null;
+  invalidateConfigCacheCalls = 0;
+  initializeProvidersCalls = 0;
 });
+
+function expectNothingCommitted(): void {
+  expect(savedRaw).toBeNull();
+  expect(initializeProvidersCalls).toBe(0);
+  expect(invalidateConfigCacheCalls).toBe(0);
+}
+
+function expectOneCommitCycle(): void {
+  expect(savedRaw).not.toBeNull();
+  expect(initializeProvidersCalls).toBe(1);
+  expect(invalidateConfigCacheCalls).toBe(1);
+}
+
+function savedProfile(name: string): Record<string, unknown> {
+  return (savedRaw as Record<string, any>).llm.profiles[name] as Record<
+    string,
+    unknown
+  >;
+}
 
 // ---------------------------------------------------------------------------
 // PUT /v1/config/llm/profiles/:name — replace inference profile
@@ -126,7 +180,8 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
       }),
     ).rejects.toThrow(
       'Cannot edit managed profile "quality-optimized" fields [provider, model]. ' +
-        "Only label, status, and topP may be edited; duplicate to a custom profile to change other fields.",
+        "Default profiles are read-only (a disabled default can be re-enabled); " +
+        "duplicate to a custom profile to customize.",
     );
   });
 
@@ -172,11 +227,12 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
   // Null-as-clear sentinel: clients send `{ label: null }` or
   // `{ status: null }` to clear a managed profile's overrides back to the
   // seed defaults. The Zod `ProfileEntry` schema accepts null for both
-  // fields, and the managed-profile guard / `patchManagedProfileFields`
-  // propagate the clear through to disk. These tests lock the round-trip.
+  // fields. On non-invariant managed profiles (os-beta) the clear round-trips
+  // to disk; on the invariant default profiles only the status clear is
+  // allowed (re-enable) — every other field is frozen at commit time.
   // -------------------------------------------------------------------------
 
-  test("PUT { label: null } on managed profile clears the label on disk", async () => {
+  test("PUT { label: null } on a default profile is rejected (label is frozen)", async () => {
     savedRaw = null;
     rawConfig = {
       llm: {
@@ -190,18 +246,13 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
         },
       },
     };
-    const result = await replaceRoute.handler({
-      pathParams: { name: "balanced" },
-      body: { label: null },
-    });
-    expect(result).toEqual({ ok: true });
-    const profile = (savedRaw as unknown as Record<string, any>)?.llm?.profiles
-      ?.balanced as Record<string, unknown>;
-    // Label key removed; seed fields preserved.
-    expect("label" in profile).toBe(false);
-    expect(profile.provider).toBe("anthropic");
-    expect(profile.model).toBe("claude-sonnet");
-    expect(profile.source).toBe("managed");
+    await expect(
+      replaceRoute.handler({
+        pathParams: { name: "balanced" },
+        body: { label: null },
+      }),
+    ).rejects.toThrow('Cannot edit default profile "balanced" fields [label]');
+    expectNothingCommitted();
   });
 
   test("PUT { status: null } on managed profile clears status (back to active-by-absence)", async () => {
@@ -230,15 +281,15 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
     expect(profile.model).toBe("claude-opus");
   });
 
-  test("PUT { label: null, status: null } clears both in a single request", async () => {
+  test("PUT { label: null, status: null } on managed os-beta clears both in a single request", async () => {
     savedRaw = null;
     rawConfig = {
       llm: {
         profiles: {
-          "cost-optimized": {
-            provider: "anthropic",
-            model: "claude-haiku",
-            label: "Speed (Custom)",
+          "os-beta": {
+            provider: "together",
+            model: "zai-org/GLM-5.2",
+            label: "OS Beta (Custom)",
             status: "disabled",
             source: "managed",
           },
@@ -246,26 +297,25 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
       },
     };
     const result = await replaceRoute.handler({
-      pathParams: { name: "cost-optimized" },
+      pathParams: { name: "os-beta" },
       body: { label: null, status: null },
     });
     expect(result).toEqual({ ok: true });
-    const profile = (savedRaw as unknown as Record<string, any>)?.llm
-      ?.profiles?.["cost-optimized"] as Record<string, unknown>;
+    const profile = savedProfile("os-beta");
     expect("label" in profile).toBe(false);
     expect(profile.status).toBeUndefined();
-    expect(profile.provider).toBe("anthropic");
-    expect(profile.model).toBe("claude-haiku");
+    expect(profile.provider).toBe("together");
+    expect(profile.model).toBe("zai-org/GLM-5.2");
   });
 
-  test("PUT { label: null, status: 'disabled' } mixes clear + set in one call", async () => {
+  test("PUT { label: null, status: 'disabled' } on managed os-beta mixes clear + set in one call", async () => {
     savedRaw = null;
     rawConfig = {
       llm: {
         profiles: {
-          balanced: {
-            provider: "anthropic",
-            model: "claude-sonnet",
+          "os-beta": {
+            provider: "together",
+            model: "zai-org/GLM-5.2",
             label: "Custom Label",
             source: "managed",
           },
@@ -273,51 +323,49 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
       },
     };
     const result = await replaceRoute.handler({
-      pathParams: { name: "balanced" },
+      pathParams: { name: "os-beta" },
       body: { label: null, status: "disabled" },
     });
     expect(result).toEqual({ ok: true });
-    const profile = (savedRaw as unknown as Record<string, any>)?.llm?.profiles
-      ?.balanced as Record<string, unknown>;
+    const profile = savedProfile("os-beta");
     expect("label" in profile).toBe(false);
     expect(profile.status).toBe("disabled");
   });
 
-  test("PUT { topP } on managed profile is accepted and persisted", async () => {
+  test("PUT { topP } on managed os-beta is accepted and persisted", async () => {
     savedRaw = null;
     rawConfig = {
       llm: {
         profiles: {
-          balanced: {
-            provider: "anthropic",
-            model: "claude-sonnet",
+          "os-beta": {
+            provider: "together",
+            model: "zai-org/GLM-5.2",
             source: "managed",
           },
         },
       },
     };
     const result = await replaceRoute.handler({
-      pathParams: { name: "balanced" },
+      pathParams: { name: "os-beta" },
       body: { topP: 0.9 },
     });
     expect(result).toEqual({ ok: true });
-    const profile = (savedRaw as unknown as Record<string, any>)?.llm?.profiles
-      ?.balanced as Record<string, unknown>;
+    const profile = savedProfile("os-beta");
     // topP override persisted; seed fields preserved.
     expect(profile.topP).toBe(0.9);
-    expect(profile.provider).toBe("anthropic");
-    expect(profile.model).toBe("claude-sonnet");
+    expect(profile.provider).toBe("together");
+    expect(profile.model).toBe("zai-org/GLM-5.2");
     expect(profile.source).toBe("managed");
   });
 
-  test("PUT { topP: null } on managed profile clears the override on disk", async () => {
+  test("PUT { topP: null } on managed os-beta clears the override on disk", async () => {
     savedRaw = null;
     rawConfig = {
       llm: {
         profiles: {
-          balanced: {
-            provider: "anthropic",
-            model: "claude-sonnet",
+          "os-beta": {
+            provider: "together",
+            model: "zai-org/GLM-5.2",
             topP: 0.7,
             source: "managed",
           },
@@ -325,15 +373,14 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
       },
     };
     const result = await replaceRoute.handler({
-      pathParams: { name: "balanced" },
+      pathParams: { name: "os-beta" },
       body: { topP: null },
     });
     expect(result).toEqual({ ok: true });
-    const profile = (savedRaw as unknown as Record<string, any>)?.llm?.profiles
-      ?.balanced as Record<string, unknown>;
+    const profile = savedProfile("os-beta");
     expect("topP" in profile).toBe(false);
-    expect(profile.provider).toBe("anthropic");
-    expect(profile.model).toBe("claude-sonnet");
+    expect(profile.provider).toBe("together");
+    expect(profile.model).toBe("zai-org/GLM-5.2");
   });
 
   test("allows edits to a user-owned profile sharing a managed name (os-beta)", async () => {
@@ -540,5 +587,270 @@ describe("PATCH /v1/config — managed profile deletion guard", () => {
         body: { llm: { profiles: null } },
       }),
     ).rejects.toThrow("Cannot null llm.profiles");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// commitConfigWrite — default-profile invariant guard
+//
+// The three default profiles (balanced, quality-optimized, cost-optimized)
+// are read-only to every config-write route; the only writable transition is
+// re-enabling a disabled default. Enforced by
+// `assertInvariantProfilesPreserved` at the commitConfigWrite choke point,
+// so PATCH, SET, and PUT are all covered by the same checks.
+// ---------------------------------------------------------------------------
+
+describe("default-profile invariant guard — rejected writes", () => {
+  test("PATCH disabling balanced is rejected (active → disabled)", async () => {
+    await expect(
+      patchRoute.handler({
+        body: { llm: { profiles: { balanced: { status: "disabled" } } } },
+      }),
+    ).rejects.toThrow('Cannot disable default profile "balanced".');
+    expectNothingCommitted();
+  });
+
+  test("PATCH setting a label on balanced is rejected", async () => {
+    await expect(
+      patchRoute.handler({
+        body: { llm: { profiles: { balanced: { label: "X" } } } },
+      }),
+    ).rejects.toThrow(
+      'Cannot edit default profile "balanced" fields [label]. ' +
+        "Default profiles are read-only; duplicate to a custom profile to customize.",
+    );
+    expectNothingCommitted();
+  });
+
+  test("PATCH { label: null } on balanced is rejected when a label exists", async () => {
+    (rawConfig as Record<string, any>).llm.profiles.balanced.label = "Balanced";
+    await expect(
+      patchRoute.handler({
+        body: { llm: { profiles: { balanced: { label: null } } } },
+      }),
+    ).rejects.toThrow('Cannot edit default profile "balanced" fields [label]');
+    expectNothingCommitted();
+  });
+
+  test("PATCH { topP: 0.8 } on balanced is rejected", async () => {
+    await expect(
+      patchRoute.handler({
+        body: { llm: { profiles: { balanced: { topP: 0.8 } } } },
+      }),
+    ).rejects.toThrow('Cannot edit default profile "balanced" fields [topP]');
+    expectNothingCommitted();
+  });
+
+  test("PATCH { topP: null } on balanced is rejected when an on-disk override exists", async () => {
+    (rawConfig as Record<string, any>).llm.profiles.balanced.topP = 0.7;
+    await expect(
+      patchRoute.handler({
+        body: { llm: { profiles: { balanced: { topP: null } } } },
+      }),
+    ).rejects.toThrow('Cannot edit default profile "balanced" fields [topP]');
+    expectNothingCommitted();
+  });
+
+  test("PATCH deleting a user-sourced balanced entry is rejected by the invariant guard", async () => {
+    // A `source: "user"` entry passes the legacy managed-deletion guard, so
+    // this exercises the invariant guard's missing-entry check directly.
+    (rawConfig as Record<string, any>).llm.profiles.balanced.source = "user";
+    await expect(
+      patchRoute.handler({
+        body: { llm: { profiles: { balanced: null } } },
+      }),
+    ).rejects.toThrow(
+      'Cannot delete or replace default profile "balanced". Default profiles are read-only.',
+    );
+    expectNothingCommitted();
+  });
+
+  test("PATCH overwriting balanced with a string is rejected", async () => {
+    await expect(
+      patchRoute.handler({
+        body: { llm: { profiles: { balanced: "junk" } } },
+      }),
+    ).rejects.toThrow('Cannot delete or replace default profile "balanced".');
+    expectNothingCommitted();
+  });
+
+  test("PATCH overwriting balanced with an array is rejected", async () => {
+    await expect(
+      patchRoute.handler({
+        body: { llm: { profiles: { balanced: ["disabled"] } } },
+      }),
+    ).rejects.toThrow('Cannot delete or replace default profile "balanced".');
+    expectNothingCommitted();
+  });
+
+  test("PUT { status: 'disabled' } on balanced is rejected", async () => {
+    await expect(
+      replaceRoute.handler({
+        pathParams: { name: "balanced" },
+        body: { status: "disabled" },
+      }),
+    ).rejects.toThrow('Cannot disable default profile "balanced".');
+    expectNothingCommitted();
+  });
+
+  test("PUT { label: 'Renamed' } on balanced is rejected", async () => {
+    await expect(
+      replaceRoute.handler({
+        pathParams: { name: "balanced" },
+        body: { label: "Renamed" },
+      }),
+    ).rejects.toThrow('Cannot edit default profile "balanced" fields [label]');
+    expectNothingCommitted();
+  });
+
+  test("PUT { topP: 0.8 } on balanced is rejected", async () => {
+    await expect(
+      replaceRoute.handler({
+        pathParams: { name: "balanced" },
+        body: { topP: 0.8 },
+      }),
+    ).rejects.toThrow('Cannot edit default profile "balanced" fields [topP]');
+    expectNothingCommitted();
+  });
+
+  test("SET llm.profiles.balanced.status = 'disabled' is rejected", async () => {
+    await expect(
+      setRoute.handler({
+        body: { path: "llm.profiles.balanced.status", value: "disabled" },
+      }),
+    ).rejects.toThrow('Cannot disable default profile "balanced".');
+    expectNothingCommitted();
+  });
+
+  test("SET llm.profiles.balanced.topP = 0.8 is rejected", async () => {
+    await expect(
+      setRoute.handler({
+        body: { path: "llm.profiles.balanced.topP", value: 0.8 },
+      }),
+    ).rejects.toThrow('Cannot edit default profile "balanced" fields [topP]');
+    expectNothingCommitted();
+  });
+
+  test("SET llm.profiles = {} is rejected (would drop all defaults)", async () => {
+    await expect(
+      setRoute.handler({ body: { path: "llm.profiles", value: {} } }),
+    ).rejects.toThrow(/Cannot delete or replace default profile/);
+    expectNothingCommitted();
+  });
+
+  test("SET llm = {} is rejected (would drop all defaults)", async () => {
+    await expect(
+      setRoute.handler({ body: { path: "llm", value: {} } }),
+    ).rejects.toThrow(/Cannot delete or replace default profile/);
+    expectNothingCommitted();
+  });
+});
+
+describe("default-profile invariant guard — allowed writes", () => {
+  test("PATCH re-enables a disabled default profile (BYOK re-enable)", async () => {
+    (rawConfig as Record<string, any>).llm.profiles.balanced.status =
+      "disabled";
+    const result = await patchRoute.handler({
+      body: { llm: { profiles: { balanced: { status: "active" } } } },
+    });
+    expect(result).toHaveProperty("llm");
+    expectOneCommitCycle();
+    expect(savedProfile("balanced").status).toBe("active");
+  });
+
+  test("PATCH { status: null } clears a disabled default back to active-by-absence", async () => {
+    (rawConfig as Record<string, any>).llm.profiles.balanced.status =
+      "disabled";
+    const result = await patchRoute.handler({
+      body: { llm: { profiles: { balanced: { status: null } } } },
+    });
+    expect(result).toHaveProperty("llm");
+    expectOneCommitCycle();
+    expect(savedProfile("balanced").status ?? null).toBeNull();
+  });
+
+  test("PUT { status: 'active' } re-enables a disabled default profile", async () => {
+    (rawConfig as Record<string, any>).llm.profiles.balanced.status =
+      "disabled";
+    const result = await replaceRoute.handler({
+      pathParams: { name: "balanced" },
+      body: { status: "active" },
+    });
+    expect(result).toEqual({ ok: true });
+    expectOneCommitCycle();
+    expect(savedProfile("balanced").status).toBe("active");
+  });
+
+  test("SET llm.profiles.balanced.status = 'active' re-enables a disabled default profile", async () => {
+    (rawConfig as Record<string, any>).llm.profiles.balanced.status =
+      "disabled";
+    const result = await setRoute.handler({
+      body: { path: "llm.profiles.balanced.status", value: "active" },
+    });
+    expect(result).toEqual({ ok: true });
+    expectOneCommitCycle();
+    expect(savedProfile("balanced").status).toBe("active");
+  });
+
+  test("SET llm passes when the value carries the invariant profiles unchanged (incl. frozen topP override)", async () => {
+    (rawConfig as Record<string, any>).llm.profiles.balanced.topP = 0.7;
+    const nextLlm = structuredClone(
+      (rawConfig as Record<string, any>).llm,
+    ) as Record<string, unknown>;
+    nextLlm.activeProfile = "my-custom";
+    const result = await setRoute.handler({
+      body: { path: "llm", value: nextLlm },
+    });
+    expect(result).toEqual({ ok: true });
+    expectOneCommitCycle();
+    // The pre-existing topP override survives untouched.
+    expect(savedProfile("balanced").topP).toBe(0.7);
+    expect((savedRaw as Record<string, any>).llm.activeProfile).toBe(
+      "my-custom",
+    );
+  });
+
+  test("PUT label/status/topP edits on managed os-beta remain allowed (non-invariant)", async () => {
+    (rawConfig as Record<string, any>).llm.profiles["os-beta"] = {
+      provider: "together",
+      model: "zai-org/GLM-5.2",
+      source: "managed",
+    };
+    const result = await replaceRoute.handler({
+      pathParams: { name: "os-beta" },
+      body: { label: "My OS Beta", status: "disabled", topP: 0.5 },
+    });
+    expect(result).toEqual({ ok: true });
+    expectOneCommitCycle();
+    const profile = savedProfile("os-beta");
+    expect(profile.label).toBe("My OS Beta");
+    expect(profile.status).toBe("disabled");
+    expect(profile.topP).toBe(0.5);
+  });
+
+  test("PUT full edits on a custom profile remain allowed", async () => {
+    const result = await replaceRoute.handler({
+      pathParams: { name: "my-custom" },
+      body: { provider: "openai", model: "gpt-4o", maxTokens: 4096 },
+    });
+    expect(result).toEqual({ ok: true });
+    expectOneCommitCycle();
+    const profile = savedProfile("my-custom");
+    expect(profile.provider).toBe("openai");
+    expect(profile.model).toBe("gpt-4o");
+    expect(profile.maxTokens).toBe(4096);
+  });
+
+  test("PATCH non-profile llm writes are unaffected", async () => {
+    const result = await patchRoute.handler({
+      body: { llm: { activeProfile: "custom" } },
+    });
+    expect(result).toHaveProperty("llm");
+    expectOneCommitCycle();
+    expect((savedRaw as Record<string, any>).llm.activeProfile).toBe("custom");
+    // The invariant profiles are untouched by an unrelated llm write.
+    expect(savedProfile("balanced")).toEqual(
+      (makeDefaultRawConfig() as Record<string, any>).llm.profiles.balanced,
+    );
   });
 });
