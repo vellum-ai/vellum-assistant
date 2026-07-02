@@ -90,6 +90,17 @@ mock.module("../../../channels/gateway-verification-sessions.js", () => ({
       ttlSeconds: 600,
     };
   },
+  createOutboundSessionConditional: async (params: unknown) => {
+    throwIfUnreachable();
+    createOutboundSessionCalls.push(params);
+    return {
+      sessionId: "session-1",
+      secret: "123456",
+      challengeHash: "hash",
+      expiresAt: Date.now() + 600_000,
+      ttlSeconds: 600,
+    };
+  },
   findActiveSession: async () => {
     throwIfUnreachable();
     return activeSessionForTest;

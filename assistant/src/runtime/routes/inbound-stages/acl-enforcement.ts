@@ -11,7 +11,7 @@ import { isTrustClass } from "@vellumai/gateway-client";
 
 import type { VerificationSessionWire } from "../../../channels/gateway-verification-sessions.js";
 import {
-  createOutboundSession,
+  createOutboundSessionConditional,
   findActiveSession,
   getPendingSession,
   resolveBootstrapToken,
@@ -1001,14 +1001,25 @@ async function initiateVerificationChallenge(params: {
   }
 
   try {
-    const session = await createOutboundSession({
+    // ifNoneActive makes the check+mint atomic gateway-side: a concurrent
+    // duplicate webhook loses the claim and gets a conflict instead of
+    // revoking the winner's challenge.
+    const session = await createOutboundSessionConditional({
       channel: sourceChannel,
       expectedExternalUserId: senderUserId,
       expectedChatId: senderUserId,
       identityBindingStatus: "bound",
       destinationAddress: senderUserId,
       verificationPurpose: "trusted_contact",
+      ifNoneActive: true,
     });
+    if ("conflict" in session) {
+      log.debug(
+        { sourceChannel, senderUserId, reason: session.reason },
+        "Verification challenge: skipping — concurrent mint already claimed the channel",
+      );
+      return { initiated: false };
+    }
 
     // The verification code is delivered to the guardian via the access
     // request notification flow. The guardian decides whether to share
