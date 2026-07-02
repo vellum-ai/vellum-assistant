@@ -10,6 +10,7 @@ import type { VellumEmailPayload } from "../../email/normalize.js";
 import { normalizeEmailWebhook } from "../../email/normalize.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
+import { readLimitedBodyBytes } from "../read-limited-body.js";
 import {
   resolveAssistant,
   isRejection,
@@ -83,19 +84,24 @@ function parseEmailAddress(raw: string): {
 }
 
 /**
- * Parse form-encoded or JSON body into a flat field map.
+ * Parse form-encoded or JSON body into a flat field map. Takes already-read
+ * bytes (size-capped upstream) and the content-type rather than the live
+ * request, so the body is never buffered a second time and the payload cap is
+ * enforced before parsing. Bytes are re-wrapped in a `Response` to reuse the
+ * platform's multipart/form parser without losing binary fidelity.
  */
 async function parseMailgunBody(
-  req: Request,
+  bytes: Uint8Array<ArrayBuffer>,
+  contentType: string,
 ): Promise<Record<string, string> | null> {
-  const contentType = req.headers.get("content-type") ?? "";
-
   if (
     contentType.includes("application/x-www-form-urlencoded") ||
     contentType.includes("multipart/form-data")
   ) {
     try {
-      const formData = await req.formData();
+      const formData = await new Response(bytes, {
+        headers: { "content-type": contentType },
+      }).formData();
       const fields: Record<string, string> = {};
       for (const [key, value] of formData.entries()) {
         if (typeof value === "string") {
@@ -110,7 +116,10 @@ async function parseMailgunBody(
 
   if (contentType.includes("application/json")) {
     try {
-      const json = (await req.json()) as Record<string, unknown>;
+      const json = (await new Response(bytes).json()) as Record<
+        string,
+        unknown
+      >;
       const fields: Record<string, string> = {};
       for (const [key, value] of Object.entries(json)) {
         if (typeof value === "string") {
@@ -186,20 +195,27 @@ export function createMailgunWebhookHandler(
       return Response.json({ error: "Method not allowed" }, { status: 405 });
     }
 
-    // Payload size guard
-    const contentLength = req.headers.get("content-length");
-    if (
-      contentLength &&
-      Number(contentLength) > config.maxWebhookPayloadBytes
-    ) {
-      tlog.warn({ contentLength }, "Mailgun webhook payload too large");
+    // Cap body buffering before the (unauthenticated) signature check; a
+    // header-only guard is bypassable via chunked / absent Content-Length.
+    const bodyResult = await readLimitedBodyBytes(
+      req,
+      config.maxWebhookPayloadBytes,
+    );
+    if (bodyResult.status === "too_large") {
+      tlog.warn("Mailgun webhook payload too large");
       return Response.json({ error: "Payload too large" }, { status: 413 });
+    }
+    if (bodyResult.status === "unreadable") {
+      return Response.json({ error: "Failed to read body" }, { status: 400 });
     }
 
     // ── Parse body ──────────────────────────────────────────────────
     // Mailgun inbound routes POST form-encoded data, not JSON.
 
-    const fields = await parseMailgunBody(req);
+    const fields = await parseMailgunBody(
+      bodyResult.bytes,
+      req.headers.get("content-type") ?? "",
+    );
     if (!fields) {
       return Response.json({ error: "Failed to parse body" }, { status: 400 });
     }

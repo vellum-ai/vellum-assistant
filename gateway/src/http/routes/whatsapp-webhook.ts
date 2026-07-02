@@ -7,6 +7,7 @@ import { credentialKey } from "../../credential-key.js";
 import { StringDedupCache } from "../../dedup-cache.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
+import { readLimitedBody } from "../read-limited-body.js";
 import { RejectionRateLimiter } from "../../rejection-rate-limiter.js";
 import {
   resolveAssistant,
@@ -87,30 +88,20 @@ export function createWhatsAppWebhookHandler(
       return Response.json({ error: "Method not allowed" }, { status: 405 });
     }
 
-    // Payload size guard
-    const contentLength = req.headers.get("content-length");
-    if (
-      contentLength &&
-      Number(contentLength) > config.maxWebhookPayloadBytes
-    ) {
-      tlog.warn({ contentLength }, "WhatsApp webhook payload too large");
+    // Cap body buffering before the (unauthenticated) signature check; a
+    // header-only guard is bypassable via chunked / absent Content-Length.
+    const bodyResult = await readLimitedBody(
+      req,
+      config.maxWebhookPayloadBytes,
+    );
+    if (bodyResult.status === "too_large") {
+      tlog.warn("WhatsApp webhook payload too large");
       return Response.json({ error: "Payload too large" }, { status: 413 });
     }
-
-    let rawBody: string;
-    try {
-      rawBody = await req.text();
-    } catch {
+    if (bodyResult.status === "unreadable") {
       return Response.json({ error: "Failed to read body" }, { status: 400 });
     }
-
-    if (Buffer.byteLength(rawBody) > config.maxWebhookPayloadBytes) {
-      tlog.warn(
-        { bodyLength: Buffer.byteLength(rawBody) },
-        "WhatsApp webhook payload too large",
-      );
-      return Response.json({ error: "Payload too large" }, { status: 413 });
-    }
+    const rawBody = bodyResult.text;
 
     // Resolve app secret from cache
     const appSecret = caches?.credentials
