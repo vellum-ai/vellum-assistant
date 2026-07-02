@@ -986,9 +986,14 @@ async function upgradeLocal(
   const previousAppVersion = process.env.APP_VERSION;
   process.env.APP_VERSION = stripVersionPrefix(targetVersion);
   try {
-    await startCes(false, entry.resources);
-    await startLocalDaemon(false, entry.resources, { signingKey });
-    await startGateway(false, entry.resources, { signingKey, bootstrapSecret });
+    // Bring CES, daemon, and gateway up in parallel, the way the Docker
+    // topology starts its sibling processes together. startCes is a no-op
+    // unless CES_STANDALONE is set.
+    await Promise.all([
+      startCes(false, entry.resources),
+      startLocalDaemon(false, entry.resources, { signingKey }),
+      startGateway(false, entry.resources, { signingKey, bootstrapSecret }),
+    ]);
   } finally {
     if (previousAppVersion === undefined) {
       delete process.env.APP_VERSION;

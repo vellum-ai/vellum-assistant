@@ -118,10 +118,14 @@ export async function recover(): Promise<void> {
   entry.guardianBootstrapSecret = bootstrapSecret;
   saveAssistantEntry(entry);
 
-  // 8. Start CES sibling (opt-in) + daemon + gateway
-  await startCes(false, entry.resources);
-  await startLocalDaemon(false, entry.resources, { signingKey });
-  await startGateway(false, entry.resources, { signingKey, bootstrapSecret });
+  // 8. Start CES sibling (opt-in) + daemon + gateway in parallel, the way the
+  // Docker topology brings its sibling processes up together. startCes is a
+  // no-op unless CES_STANDALONE is set.
+  await Promise.all([
+    startCes(false, entry.resources),
+    startLocalDaemon(false, entry.resources, { signingKey }),
+    startGateway(false, entry.resources, { signingKey, bootstrapSecret }),
+  ]);
 
   console.log(`✅ Recovered assistant '${name}'.`);
 }

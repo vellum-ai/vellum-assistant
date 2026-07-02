@@ -168,9 +168,9 @@ export async function sleep(): Promise<void> {
     console.log("Gateway stopped.");
   }
 
-  // Stop the CES sibling if one was launched (VELLUM_TEMP_CES_SIBLING). No-op
-  // when the PID file is absent — on the default topology the assistant owns
-  // CES as an stdio child and it exits with the daemon.
+  // Stop the CES sibling if one was launched (CES_STANDALONE). No-op when the
+  // PID file is absent — on the default topology the assistant owns CES as an
+  // stdio child and it exits with the daemon.
   const cesPidFile = join(vellumDir, "ces.pid");
   const cesStopped = await stopProcessByPidFile(
     cesPidFile,

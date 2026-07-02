@@ -2,8 +2,8 @@
  * Local CES standalone-sibling test (real entrypoint subprocess).
  *
  * Spawns the actual `main.ts` entrypoint with `CES_STANDALONE=1` and **stdin
- * closed** — the way the CLI launches the sibling (opted into via
- * `VELLUM_TEMP_CES_SIBLING`) — and verifies that CES:
+ * closed** — the way the CLI launches the sibling (the `CES_STANDALONE`
+ * opt-in) — and verifies that CES:
  *
  *   1. binds its Unix socket and serves RPC despite having no stdio parent
  *      (lifecycle anchored to SIGTERM, not stdin), and

@@ -7,7 +7,7 @@
  *   exit) or on SIGTERM. This is today's behavior.
  *
  * - **standalone sibling (`CES_STANDALONE=1`):** CES is launched independently
- *   (by the CLI, opted into via `VELLUM_TEMP_CES_SIBLING`), serves RPC over a
+ *   by the CLI (the opt-in), serves RPC over a
  *   Unix socket (`getLocalSocketPath()`), and runs until SIGTERM — no stdio.
  *   This is the direction local CES is converging on; the socket-serving here
  *   is temporary scaffolding to be folded into a single unified CES entrypoint.
@@ -439,9 +439,8 @@ async function main(): Promise<void> {
   initLogger({ dir: getCesLogDir(), retentionDays: 30 });
   const log = getLogger("main");
 
-  // `CES_STANDALONE=1` runs CES as an independent sibling over a Unix socket
-  // (opted into via `VELLUM_TEMP_CES_SIBLING`); otherwise CES is the assistant's
-  // stdio child, as today.
+  // `CES_STANDALONE=1` runs CES as an independent, CLI-launched sibling over a
+  // Unix socket; otherwise CES is the assistant's stdio child, as today.
   const standalone = process.env["CES_STANDALONE"] === "1";
 
   log.info(

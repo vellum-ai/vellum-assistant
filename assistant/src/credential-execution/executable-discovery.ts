@@ -115,7 +115,7 @@ export interface ManagedDiscoverySuccess {
  * A local CES running as an independent sibling process (not spawned by the
  * assistant), reached over a Unix socket. Transport-identical to managed; the
  * distinct mode records that the assistant does not own this process's
- * lifecycle. Opted into via `VELLUM_TEMP_CES_SIBLING`.
+ * lifecycle. Opted into via `CES_STANDALONE`.
  */
 export interface SiblingDiscoverySuccess {
   mode: "sibling";
@@ -146,6 +146,10 @@ export type DiscoveryResult =
  * point in the monorepo. Returns a structured result — never throws. If
  * neither the binary nor the source entry point is found, returns
  * `{ mode: "unavailable" }` so the caller can fail closed.
+ *
+ * @deprecated The assistant-spawns-CES stdio path is being retired in favor of
+ * the CLI-launched sibling (`CES_STANDALONE`), which matches how containerized
+ * homes already run CES. Kept only until the sibling topology becomes default.
  */
 export function discoverLocalCes():
   | LocalDiscoverySuccess
@@ -224,7 +228,7 @@ export function discoverManagedCes():
 }
 
 // ---------------------------------------------------------------------------
-// Sibling discovery (temporary — VELLUM_TEMP_CES_SIBLING)
+// Sibling discovery (temporary — CES_STANDALONE)
 // ---------------------------------------------------------------------------
 
 /**
@@ -233,9 +237,7 @@ export function discoverManagedCes():
  * proper sibling process; only applies to non-containerized (bare-metal) homes.
  */
 export function isCesSiblingOptIn(): boolean {
-  return (
-    !getIsContainerized() && process.env["VELLUM_TEMP_CES_SIBLING"] === "1"
-  );
+  return !getIsContainerized() && process.env["CES_STANDALONE"] === "1";
 }
 
 /**
@@ -249,7 +251,7 @@ export function discoverLocalSiblingCes():
   const socketPath = process.env["CES_LOCAL_SOCKET"];
   if (!socketPath) {
     const reason =
-      "VELLUM_TEMP_CES_SIBLING is set but CES_LOCAL_SOCKET is not — cannot locate the CES sibling socket";
+      "CES_STANDALONE is set but CES_LOCAL_SOCKET is not — cannot locate the CES sibling socket";
     log.warn(reason);
     return { mode: "unavailable", reason };
   }
@@ -272,7 +274,7 @@ export function discoverLocalSiblingCes():
  * current deployment topology.
  *
  * - Containerized environments → managed sidecar discovery
- * - Non-containerized + `VELLUM_TEMP_CES_SIBLING` → CLI-launched sibling socket
+ * - Non-containerized + `CES_STANDALONE` → CLI-launched sibling socket
  * - Non-containerized (default) → local executable discovery (assistant spawns)
  */
 export function discoverCes(): DiscoveryResult {

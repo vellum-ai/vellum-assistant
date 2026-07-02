@@ -177,14 +177,18 @@ export async function wake(): Promise<void> {
   }
 
   if (!daemonRunning) {
-    // Launch the CES sibling before the daemon so its socket is bound by the
-    // time the assistant probes for it. CES's lifecycle tracks the daemon (its
-    // only consumer): restarting it under a live daemon would sever the
-    // daemon's open connection, so it is only (re)started alongside the daemon.
-    // No-op unless VELLUM_TEMP_CES_SIBLING is set, in which case the assistant
-    // spawns CES itself as today.
-    await startCes(watch, resources);
-    await startLocalDaemon(watch, resources, { foreground, signingKey });
+    // Spin up CES and the daemon in parallel, the way the Docker topology
+    // brings its sibling containers up together — the assistant polls for the
+    // CES socket during startup (discoverCesWithRetry), so it tolerates CES
+    // still binding. CES's lifecycle tracks the daemon (its only consumer):
+    // restarting it under a live daemon would sever the daemon's open
+    // connection, so it is only (re)started alongside the daemon. startCes is a
+    // no-op unless CES_STANDALONE is set, in which case the assistant spawns
+    // CES itself as today.
+    await Promise.all([
+      startCes(watch, resources),
+      startLocalDaemon(watch, resources, { foreground, signingKey }),
+    ]);
   }
 
   // Start gateway
