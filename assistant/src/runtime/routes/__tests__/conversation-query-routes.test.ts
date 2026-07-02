@@ -1084,3 +1084,69 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
     });
   });
 });
+
+describe("config invariant flag enrichment", () => {
+  const configGetRoute = ROUTES.find((r) => r.operationId === "config_get")!;
+  const configPatchRoute = ROUTES.find(
+    (r) => r.operationId === "config_patch",
+  )!;
+
+  type WireProfiles = Record<string, Record<string, unknown>>;
+
+  function wireProfiles(body: unknown): WireProfiles {
+    return (body as { llm: { profiles: WireProfiles } }).llm.profiles;
+  }
+
+  beforeEach(() => {
+    savedRawConfig = null;
+    rawConfigFixture = {
+      llm: {
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "fireworks",
+            model: "accounts/fireworks/models/glm-5p2",
+            label: "Balanced",
+            status: "active",
+          },
+          "os-beta": {
+            source: "managed",
+            provider: "together",
+            model: "zai-org/GLM-5.2",
+            label: "OS Beta",
+            status: "active",
+          },
+          custom: {
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+          },
+        },
+      },
+    };
+  });
+
+  test("GET /v1/config marks default managed profiles invariant, not os-beta or custom", async () => {
+    const body = await configGetRoute.handler({});
+    const profiles = wireProfiles(body);
+
+    expect(profiles.balanced!.invariant).toBe(true);
+    expect(profiles["os-beta"]!).not.toHaveProperty("invariant");
+    expect(profiles.custom!).not.toHaveProperty("invariant");
+  });
+
+  test("PATCH /v1/config stamps the flag on the response but never persists it", async () => {
+    const body = await configPatchRoute.handler({
+      body: { memory: { enabled: true } },
+    });
+    const profiles = wireProfiles(body);
+    expect(profiles.balanced!.invariant).toBe(true);
+
+    const savedProfiles = (
+      savedRawConfig?.llm as { profiles: WireProfiles } | undefined
+    )?.profiles;
+    expect(savedProfiles).toBeDefined();
+    for (const profile of Object.values(savedProfiles!)) {
+      expect(profile).not.toHaveProperty("invariant");
+    }
+  });
+});

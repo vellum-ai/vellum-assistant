@@ -31951,6 +31951,8 @@ components:
             additionalProperties: false
         supportsVision:
           type: boolean
+        invariant:
+          type: boolean
       additionalProperties: {}
     ProviderConnection:
       type: object

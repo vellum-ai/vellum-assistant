@@ -165,6 +165,13 @@ export const OS_BETA_PROFILE_TEMPLATE: ManagedProfileTemplate = {
   topP: 0.95,
 };
 
+// The three default managed profiles are invariant: read-only to user-facing
+// writes except re-enabling a hatch-disabled one (enforced at
+// commitConfigWrite). os-beta is managed but NOT invariant.
+export const INVARIANT_PROFILE_NAMES = new Set(
+  Object.keys(MANAGED_PROFILE_TEMPLATES),
+);
+
 // Membership here marks a name as managed. The route layer applies managed
 // restrictions (blocking model/provider edits and deletion) only to entries
 // whose on-disk `source` is `managed`, so a user-owned profile sharing one of

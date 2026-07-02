@@ -118,7 +118,10 @@ type LlmContextRouteResult = Omit<LlmContextNormalizationResult, "summary"> & {
   summary?: LlmContextSummaryResponse;
 };
 
-import { MANAGED_PROFILE_NAMES } from "../../config/seed-inference-profiles.js";
+import {
+  INVARIANT_PROFILE_NAMES,
+  MANAGED_PROFILE_NAMES,
+} from "../../config/seed-inference-profiles.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 
 const RESERVED_PROFILE_NAMES = new Set([
@@ -579,6 +582,7 @@ function rejectMcpTransportHeaderWrite(patch: unknown): void {
 
 const WireProfileEntry = ProfileEntry.extend({
   supportsVision: z.boolean().optional(),
+  invariant: z.boolean().optional(),
 })
   .passthrough()
   .meta({ id: "ProfileEntry" });
@@ -780,7 +784,7 @@ function handleGetConfig() {
   try {
     const config = applyContextDefaultsToRawConfig(loadRawConfig());
     sanitizeMcpTransportHeadersForSettingsRead(config);
-    enrichProfilesWithVisionFlag(config);
+    enrichProfilesForWire(config);
     return config;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -789,12 +793,16 @@ function handleGetConfig() {
 }
 
 /**
- * Annotate each profile in `config.llm.profiles` with `supportsVision`
- * resolved from the model catalog. The flag is wire-only — it is never
- * persisted to disk. Unknown (provider, model) pairs default to `true`
- * (fail-open) so image upload remains available for custom / unlisted models.
+ * Annotate each profile in `config.llm.profiles` with wire-only flags — never
+ * persisted to disk:
+ *
+ * - `supportsVision`: resolved from the model catalog. Unknown (provider,
+ *   model) pairs default to `true` (fail-open) so image upload remains
+ *   available for custom / unlisted models.
+ * - `invariant`: `true` for the three default managed profiles
+ *   (`INVARIANT_PROFILE_NAMES`); absent otherwise.
  */
-function enrichProfilesWithVisionFlag(config: unknown): void {
+function enrichProfilesForWire(config: unknown): void {
   const root = readPlainObject(config);
   if (!root) return;
   const llm = readPlainObject(root.llm);
@@ -802,9 +810,12 @@ function enrichProfilesWithVisionFlag(config: unknown): void {
   const profiles = readPlainObject(llm.profiles);
   if (!profiles) return;
 
-  for (const profile of Object.values(profiles)) {
+  for (const [name, profile] of Object.entries(profiles)) {
     const entry = readPlainObject(profile);
     if (!entry) continue;
+    if (INVARIANT_PROFILE_NAMES.has(name)) {
+      entry.invariant = true;
+    }
     const provider = entry.provider;
     const model = entry.model;
     if (typeof provider !== "string" || typeof model !== "string") continue;
@@ -942,7 +953,7 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
 
   const merged = applyContextDefaultsToRawConfig(loadRawConfig());
   sanitizeMcpTransportHeadersForSettingsRead(merged);
-  enrichProfilesWithVisionFlag(merged);
+  enrichProfilesForWire(merged);
   return merged;
 }
 
