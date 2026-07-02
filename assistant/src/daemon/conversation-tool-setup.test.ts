@@ -54,7 +54,7 @@ describe("getEffectiveEnabledPluginSet", () => {
     expect(set?.size).toBe(DEFAULT_NAMES.length);
   });
 
-  describe("globally disabled plugins", () => {
+  describe("workspace-disabled plugins (precedence)", () => {
     const created: string[] = [];
     afterEach(() => {
       for (const dir of created.splice(0)) {
@@ -62,24 +62,34 @@ describe("getEffectiveEnabledPluginSet", () => {
       }
     });
 
-    test("drops a globally disabled default even in a scoped chat", () => {
+    test("drops a workspace-disabled default the conversation did not select", () => {
       created.push(disablePlugin("default-memory"));
       const set = getEffectiveEnabledPluginSet({ enabledPlugins: ["user-a"] });
       expect(set?.has("user-a")).toBe(true);
-      // The disabled default is excluded...
+      // The workspace-disabled default is excluded (rule 2 beats rule 3)...
       expect(set?.has("default-memory")).toBe(false);
       // ...while the other defaults remain.
       expect(set?.has("default-turn-context")).toBe(true);
       expect(set?.size).toBe(DEFAULT_NAMES.length); // user-a + defaults - memory
     });
 
-    test("drops a globally disabled user plugin that was explicitly selected", () => {
+    test("keeps a conversation-enabled plugin even if workspace-disabled", () => {
+      // Rule 1 (per-conversation explicit enable) beats rule 2 (workspace).
       created.push(disablePlugin("user-a"));
       const set = getEffectiveEnabledPluginSet({
         enabledPlugins: ["user-a", "user-b"],
       });
-      expect(set?.has("user-a")).toBe(false);
+      expect(set?.has("user-a")).toBe(true);
       expect(set?.has("user-b")).toBe(true);
+    });
+
+    test("keeps a default the conversation explicitly enabled even if workspace-disabled", () => {
+      // Rule 1 beats rule 2 for defaults too.
+      created.push(disablePlugin("default-memory"));
+      const set = getEffectiveEnabledPluginSet({
+        enabledPlugins: ["default-memory"],
+      });
+      expect(set?.has("default-memory")).toBe(true);
     });
   });
 });
