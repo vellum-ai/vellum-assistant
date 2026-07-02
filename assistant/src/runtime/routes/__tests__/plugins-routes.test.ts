@@ -381,6 +381,10 @@ function pluginEntry(
     target: overrides.target ?? `/tmp/plugins/${overrides.name}`,
     packageJson: overrides.packageJson ?? null,
     issues: overrides.issues ?? [],
+    hasIcon: overrides.hasIcon ?? false,
+    ...(overrides.iconVersion !== undefined
+      ? { iconVersion: overrides.iconVersion }
+      : {}),
   };
 }
 
@@ -433,6 +437,8 @@ describe("GET /v1/plugins", () => {
       version: "1.2.3",
       path: "/workspace/plugins/alpha",
       category: null,
+      // No bundled `icon.png` on this fixture → hasIcon is false, iconVersion absent.
+      hasIcon: false,
     });
     // `issues` is omitted (not just undefined) when the entry is clean.
     expect("issues" in result.plugins[0]!).toBe(false);
@@ -528,6 +534,28 @@ describe("GET /v1/plugins", () => {
     expect(byId.get("with-icon")?.icon).toBe("🎨");
     // Absent icon is omitted from the wire object, not set to undefined/null.
     expect("icon" in byId.get("no-icon")!).toBe(false);
+  });
+
+  test("serializes hasIcon + iconVersion from the validated bundled icon.png", async () => {
+    installedFixture = [
+      pluginEntry({
+        name: "bundled",
+        packageJson: { name: "bundled", version: "1.0.0" },
+        hasIcon: true,
+        iconVersion: "deadbeefdeadbeef",
+      }),
+      pluginEntry({
+        name: "plain",
+        packageJson: { name: "plain", version: "1.0.0" },
+      }),
+    ];
+
+    const byId = new Map((await invoke()).plugins.map((p) => [p.id, p]));
+    expect(byId.get("bundled")?.hasIcon).toBe(true);
+    expect(byId.get("bundled")?.iconVersion).toBe("deadbeefdeadbeef");
+    // No valid icon → hasIcon false and iconVersion omitted (not null).
+    expect(byId.get("plain")?.hasIcon).toBe(false);
+    expect("iconVersion" in byId.get("plain")!).toBe(false);
   });
 
   test("reports enabled: false for a plugin with a `.disabled` sentinel, true otherwise", async () => {
@@ -1243,6 +1271,9 @@ function pluginDetails(overrides: Partial<PluginDetails> = {}): PluginDetails {
     readme: overrides.readme ?? null,
     ref: overrides.ref ?? "main",
     artifact: overrides.artifact ?? null,
+    icon: overrides.icon ?? null,
+    hasIcon: overrides.hasIcon ?? false,
+    iconVersion: overrides.iconVersion ?? null,
   };
 }
 

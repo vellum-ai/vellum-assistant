@@ -38,6 +38,7 @@ import {
   parsePluginIcon,
   type PluginArtifact,
 } from "./plugin-artifact.js";
+import { readValidatedPluginIcon } from "./plugin-icon-file.js";
 import {
   fetchMarketplaceEntries,
   type MarketplaceEntry,
@@ -116,6 +117,17 @@ export interface PluginDetails {
    * resolved from the installed copy first then the repo; `null` when none.
    */
   readonly icon: string | null;
+  /**
+   * Whether the locally installed copy ships a valid author-bundled `icon.png`
+   * (validated for PNG magic, dimensions, and size). `false` when the plugin is
+   * not installed or ships no valid icon.
+   */
+  readonly hasIcon: boolean;
+  /**
+   * Content hash of the validated `icon.png`; `null` when {@link hasIcon} is
+   * false. A cache-buster for the bundled-icon endpoint.
+   */
+  readonly iconVersion: string | null;
 }
 
 /** No installed copy and no catalog/source entry claims the name. */
@@ -148,6 +160,9 @@ export async function getPluginDetails(
 
   const pluginsDir = deps.workspacePluginsDir ?? getWorkspacePluginsDir();
   const local = readLocalPlugin(pluginsDir, name);
+  // Validate the installed copy's bundled icon.png (fail-closed: a missing or
+  // invalid icon — including a not-installed plugin — resolves to no icon).
+  const localIcon = readValidatedPluginIcon(join(pluginsDir, name));
 
   const marketplaceEntry = await findMarketplaceEntry(name, ref, fetchFn);
 
@@ -196,6 +211,8 @@ export async function getPluginDetails(
     ref,
     artifact: local.manifest.artifact ?? remote.manifest.artifact,
     icon: local.manifest.icon ?? remote.manifest.icon,
+    hasIcon: localIcon.hasIcon,
+    iconVersion: localIcon.iconVersion ?? null,
   };
 }
 
