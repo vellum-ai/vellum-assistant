@@ -12,14 +12,22 @@
  * `verification_sessions_validate_consume` route): rate limiting, identity
  * binding, the status-guarded atomic consume, and the in-engine role side
  * effects (guardian phone binding / trusted-contact channel upsert) that
- * replaced the old gateway polling loop for outbound voice sessions.
+ * replaced the old gateway polling loop for outbound voice sessions. The
+ * voice guardian binding commits in the same gateway transaction as the
+ * consume, so the poller's replay job is structurally unnecessary: a binding
+ * failure rolls the consume back and the code stays redeemable.
  */
 
 import { randomBytes, randomUUID } from "node:crypto";
 
 import { hashVerificationSecret } from "@vellumai/gateway-client";
 
-import { createGuardianBinding } from "../auth/guardian-bootstrap.js";
+import type { GuardianBindingGatewayWrites } from "../auth/guardian-bootstrap.js";
+import {
+  applyGuardianBindingGatewayWrites,
+  mirrorGuardianBinding,
+} from "../auth/guardian-bootstrap.js";
+import { getGatewayDb } from "../db/connection.js";
 import type {
   IdentityBindingStatus,
   VerificationPurpose,
@@ -30,6 +38,7 @@ import {
   createInboundSession,
   createOutboundSession as storeCreateOutboundSession,
   findPendingSessionByHash,
+  updateSessionStatus,
 } from "../db/session-store.js";
 import { getLogger } from "../logger.js";
 import {
@@ -203,12 +212,16 @@ const CONSUME_FAILURE: ValidateConsumeSessionResult = {
  * Side effects are applied here, in the engine, because trust-graph writes
  * must never happen in the (potentially prompt-injected) daemon:
  * - guardian purpose on phone with an expected number (the outbound voice
- *   shape): create the phone guardian binding synchronously. A blocked
- *   authoritative gateway row rejects the verification first (mirrors the
- *   text guardian path).
+ *   shape): consume + binding commit in ONE gateway transaction. A binding
+ *   failure (or a crash mid-flight) rolls back the consume, so the one-time
+ *   code stays redeemable — no spent-code-without-binding state can exist.
+ *   A blocked authoritative gateway row still rejects the verification with
+ *   the code spent (mirrors the text guardian path).
  * - trusted_contact purpose: upsert the verified contact channel; a
  *   blocked/revoked authoritative gateway row rejects the verification even
- *   though the code matched (mirrors text-verification).
+ *   though the code matched (mirrors text-verification). The upsert spans
+ *   assistant-IPC IO so it cannot share the consume's transaction; a thrown
+ *   side effect instead restores the session for retry.
  *
  * On failure the invalid-attempt counter is incremented; after exceeding the
  * threshold the actor is locked out for a cooldown. Success resets it.
@@ -245,6 +258,73 @@ export async function validateAndConsumeSession(
     return CONSUME_FAILURE;
   }
 
+  // Guardian purpose on the outbound voice shape (an expected phone number is
+  // only ever set by startOutboundVoice): the status-guarded consume and the
+  // binding's gateway writes commit atomically. Everything inside the
+  // transaction is synchronous over the gateway DB; the assistant identity
+  // mirror runs after commit (best-effort).
+  if (
+    session.verificationPurpose !== "trusted_contact" &&
+    channel === "phone" &&
+    session.expectedPhoneE164 != null
+  ) {
+    const txn = getGatewayDb().transaction(() => {
+      // Status-guarded atomic consume: a non-consumed return means a
+      // concurrent consumer already won (one-time-code semantics).
+      const consume = consumeSession(
+        session.id,
+        actorExternalUserId,
+        actorChatId,
+      );
+      if (!consume.consumed) return { consumed: false as const };
+
+      // Mirrors the text guardian path's gateway-status guard: a blocked
+      // authoritative row must not report success — the binding writes leave
+      // blocked rows untouched, so without this guard a blocked-number
+      // rebind would revoke the current guardian and bind nobody. The
+      // consume still commits: a blocked actor spends the one-time code.
+      // Revoked rows stay rebindable here — outbound rebinds are
+      // guardian-initiated and the ATL-514 recency guard covers staleness.
+      if (gatewayChannelStatus(channel, actorExternalUserId) === "blocked") {
+        return { consumed: true as const, blocked: true as const };
+      }
+
+      // Bind anchored on the persisted consume timestamp (never a fresh
+      // clock sample).
+      return {
+        consumed: true as const,
+        blocked: false as const,
+        binding: applyPhoneGuardianBindingGatewayWrites(
+          actorExternalUserId,
+          actorChatId,
+          consume.consumedAt,
+        ),
+      };
+    });
+
+    if (!txn.consumed) {
+      log.warn(
+        { sessionId: session.id },
+        "Session already consumed by concurrent request",
+      );
+      return CONSUME_FAILURE;
+    }
+
+    await resetRateLimit(channel, actorExternalUserId, actorChatId);
+
+    if (txn.blocked) {
+      log.warn(
+        { channel, actorExternalUserId },
+        "Guardian phone binding rejected: gateway channel is blocked",
+      );
+      return CONSUME_FAILURE;
+    }
+
+    if (txn.binding) await mirrorGuardianBinding(txn.binding);
+
+    return { success: true, verificationType: session.verificationPurpose };
+  }
+
   // Status-guarded atomic consume: a non-consumed return means a concurrent
   // consumer already won, so this attempt fails (one-time-code semantics).
   const consumeResult = consumeSession(
@@ -266,11 +346,25 @@ export async function validateAndConsumeSession(
     // Mirrors text-verification: a blocked/revoked authoritative gateway row
     // rejects the verification — the actor must not regain trusted status
     // even though the code matched and the session is consumed.
-    const verified = await applyTrustedContactSideEffects({
-      sourceChannel: channel,
-      canonicalUserId: actorExternalUserId,
-      actorChatId,
-    });
+    let verified: boolean;
+    try {
+      verified = await applyTrustedContactSideEffects({
+        sourceChannel: channel,
+        canonicalUserId: actorExternalUserId,
+        actorChatId,
+      });
+    } catch (err) {
+      // The upsert spans assistant-IPC IO, so it cannot share the consume's
+      // transaction. Compensate: restore the session's pre-consume status so
+      // a transient side-effect failure never strands a spent code without
+      // its channel upsert (the retry re-runs the idempotent upsert).
+      updateSessionStatus(session.id, session.status);
+      log.warn(
+        { err, sessionId: session.id },
+        "Trusted-contact side effect failed; session restored for retry",
+      );
+      throw err;
+    }
     if (!verified) {
       log.warn(
         { channel, actorExternalUserId },
@@ -278,50 +372,27 @@ export async function validateAndConsumeSession(
       );
       return CONSUME_FAILURE;
     }
-  } else if (channel === "phone" && session.expectedPhoneE164 != null) {
-    // Mirrors the text guardian path's gateway-status guard: a blocked
-    // authoritative row must not report success — createGuardianBinding
-    // leaves blocked rows untouched, so without this guard a blocked-number
-    // rebind would revoke the current guardian and bind nobody. Checked
-    // after consume (same ordering as the text path); revoked rows stay
-    // rebindable here — outbound rebinds are guardian-initiated and the
-    // ATL-514 recency guard covers staleness.
-    if (gatewayChannelStatus(channel, actorExternalUserId) === "blocked") {
-      log.warn(
-        { channel, actorExternalUserId },
-        "Guardian phone binding rejected: gateway channel is blocked",
-      );
-      return CONSUME_FAILURE;
-    }
-
-    // Guardian purpose on the outbound voice shape (an expected phone number
-    // is only ever set by startOutboundVoice). Bind synchronously at consume
-    // time, anchored on the persisted consume timestamp (never a fresh clock
-    // sample).
-    await createPhoneGuardianBinding(
-      actorExternalUserId,
-      actorChatId,
-      consumeResult.consumedAt,
-    );
   }
 
   return { success: true, verificationType: session.verificationPurpose };
 }
 
 /**
- * Create the guardian phone binding for a consumed outbound voice
- * verification session. Called synchronously at consume time; idempotent
- * under IPC retries.
+ * Sync gateway writes for the guardian phone binding of a consumed outbound
+ * voice verification session. Composes inside the caller's transaction so
+ * the consume and the binding commit — or roll back — together. Returns the
+ * committed writes for the post-commit assistant mirror, or null when the
+ * binding is skipped (replay-protection or idempotent re-run).
  *
  * `sessionUpdatedAt` is the session's persisted consume timestamp (the
  * `updated_at` written by the consume UPDATE); it anchors the recency check
  * below.
  */
-export async function createPhoneGuardianBinding(
+function applyPhoneGuardianBindingGatewayWrites(
   phoneNumber: string,
   chatId: string,
   sessionUpdatedAt: number,
-): Promise<void> {
+): GuardianBindingGatewayWrites | null {
   // Recency check (security backstop, ATL-514) — retained as the
   // idempotency/replay guard under IPC retries and gateway
   // restarts: a consumed session can have been superseded by manual
@@ -329,17 +400,17 @@ export async function createPhoneGuardianBinding(
   // `getExistingGuardianBinding` only checks active bindings, so without
   // this guard we would reactivate a revoked binding or revoke an active
   // one in favor of a stale session.
-  const lastBindingTs = await getMostRecentChannelGuardianTimestamp("phone");
+  const lastBindingTs = getMostRecentChannelGuardianTimestamp("phone");
   if (lastBindingTs != null && sessionUpdatedAt <= lastBindingTs) {
     log.warn(
       { phoneNumber, sessionUpdatedAt, lastBindingTs },
       "Phone guardian binding: session older than most recent binding event; skipping (replay-protection)",
     );
-    return;
+    return null;
   }
 
-  const canonicalPrincipal = await resolveCanonicalPrincipal(phoneNumber);
-  const existingBinding = await getExistingGuardianBinding("phone");
+  const canonicalPrincipal = resolveCanonicalPrincipal(phoneNumber);
+  const existingBinding = getExistingGuardianBinding("phone");
 
   if (existingBinding) {
     if (existingBinding.address === phoneNumber) {
@@ -349,7 +420,7 @@ export async function createPhoneGuardianBinding(
         { phoneNumber },
         "Phone guardian binding already exists, skipping",
       );
-      return;
+      return null;
     }
 
     // A different number holds the phone guardian binding — revoke it first.
@@ -368,19 +439,34 @@ export async function createPhoneGuardianBinding(
       { phoneNumber, existingGuardian: existingBinding.address },
       "Phone guardian binding: revoking conflicting phone guardian binding",
     );
-    await revokeExistingChannelGuardian("phone");
+    revokeExistingChannelGuardian("phone");
   }
 
-  await createGuardianBinding({
+  return applyGuardianBindingGatewayWrites({
     channel: "phone",
     externalUserId: phoneNumber,
     deliveryChatId: chatId,
     guardianPrincipalId: canonicalPrincipal,
     verifiedVia: "challenge",
   });
+}
 
-  log.info(
-    { phoneNumber, canonicalPrincipal },
-    "Guardian phone binding created",
+/**
+ * Standalone entry point for the consume-time guardian phone binding:
+ * runs the sync gateway writes in their own transaction, then the
+ * best-effort assistant mirror. Idempotent under retries.
+ */
+export async function createPhoneGuardianBinding(
+  phoneNumber: string,
+  chatId: string,
+  sessionUpdatedAt: number,
+): Promise<void> {
+  const writes = getGatewayDb().transaction(() =>
+    applyPhoneGuardianBindingGatewayWrites(
+      phoneNumber,
+      chatId,
+      sessionUpdatedAt,
+    ),
   );
+  if (writes) await mirrorGuardianBinding(writes);
 }

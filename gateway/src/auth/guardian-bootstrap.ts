@@ -177,17 +177,29 @@ export interface CreateGuardianBindingResult {
   channel: string;
 }
 
+/** Result of the sync gateway-authoritative writes, consumed by the mirror. */
+export interface GuardianBindingGatewayWrites {
+  contactId: string;
+  channelId: string;
+  channel: string;
+  address: string;
+  deliveryChatId: string;
+  displayName: string;
+  guardianPrincipalId: string;
+  /** Contact a claimed channel was re-parented away from (orphan-GC input). */
+  claimedFromContactId: string | null;
+}
+
 /**
- * Create or update a guardian contact + channel binding.
- *
- * Writes the gateway DB (authoritative) first, then mirrors identity to the
- * assistant DB (best-effort, via IPC proxy). Uses upsert semantics: looks up an existing contact by
- * principalId, then claims any preseeded channel for the same actor before
- * falling back to an existing guardian channel by (contactId, type).
+ * Gateway-authoritative writes for a guardian binding — fully synchronous so
+ * callers can compose it inside a single SQLite transaction (e.g. atomically
+ * with a verification-session consume). Runs the id resolution and the
+ * contact + channel upserts as plain statements; the caller owns the
+ * transaction boundary.
  */
-export async function createGuardianBinding(
+export function applyGuardianBindingGatewayWrites(
   params: CreateGuardianBindingParams,
-): Promise<CreateGuardianBindingResult> {
+): GuardianBindingGatewayWrites {
   const now = Date.now();
   const displayName = params.displayName ?? params.externalUserId;
   const verifiedVia = params.verifiedVia ?? "challenge";
@@ -249,86 +261,119 @@ export async function createGuardianBinding(
 
   const channelId = claimableChannel?.id ?? existingChannel?.id ?? uuid();
 
-  // --- Gateway DB write (authoritative, transactional) ---
+  // --- Gateway DB write (authoritative) ---
   // The gateway owns the guardian ACL; a failure here means the binding failed,
-  // so let it propagate.
+  // so let it propagate (rolling back the caller's transaction).
   const gwDb = getGatewayDb();
-  gwDb.transaction((tx) => {
-    tx.insert(gwContacts)
-      .values({
-        id: contactId,
+  gwDb
+    .insert(gwContacts)
+    .values({
+      id: contactId,
+      displayName,
+      role: "guardian",
+      principalId: params.guardianPrincipalId,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: gwContacts.id,
+      set: {
         displayName,
         role: "guardian",
         principalId: params.guardianPrincipalId,
-        createdAt: now,
         updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: gwContacts.id,
-        set: {
-          displayName,
-          role: "guardian",
-          principalId: params.guardianPrincipalId,
-          updatedAt: now,
-        },
-      })
-      .run();
+      },
+    })
+    .run();
 
-    const channelSet = {
-      contactId,
-      address: params.externalUserId,
-      externalChatId: params.deliveryChatId,
-      isPrimary: true,
-      status: "active",
-      policy: "allow",
-      verifiedAt: now,
-      verifiedVia,
-      revokedReason: null,
-      blockedReason: null,
-      updatedAt: now,
-    };
+  const channelSet = {
+    contactId,
+    address: params.externalUserId,
+    externalChatId: params.deliveryChatId,
+    isPrimary: true,
+    status: "active",
+    policy: "allow",
+    verifiedAt: now,
+    verifiedVia,
+    revokedReason: null,
+    blockedReason: null,
+    updatedAt: now,
+  };
 
-    // Heal a divergent (type,address) row (m0006): adopt it by its own id
-    // rather than insert and throw on idx_contact_channels_type_address_unique.
-    const existingGw = tx
-      .select({
-        id: gwContactChannels.id,
-        status: gwContactChannels.status,
-      })
-      .from(gwContactChannels)
-      .where(
-        and(
-          eq(gwContactChannels.type, params.channel),
-          sql`${gwContactChannels.address} = ${params.externalUserId} COLLATE NOCASE`,
-        ),
-      )
-      .get();
+  // Heal a divergent (type,address) row (m0006): adopt it by its own id
+  // rather than insert and throw on idx_contact_channels_type_address_unique.
+  const existingGw = gwDb
+    .select({
+      id: gwContactChannels.id,
+      status: gwContactChannels.status,
+    })
+    .from(gwContactChannels)
+    .where(
+      and(
+        eq(gwContactChannels.type, params.channel),
+        sql`${gwContactChannels.address} = ${params.externalUserId} COLLATE NOCASE`,
+      ),
+    )
+    .get();
 
-    if (existingGw) {
-      // Never reactivate a blocked gateway row by code-match — leave it
-      // intact (mirrors text-verification / contact-helpers guards).
-      if (existingGw.status !== "blocked") {
-        tx.update(gwContactChannels)
-          .set(channelSet)
-          .where(eq(gwContactChannels.id, existingGw.id))
-          .run();
-      }
-    } else {
-      tx.insert(gwContactChannels)
-        .values({
-          id: channelId,
-          type: params.channel,
-          interactionCount: 0,
-          createdAt: now,
-          ...channelSet,
-        })
-        .onConflictDoUpdate({
-          target: gwContactChannels.id,
-          set: channelSet,
-        })
+  if (existingGw) {
+    // Never reactivate a blocked gateway row by code-match — leave it
+    // intact (mirrors text-verification / contact-helpers guards).
+    if (existingGw.status !== "blocked") {
+      gwDb
+        .update(gwContactChannels)
+        .set(channelSet)
+        .where(eq(gwContactChannels.id, existingGw.id))
         .run();
     }
-  });
+  } else {
+    gwDb
+      .insert(gwContactChannels)
+      .values({
+        id: channelId,
+        type: params.channel,
+        interactionCount: 0,
+        createdAt: now,
+        ...channelSet,
+      })
+      .onConflictDoUpdate({
+        target: gwContactChannels.id,
+        set: channelSet,
+      })
+      .run();
+  }
+
+  return {
+    contactId,
+    channelId,
+    channel: params.channel,
+    address: params.externalUserId,
+    deliveryChatId: params.deliveryChatId,
+    displayName,
+    guardianPrincipalId: params.guardianPrincipalId,
+    claimedFromContactId:
+      claimableChannel && claimableChannel.contactId !== contactId
+        ? claimableChannel.contactId
+        : null,
+  };
+}
+
+/**
+ * Post-commit assistant-side effects for a committed guardian binding:
+ * identity mirror, orphaned-stub GC, daemon cache invalidation. All
+ * best-effort — the gateway binding is already authoritative.
+ */
+export async function mirrorGuardianBinding(
+  writes: GuardianBindingGatewayWrites,
+): Promise<void> {
+  const {
+    contactId,
+    channelId,
+    channel,
+    address,
+    deliveryChatId,
+    displayName,
+  } = writes;
 
   // --- Assistant DB identity mirror (best-effort, via typed transactional IPC) ---
   // A non-authoritative convenience copy; its failure must not undo or abort
@@ -345,9 +390,9 @@ export async function createGuardianBinding(
             op: "upsert_channel",
             contactId,
             channelId,
-            type: params.channel,
-            address: params.externalUserId,
-            externalChatId: params.deliveryChatId,
+            type: channel,
+            address,
+            externalChatId: deliveryChatId,
             displayName,
             isPrimary: true,
             refreshDisplayName: true,
@@ -368,16 +413,16 @@ export async function createGuardianBinding(
   // Garbage-collect that stub when the claim stripped its last channel, so
   // the guardian doesn't end up with a duplicate of themselves in the
   // Contacts pane (LUM-2672). Best-effort — never fails the binding.
-  if (claimableChannel && claimableChannel.contactId !== contactId) {
-    await deleteContactIfOrphaned(claimableChannel.contactId);
+  if (writes.claimedFromContactId) {
+    await deleteContactIfOrphaned(writes.claimedFromContactId);
   }
 
   log.info(
     {
       contactId,
       channelId,
-      channel: params.channel,
-      guardianPrincipalId: params.guardianPrincipalId,
+      channel,
+      guardianPrincipalId: writes.guardianPrincipalId,
     },
     "Created guardian binding",
   );
@@ -387,12 +432,31 @@ export async function createGuardianBinding(
   void ipcCallAssistant("emit_event", {
     body: { kind: "contacts_changed" },
   } as unknown as Record<string, unknown>).catch(() => {});
+}
+
+/**
+ * Create or update a guardian contact + channel binding.
+ *
+ * Writes the gateway DB (authoritative) first in its own transaction, then
+ * mirrors identity to the assistant DB (best-effort, via IPC proxy). Uses
+ * upsert semantics: looks up an existing contact by principalId, then claims
+ * any preseeded channel for the same actor before falling back to an existing
+ * guardian channel by (contactId, type).
+ */
+export async function createGuardianBinding(
+  params: CreateGuardianBindingParams,
+): Promise<CreateGuardianBindingResult> {
+  const writes = getGatewayDb().transaction(() =>
+    applyGuardianBindingGatewayWrites(params),
+  );
+
+  await mirrorGuardianBinding(writes);
 
   return {
-    contactId,
-    channelId,
-    guardianPrincipalId: params.guardianPrincipalId,
-    channel: params.channel,
+    contactId: writes.contactId,
+    channelId: writes.channelId,
+    guardianPrincipalId: writes.guardianPrincipalId,
+    channel: writes.channel,
   };
 }
 
