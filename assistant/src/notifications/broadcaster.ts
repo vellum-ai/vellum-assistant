@@ -28,10 +28,7 @@ import {
   updateDeliveryStatus,
 } from "./deliveries-store.js";
 import { resolveDestinations } from "./destination-resolver.js";
-import {
-  parseGuardianQuestionPayload,
-  resolveGuardianInstructionModeFromPayload,
-} from "./guardian-question-mode.js";
+import { parseInteractiveApprovalPayload } from "./guardian-question-mode.js";
 import { nonEmpty } from "./notification-utils.js";
 import type { NotificationSignal } from "./signal.js";
 import type {
@@ -59,13 +56,17 @@ function resolveApprovalContext(
   signal: NotificationSignal,
 ): ApprovalUIMetadata | undefined {
   const payload = signal.contextPayload;
-  if (!payload) return undefined;
+  if (!payload) {
+    return undefined;
+  }
 
   if (signal.sourceEventName === "ingress.access_request") {
     const requestId = nonEmpty(
       typeof payload.requestId === "string" ? payload.requestId : undefined,
     );
-    if (!requestId) return undefined;
+    if (!requestId) {
+      return undefined;
+    }
     return {
       requestId,
       actions: APPROVAL_ACTIONS,
@@ -74,12 +75,11 @@ function resolveApprovalContext(
   }
 
   if (signal.sourceEventName === "guardian.question") {
-    const parsed = parseGuardianQuestionPayload(payload);
-    if (!parsed) return undefined;
-    const { mode } = resolveGuardianInstructionModeFromPayload(parsed);
-    if (mode !== "approval") return undefined;
-    const requestId = nonEmpty(parsed.requestId);
-    if (!requestId) return undefined;
+    const parsed = parseInteractiveApprovalPayload(payload);
+    if (!parsed) {
+      return undefined;
+    }
+    const requestId = parsed.requestId;
 
     // Extract tool context so channel adapters can render structured
     // approval cards without re-parsing contextPayload.
@@ -184,8 +184,12 @@ export class NotificationBroadcaster {
     // event fires immediately, before slower channel sends (e.g. Telegram 30s
     // timeout) can delay it past the macOS deep-link retry window.
     const orderedChannels = [...decision.selectedChannels].sort((a, b) => {
-      if (a === "vellum") return -1;
-      if (b === "vellum") return 1;
+      if (a === "vellum") {
+        return -1;
+      }
+      if (b === "vellum") {
+        return 1;
+      }
       return 0;
     });
 
@@ -552,7 +556,9 @@ export class NotificationBroadcaster {
 function resolveSourceConversationId(
   sourceContextId: string | undefined,
 ): string | undefined {
-  if (!sourceContextId) return undefined;
+  if (!sourceContextId) {
+    return undefined;
+  }
   try {
     return getConversation(sourceContextId) ? sourceContextId : undefined;
   } catch {
