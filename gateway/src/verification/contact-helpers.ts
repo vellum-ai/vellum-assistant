@@ -249,6 +249,16 @@ export interface VerifiedChannelRow {
   verifiedVia: string | null;
 }
 
+const VERIFIED_CHANNEL_PROJECTION = {
+  id: gwContactChannels.id,
+  contactId: gwContactChannels.contactId,
+  type: gwContactChannels.type,
+  address: gwContactChannels.address,
+  status: gwContactChannels.status,
+  verifiedAt: gwContactChannels.verifiedAt,
+  verifiedVia: gwContactChannels.verifiedVia,
+};
+
 /**
  * Read the authoritative gateway channel row by the logical key
  * (type, address) COLLATE NOCASE. Used to project an upsert result back to the
@@ -259,20 +269,34 @@ export function getGatewayChannelByKey(
   address: string,
 ): VerifiedChannelRow | null {
   const row = getGatewayDb()
-    .select({
-      id: gwContactChannels.id,
-      contactId: gwContactChannels.contactId,
-      type: gwContactChannels.type,
-      address: gwContactChannels.address,
-      status: gwContactChannels.status,
-      verifiedAt: gwContactChannels.verifiedAt,
-      verifiedVia: gwContactChannels.verifiedVia,
-    })
+    .select(VERIFIED_CHANNEL_PROJECTION)
     .from(gwContactChannels)
     .where(
       and(
         eq(gwContactChannels.type, type),
         sql`${gwContactChannels.address} = ${address} COLLATE NOCASE`,
+      ),
+    )
+    .get();
+  return row ?? null;
+}
+
+/**
+ * Read the authoritative gateway channel row by `(type, externalChatId)`.
+ * Fallback member resolution for callers that only carry a delivery chat id
+ * (no actor external id).
+ */
+export function getGatewayChannelByExternalChatId(
+  type: string,
+  externalChatId: string,
+): VerifiedChannelRow | null {
+  const row = getGatewayDb()
+    .select(VERIFIED_CHANNEL_PROJECTION)
+    .from(gwContactChannels)
+    .where(
+      and(
+        eq(gwContactChannels.type, type),
+        eq(gwContactChannels.externalChatId, externalChatId),
       ),
     )
     .get();
@@ -309,12 +333,12 @@ export async function upsertVerifiedContactChannel(params: {
   contactId?: string;
   allowRevokedReactivation?: boolean;
   /**
-   * "soft": assistant-mirror (IPC) failures are logged, never thrown — the
+   * When true, assistant-mirror (IPC) failures are logged, never thrown — the
    * result reflects the gateway ACL write alone. Used post-claim by invite
    * redemption, where the mirror is best-effort and a throw would regress an
    * already-consumed invite to a non-intercepted path.
    */
-  mirrorFailureMode?: "soft";
+  softMirrorFailures?: boolean;
 }): Promise<{ verified: boolean }> {
   const now = Date.now();
   const {
@@ -326,7 +350,7 @@ export async function upsertVerifiedContactChannel(params: {
     allowRevokedReactivation,
   } = params;
   const verifiedVia = params.verifiedVia ?? "challenge";
-  const mirrorSoft = params.mirrorFailureMode === "soft";
+  const mirrorSoft = params.softMirrorFailures === true;
   const runMirror = async (
     op: () => Promise<unknown>,
     what: string,

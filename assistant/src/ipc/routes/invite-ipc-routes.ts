@@ -10,7 +10,7 @@
  * than flagged inside `ROUTES`.
  */
 
-import { InviteRedeemedNotificationSchema } from "@vellumai/gateway-client";
+import { InviteRedemptionOutcomeSchema } from "@vellumai/gateway-client";
 
 import { upsertContactChannel } from "../../contacts/contacts-write.js";
 import type { RouteHandlerArgs } from "../../runtime/routes/types.js";
@@ -25,7 +25,7 @@ import type { RouteHandlerArgs } from "../../runtime/routes/types.js";
  * outcome is safe.
  */
 export function handleInviteRedeemed({ body = {} }: RouteHandlerArgs) {
-  const outcome = InviteRedeemedNotificationSchema.parse(body);
+  const outcome = InviteRedemptionOutcomeSchema.parse(body);
   upsertContactChannel({
     sourceChannel: outcome.sourceChannel,
     externalUserId: outcome.memberExternalUserId,

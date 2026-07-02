@@ -84,7 +84,6 @@ import {
 } from "../http/routes/invite-validation.js";
 import {
   getActiveVoiceInviteForCaller,
-  notifyDaemonInviteRedeemed,
   redeemVoiceInvite,
 } from "../verification/invite-redemption.js";
 import type { IpcRoute } from "./server.js";
@@ -184,9 +183,9 @@ export const inviteRoutes: IpcRoute[] = [
     },
   },
   {
-    // Voice-code redemption through the gateway engine. Success fires the
-    // best-effort `invite_redeemed` daemon info-mirror event (already_member
-    // consumed nothing, so there is nothing to mirror).
+    // Voice-code redemption through the gateway engine. The engine fires the
+    // best-effort `invite_redeemed` daemon info-mirror event on a real redeem
+    // (already_member consumed nothing, so there is nothing to mirror).
     method: "redeem_voice_invite",
     schema: RedeemVoiceInviteRequestSchema,
     handler: async (params?: Record<string, unknown>) => {
@@ -194,9 +193,6 @@ export const inviteRoutes: IpcRoute[] = [
       const result = await redeemVoiceInvite({ ...parsed, store: getStore() });
       if (result.status === "failed") {
         return { ok: false, reason: result.reason };
-      }
-      if (result.status === "redeemed") {
-        notifyDaemonInviteRedeemed(result.outcome);
       }
       return { ok: true, outcome: result.outcome };
     },

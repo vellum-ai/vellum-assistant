@@ -49,9 +49,7 @@ function buildSharePayload(
 // Result types
 // ---------------------------------------------------------------------------
 
-export type IngressResult<T> =
-  | { ok: true; data: T }
-  | { ok: false; error: string };
+type IngressResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
 // ---------------------------------------------------------------------------
 // Invite operations

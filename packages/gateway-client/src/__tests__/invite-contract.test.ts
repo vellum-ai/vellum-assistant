@@ -18,9 +18,9 @@ import {
   hashInviteCode,
   hashInviteToken,
   INVITE_CODE_REDEMPTION_CHANNELS,
-  InviteRedeemedNotificationSchema,
   InviteRedemptionOutcomeSchema,
   isInviteCodeRedemptionEnabled,
+  isValidE164,
   RedeemInviteByCodeRequestSchema,
   RedeemInviteByTokenRequestSchema,
   RedeemVoiceInviteRequestSchema,
@@ -75,6 +75,20 @@ describe("generateInviteCode", () => {
   test("rejects out-of-range digit counts", () => {
     expect(() => generateInviteCode(3)).toThrow();
     expect(() => generateInviteCode(11)).toThrow();
+  });
+});
+
+describe("isValidE164", () => {
+  test("valid E.164 number", () => {
+    expect(isValidE164("+15551234567")).toBe(true);
+  });
+
+  test("missing + prefix", () => {
+    expect(isValidE164("5551234567")).toBe(false);
+  });
+
+  test("too short", () => {
+    expect(isValidE164("+123")).toBe(false);
   });
 });
 
@@ -136,12 +150,6 @@ describe("InviteRedemptionOutcomeSchema", () => {
       }),
     ).toThrow();
   });
-
-  test("InviteRedeemedNotificationSchema carries the outcome verbatim", () => {
-    expect(InviteRedeemedNotificationSchema.parse(fullOutcome)).toEqual(
-      fullOutcome,
-    );
-  });
 });
 
 describe("invite IPC request schemas", () => {
@@ -164,7 +172,7 @@ describe("invite IPC request schemas", () => {
 
   test("RedeemInviteByTokenRequestSchema round-trips full and minimal requests", () => {
     const full = {
-      rawToken: "raw-token",
+      token: "raw-token",
       sourceChannel: "slack",
       externalUserId: "U123",
       externalChatId: "D456",
@@ -172,7 +180,7 @@ describe("invite IPC request schemas", () => {
       username: "member",
     };
     expect(RedeemInviteByTokenRequestSchema.parse(full)).toEqual(full);
-    const minimal = { rawToken: "raw-token", sourceChannel: "slack" };
+    const minimal = { token: "raw-token", sourceChannel: "slack" };
     expect(RedeemInviteByTokenRequestSchema.parse(minimal)).toEqual(minimal);
     expect(() =>
       RedeemInviteByTokenRequestSchema.parse({ sourceChannel: "slack" }),

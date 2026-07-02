@@ -95,10 +95,7 @@ export function isInviteCodeRedemptionEnabled(channelType: string): boolean {
 // Redemption outcome
 // ---------------------------------------------------------------------------
 
-export const INVITE_REDEMPTION_RESULT_VALUES = [
-  "redeemed",
-  "already_member",
-] as const;
+const INVITE_REDEMPTION_RESULT_VALUES = ["redeemed", "already_member"] as const;
 
 export type InviteRedemptionResult =
   (typeof INVITE_REDEMPTION_RESULT_VALUES)[number];
@@ -107,7 +104,8 @@ export type InviteRedemptionResult =
  * Result of a successful invite redemption resolved by the gateway. Carries
  * the identity fields the daemon needs to mirror the activation locally
  * (`already_member` = the sender was already an active member, so no invite
- * use was consumed).
+ * use was consumed). Also the payload of the best-effort daemon IPC
+ * `invite_redeemed` info-mirror event, verbatim.
  */
 export const InviteRedemptionOutcomeSchema = z.object({
   inviteId: z.string(),
@@ -139,13 +137,20 @@ export type InviteRedemptionOutcome = z.infer<
 // - `RedeemVoiceInviteRequestSchema` — gateway IPC `redeem_voice_invite`.
 // - `GetActiveVoiceInviteRequestSchema` — gateway IPC
 //   `get_active_voice_invite`.
-// - `InviteRedeemedNotificationSchema` — daemon IPC `invite_redeemed`
-//   notification.
+//
+// Wire dispatch for `invites_redeem` (gateway IPC + HTTP redeem): the presence
+// of `code` selects voice redemption (validated by
+// `RedeemVoiceInviteRequestSchema`); otherwise the body is a link-token
+// redemption (validated by `RedeemInviteByTokenRequestSchema`).
 
-/** Gateway redemption-engine request for code redemption (6-digit code). */
+/**
+ * Gateway redemption-engine request for code redemption (6-digit code).
+ * Not an `invites_redeem` wire shape: bare-code redemption only happens via
+ * the gateway inbound intercept, which supplies the sender identity itself.
+ */
 export const RedeemInviteByCodeRequestSchema = z.object({
   code: z.string().min(1),
-  sourceChannel: z.string().min(1),
+  sourceChannel: z.string().trim().min(1),
   externalUserId: z.string().optional(),
   externalChatId: z.string().optional(),
   displayName: z.string().optional(),
@@ -156,10 +161,14 @@ export type RedeemInviteByCodeRequest = z.infer<
   typeof RedeemInviteByCodeRequestSchema
 >;
 
-/** Gateway redemption-engine request for token redemption (raw link token). */
+/**
+ * Gateway redemption-engine request for token redemption. `token` is the raw
+ * link token as sent on the `invites_redeem` wire by the CLI and the daemon
+ * relay.
+ */
 export const RedeemInviteByTokenRequestSchema = z.object({
-  rawToken: z.string().min(1),
-  sourceChannel: z.string().min(1),
+  token: z.string().min(1),
+  sourceChannel: z.string().trim().min(1),
   externalUserId: z.string().optional(),
   externalChatId: z.string().optional(),
   displayName: z.string().optional(),
@@ -170,7 +179,11 @@ export type RedeemInviteByTokenRequest = z.infer<
   typeof RedeemInviteByTokenRequestSchema
 >;
 
-/** Request for gateway IPC `redeem_voice_invite` (voice-channel spoken code). */
+/**
+ * Request for gateway IPC `redeem_voice_invite` (voice-channel spoken code).
+ * Also the `invites_redeem` voice wire shape, selected by the presence of
+ * `code`.
+ */
 export const RedeemVoiceInviteRequestSchema = z.object({
   callerExternalUserId: z.string().min(1),
   code: z.string().min(1),
@@ -201,14 +214,3 @@ export const ActiveVoiceInviteSchema = z.object({
 });
 
 export type ActiveVoiceInvite = z.infer<typeof ActiveVoiceInviteSchema>;
-
-/**
- * Daemon-bound `invite_redeemed` info-mirror event, fired best-effort by the
- * gateway after a successful redemption so the daemon can mirror the member
- * activation locally. Payload is the redemption outcome verbatim.
- */
-export const InviteRedeemedNotificationSchema = InviteRedemptionOutcomeSchema;
-
-export type InviteRedeemedNotification = z.infer<
-  typeof InviteRedeemedNotificationSchema
->;

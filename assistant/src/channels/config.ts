@@ -6,8 +6,6 @@
  * to compile until a policy is added below.
  */
 
-import { isInviteCodeRedemptionEnabled as sharedIsInviteCodeRedemptionEnabled } from "@vellumai/gateway-client";
-
 import type { ChannelId } from "./types.js";
 
 export type ConversationStrategy =
@@ -15,11 +13,6 @@ export type ConversationStrategy =
   | "continue_existing_conversation"
   | "not_deliverable"
   | "push_only";
-
-export interface ChannelInvitePolicy {
-  /** Whether inbound invite code redemption is supported on this channel. */
-  codeRedemptionEnabled: boolean;
-}
 
 export interface ChannelNotificationPolicy {
   notification: {
@@ -113,22 +106,4 @@ export function getConversationStrategy(
   channelId: ChannelId,
 ): ConversationStrategy {
   return CHANNEL_POLICIES[channelId].notification.conversationStrategy;
-}
-
-/**
- * Returns the invite policy for the given channel. Delegates to the shared
- * @vellumai/gateway-client allowlist so gateway and daemon share one source
- * of truth.
- */
-export function getChannelInvitePolicy(
-  channelId: ChannelId,
-): ChannelInvitePolicy {
-  return {
-    codeRedemptionEnabled: sharedIsInviteCodeRedemptionEnabled(channelId),
-  };
-}
-
-/** Whether invite code redemption is enabled for the given channel. */
-export function isInviteCodeRedemptionEnabled(channelId: ChannelId): boolean {
-  return sharedIsInviteCodeRedemptionEnabled(channelId);
 }

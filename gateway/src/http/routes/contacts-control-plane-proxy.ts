@@ -43,8 +43,8 @@ import {
   ipcCallAssistant,
 } from "../../ipc/assistant-client.js";
 import { getLogger } from "../../logger.js";
+import { ensureInviteLive } from "../../verification/invite-liveness.js";
 import {
-  notifyDaemonInviteRedeemed,
   redeemInviteByToken,
   redeemVoiceInvite,
   resolveInviteeName,
@@ -375,10 +375,8 @@ export async function revokeInviteNative(
 /**
  * Redeem an invite natively through the gateway redemption engine
  * (verification/invite-redemption.ts): validation, membership gate, atomic
- * claim, and the verified-channel ACL upsert all run inside the gateway. A
- * successful redemption fires the best-effort `invite_redeemed` daemon
- * info-mirror event (`already_member` consumes nothing, so there is nothing
- * to mirror).
+ * claim, the verified-channel ACL upsert, and the best-effort
+ * `invite_redeemed` daemon info-mirror event all run inside the engine.
  *
  * Returns the transport-agnostic redeem payload:
  *   - voice: `{ ok, type, memberId, inviteId? }` (memberId = the invite's
@@ -403,9 +401,6 @@ export async function redeemInviteNative(
     if (result.status === "failed") {
       throw new InviteNativeError(result.reason, 400, "BAD_REQUEST");
     }
-    if (result.status === "redeemed") {
-      notifyDaemonInviteRedeemed(result.outcome);
-    }
     log.info(
       { inviteId: result.outcome.inviteId, type: result.status },
       "redeem_invite(voice): handled natively",
@@ -421,10 +416,12 @@ export async function redeemInviteNative(
   }
 
   const result = await redeemInviteByToken({
-    rawToken: input.token,
+    token: input.token,
     sourceChannel: input.sourceChannel,
     externalUserId: input.externalUserId,
     externalChatId: input.externalChatId,
+    displayName: input.displayName,
+    username: input.username,
     store,
   });
   if (result.status === "no_match" || result.status === "failed") {
@@ -432,9 +429,6 @@ export async function redeemInviteNative(
     // for a token; treat it as the same definitive invalid invite.
     const reason = result.status === "failed" ? result.reason : "invalid_token";
     throw new InviteNativeError(reason, 400, "BAD_REQUEST");
-  }
-  if (result.status === "redeemed") {
-    notifyDaemonInviteRedeemed(result.outcome);
   }
 
   const row = store.getInviteById(result.outcome.inviteId);
@@ -474,17 +468,12 @@ export async function triggerInviteCallNative(
       "NOT_FOUND",
     );
   }
-  if (invite.status !== "active") {
+  const liveness = ensureInviteLive(store, invite);
+  if (!liveness.live) {
     throw new InviteNativeError(
-      `Invite "${inviteId}" is not active`,
-      400,
-      "BAD_REQUEST",
-    );
-  }
-  if (invite.expiresAt <= Date.now()) {
-    store.markInviteExpired(invite.id);
-    throw new InviteNativeError(
-      `Invite "${inviteId}" has expired`,
+      liveness.reason === "expired"
+        ? `Invite "${inviteId}" has expired`
+        : `Invite "${inviteId}" is not active`,
       400,
       "BAD_REQUEST",
     );

@@ -1,13 +1,9 @@
 /**
- * Phone number normalization and validation utilities.
+ * Phone number normalization utilities.
  *
  * Accepts common US and international phone number formats and normalizes
  * them to E.164 before validation, rate-limit lookups, or storage.
  */
-
-// Thin alias over the shared @vellumai/gateway-client invite contract so the
-// daemon and the gateway validate voice-invite phone bindings identically.
-export { isValidE164 } from "@vellumai/gateway-client";
 
 /**
  * Normalize a phone number string to E.164 format.

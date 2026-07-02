@@ -7,8 +7,12 @@
  * never stored.
  */
 
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
+import {
+  generateInviteToken,
+  hashInviteToken,
+} from "@vellumai/gateway-client";
 import { and, eq } from "drizzle-orm";
 
 import { getDb } from "./db-connection.js";
@@ -43,15 +47,6 @@ const DEFAULT_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function hashToken(rawToken: string): string {
-  return createHash("sha256").update(rawToken).digest("hex");
-}
-
-function generateToken(): string {
-  // 32 bytes = 256 bits of entropy, base64url-encoded to a 43-character URL-safe string.
-  return randomBytes(32).toString("base64url");
-}
 
 function rowToInvite(row: typeof a2aInvites.$inferSelect): A2aInvite {
   return { ...row, status: row.status as A2aInviteStatus };
@@ -139,11 +134,11 @@ export function createA2aInvite(params: {
 }): { invite: A2aInvite; rawToken: string } {
   const db = getDb();
   const now = Date.now();
-  const rawToken = generateToken();
+  const rawToken = generateInviteToken();
 
   const row = {
     id: randomUUID(),
-    tokenHash: hashToken(rawToken),
+    tokenHash: hashInviteToken(rawToken),
     contactId: params.contactId,
     maxUses: params.maxUses ?? 1,
     useCount: 0,
@@ -168,7 +163,7 @@ export function claimA2aInvite(params: {
   token: string;
   redeemedByExternalUserId: string;
 }): { claimed: boolean; invite: A2aInvite | null; error?: string } {
-  const tokenHash = hashToken(params.token);
+  const tokenHash = hashInviteToken(params.token);
   const invite = findByTokenHash(tokenHash);
 
   if (!invite) {
