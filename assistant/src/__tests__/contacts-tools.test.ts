@@ -186,9 +186,10 @@ describe("contact_search tool", () => {
   });
 
   test("renders a null interactionCount without a false '>0' guard or a 'null' print", async () => {
-    // Daemon-native reads fail-soft interactionCount to null on a gateway
-    // telemetry outage. The summary must neither print "Interactions: null" nor
-    // treat null as > 0 (which would emit a bogus interactions line).
+    // Defensive: the daemon-native path now defaults interactionCount to 0, but
+    // the ContactRead contract still permits null, so the tool must stay robust
+    // to a null — neither printing "Interactions: null" nor treating null as > 0
+    // (which would emit a bogus interactions line).
     searchContactsOverride = [
       {
         id: "c-blank-telemetry",

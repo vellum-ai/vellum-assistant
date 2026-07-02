@@ -357,7 +357,7 @@ describe("search_contacts route relay boundary", () => {
     expect(contacts[0].id).toBe("search-1");
   });
 
-  test("telemetry hydration is FAIL-SOFT: a throwing gateway read still returns locally-resolved contacts with null telemetry", async () => {
+  test("telemetry hydration is FAIL-SOFT: a throwing gateway read still returns locally-resolved contacts with default telemetry (0 counts, null timestamps)", async () => {
     ipcStub = (method) => {
       if (method === "contacts_list_rich") {
         throw new Error("gateway telemetry down");
@@ -367,13 +367,17 @@ describe("search_contacts route relay boundary", () => {
 
     const contacts = await searchContactsRoute({ query: "alice" });
 
-    // The query is resolved locally; the throwing telemetry overlay degrades to
-    // null rather than propagating, so the search STILL returns its local result.
+    // The query is resolved locally; the throwing telemetry overlay degrades the
+    // interaction count to 0 (never null, so callers render a real number) and
+    // the timestamps to null, so the search STILL returns its local result.
     expect(localCalls).toContain("searchContacts");
     expectOnlyIdsScopedTelemetryHydration(["search-1"]);
     expect(contacts[0].id).toBe("search-1");
     expect(
       (contacts[0] as { interactionCount?: number | null }).interactionCount,
+    ).toBe(0);
+    expect(
+      (contacts[0] as { lastInteraction?: number | null }).lastInteraction,
     ).toBeNull();
   });
 

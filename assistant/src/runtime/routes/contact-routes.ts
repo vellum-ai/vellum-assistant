@@ -160,9 +160,11 @@ function isContactType(value: string): value is ContactType {
 // serve layer (see prepareContactResponse). Interaction telemetry
 // (lastSeenAt/interactionCount/lastInteraction) is gateway-owned: relayed reads
 // carry it directly, and daemon-native reads batch-hydrate it from the gateway
-// (see hydrateTelemetryFromGateway). It degrades to null when the gateway is
-// unreachable or a daemon-found contact is absent from the gateway DB, so
-// `interactionCount` is nullable.
+// (see hydrateTelemetryFromGateway). On a gateway fail-soft the count
+// `interactionCount` defaults to 0 (never served as null, so callers render a
+// real number); the `lastSeenAt`/`lastInteraction` timestamps degrade to null.
+// The timestamp fields stay `.nullable()`; `interactionCount` is kept nullable
+// defensively for the relay path, but is never emitted null.
 const contactChannelSchema = z.object({
   id: z.string(),
   contactId: z.string(),
@@ -226,16 +228,19 @@ async function relayListContacts(limit: number, role: ContactRole | undefined) {
 
 /**
  * A daemon-native contact read whose gateway-owned interaction telemetry has
- * been overlaid. `interactionCount` widens to nullable (contact + channel level)
- * because the gateway hydration can fail-soft to null.
+ * been overlaid. `interactionCount` is a count, so it defaults to 0 on the
+ * gateway fail-soft/id-miss path (matching the gateway's NOT NULL DEFAULT 0
+ * column) — consumers never see `null` and render a real number. The
+ * `lastSeenAt`/`lastInteraction` timestamps stay nullable: a "never" timestamp
+ * is legitimately absent.
  */
 type ContactWithGatewayTelemetry = Omit<ContactWithChannels, "channels"> & {
-  interactionCount: number | null;
+  interactionCount: number;
   lastInteraction: number | null;
   channels: Array<
     ContactChannel & {
       lastSeenAt: number | null;
-      interactionCount: number | null;
+      interactionCount: number;
       lastInteraction: number | null;
     }
   >;
@@ -258,9 +263,9 @@ function channelKey(type: string, address: string): string {
  * interactionCount/lastInteraction, channel lastSeenAt) is gateway-owned — so
  * batch-fetch it via `contacts_list_rich` keyed by the filtered id set and
  * overlay it, keeping the local assistant-DB aggregation out of the served
- * payload. Fail-soft: if the gateway read fails or omits a contact, that
- * contact's telemetry degrades to null rather than falling back to the local
- * assistant-DB aggregation.
+ * payload. Fail-soft: if the gateway read fails or omits a contact, its
+ * interaction counts degrade to 0 and its timestamps to null rather than
+ * falling back to the local assistant-DB aggregation.
  */
 async function hydrateTelemetryFromGateway(
   contacts: ContactWithChannels[],
@@ -277,7 +282,7 @@ async function hydrateTelemetryFromGateway(
   } catch (err) {
     log.warn(
       { err },
-      "hydrateTelemetryFromGateway: gateway telemetry read failed; serving null telemetry",
+      "hydrateTelemetryFromGateway: gateway telemetry read failed; serving 0 counts / null timestamps",
     );
   }
 
@@ -295,7 +300,7 @@ async function hydrateTelemetryFromGateway(
     );
     return {
       ...c,
-      interactionCount: gw?.interactionCount ?? null,
+      interactionCount: gw?.interactionCount ?? 0,
       lastInteraction: gw?.lastInteraction ?? null,
       channels: c.channels.map((ch) => {
         const gwCh =
@@ -304,7 +309,7 @@ async function hydrateTelemetryFromGateway(
         return {
           ...ch,
           lastSeenAt: gwCh?.lastSeenAt ?? null,
-          interactionCount: gwCh?.interactionCount ?? null,
+          interactionCount: gwCh?.interactionCount ?? 0,
           lastInteraction: gwCh?.lastInteraction ?? null,
         };
       }),
