@@ -107,6 +107,64 @@ describe("chat-session-store — snapshot + optimistic", () => {
     expect(store().optimisticSends).toEqual([]);
   });
 
+  test("seedSnapshot drops an anchor-less fetch once the live view has folded stream events", () => {
+    // Fresh-conversation first turn: the daemon's partial-persist debounce
+    // hasn't flushed yet, so a mid-turn /messages fetch returns `seq: null`.
+    // Taking it wholesale would wipe the streamed prefix (the "vanishing
+    // prefix" flicker); the live view must be kept instead.
+    store().seedSnapshot(CONV, snapshot([], null)); // initial seed, nothing folded yet
+    store().applyEnvelopeToSnapshot(textDelta(6, CONV, "a1", "Hey"));
+    store().applyEnvelopeToSnapshot(textDelta(7, CONV, "a1", " yourself."));
+
+    store().seedSnapshot(CONV, snapshot([], null)); // anchor-less mid-turn refetch
+
+    expect(store().snapshot?.messages.find((m) => m.id === "a1")?.textSegments).toEqual([
+      "Hey yourself.",
+    ]);
+    expect(store().snapshot?.seq).toBe(7);
+  });
+
+  test("seedSnapshot still accepts an anchor-less fetch while nothing has been folded", () => {
+    store().seedSnapshot(CONV, snapshot([], null));
+    const snap = snapshot([textRow("a1", "persisted")], null);
+    store().seedSnapshot(CONV, snap); // live view exists but has no seq — fetch wins
+    expect(store().snapshot).toBe(snap);
+  });
+
+  test("anchor-less refetch mid-stream no longer drops the streamed prefix (flicker repro)", () => {
+    // Regression shape from the field: deltas fold live; an anchor-less
+    // refetch lands mid-word; more deltas follow; the turn-end anchored
+    // reseed adopts the canonical row. The transcript must show the full
+    // text at every step after the refetch — never a suffix-only bubble.
+    store().seedSnapshot(
+      CONV,
+      snapshot([{ ...textRow("u1", "hey"), role: "user" }], null),
+    );
+    store().applyEnvelopeToSnapshot(textDelta(6, CONV, "a1", "Hey"));
+    store().applyEnvelopeToSnapshot(textDelta(7, CONV, "a1", " yourself."));
+
+    // Mid-turn refetch: server still has only the user row, no anchor.
+    store().seedSnapshot(
+      CONV,
+      snapshot([{ ...textRow("u1", "hey"), role: "user" }], null),
+    );
+    store().applyEnvelopeToSnapshot(textDelta(8, CONV, "a1", " You're up."));
+
+    const live = store().snapshot?.messages.find((m) => m.id === "a1");
+    expect(live?.textSegments).toEqual(["Hey yourself. You're up."]);
+
+    // Turn-end reseed carries the persisted row and a real anchor.
+    store().seedSnapshot(
+      CONV,
+      snapshot(
+        [{ ...textRow("u1", "hey"), role: "user" }, textRow("a1", "Hey yourself. You're up.")],
+        8,
+      ),
+    );
+    const final = store().snapshot?.messages.find((m) => m.id === "a1");
+    expect(final?.textSegments).toEqual(["Hey yourself. You're up."]);
+  });
+
   test("seedSnapshot prunes optimistic sends the snapshot already represents", () => {
     // A retained attachment-carrying send (upgraded to the server id by its
     // echo) is retired once the reseeded snapshot carries the persisted row —
