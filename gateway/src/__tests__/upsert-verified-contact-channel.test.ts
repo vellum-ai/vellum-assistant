@@ -311,6 +311,30 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     expect(mirrorUpserts()).toHaveLength(1);
   });
 
+  test("Finding B: the create path shares the channel id between gateway and mirror", async () => {
+    queryRows = [];
+    // Force the insert-mirror so the gateway channel row is created here and its
+    // id is observable.
+    gwUpdateChanges = [0, 0];
+    gwSelectStatus = null;
+
+    await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550003399",
+      externalChatId: "+15550003399",
+    });
+
+    const mirror = mirrorUpserts()[0];
+    const gwChannel = gwInserts.find(
+      (i) => i.values.type === "phone" && i.values.address === "+15550003399",
+    );
+    expect(mirror).toBeTruthy();
+    expect(gwChannel).toBeTruthy();
+    // The mirror channel id equals the gateway channel id: both stores key the
+    // channel identically.
+    expect(mirror!.body.channelId).toBe(gwChannel!.values.id);
+  });
+
   test("new-insert path returns verified:false and writes nothing when gateway row is blocked", async () => {
     // No existing assistant channel, but the authoritative gateway DB already
     // has a blocked row for the same (type,address): no new active channel.
@@ -978,6 +1002,95 @@ describe("upsertContactChannel — channel address casing", () => {
 
     expect(queryCalls[0]!.sql).toContain("cc.address = ? COLLATE NOCASE");
     expect(queryCalls[0]!.params).toEqual(["slack", "U123EXAMPLE"]);
+  });
+});
+
+describe("upsertContactChannel — inbound seed identity mirror (id alignment + display refresh)", () => {
+  test("Finding B: shares the gateway-minted channel id with the mirror on create", async () => {
+    // First-seen actor: no existing mirror channel.
+    queryRows = [];
+
+    await upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "USEED1",
+      externalChatId: "DSEED1",
+      displayName: "Seed One",
+    });
+
+    // The mirror create carries the SAME channel id the gateway inserted, so
+    // both stores key the channel identically (id-keyed read-backs match).
+    const mirror = mirrorUpserts()[0];
+    expect(mirror).toBeTruthy();
+    const gwChannel = gwInserts.find(
+      (i) => i.values.type === "slack" && i.values.address === "USEED1",
+    );
+    expect(gwChannel).toBeTruthy();
+    expect(mirror!.body.channelId).toBe(gwChannel!.values.id);
+    // Inbound seed refreshes the mirror display name.
+    expect(mirror!.body.refreshDisplayName).toBe(true);
+  });
+
+  test("Finding B: a follow-up seed update targets the aligned id and persists externalChatId", async () => {
+    // The mirror row created by the first seed reads back with the SAME
+    // (gateway-aligned) channel id.
+    const alignedChannelId = "gw-aligned-ch";
+    queryRows = [
+      {
+        channelId: alignedChannelId,
+        contactId: "co-seed",
+        channelStatus: "unverified",
+      },
+    ];
+
+    await upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "USEED1",
+      externalChatId: "DSEED1-dm", // workspace seed → DM: new external chat id
+      displayName: "Seed One",
+    });
+
+    // The gateway update keys on the aligned channel id (read back from the
+    // mirror) and persists the new externalChatId. Before id-alignment the
+    // mirror minted a divergent id, so this update matched 0 gateway rows.
+    const gwUpdate = gwUpdates.find(
+      (u) =>
+        (u.set as { externalChatId?: string }).externalChatId === "DSEED1-dm",
+    );
+    expect(gwUpdate).toBeTruthy();
+    expect(gwUpdate!.where).toMatchObject({
+      op: "eq",
+      col: "id",
+      val: alignedChannelId,
+    });
+  });
+
+  test("Finding C: seed refreshes the mirror name; invite binding preserves it", async () => {
+    // Inbound seed (existing channel) → refresh flag set.
+    queryRows = [
+      { channelId: "ch-a", contactId: "co-a", channelStatus: "unverified" },
+    ];
+    await upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "UREF",
+      externalChatId: "DREF",
+      displayName: "Renamed",
+    });
+    expect(mirrorUpserts()[0]!.body.refreshDisplayName).toBe(true);
+
+    // Invite-binding (verified) path → NO refresh flag, so the primitive
+    // preserves a guardian-curated contact name.
+    mirrorCalls.length = 0;
+    queryRows = [
+      { channelId: "ch-b", contactId: "co-guardian", channelStatus: "active" },
+    ];
+    await upsertVerifiedContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "redeemer",
+      externalChatId: "redeemer",
+      verifiedVia: "invite",
+      contactId: "co-target",
+    });
+    expect(mirrorUpserts()[0]!.body.refreshDisplayName).toBeUndefined();
   });
 });
 

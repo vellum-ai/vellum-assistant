@@ -41,10 +41,21 @@ export function upsertContactChannel(params: {
   displayName?: string;
   username?: string;
   contactId?: string;
+  /** Explicit channel id for a NEW channel (identity-mirror path): reuse the
+   *  gateway-minted id so both stores key the channel identically. */
+  channelId?: string;
   /** Classification for a newly created contact (e.g. 'assistant' for bots). */
   contactType?: ContactType;
   /** Notes seeded onto a newly created contact (e.g. bot/app provenance). */
   notes?: string | null;
+  /** userFile to seed on contact CREATE only (identity-mirror stubs pass null
+   *  for a faithful null-user_file replica); ignored on update. */
+  userFileOnCreate?: string | null;
+  /** Refresh the contact display name from the supplied identity even when a
+   *  contactId is given. Used by the inbound identity-seed mirror, whose intent
+   *  is to keep the mirror name in sync with the platform profile. Defaults to
+   *  false: the invite-binding path preserves the guardian-curated name. */
+  refreshDisplayName?: boolean;
 }): ContactWriteResult | null {
   let address: string;
 
@@ -60,9 +71,10 @@ export function upsertContactChannel(params: {
   let displayName = params.displayName ?? address;
 
   // When binding a channel to a specific contact (invite redemption), preserve
-  // the target contact's curated displayName instead of overwriting it
-  // with the raw platform identity.
-  if (params.contactId) {
+  // the target contact's curated displayName instead of overwriting it with the
+  // raw platform identity. The inbound identity-seed mirror opts out
+  // (refreshDisplayName) so a changed platform profile name refreshes the row.
+  if (params.contactId && !params.refreshDisplayName) {
     const targetContact = getContact(params.contactId);
     if (targetContact?.displayName?.trim().length) {
       displayName = targetContact.displayName;
@@ -74,8 +86,10 @@ export function upsertContactChannel(params: {
     displayName,
     contactType: params.contactType,
     notes: params.notes,
+    userFileOnCreate: params.userFileOnCreate,
     channels: [
       {
+        id: params.channelId,
         type: params.sourceChannel,
         address,
         // Pass through undefined so syncChannels preserves an existing

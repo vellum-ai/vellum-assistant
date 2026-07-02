@@ -85,12 +85,14 @@ describe("contacts_mirror_upsert_channel", () => {
     const result = handleContactsMirrorUpsertChannel({
       body: {
         contactId: "co-1",
+        channelId: "ch-1",
         type: "telegram",
         address: "tg-123",
         externalChatId: "chat-9",
         displayName: "Sam",
         contactType: "assistant",
         notes: "bot provenance",
+        refreshDisplayName: true,
       },
     });
 
@@ -102,9 +104,55 @@ describe("contacts_mirror_upsert_channel", () => {
       externalChatId: "chat-9",
       displayName: "Sam",
       contactId: "co-1",
+      channelId: "ch-1",
       contactType: "assistant",
       notes: "bot provenance",
+      refreshDisplayName: true,
+      // The mirror never seeds a persona file: a mirror-created contact keeps
+      // user_file NULL (faithful replica of the gateway's raw INSERT).
+      userFileOnCreate: null,
     });
+  });
+
+  test("threads channelId + refreshDisplayName through and forces userFileOnCreate null", () => {
+    upsertContactChannelCalls.length = 0;
+    handleContactsMirrorUpsertChannel({
+      body: {
+        contactId: "co-seed",
+        channelId: "gw-ch-42",
+        type: "slack",
+        address: "U777",
+        displayName: "Renamed User",
+        refreshDisplayName: true,
+      },
+    });
+
+    const call = upsertContactChannelCalls[0] as Record<string, unknown>;
+    // Gateway-minted channel id is reused verbatim (id-alignment).
+    expect(call.channelId).toBe("gw-ch-42");
+    // Inbound seed refreshes the display name rather than preserving it.
+    expect(call.refreshDisplayName).toBe(true);
+    // Mirror-created contact keeps user_file NULL.
+    expect(call.userFileOnCreate).toBe(null);
+  });
+
+  test("defaults refreshDisplayName/channelId to undefined for the invite-binding path", () => {
+    upsertContactChannelCalls.length = 0;
+    handleContactsMirrorUpsertChannel({
+      body: {
+        contactId: "co-invite",
+        type: "telegram",
+        address: "tg-999",
+        displayName: "Redeemer Raw Name",
+      },
+    });
+
+    const call = upsertContactChannelCalls[0] as Record<string, unknown>;
+    // No refresh flag → the primitive preserves the curated contact name.
+    expect(call.refreshDisplayName).toBeUndefined();
+    expect(call.channelId).toBeUndefined();
+    // userFileOnCreate is still forced null even on the invite path.
+    expect(call.userFileOnCreate).toBe(null);
   });
 
   test("omits externalChatId when absent (COALESCE-preserving seed update)", () => {

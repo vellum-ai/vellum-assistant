@@ -745,12 +745,14 @@ export async function upsertVerifiedContactChannel(params: {
 
   // Create the assistant mirror. Idempotent under retries; ACL columns are
   // gateway-owned, so the mirror carries identity/info only and relies on the
-  // schema defaults (status='unverified', policy='allow').
+  // schema defaults (status='unverified', policy='allow'). channelId is shared
+  // so the mirror row and the gateway row key the channel identically.
   await runMirror(
     () =>
       ipcCallAssistant("contacts_mirror_upsert_channel", {
         body: {
           contactId,
+          channelId,
           type: sourceChannel,
           address,
           externalChatId,
@@ -825,7 +827,9 @@ export async function upsertContactChannel(params: {
 
     // Update identity/display fields; ACL columns (status, policy) are
     // gateway-owned and left untouched by the mirror. externalChatId is omitted
-    // when absent so the existing value is preserved.
+    // when absent so the existing value is preserved. refreshDisplayName: an
+    // inbound seed intends to sync the mirror name to the current platform
+    // profile (unlike invite binding, which preserves a curated name).
     await ipcCallAssistant("contacts_mirror_upsert_channel", {
       body: {
         contactId: row.contactId,
@@ -833,6 +837,7 @@ export async function upsertContactChannel(params: {
         address,
         externalChatId,
         displayName: contactDisplayName,
+        refreshDisplayName: true,
       },
     });
 
@@ -856,22 +861,25 @@ export async function upsertContactChannel(params: {
     return;
   }
 
-  // New contact + channel. Share the gateway-generated contact id with the
-  // mirror so both stores key the contact identically; the mirror channel id is
-  // assistant-owned. ACL columns are gateway-owned (schema defaults
-  // status='unverified', policy='allow').
+  // New contact + channel. Share BOTH the gateway-generated contact id and
+  // channel id with the mirror so the two stores key the contact and channel
+  // identically (id-keyed gateway read-backs on later seed updates match). ACL
+  // columns are gateway-owned (schema defaults status='unverified',
+  // policy='allow'); the mirror contact keeps user_file NULL.
   const contactId = crypto.randomUUID();
   const channelId = crypto.randomUUID();
 
   await ipcCallAssistant("contacts_mirror_upsert_channel", {
     body: {
       contactId,
+      channelId,
       type: sourceChannel,
       address,
       externalChatId,
       displayName: contactDisplayName,
       contactType: params.contactType ?? "human",
       notes: params.notes,
+      refreshDisplayName: true,
     },
   });
 

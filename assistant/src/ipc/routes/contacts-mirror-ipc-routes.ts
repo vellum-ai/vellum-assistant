@@ -22,6 +22,9 @@ const ContactTypeSchema = z.enum(["human", "assistant"]);
 
 const UpsertChannelParamsSchema = z.object({
   contactId: z.string().min(1).optional(),
+  // Gateway-minted channel id for a NEW channel: reused verbatim so the mirror
+  // row and the gateway row share an id (id-keyed gateway read-backs match).
+  channelId: z.string().min(1).optional(),
   type: z.string().min(1),
   address: z.string().min(1),
   // Omit to preserve an existing channel's external_chat_id; an explicit value
@@ -30,13 +33,20 @@ const UpsertChannelParamsSchema = z.object({
   displayName: z.string().optional(),
   contactType: ContactTypeSchema.optional(),
   notes: z.string().optional(),
+  // Inbound identity-seed callers set this so a changed platform profile name
+  // refreshes the mirror; invite-binding callers omit it to preserve a curated
+  // name.
+  refreshDisplayName: z.boolean().optional(),
 });
 
 /**
- * Upsert a contact + channel identity row. Shapes the gateway's verified-outcome
- * and inbound-seeding mirror writes: it re-parents a channel to the supplied
- * contact when its (type,address) currently belongs to another, refreshes the
- * channel's external_chat_id, and preserves a curated display name.
+ * Upsert a contact + channel identity row, faithfully replicating gateway
+ * identity: it reuses the gateway-minted channel id for a new channel,
+ * re-parents a channel whose (type,address) belongs to another contact,
+ * refreshes external_chat_id, and — for a mirror-created contact — leaves
+ * user_file NULL (never a generated persona-file stub). The display name is
+ * refreshed for inbound seeds (`refreshDisplayName`) and preserved for the
+ * invite-binding path.
  */
 export function handleContactsMirrorUpsertChannel({
   body = {},
@@ -48,8 +58,13 @@ export function handleContactsMirrorUpsertChannel({
     externalChatId: params.externalChatId,
     displayName: params.displayName,
     contactId: params.contactId,
+    channelId: params.channelId,
     contactType: params.contactType,
     notes: params.notes,
+    refreshDisplayName: params.refreshDisplayName,
+    // The mirror never seeds a persona file: a mirror-created contact keeps
+    // user_file NULL, matching the gateway's former raw INSERT.
+    userFileOnCreate: null,
   });
   return { ok: true };
 }
