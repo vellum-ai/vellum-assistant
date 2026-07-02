@@ -34,7 +34,11 @@ describe("buildPersonalityMessage", () => {
     expect(msg).toContain("Seriousness (0 - 100): 0");
     expect(msg).toContain("Politeness (0 - 100): 40");
     expect(msg).toContain("Unfiltered Rawness/Crassness (0 - 100): 60");
-    expect(msg).toContain("Rewrite your identity files (IDENTITY.md, SOUL.md, users/guardian.md)");
+    expect(msg).toContain("Rewrite your own identity files (IDENTITY.md and SOUL.md)");
+    // The rewrite is scoped to the assistant's own identity — the user's
+    // profile (users/guardian.md) must be preserved, not clobbered by
+    // personality text.
+    expect(msg).toContain("Do not touch users/guardian.md");
     // The instruction forces a full overwrite rather than an append, so the
     // rewrite lands the persona in the assistant's voice instead of stacking a
     // patch on top of the default text.
