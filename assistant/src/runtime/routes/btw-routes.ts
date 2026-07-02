@@ -115,7 +115,7 @@ async function handleBtw({
   ) {
     const now = readNowScratchpad();
     if (now) {
-      effectiveContent = `${effectiveContent}\n\n<context>\nUse the <turn_context> current_time above for date/time-sensitive wording; the scratchpad below is for situational notes.\n${now}\n</context>`;
+      effectiveContent = `${effectiveContent}\n\n<context>\n${now}\n</context>`;
     }
   }
 
