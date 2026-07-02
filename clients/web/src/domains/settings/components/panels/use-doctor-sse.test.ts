@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { ChatEntry } from "@/domains/settings/components/panels/doctor-history";
 import {
@@ -12,13 +12,20 @@ import {
   handleToolResult,
 } from "@/domains/settings/components/panels/doctor-event-handlers";
 import { parseDoctorEvent } from "@/domains/settings/components/panels/doctor-event-schema";
-import type { DoctorPanelContext } from "@/domains/settings/components/panels/doctor-panel-store";
+import {
+  type DoctorPanelContext,
+  useDoctorPanelStore,
+} from "@/domains/settings/components/panels/doctor-panel-store";
 
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 
 let idCounter = 0;
+
+beforeEach(() => {
+  useDoctorPanelStore.getState().resetReplayState();
+});
 
 function createMockContext(initialEntries: ChatEntry[] = []): DoctorPanelContext & {
   entries: ChatEntry[];
@@ -65,6 +72,30 @@ describe("parseDoctorEvent", () => {
   test("parses message_delta event", () => {
     const event = parseDoctorEvent(JSON.stringify({ type: "message_delta", content: "hi" }));
     expect(event).toEqual({ type: "message_delta", content: "hi" });
+  });
+
+  test("preserves optional source_event_id on replayable events", () => {
+    const event = parseDoctorEvent(
+      JSON.stringify({
+        type: "message_delta",
+        content: "hi",
+        source_event_id: "123-0",
+      }),
+    );
+
+    expect(event).toEqual({
+      type: "message_delta",
+      content: "hi",
+      source_event_id: "123-0",
+    });
+  });
+
+  test("allows legacy events without source_event_id", () => {
+    const event = parseDoctorEvent(
+      JSON.stringify({ type: "status", status: "active" }),
+    );
+
+    expect(event).toEqual({ type: "status", status: "active" });
   });
 
   test("parses message event", () => {
@@ -172,9 +203,40 @@ describe("parseDoctorEvent", () => {
     );
     expect(event).not.toBeNull();
     expect(event!.type).toBe("message_delta");
-    if (event!.type !== "message_delta") throw new Error("unreachable");
+    if (event!.type !== "message_delta") {
+      throw new Error("unreachable");
+    }
     expect(event!.content).toBe("hi");
     expect("extra" in event!).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Doctor replay state
+// ---------------------------------------------------------------------------
+
+describe("Doctor replay state", () => {
+  test("seeds latest cursor and processed IDs from persisted history", () => {
+    const store = useDoctorPanelStore.getState();
+
+    store.seedReplayState(["1-0", "2-0"], "2-0");
+
+    const state = useDoctorPanelStore.getState();
+    expect(state.latestReplayableSourceEventId).toBe("2-0");
+    expect([...state.processedSourceEventIds]).toEqual(["1-0", "2-0"]);
+  });
+
+  test("drops duplicate replay IDs before they can be applied twice", () => {
+    const store = useDoctorPanelStore.getState();
+
+    store.seedReplayState(["1-0"], "1-0");
+
+    expect(store.recordReplayableSourceEventId("1-0")).toBe(false);
+    expect(store.recordReplayableSourceEventId("2-0")).toBe(true);
+    expect(store.recordReplayableSourceEventId("2-0")).toBe(false);
+    expect(useDoctorPanelStore.getState().latestReplayableSourceEventId).toBe(
+      "2-0",
+    );
   });
 });
 
@@ -249,7 +311,9 @@ describe("handleToolCall", () => {
     expect(ctx.entries).toHaveLength(1);
     const entry = ctx.entries[0]!;
     expect(entry.kind).toBe("tool_call");
-    if (entry.kind !== "tool_call") throw new Error("unreachable");
+    if (entry.kind !== "tool_call") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.toolName).toBe("run_diag");
     expect(entry.meta.input).toEqual({ flag: true });
     expect(entry.meta.toolCallId).toBe("tc-1");
@@ -279,7 +343,9 @@ describe("handleToolResult", () => {
 
     expect(ctx.entries).toHaveLength(1);
     const entry = ctx.entries[0]!;
-    if (entry.kind !== "tool_call") throw new Error("unreachable");
+    if (entry.kind !== "tool_call") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.result).toBe("all good");
     expect(entry.meta.isError).toBe(false);
     expect(entry.meta.status).toBe("completed");
@@ -299,7 +365,9 @@ describe("handleToolResult", () => {
     handleToolResult(ctx, { toolCallId: "tc-1", content: "failed", isError: true });
 
     const entry = ctx.entries[0]!;
-    if (entry.kind !== "tool_call") throw new Error("unreachable");
+    if (entry.kind !== "tool_call") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.status).toBe("error");
     expect(entry.meta.isError).toBe(true);
   });
@@ -334,7 +402,9 @@ describe("handleApprovalRequired", () => {
     expect(ctx.entries).toHaveLength(1);
     const entry = ctx.entries[0]!;
     expect(entry.kind).toBe("approval");
-    if (entry.kind !== "approval") throw new Error("unreachable");
+    if (entry.kind !== "approval") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.toolName).toBe("exec_cmd");
     expect(entry.meta.toolCallId).toBe("ap-1");
     expect(entry.meta.description).toBe("Run ls");
@@ -356,7 +426,9 @@ describe("handleBackupPrompt", () => {
     expect(ctx.entries).toHaveLength(1);
     const entry = ctx.entries[0]!;
     expect(entry.kind).toBe("backup_prompt");
-    if (entry.kind !== "backup_prompt") throw new Error("unreachable");
+    if (entry.kind !== "backup_prompt") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.toolName).toBe("dangerous_tool");
     expect(ctx.calls.setThinking).toEqual([false]);
     expect(ctx.calls.setPendingBackup).toEqual([true]);
