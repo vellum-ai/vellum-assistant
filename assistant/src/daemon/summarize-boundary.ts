@@ -1,35 +1,23 @@
+import { isToolResultOnlyUserMessage } from "../conversations/message-consolidation.js";
 import type { MessageRow } from "../persistence/conversation-crud.js";
 import { UserError } from "../util/errors.js";
-import { isToolResultBlock } from "./conversation-history.js";
 
 /**
- * Whether a persisted message starts a new conversation turn. A turn is
- * delimited by a "real" user message; a user message whose content is entirely
- * tool_result blocks is a continuation within the current turn, and assistant
- * messages never start one. Mirrors the turn-boundary definition used by
- * `getAssistantMessageIdsInTurn`/`getTurnTimeBounds` and the agent loop's
- * per-turn `turnCount++`, so counting these reconstructs `turnCount` on load.
+ * Whether a persisted message row starts a new conversation turn. A turn is
+ * delimited by a "real" user message; assistant rows never start one, and a
+ * user row whose content is exclusively tool_result (plus optional
+ * system_notice) blocks is a continuation within the current turn — the agent
+ * loop injects system_notice text alongside tool_results, and the
+ * display/write-path consolidation suppresses those rows as continuations.
+ * The block classification is delegated to {@link isToolResultOnlyUserMessage}
+ * so this predicate stays aligned with that suppression rule. Mirrors the
+ * turn-boundary definition used by `getAssistantMessageIdsInTurn`/
+ * `getTurnTimeBounds` and the agent loop's per-turn `turnCount++`, so counting
+ * these reconstructs `turnCount` on load.
  */
-export function startsNewTurn(role: string, content: string): boolean {
-  if (role !== "user") return false;
-  try {
-    const parsed = JSON.parse(content);
-    if (
-      Array.isArray(parsed) &&
-      parsed.length > 0 &&
-      parsed.every(
-        (block: unknown) =>
-          block != null &&
-          typeof block === "object" &&
-          isToolResultBlock(block as Record<string, unknown>),
-      )
-    ) {
-      return false;
-    }
-  } catch {
-    // Non-JSON content is a plain user message — a turn boundary.
-  }
-  return true;
+export function startsNewTurn(msg: MessageRow): boolean {
+  if (msg.role !== "user") return false;
+  return !isToolResultOnlyUserMessage(msg);
 }
 
 /**
@@ -59,10 +47,7 @@ export function resolveSummarizeBoundary(
   }
 
   let snappedIndex = targetIndex;
-  while (
-    snappedIndex >= 0 &&
-    !startsNewTurn(rows[snappedIndex].role, rows[snappedIndex].content)
-  ) {
+  while (snappedIndex >= 0 && !startsNewTurn(rows[snappedIndex])) {
     snappedIndex--;
   }
 
