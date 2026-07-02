@@ -31,7 +31,6 @@ import {
   updateSessionDelivery as storeUpdateSessionDelivery,
   updateSessionStatus as storeUpdateSessionStatus,
 } from "../channels/channel-verification-sessions.js";
-import { revokeGuardianBinding } from "../contacts/contacts-write.js";
 import {
   getGuardianDelivery,
   getGuardianDeliveryFresh,
@@ -394,13 +393,6 @@ export async function isGuardian(
   if (!delivery) return false;
 
   return delivery.address.toLowerCase() === address.toLowerCase();
-}
-
-/**
- * Revoke the active guardian binding for a given assistant and channel.
- */
-export function revokeBinding(assistantId: string, channel: string): boolean {
-  return revokeGuardianBinding(channel);
 }
 
 /**
