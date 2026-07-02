@@ -1216,26 +1216,38 @@ export function getSlackCompactionWatermarkForPrefix(
  * keeps the watermark monotonic: a summarize range whose Slack rows all sit
  * at or before the existing watermark is already excluded from the
  * projection, so persisting nothing is correct.
+ *
+ * Row order is not guaranteed to match Slack channel order (late-delivered
+ * rows), so a kept-tail row past the boundary can carry an OLDER `channelTs`
+ * than the prefix max. Advancing anyway would drop that row from every
+ * future projection (`isSlackTsAfter` keeps strictly-after) while the
+ * summary doesn't cover it either — silent loss. When any kept row's
+ * `channelTs` sits at or before the candidate, the advance is skipped
+ * entirely, degrading to bounded duplication of already-summarized rows: the
+ * conservative direction.
  */
 export function getSlackWatermarkAdvanceForRowPrefix(
   rows: MessageRow[],
   endExclusive: number,
   existingWatermarkTs: string | null,
 ): string | null {
-  const ts = maxSlackTs(
-    rows.slice(0, endExclusive).map(
-      (row) =>
-        readSlackMetadataFromMessageMetadata(row.metadata, {
-          allowFlatLegacy: true,
-        })?.channelTs ?? null,
-    ),
-  );
+  const channelTsForRow = (row: MessageRow): string | null =>
+    readSlackMetadataFromMessageMetadata(row.metadata, {
+      allowFlatLegacy: true,
+    })?.channelTs ?? null;
+  const ts = maxSlackTs(rows.slice(0, endExclusive).map(channelTsForRow));
   if (ts === null) return null;
   if (
     existingWatermarkTs !== null &&
     !isSlackTsAfter(ts, existingWatermarkTs)
   ) {
     return null;
+  }
+  for (const row of rows.slice(endExclusive)) {
+    const keptTs = channelTsForRow(row);
+    if (keptTs !== null && !isSlackTsAfter(keptTs, ts)) {
+      return null;
+    }
   }
   return ts;
 }
