@@ -304,6 +304,26 @@ function isStructuralContextSummaryHead(message: Message | undefined): boolean {
   );
 }
 
+/**
+ * Length of the leading synthetic span of `messages`: the summary and
+ * retained-images messages minted by conversation rehydration or a prior
+ * compaction pass, detected by WeakSet identity with a structural-marker
+ * fallback for wrappers rebuilt by history repair. See
+ * {@link ContextWindowManager.resolveNonPersistedPrefixCount} for why the
+ * structural fallback's false-positive direction is conservative.
+ */
+function countSyntheticHead(messages: Message[]): number {
+  let syntheticHead = 0;
+  while (
+    syntheticHead < messages.length &&
+    (isStructuralContextSummaryHead(messages[syntheticHead]) ||
+      isSyntheticCompactionMessage(messages[syntheticHead]))
+  ) {
+    syntheticHead++;
+  }
+  return syntheticHead;
+}
+
 // ---------------------------------------------------------------------------
 // ContextWindowManager
 // ---------------------------------------------------------------------------
@@ -750,7 +770,7 @@ export class ContextWindowManager {
       if (!result.compacted) return result;
       return {
         ...result,
-        estimatedInputTokens: this.settleCompactionAttempt(result),
+        estimatedInputTokens: this.settleCompactionAttempt(result, messages),
       };
     }
 
@@ -781,7 +801,7 @@ export class ContextWindowManager {
     // messages, summary failed, disabled mid-way). Nothing to retry.
     if (!result.compacted) return result;
 
-    let estimatedInputTokens = this.settleCompactionAttempt(result);
+    let estimatedInputTokens = this.settleCompactionAttempt(result, messages);
 
     // If a single pass already cleared the auto-threshold, ship it.
     if (estimatedInputTokens < thresholdTokens) {
@@ -815,7 +835,10 @@ export class ContextWindowManager {
         ),
       });
       if (!nextResult.compacted) break;
-      const nextEstimate = this.settleCompactionAttempt(nextResult);
+      const nextEstimate = this.settleCompactionAttempt(
+        nextResult,
+        result.messages,
+      );
       result = mergeCompactionResults(result, nextResult);
       estimatedInputTokens = nextEstimate;
       if (estimatedInputTokens < thresholdTokens) {
@@ -869,7 +892,12 @@ export class ContextWindowManager {
     });
     // A productive emergency pass rebuilds the history front just like the
     // ordinary path, so it consumes the same non-persisted prefix bookkeeping.
-    if (result.compacted) this.consumeCompactionState(result.compactedMessages);
+    if (result.compacted) {
+      this.consumeCompactionState(
+        result.compactedMessages,
+        countSyntheticHead(messages),
+      );
+    }
     return result;
   }
 
@@ -919,14 +947,7 @@ export class ContextWindowManager {
    * already attributes correctly.
    */
   private resolveNonPersistedPrefixCount(messages: Message[]): number {
-    let syntheticHead = 0;
-    while (
-      syntheticHead < messages.length &&
-      (isStructuralContextSummaryHead(messages[syntheticHead]) ||
-        isSyntheticCompactionMessage(messages[syntheticHead]))
-    ) {
-      syntheticHead++;
-    }
+    const syntheticHead = countSyntheticHead(messages);
     if (this._seedLeadsHistory) {
       // The seeded prefix still heads the history, so any synthetic head the
       // walk found is the seed's own inherited summary — already inside the
@@ -942,15 +963,23 @@ export class ContextWindowManager {
   /**
    * Post-pass bookkeeping shared by every productive compaction attempt:
    * recompute the prompt estimate against the rebuilt history and settle
-   * the non-persisted prefix count the pass consumed. Returns the fresh
-   * estimate.
+   * the non-persisted prefix count the pass consumed. `passInputMessages` is
+   * the history the pass compacted FROM — its synthetic-head length tells
+   * the consume step which compacted positions were head, not seed. Returns
+   * the fresh estimate.
    */
-  private settleCompactionAttempt(result: ContextWindowResult): number {
+  private settleCompactionAttempt(
+    result: ContextWindowResult,
+    passInputMessages: Message[],
+  ): number {
     const estimatedInputTokens = this.recomputePostCompactionEstimate(
       result.messages,
       result.estimatedInputTokens,
     );
-    this.consumeCompactionState(result.compactedMessages);
+    this.consumeCompactionState(
+      result.compactedMessages,
+      countSyntheticHead(passInputMessages),
+    );
     return estimatedInputTokens;
   }
 
@@ -958,21 +987,29 @@ export class ContextWindowManager {
    * Decrement the non-persisted prefix bookkeeping after a productive
    * compaction. Called once per successful internal attempt so multi-attempt
    * runs keep the count honest as the leading injected messages get folded
-   * into the summary.
+   * into the summary. `syntheticHeadCount` is the synthetic-head length of
+   * the pass's input history.
    */
-  private consumeCompactionState(compactedMessages: number): void {
+  private consumeCompactionState(
+    compactedMessages: number,
+    syntheticHeadCount: number,
+  ): void {
+    // While the seed leads the history, every compacted leading position is
+    // a seed message (the seed subsumes its own inherited summary head). In
+    // the disjoint regime — [minted head, remaining seed, rows] — the leading
+    // syntheticHeadCount compacted positions are the head, so only positions
+    // past it charge the seed.
+    const seedMessagesCompacted = this._seedLeadsHistory
+      ? compactedMessages
+      : Math.max(0, compactedMessages - syntheticHeadCount);
     if (compactedMessages > 0) {
       // The pass rebuilt the history front with a minted summary head, so any
       // remaining seed now sits behind that head rather than at index 0.
       this._seedLeadsHistory = false;
     }
-    const compactedAway = Math.min(
-      this._nonPersistedPrefixCount,
-      compactedMessages,
-    );
     this._nonPersistedPrefixCount = Math.max(
       0,
-      this._nonPersistedPrefixCount - compactedAway,
+      this._nonPersistedPrefixCount - seedMessagesCompacted,
     );
   }
 }

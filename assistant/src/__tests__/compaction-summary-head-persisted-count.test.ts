@@ -358,6 +358,54 @@ describe("compactedPersistedMessages excludes the synthetic summary head", () =>
     expect(second.compactedPersistedMessages).toBe(2);
   });
 
+  test("a pass that compacts only the minted head leaves the remaining seed intact", async () => {
+    // GIVEN a fork in the disjoint regime — [minted head, remaining seed,
+    // rows] — with exactly one seeded message left
+    const messages: Message[] = [
+      createContextSummaryMessage("Inherited summary from the parent."),
+      userTurn(0, "inherited user context with no DB row"),
+      userTurn(1, "Alice's first persisted message"),
+      assistantTurn(2, "assistant replies"),
+      userTurn(3, "Alice follows up"),
+      assistantTurn(4, "assistant replies again"),
+    ];
+    const manager = buildManager(
+      makeProvider([FIXED_RESPONSE, FIXED_RESPONSE, FIXED_RESPONSE]),
+    );
+    manager.seedNonPersistedPrefix(2);
+    // First pass consumes the seed's inherited summary head, entering the
+    // disjoint regime with 1 seeded message behind a freshly minted head
+    const first = await manager.maybeCompact(messages, undefined, {
+      fixedTailStartIndex: 1,
+    });
+    expect(first.compacted).toBe(true);
+    expect(manager.nonPersistedPrefixCount).toBe(1);
+
+    // WHEN a pass compacts ONLY the minted head (cut at the seeded user
+    // message, history index 1) — no seed message is folded away
+    const second = await manager.maybeCompact(first.messages, undefined, {
+      fixedTailStartIndex: 1,
+    });
+
+    // THEN the head position is not charged against the seed
+    expect(second.compacted).toBe(true);
+    expect(second.compactedMessages).toBe(1);
+    expect(second.compactedPersistedMessages).toBe(0);
+    expect(manager.nonPersistedPrefixCount).toBe(1);
+
+    // AND the next pass still counts minted head + surviving seed as the
+    // non-persisted lead: compacting [head, seed, rows 1-2] (cut at row 3,
+    // history index 4) yields exactly 2 persisted rows — an over-consumed
+    // seed would report 3 and slice a kept row out on reload
+    const third = await manager.maybeCompact(second.messages, undefined, {
+      fixedTailStartIndex: 4,
+    });
+    expect(third.compacted).toBe(true);
+    expect(third.compactedMessages).toBe(4);
+    expect(third.compactedPersistedMessages).toBe(2);
+    expect(manager.nonPersistedPrefixCount).toBe(0);
+  });
+
   test("emergency compaction over a rehydrated summary head", async () => {
     // GIVEN a mid-turn overflow history led by a rehydrated summary head,
     // with the last tool pair anchoring the emergency split at index 2

@@ -638,6 +638,36 @@ describe("Conversation.summarizeUpToMessage", () => {
     expect(conversation.slackContextCompactionWatermarkTs).toBe("1000.000400");
   });
 
+  test("Slack: no watermark advance when a kept-tail row's channelTs falls behind the prefix max", async () => {
+    // Row order ≠ Slack channel order: the kept row m4 was delivered late,
+    // carrying an older channelTs (1000.000350) than the summarized prefix's
+    // max (m3's 1000.000400). Advancing the watermark to the prefix max
+    // would exclude m4 from every future projection while the summary does
+    // not cover it either — skip the advance and accept bounded duplication.
+    mockDbMessages = [
+      slackRow("m0", "user", "u1", "1000.000100"),
+      slackRow("m1", "assistant", "a1", "1000.000200"),
+      slackRow("m2", "user", "u2", "1000.000300"),
+      slackRow("m3", "assistant", "a2", "1000.000400"),
+      slackRow("m4", "user", "u3", "1000.000350"),
+      slackRow("m5", "assistant", "a3", "1000.000600"),
+    ];
+    const conversation = makeConversation();
+    conversation.setChannelCapabilities(slackCapabilities);
+    mockCompactResult = {
+      ...makeNoopResult(),
+      compacted: true,
+      compactedMessages: 4,
+      compactedPersistedMessages: 4,
+      summaryText: "slack summary",
+    };
+
+    await conversation.summarizeUpToMessage("m4");
+
+    expect(slackWatermarkCalls).toHaveLength(0);
+    expect(conversation.slackContextCompactionWatermarkTs).toBeNull();
+  });
+
   test("non-Slack conversations persist no watermark on a fixed-boundary run", async () => {
     mockCompactResult = {
       ...makeNoopResult(),
