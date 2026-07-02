@@ -41,6 +41,18 @@ describe("PluginIcon", () => {
     expect(container.textContent).toBe("🚀");
   });
 
+  test("retries the image when iconSrc changes after a failure", () => {
+    const { container, rerender } = render(
+      <PluginIcon iconSrc="/a.png" icon="🚀" />,
+    );
+    fireEvent.error(container.querySelector("img")!);
+    expect(container.querySelector("img")).toBeNull();
+    rerender(<PluginIcon iconSrc="/b.png" icon="🚀" />);
+    const img = container.querySelector("img");
+    expect(img).not.toBeNull();
+    expect(img!.getAttribute("src")).toBe("/b.png");
+  });
+
   test("falls back to 📦 when the image errors, no icon, external", () => {
     const { container } = render(<PluginIcon iconSrc="/x.png" external />);
     fireEvent.error(container.querySelector("img")!);

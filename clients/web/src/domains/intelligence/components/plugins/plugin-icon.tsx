@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { cn } from "@/utils/misc";
 
@@ -31,6 +31,12 @@ export function PluginIcon({
   className,
 }: PluginIconProps) {
   const [imageFailed, setImageFailed] = useState(false);
+  // Retry the image when the source changes (e.g. a new icon URL or a
+  // cache-busting version) so a past failure doesn't pin a reused instance
+  // to the fallback.
+  useEffect(() => {
+    setImageFailed(false);
+  }, [iconSrc]);
   const glyph = icon || (external ? "\u{1F4E6}" : "\u{1F9E9}");
   const showImage = Boolean(iconSrc) && !imageFailed;
 
