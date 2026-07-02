@@ -11,13 +11,15 @@
  * change, so it must stay hidden until the active assistant is known to support
  * it — gated on the identity store's resolved version, conservative on unknown.
  *
- * TODO(version): MIN_VERSION is a near-future placeholder above the 0.10.4
- * send-path release. Bump it to the exact assistant release that ships
- * `PUT /conversations/:id/enabledplugins` once cut.
+ * TODO(version): MIN_VERSION is temporarily set to the current in-development
+ * version (0.10.4) so the pill is visible on feature-branch builds before this
+ * ships. When the release that ships `PUT /conversations/:id/enabledplugins` is
+ * cut, bump the monorepo version and set MIN_VERSION to that exact release so
+ * the pill stays hidden on older daemons that lack the route/GET serialization.
  */
 import { useAssistantSupports } from "./utils";
 
-export const MIN_VERSION = "0.10.5";
+export const MIN_VERSION = "0.10.4";
 
 /**
  * Returns `true` when the active assistant exposes the standalone
