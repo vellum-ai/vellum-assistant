@@ -98,7 +98,9 @@ function streamTextDeltas(deltas: readonly string[]): string[] {
   let textBuffer = "";
   for (const delta of deltas) {
     textBuffer += delta;
-    if (couldBePlaceholderSentinelPrefix(textBuffer)) continue;
+    if (couldBePlaceholderSentinelPrefix(textBuffer)) {
+      continue;
+    }
     emitted.push(textBuffer);
     textBuffer = "";
   }

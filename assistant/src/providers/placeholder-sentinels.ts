@@ -32,7 +32,9 @@ const PLACEHOLDER_SENTINEL_BARE: ReadonlySet<string> = new Set(
 // control-stripping proxy can leave in its place.
 function stripLeadingEdgeNoise(text: string): string {
   let start = 0;
-  while (start < text.length && text.charCodeAt(start) <= 0x20) start += 1;
+  while (start < text.length && text.charCodeAt(start) <= 0x20) {
+    start += 1;
+  }
   return text.slice(start);
 }
 
@@ -40,7 +42,9 @@ function stripLeadingEdgeNoise(text: string): string {
 function stripSentinelEdgeNoise(text: string): string {
   const lead = stripLeadingEdgeNoise(text);
   let end = lead.length;
-  while (end > 0 && lead.charCodeAt(end - 1) <= 0x20) end -= 1;
+  while (end > 0 && lead.charCodeAt(end - 1) <= 0x20) {
+    end -= 1;
+  }
   return lead.slice(0, end);
 }
 
