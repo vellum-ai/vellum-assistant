@@ -67,7 +67,7 @@ function relPosix(file: string): string {
 
 // A static/dynamic import of the proxy module, or a direct db_proxy IPC call.
 const IMPORTS_PROXY =
-  /(?:from|import)\s*\(?\s*["'][^"']*assistant-db-proxy(?:\.js)?["']/;
+  /(?:from|import)\s*\(?\s*["'`][^"'`]*assistant-db-proxy(?:\.js)?["'`]/;
 // Matches either raw-SQL bridge method (`db_proxy` / `db_proxy_transaction`) by
 // the quoted method name itself — single, double, OR backtick quotes —
 // independent of the callee identifier, so aliasing `ipcCallAssistant`, stashing
@@ -114,6 +114,10 @@ describe("db_proxy caller allowlist guard", () => {
     ).toBe(true);
     expect(
       usesDbProxy(`const m = await import("./db/assistant-db-proxy.js");`),
+    ).toBe(true);
+    // Template-literal module specifiers are caught too.
+    expect(
+      usesDbProxy("const m = await import(`./db/assistant-db-proxy.js`);"),
     ).toBe(true);
     expect(usesDbProxy(`await ipcCallAssistant("db_proxy", { sql });`)).toBe(
       true,
