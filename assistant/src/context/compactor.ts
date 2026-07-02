@@ -22,7 +22,6 @@ import { optimizeImageForTransport } from "../agent/image-optimize.js";
 import type { CompactionConfig } from "../config/schemas/compaction.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { filterMessagesForUntrustedActor } from "../daemon/message-provenance.js";
-import { stripHistoricalWebSearchResults } from "../daemon/web-search-history.js";
 import {
   getAttachmentContent,
   getAttachmentMetadataForMessage,
@@ -40,6 +39,7 @@ import type {
 import { type TrustClass } from "../runtime/actor-trust-resolver.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
 import { getLogger } from "../util/logger.js";
+import { preModelCallSanitize } from "./outbound-sanitize.js";
 import { stripInjectionsForCompaction } from "./strip-injections.js";
 import {
   estimatePromptTokens,
@@ -826,14 +826,20 @@ function extractTextFromResponse(content: ContentBlock[]): string {
     .join("\n");
 }
 
-// Build the outbound message list for a compaction provider call: convert
-// historical web_search_tool_result blocks to text, then append the
-// summarization instruction at the tail.
+// Build the outbound message list for a compaction provider call: apply the
+// same pre-send sanitization bundle as the agent loop's model calls
+// (`preModelCallSanitize` — old tool-result media stripped, AX trees
+// collapsed, historical web-search results converted to text), then append
+// the summarization instruction at the tail.
 //
-// Anthropic's opaque `encrypted_content` tokens are route-scoped and expire, so
-// replaying a stale one is rejected with `Invalid encrypted_content in
-// search_result block`. Sanitizing here — the single seam every compaction
-// provider call funnels through — keeps that error away from both the
+// Matching the loop's projection matters for two reasons. First, the summary
+// call's prefix stays byte-aligned with the agent's warm prompt cache — an
+// unsanitized history diverges from what the loop actually sent at the first
+// stripped block. Second, an unsanitized history carries every screenshot in
+// the conversation; enough images cross Anthropic's many-image threshold,
+// where a stricter per-image dimension cap applies and a single large
+// screenshot rejects the whole summary call. Sanitizing here — the single
+// seam every compaction provider call funnels through — covers both the
 // assistant-driven and emergency summarization calls. Only this outbound copy
 // is sanitized; tail resolution and the persisted compaction result read the
 // caller's original messages, so durable history keeps the rich blocks. The
@@ -842,7 +848,7 @@ function buildCompactionRequest(
   history: Message[],
   instruction: Message,
 ): Message[] {
-  return [...stripHistoricalWebSearchResults(history).messages, instruction];
+  return [...preModelCallSanitize(history), instruction];
 }
 
 // Token headroom a compaction summary call reserves on top of its history: room
@@ -945,11 +951,14 @@ export async function runAssistantDrivenCompaction(
   // Bound the summary call's own input to the context window. With no tool
   // pair to anchor an emergency split, an overflow recovery routes the full
   // history straight here, so the summary call must front-truncate itself or
-  // it overflows in turn. `args.messages` stays intact for tail resolution
-  // below — only the outbound request is truncated. A below-budget history is
-  // returned untouched, keeping the prefix aligned with the agent's warm cache.
+  // it overflows in turn. Truncation operates on the sanitized projection
+  // (what the request actually carries) so the budget estimate is honest —
+  // estimating on raw history would count media bytes the request strips.
+  // `args.messages` stays intact for tail resolution below — only the
+  // outbound request is truncated. A below-budget history is returned
+  // untouched, keeping the prefix aligned with the agent's warm cache.
   const summaryHistory = truncateHistoryToBudget({
-    messages: args.messages,
+    messages: preModelCallSanitize(args.messages),
     systemPrompt: args.systemPrompt,
     budgetTokens: compactionPrefixBudget(args.maxInputTokens),
     providerName: args.provider.tokenEstimationProvider ?? args.provider.name,
@@ -1371,9 +1380,14 @@ export async function runEmergencyCompaction(
   );
   // Bound the prefix to the context window so the summary call fits, reserving
   // budget for the instruction message and the emitted summary. Truncates from
-  // the front, keeping the recent portion the summary most needs.
+  // the front, keeping the recent portion the summary most needs. The prefix
+  // is sliced from the sanitized projection (sanitize-then-slice, matching the
+  // agent's own sends byte-for-byte for cache alignment) so the budget
+  // estimate counts what the request actually carries. All sanitize
+  // transforms are 1:1 per message, so `splitIndex` maps onto the sanitized
+  // array unchanged.
   const prefix = truncateHistoryToBudget({
-    messages: args.messages.slice(0, splitIndex),
+    messages: preModelCallSanitize(args.messages).slice(0, splitIndex),
     systemPrompt: args.systemPrompt,
     budgetTokens: compactionPrefixBudget(args.maxInputTokens),
     providerName: args.provider.tokenEstimationProvider ?? args.provider.name,
