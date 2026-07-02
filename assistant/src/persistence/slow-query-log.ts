@@ -64,47 +64,9 @@ export interface SlowQueryEvent {
   label?: string;
 }
 
-/**
- * `check_name` for slow-query telemetry events. Stable so downstream grouping
- * stays consistent; keep it in sync with any admin query.
- */
-export const SLOW_QUERY_CHECK_NAME = "slow_sqlite_query";
-
-type SlowQuerySink = (event: SlowQueryEvent) => void;
-
-let telemetrySink: SlowQuerySink | undefined;
-
-/**
- * Register a best-effort telemetry sink invoked for every slow query (in
- * addition to the WARN log), or clear it with `undefined`.
- *
- * Wired at daemon startup from {@link ./slow-query-telemetry}, deliberately kept
- * out of this module: recording a watchdog event needs the telemetry store,
- * which imports `db-connection`, which imports this file — a static import here
- * would form a cycle. Injecting the sink from a module outside that chain keeps
- * this file dependency-light and free of dynamic imports.
- */
-export function setSlowQueryTelemetrySink(
-  sink: SlowQuerySink | undefined,
-): void {
-  telemetrySink = sink;
-}
-
-/**
- * Log a slow statement execution at WARN with its SQL and duration, and forward
- * it to the registered telemetry sink (if any). Only ever called on the slow
- * path. Sink failures are swallowed — telemetry must never escape the timed
- * section or mask the query result.
- */
+/** Log a slow statement execution at WARN with its SQL and duration. */
 export function reportSlowQuery(event: SlowQueryEvent): void {
   log.warn(event, "Slow SQLite query blocked the event loop");
-  if (telemetrySink) {
-    try {
-      telemetrySink(event);
-    } catch {
-      // Best-effort — a telemetry failure must not affect the query path.
-    }
-  }
 }
 
 /** Injectable seams so the wrapper is unit-testable with a fake clock/sink. */

@@ -33,7 +33,6 @@
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 
 import { getLogsSqlite, getMemorySqlite, getSqlite } from "./db-connection.js";
-import type { LabeledQueries } from "./slow-query-log.js";
 
 type SqlParam = SQLQueryBindings;
 
@@ -45,30 +44,9 @@ type SqlParam = SQLQueryBindings;
 // `wrapSqliteForSlowQueryLogging`, which times each `.get()/.all()/.run()`
 // execution and logs the slow ones. Each helper takes a required `label` first
 // argument — a short `domain:operation` attribution tag (e.g.
-// `"schedule:claimDue"`) — so a slow raw query names its call site in the log,
-// not just its SQL. The wrapper does the timing; these helpers only route the
-// label through `.label()`.
-//
-// `.label()` allocates a fresh handle per call, so the labeled handle is cached
-// per (connection, label) to keep the hot path allocation-free. The cache is
-// keyed weakly on the connection, so a reset/reopened connection transparently
-// drops its stale handles.
-
-const labeledHandles = new WeakMap<Database, Map<string, LabeledQueries>>();
-
-function labeled(conn: Database, label: string): LabeledQueries {
-  let byLabel = labeledHandles.get(conn);
-  if (!byLabel) {
-    byLabel = new Map();
-    labeledHandles.set(conn, byLabel);
-  }
-  let handle = byLabel.get(label);
-  if (!handle) {
-    handle = conn.label(label);
-    byLabel.set(label, handle);
-  }
-  return handle;
-}
+// `"schedule:claimDue"`) — routed through `.label()` so a slow raw query names
+// its call site in the log, not just its SQL. The wrapper caches the timed proxy
+// per (statement, label), so repeated calls stay allocation-light.
 
 /** Execute a raw SQL query and return a single typed row, or null if no match. */
 export function rawGet<T>(
@@ -77,7 +55,8 @@ export function rawGet<T>(
   ...params: SqlParam[]
 ): T | null {
   return (
-    (labeled(getSqlite(), label)
+    (getSqlite()
+      .label(label)
       .query(sql)
       .get(...params) as T) ?? null
   );
@@ -89,7 +68,8 @@ export function rawAll<T>(
   sql: string,
   ...params: SqlParam[]
 ): T[] {
-  return labeled(getSqlite(), label)
+  return getSqlite()
+    .label(label)
     .query(sql)
     .all(...params) as T[];
 }
@@ -103,7 +83,8 @@ export function rawRun(
   sql: string,
   ...params: SqlParam[]
 ): number {
-  labeled(getSqlite(), label)
+  getSqlite()
+    .label(label)
     .query(sql)
     .run(...params);
   return rawChanges();
@@ -148,7 +129,8 @@ export function rawMemoryAll<T>(
   sql: string,
   ...params: SqlParam[]
 ): T[] {
-  return labeled(memorySqlite(), label)
+  return memorySqlite()
+    .label(label)
     .query(sql)
     .all(...params) as T[];
 }
@@ -160,7 +142,8 @@ export function rawMemoryRun(
   ...params: SqlParam[]
 ): number {
   const sqlite = memorySqlite();
-  labeled(sqlite, label)
+  sqlite
+    .label(label)
     .query(sql)
     .run(...params);
   return (sqlite.query("SELECT changes() AS c").get() as { c: number }).c;
@@ -179,7 +162,8 @@ export function rawLogsRun(
   ...params: SqlParam[]
 ): number {
   const sqlite = logsSqlite();
-  labeled(sqlite, label)
+  sqlite
+    .label(label)
     .query(sql)
     .run(...params);
   return (sqlite.query("SELECT changes() AS c").get() as { c: number }).c;
