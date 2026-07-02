@@ -16,6 +16,7 @@ import type { AuthContext } from "../../runtime/auth/types.js";
 import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { unwrapExternalContentForDisplay } from "../../security/untrusted-content.js";
 import { getLogger } from "../../util/logger.js";
+import { joinWithSpacing } from "../../util/text-spacing.js";
 import { estimateBase64Bytes } from "../assistant-attachments.js";
 import type { ConversationTransportMetadata } from "../message-protocol.js";
 import type { TrustContext } from "../trust-context.js";
@@ -329,29 +330,6 @@ export function renderHistoryContent(
   // attachment-ref order; otherwise the file block contributes no block.
   const contentBlocks: ConversationContentBlock[] = [];
   let currentTextBlock: { type: "text"; text: string } | null = null;
-
-  function joinWithSpacing(parts: string[]): string {
-    let result = parts[0] ?? "";
-    for (let i = 1; i < parts.length; i++) {
-      const prev = result[result.length - 1];
-      const next = parts[i][0];
-      // Only insert a space when neither side already has whitespace
-      if (
-        prev &&
-        next &&
-        prev !== " " &&
-        prev !== "\n" &&
-        prev !== "\t" &&
-        next !== " " &&
-        next !== "\n" &&
-        next !== "\t"
-      ) {
-        result += " ";
-      }
-      result += parts[i];
-    }
-    return result;
-  }
 
   function finalizeSegment(): void {
     if (hasOpenSegment) {
