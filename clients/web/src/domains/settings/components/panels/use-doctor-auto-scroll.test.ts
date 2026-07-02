@@ -1,19 +1,16 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /**
- * Tests for the Doctor panel auto-scroll coordinator.
+ * Tests for the Doctor panel auto-scroll coordinator (`useDoctorAutoScroll`).
  *
- * Regression target: the previous implementation force-scrolled on every
- * streaming `message_delta` with no escape hatch, so on mobile (Android
- * web) the viewport snapped back to the bottom mid-drag with no way to
- * read earlier content until the response finished. These tests pin the
- * new contract:
+ * Pins the coordinator's contract:
  *   1. While pinned to the bottom, streaming growth auto-scrolls.
  *   2. Once the user scrolls away from the bottom, growth stops
  *      auto-scrolling and the "Go to Newest" affordance surfaces.
  *   3. `scrollToLatest()` re-pins and re-engages auto-follow.
- *   4. The listener attaches lazily when the element appears (the
- *      messages div is absent in the idle/loading branches), so dragging
- *      away still un-pins in the normal start-from-idle flow.
+ *   4. The scroll listener attaches lazily when the element appears
+ *      (the messages div is absent in the idle/loading branches).
+ *   5. Pinned state resets when a new scroll element attaches.
+ *   6. Catch-up during an active stream keeps auto-follow engaged.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
