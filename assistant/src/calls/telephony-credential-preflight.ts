@@ -126,22 +126,36 @@ function ttsGap(
   providerId: string,
   reason: TelephonyTtsNotPlayableReason,
 ): { gap: TelephonyCredentialGap; clause: string } {
-  if (reason === "missing-credentials") {
-    return {
-      gap: {
-        kind: "tts",
-        providerId,
-        reason: `TTS provider "${providerId}" is missing credentials and no playable fallback provider is available`,
-      },
-      clause: `an API key for the text-to-speech provider "${providerId}" (no fallback provider has usable credentials)`,
-    };
+  switch (reason) {
+    case "missing-credentials": {
+      return {
+        gap: {
+          kind: "tts",
+          providerId,
+          reason: `TTS provider "${providerId}" is missing credentials and no playable fallback provider is available`,
+        },
+        clause: `an API key for the text-to-speech provider "${providerId}" (no fallback provider has usable credentials)`,
+      };
+    }
+    case "missing-fish-audio-reference-id": {
+      return {
+        gap: {
+          kind: "tts",
+          providerId,
+          reason: `TTS provider "${providerId}" has no Fish Audio reference ID configured (services.tts.providers.fish-audio.referenceId) and no playable fallback provider is available`,
+        },
+        clause: `a Fish Audio voice reference ID for the text-to-speech provider "${providerId}" (set services.tts.providers.fish-audio.referenceId; no fallback provider is usable)`,
+      };
+    }
+    case "unsupported-format": {
+      return {
+        gap: {
+          kind: "tts",
+          providerId,
+          reason: `TTS provider "${providerId}" cannot produce media-stream-playable audio and no playable fallback provider is available`,
+        },
+        clause: `a text-to-speech provider that can produce call audio (the configured "${providerId}" cannot, and no fallback provider is usable)`,
+      };
+    }
   }
-  return {
-    gap: {
-      kind: "tts",
-      providerId,
-      reason: `TTS provider "${providerId}" cannot produce media-stream-playable audio and no playable fallback provider is available`,
-    },
-    clause: `a text-to-speech provider that can produce call audio (the configured "${providerId}" cannot, and no fallback provider is usable)`,
-  };
 }

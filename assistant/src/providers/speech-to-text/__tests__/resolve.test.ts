@@ -880,4 +880,64 @@ describe("resolveStreamingTranscriber diarize preference", () => {
     expect(transcriber).toBeNull();
     expect(xaiCtorCalls).toHaveLength(0);
   });
+
+  // -------------------------------------------------------------------------
+  // Utterance-boundary finals (telephony)
+  // -------------------------------------------------------------------------
+
+  test("utteranceBoundaryFinals with xai returns null with a warning (per-segment finals cannot be boundary-gated)", async () => {
+    mockProviderKeys["xai"] = "xai-key";
+    mockConfig = buildConfig({ provider: "xai" });
+
+    const transcriber = await resolveStreamingTranscriber({
+      utteranceBoundaryFinals: true,
+    });
+
+    expect(transcriber).toBeNull();
+    expect(xaiCtorCalls).toHaveLength(0);
+    expect(loggerWarnings).toHaveLength(1);
+    expect(loggerWarnings[0]!.message).toContain("per-segment finals");
+    expect(
+      (loggerWarnings[0]!.data as { providerId?: unknown }).providerId,
+    ).toBe("xai");
+  });
+
+  test("utteranceBoundaryFinals with Deepgram forwards the gating options", async () => {
+    mockProviderKeys["deepgram"] = "dg-key";
+    mockConfig = buildConfig({ provider: "deepgram" });
+
+    const transcriber = await resolveStreamingTranscriber({
+      utteranceBoundaryFinals: true,
+    });
+
+    expect(transcriber).not.toBeNull();
+    expect(deepgramCtorCalls).toHaveLength(1);
+    const options = deepgramCtorCalls[0]!.options as Record<string, unknown>;
+    expect(options.utteranceBoundaryFinals).toBe(true);
+    expect(options.utteranceEndMs).toBe(1000);
+  });
+
+  test("utteranceBoundaryFinals with google-gemini still resolves (finals already pause-aligned)", async () => {
+    mockProviderKeys["gemini"] = "gemini-key";
+    mockConfig = buildConfig({ provider: "google-gemini" });
+
+    const transcriber = await resolveStreamingTranscriber({
+      utteranceBoundaryFinals: true,
+    });
+
+    expect(transcriber).not.toBeNull();
+    expect(geminiCtorCalls).toHaveLength(1);
+  });
+
+  test("utteranceBoundaryFinals with openai-whisper still resolves (finals already pause-aligned)", async () => {
+    mockProviderKeys["openai"] = "openai-key";
+    mockConfig = buildConfig({ provider: "openai-whisper" });
+
+    const transcriber = await resolveStreamingTranscriber({
+      utteranceBoundaryFinals: true,
+    });
+
+    expect(transcriber).not.toBeNull();
+    expect(whisperCtorCalls).toHaveLength(1);
+  });
 });

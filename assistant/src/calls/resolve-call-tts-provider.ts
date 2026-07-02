@@ -16,7 +16,10 @@ import { getTtsProvider } from "../tts/provider-registry.js";
 import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
 import type { TtsProvider, TtsProviderId } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
-import { evaluateTelephonyTtsPlayability } from "./telephony-tts-capability.js";
+import {
+  evaluateTelephonyTtsPlayability,
+  fishAudioReferenceIdConfigured,
+} from "./telephony-tts-capability.js";
 import { resolveCallStrategy } from "./tts-call-strategy.js";
 
 const log = getLogger("resolve-call-tts-provider");
@@ -103,19 +106,17 @@ export async function resolveCallTtsProvider(
     // fail only at first synthesis call. Fish Audio requires a reference
     // ID when no per-request voiceId is supplied (the telephony default).
     const fishAudioUnusable =
-      providerId === "fish-audio" && !hasReferenceId(resolved.providerConfig);
+      providerId === "fish-audio" && !fishAudioReferenceIdConfigured();
 
     if (options?.preferWav) {
       // Media-stream transport: every spoken turn is synthesized, so the
-      // provider must produce playable PCM/WAV with resolvable credentials.
-      // Swap in a playable fallback rather than resolving into a provider
-      // that can only be silent.
+      // provider must produce playable PCM/WAV with resolvable credentials
+      // and satisfied config invariants (the capability check covers the
+      // fish-audio referenceId rule). Swap in a playable fallback rather
+      // than resolving into a provider that can only be silent.
       const capability = await evaluateTelephonyTtsPlayability(providerId);
-      if (capability.status === "not-playable" || fishAudioUnusable) {
-        const reason =
-          capability.status === "not-playable"
-            ? capability.reason
-            : "missing-fish-audio-reference-id";
+      if (capability.status === "not-playable") {
+        const reason = capability.reason;
         const fallbackId = await findPlayableTelephonyTtsFallback(providerId);
         if (fallbackId) {
           log.warn(
@@ -178,9 +179,10 @@ export async function resolveCallTtsProvider(
  * with resolvable credentials.
  *
  * Preference order: the ElevenLabs default first (when its key resolves),
- * then the remaining catalog providers in display order. Fish Audio is
- * skipped when its required `referenceId` is not configured. Returns
- * `null` when no provider qualifies.
+ * then the remaining catalog providers in display order. The playability
+ * capability already applies the fish-audio `referenceId` invariant, so a
+ * referenceId-less fish-audio setup is never selected. Returns `null` when
+ * no provider qualifies.
  */
 export async function findPlayableTelephonyTtsFallback(
   excludeProviderId?: TtsProviderId,
@@ -191,36 +193,9 @@ export async function findPlayableTelephonyTtsFallback(
 
   for (const candidateId of candidates) {
     const capability = await evaluateTelephonyTtsPlayability(candidateId);
-    if (capability.status !== "playable") {
-      continue;
+    if (capability.status === "playable") {
+      return candidateId;
     }
-    if (candidateId === "fish-audio" && !fishAudioReferenceIdConfigured()) {
-      continue;
-    }
-    return candidateId;
   }
   return null;
-}
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-/** Whether a provider config block carries a non-empty `referenceId`. */
-function hasReferenceId(providerConfig: unknown): boolean {
-  return Boolean(
-    (providerConfig as { referenceId?: string } | undefined)?.referenceId?.trim(),
-  );
-}
-
-/** Whether `services.tts.providers.fish-audio.referenceId` is configured. */
-function fishAudioReferenceIdConfigured(): boolean {
-  try {
-    const providers = loadConfig().services?.tts?.providers as
-      | Record<string, unknown>
-      | undefined;
-    return hasReferenceId(providers?.["fish-audio"]);
-  } catch {
-    return false;
-  }
 }
