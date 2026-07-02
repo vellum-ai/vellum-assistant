@@ -122,7 +122,10 @@ import { getConfiguredProvider } from "../../providers/provider-send-message.js"
 import type { Provider } from "../../providers/types.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { getSubagentManager } from "../../subagent/index.js";
-import { normalizeImageBase64 } from "../../util/image-conversion.js";
+import {
+  isHeicFilename,
+  normalizeImageBase64,
+} from "../../util/image-conversion.js";
 import { getLogger } from "../../util/logger.js";
 import {
   getWorkspaceDir,
@@ -951,34 +954,36 @@ export function handleListMessages({
       );
       if (linked.length > 0) {
         msgAttachments = linked.map((a) => {
-          if (a.mimeType.startsWith("image/")) {
-            const full = getAttachmentById(a.id, { hydrateFileData: true });
-            // Stored HEIF/HEIC content is hydrated as JPEG display data —
-            // Chromium-based clients cannot decode HEIF. Filename and
-            // sizeBytes keep describing the stored file, which
-            // /attachments/:id/content serves verbatim for downloads.
-            const display = full?.dataBase64
-              ? normalizeImageBase64(a.mimeType, full.dataBase64)
+          // Hydrate image rows for inline thumbnails. Legacy HEIC can be
+          // stored under application/octet-stream (empty File.type fallback),
+          // so `.heic`/`.heif` rows are hydrated by filename too;
+          // normalizeImageBase64 sniffs the bytes and rewrites only genuine
+          // HEIF, which Chromium-based clients cannot decode. Filename and
+          // sizeBytes keep describing the stored original, which
+          // /attachments/:id/content serves verbatim for downloads.
+          const isImage = a.mimeType.startsWith("image/");
+          const isLegacyHeic = !isImage && isHeicFilename(a.originalFilename);
+          const full =
+            isImage || isLegacyHeic
+              ? getAttachmentById(a.id, { hydrateFileData: true })
               : null;
-            return {
-              id: a.id,
-              filename: a.originalFilename,
-              mimeType: display?.mimeType ?? a.mimeType,
-              sizeBytes: a.sizeBytes,
-              kind: a.kind,
-              ...(display ? { data: display.dataBase64 } : {}),
-              ...(a.thumbnailBase64
-                ? { thumbnailData: a.thumbnailBase64 }
-                : {}),
-              fileBacked: true,
-            };
-          }
+          const display = full?.dataBase64
+            ? normalizeImageBase64(a.mimeType, full.dataBase64)
+            : null;
+          // Image rows carry data even when unconverted (thumbnails); a
+          // non-image row only becomes renderable once conversion yields a
+          // JPEG, so it stays metadata-only when conversion is unavailable.
+          const useDisplay =
+            display && (isImage || display.converted) ? display : null;
           return {
             id: a.id,
             filename: a.originalFilename,
-            mimeType: a.mimeType,
+            mimeType: useDisplay?.mimeType ?? a.mimeType,
             sizeBytes: a.sizeBytes,
-            kind: a.kind,
+            kind: useDisplay?.converted
+              ? classifyKind(useDisplay.mimeType)
+              : a.kind,
+            ...(useDisplay ? { data: useDisplay.dataBase64 } : {}),
             ...(a.thumbnailBase64 ? { thumbnailData: a.thumbnailBase64 } : {}),
             fileBacked: true,
           };
