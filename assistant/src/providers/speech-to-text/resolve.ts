@@ -265,7 +265,11 @@ export interface ResolveStreamingTranscriberOptions {
    * otherwise commit multiple `is_final` segments per utterance
    * (Deepgram — also enables its `utterance_end_ms` endpointing).
    * Ignored by providers whose finals already align with pause
-   * boundaries. Used by telephony call ingestion. Default: false.
+   * boundaries (google-gemini emits finals at turn completion,
+   * openai-whisper on stop). Providers that can neither gate nor align
+   * (xAI emits a `final` per committed segment) resolve to `null` so
+   * the caller falls back to batch transcription. Used by telephony
+   * call ingestion. Default: false.
    */
   utteranceBoundaryFinals?: boolean;
 }
@@ -285,6 +289,8 @@ export interface ResolveStreamingTranscriberOptions {
  * - No credentials are configured for the resolved provider.
  * - No streaming adapter exists for the configured provider.
  * - `diarize` is `"required"` but the configured provider cannot diarize.
+ * - `utteranceBoundaryFinals` is set but the configured provider commits
+ *   per-segment finals with no boundary gating (xAI).
  */
 export async function resolveStreamingTranscriber(
   options: ResolveStreamingTranscriberOptions = {},
@@ -412,6 +418,17 @@ async function createStreamingTranscriber(
       });
     }
     case "xai": {
+      // The xAI adapter emits a `final` for every committed `is_final`
+      // segment; segments are not utterance-aligned and the adapter has no
+      // boundary gating, so a boundary-requiring caller (telephony) would
+      // reply mid-sentence. Resolve to null so it falls back to batch.
+      if (options.utteranceBoundaryFinals) {
+        log.warn(
+          { providerId },
+          "utterance-boundary finals requested but the xAI streaming adapter commits per-segment finals — falling back to batch transcription",
+        );
+        return null;
+      }
       const { XAIRealtimeTranscriber } = await import("./xai-realtime.js");
       return new XAIRealtimeTranscriber(apiKey, {
         sampleRate: options.sampleRate,

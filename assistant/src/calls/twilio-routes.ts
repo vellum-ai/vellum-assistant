@@ -1,24 +1,18 @@
 /**
  * HTTP route handlers for Twilio voice webhooks.
  *
- * - handleVoiceWebhook: initial voice webhook; returns TwiML to connect
- *   ConversationRelay (Twilio-native STT) or Stream (custom media-stream STT)
+ * - handleVoiceWebhook: initial voice webhook; returns `<Connect><Stream>`
+ *   TwiML so the daemon receives raw audio over the media-stream transport
+ *   and performs STT/TTS server-side for every call
  * - handleStatusCallback: call status updates (ringing, in-progress, completed, etc.)
  * - handleConnectAction: called when the ConversationRelay connection ends
  *
- * ## STT routing
- *
- * TwiML generation is driven by `services.stt.provider` via
- * {@link resolveTelephonySttRouting}. The resolver returns a discriminated
- * strategy that determines which TwiML path to use:
- *
- * - **`conversation-relay-native`** (deepgram, google-gemini) — emits
- *   `<Connect><ConversationRelay>` with Twilio-native `transcriptionProvider`
- *   and `speechModel` attributes.
- *
- * - **`media-stream-custom`** (openai-whisper) — emits
- *   `<Connect><Stream>` so the daemon receives raw audio and transcribes
- *   server-side.
+ * Setup-flow routing (verification, invite redemption, name capture, deny,
+ * normal) is resolved by the media-stream server when Twilio's `start`
+ * frame arrives — TwiML generation performs no routing of its own. Its
+ * only gate is the STT+TTS credential-readiness preflight: a call whose
+ * daemon cannot transcribe or speak gets audible `<Say>` setup-required
+ * TwiML and a `<Hangup/>` instead of a doomed stream.
  */
 
 import {
@@ -27,8 +21,6 @@ import {
   TWILIO_PUBLIC_BASE_URL_PLACEHOLDER,
 } from "@vellumai/service-contracts/twilio-ingress";
 
-import { loadConfig } from "../config/loader.js";
-import { getProviderEntry } from "../providers/speech-to-text/provider-catalog.js";
 import {
   BadRequestError,
   GoneError,
@@ -54,11 +46,8 @@ import {
   releaseCallbackClaim,
   updateCallSession,
 } from "./call-store.js";
-import { getChannelAdmissionPolicy } from "./channel-admission-reader.js";
-import { getPhoneCallerVerdict } from "./inbound-trust-reader.js";
-import { routeSetup } from "./relay-setup-router.js";
 import { resolveCallHints } from "./stt-hints.js";
-import { resolveTelephonySttRouting } from "./telephony-stt-routing.js";
+import { resolveTelephonyCredentialReadiness } from "./telephony-credential-preflight.js";
 import type { CallStatus } from "./types.js";
 import { resolveVoiceQualityProfile } from "./voice-quality.js";
 
@@ -161,11 +150,10 @@ ${greetingAttr}
 }
 
 /**
- * Generate `<Connect><Stream>` TwiML for the media-stream STT path.
+ * Generate `<Connect><Stream>` TwiML for the media-stream transport.
  *
- * Used when the telephony STT routing resolver selects `media-stream-custom`
- * (e.g. OpenAI Whisper). Twilio opens a WebSocket to `streamUrl` and sends
- * raw audio frames; the daemon transcribes server-side.
+ * Twilio opens a WebSocket to `streamUrl` and sends raw audio frames; the
+ * daemon transcribes and synthesizes speech server-side.
  *
  * `callSessionId` and `token` are encoded as **path segments** on the
  * WebSocket URL so the gateway can validate and route the upgrade request
@@ -305,18 +293,7 @@ async function processVoiceWebhook(
       toNumber: callerTo,
     });
 
-    return buildVoiceWebhookTwiml(
-      session.id,
-      {
-        task: session.task,
-        toNumber: callerTo,
-        fromNumber: callerFrom,
-        direction: "inbound",
-        inviteFriendName: null,
-        inviteGuardianName: null,
-      },
-      session.verificationSessionId,
-    );
+    return buildVoiceWebhookTwiml(session.id, session.verificationSessionId);
   }
 
   // ── Outbound mode: callSessionId is present ─────────────────────
@@ -340,25 +317,14 @@ async function processVoiceWebhook(
     log.info({ callSessionId, callSid }, "Stored CallSid from voice webhook");
   }
 
-  return buildVoiceWebhookTwiml(
-    callSessionId,
-    {
-      task: session.task,
-      toNumber: session.toNumber,
-      fromNumber: session.fromNumber,
-      direction: "outbound",
-      inviteFriendName: session.inviteFriendName,
-      inviteGuardianName: session.inviteGuardianName,
-    },
-    session.verificationSessionId,
-  );
+  return buildVoiceWebhookTwiml(callSessionId, session.verificationSessionId);
 }
 
 // ── Route handlers ───────────────────────────────────────────────────
 
 /**
  * Receives the initial voice webhook when Twilio connects the call.
- * Returns TwiML XML that tells Twilio to open a ConversationRelay WebSocket.
+ * Returns TwiML XML that tells Twilio to open a media-stream WebSocket.
  *
  * Supports two flows:
  * - **Outbound** (callSessionId present in query): uses the existing session
@@ -385,154 +351,59 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
 /**
  * Shared TwiML generation for both inbound and outbound voice webhooks.
  *
- * Resolves the telephony STT routing strategy from `services.stt.provider`
- * and branches:
+ * Every call connects over the media-stream transport. Setup-flow routing
+ * (`routeSetup`) is owned by the media-stream server, which resolves it
+ * when Twilio's `start` frame arrives — no routing happens at TwiML time.
  *
- * - **`conversation-relay-native`** — emits `<Connect><ConversationRelay>`
- *   TwiML with Twilio-native STT attributes (`transcriptionProvider`,
- *   `speechModel`). Used for deepgram and google-gemini.
- *
- * - **`media-stream-custom`** — emits `<Connect><Stream>` TwiML so the
- *   daemon receives raw audio for server-side transcription. Used for
- *   openai-whisper.
+ * The one TwiML-time gate is credential readiness: the daemon performs
+ * both STT and TTS on this transport, so when
+ * {@link resolveTelephonyCredentialReadiness} reports a gap the webhook
+ * returns `<Say>` setup-required copy plus `<Hangup/>` (audible via
+ * Twilio-hosted TTS even when the daemon's TTS is the broken half) and
+ * records a `telephony_credential_preflight_failed` call event instead of
+ * connecting a stream that cannot work.
  *
  * When `verificationSessionId` is provided, it is included as a
  * `<Parameter>` in the TwiML for observability and compatibility with
  * the Twilio setup payload. The persisted call session mode is the
- * primary signal for deterministic flow selection in the relay server.
+ * primary signal for deterministic flow selection at stream start.
  */
 async function buildVoiceWebhookTwiml(
   callSessionId: string,
-  sessionContext: {
-    task: string | null;
-    toNumber: string;
-    fromNumber: string;
-    direction: "inbound" | "outbound";
-    inviteFriendName: string | null;
-    inviteGuardianName: string | null;
-  } | null,
   verificationSessionId?: string | null,
 ): Promise<string> {
-  const cfg = loadConfig();
-  const profile = resolveVoiceQualityProfile(cfg);
-
-  log.info(
-    { callSessionId, ttsProvider: profile.ttsProvider, voice: profile.voice },
-    "Voice quality profile resolved",
-  );
-
-  // Resolve telephony STT strategy from services.stt.provider.
-  // The routing resolver handles speech-model defaults internally per provider.
-  const routingResult = resolveTelephonySttRouting();
-
-  // Derive Deepgram fallback values from the provider catalog so they stay
-  // in sync with the single source of truth. Hardcoded strings are kept only
-  // as a final safety net in case the catalog entry is missing.
-  const dgEntry = getProviderEntry("deepgram");
-  const fallbackProvider =
-    dgEntry?.telephonyRouting.twilioNativeMapping?.provider ?? "Deepgram";
-  const fallbackModel =
-    dgEntry?.telephonyRouting.twilioNativeMapping?.defaultSpeechModel ??
-    "nova-3";
-
-  if (routingResult.status === "unknown-provider") {
-    log.error(
-      {
-        callSessionId,
-        providerId: routingResult.providerId,
-        reason: routingResult.reason,
-      },
-      "Telephony STT routing failed — unknown provider; falling back to ConversationRelay with Deepgram",
-    );
-    // Graceful degradation: fall back to Deepgram ConversationRelay so
-    // calls don't fail entirely on a misconfigured provider.
-    return buildConversationRelayTwiml(
-      callSessionId,
-      profile,
-      sessionContext,
-      verificationSessionId,
-      { transcriptionProvider: fallbackProvider, speechModel: fallbackModel },
-    );
-  }
-
-  const { strategy } = routingResult;
-
-  if (strategy.strategy === "conversation-relay-native") {
-    return buildConversationRelayTwiml(
-      callSessionId,
-      profile,
-      sessionContext,
-      verificationSessionId,
-      {
-        transcriptionProvider: strategy.transcriptionProvider,
-        speechModel: strategy.speechModel,
-      },
-    );
-  }
-
-  // media-stream-custom path — preflight check to reject interactive setup
-  // flows that the media-stream transport cannot support. The media-stream
-  // server has a defensive fallback for these cases, but catching them here
-  // avoids bootstrapping a WebSocket session that will immediately fail.
-  const session = getCallSession(callSessionId);
-  const from = sessionContext?.fromNumber ?? "";
-  const to = sessionContext?.toNumber ?? "";
-
-  // Resolve the phone channel's inbound admission floor so this preflight
-  // classification matches the real enforcement at stream start — a
-  // floor-denied caller is recognized as `deny` here, not `normal_call`.
-  // The reader fails open to `null` by contract, so a transport hiccup
-  // admits the caller.
-  const admissionPolicy = await getChannelAdmissionPolicy("phone");
-
-  // Verdict-first caller trust so this preflight matches handleSetup's ACL.
-  // routeSetup uses it when present and not resolutionFailed, else falls back
-  // to local resolution. The reader returns null on failure, keeping the
-  // local path on a gateway blip.
-  const isInbound = sessionContext?.direction !== "outbound";
-  const otherPartyNumber = isInbound ? from : to;
-  const verdict = await getPhoneCallerVerdict(otherPartyNumber);
-
-  const { outcome } = await routeSetup({
-    callSessionId,
-    session: session ?? null,
-    from,
-    to,
-    admissionPolicy,
-    verdict,
-  });
-
-  // The media-stream transport supports normal_call and deny (which speaks
-  // a message and tears down). All other outcomes require interactive
-  // sub-flows (DTMF entry, name capture, guardian wait) that media-stream
-  // cannot perform. Reject these deterministically before stream bootstrap.
-  if (outcome.action !== "normal_call" && outcome.action !== "deny") {
+  const readiness = await resolveTelephonyCredentialReadiness();
+  if (readiness.status === "not-ready") {
     log.warn(
-      {
-        callSessionId,
-        setupAction: outcome.action,
-        strategy: "media-stream-custom",
-      },
-      "Media-stream preflight rejected unsupported interactive setup flow — falling back to ConversationRelay with Deepgram",
+      { callSessionId, missing: readiness.missing },
+      "Telephony credential preflight failed — returning setup-required TwiML",
     );
-    // Fall back to ConversationRelay so the interactive flow can proceed
-    // through the relay server which supports it natively.
-    return buildConversationRelayTwiml(
-      callSessionId,
-      profile,
-      sessionContext,
-      verificationSessionId,
-      { transcriptionProvider: fallbackProvider, speechModel: fallbackModel },
-    );
+    recordCallEvent(callSessionId, "telephony_credential_preflight_failed", {
+      missing: readiness.missing,
+    });
+    return buildSetupRequiredTwiml(readiness.userMessage);
   }
 
   return buildMediaStreamTwiml(callSessionId, verificationSessionId);
 }
 
 /**
+ * Build `<Say>` + `<Hangup/>` TwiML for calls blocked by the credential
+ * preflight, so the caller hears why the call cannot proceed.
+ */
+function buildSetupRequiredTwiml(userMessage: string): string {
+  const sayCopy = `${userMessage} Please finish voice setup and call again. Goodbye.`;
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say>${escapeXml(sayCopy)}</Say>
+  <Hangup/>
+</Response>`;
+}
+
+/**
  * Build ConversationRelay TwiML for Twilio-native STT providers.
  */
-async function buildConversationRelayTwiml(
+export async function buildConversationRelayTwiml(
   callSessionId: string,
   profile: ReturnType<typeof resolveVoiceQualityProfile>,
   sessionContext: {
@@ -585,7 +456,7 @@ async function buildConversationRelayTwiml(
 }
 
 /**
- * Build Stream TwiML for custom media-stream STT providers.
+ * Build Stream TwiML connecting the call to the daemon's media-stream server.
  */
 function buildMediaStreamTwiml(
   callSessionId: string,
@@ -606,10 +477,7 @@ function buildMediaStreamTwiml(
     customParameters,
   );
 
-  log.info(
-    { callSessionId, strategy: "media-stream-custom" },
-    "Returning Stream TwiML",
-  );
+  log.info({ callSessionId }, "Returning Stream TwiML");
 
   return twiml;
 }

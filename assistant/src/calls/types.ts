@@ -16,6 +16,7 @@ export type CallEventType =
   | "user_instruction_relayed"
   | "call_ended"
   | "call_failed"
+  | "telephony_credential_preflight_failed"
   | "callee_verification_started"
   | "callee_verification_succeeded"
   | "callee_verification_failed"
