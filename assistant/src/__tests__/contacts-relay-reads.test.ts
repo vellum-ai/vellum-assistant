@@ -65,6 +65,8 @@ mock.module("../ipc/gateway-client.js", () => ({
 // Assistant-DB fallback stubs — assert these are NOT hit on the happy path,
 // and that they ARE hit on the IPC-failure fallback path.
 const localCalls: string[] = [];
+// Per-test override for the daemon-native searchContacts result. Null → default.
+let searchContactsResult: unknown[] | null = null;
 const realContactStore = await import("../contacts/contact-store.js");
 // Capture the args passed to the daemon-native listContacts so tests can assert
 // contactType is filtered in SQL (before the limit) rather than relayed.
@@ -106,16 +108,18 @@ mock.module("../contacts/contact-store.js", () => ({
   },
   searchContacts: () => {
     localCalls.push("searchContacts");
-    return [
-      {
-        id: "search-1",
-        displayName: "Search Contact",
-        role: "contact",
-        contactType: "human",
-        interactionCount: 0,
-        channels: [],
-      },
-    ];
+    return (
+      searchContactsResult ?? [
+        {
+          id: "search-1",
+          displayName: "Search Contact",
+          role: "contact",
+          contactType: "human",
+          interactionCount: 0,
+          channels: [],
+        },
+      ]
+    );
   },
 }));
 
@@ -187,6 +191,7 @@ beforeEach(() => {
   debugLogs.length = 0;
   listContactsArgs.length = 0;
   guardianIds = new Set();
+  searchContactsResult = null;
 });
 
 /**
@@ -370,6 +375,93 @@ describe("search_contacts route relay boundary", () => {
     expect(
       (contacts[0] as { interactionCount?: number | null }).interactionCount,
     ).toBeNull();
+  });
+
+  test("channel telemetry overlays via (type,address) fallback when the local channel id differs from the gateway id", async () => {
+    // Legacy/unaligned channel: the daemon-native read resolves a channel whose
+    // LOCAL uuid differs from the GATEWAY uuid for the same (type, address). The
+    // id lookup misses, so telemetry must land via the (type, lower(address))
+    // fallback rather than fail-softing to null.
+    searchContactsResult = [
+      {
+        id: "search-1",
+        displayName: "Search Contact",
+        role: "contact",
+        contactType: "human",
+        interactionCount: 0,
+        channels: [
+          {
+            id: "local-ch-uuid",
+            contactId: "search-1",
+            type: "telegram",
+            // Mixed-case to also pin the NOCASE (lowercase) address match.
+            address: "TG-001",
+            isPrimary: true,
+            externalUserId: null,
+            status: "active",
+            policy: "allow",
+            verifiedAt: null,
+            verifiedVia: null,
+            lastSeenAt: null,
+            interactionCount: 0,
+            lastInteraction: null,
+            revokedReason: null,
+            blockedReason: null,
+          },
+        ],
+      },
+    ];
+    ipcStub = (method) => {
+      if (method === "contacts_list_rich") {
+        return {
+          ok: true,
+          contacts: [
+            gatewayContact({
+              id: "search-1",
+              interactionCount: 9,
+              channels: [
+                {
+                  // DIFFERENT uuid than the local channel; same (type, address).
+                  id: "gateway-ch-uuid",
+                  contactId: "search-1",
+                  type: "telegram",
+                  address: "tg-001",
+                  isPrimary: true,
+                  externalUserId: null,
+                  status: "active",
+                  policy: "allow",
+                  verifiedAt: null,
+                  verifiedVia: null,
+                  lastSeenAt: 555,
+                  interactionCount: 9,
+                  lastInteraction: 777,
+                  revokedReason: null,
+                  blockedReason: null,
+                },
+              ],
+            }),
+          ],
+        };
+      }
+      return undefined;
+    };
+
+    const contacts = await searchContactsRoute({ query: "alice" });
+
+    expect(localCalls).toContain("searchContacts");
+    expectOnlyIdsScopedTelemetryHydration(["search-1"]);
+    const ch = (
+      contacts[0] as unknown as {
+        channels: {
+          lastSeenAt: number | null;
+          interactionCount: number | null;
+          lastInteraction: number | null;
+        }[];
+      }
+    ).channels[0];
+    expect(ch.interactionCount).toBe(9);
+    expect(ch.lastSeenAt).toBe(555);
+    expect(ch.lastInteraction).toBe(777);
   });
 
   test("empty/whitespace query with no filters relays through the gateway", async () => {
