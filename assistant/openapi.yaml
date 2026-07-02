@@ -21437,6 +21437,11 @@ paths:
                     description:
                       Prebuilt client artifact from `package.json` `vellum.artifact`, or null when the plugin ships none or its
                       descriptor is incomplete (e.g. a placeholder sha256).
+                  icon:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: Author-declared emoji icon from the plugin's `package.json` `vellum.icon`, or null when none.
                 required:
                   - name
                   - installed
@@ -21448,6 +21453,7 @@ paths:
                   - readme
                   - ref
                   - artifact
+                  - icon
                 additionalProperties: false
         "400":
           description: The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).

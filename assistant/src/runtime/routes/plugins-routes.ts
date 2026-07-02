@@ -280,6 +280,12 @@ const pluginDetailsResponseSchema = z.object({
     .describe(
       "Prebuilt client artifact from `package.json` `vellum.artifact`, or null when the plugin ships none or its descriptor is incomplete (e.g. a placeholder sha256).",
     ),
+  icon: z
+    .string()
+    .nullable()
+    .describe(
+      "Author-declared emoji icon from the plugin's `package.json` `vellum.icon`, or null when none.",
+    ),
 });
 
 const pluginInstallRequestSchema = z.object({

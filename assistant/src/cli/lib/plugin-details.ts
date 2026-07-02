@@ -33,7 +33,11 @@ import {
   type FetchLike,
   sanitizePluginName,
 } from "./install-from-github.js";
-import { parsePluginArtifact, type PluginArtifact } from "./plugin-artifact.js";
+import {
+  parsePluginArtifact,
+  parsePluginIcon,
+  type PluginArtifact,
+} from "./plugin-artifact.js";
 import {
   fetchMarketplaceEntries,
   type MarketplaceEntry,
@@ -58,6 +62,7 @@ interface PluginManifestFields {
   readonly homepage: string | null;
   readonly license: string | null;
   readonly artifact: PluginArtifact | null;
+  readonly icon: string | null;
 }
 
 /** Options that control which plugin to resolve and at what ref. */
@@ -106,6 +111,11 @@ export interface PluginDetails {
    * descriptor is incomplete (e.g. a placeholder `sha256`).
    */
   readonly artifact: PluginArtifact | null;
+  /**
+   * Author-declared emoji icon from the plugin's `package.json` `vellum.icon`,
+   * resolved from the installed copy first then the repo; `null` when none.
+   */
+  readonly icon: string | null;
 }
 
 /** No installed copy and no catalog/source entry claims the name. */
@@ -185,6 +195,7 @@ export async function getPluginDetails(
     readme,
     ref,
     artifact: local.manifest.artifact ?? remote.manifest.artifact,
+    icon: local.manifest.icon ?? remote.manifest.icon,
   };
 }
 
@@ -358,6 +369,7 @@ function emptyManifest(): PluginManifestFields {
     homepage: null,
     license: null,
     artifact: null,
+    icon: null,
   };
 }
 
@@ -382,6 +394,7 @@ function parseManifest(raw: string): PluginManifestFields {
     homepage: typeof meta.homepage === "string" ? meta.homepage : null,
     license: normalizeLicense(meta.license),
     artifact: parsePluginArtifact(parsed),
+    icon: parsePluginIcon(parsed) ?? null,
   };
 }
 

@@ -305,6 +305,36 @@ describe("getPluginDetails", () => {
     expect(details.version).toBe("2.0.0");
     expect(details.license).toBe("Apache-2.0");
     expect(details.description).toBe("manifest description");
+    // AND a package.json without vellum.icon surfaces icon as null
+    expect(details.icon).toBeNull();
+  });
+
+  test("surfaces the installed copy's vellum.icon", async () => {
+    // GIVEN an installed copy whose package.json declares vellum.icon
+    const target = join(workspace, "caveman");
+    mkdirSync(target, { recursive: true });
+    writeFileSync(
+      join(target, "package.json"),
+      JSON.stringify({ version: "2.0.0", vellum: { icon: "🦴" } }),
+    );
+
+    const fetch = makeFetch({
+      marketplace: {
+        name: "vellum",
+        plugins: [{ name: "caveman", description: "d" }],
+      },
+      listings: {},
+      raw: {},
+    });
+
+    const details = await getPluginDetails(
+      { name: "caveman" },
+      { fetch, workspacePluginsDir: workspace },
+    );
+
+    // THEN the author emoji is surfaced from the installed package.json
+    expect(details.installed).toBe(true);
+    expect(details.icon).toBe("🦴");
   });
 
   test("throws PluginDetailsNotFoundError when nothing claims the name", async () => {
