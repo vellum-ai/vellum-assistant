@@ -97,6 +97,20 @@ describe("computeLearnedEdgeGraph", () => {
     expect(peersOf(graph, "page-b")).toEqual([]);
   });
 
+  test("a pair co-selected in every call forms no edge (NPMI is undefined)", () => {
+    // Every in-window call selects exactly {a, b}: pab = pa = pb = 1, so the
+    // NPMI normalizer -log(pab) is -0 and the score is NaN. NaN must not slip
+    // past the floor into the adjacency (it would also corrupt the
+    // strongest-first neighbor ordering).
+    seedCall(["page-a", "page-b"], NOW, "conv-1");
+    seedCall(["page-a", "page-b"], NOW, "conv-2");
+    seedCall(["page-a", "page-b"], NOW, "conv-3");
+
+    const graph = graphOf();
+    expect(peersOf(graph, "page-a")).toEqual([]);
+    expect(peersOf(graph, "page-b")).toEqual([]);
+  });
+
   test("pairs below the co-occurrence mass floor form no edge", () => {
     seedCall(["page-a", "page-b"], NOW, "conv-1"); // mass ≈ 1 < minCount 2
     seedCall(["page-c"], NOW, "conv-2");
