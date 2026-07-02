@@ -4,7 +4,7 @@
  * A backgrounded bash/host_bash run posts a `<background_event
  * source="background-tool">` wake on completion, stamped with
  * `metadata.backgroundToolCompletion`. The history projection must surface
- * that structured record (and the `backgroundToolNotification` flag) so the
+ * that structured record (and the `backgroundEventNotification` flag) so the
  * web can rebuild a terminal inline card after a daemon restart.
  */
 
@@ -48,7 +48,7 @@ function resetTables() {
 
 interface ProjectedMessage {
   role: string;
-  backgroundToolNotification?: boolean;
+  backgroundEventNotification?: boolean;
   backgroundToolCompletion?: Record<string, unknown>;
 }
 
@@ -76,8 +76,8 @@ describe("handleListMessages background-tool completion projection", () => {
     };
     // Mirror persistWakeTriggerMessage: a user-role
     // `<background_event source="background-tool">` row carrying the structured
-    // completion. Not flagged `hidden`; the client suppresses it from the
-    // transcript via `backgroundToolNotification`.
+    // completion. The client suppresses it from the transcript via
+    // `backgroundEventNotification`.
     await addMessage(
       conv.id,
       "user",
@@ -110,7 +110,7 @@ describe("handleListMessages background-tool completion projection", () => {
       (m) => m.backgroundToolCompletion !== undefined,
     );
     expect(wakeRow).toBeDefined();
-    expect(wakeRow?.backgroundToolNotification).toBe(true);
+    expect(wakeRow?.backgroundEventNotification).toBe(true);
     expect(wakeRow?.backgroundToolCompletion).toEqual(completion);
   });
 
@@ -134,7 +134,7 @@ describe("handleListMessages background-tool completion projection", () => {
     expect(response.messages).toHaveLength(2);
     for (const message of response.messages) {
       expect(message.backgroundToolCompletion).toBeUndefined();
-      expect(message.backgroundToolNotification).toBeUndefined();
+      expect(message.backgroundEventNotification).toBeUndefined();
       expect(() => ConversationMessageSchema.parse(message)).not.toThrow();
     }
   });

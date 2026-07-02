@@ -846,19 +846,19 @@ export function handleListMessages({
         }
       | undefined;
     let acpNotification: { acpSessionId: string; agent?: string } | undefined;
-    let backgroundToolNotification: boolean | undefined;
+    let backgroundEventNotification: boolean | undefined;
     let backgroundToolCompletion: ConversationMessage["backgroundToolCompletion"];
     if (msg.metadata) {
       try {
         const meta = JSON.parse(msg.metadata);
         if (typeof meta.sentAt === "number") sentAt = meta.sentAt;
-        // The backgrounded bash/host_bash completion wake persists a
-        // `<background_event source="background-tool">` row (see
-        // `persistWakeTriggerMessage`). Flag it so clients hide it from the
-        // transcript like a subagent/ACP notification — the inline card carries
-        // the status.
-        if (meta.backgroundEventSource === "background-tool") {
-          backgroundToolNotification = true;
+        // Every wake persists a `<background_event source="...">` trigger row
+        // (see `persistWakeTriggerMessage`) that the LLM reads. Flag any such
+        // row so clients hide it from the transcript like a subagent/ACP
+        // notification — the user-facing "Conversation Woke" card (or, for a
+        // backgrounded bash run, the inline terminal card) carries the status.
+        if (typeof meta.backgroundEventSource === "string") {
+          backgroundEventNotification = true;
         }
         // `persistWakeTriggerMessage` stamps the structured completion onto the
         // same wake row, letting the web rebuild a terminal inline card from
@@ -921,7 +921,7 @@ export function handleListMessages({
       sentAt,
       subagentNotification,
       acpNotification,
-      backgroundToolNotification,
+      backgroundEventNotification,
       backgroundToolCompletion,
       slackMessage,
       clientMessageId: msg.clientMessageId ?? undefined,
@@ -1116,8 +1116,8 @@ export function handleListMessages({
         ? { subagentNotification: m.subagentNotification }
         : {}),
       ...(m.acpNotification ? { acpNotification: m.acpNotification } : {}),
-      ...(m.backgroundToolNotification
-        ? { backgroundToolNotification: true }
+      ...(m.backgroundEventNotification
+        ? { backgroundEventNotification: true }
         : {}),
       ...(m.backgroundToolCompletion
         ? { backgroundToolCompletion: m.backgroundToolCompletion }
