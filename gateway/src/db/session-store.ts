@@ -334,6 +334,18 @@ export function createOutboundSession(params: {
   return rowToSession(row);
 }
 
+/** Look up a session by id regardless of status. */
+export function getSessionById(id: string): VerificationSession | null {
+  const db = getGatewayDb();
+  const row = db
+    .select()
+    .from(channelVerificationSessions)
+    .where(eq(channelVerificationSessions.id, id))
+    .get();
+
+  return row ? rowToSession(row) : null;
+}
+
 /**
  * Find the most recent pending_bootstrap or awaiting_response session
  * for a given channel.

@@ -203,6 +203,17 @@ export const CreateOutboundSessionIpcParamsSchema = z.object({
   bootstrapTokenHash: z.string().optional(),
   // Caller-supplied id (bootstrap flows pre-mint the id for deep links).
   sessionId: z.string().optional(),
+  // Atomic claim guards (optional, additive). Checked gateway-side in the
+  // same synchronous section as the revoke-prior+insert, so a stale caller
+  // gets a conflict instead of revoking a fresher session's code.
+  // Mint only if this source session is still `pending_bootstrap`.
+  requireSourceSessionPending: z.string().min(1).optional(),
+  // Mint only if the channel has no active (pending_bootstrap /
+  // awaiting_response, non-expired) session.
+  ifNoneActive: z.boolean().optional(),
+  // Sender-scoped variant: mint unless the channel's active session is bound
+  // to this expectedExternalUserId (a different sender may supersede).
+  ifNoneActiveForExternalUserId: z.string().min(1).optional(),
 });
 
 export type CreateOutboundSessionIpcParams = z.infer<
@@ -224,6 +235,30 @@ export const CreateOutboundSessionIpcResponseSchema = z.object({
 
 export type CreateOutboundSessionIpcResponse = z.infer<
   typeof CreateOutboundSessionIpcResponseSchema
+>;
+
+/**
+ * Conflict marker returned by `verification_sessions_create_outbound` when a
+ * claim guard (`requireSourceSessionPending` / `ifNoneActive`) fails. Only
+ * reachable when a guard was passed — legacy callers never see this shape.
+ */
+export const CreateOutboundSessionConflictSchema = z.object({
+  conflict: z.literal(true),
+  reason: z.enum(["source_session_not_pending", "active_session_exists"]),
+});
+
+export type CreateOutboundSessionConflict = z.infer<
+  typeof CreateOutboundSessionConflictSchema
+>;
+
+/** Response for guarded `verification_sessions_create_outbound` calls. */
+export const CreateOutboundSessionConditionalIpcResponseSchema = z.union([
+  CreateOutboundSessionConflictSchema,
+  CreateOutboundSessionIpcResponseSchema,
+]);
+
+export type CreateOutboundSessionConditionalIpcResponse = z.infer<
+  typeof CreateOutboundSessionConditionalIpcResponseSchema
 >;
 
 const ChannelOnlyIpcParamsSchema = z.object({

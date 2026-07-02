@@ -37,7 +37,9 @@ import {
   consumeSession,
   createInboundSession,
   createOutboundSession as storeCreateOutboundSession,
+  findActiveSession,
   findPendingSessionByHash,
+  getSessionById,
   updateSessionStatus,
 } from "../db/session-store.js";
 import { getLogger } from "../logger.js";
@@ -175,6 +177,69 @@ export function createOutboundSession(params: {
     expiresAt,
     ttlSeconds: CHALLENGE_TTL_MS / 1000,
   };
+}
+
+export type CreateOutboundSessionConflictReason =
+  | "source_session_not_pending"
+  | "active_session_exists";
+
+export type GuardedCreateOutboundSessionResult =
+  | CreateOutboundSessionResult
+  | { conflict: true; reason: CreateOutboundSessionConflictReason };
+
+/**
+ * Guarded variant of `createOutboundSession` for callers whose check→mint
+ * sequence spans separate IPC round trips (TOCTOU races).
+ *
+ * Guards and mint run in one synchronous section on the single bun:sqlite
+ * connection — no awaits between the check and the revoke-prior+insert — so
+ * concurrent handler invocations cannot interleave: exactly one claimant
+ * mints; the rest get a machine-readable conflict instead of revoking the
+ * winner's freshly minted code.
+ *
+ * - `requireSourceSessionPending`: the bootstrap handoff claim. The source
+ *   session must still be `pending_bootstrap` (a prior mint revokes it, so a
+ *   second claim of the same deep-link token conflicts).
+ * - `ifNoneActive`: create-if-absent. Conflicts when the channel already has
+ *   an active (pending_bootstrap / awaiting_response, non-expired) session.
+ * - `ifNoneActiveForExternalUserId`: sender-scoped create-if-absent.
+ *   Conflicts only when the channel's active session is bound to the same
+ *   expectedExternalUserId — a different sender's session may be superseded
+ *   (the unguarded revoke-prior semantics apply).
+ */
+export function createOutboundSessionGuarded(
+  params: Parameters<typeof createOutboundSession>[0] & {
+    requireSourceSessionPending?: string;
+    ifNoneActive?: boolean;
+    ifNoneActiveForExternalUserId?: string;
+  },
+): GuardedCreateOutboundSessionResult {
+  if (params.requireSourceSessionPending !== undefined) {
+    const source = getSessionById(params.requireSourceSessionPending);
+    if (
+      !source ||
+      source.channel !== params.channel ||
+      source.status !== "pending_bootstrap"
+    ) {
+      return { conflict: true, reason: "source_session_not_pending" };
+    }
+  }
+
+  if (params.ifNoneActive && findActiveSession(params.channel) !== null) {
+    return { conflict: true, reason: "active_session_exists" };
+  }
+
+  if (params.ifNoneActiveForExternalUserId !== undefined) {
+    const active = findActiveSession(params.channel);
+    if (
+      active !== null &&
+      active.expectedExternalUserId === params.ifNoneActiveForExternalUserId
+    ) {
+      return { conflict: true, reason: "active_session_exists" };
+    }
+  }
+
+  return createOutboundSession(params);
 }
 
 // ---------------------------------------------------------------------------

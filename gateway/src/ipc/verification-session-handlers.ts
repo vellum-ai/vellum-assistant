@@ -47,7 +47,7 @@ import {
 } from "../db/session-store.js";
 import {
   createInboundVerificationSession,
-  createOutboundSession,
+  createOutboundSessionGuarded,
   validateAndConsumeSession,
 } from "../verification/session-service.js";
 import type { IpcRoute } from "./server.js";
@@ -67,11 +67,14 @@ export const verificationSessionRoutes: IpcRoute[] = [
   {
     // Mint an outbound session (numeric code when identity is bound,
     // 32-byte hex for pending_bootstrap); secret transits for delivery.
+    // Optional claim guards (requireSourceSessionPending / ifNoneActive)
+    // run atomically with the mint; a failed guard returns a conflict
+    // marker instead of revoking the winner's session.
     method: VERIFICATION_SESSIONS_IPC_METHODS.createOutbound,
     schema: CreateOutboundSessionIpcParamsSchema,
     handler: (params?: Record<string, unknown>) => {
       const input = CreateOutboundSessionIpcParamsSchema.parse(params);
-      return createOutboundSession(input);
+      return createOutboundSessionGuarded(input);
     },
   },
   {

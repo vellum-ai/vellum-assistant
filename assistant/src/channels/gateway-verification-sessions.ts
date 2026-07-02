@@ -24,6 +24,8 @@
 import {
   CountRecentSendsIpcResponseSchema,
   CreateInboundSessionIpcResponseSchema,
+  CreateOutboundSessionConditionalIpcResponseSchema,
+  type CreateOutboundSessionConflict,
   type CreateOutboundSessionIpcParams,
   CreateOutboundSessionIpcResponseSchema,
   SessionLookupIpcResponseSchema,
@@ -120,6 +122,23 @@ export async function createOutboundSession(
     VERIFICATION_SESSIONS_IPC_METHODS.createOutbound,
     params as unknown as Record<string, unknown>,
     CreateOutboundSessionIpcResponseSchema,
+  );
+}
+
+/**
+ * Guarded variant of `createOutboundSession` for callers passing an atomic
+ * claim guard (`requireSourceSessionPending` / `ifNoneActive`). The gateway
+ * evaluates the guard in the same synchronous section as the mint; a failed
+ * guard returns a conflict marker instead of revoking the concurrent
+ * winner's session. Throws when the gateway is unreachable (fail-closed).
+ */
+export async function createOutboundSessionConditional(
+  params: CreateOutboundSessionIpcParams,
+): Promise<CreateOutboundSessionResult | CreateOutboundSessionConflict> {
+  return callGateway(
+    VERIFICATION_SESSIONS_IPC_METHODS.createOutbound,
+    params as unknown as Record<string, unknown>,
+    CreateOutboundSessionConditionalIpcResponseSchema,
   );
 }
 

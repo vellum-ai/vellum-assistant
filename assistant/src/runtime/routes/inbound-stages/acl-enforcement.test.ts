@@ -64,11 +64,23 @@ mock.module("../../access-request-helper.js", () => ({
   isApprovalHandshakeInProgress: () => approvalHandshakeForTest,
 }));
 
-// Verification session service: track challenge minting so the callback
-// exemption (LUM-2673) can assert no session is created for button presses.
+// Gateway-backed verification-session client: track challenge minting so the
+// callback exemption (LUM-2673) can assert no session is created for button
+// presses; the throw toggle simulates an unreachable gateway (transport
+// errors surface as thrown errors from the client).
 const createOutboundSessionCalls: unknown[] = [];
-mock.module("../../channel-verification-service.js", () => ({
-  createOutboundSession: (params: unknown) => {
+let gatewaySessionsUnreachable = false;
+let pendingSessionForTest: Record<string, unknown> | null = null;
+let activeSessionForTest: Record<string, unknown> | null = null;
+let bootstrapSessionForTest: Record<string, unknown> | null = null;
+function throwIfUnreachable(): void {
+  if (gatewaySessionsUnreachable) {
+    throw new Error("gateway unreachable");
+  }
+}
+mock.module("../../../channels/gateway-verification-sessions.js", () => ({
+  createOutboundSession: async (params: unknown) => {
+    throwIfUnreachable();
     createOutboundSessionCalls.push(params);
     return {
       sessionId: "session-1",
@@ -78,9 +90,29 @@ mock.module("../../channel-verification-service.js", () => ({
       ttlSeconds: 600,
     };
   },
-  findActiveSession: () => null,
-  getPendingSession: () => null,
-  resolveBootstrapToken: () => null,
+  createOutboundSessionConditional: async (params: unknown) => {
+    throwIfUnreachable();
+    createOutboundSessionCalls.push(params);
+    return {
+      sessionId: "session-1",
+      secret: "123456",
+      challengeHash: "hash",
+      expiresAt: Date.now() + 600_000,
+      ttlSeconds: 600,
+    };
+  },
+  findActiveSession: async () => {
+    throwIfUnreachable();
+    return activeSessionForTest;
+  },
+  getPendingSession: async () => {
+    throwIfUnreachable();
+    return pendingSessionForTest;
+  },
+  resolveBootstrapToken: async () => {
+    throwIfUnreachable();
+    return bootstrapSessionForTest;
+  },
 }));
 
 import type { AclEnforcementParams } from "./acl-enforcement.js";
@@ -134,6 +166,10 @@ beforeEach(() => {
   accessRequestDeniedForTest = false;
   approvalHandshakeForTest = false;
   guardianDeliveryList = [];
+  gatewaySessionsUnreachable = false;
+  pendingSessionForTest = null;
+  activeSessionForTest = null;
+  bootstrapSessionForTest = null;
 });
 
 describe("enforceIngressAcl — verdict-sourced member resolution", () => {
@@ -723,6 +759,55 @@ describe("enforceIngressAcl — callback interactions never spawn stranger-lane 
     expect(accessRequestCalls.length).toBe(1);
   });
 
+  test("an active session for the same sender suppresses a duplicate challenge", async () => {
+    activeSessionForTest = {
+      id: "existing-session",
+      channel: "slack",
+      status: "awaiting_response",
+      expectedExternalUserId: "U123STRANGER",
+    };
+
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceChannel: "slack",
+        canonicalSenderId: "U123STRANGER",
+        rawSenderId: "U123STRANGER",
+        sourceMetadata: withVerdict({
+          trustClass: "unknown",
+          canonicalSenderId: "U123STRANGER",
+        }),
+      }),
+    );
+
+    // Dedup: no new session, fall through to the standard deny.
+    expect(result.earlyResponse!.reason).toBe("not_a_member");
+    expect(createOutboundSessionCalls.length).toBe(0);
+  });
+
+  test("an active session for a DIFFERENT sender does not suppress the challenge", async () => {
+    activeSessionForTest = {
+      id: "existing-session",
+      channel: "slack",
+      status: "awaiting_response",
+      expectedExternalUserId: "U_SOMEONE_ELSE",
+    };
+
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceChannel: "slack",
+        canonicalSenderId: "U123STRANGER",
+        rawSenderId: "U123STRANGER",
+        sourceMetadata: withVerdict({
+          trustClass: "unknown",
+          canonicalSenderId: "U123STRANGER",
+        }),
+      }),
+    );
+
+    expect(result.earlyResponse!.reason).toBe("verification_challenge_sent");
+    expect(createOutboundSessionCalls.length).toBe(1);
+  });
+
   test("identity signals from sourceMetadata are forwarded to the access request", async () => {
     await enforceIngressAcl(
       makeParams({
@@ -750,5 +835,128 @@ describe("enforceIngressAcl — callback interactions never spawn stranger-lane 
     expect(call.isBot).toBe(true);
     expect(call.isStranger).toBe(true);
     expect(call.isRestricted).toBe(true);
+  });
+});
+
+describe("enforceIngressAcl — bootstrap deep-link bypass reads via the gateway", () => {
+  function bootstrapParams(
+    overrides: Partial<AclEnforcementParams> = {},
+  ): AclEnforcementParams {
+    return makeParams({
+      canonicalSenderId: "stranger-1",
+      rawSenderId: "stranger-1",
+      trimmedContent: "/start gv_token123",
+      sourceMetadata: {
+        ...withVerdict({
+          trustClass: "unknown",
+          canonicalSenderId: "stranger-1",
+        }),
+        commandIntent: { type: "start", payload: "gv_token123" },
+      } as SourceMetadata,
+      ...overrides,
+    });
+  }
+
+  test("a valid pending_bootstrap session bypasses the non-member deny", async () => {
+    bootstrapSessionForTest = {
+      id: "bootstrap-session",
+      channel: "telegram",
+      status: "pending_bootstrap",
+    };
+
+    const result = await enforceIngressAcl(bootstrapParams());
+
+    expect(result.earlyResponse).toBeUndefined();
+    expect(result.validatedBootstrapSession).toMatchObject({
+      id: "bootstrap-session",
+      status: "pending_bootstrap",
+    });
+  });
+
+  test("an unresolvable token keeps the deny", async () => {
+    bootstrapSessionForTest = null;
+
+    const result = await enforceIngressAcl(bootstrapParams());
+
+    expect(result.earlyResponse!.reason).toBe("not_a_member");
+    expect(result.validatedBootstrapSession).toBeUndefined();
+  });
+
+  test("gateway unreachable degrades to the plain deny — no throw, no bypass", async () => {
+    gatewaySessionsUnreachable = true;
+
+    const result = await enforceIngressAcl(bootstrapParams());
+
+    expect(result.earlyResponse!.reason).toBe("not_a_member");
+    expect(result.validatedBootstrapSession).toBeUndefined();
+    expect(createOutboundSessionCalls.length).toBe(0);
+  });
+});
+
+describe("enforceIngressAcl — gateway-unreachable deny branches degrade to a plain deny", () => {
+  test("Slack stranger message: session reads throwing skips the challenge, normal deny fires", async () => {
+    gatewaySessionsUnreachable = true;
+
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceChannel: "slack",
+        canonicalSenderId: "U123STRANGER",
+        rawSenderId: "U123STRANGER",
+        sourceMetadata: withVerdict({
+          trustClass: "unknown",
+          canonicalSenderId: "U123STRANGER",
+        }),
+      }),
+    );
+
+    // No challenge minted, no throw: the standard deny lane still runs
+    // (guardian notified, canned reply delivered).
+    expect(result.earlyResponse!.reason).toBe("not_a_member");
+    expect(createOutboundSessionCalls.length).toBe(0);
+    expect(accessRequestCalls.length).toBe(1);
+    expect(deliverReplyCalls.length).toBe(1);
+  });
+
+  test("Slack inactive member: session reads throwing skips the re-verify challenge", async () => {
+    gatewaySessionsUnreachable = true;
+
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceChannel: "slack",
+        canonicalSenderId: "U123MEMBER",
+        rawSenderId: "U123MEMBER",
+        sourceMetadata: withVerdict(
+          memberVerdict({
+            status: "unverified",
+            canonicalSenderId: "U123MEMBER",
+            address: "U123MEMBER",
+            type: "slack",
+          }),
+        ),
+      }),
+    );
+
+    expect(result.earlyResponse!.reason).toBe("member_pending");
+    expect(createOutboundSessionCalls.length).toBe(0);
+    expect(accessRequestCalls.length).toBe(1);
+  });
+
+  test("email stranger message: session reads throwing skips the challenge", async () => {
+    gatewaySessionsUnreachable = true;
+
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceChannel: "email",
+        canonicalSenderId: "stranger@example.com",
+        rawSenderId: "stranger@example.com",
+        sourceMetadata: withVerdict({
+          trustClass: "unknown",
+          canonicalSenderId: "stranger@example.com",
+        }),
+      }),
+    );
+
+    expect(result.earlyResponse!.reason).toBe("not_a_member");
+    expect(createOutboundSessionCalls.length).toBe(0);
   });
 });

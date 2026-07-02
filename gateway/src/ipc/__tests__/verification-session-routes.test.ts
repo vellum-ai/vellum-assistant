@@ -186,6 +186,146 @@ describe("verification_sessions_create_outbound", () => {
     expect(result.sessionId).toBe("pre-minted-id");
     expect(getRow("pre-minted-id")).toBeDefined();
   });
+
+  test("requireSourceSessionPending: stale bootstrap claim conflicts without revoking the winner's session", async () => {
+    // The bootstrap session both concurrent /start handlers resolved.
+    const bootstrap = CreateOutboundSessionIpcResponseSchema.parse(
+      await call(METHODS.createOutbound, {
+        channel: "telegram",
+        identityBindingStatus: "pending_bootstrap",
+        bootstrapTokenHash: hashVerificationSecret("deep-link-token"),
+      }),
+    );
+
+    // Winner mints first: the guard passes and the mint revokes the
+    // bootstrap session in the same synchronous section.
+    const winner = CreateOutboundSessionIpcResponseSchema.parse(
+      await call(METHODS.createOutbound, {
+        channel: "telegram",
+        expectedExternalUserId: "tg-user-1",
+        expectedChatId: "tg-chat-1",
+        identityBindingStatus: "bound",
+        requireSourceSessionPending: bootstrap.sessionId,
+      }),
+    );
+    expect(getRow(bootstrap.sessionId)?.status).toBe("revoked");
+    expect(getRow(winner.sessionId)?.status).toBe("awaiting_response");
+
+    // Loser's overlapping mint: source no longer pending_bootstrap →
+    // conflict, no new row, winner's session untouched.
+    const rowsBefore = getGatewayDb()
+      .select()
+      .from(channelVerificationSessions)
+      .all().length;
+    const loser = await call(METHODS.createOutbound, {
+      channel: "telegram",
+      expectedExternalUserId: "tg-user-1",
+      expectedChatId: "tg-chat-1",
+      identityBindingStatus: "bound",
+      requireSourceSessionPending: bootstrap.sessionId,
+    });
+    expect(loser).toEqual({
+      conflict: true,
+      reason: "source_session_not_pending",
+    });
+    expect(getRow(winner.sessionId)?.status).toBe("awaiting_response");
+    expect(
+      getGatewayDb().select().from(channelVerificationSessions).all(),
+    ).toHaveLength(rowsBefore);
+  });
+
+  test("requireSourceSessionPending: unknown or cross-channel source conflicts", async () => {
+    expect(
+      await call(METHODS.createOutbound, {
+        channel: "telegram",
+        requireSourceSessionPending: "no-such-session",
+      }),
+    ).toEqual({ conflict: true, reason: "source_session_not_pending" });
+
+    const other = CreateOutboundSessionIpcResponseSchema.parse(
+      await call(METHODS.createOutbound, {
+        channel: "slack",
+        identityBindingStatus: "pending_bootstrap",
+      }),
+    );
+    expect(
+      await call(METHODS.createOutbound, {
+        channel: "telegram",
+        requireSourceSessionPending: other.sessionId,
+      }),
+    ).toEqual({ conflict: true, reason: "source_session_not_pending" });
+  });
+
+  test("ifNoneActive: conflicts when an active session exists, without minting or revoking it", async () => {
+    const first = CreateOutboundSessionIpcResponseSchema.parse(
+      await call(METHODS.createOutbound, {
+        channel: "telegram",
+        expectedExternalUserId: "tg-user-1",
+        expectedChatId: "tg-chat-1",
+      }),
+    );
+
+    const second = await call(METHODS.createOutbound, {
+      channel: "telegram",
+      expectedExternalUserId: "tg-user-2",
+      expectedChatId: "tg-chat-2",
+      ifNoneActive: true,
+    });
+    expect(second).toEqual({
+      conflict: true,
+      reason: "active_session_exists",
+    });
+
+    // The first activation's code is still redeemable.
+    expect(getRow(first.sessionId)?.status).toBe("awaiting_response");
+    expect(
+      getGatewayDb().select().from(channelVerificationSessions).all(),
+    ).toHaveLength(1);
+  });
+
+  test("ifNoneActive: mints normally when the channel has no active session", async () => {
+    const result = CreateOutboundSessionIpcResponseSchema.parse(
+      await call(METHODS.createOutbound, {
+        channel: "telegram",
+        expectedChatId: "tg-chat-1",
+        ifNoneActive: true,
+      }),
+    );
+    expect(getRow(result.sessionId)?.status).toBe("awaiting_response");
+  });
+
+  test("ifNoneActiveForExternalUserId: conflicts on same sender, supersedes a different sender", async () => {
+    const first = CreateOutboundSessionIpcResponseSchema.parse(
+      await call(METHODS.createOutbound, {
+        channel: "slack",
+        expectedExternalUserId: "slack-user-1",
+        expectedChatId: "slack-user-1",
+      }),
+    );
+
+    // Same sender: conflict; the winner's code survives untouched.
+    expect(
+      await call(METHODS.createOutbound, {
+        channel: "slack",
+        expectedExternalUserId: "slack-user-1",
+        expectedChatId: "slack-user-1",
+        ifNoneActiveForExternalUserId: "slack-user-1",
+      }),
+    ).toEqual({ conflict: true, reason: "active_session_exists" });
+    expect(getRow(first.sessionId)?.status).toBe("awaiting_response");
+
+    // Different sender: supersedes (revoke-prior semantics apply).
+    const second = CreateOutboundSessionIpcResponseSchema.parse(
+      await call(METHODS.createOutbound, {
+        channel: "slack",
+        expectedExternalUserId: "slack-user-2",
+        expectedChatId: "slack-user-2",
+        ifNoneActiveForExternalUserId: "slack-user-2",
+      }),
+    );
+    expect(getRow(second.sessionId)?.status).toBe("awaiting_response");
+    expect(getRow(first.sessionId)?.status).toBe("revoked");
+  });
 });
 
 describe("verification_sessions_create_inbound", () => {
