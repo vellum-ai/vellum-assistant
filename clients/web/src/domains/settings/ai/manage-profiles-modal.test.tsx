@@ -29,7 +29,6 @@ import * as daemonQueryGen from "@/generated/daemon/@tanstack/react-query.gen";
 // ---------------------------------------------------------------------------
 
 let toastSuccessCalls: string[] = [];
-let configPatchCalled = false;
 let configPatchBodies: unknown[] = [];
 let profilesState: Record<string, ProfileEntry> = {};
 
@@ -56,7 +55,6 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
     },
   })),
   configPatch: async (options?: { body?: unknown }) => {
-    configPatchCalled = true;
     configPatchBodies.push(options?.body);
     return {
       data: {
@@ -189,7 +187,6 @@ function selectModel(label: string): void {
 
 beforeEach(() => {
   toastSuccessCalls = [];
-  configPatchCalled = false;
   configPatchBodies = [];
   profilesState = {};
 });
@@ -232,7 +229,7 @@ describe("ManageProfilesModal — profile-create success toast (Settings surface
     // The config mutation ran and the Settings surface fired one toast using
     // the entered label.
     await waitFor(() => {
-      expect(configPatchCalled).toBe(true);
+      expect(configPatchBodies.length).toBeGreaterThan(0);
     });
     await waitFor(() => {
       expect(toastSuccessCalls).toEqual(['Profile "My Profile" created']);
@@ -309,7 +306,7 @@ describe("ManageProfilesModal — invariant default profiles in the list", () =>
     fireEvent.click(findStatusToggle("Enable", "Default B")!);
 
     await waitFor(() => {
-      expect(configPatchCalled).toBe(true);
+      expect(configPatchBodies.length).toBeGreaterThan(0);
     });
     expect(configPatchBodies).toEqual([
       { llm: { profiles: { "default-b": { status: "active" } } } },
