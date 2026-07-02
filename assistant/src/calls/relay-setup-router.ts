@@ -1,8 +1,8 @@
 /**
- * Pure routing logic extracted from RelayConnection.handleSetup.
+ * Pure routing logic for the voice call setup phase.
  *
  * Given a setup context (call session, actor trust, voice config, ACL policy),
- * returns a discriminated union describing what the relay connection should do
+ * returns a discriminated union describing what the call session should do
  * next — without performing any side effects itself.
  */
 
@@ -106,13 +106,13 @@ export interface SetupResolved {
 // ── Router ───────────────────────────────────────────────────────────
 
 /**
- * Determine the setup outcome for an incoming relay connection.
+ * Determine the setup outcome for a starting call session.
  *
  * This function is pure routing logic — it reads state (including the
  * gateway's active-voice-invite view) but performs no side effects (no
  * call-session mutations, no event recording, no WS messages). The caller
- * (`RelayConnection.handleSetup`) is responsible for acting on the
- * returned outcome.
+ * (the media-stream server's start handler) is responsible for acting on
+ * the returned outcome.
  */
 export async function routeSetup(ctx: SetupContext): Promise<{
   outcome: SetupOutcome;

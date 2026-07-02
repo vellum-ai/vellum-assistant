@@ -290,7 +290,6 @@ interface MockTransport extends CallTransport {
   sentPlayUrls: string[];
   endCalled: boolean;
   endReason: string | undefined;
-  mockConnectionState: string;
 }
 
 function createMockTransport(): MockTransport {
@@ -299,7 +298,6 @@ function createMockTransport(): MockTransport {
     sentPlayUrls: [] as string[],
     _endCalled: false,
     _endReason: undefined as string | undefined,
-    _connectionState: "connected",
   };
 
   return {
@@ -315,12 +313,6 @@ function createMockTransport(): MockTransport {
     get endReason() {
       return state._endReason;
     },
-    get mockConnectionState() {
-      return state._connectionState;
-    },
-    set mockConnectionState(v: string) {
-      state._connectionState = v;
-    },
     sendTextToken(token: string, last: boolean) {
       state.sentTokens.push({ token, last });
     },
@@ -332,7 +324,7 @@ function createMockTransport(): MockTransport {
       state._endReason = reason;
     },
     getConnectionState() {
-      return state._connectionState;
+      return "connected";
     },
   } as MockTransport;
 }
@@ -2444,30 +2436,11 @@ describe("call-controller", () => {
 
   // ── Silence suppression during guardian wait ──────────────────────
 
-  test('silence timeout suppressed during guardian wait: does not say "Are you still there?"', async () => {
-    mockSilenceTimeoutMs = 20; // Short timeout for testing
-    const { relay, controller } = setupController();
-
-    // Simulate guardian wait state on the relay
-    relay.mockConnectionState = "awaiting_guardian_decision";
-
-    // Wait for the silence timeout to fire
-    await new Promise((r) => setTimeout(r, 30));
-
-    // "Are you still there?" should NOT have been sent
-    const silenceTokens = relay.sentTokens.filter((t) =>
-      t.token.includes("Are you still there?"),
-    );
-    expect(silenceTokens.length).toBe(0);
-
-    controller.destroy();
-  });
-
   test("silence timeout fires normally when not in guardian wait", async () => {
     mockSilenceTimeoutMs = 20; // Short timeout for testing
     const { relay, controller } = setupController();
 
-    // Default connection state is 'connected' (not guardian wait)
+    // No pending guardian consultation — the nudge should fire.
 
     // Wait for the silence timeout to fire
     await new Promise((r) => setTimeout(r, 30));
@@ -2500,8 +2473,6 @@ describe("call-controller", () => {
 
     // Verify a guardian input request is now pending
     expect(controller.getPendingConsultationQuestionId()).not.toBeNull();
-    // Relay state is still 'connected' (not 'awaiting_guardian_decision')
-    expect(relay.mockConnectionState).toBe("connected");
 
     // Clear any tokens from the turn itself
     relay.sentTokens.length = 0;

@@ -1548,15 +1548,10 @@ export class CallController {
     if (this.silenceTimer) clearTimeout(this.silenceTimer);
     if (this.destroyed) return;
     this.silenceTimer = setTimeout(() => {
-      // During guardian wait states, the relay heartbeat timer handles
-      // periodic updates — suppress the generic "Are you still there?"
-      // which is confusing when the caller is waiting on a decision.
-      // Two paths: in-call consultation (pendingGuardianInput) and
-      // inbound access-request wait (relay state).
-      if (
-        this.pendingGuardianInput ||
-        this.transport.getConnectionState() === "awaiting_guardian_decision"
-      ) {
+      // During an in-call guardian consultation, suppress the generic
+      // "Are you still there?" — it is confusing when the caller is
+      // waiting on a decision.
+      if (this.pendingGuardianInput) {
         log.debug(
           { callSessionId: this.callSessionId },
           "Silence timeout suppressed during guardian wait",

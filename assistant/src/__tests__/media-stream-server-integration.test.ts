@@ -306,8 +306,18 @@ type MockVerificationResult =
       eventName: string;
       ttsMessage?: string;
     }
-  | { outcome: "failure"; eventName: string; ttsMessage: string; attempts: number }
-  | { outcome: "retry"; ttsMessage: string; attempt: number; maxAttempts: number };
+  | {
+      outcome: "failure";
+      eventName: string;
+      ttsMessage: string;
+      attempts: number;
+    }
+  | {
+      outcome: "retry";
+      ttsMessage: string;
+      attempt: number;
+      maxAttempts: number;
+    };
 let mockVerificationResult: MockVerificationResult = {
   outcome: "success",
   verificationType: "guardian",
@@ -644,7 +654,7 @@ describe("MediaStreamCallSession", () => {
   });
 
   describe("transport close handling", () => {
-    test("normal close (1000) marks session as completed", () => {
+    test("normal close (1000) marks session as completed and writes the completed pointer", () => {
       const mock = createMockWs();
       mockSessions.set("call-1", {
         id: "call-1",
@@ -652,6 +662,7 @@ describe("MediaStreamCallSession", () => {
         status: "in_progress",
         startedAt: Date.now() - 60000,
         toNumber: "+15551234567",
+        initiatedFromConversationId: "conv-origin",
       });
 
       const session = new MediaStreamCallSession(mock.ws, "call-1");
@@ -662,9 +673,15 @@ describe("MediaStreamCallSession", () => {
         expect.objectContaining({ status: "completed" }),
       );
       expect(finalizeCall).toHaveBeenCalledWith("call-1", "conv-1");
+      expect(addPointerMessage).toHaveBeenCalledWith(
+        "conv-origin",
+        "completed",
+        "+15551234567",
+        expect.objectContaining({ duration: expect.any(String) }),
+      );
     });
 
-    test("abnormal close marks session as failed", () => {
+    test("abnormal close marks session as failed and writes the failed pointer", () => {
       const mock = createMockWs();
       mockSessions.set("call-1", {
         id: "call-1",
@@ -672,6 +689,7 @@ describe("MediaStreamCallSession", () => {
         status: "in_progress",
         startedAt: Date.now() - 60000,
         toNumber: "+15551234567",
+        initiatedFromConversationId: "conv-origin",
       });
 
       const session = new MediaStreamCallSession(mock.ws, "call-1");
@@ -685,6 +703,12 @@ describe("MediaStreamCallSession", () => {
         }),
       );
       expect(finalizeCall).toHaveBeenCalledWith("call-1", "conv-1");
+      expect(addPointerMessage).toHaveBeenCalledWith(
+        "conv-origin",
+        "failed",
+        "+15551234567",
+        expect.objectContaining({ reason: expect.any(String) }),
+      );
     });
 
     test("close on already-terminal session is a no-op", () => {
