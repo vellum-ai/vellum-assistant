@@ -22,7 +22,6 @@
     "format:check": "prettier --check .",
     "lint": "eslint",
     "lint:unused": "knip --include files,dependencies,unlisted",
-    "prepack": "node ../scripts/prepack-bundled-deps.mjs",
     "compile:check": "bun build --compile --external react-devtools-core src/index.ts --outfile /dev/null",
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit"
