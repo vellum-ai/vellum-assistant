@@ -20,12 +20,11 @@ import {
   mock,
   test,
 } from "bun:test";
-import { randomBytes } from "node:crypto";
 import { existsSync, rmSync } from "node:fs";
-import { createConnection, type Socket } from "node:net";
+import { type Socket } from "node:net";
 import { join } from "node:path";
 
-import { hashInviteCode, hashInviteToken } from "@vellumai/gateway-client";
+import { connectClient, sendRequest } from "./helpers/ipc-newline-client.js";
 
 // The engine's ACL side effect dual-writes an assistant-DB info mirror over
 // IPC; stub it so tests never touch a socket.
@@ -55,9 +54,11 @@ const { initGatewayDb, getGatewayDb, resetGatewayDb } =
   await import("../db/connection.js");
 const { contacts, contactChannels, ingressInvites } =
   await import("../db/schema.js");
-const { ContactStore } = await import("../db/contact-store.js");
 const { GatewayIpcServer } = await import("../ipc/server.js");
 const { inviteRoutes } = await import("../ipc/invite-handlers.js");
+const { inviteRow, seedInvite, seedVoiceInvite } = await import(
+  "./helpers/contact-fixtures.js"
+);
 
 // Short name: the workspace tmp prefix leaves little headroom under the
 // AF_UNIX socket-path length limit.
@@ -88,46 +89,6 @@ afterAll(() => {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function connectClient(path: string): Promise<Socket> {
-  return new Promise((resolve, reject) => {
-    const client = createConnection(path, () => resolve(client));
-    client.on("error", reject);
-  });
-}
-
-function sendRequest(
-  client: Socket,
-  method: string,
-  params?: Record<string, unknown>,
-): Promise<{
-  id: string;
-  result?: unknown;
-  error?: string;
-  statusCode?: number;
-  errorCode?: string;
-}> {
-  return new Promise((resolve, reject) => {
-    const id = randomBytes(4).toString("hex");
-    let buffer = "";
-    const onData = (chunk: Buffer) => {
-      buffer += chunk.toString();
-      const newlineIdx = buffer.indexOf("\n");
-      if (newlineIdx !== -1) {
-        const line = buffer.slice(0, newlineIdx).trim();
-        buffer = buffer.slice(newlineIdx + 1);
-        client.off("data", onData);
-        try {
-          resolve(JSON.parse(line));
-        } catch (err) {
-          reject(err);
-        }
-      }
-    };
-    client.on("data", onData);
-    client.write(JSON.stringify({ id, method, params }) + "\n");
-  });
-}
-
 /** Seed a parent contact (FK target for invites). */
 function seedContact(displayName = "Target Name"): void {
   const now = Date.now();
@@ -142,46 +103,6 @@ function seedContact(displayName = "Target Name"): void {
       updatedAt: now,
     })
     .run();
-}
-
-function seedTokenInvite(
-  overrides: Partial<
-    Parameters<InstanceType<typeof ContactStore>["createInvite"]>[0]
-  > = {},
-): string {
-  const id = overrides.id ?? crypto.randomUUID();
-  new ContactStore().createInvite({
-    id,
-    sourceChannel: CHANNEL,
-    inviteCodeHash: hashInviteCode(CODE),
-    tokenHash: hashInviteToken(TOKEN),
-    contactId: "c1",
-    maxUses: 1,
-    expiresAt: Date.now() + 60_000,
-    ...overrides,
-  });
-  return id;
-}
-
-function seedVoiceInvite(): string {
-  const id = crypto.randomUUID();
-  new ContactStore().createInvite({
-    id,
-    sourceChannel: "phone",
-    voiceCodeHash: hashInviteCode(CODE),
-    voiceCodeDigits: 6,
-    expectedExternalUserId: CALLER,
-    friendName: "Friend Name",
-    guardianName: "Guardian Name",
-    contactId: "c1",
-    maxUses: 1,
-    expiresAt: Date.now() + 60_000,
-  });
-  return id;
-}
-
-function inviteRow(id: string) {
-  return new ContactStore().getInviteById(id)!;
 }
 
 // ---------------------------------------------------------------------------
@@ -217,7 +138,7 @@ describe("invites_redeem IPC route", () => {
 
   test("token redeem: consumes the row and returns the sanitized invite + type", async () => {
     seedContact();
-    const inviteId = seedTokenInvite();
+    const inviteId = seedInvite();
 
     const res = await sendRequest(client, "invites_redeem", {
       token: TOKEN,
@@ -251,7 +172,7 @@ describe("invites_redeem IPC route", () => {
 
   test("token redeem: unknown token → 400 invalid_token, nothing consumed", async () => {
     seedContact();
-    const inviteId = seedTokenInvite();
+    const inviteId = seedInvite();
 
     const res = await sendRequest(client, "invites_redeem", {
       token: "not-the-token",
@@ -307,7 +228,7 @@ describe("invites_redeem IPC route", () => {
 
   test("token redeem for an already-active member → already_member, NO use consumed", async () => {
     seedContact();
-    const inviteId = seedTokenInvite();
+    const inviteId = seedInvite();
     const now = Date.now();
     getGatewayDb()
       .insert(contactChannels)
