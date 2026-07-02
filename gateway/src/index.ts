@@ -782,8 +782,8 @@ async function main() {
         contactsControlPlaneProxy.handleVerifyContactChannel(req, params[0]),
     },
     // ── Contacts/invites control plane ──
-    // Scopes mirror the pre-gateway-native runtime route policies
-    // (invites_list → settings.read; create/redeem/revoke/call → settings.write).
+    // Scope map: invites list → settings.read; create/redeem/revoke/call →
+    // settings.write.
     {
       path: "/v1/contacts/invites",
       method: "GET",

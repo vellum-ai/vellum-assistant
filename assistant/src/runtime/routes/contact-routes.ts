@@ -619,17 +619,33 @@ export const ROUTES: RouteDefinition[] = [
     description: "Redeem an invite by token or voice code.",
     tags: ["contacts"],
     requestBody: z.object({
-      token: z.string().describe("Invite token (token-based redemption)"),
-      code: z.string().describe("Voice code (voice-code redemption)"),
+      token: z
+        .string()
+        .optional()
+        .describe("Invite token (token-based redemption)"),
+      code: z.string().optional().describe("Voice code (voice-code redemption)"),
       callerExternalUserId: z
         .string()
+        .optional()
         .describe("Caller E.164 phone (voice-code)"),
-      externalUserId: z.string().describe("External user ID (token-based)"),
-      externalChatId: z.string().describe("External chat ID (token-based)"),
-      sourceChannel: z.string().describe("Source channel (token-based)"),
-      displayName: z.string().describe("Sender display name (token-based)"),
-      username: z.string().describe("Sender username (token-based)"),
-      assistantId: z.string().describe("Assistant ID (voice-code)"),
+      externalUserId: z
+        .string()
+        .optional()
+        .describe("External user ID (token-based)"),
+      externalChatId: z
+        .string()
+        .optional()
+        .describe("External chat ID (token-based)"),
+      sourceChannel: z
+        .string()
+        .optional()
+        .describe("Source channel (token-based)"),
+      displayName: z
+        .string()
+        .optional()
+        .describe("Sender display name (token-based)"),
+      username: z.string().optional().describe("Sender username (token-based)"),
+      assistantId: z.string().optional().describe("Assistant ID (voice-code)"),
     }),
     responseBody: z.object({
       ok: z.boolean(),
