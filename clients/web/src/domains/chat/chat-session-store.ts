@@ -269,19 +269,43 @@ function applyUpdater<T>(current: T, updater: T | ((prev: T) => T)): T {
  * overlay lets optimistic rows win by identity, so a confirmed send would
  * otherwise stay rendered as optimistic/queued indefinitely. Pruning by the same
  * match keys `selectTranscriptMessages` overlays on keeps the two in lockstep.
+ *
+ * An attachment-carrying send is only pruned once its snapshot twin also
+ * carries attachments. The send holds the only copy of the user's previews
+ * (blob URLs for pasted images); a matching snapshot row without attachments
+ * is a tail-replayed text-only echo — e.g. a stale in-flight `/messages`
+ * fetch that committed after the echo — not the hydrated server row, and
+ * pruning against it would drop the previews until the next refetch. The
+ * overlay keeps rendering the retained copy over the unhydrated twin.
  */
 function pruneConfirmedOptimisticSends(
   optimisticSends: DisplayMessage[],
   snapshotMessages: DisplayMessage[],
 ): DisplayMessage[] {
-  if (optimisticSends.length === 0) return optimisticSends;
-  const snapshotKeys = new Set<string>();
-  for (const m of snapshotMessages) {
-    for (const k of messageMatchKeys(m)) snapshotKeys.add(k);
+  if (optimisticSends.length === 0) {
+    return optimisticSends;
   }
-  const kept = optimisticSends.filter(
-    (m) => !messageMatchKeys(m).some((k) => snapshotKeys.has(k)),
-  );
+  const snapshotByKey = new Map<string, DisplayMessage>();
+  for (const m of snapshotMessages) {
+    for (const k of messageMatchKeys(m)) {
+      if (!snapshotByKey.has(k)) {
+        snapshotByKey.set(k, m);
+      }
+    }
+  }
+  const kept = optimisticSends.filter((m) => {
+    let twin: DisplayMessage | undefined;
+    for (const k of messageMatchKeys(m)) {
+      twin = snapshotByKey.get(k);
+      if (twin) {
+        break;
+      }
+    }
+    if (!twin) {
+      return true;
+    }
+    return Boolean(m.attachments?.length) && !twin.attachments?.length;
+  });
   return kept.length === optimisticSends.length ? optimisticSends : kept;
 }
 

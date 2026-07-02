@@ -140,6 +140,59 @@ describe("chat-session-store — snapshot + optimistic", () => {
     expect(store().optimisticSends).toEqual([]);
   });
 
+  test("reseed keeps an attachment-carrying send until its snapshot twin is hydrated", () => {
+    // A stale in-flight /messages fetch can commit after the echo: the reseed
+    // replays the buffered echo into a text-only twin row. Pruning against
+    // that unhydrated twin would drop the only blob-preview copy — the send
+    // must survive until a snapshot row with attachments lands.
+    const send: DisplayMessage = {
+      ...textRow("msg-server-1", "pic"),
+      role: "user",
+      clientMessageId: "nonce-1",
+      attachments: [
+        {
+          id: "att-1",
+          filename: "shot.png",
+          mimeType: "image/png",
+          sizeBytes: 10,
+          previewUrl: "blob:preview",
+        },
+      ],
+    };
+    store().addOptimisticSend(send);
+
+    // Stale reseed: the twin row shares identity but has no attachments.
+    store().seedSnapshot(
+      CONV,
+      snapshot([{ ...textRow("msg-server-1", "pic"), role: "user" }], 5),
+    );
+    expect(store().optimisticSends).toEqual([send]);
+
+    // Hydrated reseed: the twin now carries attachment data — send retires.
+    store().seedSnapshot(
+      CONV,
+      snapshot(
+        [
+          {
+            ...textRow("msg-server-1", "pic"),
+            role: "user",
+            attachments: [
+              {
+                id: "att-1",
+                filename: "shot.png",
+                mimeType: "image/png",
+                sizeBytes: 10,
+                previewUrl: "data:image/png;base64,x",
+              },
+            ],
+          },
+        ],
+        6,
+      ),
+    );
+    expect(store().optimisticSends).toEqual([]);
+  });
+
   test("attachment previews survive the echo → reseed lifecycle (LUM-2663)", () => {
     // A pasted image's preview lives only on the optimistic send (blob URL).
     // The echo folds a text-only row into the snapshot; the retained
