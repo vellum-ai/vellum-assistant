@@ -27,6 +27,7 @@ import type { ContextWindowConfig } from "../../../config/types.js";
 import {
   type CompactionRunArgs,
   type CompactionRunResult,
+  isSyntheticCompactionMessage,
   runAssistantDrivenCompaction,
   runEmergencyCompaction,
 } from "../../../context/compactor.js";
@@ -689,6 +690,25 @@ export class ContextWindowManager {
       });
     }
 
+    // Shared compactor args for every pass in this call. `targetTokens` is
+    // intentionally absent — the fixed-boundary path never applies a budget
+    // forward-cut, and the auto path adds it per call site.
+    const baseArgs: CompactionRunArgs = {
+      conversationId: this.conversationId,
+      messages,
+      provider: this.provider,
+      systemPrompt: this.systemPrompt,
+      tools: this.resolveTools?.(),
+      compaction,
+      maxInputTokens: this.config.maxInputTokens,
+      previousEstimatedInputTokens,
+      force: options?.force,
+      signal,
+      overrideProfile: options?.overrideProfile ?? null,
+      actorTrustClass: options?.actorTrustClass,
+      nonPersistedPrefixCount: this.resolveNonPersistedPrefixCount(messages),
+    };
+
     // Caller-fixed boundary ("summarize up to here"): one compactor pass at
     // the user's chosen cut. No threshold gate (the user asked, regardless of
     // fullness), no target budget (the boundary is not a budget outcome), and
@@ -696,28 +716,15 @@ export class ContextWindowManager {
     // history past the boundary the user picked).
     if (options?.fixedTailStartIndex != null) {
       const result = await runAssistantDrivenCompaction({
-        conversationId: this.conversationId,
-        messages,
-        provider: this.provider,
-        systemPrompt: this.systemPrompt,
-        tools: this.resolveTools?.(),
-        compaction,
-        maxInputTokens: this.config.maxInputTokens,
-        previousEstimatedInputTokens,
+        ...baseArgs,
         force: true,
-        signal,
-        overrideProfile: options.overrideProfile ?? null,
-        actorTrustClass: options.actorTrustClass,
-        nonPersistedPrefixCount: this._nonPersistedPrefixCount,
         fixedTailStartIndex: options.fixedTailStartIndex,
       });
       if (!result.compacted) return result;
-      const estimatedInputTokens = this.recomputePostCompactionEstimate(
-        result.messages,
-        result.estimatedInputTokens,
-      );
-      this.consumeCompactionState(result.compactedMessages);
-      return { ...result, estimatedInputTokens };
+      return {
+        ...result,
+        estimatedInputTokens: this.settleCompactionAttempt(result),
+      };
     }
 
     if (!options?.force && previousEstimatedInputTokens < thresholdTokens) {
@@ -730,23 +737,6 @@ export class ContextWindowManager {
 
     const targetTokens = this.resolveCompactionTargetTokens(thresholdTokens);
 
-    const baseArgs: CompactionRunArgs = {
-      conversationId: this.conversationId,
-      messages,
-      provider: this.provider,
-      systemPrompt: this.systemPrompt,
-      tools: this.resolveTools?.(),
-      compaction,
-      maxInputTokens: this.config.maxInputTokens,
-      targetTokens,
-      previousEstimatedInputTokens,
-      force: options?.force,
-      signal,
-      overrideProfile: options?.overrideProfile ?? null,
-      actorTrustClass: options?.actorTrustClass,
-      nonPersistedPrefixCount: this._nonPersistedPrefixCount,
-    };
-
     // Retry budget for the compactor itself. Lives here (not in the
     // orchestrator/agent loop) because the question "did this compactor
     // make enough progress?" is a compaction-internal concern. The agent
@@ -754,17 +744,16 @@ export class ContextWindowManager {
     // or signal `exhausted` so reducers escalate.
     const maxAttempts = this.config.overflowRecovery.maxAttempts;
 
-    let result = await runAssistantDrivenCompaction(baseArgs);
+    let result = await runAssistantDrivenCompaction({
+      ...baseArgs,
+      targetTokens,
+    });
 
     // Compactor early-returned without doing any work (e.g. no eligible
     // messages, summary failed, disabled mid-way). Nothing to retry.
     if (!result.compacted) return result;
 
-    let estimatedInputTokens = this.recomputePostCompactionEstimate(
-      result.messages,
-      result.estimatedInputTokens,
-    );
-    this.consumeCompactionState(result.compactedMessages);
+    let estimatedInputTokens = this.settleCompactionAttempt(result);
 
     // If a single pass already cleared the auto-threshold, ship it.
     if (estimatedInputTokens < thresholdTokens) {
@@ -790,16 +779,15 @@ export class ContextWindowManager {
     for (let attempt = 2; attempt <= maxAttempts; attempt++) {
       const nextResult = await runAssistantDrivenCompaction({
         ...baseArgs,
+        targetTokens,
         messages: result.messages,
         previousEstimatedInputTokens: previousEstimate,
-        nonPersistedPrefixCount: this._nonPersistedPrefixCount,
+        nonPersistedPrefixCount: this.resolveNonPersistedPrefixCount(
+          result.messages,
+        ),
       });
       if (!nextResult.compacted) break;
-      const nextEstimate = this.recomputePostCompactionEstimate(
-        nextResult.messages,
-        nextResult.estimatedInputTokens,
-      );
-      this.consumeCompactionState(nextResult.compactedMessages);
+      const nextEstimate = this.settleCompactionAttempt(nextResult);
       result = mergeCompactionResults(result, nextResult);
       estimatedInputTokens = nextEstimate;
       if (estimatedInputTokens < thresholdTokens) {
@@ -849,7 +837,7 @@ export class ContextWindowManager {
       force: true,
       signal,
       overrideProfile: options.overrideProfile ?? null,
-      nonPersistedPrefixCount: this._nonPersistedPrefixCount,
+      nonPersistedPrefixCount: this.resolveNonPersistedPrefixCount(messages),
     });
   }
 
@@ -871,6 +859,41 @@ export class ContextWindowManager {
       log.warn({ err }, "Post-compaction token estimate failed");
       return fallback;
     }
+  }
+
+  /**
+   * Leading non-persisted messages of `messages` for persisted-count
+   * accounting: the seeded fork-inherited prefix, or the synthetic
+   * summary/retained-images head minted by conversation rehydration
+   * (`createContextSummaryMessage`) or a prior compaction pass — none of
+   * which have DB rows. `max`, not `+`: a fork-inherited prefix already
+   * counts its own inherited summary head.
+   */
+  private resolveNonPersistedPrefixCount(messages: Message[]): number {
+    let syntheticHead = 0;
+    while (
+      syntheticHead < messages.length &&
+      (getSummaryFromContextMessage(messages[syntheticHead]) != null ||
+        isSyntheticCompactionMessage(messages[syntheticHead]))
+    ) {
+      syntheticHead++;
+    }
+    return Math.max(this._nonPersistedPrefixCount, syntheticHead);
+  }
+
+  /**
+   * Post-pass bookkeeping shared by every productive compaction attempt:
+   * recompute the prompt estimate against the rebuilt history and settle
+   * the non-persisted prefix count the pass consumed. Returns the fresh
+   * estimate.
+   */
+  private settleCompactionAttempt(result: ContextWindowResult): number {
+    const estimatedInputTokens = this.recomputePostCompactionEstimate(
+      result.messages,
+      result.estimatedInputTokens,
+    );
+    this.consumeCompactionState(result.compactedMessages);
+    return estimatedInputTokens;
   }
 
   /**

@@ -90,6 +90,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 mock.module("../context/compactor.js", () => ({
+  isSyntheticCompactionMessage: () => false,
   runAssistantDrivenCompaction: async (args: {
     messages: unknown;
     previousEstimatedInputTokens: number;

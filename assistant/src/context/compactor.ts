@@ -179,7 +179,7 @@ active decisions, open questions, commitments, project states.
  * `{boundary_description}` (a description of the first preserved message so
  * the model knows exactly where "before" ends).
  */
-export const FIXED_BOUNDARY_COMPACTION_PROMPT = `<compaction_instructions>
+const FIXED_BOUNDARY_COMPACTION_PROMPT = `<compaction_instructions>
 The user has asked to summarize this conversation up to a fixed point they
 chose. Everything BEFORE that point is replaced by your summary; the boundary
 message and everything after it are preserved verbatim. You do not choose the
@@ -884,6 +884,22 @@ export function buildInstructionMessage(
 // ---------------------------------------------------------------------------
 
 /**
+ * Synthetic messages a compaction pass prepends to the rebuilt history —
+ * the summary head and the retained-images message. They have no DB row,
+ * so the persisted-count accounting of a later pass over the same
+ * in-memory history must exclude them (see
+ * `CompactionRunArgs.nonPersistedPrefixCount`). WeakSet-gated: only the
+ * exact objects minted here are recognized, never lookalike content.
+ */
+const SYNTHETIC_COMPACTION_MESSAGES = new WeakSet<Message>();
+
+export function isSyntheticCompactionMessage(
+  message: Message | undefined,
+): boolean {
+  return message != null && SYNTHETIC_COMPACTION_MESSAGES.has(message);
+}
+
+/**
  * Stitch summary + key_state into the assistant-role memory message that
  * heads the compacted context. Kept as a single block so downstream
  * lifecycle code can rehydrate it with the existing `contextSummary` text
@@ -1361,7 +1377,11 @@ export async function runAssistantDrivenCompaction(
   );
 
   const compactedMessages: Message[] = [summaryMessage];
-  if (retainedImageMessage) compactedMessages.push(retainedImageMessage);
+  SYNTHETIC_COMPACTION_MESSAGES.add(summaryMessage);
+  if (retainedImageMessage) {
+    compactedMessages.push(retainedImageMessage);
+    SYNTHETIC_COMPACTION_MESSAGES.add(retainedImageMessage);
+  }
   compactedMessages.push(...tailMessages);
 
   const nonPersistedCompactedAway = Math.min(
@@ -1565,7 +1585,10 @@ export async function runEmergencyCompaction(
   recordCompactionRequestLog(args.conversationId, response, args.provider);
 
   const rawText = extractTextFromResponse(response.content);
-  const parsed = parseCompactionResult(rawText);
+  // The emergency prompt asks for summary + key_state only — the split
+  // point is already fixed at `splitIndex`, so no `<tail_start>` is
+  // requested and a prompt-following response must still parse.
+  const parsed = parseCompactionResult(rawText, { requireTailStart: false });
   if (!parsed) {
     log.warn(
       { rawPreview: rawText.slice(0, 200) },
@@ -1588,6 +1611,7 @@ export async function runEmergencyCompaction(
   };
 
   const compactedMessages: Message[] = [summaryMessage, ...keptTail];
+  SYNTHETIC_COMPACTION_MESSAGES.add(summaryMessage);
 
   const compactedCount = splitIndex;
   const nonPersistedAway = Math.min(
