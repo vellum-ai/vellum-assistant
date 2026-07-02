@@ -378,6 +378,7 @@ mock.module("../calls/relay-access-wait.js", () => ({
 // Now import the module under test.
 // ---------------------------------------------------------------------------
 
+import { revokeScopedApprovalGrantsForContext } from "../approvals/scoped-approval-grants.js";
 import { CallController } from "../calls/call-controller.js";
 import { addPointerMessage } from "../calls/call-pointer-messages.js";
 import { speakSystemPrompt } from "../calls/call-speech-output.js";
@@ -525,6 +526,7 @@ beforeEach(() => {
   (recordCallEvent as jest.Mock).mockClear();
   (updateCallSession as jest.Mock).mockClear();
   (finalizeCall as jest.Mock).mockClear();
+  (revokeScopedApprovalGrantsForContext as jest.Mock).mockClear();
   (speakSystemPrompt as jest.Mock).mockClear();
   (addPointerMessage as jest.Mock).mockClear();
   (routeSetup as jest.Mock).mockClear();
@@ -2280,6 +2282,138 @@ describe("setup flows over the media-stream transport", () => {
 
       await sleep(30);
       expect(mockWs.closed).toBe(true);
+
+      session.destroy();
+    });
+  });
+
+  describe("hangup during terminal setup speech", () => {
+    /** Gate the next speakSystemPrompt call on a manually released promise. */
+    function gateNextSpeech(): () => void {
+      let release!: () => void;
+      (speakSystemPrompt as jest.Mock).mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            release = resolve;
+          }),
+      );
+      return () => release();
+    }
+
+    test("hangup during the deny goodbye finalizes exactly once and revokes grants", async () => {
+      const releaseSpeech = gateNextSpeech();
+      const { session } = setupCall({
+        callId: "call-deny-hangup",
+        outcome: {
+          action: "deny",
+          message: "Not authorized.",
+          logReason: "ACL deny",
+        },
+      });
+      await sleep();
+
+      // The deny path sets terminal status before its goodbye finishes.
+      expect(updateCallSession).toHaveBeenCalledWith(
+        "call-deny-hangup",
+        expect.objectContaining({ status: "failed" }),
+      );
+      expect(finalizeCall).not.toHaveBeenCalled();
+
+      // Caller hangs up while the goodbye is still speaking.
+      session.handleTransportClosed(1006, "caller hung up");
+
+      expect(finalizeCall).toHaveBeenCalledTimes(1);
+      expect(finalizeCall).toHaveBeenCalledWith(
+        "call-deny-hangup",
+        "conv-call-deny-hangup",
+      );
+      expect(revokeScopedApprovalGrantsForContext).toHaveBeenCalledWith({
+        callSessionId: "call-deny-hangup",
+      });
+      expect(revokeScopedApprovalGrantsForContext).toHaveBeenCalledWith({
+        conversationId: "conv-call-deny-hangup",
+      });
+      expect(session.getSetupFlow()).toBeNull();
+
+      // The speech promise settling later must not double-finalize.
+      releaseSpeech();
+      await session.whenSetupSettled();
+      await sleep();
+      expect(finalizeCall).toHaveBeenCalledTimes(1);
+      expect(registerCallController).not.toHaveBeenCalled();
+
+      session.destroy();
+    });
+
+    test("hangup during the guardian-denial goodbye finalizes exactly once and revokes grants", async () => {
+      const { session } = setupCall({
+        callId: "call-guard-deny-hangup",
+        outcome: {
+          action: "name_capture",
+          assistantId: "self",
+          fromNumber: FROM,
+        },
+      });
+      await session.whenSetupSettled();
+
+      mockCanonicalRequest = { status: "pending" };
+      deliverTranscript(session, "Casey Example");
+      await sleep();
+
+      const releaseSpeech = gateNextSpeech();
+      mockCanonicalRequest = { status: "denied" };
+      await sleep(40);
+
+      expect(updateCallSession).toHaveBeenCalledWith(
+        "call-guard-deny-hangup",
+        expect.objectContaining({ status: "failed" }),
+      );
+      expect(finalizeCall).not.toHaveBeenCalled();
+
+      // Caller hangs up while the denial goodbye is still speaking.
+      session.handleTransportClosed(1006, "caller hung up");
+
+      expect(finalizeCall).toHaveBeenCalledTimes(1);
+      expect(finalizeCall).toHaveBeenCalledWith(
+        "call-guard-deny-hangup",
+        "conv-call-guard-deny-hangup",
+      );
+      expect(revokeScopedApprovalGrantsForContext).toHaveBeenCalledWith({
+        callSessionId: "call-guard-deny-hangup",
+      });
+      expect(session.getSetupFlow()).toBeNull();
+
+      releaseSpeech();
+      await sleep();
+      expect(finalizeCall).toHaveBeenCalledTimes(1);
+      expect(registerCallController).not.toHaveBeenCalled();
+
+      session.destroy();
+    });
+
+    test("deny completion without a hangup finalizes exactly once; a later close does not re-finalize", async () => {
+      const { session, mockWs } = setupCall({
+        callId: "call-deny-normal",
+        outcome: {
+          action: "deny",
+          message: "Not authorized.",
+          logReason: "ACL deny",
+        },
+      });
+      await session.whenSetupSettled();
+
+      expect(finalizeCall).toHaveBeenCalledTimes(1);
+      expect(finalizeCall).toHaveBeenCalledWith(
+        "call-deny-normal",
+        "conv-call-deny-normal",
+      );
+
+      // The flow schedules its own delayed endSession.
+      await sleep(30);
+      expect(mockWs.closed).toBe(true);
+
+      session.handleTransportClosed(1000, "session-ended");
+      expect(finalizeCall).toHaveBeenCalledTimes(1);
 
       session.destroy();
     });

@@ -262,7 +262,16 @@ export class MediaStreamCallSession {
 
     const session = getCallSession(this.callSessionId);
     if (!session) return;
-    if (isTerminalState(session.status)) return;
+    if (isTerminalState(session.status)) {
+      // A hangup during a flow-terminal goodbye: dispose above swallowed the
+      // flow's pending complete(), so finalize + revoke grants here. Normal
+      // completion nulls setupFlow and hasFinalized() covers flow-side
+      // finalization, keeping this exactly-once.
+      if (setupFlow && !setupFlow.hasFinalized()) {
+        this.runFinalizationAndGrantCleanup(session);
+      }
+      return;
+    }
 
     const isNormalClose = code === 1000;
     const terminationReason = isNormalClose ? "normal_stop" : "premature_abort";
