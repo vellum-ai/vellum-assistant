@@ -138,9 +138,10 @@ function withChannels(contact: Contact): ContactWithChannels {
 // ── Channel data type for syncChannels ───────────────────────────────
 
 interface SyncChannelData {
-  /** Explicit channel id for a NEW channel insert. Lets the identity mirror
-   *  reuse the gateway-minted channel id so both stores key the channel
-   *  identically; omit to mint one. Ignored when the channel already exists. */
+  /** Explicit gateway-minted channel id. Lets the identity mirror key the
+   *  channel identically in both stores; omit to mint one. When a row with this
+   *  id already exists it is updated in place (address/owner rebind), so a
+   *  gateway re-auth is mirrored rather than colliding on the id. */
   id?: string;
   type: string;
   address: string;
@@ -348,6 +349,38 @@ function syncChannels(
   const db = getDb();
 
   for (const ch of channels) {
+    // Identity-mirror update-by-id: when the caller supplies the gateway's
+    // authoritative channel id and that row already exists, update it in place.
+    // The gateway can rebind the row's address (guardian re-auth) or owner
+    // (claimed channel) under a stable id, so a match by (contactId,type,address)
+    // would miss it and a fresh insert would collide on the primary key.
+    if (ch.id) {
+      const byId = db
+        .select()
+        .from(contactChannels)
+        .where(eq(contactChannels.id, ch.id))
+        .get();
+      if (byId) {
+        const crossContact = byId.contactId !== contactId;
+        // Never steal a channel the gateway left under another contact unless
+        // the caller opts into reassignment (mirrors the address-conflict path).
+        if (crossContact && !reassignConflicting) continue;
+
+        const updateSet: Record<string, unknown> = { updatedAt: now };
+        if (byId.address !== ch.address) updateSet.address = ch.address;
+        if (crossContact) updateSet.contactId = contactId;
+        if (ch.isPrimary !== undefined) updateSet.isPrimary = ch.isPrimary;
+        if (ch.externalChatId !== undefined)
+          updateSet.externalChatId = ch.externalChatId;
+
+        db.update(contactChannels)
+          .set(updateSet)
+          .where(eq(contactChannels.id, ch.id))
+          .run();
+        continue;
+      }
+    }
+
     // Match by (type, address) — the canonical identity for all channel types.
     // COLLATE NOCASE catches legacy rows that were lowercased by old write paths.
     const existing = db

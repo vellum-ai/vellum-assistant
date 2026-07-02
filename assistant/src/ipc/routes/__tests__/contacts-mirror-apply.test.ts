@@ -3,16 +3,20 @@
  * assistant DB (via `initializeDb()`; the test preload points
  * VELLUM_WORKSPACE_DIR at a per-file temp dir).
  *
- * Proves the daemon-side batch is atomic — every op commits together and a
- * mid-batch failure rolls back the ENTIRE batch, so the mirror is never left
- * partially applied — plus the guardian-bootstrap-shaped upsert end to end.
+ * Covers the guardian-bootstrap-shaped upsert end to end, a multi-op batch
+ * committing together, and the re-auth rebind (an existing channel id rebound
+ * to a new address updates in place instead of colliding). Mid-batch rollback
+ * lives in contacts-mirror-apply-atomicity.test.ts (needs an injected throw).
  */
 
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { getSqlite } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
-import { handleContactsMirrorApply } from "../contacts-mirror-ipc-routes.js";
+import {
+  handleContactsMirrorApply,
+  handleContactsMirrorUpsertChannel,
+} from "../contacts-mirror-ipc-routes.js";
 
 await initializeDb();
 
@@ -97,45 +101,96 @@ describe("contacts_mirror_apply", () => {
     expect(channelRow("ch-a")?.contact_id).toBe("co-a");
   });
 
-  test("rolls back the ENTIRE batch when a later op fails mid-transaction", () => {
-    // Pre-seed a channel whose id a later op will collide with (PK conflict).
+  test("re-auth rebind: updates an existing channel's address in place by id", () => {
+    // A guardian channel already mirrored at the OLD actor address.
     const sqlite = getSqlite();
     sqlite
       .prepare(
         "INSERT INTO contacts (id, display_name, created_at, updated_at) VALUES (?, ?, ?, ?)",
       )
-      .run("existing-co", "Existing", 1, 1);
+      .run("g-co", "Owner", 1, 1);
     sqlite
       .prepare(
-        "INSERT INTO contact_channels (id, contact_id, type, address, is_primary, created_at) VALUES (?, ?, ?, ?, 0, ?)",
+        "INSERT INTO contact_channels (id, contact_id, type, address, is_primary, created_at) VALUES (?, ?, ?, ?, 1, ?)",
       )
-      .run("dup-ch", "existing-co", "slack", "U-existing", 1);
+      .run("g-ch", "g-co", "vellum", "OLD-principal", 1);
 
-    expect(() =>
-      handleContactsMirrorApply({
-        body: {
-          ops: [
-            // op1: a fresh contact that MUST NOT survive the rollback.
-            { op: "upsert_contact", contactId: "rollback-co", displayName: "RB" },
-            // op2: inserting a new channel with the pre-seeded id collides on the
-            // primary key and throws, aborting the whole transaction.
-            {
-              op: "upsert_channel",
-              contactId: "rollback-co",
-              channelId: "dup-ch",
-              type: "telegram",
-              address: "tg-rollback",
-              displayName: "RB",
-            },
-          ],
-        },
-      }),
-    ).toThrow();
+    // The gateway rebinds the SAME channel id to a NEW address (re-auth). The op
+    // must update row g-ch in place, not collide on its id and silently keep the
+    // stale address.
+    const result = handleContactsMirrorApply({
+      body: {
+        ops: [
+          {
+            op: "upsert_channel",
+            contactId: "g-co",
+            channelId: "g-ch",
+            type: "vellum",
+            address: "NEW-principal",
+            externalChatId: "local",
+            displayName: "Owner",
+            isPrimary: true,
+            refreshDisplayName: true,
+            reassignConflictingChannels: true,
+          },
+        ],
+      },
+    });
 
-    // op1 rolled back: no partial mirror.
-    expect(contactExists("rollback-co")).toBe(false);
-    // The pre-seeded channel is untouched (still owned by existing-co).
-    expect(channelRow("dup-ch")?.contact_id).toBe("existing-co");
+    expect(result).toEqual({ ok: true });
+    const row = getSqlite()
+      .prepare(
+        "SELECT contact_id, address, is_primary, external_chat_id FROM contact_channels WHERE id = ?",
+      )
+      .get("g-ch");
+    expect(row).toEqual({
+      contact_id: "g-co",
+      address: "NEW-principal",
+      is_primary: 1,
+      external_chat_id: "local",
+    });
+    // Exactly one row — no duplicate from a collided insert, no stale sibling.
+    const count = getSqlite()
+      .prepare("SELECT COUNT(*) AS n FROM contact_channels")
+      .get() as { n: number };
+    expect(count.n).toBe(1);
+  });
+
+  test("re-auth rebind also works through the single-row upsert_channel handler", () => {
+    const sqlite = getSqlite();
+    sqlite
+      .prepare(
+        "INSERT INTO contacts (id, display_name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+      )
+      .run("g2-co", "Owner", 1, 1);
+    sqlite
+      .prepare(
+        "INSERT INTO contact_channels (id, contact_id, type, address, is_primary, created_at) VALUES (?, ?, ?, ?, 1, ?)",
+      )
+      .run("g2-ch", "g2-co", "vellum", "OLD-2", 1);
+
+    // The single-row handler shares the same applier/primitive as the apply op.
+    handleContactsMirrorUpsertChannel({
+      body: {
+        contactId: "g2-co",
+        channelId: "g2-ch",
+        type: "vellum",
+        address: "NEW-2",
+        displayName: "Owner",
+        isPrimary: true,
+        refreshDisplayName: true,
+        reassignConflictingChannels: true,
+      },
+    });
+
+    const row = getSqlite()
+      .prepare("SELECT address FROM contact_channels WHERE id = ?")
+      .get("g2-ch") as { address: string };
+    expect(row.address).toBe("NEW-2");
+    const count = getSqlite()
+      .prepare("SELECT COUNT(*) AS n FROM contact_channels")
+      .get() as { n: number };
+    expect(count.n).toBe(1);
   });
 
   test("rejects an unknown op discriminator", () => {
