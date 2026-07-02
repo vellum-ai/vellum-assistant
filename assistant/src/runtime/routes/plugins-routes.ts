@@ -101,8 +101,8 @@ import {
   RouteError,
   ServiceUnavailableError,
 } from "./errors.js";
-import { RouteResponse } from "./types.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+import { RouteResponse } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -1404,7 +1404,10 @@ function handleGetPluginIcon({
   return new RouteResponse(new Uint8Array(bytes), {
     "Content-Type": "image/png",
     "Content-Length": String(bytes.length),
-    "Cache-Control": "public, max-age=31536000, immutable",
+    // `private`: the icon is an authenticated, workspace-specific resource, so
+    // no shared/proxy cache may reuse it across requests. The content-hash
+    // ETag + immutable still let the browser cache aggressively.
+    "Cache-Control": "private, max-age=31536000, immutable",
     ETag: `"${v.iconVersion}"`,
     "X-Content-Type-Options": "nosniff",
   });
@@ -1569,8 +1572,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     additionalResponses: {
       "404": {
-        description:
-          "No installed plugin with the given name has an icon.",
+        description: "No installed plugin with the given name has an icon.",
       },
     },
     handler: handleGetPluginIcon,

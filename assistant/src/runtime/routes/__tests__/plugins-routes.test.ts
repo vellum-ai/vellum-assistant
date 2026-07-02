@@ -323,6 +323,7 @@ mock.module("../../../skills/categories-cache.js", () => ({
   getLocalCategorySlugs: () => SKILLS_CATEGORY_SLUGS,
 }));
 
+import { getWorkspacePluginsDir } from "../../../util/platform.js";
 import {
   BadRequestError,
   ConflictError,
@@ -330,14 +331,13 @@ import {
   NotFoundError,
   ServiceUnavailableError,
 } from "../errors.js";
-import { getWorkspacePluginsDir } from "../../../util/platform.js";
 import {
   loadCategoryMapBounded,
   normalizeMarketplaceCategory,
   ROUTES as PLUGINS_ROUTES,
 } from "../plugins-routes.js";
-import { RouteResponse } from "../types.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
+import { RouteResponse } from "../types.js";
 
 function findHandler(operationId: string): RouteDefinition["handler"] {
   const route = PLUGINS_ROUTES.find((r) => r.operationId === operationId);
@@ -2468,9 +2468,10 @@ describe("GET /v1/plugins/:name/icon", () => {
     expect(Buffer.from(result.body as Uint8Array)).toEqual(bytes);
     expect(result.headers["Content-Type"]).toBe("image/png");
     expect(result.headers["Content-Length"]).toBe(String(bytes.length));
-    // Immutable cache + nosniff: the bytes are content-addressed by the ETag.
+    // Private immutable cache + nosniff: an authenticated per-workspace
+    // resource, content-addressed by the ETag; no shared cache may reuse it.
     expect(result.headers["Cache-Control"]).toBe(
-      "public, max-age=31536000, immutable",
+      "private, max-age=31536000, immutable",
     );
     expect(result.headers["X-Content-Type-Options"]).toBe("nosniff");
     // ETag is the quoted content-hash iconVersion (16 hex chars).
