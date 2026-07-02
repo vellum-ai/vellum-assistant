@@ -1381,14 +1381,17 @@ export class Conversation {
   }
 
   /**
-   * Set the conversation's per-chat plugin scope, updating both the live
-   * instance (source of truth for the current turn) and the persisted
-   * `enabled_plugins` row so the scope survives a reload. `null` clears the
-   * per-chat restriction. Callers do not persist separately.
+   * Set the conversation's per-chat plugin scope, updating both the persisted
+   * `enabled_plugins` row and the live instance (source of truth for the
+   * current turn). `null` clears the per-chat restriction. Callers do not
+   * persist separately.
+   *
+   * Persist first, then mutate the live instance: if the write throws, the
+   * live scope is left untouched rather than diverging from the row.
    */
   setEnabledPlugins(plugins: string[] | null): void {
-    this.enabledPlugins = plugins;
     setConversationEnabledPlugins(this.conversationId, plugins);
+    this.enabledPlugins = plugins;
   }
 
   setIsSubagent(value: boolean): void {

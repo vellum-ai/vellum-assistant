@@ -1604,8 +1604,6 @@ export async function handleSendMessage(
   }
 
   if (requestedEnabledPlugins !== undefined) {
-    // setEnabledPlugins persists the scope to the conversation row as well as
-    // updating the live instance, so no separate DB write is needed here.
     conversation.setEnabledPlugins(requestedEnabledPlugins);
   }
 
