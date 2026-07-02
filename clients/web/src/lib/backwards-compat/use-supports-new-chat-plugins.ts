@@ -19,12 +19,10 @@
  * on the send path so the decision awaits version hydration rather than
  * optimistically assuming support.
  *
- * MIN_VERSION targets 0.10.7 — the manage-plugins surface (this new-chat
- * picker plus the in-chat plugin pill) is not ready for release, so the
- * gate holds at a version the monorepo has not yet cut. That keeps the
- * picker and send-path inclusion hidden on every shipped assistant until
- * the surface lands; bump MIN_VERSION to the release that finalizes
- * per-chat plugin selection when it is ready.
+ * MIN_VERSION targets 0.10.5 — the release that ships the daemon side of
+ * per-chat plugin selection (alongside the in-chat plugin pill). #36678 merged
+ * with this at 0.10.4 by accident; corrected here. Bump the monorepo version to
+ * 0.10.5 when cutting this release so the picker/send-path enable on it.
  */
 import {
   assistantSupports,
@@ -32,7 +30,7 @@ import {
   whenAssistantVersionKnown,
 } from "./utils";
 
-export const MIN_VERSION = "0.10.7";
+export const MIN_VERSION = "0.10.5";
 
 /**
  * Returns `true` when the active assistant accepts the per-chat plugin
