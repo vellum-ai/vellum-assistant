@@ -45,6 +45,40 @@ export interface BootstrapInterceptParams {
   sourceChannel: ChannelId;
   conversationExternalId: string;
   eventId: string;
+  /**
+   * Session already resolved by ACL enforcement for this token. When set,
+   * the admission floor was skipped on its strength; this stage reuses it
+   * instead of re-resolving via the gateway.
+   */
+  validatedBootstrapSession?: VerificationSessionWire;
+}
+
+const BOOTSTRAP_UNAVAILABLE_REPLY =
+  "I couldn't process your verification link just now. Please tap the link again in a moment.";
+
+/**
+ * Deterministic handled response for gateway failures mid-bootstrap. ACL may
+ * have skipped the admission floor for this token, so a gv_ command must
+ * never fall through to normal processing on a transient gateway failure.
+ */
+async function respondBootstrapUnavailable(
+  conversationExternalId: string,
+  eventId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    await sendTelegramReply(conversationExternalId, BOOTSTRAP_UNAVAILABLE_REPLY);
+  } catch (err) {
+    log.error(
+      { err, chatId: conversationExternalId },
+      "Failed to deliver bootstrap unavailable reply",
+    );
+  }
+  return {
+    accepted: true,
+    duplicate: false,
+    eventId,
+    verificationOutcome: "bootstrap_unavailable",
+  };
 }
 
 /**
@@ -64,6 +98,7 @@ export async function handleBootstrapIntercept(
     sourceChannel,
     conversationExternalId,
     eventId,
+    validatedBootstrapSession,
   } = params;
 
   if (
@@ -76,26 +111,33 @@ export async function handleBootstrapIntercept(
     return null;
   }
 
-  // Sessions live in the gateway. Inbound messages arrive through the
-  // gateway, so an unreachable gateway on these calls is a narrow race, not
-  // a steady state: degrade to normal /start handling instead of throwing.
+  // Sessions live in the gateway. When ACL already validated this token it
+  // threads the session through — no second lookup. Otherwise resolve here;
+  // a gateway failure must never fall through to normal processing (the
+  // floor may have been skipped), so degrade to a handled "try again" reply.
   const bootstrapToken = (commandIntent.payload as string).slice(3);
   let bootstrapSession: VerificationSessionWire | null;
-  try {
-    bootstrapSession = await resolveBootstrapToken(
-      sourceChannel,
-      bootstrapToken,
-    );
-  } catch (err) {
-    log.warn(
-      { err, sourceChannel },
-      "Bootstrap intercept: token resolution failed (gateway unreachable)",
-    );
-    return null;
+  if (validatedBootstrapSession) {
+    bootstrapSession = validatedBootstrapSession;
+  } else {
+    try {
+      bootstrapSession = await resolveBootstrapToken(
+        sourceChannel,
+        bootstrapToken,
+      );
+    } catch (err) {
+      log.warn(
+        { err, sourceChannel },
+        "Bootstrap intercept: token resolution failed (gateway unreachable)",
+      );
+      return respondBootstrapUnavailable(conversationExternalId, eventId);
+    }
   }
 
   if (!bootstrapSession || bootstrapSession.status !== "pending_bootstrap") {
-    // Not found or expired — fall through to normal /start handling
+    // Not found or expired — fall through to normal /start handling. Only
+    // reachable when ACL did not validate the token (a threaded session is
+    // always pending_bootstrap), so the admission floor already ran.
     return null;
   }
 
@@ -125,7 +167,7 @@ export async function handleBootstrapIntercept(
       { err, sourceChannel, sessionId: bootstrapSession.id },
       "Bootstrap intercept: session handoff failed (gateway unreachable)",
     );
-    return null;
+    return respondBootstrapUnavailable(conversationExternalId, eventId);
   }
 
   // Compose and send the verification prompt via Telegram

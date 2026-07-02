@@ -168,11 +168,13 @@ export interface AclResult {
   /** When set, the caller must return this response immediately. */
   earlyResponse?: Record<string, unknown>;
   /**
-   * True when a valid `pending_bootstrap` session was resolved during ACL
-   * enforcement. The caller must skip the admission policy floor so the
-   * bootstrap intercept stage can handle identity binding and emit its reply.
+   * The `pending_bootstrap` session resolved during ACL enforcement. When
+   * set, the caller must skip the admission policy floor and thread this
+   * session to the bootstrap intercept stage so it does not re-resolve the
+   * token — a second gateway lookup could transiently fail and drop the
+   * bootstrap sender into normal processing with the floor already skipped.
    */
-  isValidatedBootstrap?: boolean;
+  validatedBootstrapSession?: VerificationSessionWire;
 }
 
 /**
@@ -200,7 +202,7 @@ export async function enforceIngressAcl(
     isCallbackInteraction,
   } = params;
 
-  let isValidatedBootstrap = false;
+  let validatedBootstrapSession: VerificationSessionWire | undefined;
 
   // Identity signals forwarded via sourceMetadata: bot flag (Slack users.info
   // / Telegram is_bot) plus Slack workspace trust signals.
@@ -357,7 +359,7 @@ export async function enforceIngressAcl(
         );
         if (bootstrapSessionForAcl?.status === "pending_bootstrap") {
           denyNonMember = false;
-          isValidatedBootstrap = true;
+          validatedBootstrapSession = bootstrapSessionForAcl;
         } else {
           log.info(
             { sourceChannel, hasValidBootstrapSession: false },
@@ -642,7 +644,7 @@ export async function enforceIngressAcl(
           );
           if (bootstrapSessionForAcl?.status === "pending_bootstrap") {
             denyInactiveMember = false;
-            isValidatedBootstrap = true;
+            validatedBootstrapSession = bootstrapSessionForAcl;
           } else {
             log.info(
               {
@@ -931,7 +933,7 @@ export async function enforceIngressAcl(
 
   return {
     resolvedMember,
-    ...(isValidatedBootstrap && { isValidatedBootstrap }),
+    ...(validatedBootstrapSession && { validatedBootstrapSession }),
   };
 }
 

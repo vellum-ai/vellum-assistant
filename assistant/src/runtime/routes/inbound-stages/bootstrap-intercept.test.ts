@@ -4,8 +4,9 @@
  *
  * Covers: the happy-path /start gv_<token> handoff (resolve → bind →
  * status transition → fresh identity-bound session → delivery tracking),
- * fall-through for unresolvable tokens, and the gateway-unreachable
- * posture (degrade to normal /start handling — no throw).
+ * fall-through for unresolvable tokens, ACL-threaded session reuse (no
+ * second gateway lookup), and the gateway-unreachable posture (handled
+ * "unavailable" response — never fall-through to normal processing).
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -69,6 +70,7 @@ mock.module("../../verification-outbound-actions.js", () => ({
   RESEND_COOLDOWN_MS: 60_000,
 }));
 
+import type { VerificationSessionWire } from "../../../channels/gateway-verification-sessions.js";
 import type { BootstrapInterceptParams } from "./bootstrap-intercept.js";
 import { handleBootstrapIntercept } from "./bootstrap-intercept.js";
 
@@ -173,34 +175,81 @@ describe("handleBootstrapIntercept", () => {
     expect(resolveCalls).toHaveLength(0);
   });
 
-  test("gateway unreachable on token resolution degrades to null — no throw", async () => {
+  test("gateway unreachable on token resolution returns a handled unavailable response — no fall-through", async () => {
     resolveThrows = true;
 
     const result = await handleBootstrapIntercept(makeParams());
 
-    expect(result).toBeNull();
+    expect(result).toEqual({
+      accepted: true,
+      duplicate: false,
+      eventId: "event-1",
+      verificationOutcome: "bootstrap_unavailable",
+    });
     expect(bindCalls).toHaveLength(0);
     expect(createCalls).toHaveLength(0);
+    expect(telegramReplies).toHaveLength(1);
+    expect(telegramReplies[0].text).toContain("tap the link again");
   });
 
-  test("gateway unreachable during the session handoff degrades to null — no throw", async () => {
+  test("gateway unreachable during the session handoff returns a handled unavailable response", async () => {
     bindThrows = true;
 
     const result = await handleBootstrapIntercept(makeParams());
 
-    expect(result).toBeNull();
+    expect(result).toMatchObject({
+      verificationOutcome: "bootstrap_unavailable",
+    });
     expect(createCalls).toHaveLength(0);
-    expect(telegramReplies).toHaveLength(0);
+    expect(telegramReplies).toHaveLength(1);
   });
 
-  test("gateway unreachable on session creation degrades to null — no throw", async () => {
+  test("gateway unreachable on session creation returns a handled unavailable response", async () => {
     createThrows = true;
 
     const result = await handleBootstrapIntercept(makeParams());
 
-    expect(result).toBeNull();
+    expect(result).toMatchObject({
+      verificationOutcome: "bootstrap_unavailable",
+    });
     expect(updateDeliveryCalls).toHaveLength(0);
-    expect(telegramReplies).toHaveLength(0);
+    expect(telegramReplies).toHaveLength(1);
+  });
+
+  test("ACL-threaded session skips the second gateway lookup and completes the handoff", async () => {
+    const result = await handleBootstrapIntercept(
+      makeParams({
+        validatedBootstrapSession: {
+          id: "bootstrap-session-1",
+          channel: "telegram",
+          status: "pending_bootstrap",
+        } as unknown as VerificationSessionWire,
+      }),
+    );
+
+    expect(result).toMatchObject({ verificationOutcome: "bootstrap_bound" });
+    expect(resolveCalls).toHaveLength(0);
+    expect(bindCalls).toEqual([["bootstrap-session-1", "user-42", "chat-123"]]);
+  });
+
+  test("ACL-threaded session with a failing handoff still returns the handled unavailable response", async () => {
+    bindThrows = true;
+
+    const result = await handleBootstrapIntercept(
+      makeParams({
+        validatedBootstrapSession: {
+          id: "bootstrap-session-1",
+          channel: "telegram",
+          status: "pending_bootstrap",
+        } as unknown as VerificationSessionWire,
+      }),
+    );
+
+    expect(result).toMatchObject({
+      verificationOutcome: "bootstrap_unavailable",
+    });
+    expect(resolveCalls).toHaveLength(0);
+    expect(telegramReplies).toHaveLength(1);
   });
 
   test("delivery-tracking failure after the code is sent does not unwind the bootstrap", async () => {

@@ -856,7 +856,10 @@ describe("enforceIngressAcl — bootstrap deep-link bypass reads via the gateway
     const result = await enforceIngressAcl(bootstrapParams());
 
     expect(result.earlyResponse).toBeUndefined();
-    expect(result.isValidatedBootstrap).toBe(true);
+    expect(result.validatedBootstrapSession).toMatchObject({
+      id: "bootstrap-session",
+      status: "pending_bootstrap",
+    });
   });
 
   test("an unresolvable token keeps the deny", async () => {
@@ -865,7 +868,7 @@ describe("enforceIngressAcl — bootstrap deep-link bypass reads via the gateway
     const result = await enforceIngressAcl(bootstrapParams());
 
     expect(result.earlyResponse!.reason).toBe("not_a_member");
-    expect(result.isValidatedBootstrap).toBeUndefined();
+    expect(result.validatedBootstrapSession).toBeUndefined();
   });
 
   test("gateway unreachable degrades to the plain deny — no throw, no bypass", async () => {
@@ -874,7 +877,7 @@ describe("enforceIngressAcl — bootstrap deep-link bypass reads via the gateway
     const result = await enforceIngressAcl(bootstrapParams());
 
     expect(result.earlyResponse!.reason).toBe("not_a_member");
-    expect(result.isValidatedBootstrap).toBeUndefined();
+    expect(result.validatedBootstrapSession).toBeUndefined();
     expect(createOutboundSessionCalls.length).toBe(0);
   });
 });
