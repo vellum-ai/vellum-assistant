@@ -1757,29 +1757,6 @@ async function main() {
       return Response.json({ status: "ok" });
     }
 
-    if (!postAssistantReadyComplete) {
-      return Response.json({ status: "starting" }, { status: 503 });
-    }
-
-    // ── CORS: webview preflight & origin tracking ──
-    // The macOS WKWebView loads pages from https://{appId}.vellum.local/
-    // which is cross-origin to the gateway at http://127.0.0.1:{port}.
-    // Reflect the origin back on matched requests so window.vellum.fetch
-    // calls succeed.
-    const extensionOrigin = resolveExtensionOrigin(req);
-    if (extensionOrigin && req.method === "OPTIONS") {
-      return handleExtensionPreflight(extensionOrigin);
-    }
-
-    const webviewOrigin = resolveWebviewOrigin(req);
-    if (webviewOrigin && req.method === "OPTIONS") {
-      return handlePreflight(webviewOrigin);
-    }
-
-    if (url.pathname === "/schema") {
-      return Response.json(buildSchema());
-    }
-
     if (url.pathname === "/readyz") {
       if (draining) {
         return Response.json({ status: "draining" }, { status: 503 });
@@ -1804,6 +1781,29 @@ async function main() {
         );
       }
       return Response.json({ status: "ok" });
+    }
+
+    if (!postAssistantReadyComplete) {
+      return Response.json({ status: "starting" }, { status: 503 });
+    }
+
+    // ── CORS: webview preflight & origin tracking ──
+    // The macOS WKWebView loads pages from https://{appId}.vellum.local/
+    // which is cross-origin to the gateway at http://127.0.0.1:{port}.
+    // Reflect the origin back on matched requests so window.vellum.fetch
+    // calls succeed.
+    const extensionOrigin = resolveExtensionOrigin(req);
+    if (extensionOrigin && req.method === "OPTIONS") {
+      return handleExtensionPreflight(extensionOrigin);
+    }
+
+    const webviewOrigin = resolveWebviewOrigin(req);
+    if (webviewOrigin && req.method === "OPTIONS") {
+      return handlePreflight(webviewOrigin);
+    }
+
+    if (url.pathname === "/schema") {
+      return Response.json(buildSchema());
     }
 
     // Per-request IP resolver — scoped to this request so it remains

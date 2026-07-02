@@ -1133,7 +1133,7 @@ describe("handleListContacts ACL overlay (filtered/search path)", () => {
               ...daemonContact().channels[0],
               id: "daemon-side-id",
               type: "email",
-              address: "Alice@Example.COM",
+              address: "ALICE@example.com",
             },
           ],
         }),

@@ -82,7 +82,11 @@ import {
   stopCanonicalGuardianExpirySweep,
 } from "./routes/canonical-guardian-expiry-sweep.js";
 import { RouteError } from "./routes/errors.js";
-import { handleHealth, handleReadyz } from "./routes/identity-routes.js";
+import {
+  dbMigrationUnavailableResponse,
+  handleHealth,
+  handleReadyz,
+} from "./routes/identity-routes.js";
 import {
   startInferenceProfileSessionReaper,
   stopInferenceProfileSessionReaper,
@@ -98,9 +102,32 @@ const log = getLogger("runtime-http");
 
 const DEFAULT_PORT = 7821;
 const DEFAULT_HOSTNAME = "127.0.0.1";
+const DB_MIGRATION_READINESS_EXEMPT_ENDPOINTS = new Set([
+  "health",
+  "healthz",
+  "ps",
+]);
 
 /** Global hard cap on request body size (512 MB — accommodates large .vbundle backup imports). */
 const MAX_REQUEST_BODY_BYTES = 512 * 1024 * 1024;
+
+function shouldBypassDbMigrationReadiness(endpoint: string): boolean {
+  return DB_MIGRATION_READINESS_EXEMPT_ENDPOINTS.has(endpoint);
+}
+
+function dbMigrationUnavailableForEndpoint(endpoint: string): Response | null {
+  if (shouldBypassDbMigrationReadiness(endpoint)) return null;
+  return dbMigrationUnavailableResponse();
+}
+
+function dbMigrationUnavailableForPath(path: string): Response | null {
+  if (path.startsWith("/v1/")) {
+    const endpoint = path.slice("/v1/".length).replace(/\/$/, "");
+    return dbMigrationUnavailableForEndpoint(endpoint);
+  }
+
+  return dbMigrationUnavailableResponse();
+}
 
 /**
  * WebSocket data attached to `/v1/calls/media-stream` connections.
@@ -551,6 +578,9 @@ export class RuntimeHttpServer {
     if (path === "/readyz" && req.method === "GET") {
       return handleReadyz();
     }
+
+    const migrationResponse = dbMigrationUnavailableForPath(path);
+    if (migrationResponse) return migrationResponse;
 
     // WebSocket upgrade for ConversationRelay — before auth check because
     // Twilio WebSocket connections don't use bearer tokens.

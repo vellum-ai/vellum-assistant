@@ -11957,6 +11957,28 @@ paths:
                       - budget
                       - lastCompletedRun
                     additionalProperties: false
+                  reason:
+                    type: string
+                  dbMigrations:
+                    type: object
+                    properties:
+                      ready:
+                        type: boolean
+                      state:
+                        type: string
+                        enum:
+                          - not_started
+                          - running
+                          - failed
+                          - ready
+                      reason:
+                        type: string
+                      error:
+                        type: string
+                    required:
+                      - ready
+                      - state
+                    additionalProperties: false
                 required:
                   - status
                   - timestamp
@@ -12133,6 +12155,28 @@ paths:
                       - artifactCount
                       - budget
                       - lastCompletedRun
+                    additionalProperties: false
+                  reason:
+                    type: string
+                  dbMigrations:
+                    type: object
+                    properties:
+                      ready:
+                        type: boolean
+                      state:
+                        type: string
+                        enum:
+                          - not_started
+                          - running
+                          - failed
+                          - ready
+                      reason:
+                        type: string
+                      error:
+                        type: string
+                    required:
+                      - ready
+                      - state
                     additionalProperties: false
                 required:
                   - status

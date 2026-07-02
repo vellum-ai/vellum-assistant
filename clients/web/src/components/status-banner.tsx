@@ -15,6 +15,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -45,7 +46,11 @@ import {
   wakeLocalAssistantHost,
 } from "@/runtime/local-mode-host";
 import { useIsNativePlatform } from "@/runtime/native-auth";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { useOrganizationStore } from "@/stores/organization-store";
+import {
+  assistantsValidForOrg,
+  useResolvedAssistantsStore,
+} from "@/stores/resolved-assistants-store";
 import { cn } from "@/utils/misc";
 import { routes } from "@/utils/routes";
 
@@ -488,10 +493,33 @@ function useAssistantBannerConfig(): BannerConfig | null {
   const { connectivityState, retryConnectivity } = useConnectivityState();
   const nativeConnected = useNetworkStatus();
   const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const selectedAssistantId =
+    useResolvedAssistantsStore.use.selectedAssistantId();
+  const assistants = useResolvedAssistantsStore.use.assistants();
+  const currentOrganizationId =
+    useOrganizationStore.use.currentOrganizationId();
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   const operationalStatusAssistantId =
     useAssistantLifecycleStore.use.operationalStatusAssistantId();
-  const assistantId = operationalStatusAssistantId ?? activeAssistantId;
+  const selectedOperationalStatusAssistantId = useMemo(() => {
+    const platformAssistants = assistantsValidForOrg(
+      assistants,
+      currentOrganizationId,
+    ).filter(
+      (assistant) =>
+        assistant.isPlatformHosted === true && assistant.isLocal === false,
+    );
+    return (
+      platformAssistants.find((assistant) => assistant.id === selectedAssistantId)
+        ?.id ??
+      platformAssistants[0]?.id ??
+      null
+    );
+  }, [assistants, currentOrganizationId, selectedAssistantId]);
+  const assistantId =
+    operationalStatusAssistantId ??
+    activeAssistantId ??
+    selectedOperationalStatusAssistantId;
   const showDoctorAction =
     assistantState.kind === "active" &&
     !assistantState.isLocal &&

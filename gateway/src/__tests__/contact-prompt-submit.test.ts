@@ -31,18 +31,20 @@ initSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long-xx"));
 let testAssistantDb: Database | null = null;
 
 mock.module("../db/assistant-db-proxy.js", () => ({
-   
   async assistantDbQuery(sql: string, bind?: any[]) {
     if (!testAssistantDb) throw new Error("test assistant DB not initialized");
     const stmt = testAssistantDb.prepare(sql);
     return bind ? stmt.all(...bind) : stmt.all();
   },
-   
+
   async assistantDbRun(sql: string, bind?: any[]) {
     if (!testAssistantDb) throw new Error("test assistant DB not initialized");
     const stmt = testAssistantDb.prepare(sql);
     const result = bind ? stmt.run(...bind) : stmt.run();
-    return { changes: result.changes, lastInsertRowid: Number(result.lastInsertRowid) };
+    return {
+      changes: result.changes,
+      lastInsertRowid: Number(result.lastInsertRowid),
+    };
   },
 }));
 
@@ -60,12 +62,10 @@ mock.module("../ipc/assistant-client.js", () => ({
 // Imports that depend on the mocks above.
 // ---------------------------------------------------------------------------
 
-const { handleContactPromptSubmit } = await import(
-  "../http/routes/contact-prompt.js"
-);
-const { initGatewayDb, getGatewayDb, resetGatewayDb } = await import(
-  "../db/connection.js"
-);
+const { handleContactPromptSubmit } =
+  await import("../http/routes/contact-prompt.js");
+const { initGatewayDb, getGatewayDb, resetGatewayDb } =
+  await import("../db/connection.js");
 const { contactChannels: gwContactChannels, contacts: gwContacts } =
   await import("../db/schema.js");
 const { ContactStore } = await import("../db/contact-store.js");
@@ -204,7 +204,13 @@ describe("handleContactPromptSubmit", () => {
     const now = Date.now();
     getGatewayDb()
       .insert(gwContacts)
-      .values({ id, displayName: name, role: "guardian", createdAt: now, updatedAt: now })
+      .values({
+        id,
+        displayName: name,
+        role: "guardian",
+        createdAt: now,
+        updatedAt: now,
+      })
       .run();
     testAssistantDb!.run(
       `INSERT INTO contacts (id, display_name, role, contact_type, created_at, updated_at)
@@ -217,18 +223,23 @@ describe("handleContactPromptSubmit", () => {
     seedGuardian();
 
     const res = await handleContactPromptSubmit(
-      makeRequest({ requestId: "req-1", address: "+15551234567", channelType: "phone", role: "guardian" }),
+      makeRequest({
+        requestId: "req-1",
+        address: "+12125550123",
+        channelType: "phone",
+        role: "guardian",
+      }),
     );
 
     expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.accepted).toBe(true);
 
     // Gateway DB is the source of truth: channel row bound to the guardian.
     const gwChannels = getGatewayDb()
       .select()
       .from(gwContactChannels)
-      .where(eq(gwContactChannels.address, "+15551234567"))
+      .where(eq(gwContactChannels.address, "+12125550123"))
       .all();
     expect(gwChannels).toHaveLength(1);
     expect(gwChannels[0].contactId).toBe("guardian-1");
@@ -260,7 +271,7 @@ describe("handleContactPromptSubmit", () => {
         id: "chan-1",
         contactId: "guardian-1",
         type: "phone",
-        address: "+15551234567",
+        address: "+12125550123",
         isPrimary: true,
         status: "active",
         policy: "allow",
@@ -271,11 +282,16 @@ describe("handleContactPromptSubmit", () => {
       .run();
 
     const res = await handleContactPromptSubmit(
-      makeRequest({ requestId: "req-2", address: "+15551234567", channelType: "phone", role: "guardian" }),
+      makeRequest({
+        requestId: "req-2",
+        address: "+12125550123",
+        channelType: "phone",
+        role: "guardian",
+      }),
     );
 
     expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.accepted).toBe(true);
 
     // No new channel should have been inserted in the gateway DB.
@@ -299,7 +315,13 @@ describe("handleContactPromptSubmit", () => {
     // gateway DB.
     getGatewayDb()
       .insert(gwContacts)
-      .values({ id: "other-1", displayName: "Orphan", role: "contact", createdAt: now, updatedAt: now })
+      .values({
+        id: "other-1",
+        displayName: "Orphan",
+        role: "contact",
+        createdAt: now,
+        updatedAt: now,
+      })
       .run();
     getGatewayDb()
       .insert(gwContactChannels)
@@ -307,7 +329,7 @@ describe("handleContactPromptSubmit", () => {
         id: "chan-other",
         contactId: "other-1",
         type: "phone",
-        address: "+15551234567",
+        address: "+12125550123",
         isPrimary: true,
         status: "unverified",
         policy: "allow",
@@ -318,11 +340,16 @@ describe("handleContactPromptSubmit", () => {
       .run();
 
     const res = await handleContactPromptSubmit(
-      makeRequest({ requestId: "req-3", address: "+15551234567", channelType: "phone", role: "guardian" }),
+      makeRequest({
+        requestId: "req-3",
+        address: "+12125550123",
+        channelType: "phone",
+        role: "guardian",
+      }),
     );
 
     expect(res.status).toBe(409);
-    const body = await res.json() as Record<string, unknown>;
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.accepted).toBe(false);
 
     // The stale gateway channel must not have been deleted or reassigned, and no
@@ -339,7 +366,7 @@ describe("handleContactPromptSubmit", () => {
     // No assistant-DB channel write occurred for that address either.
     const asChannels = testAssistantDb!
       .prepare(`SELECT id FROM contact_channels WHERE address = ?`)
-      .all("+15551234567") as { id: string }[];
+      .all("+12125550123") as { id: string }[];
     expect(asChannels).toHaveLength(0);
 
     // IPC should have been called with an error so the CLI doesn't hang.
@@ -367,7 +394,12 @@ describe("handleContactPromptSubmit", () => {
     let res: Response;
     try {
       res = await handleContactPromptSubmit(
-        makeRequest({ requestId: "req-mirror-g", address: "+15550009999", channelType: "phone", role: "guardian" }),
+        makeRequest({
+          requestId: "req-mirror-g",
+          address: "+12125550124",
+          channelType: "phone",
+          role: "guardian",
+        }),
       );
     } finally {
       testAssistantDb = realDb;
@@ -381,7 +413,7 @@ describe("handleContactPromptSubmit", () => {
     const gwChannels = getGatewayDb()
       .select()
       .from(gwContactChannels)
-      .where(eq(gwContactChannels.address, "+15550009999"))
+      .where(eq(gwContactChannels.address, "+12125550124"))
       .all();
     expect(gwChannels).toHaveLength(1);
     expect(gwChannels[0].contactId).toBe("guardian-1");
@@ -390,7 +422,13 @@ describe("handleContactPromptSubmit", () => {
   test("guardian prompt — creates guardian gateway-first when none exists (bootstrap sub-case)", async () => {
     // No guardian seeded anywhere — handler must mint one gateway-first.
     const res = await handleContactPromptSubmit(
-      makeRequest({ requestId: "req-boot", address: "+15557654321", channelType: "phone", role: "guardian", displayName: "Boot Guardian" }),
+      makeRequest({
+        requestId: "req-boot",
+        address: "+12125550125",
+        channelType: "phone",
+        role: "guardian",
+        displayName: "Boot Guardian",
+      }),
     );
 
     expect(res.status).toBe(200);
@@ -410,7 +448,7 @@ describe("handleContactPromptSubmit", () => {
     const gwChannels = getGatewayDb()
       .select()
       .from(gwContactChannels)
-      .where(eq(gwContactChannels.address, "+15557654321"))
+      .where(eq(gwContactChannels.address, "+12125550125"))
       .all();
     expect(gwChannels).toHaveLength(1);
     expect(gwChannels[0].contactId).toBe(gwGuardians[0].id);
@@ -514,7 +552,13 @@ describe("handleContactPromptSubmit", () => {
     // truth for the reuse-by-channel lookup).
     getGatewayDb()
       .insert(gwContacts)
-      .values({ id: "contact-1", displayName: "Alice", role: "contact", createdAt: now, updatedAt: now })
+      .values({
+        id: "contact-1",
+        displayName: "Alice",
+        role: "contact",
+        createdAt: now,
+        updatedAt: now,
+      })
       .run();
     getGatewayDb()
       .insert(gwContactChannels)
@@ -533,7 +577,11 @@ describe("handleContactPromptSubmit", () => {
       .run();
 
     const res = await handleContactPromptSubmit(
-      makeRequest({ requestId: "req-5", address: "alice@example.com", channelType: "email" }),
+      makeRequest({
+        requestId: "req-5",
+        address: "alice@example.com",
+        channelType: "email",
+      }),
     );
 
     expect(res.status).toBe(200);
@@ -554,7 +602,13 @@ describe("handleContactPromptSubmit", () => {
     const now = Date.now();
     getGatewayDb()
       .insert(gwContacts)
-      .values({ id: "contact-1", displayName: "Alice", role: "contact", createdAt: now, updatedAt: now })
+      .values({
+        id: "contact-1",
+        displayName: "Alice",
+        role: "contact",
+        createdAt: now,
+        updatedAt: now,
+      })
       .run();
     getGatewayDb()
       .insert(gwContactChannels)
@@ -574,7 +628,12 @@ describe("handleContactPromptSubmit", () => {
 
     // displayName: null must NOT be written through to the NOT NULL column.
     const res = await handleContactPromptSubmit(
-      makeRequest({ requestId: "req-null", address: "alice@example.com", channelType: "email", displayName: null }),
+      makeRequest({
+        requestId: "req-null",
+        address: "alice@example.com",
+        channelType: "email",
+        displayName: null,
+      }),
     );
 
     expect(res.status).toBe(200);
@@ -596,17 +655,28 @@ describe("handleContactPromptSubmit", () => {
     // Also seed guardian in gateway DB so FK is satisfied.
     getGatewayDb()
       .insert(gwContacts)
-      .values({ id: "guardian-1", displayName: "Vargas", role: "guardian", createdAt: now, updatedAt: now })
+      .values({
+        id: "guardian-1",
+        displayName: "Vargas",
+        role: "guardian",
+        createdAt: now,
+        updatedAt: now,
+      })
       .run();
 
     await handleContactPromptSubmit(
-      makeRequest({ requestId: "req-6", address: "+15559876543", channelType: "phone", role: "guardian" }),
+      makeRequest({
+        requestId: "req-6",
+        address: "+12125550126",
+        channelType: "phone",
+        role: "guardian",
+      }),
     );
 
     const gwChannels = getGatewayDb()
       .select()
       .from(gwContactChannels)
-      .where(eq(gwContactChannels.address, "+15559876543"))
+      .where(eq(gwContactChannels.address, "+12125550126"))
       .all();
     expect(gwChannels).toHaveLength(1);
     expect(gwChannels[0].contactId).toBe("guardian-1");
@@ -666,9 +736,7 @@ describe("handleContactPromptSubmit", () => {
     // The reuse path called upsertContact, which healed the assistant-DB
     // mirror: a channel row for the address now exists under the guardian.
     const asChannels = testAssistantDb!
-      .prepare(
-        `SELECT contact_id FROM contact_channels WHERE address = ?`,
-      )
+      .prepare(`SELECT contact_id FROM contact_channels WHERE address = ?`)
       .all("+15551112222") as { contact_id: string }[];
     expect(asChannels).toHaveLength(1);
     expect(asChannels[0].contact_id).toBe("guardian-1");
@@ -870,7 +938,7 @@ describe("handleContactPromptSubmit", () => {
       res = await handleContactPromptSubmit(
         makeRequest({
           requestId: "req-existing-noresolve",
-          address: "+15557778888",
+          address: "+12125550188",
           channelType: "phone",
           role: "guardian",
         }),

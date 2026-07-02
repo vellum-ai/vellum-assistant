@@ -4974,7 +4974,7 @@ describe("relay-server", () => {
     const session = createCallSession({
       conversationId: "conv-invite-blank-name",
       provider: "twilio",
-      fromNumber: "+15557775555",
+      fromNumber: "+12125550155",
       toNumber: "+15551111111",
     });
 
@@ -4986,7 +4986,7 @@ describe("relay-server", () => {
       sourceChannel: "phone",
       contactId: createTargetContact("   "),
       maxUses: 1,
-      expectedExternalUserId: "+15557775555",
+      expectedExternalUserId: "+12125550155",
       voiceCodeHash: codeHash,
       voiceCodeDigits: 6,
     });
@@ -5001,7 +5001,7 @@ describe("relay-server", () => {
       JSON.stringify({
         type: "setup",
         callSid: "CA_invite_blank_name",
-        from: "+15557775555",
+        from: "+12125550155",
         to: "+15551111111",
       }),
     );
@@ -5020,7 +5020,7 @@ describe("relay-server", () => {
       textMessages.some((m) => (m.token ?? "").startsWith("Hi there!")),
     ).toBe(true);
     expect(
-      textMessages.every((m) => !(m.token ?? "").includes("+15557775555")),
+      textMessages.every((m) => !(m.token ?? "").includes("+12125550155")),
     ).toBe(true);
 
     relay.destroy();
@@ -5099,7 +5099,7 @@ describe("relay-server", () => {
       {
         channelType: "phone",
         status: "active",
-        address: "+15550000001",
+        address: "+12125550101",
         displayName: "Bob",
       },
     ];
@@ -5144,7 +5144,7 @@ describe("relay-server", () => {
       {
         channelType: "phone",
         status: "active",
-        address: "+15550000002",
+        address: "+12125550102",
         displayName: "Charlie",
       },
     ];

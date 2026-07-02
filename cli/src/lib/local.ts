@@ -539,6 +539,12 @@ function logDaemonReadiness(ready: boolean): void {
   }
 }
 
+function logAssistantAlreadyRunning(pid: number, unready: boolean): void {
+  console.log(
+    `   Assistant already running (pid ${pid})${unready ? " but not ready yet" : ""}\n`,
+  );
+}
+
 async function startDaemonFromSource(
   assistantIndex: string,
   resources: LocalInstanceResources,
@@ -559,9 +565,14 @@ async function startDaemonFromSource(
     pidFile,
     resources.daemonPort,
     "Assistant",
+    60_000,
+    "readyz",
   );
-  if (daemonState.status === "healthy") {
-    console.log(`   Assistant already running (pid ${daemonState.pid})\n`);
+  if (daemonState.status !== "needs_start") {
+    logAssistantAlreadyRunning(
+      daemonState.pid,
+      daemonState.status === "unready",
+    );
     return;
   }
 
@@ -632,9 +643,14 @@ async function startDaemonWatchFromSource(
     pidFile,
     resources.daemonPort,
     "Assistant",
+    60_000,
+    "readyz",
   );
-  if (daemonState.status === "healthy") {
-    console.log(`   Assistant already running (pid ${daemonState.pid})\n`);
+  if (daemonState.status !== "needs_start") {
+    logAssistantAlreadyRunning(
+      daemonState.pid,
+      daemonState.status === "unready",
+    );
     return;
   }
 
@@ -787,7 +803,7 @@ async function awaitStartingSentinel(
   }
 
   console.log("   Assistant is starting — waiting for it to become ready...");
-  if (await waitForDaemonReady(daemonPort, 60000)) {
+  if (await waitForDaemonReady(daemonPort, 60000, "readyz")) {
     console.log("   Assistant is ready\n");
     return true;
   }
@@ -1056,7 +1072,9 @@ export async function startLocalDaemon(
   if (runtimeAssistantIndex) {
     console.log("🔨 Starting local assistant runtime...");
     await startDaemonFromSource(runtimeAssistantIndex, resources, options);
-    logDaemonReadiness(await waitForDaemonReady(resources.daemonPort, 60000));
+    logDaemonReadiness(
+      await waitForDaemonReady(resources.daemonPort, 60000, "readyz"),
+    );
     return;
   }
 
@@ -1082,15 +1100,23 @@ export async function startLocalDaemon(
       pidFile,
       resources.daemonPort,
       "Assistant",
+      60_000,
+      "readyz",
     );
-    const daemonAlive = daemonState.status === "healthy";
+    const daemonAlive = daemonState.status !== "needs_start";
     if (daemonAlive) {
-      console.log(`   Assistant already running (pid ${daemonState.pid})\n`);
+      logAssistantAlreadyRunning(
+        daemonState.pid,
+        daemonState.status === "unready",
+      );
     }
 
     if (!daemonAlive) {
       if (await checkOrphanedDaemon(pidFile, resources.daemonPort)) {
         ensureBunInstalled();
+        logDaemonReadiness(
+          await waitForDaemonReady(resources.daemonPort, 60000, "readyz"),
+        );
         return;
       }
 
@@ -1192,15 +1218,21 @@ export async function startLocalDaemon(
 
     // Wait for daemon to respond on HTTP (up to 60s — fresh installs
     // may need 30-60s for Qdrant download, migrations, and first-time init)
-    let daemonReady = await waitForDaemonReady(resources.daemonPort, 60000);
+    let daemonReady = await waitForDaemonReady(
+      resources.daemonPort,
+      60000,
+      "readyz",
+    );
+    const daemonHealthy =
+      daemonReady || (await httpHealthCheck(resources.daemonPort));
 
-    // Dev fallback: if the bundled daemon did not become ready in time,
+    // Dev fallback: if the bundled daemon did not become healthy in time,
     // fall back to source daemon startup so local source runs still work.
-    if (!daemonReady) {
+    if (!daemonHealthy) {
       const assistantIndex = resolveAssistantIndexPath(resources);
       if (assistantIndex) {
         console.log(
-          "   Bundled assistant not ready after 60s — falling back to source assistant...",
+          "   Bundled assistant not healthy after 60s — falling back to source assistant...",
         );
         // Kill the bundled daemon to avoid two processes competing for the same port
         await stopProcessByPidFile(pidFile, "bundled daemon");
@@ -1209,7 +1241,11 @@ export async function startLocalDaemon(
         } else {
           await startDaemonFromSource(assistantIndex, resources, options);
         }
-        daemonReady = await waitForDaemonReady(resources.daemonPort, 60000);
+        daemonReady = await waitForDaemonReady(
+          resources.daemonPort,
+          60000,
+          "readyz",
+        );
       }
     }
 
@@ -1229,7 +1265,9 @@ export async function startLocalDaemon(
     } else {
       await startDaemonFromSource(assistantIndex, resources, options);
     }
-    logDaemonReadiness(await waitForDaemonReady(resources.daemonPort, 60000));
+    logDaemonReadiness(
+      await waitForDaemonReady(resources.daemonPort, 60000, "readyz"),
+    );
   }
 }
 
