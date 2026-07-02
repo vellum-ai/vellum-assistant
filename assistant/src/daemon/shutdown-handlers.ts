@@ -7,8 +7,11 @@ import { stopCliIpcServer } from "../ipc/assistant-server.js";
 import { stopGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
 import { stopMcpServerManager } from "../mcp/manager.js";
 import { stopMonitoring } from "../monitoring/control.js";
-import { runAsyncSqlite } from "../persistence/db-async-query.js";
-import { getSqlite, resetDb } from "../persistence/db-connection.js";
+import {
+  runAsyncSqlite,
+  spawnDetachedWalCheckpoint,
+} from "../persistence/db-async-query.js";
+import { getSqlite, isDbOpen, resetDb } from "../persistence/db-connection.js";
 import { stopQdrantManager } from "../persistence/embeddings/qdrant-manager.js";
 import { stopMemoryJobsWorker } from "../persistence/jobs-worker.js";
 import { stopMemoryWorkerProcess } from "../persistence/worker-control.js";
@@ -75,6 +78,16 @@ async function shutdown(): Promise<void> {
   // bump only changes behavior for the stuck-shutdown path.
   const forceTimer = setTimeout(() => {
     log.warn("Graceful shutdown timed out, forcing exit");
+    // A stuck shutdown may never reach the graceful WAL checkpoint below —
+    // fold the WAL from a detached subprocess that survives this exit, so
+    // the next boot opens a small WAL instead of paying a multi-minute
+    // recovery. Skipped when the DB was never opened: there is nothing to
+    // fold, and sqlite3 would create an empty DB file.
+    if (isDbOpen() && !spawnDetachedWalCheckpoint()) {
+      log.warn(
+        "No sqlite3 CLI on host — WAL left at high-water mark on force-exit",
+      );
+    }
     stopBackgroundServicesAndCleanupPidFile();
     process.exit(1);
   }, 20_000);

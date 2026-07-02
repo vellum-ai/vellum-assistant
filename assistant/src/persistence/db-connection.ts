@@ -121,6 +121,16 @@ export function getDb(): DrizzleDb {
 }
 
 /**
+ * Whether the main assistant DB connection is currently open. Lets exit paths
+ * decide between DB teardown work and skipping it entirely — `getDb()` /
+ * `getSqlite()` lazily open the connection, so probing with those would
+ * create the very state being checked for.
+ */
+export function isDbOpen(): boolean {
+  return getStoredDb<DrizzleDb>("main") !== null;
+}
+
+/**
  * Get the underlying bun:sqlite Database from the global Drizzle instance.
  *
  * Use this instead of the raw cast `(db as unknown as { $client: Database }).$client`.
