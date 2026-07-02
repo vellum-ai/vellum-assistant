@@ -286,19 +286,19 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 
 ### Key Files
 
-| File                                                        | Role                                                                               |
-| ----------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `assistant/src/runtime/routes/credential-routes.ts`         | `assistant credentials` CLI — store, list, delete, inspect, reveal handlers        |
-| `assistant/src/credential-execution/prompted-credential.ts` | Persists credentials collected through the secure `credentials prompt` flow        |
-| `assistant/src/security/secure-keys.ts`                     | Async secure key CRUD via CES and encrypted file store                             |
-| `assistant/src/tools/credentials/metadata-store.ts`         | JSON file metadata CRUD for credential records                                     |
-| `assistant/src/tools/credentials/broker.ts`                 | Brokered credential access with policy enforcement and transient send              |
-| `assistant/src/tools/credentials/policy-validate.ts`        | Policy input validation (allowedTools, allowedDomains)                             |
-| `assistant/src/permissions/secret-prompter.ts`              | HTTP secret_request/secret_response flow                                           |
-| `assistant/src/security/secret-scanner.ts`                  | Prefix + shape-based secret regex detection (used by display-time `redactSecrets`) |
-| `assistant/src/security/secret-ingress.ts`                  | Prefix-only ingress check on user messages                                         |
-| `assistant/src/util/log-redact.ts`                          | Pino log serializers — prefix-based redaction for logs                             |
-| `clients/web/src/domains/chat/components/secret-prompt-card.tsx` | UI for secure credential entry                                                    |
+| File                                                             | Role                                                                               |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `assistant/src/runtime/routes/credential-routes.ts`              | `assistant credentials` CLI — store, list, delete, inspect, reveal handlers        |
+| `assistant/src/credential-execution/prompted-credential.ts`      | Persists credentials collected through the secure `credentials prompt` flow        |
+| `assistant/src/security/secure-keys.ts`                          | Async secure key CRUD via CES and encrypted file store                             |
+| `assistant/src/tools/credentials/metadata-store.ts`              | JSON file metadata CRUD for credential records                                     |
+| `assistant/src/tools/credentials/broker.ts`                      | Brokered credential access with policy enforcement and transient send              |
+| `assistant/src/tools/credentials/policy-validate.ts`             | Policy input validation (allowedTools, allowedDomains)                             |
+| `assistant/src/permissions/secret-prompter.ts`                   | HTTP secret_request/secret_response flow                                           |
+| `assistant/src/security/secret-scanner.ts`                       | Prefix + shape-based secret regex detection (used by display-time `redactSecrets`) |
+| `assistant/src/security/secret-ingress.ts`                       | Prefix-only ingress check on user messages                                         |
+| `assistant/src/util/log-redact.ts`                               | Pino log serializers — prefix-based redaction for logs                             |
+| `clients/web/src/domains/chat/components/secret-prompt-card.tsx` | UI for secure credential entry                                                     |
 
 ---
 
@@ -363,13 +363,13 @@ sequenceDiagram
 
 ### Key Source Files
 
-| File                                                             | Role                                                                          |
-| ---------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `assistant/src/memory/scoped-approval-grants.ts`                 | CRUD, atomic CAS consume, expiry sweep, context-based revocation              |
-| `assistant/src/memory/migrations/033-scoped-approval-grants.ts`  | SQLite schema migration for the `scoped_approval_grants` table                |
-| `assistant/src/security/tool-approval-digest.ts`                 | Canonical JSON serialization + SHA-256 digest for tool signatures             |
-| `assistant/src/runtime/routes/guardian-approval-interception.ts` | Grant minting on guardian approve_once decisions (`tryMintToolApprovalGrant`) |
-| `assistant/src/calls/voice-session-bridge.ts`                    | Voice consumer: checks and consumes grants before auto-denying                |
+| File                                                                 | Role                                                                          |
+| -------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `assistant/src/approvals/scoped-approval-grants.ts`                  | CRUD, atomic CAS consume, expiry sweep, context-based revocation              |
+| `assistant/src/persistence/migrations/033-scoped-approval-grants.ts` | SQLite schema migration for the `scoped_approval_grants` table                |
+| `assistant/src/security/tool-approval-digest.ts`                     | Canonical JSON serialization + SHA-256 digest for tool signatures             |
+| `assistant/src/runtime/routes/guardian-approval-interception.ts`     | Grant minting on guardian approve_once decisions (`tryMintToolApprovalGrant`) |
+| `assistant/src/calls/voice-session-bridge.ts`                        | Voice consumer: checks and consumes grants before auto-denying                |
 
 ### Test Coverage
 

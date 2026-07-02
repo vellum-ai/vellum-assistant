@@ -5,7 +5,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { getSqliteFrom } from "../../db-connection.js";
 import * as schema from "../../schema.js";
-import { migrateCreateA2aInvitesTable } from "../314-create-a2a-invites.js";
+import { migrateCreateA2aInvitesTable } from "../315-create-a2a-invites.js";
 
 function createTestDb() {
   const sqlite = new Database(":memory:");
@@ -88,7 +88,7 @@ function listA2aInvites(raw: Database): A2aInviteRow[] {
     .all() as A2aInviteRow[];
 }
 
-describe("migration 314 — create a2a_invites", () => {
+describe("migration 315 — create a2a_invites", () => {
   test("creates the table and copies only a2a rows from assistant_ingress_invites", () => {
     const db = createTestDb();
     const raw = getSqliteFrom(db);

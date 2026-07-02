@@ -144,14 +144,26 @@ async function resolveCachedHook<TCtx>(
  * Added and removed hook files are picked up live (discovery is by directory
  * listing). A content edit to an existing file is only reflected after a
  * process restart, since Bun caches dynamic imports by resolved path.
+ *
+ * `effectiveEnabledPlugins` carries the per-chat plugin scope: when non-null, a
+ * plugin whose name is not in the set is skipped (its hooks do not run for this
+ * conversation). The standalone workspace hook is not owned by a plugin, so it
+ * always runs. `null`/omitted means no per-chat restriction.
  */
 export async function collectUserHooks<TCtx = unknown>(
   hookName: string,
   pluginDirs: Iterable<readonly [string, string]>,
+  effectiveEnabledPlugins?: Set<string> | null,
 ): Promise<HookFunction<TCtx>[]> {
   const out: HookFunction<TCtx>[] = [];
 
   for (const [pluginDir, pluginName] of pluginDirs) {
+    if (
+      effectiveEnabledPlugins != null &&
+      !effectiveEnabledPlugins.has(pluginName)
+    ) {
+      continue;
+    }
     const hookFile = listSurfaceDir(join(pluginDir, "hooks")).find(
       (f) => f.name === hookName,
     );

@@ -37,6 +37,8 @@ import { isChannelConversation } from "@/domains/chat/utils/conversation-channel
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
 import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachment-gate";
+import { useSupportsNewChatPlugins } from "@/lib/backwards-compat/use-supports-new-chat-plugins";
+import { NewChatPluginsSection } from "@/domains/chat/components/new-chat-plugins/new-chat-plugins-section";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { ActiveProcessOverlay } from "@/domains/chat/process-registry/active-process-overlay";
 import { PROCESS_KINDS } from "@/domains/chat/process-registry/registry";
@@ -245,6 +247,9 @@ export function ChatMainPanel({
   // would delete imported channel history, so treat those as not-native.
   const isNativeConversation =
     activeConversation != null && !isChannelConversation(activeConversation);
+
+  // Gated to daemons that accept the per-chat plugin set (web is always-latest).
+  const supportsNewChatPlugins = useSupportsNewChatPlugins();
 
   // -------------------------------------------------------------------------
   // Composer — `ChatComposer` and `ComposerDraftNotices` self-source every
@@ -542,6 +547,13 @@ export function ChatMainPanel({
     !!activeConversationId &&
     !isLoadingHistory &&
     messages.length === 0 &&
+    // A turn already in flight (e.g. the onboarding auto-greet, or any send whose
+    // first token hasn't landed) is NOT an empty conversation — showing the
+    // "start a conversation" empty state here flashes it for a beat before the
+    // streaming reply materializes (notably across the onboarding draft→real
+    // conversation switch, which resets the snapshot mid-turn).
+    !activeConversationIsProcessing &&
+    !isAssistantStreaming &&
     !(assistantState.kind === "active" && assistantState.maintenanceMode?.enabled);
 
   const showDoctorAction =
@@ -949,6 +961,11 @@ export function ChatMainPanel({
     transcriptProps: chatTranscriptProps,
   };
 
+  const newChatPluginsSlot =
+    isEmptyConversation && supportsNewChatPlugins && assistantId ? (
+      <NewChatPluginsSection assistantId={assistantId} />
+    ) : undefined;
+
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
@@ -964,6 +981,7 @@ export function ChatMainPanel({
         showMaintenanceRecoveryCard: isSidePanel ? false : isInMaintenanceWithNoMessages,
       }}
       composerSlot={composerNode}
+      pluginPillsSlot={newChatPluginsSlot}
       dragHandlers={attachmentDropHandlers}
       isAttachmentDragOver={isAttachmentDragOver}
       showScrollToLatest={

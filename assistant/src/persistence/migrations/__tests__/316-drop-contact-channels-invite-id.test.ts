@@ -5,7 +5,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { getSqliteFrom } from "../../db-connection.js";
 import * as schema from "../../schema.js";
-import { migrateDropContactChannelInviteId } from "../315-drop-contact-channels-invite-id.js";
+import { migrateDropContactChannelInviteId } from "../316-drop-contact-channels-invite-id.js";
 
 function createTestDb() {
   const sqlite = new Database(":memory:");
@@ -58,7 +58,7 @@ function columnNames(raw: Database, table: string): Set<string> {
   return new Set(cols.map((c) => c.name));
 }
 
-describe("migration 315 — drop contact_channels.invite_id", () => {
+describe("migration 316 — drop contact_channels.invite_id", () => {
   test("drops the invite_id column, preserving channel data", () => {
     const db = createTestDb();
     const raw = getSqliteFrom(db);

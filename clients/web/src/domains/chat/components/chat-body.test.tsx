@@ -316,6 +316,34 @@ describe("ChatBody — startersSlot rendering", () => {
 
 });
 
+describe("ChatBody — pluginPillsSlot rendering", () => {
+  test("renders pluginPillsSlot between the composer and the starters", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...withEmptyState({
+          pluginPillsSlot: <div data-testid="plugins">PLUGIN_PILLS</div>,
+          startersSlot: <div data-testid="starters">STARTER_CHIPS</div>,
+        })}
+      />,
+    );
+    expect(html).toContain("PLUGIN_PILLS");
+    // Order: composer, then plugin pills, then starters.
+    expect(html.indexOf("COMPOSER")).toBeLessThan(
+      html.indexOf("PLUGIN_PILLS"),
+    );
+    expect(html.indexOf("PLUGIN_PILLS")).toBeLessThan(
+      html.indexOf("STARTER_CHIPS"),
+    );
+  });
+
+  test("omits plugin pills when pluginPillsSlot is undefined", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody {...withEmptyState()} />,
+    );
+    expect(html).not.toContain("PLUGIN_PILLS");
+  });
+});
+
 describe("ChatBody — active-process overlays slot", () => {
   // The orchestrator builds the registry-driven row (subagents → acp runs →
   // workflows → background tasks) and passes it as a single node; ChatBody

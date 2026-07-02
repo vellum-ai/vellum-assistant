@@ -70,14 +70,12 @@ mock.module("../feature-flag-resolver.js", () => ({
 }));
 
 await import("./test-preload.js");
-const { initGatewayDb, resetGatewayDb, getGatewayDb } = await import(
-  "../db/connection.js"
-);
-const { AdmissionPolicyStore } = await import("../db/admission-policy-store.js");
-const {
-  initAdmissionPolicyCache,
-  resetAdmissionPolicyCache,
-} = await import("../risk/admission-policy-cache.js");
+const { initGatewayDb, resetGatewayDb, getGatewayDb } =
+  await import("../db/connection.js");
+const { AdmissionPolicyStore } =
+  await import("../db/admission-policy-store.js");
+const { initAdmissionPolicyCache, resetAdmissionPolicyCache } =
+  await import("../risk/admission-policy-cache.js");
 const { contacts: gwContacts, contactChannels: gwContactChannels } =
   await import("../db/schema.js");
 const { handleInbound } = await import("../handlers/handle-inbound.js");
@@ -318,5 +316,112 @@ describe("handle-inbound trust verdict stamping", () => {
     expect(verdict.trustClass).toBe("unknown");
     // Matches a real resolve: whitespace-only id normalizes to absent.
     expect(verdict.canonicalSenderId).toBeNull();
+  });
+});
+
+describe("handle-inbound sender-authentication downgrade", () => {
+  const GUARDIAN_EMAIL = "guardian@example.com";
+
+  function makeEmailEvent(): GatewayInboundEvent {
+    return makeEvent({
+      sourceChannel: "email",
+      actor: {
+        actorExternalId: GUARDIAN_EMAIL,
+        displayName: "The Guardian",
+        username: GUARDIAN_EMAIL,
+      },
+      message: {
+        conversationExternalId: "thread-1",
+        externalMessageId: "extmsg-email-1",
+        content: "please run this",
+      },
+    });
+  }
+
+  function insertGuardianEmailContact(): void {
+    insertContact({
+      id: "c-guardian",
+      displayName: "The Guardian",
+      role: "guardian",
+      principalId: "principal-1",
+    });
+    insertChannel({
+      id: "ch-guardian",
+      contactId: "c-guardian",
+      type: "email",
+      address: GUARDIAN_EMAIL,
+      externalChatId: "thread-guardian",
+      status: "active",
+    });
+  }
+
+  test("forged guardian From: with senderAuthenticated=false → verdict downgraded to stranger", async () => {
+    // The address matches the active guardian binding, so absent the auth
+    // signal this classifies `guardian`. A spoofed From: that failed
+    // SPF/DKIM/DMARC must NOT inherit that trust.
+    insertGuardianEmailContact();
+
+    await handleInbound(makeConfig(), makeEmailEvent(), {
+      ...ROUTING,
+      senderAuthenticated: false,
+    });
+
+    const verdict = runtimePayloads[0]!.sourceMetadata!.trustVerdict!;
+    expect(verdict.trustClass).toBe("unknown");
+    // Guardian + member fields are stripped so no residual trust is rebuilt.
+    expect(verdict.guardianExternalUserId).toBeUndefined();
+    expect(verdict.guardianPrincipalId).toBeUndefined();
+    expect(verdict.contactId).toBeUndefined();
+    // A real stranger, not a resolver failure — flows through the normal
+    // admission floor + verification lane.
+    expect(verdict.resolutionFailed).toBeUndefined();
+    // Canonical sender identity is preserved for logging / verification reply.
+    expect(verdict.canonicalSenderId).toBe(GUARDIAN_EMAIL);
+  });
+
+  test("authenticated guardian From: with senderAuthenticated=true → verdict stays guardian", async () => {
+    insertGuardianEmailContact();
+
+    await handleInbound(makeConfig(), makeEmailEvent(), {
+      ...ROUTING,
+      senderAuthenticated: true,
+    });
+
+    const verdict = runtimePayloads[0]!.sourceMetadata!.trustVerdict!;
+    expect(verdict.trustClass).toBe("guardian");
+    expect(verdict.guardianExternalUserId).toBe(GUARDIAN_EMAIL);
+  });
+
+  test("absent signal (senderAuthenticated undefined) preserves the resolved verdict", async () => {
+    // Backward-compat: an older platform that sends no signal must not have
+    // its senders downgraded (enforcement only engages on an explicit false).
+    insertGuardianEmailContact();
+
+    await handleInbound(makeConfig(), makeEmailEvent(), ROUTING);
+
+    const verdict = runtimePayloads[0]!.sourceMetadata!.trustVerdict!;
+    expect(verdict.trustClass).toBe("guardian");
+  });
+
+  test("forged trusted_contact From: with senderAuthenticated=false → downgraded to stranger", async () => {
+    insertContact({ id: "c-member", displayName: "Trusted Member" });
+    insertChannel({
+      id: "ch-member",
+      contactId: "c-member",
+      type: "email",
+      address: GUARDIAN_EMAIL,
+      externalChatId: "thread-member",
+      status: "active",
+    });
+
+    await handleInbound(makeConfig(), makeEmailEvent(), {
+      ...ROUTING,
+      senderAuthenticated: false,
+    });
+
+    const verdict = runtimePayloads[0]!.sourceMetadata!.trustVerdict!;
+    expect(verdict.trustClass).toBe("unknown");
+    expect(verdict.contactId).toBeUndefined();
+    expect(verdict.status).toBeUndefined();
   });
 });

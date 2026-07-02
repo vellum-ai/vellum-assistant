@@ -197,6 +197,19 @@ export function isHeifImage(bytes: Uint8Array): boolean {
   return HEIF_FTYP_BRANDS.has(brand);
 }
 
+const HEIF_FILENAME_RE = /\.(heic|heif)$/i;
+
+/**
+ * Filename-extension HEIF/HEIC detection, for call sites that only hold
+ * attachment metadata (filename + MIME) and want to skip hydrating bytes for
+ * non-candidate rows. Complements {@link isHeifImage}: Chromium reports an
+ * empty MIME for `.heic`, so legacy rows can carry HEIC bytes under
+ * `application/octet-stream` while the extension survives.
+ */
+export function isHeicFilename(filename: string): boolean {
+  return HEIF_FILENAME_RE.test(filename.trim());
+}
+
 /** Rewrites a filename's extension to `.jpg` (e.g. `IMG_5487.HEIC` → `IMG_5487.jpg`). */
 export function jpegFilenameFor(filename: string): string {
   const fallback = "attachment";

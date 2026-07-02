@@ -135,6 +135,11 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
 
   const effectiveUrl = attachment.previewUrl ?? objectUrl;
 
+  // A full-size image whose bytes the browser can't decode (e.g. HEIC on
+  // Chromium, even after fetching the stored original) falls through to the
+  // non-image fallback card instead of rendering the broken-image glyph.
+  const [decodeFailedUrl, setDecodeFailedUrl] = useState<string | null>(null);
+
   // Loading until there's a usable URL: covers the fetch and the one-render gap
   // between the blob arriving and its object URL being created.
   const isLoadingPreview = shouldFetch && !objectUrl && !isError;
@@ -243,11 +248,12 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
       return <PdfPreview url={effectiveUrl} />;
     }
 
-    if (isImage && effectiveUrl) {
+    if (isImage && effectiveUrl && decodeFailedUrl !== effectiveUrl) {
       return (
         <img
           src={effectiveUrl}
           alt={attachment.filename}
+          onError={() => setDecodeFailedUrl(effectiveUrl)}
           className="max-h-[80vh] max-w-[90vw] rounded object-contain"
         />
       );

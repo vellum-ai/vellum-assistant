@@ -4133,6 +4133,8 @@ paths:
                       required:
                         - trustClass
                         - canonicalSenderId
+                    emailProvider:
+                      type: string
                     emailSubject:
                       type: string
                     emailRecipient:
@@ -18219,6 +18221,17 @@ paths:
                   anyOf:
                     - type: string
                     - type: "null"
+                enabledPlugins:
+                  description:
+                    Plugin ids that scope this conversation to a subset of installed plugins (first-party defaults are always
+                    available). When present on a message, it sets/updates the conversation's plugin scope (the web
+                    client sends it only on the first message of a new chat). null clears the scope to default (all
+                    enabled plugins); omitting the field leaves the existing scope unchanged.
+                  anyOf:
+                    - type: array
+                      items:
+                        type: string
+                    - type: "null"
                 riskThreshold:
                   type: string
                   enum:
@@ -24454,6 +24467,110 @@ paths:
                     description: Schedule usage summary rows
                 required:
                   - summaries
+                additionalProperties: false
+  /v1/schedules/worker/start:
+    post:
+      operationId: schedules_worker_start_post
+      summary: Start the schedule worker
+      description:
+        Spawns (or reuses) the schedule worker process as a child of the daemon and enables
+        schedules.worker.enabled, so scheduled jobs run out of process.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pid:
+                    type: number
+                  alreadyRunning:
+                    type: boolean
+                  workerEnabled:
+                    type: boolean
+                    const: true
+                  pidPath:
+                    type: string
+                required:
+                  - pid
+                  - alreadyRunning
+                  - workerEnabled
+                  - pidPath
+                additionalProperties: false
+  /v1/schedules/worker/status:
+    get:
+      operationId: schedules_worker_status_get
+      summary: Schedule worker status
+      description:
+        Reports the schedule worker process state, schedules.worker.enabled, and whether the daemon's in-process
+        scheduler is currently executing schedules.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - running
+                      - not_running
+                  pid:
+                    type: number
+                  workerEnabled:
+                    type: boolean
+                  inProcessScheduler:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        enum:
+                          - running
+                          - not_running
+                      pid:
+                        type: number
+                    required:
+                      - status
+                    additionalProperties: false
+                required:
+                  - status
+                  - workerEnabled
+                  - inProcessScheduler
+                additionalProperties: false
+  /v1/schedules/worker/stop:
+    post:
+      operationId: schedules_worker_stop_post
+      summary: Stop the schedule worker
+      description:
+        Disables schedules.worker.enabled (handing schedule execution back to the in-process scheduler) and
+        SIGTERMs the schedule worker process if it is running.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workerWasRunning:
+                    type: boolean
+                  pid:
+                    type: number
+                  workerEnabled:
+                    type: boolean
+                    const: false
+                required:
+                  - workerWasRunning
+                  - workerEnabled
                 additionalProperties: false
   /v1/search:
     get:
