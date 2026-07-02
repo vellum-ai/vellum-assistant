@@ -233,10 +233,11 @@ function reassignChannelContact(params: {
  * Deletion is deliberately narrow so a claim can never destroy real data:
  * the gateway contact must have role `contact`, no principal, and no
  * remaining channels; the assistant mirror must agree (no channels) and
- * carry no guardian-authored notes. When any check fails, BOTH rows are
- * kept, so the two stores never disagree about the contact's existence.
- * A mirror that is unreachable (IPC socket absent) does not block the
- * gateway-side delete; a leftover mirror row is recoverable via the
+ * carry no guardian-authored data (notes, persona-file pointer, non-default
+ * contact type, or assistant-species metadata). When any check fails, BOTH
+ * rows are kept, so the two stores never disagree about the contact's
+ * existence. A mirror that is unreachable (IPC socket absent) does not block
+ * the gateway-side delete; a leftover mirror row is recoverable via the
  * tolerant contact delete (LUM-2662).
  *
  * Callers must invoke this only after all re-parent writes (gateway AND
@@ -277,9 +278,11 @@ export async function deleteContactIfOrphaned(
     return;
   }
 
-  // Inspect the assistant mirror BEFORE deleting anything: a mirror row with
-  // channels or guardian-authored notes vetoes the whole delete so both
-  // stores keep the contact.
+  // Inspect the assistant mirror BEFORE deleting anything: a mirror row that
+  // carries channels or any guardian-authored data — notes, a persona file
+  // pointer, a non-default contact type, or assistant-species metadata
+  // (cascade-deleted with the contact) — vetoes the whole delete so both
+  // stores keep the contact and nothing user-authored is discarded.
   let mirrorRowPresent = false;
   const { path: socketPath } = resolveIpcSocketPath("assistant");
   const mirrorReachable = existsSync(socketPath);
@@ -292,21 +295,41 @@ export async function deleteContactIfOrphaned(
       if (mirrorChannels.length > 0) {
         return;
       }
-      const mirrorNotes = await assistantDbQuery<{ notes: string | null }>(
-        `SELECT notes FROM contacts WHERE id = ?`,
+      const mirrorRows = await assistantDbQuery<{
+        notes: string | null;
+        userFile: string | null;
+        contactType: string;
+      }>(
+        `SELECT notes, user_file AS userFile, contact_type AS contactType
+         FROM contacts WHERE id = ?`,
         [contactId],
       );
-      mirrorRowPresent = mirrorNotes.length > 0;
-      if (
-        mirrorRowPresent &&
-        mirrorNotes[0].notes &&
-        mirrorNotes[0].notes.trim().length > 0
-      ) {
-        log.info(
-          { contactId },
-          "Keeping orphaned seed contact: assistant mirror carries notes",
+      mirrorRowPresent = mirrorRows.length > 0;
+      if (mirrorRowPresent) {
+        const mirror = mirrorRows[0];
+        const hasGuardianAuthoredData =
+          (mirror.notes && mirror.notes.trim().length > 0) ||
+          (mirror.userFile && mirror.userFile.trim().length > 0) ||
+          mirror.contactType !== "human";
+        if (hasGuardianAuthoredData) {
+          log.info(
+            { contactId },
+            "Keeping orphaned seed contact: assistant mirror carries guardian-authored data",
+          );
+          return;
+        }
+        const mirrorMetadata = await assistantDbQuery<{ contactId: string }>(
+          `SELECT contact_id AS contactId FROM assistant_contact_metadata
+           WHERE contact_id = ? LIMIT 1`,
+          [contactId],
         );
-        return;
+        if (mirrorMetadata.length > 0) {
+          log.info(
+            { contactId },
+            "Keeping orphaned seed contact: assistant mirror carries contact metadata",
+          );
+          return;
+        }
       }
     } catch (mirrorErr) {
       log.warn(
