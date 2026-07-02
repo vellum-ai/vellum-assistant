@@ -546,6 +546,23 @@ function createMockWs(callSessionId: string): {
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
+// Invite redemption is dispatched fire-and-forget from the DTMF handler and
+// hops the event loop several times (gateway IPC reader → redemption service →
+// persistent IPC), so fixed sleeps race it on slow CI runners. Poll instead.
+async function waitFor(
+  condition: () => boolean,
+  label: string,
+  timeoutMs = 2000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition()) {
+    if (Date.now() > deadline) {
+      throw new Error(`Timed out waiting for ${label}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  }
+}
+
 let ensuredConvIds = new Set<string>();
 function ensureConversation(id: string): void {
   if (ensuredConvIds.has(id)) return;
@@ -2558,9 +2575,11 @@ describe("relay-server", () => {
       await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 10));
-
-    // Should have transitioned to connected
+    // Redemption is dispatched fire-and-forget; poll for the terminal state.
+    await waitFor(
+      () => relay.getConnectionState() === "connected",
+      "redemption to connect the call",
+    );
     expect(relay.getConnectionState()).toBe("connected");
 
     // Verify events
@@ -2615,9 +2634,12 @@ describe("relay-server", () => {
       await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
     }
 
-    // Redemption is dispatched async (it now consults the gateway lifecycle
-    // pre-check over IPC), so flush the microtask/timer queue before asserting.
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    // Redemption is dispatched async (it consults the gateway over IPC), so
+    // poll for the terminal state rather than racing it with a fixed sleep.
+    await waitFor(
+      () => getCallSession(session.id)?.status === "failed",
+      "redemption failure to mark the call failed",
+    );
 
     // Call should be marked as failed
     const updated = getCallSession(session.id);
@@ -2647,14 +2669,13 @@ describe("relay-server", () => {
       true,
     );
 
-    // Let the delayed endSession callback flush
-    await new Promise((resolve) => setTimeout(resolve, 10));
-
-    // Verify end message was sent
-    const endMessages = ws.sentMessages
-      .map((raw) => JSON.parse(raw) as { type: string })
-      .filter((m) => m.type === "end");
-    expect(endMessages.length).toBe(1);
+    // Wait for the delayed endSession callback to send the end message.
+    const countEndMessages = () =>
+      ws.sentMessages
+        .map((raw) => JSON.parse(raw) as { type: string })
+        .filter((m) => m.type === "end").length;
+    await waitFor(() => countEndMessages() >= 1, "end message to be sent");
+    expect(countEndMessages()).toBe(1);
 
     relay.destroy();
   });
@@ -2707,8 +2728,8 @@ describe("relay-server", () => {
     for (const digit of code) {
       await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
     }
-    // Let the async handler reach the awaited gateway claim.
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Poll until the async handler reaches the awaited gateway claim.
+    await waitFor(() => inviteClaimCalls === 1, "first gateway claim");
     expect(inviteClaimCalls).toBe(1);
 
     // Second attempt with the SAME code arrives while the first is in flight.
@@ -2719,9 +2740,12 @@ describe("relay-server", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(inviteClaimCalls).toBe(1);
 
-    // Now let the first redemption resolve.
+    // Now let the first redemption resolve and poll for activation.
     releaseClaim();
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await waitFor(
+      () => relay.getConnectionState() === "connected",
+      "redemption to connect the call after claim release",
+    );
 
     // Exactly one gateway claim ran across both attempts.
     expect(inviteClaimCalls).toBe(1);
@@ -2788,7 +2812,10 @@ describe("relay-server", () => {
     for (const digit of priorCode) {
       await prior.relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
     }
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await waitFor(
+      () => prior.relay.getConnectionState() === "connected",
+      "prior redemption to connect the call",
+    );
     expect(prior.relay.getConnectionState()).toBe("connected");
     expect(inviteClaimCalls).toBe(1);
     prior.relay.destroy();
@@ -2824,7 +2851,10 @@ describe("relay-server", () => {
     for (const digit of freshCode) {
       await fresh.relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
     }
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await waitFor(
+      () => fresh.relay.getConnectionState() === "connected",
+      "fresh redemption to connect the call",
+    );
 
     // A second claim ran for the fresh attempt — guard did not deadlock it.
     expect(inviteClaimCalls).toBe(2);
@@ -2967,7 +2997,10 @@ describe("relay-server", () => {
     for (const digit of code) {
       await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
     }
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await waitFor(
+      () => getCallSession(session.id)?.status === "failed",
+      "fail-closed redemption to mark the call failed",
+    );
 
     const updated = getCallSession(session.id);
     expect(updated).not.toBeNull();
@@ -5050,7 +5083,10 @@ describe("relay-server", () => {
       await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await waitFor(
+      () => relay.getConnectionState() === "connected",
+      "redemption to connect the call",
+    );
 
     // Call should remain connected
     expect(relay.getConnectionState()).toBe("connected");
@@ -5176,7 +5212,10 @@ describe("relay-server", () => {
     for (const digit of code) {
       await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
     }
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await waitFor(
+      () => relay.getConnectionState() === "connected",
+      "redemption to connect the call",
+    );
 
     expect(relay.getConnectionState()).toBe("connected");
 
@@ -5239,7 +5278,10 @@ describe("relay-server", () => {
     for (const digit of code) {
       await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
     }
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await waitFor(
+      () => relay.getConnectionState() === "connected",
+      "redemption to connect the call",
+    );
 
     expect(relay.getConnectionState()).toBe("connected");
 
@@ -6207,7 +6249,10 @@ describe("relay-server", () => {
     // Let the redemption chain (gateway claim, caller-verdict read, DB write)
     // drain up to activation, which flips the state to "connected" before
     // entering the gated re-resolution.
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await waitFor(
+      () => relay.getConnectionState() === "connected",
+      "activation to flip the call to connected",
+    );
     // Activation already reached the terminal state before re-resolution.
     expect(relay.getConnectionState()).toBe("connected");
 
@@ -6224,7 +6269,10 @@ describe("relay-server", () => {
 
     releaseVerdict();
     await redemptionDone;
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await waitFor(
+      () => mockSendMessage.mock.calls.length > turnCountBefore,
+      "buffered prompt to run as a real turn",
+    );
 
     // Flushed onto the real-turn path: the prompt produced an LLM turn rather
     // than being dropped by the verification-pending branch.
