@@ -389,7 +389,7 @@ describe("filtered/native contact reads: daemon filters, gateway hydrates teleme
     expect(() => listResponseSchema.parse(result)).not.toThrow();
   });
 
-  test("telemetry degrades to null (still validates) when the gateway hydration fails", async () => {
+  test("telemetry degrades to default (0 counts, null timestamps) when the gateway hydration fails", async () => {
     searchContactsResult = [nativeContact];
     ipcError = new IpcCallError("gateway down", {
       statusCode: 503,
@@ -398,12 +398,13 @@ describe("filtered/native contact reads: daemon filters, gateway hydrates teleme
 
     const result = await handleListContacts({ query: "Bob", limit: "10" });
 
-    // Search results are still returned; only telemetry is nulled.
+    // Search results are still returned; the interaction counts default to 0
+    // (never null, so callers render a real number) and the timestamps null.
     const [contact] = result.contacts;
-    expect(contact.interactionCount).toBeNull();
+    expect(contact.interactionCount).toBe(0);
     expect(contact.lastInteraction).toBeNull();
     const channel = contact.channels[0] as Record<string, unknown>;
-    expect(channel.interactionCount).toBeNull();
+    expect(channel.interactionCount).toBe(0);
     expect(channel.lastSeenAt).toBeNull();
     expect(contact.displayName).toBe("Bob");
     expect(() => listResponseSchema.parse(result)).not.toThrow();
