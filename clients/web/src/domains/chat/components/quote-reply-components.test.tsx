@@ -59,7 +59,20 @@ function installImmediateAnimationFrame() {
   };
 }
 
-function installSelection(anchorNode: Node) {
+function installSelection(
+  anchorNode: Node,
+  rect: DOMRect = {
+    top: 120,
+    left: 80,
+    width: 160,
+    height: 24,
+    right: 240,
+    bottom: 144,
+    x: 80,
+    y: 120,
+    toJSON: () => ({}),
+  },
+) {
   const originalGetSelection = window.getSelection;
   const selection = {
     isCollapsed: false,
@@ -67,17 +80,7 @@ function installSelection(anchorNode: Node) {
     anchorNode,
     toString: () => "competitive research",
     getRangeAt: () => ({
-      getBoundingClientRect: () => ({
-        top: 120,
-        left: 80,
-        width: 160,
-        height: 24,
-        right: 240,
-        bottom: 144,
-        x: 80,
-        y: 120,
-        toJSON: () => ({}),
-      }),
+      getBoundingClientRect: () => rect,
     }),
     removeAllRanges: () => {},
   } as unknown as Selection;
@@ -91,6 +94,20 @@ function installSelection(anchorNode: Node) {
     Object.defineProperty(window, "getSelection", {
       configurable: true,
       value: originalGetSelection,
+    });
+  };
+}
+
+function installViewportHeight(innerHeight: number) {
+  const originalInnerHeight = window.innerHeight;
+  Object.defineProperty(window, "innerHeight", {
+    configurable: true,
+    value: innerHeight,
+  });
+  return () => {
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: originalInnerHeight,
     });
   };
 }
@@ -164,12 +181,12 @@ describe("TextSelectionPopover", () => {
         selectedText.firstChild ?? selectedText,
       );
       try {
-        fireEvent.mouseUp(selectedText);
+        document.dispatchEvent(new Event("selectionchange"));
+        await screen.findByRole("button", { name: "Reply" });
       } finally {
         restoreSelection();
       }
 
-      await screen.findByRole("button", { name: "Reply" });
       const popoverContent = document.body.querySelector(
         '[data-slot="popover-content"]',
       );
@@ -177,6 +194,47 @@ describe("TextSelectionPopover", () => {
         "bottom",
       );
     } finally {
+      restoreAnimationFrame();
+      restorePointer();
+    }
+  });
+
+  test("moves coarse-pointer Reply above selections when there is no space below", async () => {
+    const restorePointer = installCoarsePointer();
+    const restoreAnimationFrame = installImmediateAnimationFrame();
+    const restoreViewportHeight = installViewportHeight(160);
+    try {
+      const containerRef = createRef<HTMLDivElement | null>();
+      render(
+        <>
+          <div ref={containerRef}>
+            <div data-message-id="msg-1" data-message-role="assistant">
+              <span data-testid="selected-text">competitive research</span>
+            </div>
+          </div>
+          <TextSelectionPopover containerRef={containerRef} />
+        </>,
+      );
+
+      const selectedText = screen.getByTestId("selected-text");
+      const restoreSelection = installSelection(
+        selectedText.firstChild ?? selectedText,
+      );
+      try {
+        document.dispatchEvent(new Event("selectionchange"));
+        await screen.findByRole("button", { name: "Reply" });
+      } finally {
+        restoreSelection();
+      }
+
+      const popoverContent = document.body.querySelector(
+        '[data-slot="popover-content"]',
+      );
+      expect(popoverContent?.getAttribute("data-selection-placement")).toBe(
+        "top",
+      );
+    } finally {
+      restoreViewportHeight();
       restoreAnimationFrame();
       restorePointer();
     }

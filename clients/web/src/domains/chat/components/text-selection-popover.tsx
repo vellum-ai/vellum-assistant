@@ -3,16 +3,20 @@
  * assistant message bubble. Offers a single reply action for the selected
  * passage.
  *
- * On coarse pointers the chip renders below the selected text so native
- * selection menus have room above the cursor.
+ * On coarse pointers the chip renders below the selected text when there is
+ * room, so native selection menus have space above the cursor.
  */
 
 import { MessageSquareQuote } from "lucide-react";
-import { type RefObject, useCallback, useEffect, useState } from "react";
+import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
+import { Button, Popover } from "@vellumai/design-library";
 
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { isPointerCoarse } from "@/utils/pointer";
-import { Button, Popover } from "@vellumai/design-library";
+
+const COARSE_SELECTION_SETTLE_MS = 120;
+const POPOVER_SIDE_OFFSET = 8;
+const ESTIMATED_POPOVER_HEIGHT = 44;
 
 /**
  * Selector: the transcript container ref whose descendants contain
@@ -25,6 +29,9 @@ interface TextSelectionPopoverProps {
 }
 
 export function TextSelectionPopover({ containerRef }: TextSelectionPopoverProps) {
+  const coarseSelectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const [popover, setPopover] = useState<{
     text: string;
     messageId: string;
@@ -35,47 +42,61 @@ export function TextSelectionPopover({ containerRef }: TextSelectionPopoverProps
 
   const openReplyBubble = useQuoteReplyStore.use.openReplyBubble();
 
+  const clearCoarseSelectionTimer = useCallback(() => {
+    if (coarseSelectionTimerRef.current) {
+      clearTimeout(coarseSelectionTimerRef.current);
+      coarseSelectionTimerRef.current = null;
+    }
+  }, []);
+
   const updatePopoverFromSelection = useCallback(() => {
     const coarsePointer = isPointerCoarse();
     requestAnimationFrame(() => {
       const selection = window.getSelection();
       if (!selection || selection.isCollapsed || !selection.rangeCount) {
+        setPopover(null);
         return;
       }
 
       const text = selection.toString().trim();
       if (!text) {
+        setPopover(null);
         return;
       }
 
       // Walk up from the selection anchor to find the message wrapper.
       const anchorNode = selection.anchorNode;
       if (!anchorNode) {
+        setPopover(null);
         return;
       }
 
       const messageEl = findMessageElement(anchorNode);
       if (!messageEl) {
+        setPopover(null);
         return;
       }
       const container = containerRef.current;
       if (!container || !container.contains(messageEl)) {
+        setPopover(null);
         return;
       }
 
       const role = messageEl.getAttribute("data-message-role");
       if (role !== "assistant") {
+        setPopover(null);
         return;
       }
 
       const messageId = messageEl.getAttribute("data-message-id");
       if (!messageId) {
+        setPopover(null);
         return;
       }
 
       const range = selection.getRangeAt(0);
       const rect = range.getBoundingClientRect();
-      const placement = coarsePointer ? "bottom" : "top";
+      const placement = getSelectionPopoverPlacement(rect, coarsePointer);
 
       setPopover({
         text,
@@ -86,6 +107,8 @@ export function TextSelectionPopover({ containerRef }: TextSelectionPopoverProps
       });
     });
   }, [containerRef]);
+
+  useEffect(() => clearCoarseSelectionTimer, [clearCoarseSelectionTimer]);
 
   // Dismiss the popover when the selection is cleared.
   useEffect(() => {
@@ -108,16 +131,28 @@ export function TextSelectionPopover({ containerRef }: TextSelectionPopoverProps
 
   useEffect(() => {
     const handler = () => {
-      if (isPointerCoarse()) {
-        updatePopoverFromSelection();
+      if (!isPointerCoarse()) {
+        return;
       }
+
+      clearCoarseSelectionTimer();
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed || !selection.rangeCount) {
+        setPopover(null);
+        return;
+      }
+
+      coarseSelectionTimerRef.current = setTimeout(() => {
+        coarseSelectionTimerRef.current = null;
+        updatePopoverFromSelection();
+      }, COARSE_SELECTION_SETTLE_MS);
     };
 
     document.addEventListener("selectionchange", handler);
     return () => {
       document.removeEventListener("selectionchange", handler);
     };
-  }, [updatePopoverFromSelection]);
+  }, [clearCoarseSelectionTimer, updatePopoverFromSelection]);
 
   // Listen for mouseup on the document and validate the selection target is
   // within the transcript container. Using document-level listeners avoids
@@ -125,6 +160,10 @@ export function TextSelectionPopover({ containerRef }: TextSelectionPopoverProps
   // mount (before the Transcript element renders).
   useEffect(() => {
     const handler = (e: MouseEvent) => {
+      if (isPointerCoarse()) {
+        return;
+      }
+
       const container = containerRef.current;
       if (!container) {
         return;
@@ -146,6 +185,7 @@ export function TextSelectionPopover({ containerRef }: TextSelectionPopoverProps
   }
 
   const handleQuoteReply = () => {
+    clearCoarseSelectionTimer();
     openReplyBubble({
       quotedText: popover.text,
       sourceMessageId: popover.messageId,
@@ -219,4 +259,18 @@ function findMessageElement(node: Node): HTMLElement | null {
     current = current.parentNode;
   }
   return null;
+}
+
+function getSelectionPopoverPlacement(
+  rect: DOMRect,
+  coarsePointer: boolean,
+): "top" | "bottom" {
+  if (!coarsePointer) {
+    return "top";
+  }
+
+  const hasRoomBelow =
+    rect.bottom + POPOVER_SIDE_OFFSET + ESTIMATED_POPOVER_HEIGHT <=
+    window.innerHeight;
+  return hasRoomBelow ? "bottom" : "top";
 }
