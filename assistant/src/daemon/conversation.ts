@@ -162,7 +162,6 @@ import type {
 import {
   createResolveToolsCallback,
   createToolExecutor,
-  getEffectiveEnabledPluginSet,
 } from "./conversation-tool-setup.js";
 import { canonicalizeTimeZone } from "./date-context.js";
 import { HostAppControlProxy } from "./host-app-control-proxy.js";
@@ -764,9 +763,6 @@ export class Conversation {
           conv.createdAt,
         );
       },
-      // Read the live per-chat plugin scope each gather so a mid-conversation
-      // selection change applies on the next turn's lifecycle hooks.
-      resolveEffectiveEnabledPlugins: () => getEffectiveEnabledPluginSet(this),
     });
     createContextWindowManager({
       provider,

@@ -767,17 +767,6 @@ export interface AgentLoopConstructorOptions {
    * result-time pass and the post-turn truncation covers the turn instead.
    */
   resolveConversationDir?: () => string | null;
-  /**
-   * Resolve the conversation's per-chat plugin scope as a membership set, read
-   * fresh on each lifecycle-hook gather so a mid-conversation change to the
-   * selection takes effect on the next turn. `null` (or an omitted resolver)
-   * means no per-chat restriction — every globally-enabled plugin's hooks run.
-   * Threaded into each `runHook` call so a deselected plugin's lifecycle hooks
-   * (post-compact, stop, pre/post-model-call, post-tool-use) do not fire for
-   * this conversation. Injected by the conversation wiring, which reads the
-   * live conversation; lightweight loops (workflows) omit it.
-   */
-  resolveEffectiveEnabledPlugins?: () => Set<string> | null;
 }
 
 export class AgentLoop {
@@ -800,11 +789,6 @@ export class AgentLoop {
   /** See {@link AgentLoopConstructorOptions.resolveConversationDir}. */
   private readonly resolveConversationDir: (() => string | null) | null;
 
-  /** See {@link AgentLoopConstructorOptions.resolveEffectiveEnabledPlugins}. */
-  private readonly resolveEffectiveEnabledPlugins:
-    | (() => Set<string> | null)
-    | null;
-
   /**
    * Loop-held compaction circuit breaker. The loop has a 1:1 lifetime with its
    * conversation, so it is the source of truth for the cross-turn failure
@@ -825,7 +809,6 @@ export class AgentLoop {
       isExclusiveTool,
       conversationId,
       resolveConversationDir,
-      resolveEffectiveEnabledPlugins,
     } = options;
     this.provider = provider;
     this.systemPrompt = systemPrompt;
@@ -836,14 +819,7 @@ export class AgentLoop {
     this.isExclusiveTool = isExclusiveTool ?? null;
     this.conversationId = conversationId;
     this.resolveConversationDir = resolveConversationDir ?? null;
-    this.resolveEffectiveEnabledPlugins =
-      resolveEffectiveEnabledPlugins ?? null;
     this.compactionCircuit = new CompactionCircuit(this.conversationId);
-  }
-
-  /** Per-chat plugin scope for the current gather; see the resolver option. */
-  private effectiveEnabledPlugins(): Set<string> | null {
-    return this.resolveEffectiveEnabledPlugins?.() ?? null;
   }
 
   /**
@@ -1037,7 +1013,6 @@ export class AgentLoop {
     const finalPostCompactCtx = await runHook(
       HOOKS.POST_COMPACT,
       postCompactCtx,
-      this.effectiveEnabledPlugins(),
     );
     return {
       history: finalPostCompactCtx.history,
@@ -1192,7 +1167,7 @@ export class AgentLoop {
         logger: rlog,
       };
       try {
-        await runHook(HOOKS.STOP, stopCtx, this.effectiveEnabledPlugins());
+        await runHook(HOOKS.STOP, stopCtx);
       } catch (stopHookError) {
         rlog.error(
           { err: stopHookError, exitReason: reason },
@@ -1674,12 +1649,7 @@ export class AgentLoop {
           };
           const finalPreModelCtx = await traceAsyncSection(
             "agent-loop:pre-model-call-hook",
-            () =>
-              runHook(
-                HOOKS.PRE_MODEL_CALL,
-                preModelCtx,
-                this.effectiveEnabledPlugins(),
-              ),
+            () => runHook(HOOKS.PRE_MODEL_CALL, preModelCtx),
           );
           // Emit a changed event when the hook mutated the prompt. Compare
           // against the pre-hook value from providerOptions, not
@@ -1847,12 +1817,7 @@ export class AgentLoop {
             };
             const result = await traceAsyncSection(
               "agent-loop:post-model-call-hook",
-              () =>
-                runHook(
-                  HOOKS.POST_MODEL_CALL,
-                  ctx,
-                  this.effectiveEnabledPlugins(),
-                ),
+              () => runHook(HOOKS.POST_MODEL_CALL, ctx),
             );
             return {
               finalized: { role: "assistant", content: result.content },
@@ -2291,11 +2256,7 @@ export class AgentLoop {
             supportsDynamicUi,
             logger: rlog,
           };
-          const finalCtx = await runHook(
-            HOOKS.POST_TOOL_USE,
-            postToolUseCtx,
-            this.effectiveEnabledPlugins(),
-          );
+          const finalCtx = await runHook(HOOKS.POST_TOOL_USE, postToolUseCtx);
           resultBlocks.push(finalCtx.toolResponse);
           if (finalCtx.additionalContext !== null) {
             additionalContextBlocks.push({
@@ -2505,7 +2466,6 @@ export class AgentLoop {
             errorOutcome = await runHook(
               HOOKS.POST_MODEL_CALL,
               errorOutcomeCtx,
-              this.effectiveEnabledPlugins(),
             );
           } catch (postModelCallError) {
             rlog.error(
