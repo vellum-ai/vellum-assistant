@@ -354,7 +354,11 @@ describe("StatusBanner", () => {
     expect(requestedOperationalStatusAssistantId).toBe("assistant-only");
   });
 
-  test("does not fall back to an unrelated platform assistant when a local assistant is selected", () => {
+  test("falls back to the org's platform assistant even when a local assistant is selected", () => {
+    // Deliberate: during claim/migration windows the selection can point at a
+    // local instance while the org's platform assistant is migrating, and the
+    // banner must still surface its status (e.g. "Assistant is migrating").
+    // Do NOT gate this fallback on the selection being platform-hosted.
     activeAssistantIdMock = null;
     assistantStateMock = { kind: "loading" };
     selectedAssistantIdMock = "assistant-local";
@@ -365,20 +369,22 @@ describe("StatusBanner", () => {
         isPlatformHosted: false,
         organizationId: "org-1",
       },
-      // An unrelated platform assistant in the same org (e.g. an old
-      // crash-looping one) must not become the banner's polling target just
-      // because the user's selection isn't platform-hosted.
       {
-        id: "assistant-unrelated",
+        id: "assistant-platform",
         isLocal: false,
         isPlatformHosted: true,
         organizationId: "org-1",
       },
     ];
+    operationalStatusQueryMock = {
+      data: { state: "migrating" },
+      isError: false,
+    };
 
-    renderToStaticMarkup(<StatusBanner />);
+    const html = renderToStaticMarkup(<StatusBanner />);
 
-    expect(requestedOperationalStatusAssistantId).toBeNull();
+    expect(requestedOperationalStatusAssistantId).toBe("assistant-platform");
+    expect(html).toContain("Assistant is migrating");
   });
 
   test("renders operational error states with error tone and Doctor action for platform assistants", () => {
