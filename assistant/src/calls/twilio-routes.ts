@@ -17,7 +17,6 @@
 
 import {
   buildTwilioMediaStreamUrl,
-  buildTwilioRelayUrl,
   TWILIO_PUBLIC_BASE_URL_PLACEHOLDER,
 } from "@vellumai/service-contracts/twilio-ingress";
 
@@ -46,10 +45,8 @@ import {
   releaseCallbackClaim,
   updateCallSession,
 } from "./call-store.js";
-import { resolveCallHints } from "./stt-hints.js";
 import { resolveTelephonyCredentialReadiness } from "./telephony-credential-preflight.js";
 import type { CallStatus } from "./types.js";
-import { resolveVoiceQualityProfile } from "./voice-quality.js";
 
 const log = getLogger("twilio-routes");
 
@@ -60,26 +57,7 @@ const log = getLogger("twilio-routes");
  */
 const TWILIO_RELAY_TOKEN_PLACEHOLDER = "__VELLUM_RELAY_TOKEN__";
 
-// ── Speech config type ───────────────────────────────────────────────
-
-/**
- * Twilio ConversationRelay speech-to-text attributes.
- *
- * All values are pre-formatted strings ready for direct insertion into
- * TwiML XML attribute values (XML escaping is the caller's responsibility).
- */
-export interface TwilioRelaySpeechConfig {
-  /** STT provider name (e.g. "Deepgram", "Google"). */
-  transcriptionProvider: string;
-  /** ASR model identifier, or undefined when the provider default should be used. */
-  speechModel: string | undefined;
-  /** Comma-separated vocabulary hints for the STT provider, or undefined when no hints are available. */
-  hints: string | undefined;
-  /** How aggressively the provider detects the start of caller speech. */
-  interruptSensitivity: string;
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────
+// ── TwiML generation ─────────────────────────────────────────────────
 
 function escapeXml(str: string): string {
   return str
@@ -88,65 +66,6 @@ function escapeXml(str: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
-}
-
-export function generateTwiML(
-  callSessionId: string,
-  relayUrl: string,
-  welcomeGreeting: string | null,
-  profile: {
-    language: string;
-    ttsProvider: string;
-    voice: string;
-  },
-  speechConfig: TwilioRelaySpeechConfig,
-  relayToken?: string,
-  customParameters?: Record<string, string>,
-): string {
-  const greetingAttr =
-    welcomeGreeting && welcomeGreeting.trim().length > 0
-      ? `\n      welcomeGreeting="${escapeXml(welcomeGreeting.trim())}"`
-      : "";
-  const tokenParam = relayToken
-    ? `&amp;token=${escapeXml(encodeURIComponent(relayToken))}`
-    : "";
-
-  // Build <Parameter> elements for custom parameters to propagate
-  // through the ConversationRelay setup payload for observability.
-  let parameterElements = "";
-  if (customParameters) {
-    for (const [key, value] of Object.entries(customParameters)) {
-      parameterElements += `\n      <Parameter name="${escapeXml(
-        key,
-      )}" value="${escapeXml(value)}" />`;
-    }
-  }
-
-  // When there are no Parameter children, use self-closing tag to preserve
-  // the original TwiML format. With children, use open/close tags.
-  const hasParameters = parameterElements.length > 0;
-  const relayClose = hasParameters
-    ? `>${parameterElements}\n    </ConversationRelay>`
-    : "/>";
-
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Connect>
-    <ConversationRelay
-      url="${escapeXml(relayUrl)}?callSessionId=${escapeXml(
-        callSessionId,
-      )}${tokenParam}"
-${greetingAttr}
-      voice="${escapeXml(profile.voice)}"
-      language="${escapeXml(profile.language)}"
-      transcriptionProvider="${escapeXml(speechConfig.transcriptionProvider)}"${speechConfig.speechModel ? `\n      speechModel="${escapeXml(speechConfig.speechModel)}"` : ""}
-      ttsProvider="${escapeXml(profile.ttsProvider)}"
-      interruptible="true"
-      dtmfDetection="true"
-      interruptSensitivity="${escapeXml(speechConfig.interruptSensitivity)}"${speechConfig.hints ? `\n      hints="${escapeXml(speechConfig.hints)}"` : ""}
-    ${relayClose}
-  </Connect>
-</Response>`;
 }
 
 /**
@@ -206,19 +125,6 @@ export function generateStreamTwiML(
     </Stream>
   </Connect>
 </Response>`;
-}
-
-export function buildWelcomeGreeting(
-  task: string | null,
-  configuredGreeting?: string,
-): string {
-  void task;
-  const override = configuredGreeting?.trim();
-  if (override) return override;
-  // The contextual first opener now comes from the call controller's
-  // initial LLM turn via the conversation pipeline. Keep Twilio's relay-level
-  // greeting empty by default so we don't speak a deterministic static line first.
-  return "";
 }
 
 /**
@@ -398,61 +304,6 @@ function buildSetupRequiredTwiml(userMessage: string): string {
   <Say>${escapeXml(sayCopy)}</Say>
   <Hangup/>
 </Response>`;
-}
-
-/**
- * Build ConversationRelay TwiML for Twilio-native STT providers.
- */
-export async function buildConversationRelayTwiml(
-  callSessionId: string,
-  profile: ReturnType<typeof resolveVoiceQualityProfile>,
-  sessionContext: {
-    task: string | null;
-    toNumber: string;
-    fromNumber: string;
-    direction: "inbound" | "outbound";
-    inviteFriendName: string | null;
-    inviteGuardianName: string | null;
-  } | null,
-  verificationSessionId: string | null | undefined,
-  sttAttrs: { transcriptionProvider: string; speechModel: string | undefined },
-): Promise<string> {
-  const rawHints = await resolveCallHints(sessionContext, profile.hints);
-
-  const speechConfig: TwilioRelaySpeechConfig = {
-    transcriptionProvider: sttAttrs.transcriptionProvider,
-    speechModel: sttAttrs.speechModel,
-    hints: rawHints && rawHints.length > 0 ? rawHints : undefined,
-    interruptSensitivity: profile.interruptSensitivity,
-  };
-
-  const relayUrl = buildTwilioRelayUrl(TWILIO_PUBLIC_BASE_URL_PLACEHOLDER);
-  const welcomeGreeting = buildWelcomeGreeting(sessionContext?.task ?? null);
-  const relayToken = TWILIO_RELAY_TOKEN_PLACEHOLDER;
-
-  const customParameters: Record<string, string> | undefined =
-    verificationSessionId ? { verificationSessionId } : undefined;
-
-  const twiml = generateTwiML(
-    callSessionId,
-    relayUrl,
-    welcomeGreeting,
-    profile,
-    speechConfig,
-    relayToken,
-    customParameters,
-  );
-
-  log.info(
-    {
-      callSessionId,
-      strategy: "conversation-relay-native",
-      transcriptionProvider: sttAttrs.transcriptionProvider,
-    },
-    "Returning ConversationRelay TwiML",
-  );
-
-  return twiml;
 }
 
 /**

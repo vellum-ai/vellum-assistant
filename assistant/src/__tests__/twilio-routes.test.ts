@@ -375,7 +375,6 @@ import {
   updateCallSession,
 } from "../calls/call-store.js";
 import {
-  buildWelcomeGreeting,
   handleInternalVoiceWebhook,
   handleStatusCallback,
   handleVoiceWebhook,
@@ -842,21 +841,6 @@ describe("twilio webhook routes", () => {
       expect(fired).toBe(0);
 
       unregisterCallCompletionNotifier("conv-status-complete-2");
-    });
-  });
-
-  describe("buildWelcomeGreeting", () => {
-    test("returns empty by default so orchestrator drives first opener", () => {
-      const greeting = buildWelcomeGreeting("check store hours for tomorrow");
-      expect(greeting).toBe("");
-    });
-
-    test("uses configured greeting override when provided", () => {
-      const greeting = buildWelcomeGreeting(
-        "check store hours",
-        "Custom hello",
-      );
-      expect(greeting).toBe("Custom hello");
     });
   });
 
