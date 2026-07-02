@@ -125,19 +125,36 @@ export async function evaluateTelephonyTtsPlayability(
 }
 
 /**
- * Whether `services.tts.providers.fish-audio.referenceId` is configured.
+ * Whether the fish-audio `referenceId` is configured.
  *
  * Single source of truth for the fish-audio usability invariant: the
  * telephony path supplies no per-request voiceId, so synthesis requires a
  * configured reference ID. Shared by {@link evaluateTelephonyTtsPlayability}
  * and the call TTS resolver's ConversationRelay degrade path.
+ *
+ * When fish-audio is the active `services.tts.provider`, its config is
+ * read through the {@link resolveTtsConfig} provider-options layer — the
+ * same path the call TTS resolver has always used. When fish-audio is only
+ * a fallback candidate, the canonical `services.tts.providers.fish-audio`
+ * block is read directly.
  */
 export function fishAudioReferenceIdConfigured(): boolean {
   try {
-    const providers = getConfig().services?.tts?.providers as
-      | Record<string, { referenceId?: string } | undefined>
-      | undefined;
-    return Boolean(providers?.["fish-audio"]?.referenceId?.trim());
+    const config = getConfig();
+    const resolved = resolveTtsConfig(config);
+    const providerConfig =
+      resolved.provider === "fish-audio"
+        ? resolved.providerConfig
+        : (
+            config.services?.tts?.providers as
+              | Record<string, unknown>
+              | undefined
+          )?.["fish-audio"];
+    return Boolean(
+      (
+        providerConfig as { referenceId?: string } | undefined
+      )?.referenceId?.trim(),
+    );
   } catch {
     return false;
   }
