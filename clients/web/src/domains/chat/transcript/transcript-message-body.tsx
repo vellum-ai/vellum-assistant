@@ -744,6 +744,10 @@ export function TranscriptMessageBody({
       kind: group.type === "text" ? ("text" as const) : ("nonText" as const),
       node: renderGroupNode(group, gi),
     }));
+    // Transcript rows paint-contain their contents (`contain-content` on the
+    // row wrapper), so the corner-anchored reaction chip cannot overhang the
+    // row box — reserve its overhang inside the row instead.
+    const reactionOverhangPad = message.reactions?.length ? " pt-2.5" : "";
     return (
       <div
         ref={wrapperRef}
@@ -751,7 +755,7 @@ export function TranscriptMessageBody({
         data-message-role={message.role}
         onClick={handleBubbleClick}
         data-revealed={revealed}
-        className={wrapperClass}
+        className={`${wrapperClass}${reactionOverhangPad}`}
       >
         <div className={columnClass}>
           {renderUserContent(userItems)}

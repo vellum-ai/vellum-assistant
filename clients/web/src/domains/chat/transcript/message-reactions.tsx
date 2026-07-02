@@ -13,8 +13,11 @@ interface MessageReactionsProps {
   className?: string;
 }
 
+// Chip surface must contrast with BOTH backdrops it overlaps: the user
+// bubble (`--surface-lift`) and the page (`--surface-base`) — so it uses
+// the sunken surface with an element-strength border in both themes.
 const CHIP_CLASS =
-  "inline-flex h-6 items-center rounded-full border border-[var(--border-subtle)] bg-[var(--surface-lift)] px-2 text-[13px] leading-none shadow-sm";
+  "inline-flex h-6 items-center rounded-full border border-[var(--border-element)] bg-[var(--surface-sunken)] px-2 text-[13px] leading-none shadow-sm";
 
 const TOOLTIP_DELAY_MS = 150;
 
