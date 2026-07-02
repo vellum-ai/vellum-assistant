@@ -740,9 +740,28 @@ export class AcpSessionManager {
     if (!entry) {
       throw new AcpSessionNotFoundError(acpSessionId);
     }
-    await entry.process.cancel(entry.state.acpSessionId);
+    // Mark cancelled BEFORE awaiting the protocol cancel. If the in-flight
+    // prompt rejects during this window, its catch handler must already see
+    // "cancelled" so it neither overwrites the status with "failed" nor wakes
+    // the parent — no model activity may follow a user stop.
+    const prevStatus = entry.state.status;
+    const prevCompletedAt = entry.state.completedAt;
     entry.state.status = "cancelled";
     entry.state.completedAt = Date.now();
+    try {
+      await entry.process.cancel(entry.state.acpSessionId);
+    } catch (err) {
+      // The protocol cancel failed (e.g. the adapter connection is already
+      // down): the session was NOT actually cancelled, so restore the prior
+      // status. Otherwise the still-running prompt's eventual completion would
+      // be wrongly suppressed and persisted as cancelled. Rethrow so the caller
+      // reports failure and the client rolls back its optimistic cancel.
+      if (this.sessions.get(acpSessionId) === entry) {
+        entry.state.status = prevStatus;
+        entry.state.completedAt = prevCompletedAt;
+      }
+      throw err;
+    }
     // Re-check the map after the await: the in-flight prompt's handler may
     // have already torn the session down while process.cancel was pending.
     if (!entry.currentPrompt && this.sessions.get(acpSessionId) === entry) {
@@ -1028,55 +1047,22 @@ export class AcpSessionManager {
           // kill the agent process.
           this.teardownSession(acpSessionId, current);
 
-          // Notify parent session so the LLM sees the agent's output
+          // Notify parent session so the LLM sees the agent's output.
           const agentLabel = current.state.agentId;
           const responseText = current.clientHandler.responseText;
-          const sessionId = current.state.acpSessionId;
           const hint = claudeResumeHint(
             current.command,
             current.cwd,
-            sessionId,
+            current.state.acpSessionId,
           );
           const resumeHint = hint ? `\n\n${hint}` : "";
-          const notifyMessage = `[ACP agent "${agentLabel}" completed]\n\n${responseText}${resumeHint}`;
-          // Tag the injected message so the daemon skips its user_message_echo
-          // and the client filters it from the rendered transcript — the user
-          // sees the run through its inline card, not a chat turn.
-          const acpNotification = {
-            acpSessionId: sessionId,
-            agent: agentLabel,
-          };
-          const parentConversation = findConversation(
-            current.parentConversationId,
-          );
-          if (parentConversation) {
-            const enqueueResult = parentConversation.enqueueMessage({
-              content: notifyMessage,
-              metadata: { acpNotification },
-            });
-            if (!enqueueResult.queued && !enqueueResult.rejected) {
-              parentConversation
-                .persistUserMessage({
-                  content: notifyMessage,
-                  metadata: { acpNotification },
-                })
-                .then(({ id: messageId }) =>
-                  parentConversation.runAgentLoop(notifyMessage, messageId),
-                )
-                .catch((err) => {
-                  log.error(
-                    {
-                      parentConversationId: current.parentConversationId,
-                      err,
-                    },
-                    "Failed to process ACP notification in parent",
-                  );
-                });
-            }
-          } else {
-            log.warn(
-              { parentConversationId: current.parentConversationId },
-              "ACP agent finished but parent conversation not found",
+          // Skip when cancelled: a prompt can win the cancel race by resolving
+          // normally, but a user stop must not enqueue a completion and wake the
+          // parent (mirrors the failure-path gate below).
+          if (current.state.status !== "cancelled") {
+            this.notifyParent(
+              current,
+              `[ACP agent "${agentLabel}" completed]\n\n${responseText}${resumeHint}`,
             );
           }
         }
@@ -1113,10 +1099,66 @@ export class AcpSessionManager {
 
           // Free the session slot and deny any pending permissions.
           this.teardownSession(acpSessionId, current);
+
+          // Wake the parent with the failure (mirrors the success path) so
+          // the assistant reports it instead of silently re-spawning. Skip
+          // when cancelled: a user-cancelled run tears down silently and must
+          // not inject a turn. teardownSession leaves state intact, so the
+          // agentId read below is still valid.
+          if (current.state.status !== "cancelled") {
+            this.notifyParent(
+              current,
+              `[ACP agent "${current.state.agentId}" failed]\n\n${failureMessage}`,
+            );
+          }
         }
       });
 
     return promptPromise;
+  }
+
+  /**
+   * Injects an ACP run's outcome into its parent conversation. Shared by the
+   * success and failure paths of firePromptInBackground so a hard failure
+   * reaches the parent (and its inline card) exactly like a completion does.
+   *
+   * The message carries `acpNotification` metadata so the daemon skips its
+   * user_message_echo and the client filters it from the rendered transcript —
+   * the user sees the run through its inline card, not a raw chat turn, while
+   * the LLM still receives the text.
+   *
+   * Reads `entry.state.acpSessionId`/`agentId`, which teardownSession leaves
+   * intact, so callers may invoke this after tearing the session down.
+   */
+  private notifyParent(entry: SessionEntry, message: string): void {
+    const acpNotification = {
+      acpSessionId: entry.state.acpSessionId,
+      agent: entry.state.agentId,
+    };
+    const parentConversation = findConversation(entry.parentConversationId);
+    if (!parentConversation) {
+      log.warn(
+        { parentConversationId: entry.parentConversationId },
+        "ACP agent finished but parent conversation not found",
+      );
+      return;
+    }
+    const enqueueResult = parentConversation.enqueueMessage({
+      content: message,
+      metadata: { acpNotification },
+    });
+    if (enqueueResult.queued || enqueueResult.rejected) return;
+    parentConversation
+      .persistUserMessage({ content: message, metadata: { acpNotification } })
+      .then(({ id: messageId }) =>
+        parentConversation.runAgentLoop(message, messageId),
+      )
+      .catch((err) => {
+        log.error(
+          { parentConversationId: entry.parentConversationId, err },
+          "Failed to process ACP notification in parent",
+        );
+      });
   }
 
   /**
