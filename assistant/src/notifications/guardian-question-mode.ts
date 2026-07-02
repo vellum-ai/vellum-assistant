@@ -406,27 +406,75 @@ function normalizeInstructionText(value: string): string {
     .trim();
 }
 
+function buildApprovalInstructionPattern(escapedCode: string): RegExp {
+  return new RegExp(
+    `(?:Reference\\s+code:\\s*${escapedCode}\\.?\\s*)?Reply\\s+"${escapedCode}\\s+approve"\\s+or\\s+"${escapedCode}\\s+reject"\\.?`,
+    "ig",
+  );
+}
+
+function buildAnswerInstructionPattern(escapedCode: string): RegExp {
+  return new RegExp(
+    `(?:Reference\\s+code:\\s*${escapedCode}\\.?\\s*)?Reply\\s+"${escapedCode}\\s+<your\\s+answer>"\\.?`,
+    "ig",
+  );
+}
+
 export function stripConflictingGuardianRequestInstructions(
   text: string,
   requestCode: string,
   mode: GuardianQuestionInstructionMode,
 ): string {
   const escapedCode = escapeRegExp(requestCode);
-  const approvalInstructionPattern = new RegExp(
-    `(?:Reference\\s+code:\\s*${escapedCode}\\.?\\s*)?Reply\\s+"${escapedCode}\\s+approve"\\s+or\\s+"${escapedCode}\\s+reject"\\.?`,
-    "ig",
-  );
-  const answerInstructionPattern = new RegExp(
-    `(?:Reference\\s+code:\\s*${escapedCode}\\.?\\s*)?Reply\\s+"${escapedCode}\\s+<your\\s+answer>"\\.?`,
-    "ig",
-  );
-
   const next =
     mode === "answer"
-      ? text.replace(approvalInstructionPattern, "")
-      : text.replace(answerInstructionPattern, "");
+      ? text.replace(buildApprovalInstructionPattern(escapedCode), "")
+      : text.replace(buildAnswerInstructionPattern(escapedCode), "");
 
   return normalizeInstructionText(next);
+}
+
+/**
+ * Remove every request-code reply instruction (both modes) plus bare
+ * "Reference code: X." / "Approval code: X." mentions from copy destined
+ * for a surface that renders interactive Approve/Reject buttons, where
+ * code-reply instructions are redundant noise.
+ */
+export function stripGuardianRequestCodeInstructions(
+  text: string,
+  requestCode: string,
+): string {
+  const escapedCode = escapeRegExp(requestCode);
+  const next = text
+    .replace(buildApprovalInstructionPattern(escapedCode), "")
+    .replace(buildAnswerInstructionPattern(escapedCode), "")
+    .replace(
+      new RegExp(`(?:Reference|Approval)\\s+code:\\s*${escapedCode}\\.?`, "ig"),
+      "",
+    );
+
+  return normalizeInstructionText(next);
+}
+
+/**
+ * Parse a guardian.question payload that renders channel-native
+ * Approve/Reject actions on button-capable channels: it parses strictly,
+ * resolves to approval mode, and carries the requestId the action
+ * callbacks target. Returns `null` otherwise — those payloads render as
+ * plain text and rely on request-code replies.
+ */
+export function parseInteractiveApprovalPayload(
+  payload: Record<string, unknown>,
+): GuardianQuestionPayload | null {
+  const parsed = parseGuardianQuestionPayload(payload);
+  if (!parsed) {
+    return null;
+  }
+  const { mode } = resolveGuardianInstructionModeFromPayload(parsed);
+  if (mode !== "approval") {
+    return null;
+  }
+  return nonEmpty(parsed.requestId) ? parsed : null;
 }
 
 /**
