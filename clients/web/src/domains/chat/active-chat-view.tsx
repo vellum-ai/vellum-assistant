@@ -62,6 +62,7 @@ import { lifecycleService } from "@/assistant/lifecycle-service";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { useOnboardingFocusStore } from "@/stores/onboarding-focus-store";
 import { Button } from "@vellumai/design-library/components/button";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 
 const AddCreditsModal = lazy(() =>
   import("@/components/add-credits-modal").then((m) => ({
@@ -388,6 +389,7 @@ export function ActiveChatView() {
   const {
     handleForkConversation,
     handleForkConversationFromMenu,
+    handleSummarizeUpToMessage,
     handleAnalyzeConversation,
     handleOpenInNewWindow,
     handleInspectConversation,
@@ -398,6 +400,29 @@ export function ActiveChatView() {
     refreshConversations,
     switchConversation,
   });
+
+  // "Summarize up to here" confirm dialog. The hover action only records the
+  // target message; the POST fires from the dialog's confirm button — a
+  // misfired summarize mutates the assistant's live context with no undo, so
+  // it always goes through an explicit confirmation.
+  const [pendingSummarizeMessageId, setPendingSummarizeMessageId] =
+    useState<string | null>(null);
+  const [summarizePending, setSummarizePending] = useState(false);
+  const handleSummarizeUpToHere = useCallback((messageId: string) => {
+    setPendingSummarizeMessageId(messageId);
+  }, []);
+  const handleConfirmSummarize = useCallback(() => {
+    if (!pendingSummarizeMessageId) return;
+    setSummarizePending(true);
+    // Errors toast inside the handler; the dialog just closes.
+    void handleSummarizeUpToMessage(pendingSummarizeMessageId).finally(() => {
+      setSummarizePending(false);
+      setPendingSummarizeMessageId(null);
+    });
+  }, [pendingSummarizeMessageId, handleSummarizeUpToMessage]);
+  const handleCancelSummarize = useCallback(() => {
+    setPendingSummarizeMessageId(null);
+  }, []);
 
   // Manual "Refresh" menu item — re-fetch the latest history page through the
   // same TanStack Query invalidation the pull-to-refresh gesture uses, so the
@@ -464,6 +489,7 @@ export function ActiveChatView() {
 
     // Conversation secondary actions
     handleForkConversation,
+    onSummarizeUpToHere: handleSummarizeUpToHere,
     handleInspectMessage: showLlmInspector ? handleInspectMessage : undefined,
 
     // History pagination
@@ -510,6 +536,15 @@ export function ActiveChatView() {
           />
         </LazyBoundary>
       ) : null}
+      <ConfirmDialog
+        open={pendingSummarizeMessageId !== null}
+        title="Summarize up to here?"
+        message="The assistant will summarize the conversation before this point and carry only the summary in its working memory going forward. Messages stay visible and are never deleted."
+        confirmLabel="Summarize"
+        isPending={summarizePending}
+        onConfirm={handleConfirmSummarize}
+        onCancel={handleCancelSummarize}
+      />
       <MobileChatOverlays />
     </>
   );
