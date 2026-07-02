@@ -145,10 +145,13 @@ const INFERENCE_PROFILE_UI_KEYS = new Set([
   "thinking",
 ]);
 
-// Fields a MANAGED profile may edit. Beyond `label` (display name) and
-// `status` (enabled/disabled), users can tune `topP` — the seed contract
-// owns provider/model/connection, but top_p is a per-profile sampling knob
-// the UI exposes on the managed Balanced profile.
+// Fields a NON-INVARIANT managed profile (os-beta) may edit: `label`
+// (display name), `status` (enabled/disabled), and `topP` — the seed
+// contract owns provider/model/connection, but top_p is a per-profile
+// sampling knob the UI exposes on the managed Balanced profile. Invariant
+// default profiles (`INVARIANT_PROFILE_NAMES`) are frozen at the
+// `commitConfigWrite` guard (`assertInvariantProfilesPreserved`); their
+// only permitted edit is the disabled→active re-enable.
 const MANAGED_PROFILE_EDITABLE_KEYS = new Set(["label", "status", "topP"]);
 
 function asMutablePlainObject(value: unknown): Record<string, unknown> | null {

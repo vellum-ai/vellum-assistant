@@ -264,14 +264,15 @@ export function seedInferenceProfiles(
   //    its first merge), so on subsequent boots the templates reconcile content
   //    as usual.
   //
-  //    A whitelist of user-editable fields survives the reconcile: `label`
-  //    (display rename), `status` (active/disabled toggle), and `topP`
-  //    (sampling override) — the only fields a user may override. The managed
-  //    PUT route `/v1/config/llm/profiles/:name` lets users patch these on
-  //    managed profiles without duplicating. We honor every one of these
-  //    overrides across reseeds or they'd silently revert on every boot.
-  //    Carry by key-presence rather than truthiness so an explicit `null` (user
-  //    cleared the field) survives too.
+  //    A whitelist of fields survives the reconcile: `label`, `status`, and
+  //    `topP` are preserved from disk across reseeds so the BYOK hatch-time
+  //    disable and any pre-existing overrides don't silently revert on every
+  //    boot. User edits of these fields (via the managed PUT route
+  //    `/v1/config/llm/profiles/:name`) are allowed only on non-invariant
+  //    managed profiles (os-beta); invariant default profiles reject all
+  //    edits except the disabled→active re-enable at the route layer's
+  //    commit guard. Carry by key-presence rather than truthiness so an
+  //    explicit `null` (cleared field) survives too.
   //
   //    BYOK seed defaults (off-platform only):
   //      • label: " (Managed)" suffix disambiguates managed profile labels
@@ -314,7 +315,7 @@ export function seedInferenceProfiles(
       next.status = "disabled";
     }
     if (previous) {
-      // Preserve user overrides on these whitelisted fields. The label path
+      // Preserve on-disk overrides of these whitelisted fields. The label path
       // also runs the BYOK upgrade migration described above: if the on-disk
       // label exactly equals the bare template default and we're in BYOK
       // mode, rewrite to the suffixed effective label so existing installs
@@ -326,11 +327,12 @@ export function seedInferenceProfiles(
             : previous.label;
       }
       if ("status" in previous) next.status = previous.status;
-      // `topP` is user-editable on managed profiles (see the managed-profile
-      // editable allowlist on the PUT route) — preserve a user override across
-      // reseeds, including an explicit `null` clear, or it would silently revert
-      // to the template value on every boot. Carry by key-presence (not
-      // truthiness) so `null` survives too.
+      // `topP` is user-editable on non-invariant managed profiles (see the
+      // managed-profile editable allowlist on the PUT route; invariant
+      // defaults reject the edit at the commit guard) — preserve any on-disk
+      // override across reseeds, including an explicit `null` clear, or it
+      // would silently revert to the template value on every boot. Carry by
+      // key-presence (not truthiness) so `null` survives too.
       if ("topP" in previous) next.topP = previous.topP;
     }
     profiles[name] = next as ProfileEntry;

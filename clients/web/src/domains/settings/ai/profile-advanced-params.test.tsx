@@ -49,6 +49,8 @@ interface FieldOverrides {
   onTopPEnabledChange?: (v: boolean) => void;
   topP?: number;
   onTopPChange?: (v: number) => void;
+  onEffortChange?: (v: string) => void;
+  onSpeedChange?: (v: string) => void;
 }
 
 function renderParams(overrides: FieldOverrides) {
@@ -70,9 +72,9 @@ function renderParams(overrides: FieldOverrides) {
       }
       onContextWindowChange={overrides.onContextWindowChange ?? (() => {})}
       effort="none"
-      onEffortChange={() => {}}
+      onEffortChange={overrides.onEffortChange ?? (() => {})}
       speed="standard"
-      onSpeedChange={() => {}}
+      onSpeedChange={overrides.onSpeedChange ?? (() => {})}
       verbosity="low"
       onVerbosityChange={() => {}}
       temperatureEnabled={false}
@@ -518,5 +520,62 @@ describe("ProfileAdvancedParams Top P control", () => {
       name: "Top P",
     }) as HTMLButtonElement;
     expect(toggle.disabled).toBe(true);
+  });
+});
+
+const effortAndSpeed: ProfileParamVisibility = {
+  ...VISIBILITY_NONE,
+  effort: true,
+  speed: true,
+};
+
+describe("ProfileAdvancedParams read-only segment controls", () => {
+  test("disables every Effort and Speed segment when read-only", () => {
+    // GIVEN a locked (read-only) profile — e.g. an invariant default — with
+    // Effort and Speed visible
+    const onEffortChange = mock();
+    const onSpeedChange = mock();
+    renderParams({
+      visibility: effortAndSpeed,
+      isReadOnly: true,
+      onEffortChange,
+      onSpeedChange,
+    });
+
+    // THEN every segment in both controls is disabled, so the controls cannot
+    // even change local UI state
+    const segments = screen.getAllByRole("radio") as HTMLButtonElement[];
+    expect(segments.length).toBeGreaterThan(0);
+    for (const segment of segments) {
+      expect(segment.disabled).toBe(true);
+    }
+
+    // AND clicking a non-selected segment fires no change handler
+    fireEvent.click(screen.getByRole("radio", { name: "high" }));
+    expect(onEffortChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("radio", { name: "fast" }));
+    expect(onSpeedChange).not.toHaveBeenCalled();
+  });
+
+  test("keeps Effort and Speed segments interactive when editable", () => {
+    // GIVEN an editable profile with Effort and Speed visible
+    const onEffortChange = mock();
+    const onSpeedChange = mock();
+    renderParams({
+      visibility: effortAndSpeed,
+      isReadOnly: false,
+      onEffortChange,
+      onSpeedChange,
+    });
+
+    // THEN no segment is disabled and clicks commit the new value
+    const segments = screen.getAllByRole("radio") as HTMLButtonElement[];
+    for (const segment of segments) {
+      expect(segment.disabled).toBe(false);
+    }
+    fireEvent.click(screen.getByRole("radio", { name: "high" }));
+    expect(onEffortChange).toHaveBeenLastCalledWith("high");
+    fireEvent.click(screen.getByRole("radio", { name: "fast" }));
+    expect(onSpeedChange).toHaveBeenLastCalledWith("fast");
   });
 });

@@ -343,7 +343,11 @@ export function ProfileAdvancedParams({
             Effort
           </label>
           <SegmentControl
-            items={EFFORT_OPTIONS.map((v) => ({ value: v, label: v }))}
+            items={EFFORT_OPTIONS.map((v) => ({
+              value: v,
+              label: v,
+              disabled: isReadOnly,
+            }))}
             value={effort}
             onChange={(v) => onEffortChange(v)}
             ariaLabel="Effort"
@@ -358,7 +362,11 @@ export function ProfileAdvancedParams({
             Speed
           </label>
           <SegmentControl
-            items={SPEED_OPTIONS.map((v) => ({ value: v, label: v }))}
+            items={SPEED_OPTIONS.map((v) => ({
+              value: v,
+              label: v,
+              disabled: isReadOnly,
+            }))}
             value={speed}
             onChange={(v) => onSpeedChange(v)}
             ariaLabel="Speed"
@@ -373,7 +381,11 @@ export function ProfileAdvancedParams({
             Verbosity
           </label>
           <SegmentControl
-            items={VERBOSITY_OPTIONS.map((v) => ({ value: v, label: v }))}
+            items={VERBOSITY_OPTIONS.map((v) => ({
+              value: v,
+              label: v,
+              disabled: isReadOnly,
+            }))}
             value={verbosity}
             onChange={(v) => onVerbosityChange(v)}
             ariaLabel="Verbosity"
@@ -485,6 +497,7 @@ export function ProfileAdvancedParams({
             ).map((v) => ({
               value: v,
               label: `${v}`,
+              disabled: isReadOnly,
             }))}
             value={thinkingLevel}
             onChange={onThinkingLevelChange}
