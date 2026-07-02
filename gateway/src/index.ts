@@ -154,6 +154,7 @@ import {
   type SlackSocketModeClient,
 } from "./slack/socket-mode.js";
 import { downloadSlackFile } from "./slack/download.js";
+import { slackBotContactNote } from "./slack/normalize.js";
 import { handleInbound } from "./handlers/handle-inbound.js";
 import { upsertContactChannel } from "./verification/contact-helpers.js";
 import { checkAuthRateLimit } from "./http/middleware/rate-limit.js";
@@ -2091,6 +2092,8 @@ async function main() {
         const forward = async () => {
           // Seed contact channel for the Slack actor (dual-write, fire-and-forget).
           // Covers both DMs (externalChatId = DM channel) and workspace messages.
+          // Bot/app senders are classified as 'assistant' contacts with a
+          // provenance note instead of the default 'human'.
           if (normalized.event.actor.actorExternalId) {
             void upsertContactChannel({
               sourceChannel: "slack",
@@ -2103,6 +2106,12 @@ async function main() {
                 : {}),
               displayName: normalized.event.actor.displayName,
               username: normalized.event.actor.username,
+              ...(normalized.botSender
+                ? {
+                    contactType: "assistant" as const,
+                    notes: slackBotContactNote(normalized.botSender),
+                  }
+                : {}),
             }).catch(() => {});
           }
 
