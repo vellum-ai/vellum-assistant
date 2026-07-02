@@ -10,8 +10,7 @@ import {
 } from "bun:test";
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
-import { createConnection, type Socket } from "node:net";
+import { type Socket } from "node:net";
 import { eq } from "drizzle-orm";
 
 // ── Assistant DB proxy + IPC mocks ──────────────────────────────────────────
@@ -52,6 +51,7 @@ import { GatewayIpcServer } from "../ipc/server.js";
 import { contactRoutes } from "../ipc/contact-handlers.js";
 import { ContactStore } from "../db/contact-store.js";
 import { contacts, contactChannels } from "../db/schema.js";
+import { connectClient, sendRequest } from "./helpers/ipc-newline-client.js";
 import {
   initGatewayDb,
   getGatewayDb,
@@ -82,49 +82,6 @@ afterAll(() => {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function connectClient(path: string): Promise<Socket> {
-  return new Promise((resolve, reject) => {
-    const client = createConnection(path, () => resolve(client));
-    client.on("error", reject);
-  });
-}
-
-function sendRequest(
-  client: Socket,
-  method: string,
-  params?: Record<string, unknown>,
-): Promise<{
-  id: string;
-  result?: unknown;
-  error?: string;
-  statusCode?: number;
-  errorCode?: string;
-}> {
-  return new Promise((resolve, reject) => {
-    const id = randomBytes(4).toString("hex");
-    let buffer = "";
-
-    const onData = (chunk: Buffer) => {
-      buffer += chunk.toString();
-      const newlineIdx = buffer.indexOf("\n");
-      if (newlineIdx !== -1) {
-        const line = buffer.slice(0, newlineIdx).trim();
-        buffer = buffer.slice(newlineIdx + 1);
-        client.off("data", onData);
-        try {
-          resolve(JSON.parse(line));
-        } catch (err) {
-          reject(err);
-        }
-      }
-    };
-
-    client.on("data", onData);
-    const msg = JSON.stringify({ id, method, params });
-    client.write(msg + "\n");
-  });
-}
 
 function seedTestData(): void {
   const db = getGatewayDb();

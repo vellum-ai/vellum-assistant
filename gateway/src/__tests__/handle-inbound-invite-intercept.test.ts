@@ -16,8 +16,6 @@
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { hashInviteCode, hashInviteToken } from "@vellumai/gateway-client";
-
 import type { GatewayConfig } from "../config.js";
 import type {
   RuntimeInboundPayload,
@@ -117,8 +115,10 @@ const {
 const { contacts, contactChannels, ingressInvites } = await import(
   "../db/schema.js"
 );
-const { ContactStore } = await import("../db/contact-store.js");
 const { handleInbound } = await import("../handlers/handle-inbound.js");
+const { inviteRow, seedInvite } = await import(
+  "./helpers/contact-fixtures.js"
+);
 
 const CHANNEL = "telegram";
 const CODE = "123456";
@@ -159,24 +159,6 @@ function seedChannel(args: {
       createdAt: now,
     })
     .run();
-}
-
-function seedInvite(overrides: { sourceChannel?: string } = {}): string {
-  const id = crypto.randomUUID();
-  new ContactStore().createInvite({
-    id,
-    sourceChannel: overrides.sourceChannel ?? CHANNEL,
-    inviteCodeHash: hashInviteCode(CODE),
-    tokenHash: hashInviteToken(TOKEN),
-    contactId: "c1",
-    maxUses: 1,
-    expiresAt: Date.now() + 60_000,
-  });
-  return id;
-}
-
-function inviteRow(id: string) {
-  return new ContactStore().getInviteById(id)!;
 }
 
 function makeConfig(): GatewayConfig {
