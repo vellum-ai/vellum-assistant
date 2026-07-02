@@ -9,6 +9,7 @@ Concretely:
 - Define new routes in the gateway and have the gateway forward requests to the assistant over the internal HTTP transport.
 - The gateway's public URL is controlled by the **public ingress URL** setting. All externally-facing URLs you generate or advertise (callback URLs, webhook registration URLs, etc.) must be derived from this setting — never hardcode a hostname or port.
 - The daemon should remain unreachable from the public internet. It only receives traffic from the gateway over the internal network.
+- Webhook handlers must read request bodies via `readLimitedBody()` / `readLimitedBodyBytes()` (`gateway/src/http/read-limited-body.ts`), which enforce `maxWebhookPayloadBytes` on the actual streamed bytes. Never call `req.text()` / `req.json()` / `req.formData()` directly on unauthenticated ingress — the Content-Length header is attacker-controlled and absent on chunked requests, so a header-only guard can be bypassed up to the server-wide `maxRequestBodySize`.
 
 Why: the gateway is the single point of ingress, handling TLS termination, auth, rate limiting, and routing. Exposing the daemon directly bypasses these protections and breaks the deployment model.
 
@@ -73,13 +74,13 @@ A default row per enforced channel is **seeded at startup** (`seedAdmissionPolic
 
 **5 policies, ranked floors** (seed default `trusted_contacts`):
 
-| Policy | Floor | Notes |
-|---|---|---|
-| `no_one` | 5 | Hard-deny at gateway *before* forwarding (kill switch in `handle-inbound.ts`). Includes the guardian — this channel is *OFF*. |
-| `guardian_only` | 4 | Seeded default for `vellum`. |
-| `trusted_contacts` | 3 | Seeded default for all other channels; also the read-path safety fallback. |
-| `any_contact` | 2 | May surface Slack DM / email upgrade challenge on deny. |
-| `strangers` | 1 | May surface upgrade challenge. |
+| Policy             | Floor | Notes                                                                                                                         |
+| ------------------ | ----- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `no_one`           | 5     | Hard-deny at gateway _before_ forwarding (kill switch in `handle-inbound.ts`). Includes the guardian — this channel is _OFF_. |
+| `guardian_only`    | 4     | Seeded default for `vellum`.                                                                                                  |
+| `trusted_contacts` | 3     | Seeded default for all other channels; also the read-path safety fallback.                                                    |
+| `any_contact`      | 2     | May surface Slack DM / email upgrade challenge on deny.                                                                       |
+| `strangers`        | 1     | May surface upgrade challenge.                                                                                                |
 
 **Exempt channels** (no policy ever applies — gateway **AND** runtime both short-circuit):
 
@@ -88,7 +89,7 @@ A default row per enforced channel is **seeded at startup** (`seedAdmissionPolic
 
 `phone` is now an enforced channel (voice ingress reads the policy): it seeds the universal default `trusted_contacts` and accepts PUT like other enforced channels.
 
-For exempt ids, `PUT /v1/assistants/:id/channel-admission-policy/:channelType` returns **403**, the GET list omits them, and the runtime short-circuits `admitted: true` in `admission-policy.ts` (defense in depth). Codex finding from #35006 review: exemption checks must live in *both* the gateway route handler AND the runtime stage — single-side enforcement creates a misuse wedge.
+For exempt ids, `PUT /v1/assistants/:id/channel-admission-policy/:channelType` returns **403**, the GET list omits them, and the runtime short-circuits `admitted: true` in `admission-policy.ts` (defense in depth). Codex finding from #35006 review: exemption checks must live in _both_ the gateway route handler AND the runtime stage — single-side enforcement creates a misuse wedge.
 
 **Hidden channels** (`ADMISSION_POLICY_HIDDEN_CHANNELS` = `vellum`, `whatsapp`) — managed automatically, **not** user-configurable, but (unlike exempt channels) **still enforced at runtime**:
 
@@ -102,7 +103,7 @@ Only the **assistant-scoped** routes (`/v1/assistants/:id/channel-admission-poli
 
 - **Gateway kill switch** — `handle-inbound.ts` enforces the `no_one` floor before forwarding. Zero contact-table lookups, zero daemon I/O, true kill.
 - **Runtime floor** — every other policy flows through the gateway unchanged; the runtime evaluates rank-vs-floor inside `admission-policy.ts`. This keeps the canonical `actor-trust-resolver.ts:280` classifier as the single source of `TrustClass` truth (no fork).
-- **Gateway vs runtime reciprocity** — the gateway section in `gateway/CLAUDE.md` records *which channels the gateway enforces*; the assistant section records *how the runtime classifies*. Either side getting out of sync is a bug, not an over-defended boundary.
+- **Gateway vs runtime reciprocity** — the gateway section in `gateway/CLAUDE.md` records _which channels the gateway enforces_; the assistant section records _how the runtime classifies_. Either side getting out of sync is a bug, not an over-defended boundary.
 
 **Adding a new policy**: extend the `AdmissionPolicy` union in `packages/gateway-client/src/admission-policy-contract.ts`, add its floor in `ADMISSION_FLOOR`, update the openapi schema, and update `gateway/src/__tests__/channel-admission-policy-routes.test.ts` + `assistant/src/runtime/routes/inbound-stages/admission-policy.test.ts`. Do not add a 6th floor without also bumping the `TRUST_CLASS_RANK` ceiling to match.
 
@@ -114,17 +115,17 @@ Only the **assistant-scoped** routes (`/v1/assistants/:id/channel-admission-poli
 
 Two orthogonal axes, do not conflate them:
 
-- **Admission** (above) — *who gets in the door*. `TRUST_CLASS_RANK` vs `ADMISSION_FLOOR`, enforced across gateway + runtime.
-- **Capabilities** — *what an actor may do once admitted*. Resolved in the runtime, never on the gateway.
+- **Admission** (above) — _who gets in the door_. `TRUST_CLASS_RANK` vs `ADMISSION_FLOOR`, enforced across gateway + runtime.
+- **Capabilities** — _what an actor may do once admitted_. Resolved in the runtime, never on the gateway.
 
-**Trust classes** (`TrustClass` in `assistant/src/runtime/actor-trust-resolver.ts`) are the *role*, ranked by `TRUST_CLASS_RANK`:
+**Trust classes** (`TrustClass` in `assistant/src/runtime/actor-trust-resolver.ts`) are the _role_, ranked by `TRUST_CLASS_RANK`:
 
-| Class | Rank | Meaning |
-|---|---|---|
-| `guardian` | 4 | Matches the active guardian binding for this (assistant, channel). |
-| `trusted_contact` | 3 | Active contact channel, not the guardian. |
-| `unverified_contact` | 2 | Contact channel that is `pending`/`unverified` — known but not verified. |
-| `unknown` | 1 | No contact record, no identity, or blocked/revoked. Fail-closed. |
+| Class                | Rank | Meaning                                                                  |
+| -------------------- | ---- | ------------------------------------------------------------------------ |
+| `guardian`           | 4    | Matches the active guardian binding for this (assistant, channel).       |
+| `trusted_contact`    | 3    | Active contact channel, not the guardian.                                |
+| `unverified_contact` | 2    | Contact channel that is `pending`/`unverified` — known but not verified. |
+| `unknown`            | 1    | No contact record, no identity, or blocked/revoked. Fail-closed.         |
 
 The gateway classifies the actor at ingress (keyed on `actorExternalId`) and forwards the resolved `trustClass`; it is persisted in retry payloads, the journal store, and conversation CRUD. The gateway does **not** compute capabilities.
 
